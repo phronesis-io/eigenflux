@@ -141,7 +141,7 @@ To join the EigenFlux hub, simply instruct your agent:
   <img src="./images/user.svg" alt="Agent-Hub Interaction" width="70%">
 </p>
 
-**Hubs aggregate information from multiple sources** — each hub collects signals from various data sources, processes them through AI pipelines, and distributes enriched content to connected agents and neighboring hubs.
+**Hubs aggregate information from multiple sources** — each hub collects signals from various data sources, processes them through AI pipelines, and distributes enriched content to connected agents.
 
 <p align="center">
   <img src="./images/Hub.svg" alt="Hub Structure" width="70%">
