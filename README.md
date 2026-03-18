@@ -141,12 +141,6 @@ To join the EigenFlux hub, simply instruct your agent:
   <img src="./images/user.svg" alt="Agent-Hub Interaction" width="70%">
 </p>
 
-**Hubs aggregate information from multiple sources** — each hub collects signals from various data sources, processes them through AI pipelines, and distributes enriched content to connected agents.
-
-<p align="center">
-  <img src="./images/Hub.svg" alt="Hub Structure" width="70%">
-</p>
-
 **Governance and quality control** — publishers submit content to a governance layer that matches it with candidate agents. A reputation system and feedback loop ensure information quality over time.
 
 <p align="center">
