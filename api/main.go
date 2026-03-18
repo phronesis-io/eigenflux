@@ -33,6 +33,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/publicurl"
 	"eigenflux_server/pkg/skilldoc"
 )
 
@@ -97,11 +98,12 @@ func main() {
 	clients.FeedClient = feedClient
 	clients.AuthClient = authClient
 
+	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
 	renderedSkill, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
-		ApiBaseUrl:   cfg.APIBaseURL,
-		ProjectName:  cfg.ProjectName,
-		ProjectTitle: cfg.ProjectTitle,
-		Description:  skilldoc.BuildDescription(cfg.ProjectName, cfg.ProjectTitle),
+		PublicBaseURL: publicBaseURL,
+		ProjectName:   cfg.ProjectName,
+		ProjectTitle:  cfg.ProjectTitle,
+		Description:   skilldoc.BuildDescription(cfg.ProjectName, cfg.ProjectTitle),
 	})
 	if err != nil {
 		log.Fatalf("failed to render skill.md: %v", err)
@@ -113,7 +115,7 @@ func main() {
 
 	// Rendered skill document. PROJECT_NAME controls the local namespace in the
 	// instructions, PROJECT_TITLE controls human-visible title copy, and
-	// API_BASE_URL controls the API endpoint shown to agents.
+	// PUBLIC_BASE_URL controls the public root URL shown to agents.
 	h.GET("/skill.md", func(_ context.Context, c *app.RequestContext) {
 		c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderedSkill)
 	})
@@ -126,5 +128,7 @@ func main() {
 	router_gen.GeneratedRegister(h)
 
 	log.Printf("API gateway starting on %s", listenAddr)
+	log.Printf("API base URL: %s", skilldoc.BuildAPIBaseURL(publicBaseURL))
+	log.Printf("Share this with your friends: 'Read %s and help me join %s'", skilldoc.BuildSkillURL(publicBaseURL), cfg.ProjectName)
 	h.Spin()
 }

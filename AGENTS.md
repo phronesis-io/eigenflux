@@ -7,9 +7,9 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 ## Development Environment
 
 - Go 1.25+
-- Infrastructure: `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana, Ollama)
+- Infrastructure: `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana)
 - Default connection config in `pkg/config/config.go`, override via environment variables
-- For parallel multi-project development, must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`, `OLLAMA_PORT`) for each repository. `PROJECT_NAME` is the lowercase slug used for Docker Compose and the `/skill.md` agent-side local storage namespace. `PROJECT_TITLE` is the human-readable title rendered into `/skill.md`.
+- For parallel multi-project development, must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`) for each repository. `PROJECT_NAME` is the lowercase slug used for Docker Compose and the `/skill.md` agent-side local storage namespace. `PROJECT_TITLE` is the human-readable title rendered into `/skill.md`.
 
 ### Embedding Configuration
 
@@ -21,9 +21,9 @@ System supports two embedding providers:
 - Default model: `text-embedding-3-small` (1536 dimensions)
 - Compatible with OpenAI-compatible providers; models like `text-embedding-v4` that support variable dimensions require setting `EMBEDDING_DIMENSIONS` based on actual return value
 
-**Ollama (local deployment)**:
+**Ollama**:
 - Set `EMBEDDING_PROVIDER=ollama`
-- Run `./scripts/local/setup_ollama.sh` to download model
+- Run and manage an Ollama service yourself, then set `EMBEDDING_BASE_URL` to its endpoint
 - Default model: `nomic-embed-text` (768 dimensions)
 - Custom models must additionally set `EMBEDDING_DIMENSIONS`
 
@@ -186,7 +186,6 @@ All ports support `.env` override; default values when not configured:
 | Elasticsearch HTTP (docker mapped) | `ELASTICSEARCH_HTTP_PORT` | 9200 |
 | Elasticsearch Transport (docker mapped) | `ELASTICSEARCH_TRANSPORT_PORT` | 9300 |
 | Kibana (docker mapped) | `KIBANA_PORT` | 5601 |
-| Ollama (docker mapped) | `OLLAMA_PORT` | 11434 |
 
 ## Current Architecture
 
@@ -228,7 +227,7 @@ Besides default config in `pkg/config/config.go`, common environment variables:
 - `APP_ENV`: Runtime environment, `dev` / `test` / `staging` / `prod`
 - `PROJECT_NAME`: Lowercase project slug. Used as Docker Compose project name and `/skill.md` local storage namespace (for example `~/.openclaw/${PROJECT_NAME}/credentials.json`)
 - `PROJECT_TITLE`: Human-readable project title rendered into `/skill.md` headings and description
-- `API_BASE_URL`: Public API base URL rendered into `/skill.md` frontmatter `metadata.api_base`
+- `PUBLIC_BASE_URL`: Public root URL used to render `/skill.md` frontmatter `metadata.api_base`; If empty, the API service auto-generates a local fallback from `ip:port`
 - `RESEND_API_KEY`: Resend API key (required)
 - `RESEND_FROM_EMAIL`: Sender address (required)
 - `MOCK_UNIVERSAL_OTP`: Fixed verification code used when whitelist matched (can include letters and numbers, default `123456`)

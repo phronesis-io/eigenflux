@@ -19,7 +19,7 @@ type Config struct {
 	RedisPassword           string
 	ProjectName             string
 	ProjectTitle            string
-	APIBaseURL              string
+	PublicBaseURL           string
 	ESUsername              string
 	ESPassword              string
 	IDWorkerPrefix          string // etcd prefix for snowflake worker allocation
@@ -83,7 +83,7 @@ func Load() *Config {
 		RedisPassword:           getEnv("REDIS_PASSWORD", ""),
 		ProjectName:             getEnv("PROJECT_NAME", "eigenflux"),
 		ProjectTitle:            getEnv("PROJECT_TITLE", defaultProjectTitle(getEnv("PROJECT_NAME", "eigenflux"))),
-		APIBaseURL:              getEnv("API_BASE_URL", "https://www.eigenflux.ai/api/v1"),
+		PublicBaseURL:           getEnv("PUBLIC_BASE_URL", ""),
 		ESUsername:              getEnv("ES_USERNAME", ""),
 		ESPassword:              getEnv("ES_PASSWORD", ""),
 		IDWorkerPrefix:          getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),

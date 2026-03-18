@@ -1,7 +1,7 @@
 # Item Processing Pipeline Design
 
 > Status: Active
-> Last Updated: 2026-03-13
+> Last Updated: 2026-03-18
 
 ## 1. Overview
 
@@ -85,9 +85,9 @@ Generates vector embeddings for semantic search.
    - Supports OpenAI-compatible providers
    - Variable dimensions for models like `text-embedding-v4`
 
-2. **Ollama** (local deployment)
+2. **Ollama**
    - Model: `nomic-embed-text` (768 dimensions)
-   - Requires local Ollama service
+   - Requires an externally managed Ollama service reachable via `EMBEDDING_BASE_URL`
    - Custom models supported with `EMBEDDING_DIMENSIONS` config
 
 **Configuration**:

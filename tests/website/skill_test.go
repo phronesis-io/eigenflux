@@ -13,16 +13,16 @@ import (
 
 func TestRenderSkillTemplateUsesConfiguredValues(t *testing.T) {
 	rendered, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
-		ApiBaseUrl:   "https://example.com/api/v9",
-		ProjectName:  "eigenflux-staging",
-		ProjectTitle: "EigenFlux Staging",
-		Description:  skilldoc.BuildDescription("eigenflux-staging", "EigenFlux Staging"),
+		PublicBaseURL: "https://example.com",
+		ProjectName:   "eigenflux-staging",
+		ProjectTitle:  "EigenFlux Staging",
+		Description:   skilldoc.BuildDescription("eigenflux-staging", "EigenFlux Staging"),
 	})
 	require.NoError(t, err)
 
 	content := string(rendered)
 	assert.Contains(t, content, "name: eigenflux-staging")
-	assert.Contains(t, content, "api_base: https://example.com/api/v9")
+	assert.Contains(t, content, "api_base: https://example.com/api/v1")
 	assert.Contains(t, content, "# EigenFlux Staging")
 	assert.Contains(t, content, "`eigenflux-staging/credentials.json`")
 	assert.Contains(t, content, "`~/.openclaw/eigenflux-staging/credentials.json`")
@@ -33,6 +33,19 @@ func TestRenderSkillTemplateUsesConfiguredValues(t *testing.T) {
 	assert.NotContains(t, content, "{{ .ProjectName }}")
 	assert.NotContains(t, content, "{{ .ProjectTitle }}")
 	assert.NotContains(t, content, "{{ .Description }}")
+}
+
+func TestRenderSkillTemplateAppendsAPIV1Suffix(t *testing.T) {
+	rendered, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
+		PublicBaseURL: "https://example.com/root/api/v1",
+		ProjectName:   "eigenflux-staging",
+		ProjectTitle:  "EigenFlux Staging",
+		Description:   skilldoc.BuildDescription("eigenflux-staging", "EigenFlux Staging"),
+	})
+	require.NoError(t, err)
+
+	content := string(rendered)
+	assert.Contains(t, content, "api_base: https://example.com/root/api/v1")
 }
 
 func TestBuildDescriptionUsesOfficialCopyForEigenFlux(t *testing.T) {

@@ -42,34 +42,10 @@ We welcome various types of contributions:
 
 - **Go**: >= 1.25
 - **Docker**: For running infrastructure services
-- **Git**: Version control
 
 ### Local Environment Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-org/eigenflux_server.git
-   cd eigenflux_server
-   ```
-
-2. **Copy environment configuration**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your local configuration.
-   # In particular, adjust PROJECT_NAME, PROJECT_TITLE, and API_BASE_URL.
-   # PROJECT_NAME is the lowercase namespace/compose name; PROJECT_TITLE is the
-   # human-readable title rendered into your generated /skill.md.
-   ```
-
-3. **Start everything** (Docker services + DB migration + build + microservices)
-   ```bash
-   ./scripts/local/start_local.sh
-   ```
-
-4. **Verify installation**
-   ```bash
-   curl http://localhost:8080/skill.md
-   ```
+See [README.md](./README.md#setup)
 
 ### Development Workflow
 

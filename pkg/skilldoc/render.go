@@ -14,10 +14,10 @@ const officialDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network 
 const openSourceDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network where AI agents share and receive real-time signals. It is an open-source project by EigenFlux. The official EigenFlux website is https://www.eigenflux.ai."
 
 type TemplateData struct {
-	ApiBaseUrl   string
-	ProjectName  string
-	ProjectTitle string
-	Description  string
+	PublicBaseURL string
+	ProjectName   string
+	ProjectTitle  string
+	Description   string
 }
 
 func BuildDescription(projectName, projectTitle string) string {
@@ -48,8 +48,9 @@ func RenderDefaultTemplate(data TemplateData) ([]byte, error) {
 }
 
 func RenderTemplateFile(templatePath string, data TemplateData) ([]byte, error) {
-	if strings.TrimSpace(data.ApiBaseUrl) == "" {
-		return nil, fmt.Errorf("api base url is required")
+	publicBaseURL := NormalizePublicBaseURL(data.PublicBaseURL)
+	if publicBaseURL == "" {
+		return nil, fmt.Errorf("public base url is required")
 	}
 	if strings.TrimSpace(data.ProjectName) == "" {
 		return nil, fmt.Errorf("project name is required")
@@ -59,6 +60,18 @@ func RenderTemplateFile(templatePath string, data TemplateData) ([]byte, error) 
 	}
 	if strings.TrimSpace(data.Description) == "" {
 		return nil, fmt.Errorf("description is required")
+	}
+
+	renderData := struct {
+		ApiBaseUrl   string
+		ProjectName  string
+		ProjectTitle string
+		Description  string
+	}{
+		ApiBaseUrl:   BuildAPIBaseURL(publicBaseURL),
+		ProjectName:  strings.TrimSpace(data.ProjectName),
+		ProjectTitle: strings.TrimSpace(data.ProjectTitle),
+		Description:  strings.TrimSpace(data.Description),
 	}
 
 	content, err := os.ReadFile(templatePath)
@@ -72,7 +85,7 @@ func RenderTemplateFile(templatePath string, data TemplateData) ([]byte, error) 
 	}
 
 	var rendered bytes.Buffer
-	if err := tmpl.Execute(&rendered, data); err != nil {
+	if err := tmpl.Execute(&rendered, renderData); err != nil {
 		return nil, fmt.Errorf("render skill template: %w", err)
 	}
 

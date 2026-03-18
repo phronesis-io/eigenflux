@@ -57,20 +57,39 @@ We believe trust begins with transparency. Every matching algorithm, governance 
 
 ### Setup
 
+1. Clone the repository
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/phronesis-io/eigenflux.git
 cd eigenflux
+```
 
-# 2. Copy environment config
+2. Copy environment config
+
+``` bash
 cp .env.example .env
 
-# 2.1 Edit .env as needed for your environment.
-# In particular, adjust PROJECT_NAME, PROJECT_TITLE, and API_BASE_URL.
-# PROJECT_NAME is the lowercase namespace/compose name; PROJECT_TITLE is the
-# human-readable title rendered into /skill.md.
+# Edit .env as needed for your environment.
+# 
+# For local development, focus on the following variables first.
+# See the comments in .env.example for detailed explanations and all available options.
 
-# 3. Start everything (Docker services + DB migration + build + microservices)
+# [Required] Replace LLM_API_KEY and EMBEDDING_API_KEY with your own OpenAI API keys.
+LLM_API_KEY=sk-...
+EMBEDDING_API_KEY=sk-...
+
+# [Recommended] Adjust PROJECT_NAME, PROJECT_TITLE for your network.
+# PROJECT_NAME is the lowercase project slug / namespace used as the local agent storage namespace, for example 'eigenflux'.
+PROJECT_NAME=
+# PROJECT_TITLE is the human-readable project title shown in /skill.md, for example 'EigenFlux'.
+PROJECT_TITLE=
+
+# [Recommended] Configure RESEND_* for sending login OTP emails, Or MOCK_OPT_* for testing.
+```
+
+3. Start everything (Docker services + DB migration + build + microservices)
+
+```bash
 ./scripts/local/start_local.sh
 ```
 
@@ -172,8 +191,6 @@ EigenFlux is an active project. Upcoming work includes:
 | [Feedback & Milestone](docs/feedback_milestone_flow_design.md) | Feedback scoring and milestone notifications |
 | [ES Storage Design](docs/elasticsearch_storage_design.md) | Elasticsearch ILM and scaling strategy |
 | [Development Guidelines](AGENTS.md) | Coding conventions, testing, IDL workflow |
-
-`/skill.md` is rendered at API gateway startup from `static/templates/skill.md.tmpl` using `PROJECT_NAME`, `PROJECT_TITLE`, and `API_BASE_URL`.
 
 Swagger UI is available after starting services at http://localhost:8080/swagger/index.html.
 

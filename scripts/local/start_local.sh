@@ -12,7 +12,7 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/../.."; pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 LOG_DIR="$PROJECT_ROOT/.log"
 
-# Load .env (for reading EMBEDDING_PROVIDER)
+# Load .env (for reading embedding and port configuration)
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -31,7 +31,6 @@ AUTH_RPC_PORT="${AUTH_RPC_PORT:-8886}"
 ETCD_PORT="${ETCD_PORT:-2379}"
 ELASTICSEARCH_HTTP_PORT="${ELASTICSEARCH_HTTP_PORT:-9200}"
 KIBANA_PORT="${KIBANA_PORT:-5601}"
-OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 PROJECT_NAME="${PROJECT_NAME:-eigenflux}"
 
 GREEN='\033[0;32m'
@@ -59,12 +58,7 @@ start_docker_services() {
   echo -e "${CYAN}=== Starting Docker dependency services ===${NC}"
   echo -e "  Compose Project: ${CYAN}${PROJECT_NAME}${NC}"
 
-  # Determine which services need to be started
   local services="postgres redis etcd elasticsearch kibana"
-  if [[ "${EMBEDDING_PROVIDER:-openai}" == "ollama" ]]; then
-    services="$services ollama"
-    echo -e "  Embedding Provider: ${CYAN}Ollama${NC} (will be started together)"
-  fi
 
   dc up -d $services
 
@@ -116,27 +110,6 @@ start_docker_services() {
   done
   echo -e "  ${GREEN}✓ Kibana ready${NC}"
 
-  # Ollama (if needed)
-  if [[ "${EMBEDDING_PROVIDER:-openai}" == "ollama" ]]; then
-    retries=0
-    while ! curl -s "http://localhost:${OLLAMA_PORT}/api/tags" > /dev/null 2>&1; do
-      retries=$((retries+1))
-      [[ $retries -gt 30 ]] && echo -e "${RED}✗ Ollama startup timeout${NC}" && exit 1
-      sleep 1
-    done
-    echo -e "  ${GREEN}✓ Ollama ready${NC}"
-
-    # Check if model is downloaded
-    local model="${EMBEDDING_MODEL:-nomic-embed-text}"
-    if ! dc exec -T ollama ollama list 2>/dev/null | grep -q "$model"; then
-      echo -e "  ${YELLOW}⚠ Model $model not downloaded, downloading...${NC}"
-      dc exec -T ollama ollama pull "$model"
-      echo -e "  ${GREEN}✓ Model $model download complete${NC}"
-    else
-      echo -e "  ${GREEN}✓ Ollama model $model ready${NC}"
-    fi
-  fi
-
   echo ""
 }
 
@@ -184,15 +157,6 @@ check_dependencies() {
     echo -e "${GREEN}✓ etcd running${NC}"
   fi
 
-  if [[ "${EMBEDDING_PROVIDER:-openai}" == "ollama" ]]; then
-    if ! curl -s "http://localhost:${OLLAMA_PORT}/api/tags" > /dev/null 2>&1; then
-      echo -e "${RED}✗ Ollama not running${NC}"
-      all_ok=false
-    else
-      echo -e "${GREEN}✓ Ollama running (model: ${EMBEDDING_MODEL:-nomic-embed-text})${NC}"
-    fi
-  fi
-
   echo ""
   [[ "$all_ok" == "true" ]]
 }
@@ -238,57 +202,25 @@ wait_for_http_ready() {
   return 1
 }
 
-get_best_share_ip() {
-  if ! command -v ifconfig >/dev/null 2>&1; then
-    return 1
+print_api_share_message() {
+  local log_file="$LOG_DIR/api.log"
+  local line=""
+  local retries=0
+
+  while (( retries < 10 )); do
+    if [[ -f "$log_file" ]]; then
+      line=$(grep -F "Share this with your friends:" "$log_file" | tail -n 1 || true)
+      if [[ -n "$line" ]]; then
+        break
+      fi
+    fi
+    retries=$((retries+1))
+    sleep 1
+  done
+
+  if [[ -n "$line" ]]; then
+    echo -e "${CYAN}${line}${NC}"
   fi
-
-  local ip
-  ip=$(ifconfig | awk '
-    /^[[:alnum:]]/ {
-      iface=$1
-      sub(":$", "", iface)
-      active=0
-      next
-    }
-    /status: active/ { active=1 }
-    $1 == "inet" && $2 !~ /^127\./ && active && iface !~ /^(lo|utun|awdl|llw|gif|stf|bridge|anpi|ap)/ {
-      print $2
-      exit
-    }
-  ')
-  if [[ -n "$ip" ]]; then
-    echo "$ip"
-    return 0
-  fi
-
-  ip=$(ifconfig | awk '
-    /^[[:alnum:]]/ {
-      iface=$1
-      sub(":$", "", iface)
-      next
-    }
-    $1 == "inet" && $2 !~ /^127\./ && iface !~ /^(lo|utun|awdl|llw|gif|stf|bridge|anpi|ap)/ {
-      print $2
-      exit
-    }
-  ')
-  if [[ -n "$ip" ]]; then
-    echo "$ip"
-    return 0
-  fi
-
-  return 1
-}
-
-print_share_message() {
-  local share_ip
-  share_ip=$(get_best_share_ip 2>/dev/null || true)
-  if [[ -z "$share_ip" ]]; then
-    share_ip="127.0.0.1"
-  fi
-
-  echo -e "${CYAN}Services are up. Share this with your friends:${NC} ${YELLOW}'Read http://${share_ip}:${API_PORT}/skill.md and help me join ${PROJECT_NAME}'${NC}"
 }
 
 print_service_logs() {
@@ -466,5 +398,5 @@ fi
 echo -e "\n${GREEN}Done!${NC} View logs with: tail -f .log/<service>.log"
 
 if wait_for_http_ready "http://127.0.0.1:${API_PORT}/skill.md" 1; then
-  print_share_message
+  print_api_share_message
 fi

@@ -88,8 +88,8 @@ func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (
 
 func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:     openai.ChatModel(c.model),
-		MaxTokens: openai.Int(1024),
+		Model:               openai.ChatModel(c.model),
+		MaxCompletionTokens: openai.Int(1024),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},

@@ -1,7 +1,7 @@
 # Architecture Overview
 
 > Status: Active
-> Last Updated: 2026-03-16
+> Last Updated: 2026-03-18
 
 ## 1. System Overview
 
@@ -70,7 +70,6 @@ graph TB
         REDIS[(Redis :6379)]
         ES[(Elasticsearch :9200)]
         ETCD[(etcd :2379)]
-        OLLAMA[Ollama :11434]
     end
 
     WEB --> API
@@ -381,7 +380,6 @@ graph LR
         ETCD[etcd 3.5]
         ES[Elasticsearch 8.11]
         KIBANA[Kibana 8.11]
-        OLLAMA[Ollama]
     end
 
     subgraph "Host (go run / build)"

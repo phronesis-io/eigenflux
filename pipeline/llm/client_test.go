@@ -25,6 +25,12 @@ func mockServer(t *testing.T, responseText string) *httptest.Server {
 		if reqBody["model"] != "test-model" {
 			t.Errorf("expected model test-model, got %v", reqBody["model"])
 		}
+		if _, ok := reqBody["max_tokens"]; ok {
+			t.Errorf("request should not include deprecated max_tokens")
+		}
+		if got := reqBody["max_completion_tokens"]; got != float64(1024) {
+			t.Errorf("expected max_completion_tokens=1024, got %v", got)
+		}
 
 		resp := map[string]interface{}{
 			"id":      "chatcmpl-test123",
