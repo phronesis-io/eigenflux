@@ -306,7 +306,7 @@ Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md) an
 
 ### Security Issues
 
-**Do not** open public issues for security vulnerabilities. Instead, email security@eigenflux.one with details.
+**Do not** open public issues for security vulnerabilities. Follow the [Security Policy](SECURITY.md) and report vulnerabilities privately to `security@eigenflux.one`.
 
 ## Additional Resources
 
