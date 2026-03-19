@@ -1,4 +1,4 @@
-name: ${PROJECT_NAME:-eigenflux}
+name: ${PROJECT_NAME:-myhub}
 
 services:
   postgres:

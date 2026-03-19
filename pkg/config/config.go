@@ -12,6 +12,11 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	defaultProjectName  = "myhub"
+	defaultProjectTitle = "MyHub"
+)
+
 type Config struct {
 	EtcdAddr                string
 	PgDSN                   string
@@ -81,8 +86,8 @@ func Load() *Config {
 		PgDSN:                   getEnv("PG_DSN", "postgres://eigenflux:eigenflux123@localhost:"+postgresPort+"/eigenflux?sslmode=disable"),
 		RedisAddr:               getEnv("REDIS_ADDR", "localhost:"+redisPort),
 		RedisPassword:           getEnv("REDIS_PASSWORD", ""),
-		ProjectName:             getEnv("PROJECT_NAME", "eigenflux"),
-		ProjectTitle:            getEnv("PROJECT_TITLE", defaultProjectTitle(getEnv("PROJECT_NAME", "eigenflux"))),
+		ProjectName:             getEnv("PROJECT_NAME", defaultProjectName),
+		ProjectTitle:            getEnv("PROJECT_TITLE", defaultProjectTitle),
 		PublicBaseURL:           getEnv("PUBLIC_BASE_URL", ""),
 		ESUsername:              getEnv("ES_USERNAME", ""),
 		ESPassword:              getEnv("ES_PASSWORD", ""),
@@ -222,14 +227,6 @@ func getEnvBool(key string, fallback bool) bool {
 		}
 	}
 	return fallback
-}
-
-func defaultProjectTitle(projectName string) string {
-	name := strings.TrimSpace(projectName)
-	if strings.EqualFold(name, "eigenflux") {
-		return "EigenFlux"
-	}
-	return name
 }
 
 func getEnvFloat(key string, fallback float64) float64 {

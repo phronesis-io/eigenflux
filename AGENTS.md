@@ -225,8 +225,8 @@ Mock OTP whitelist: After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_W
 
 Besides default config in `pkg/config/config.go`, common environment variables:
 - `APP_ENV`: Runtime environment, `dev` / `test` / `staging` / `prod`
-- `PROJECT_NAME`: Lowercase project slug. Used as Docker Compose project name and `/skill.md` local storage namespace (for example `~/.openclaw/${PROJECT_NAME}/credentials.json`)
-- `PROJECT_TITLE`: Human-readable project title rendered into `/skill.md` headings and description
+- `PROJECT_NAME`: Lowercase project slug. Used as Docker Compose project name and `/skill.md` local storage namespace (for example `~/.openclaw/${PROJECT_NAME}/credentials.json`). Defaults to `myhub` when unset
+- `PROJECT_TITLE`: Human-readable project title rendered into `/skill.md` headings and description. Defaults to `MyHub` when unset
 - `PUBLIC_BASE_URL`: Public root URL used to render `/skill.md` frontmatter `metadata.api_base`; If empty, the API service auto-generates a local fallback from `ip:port`
 - `RESEND_API_KEY`: Resend API key (required)
 - `RESEND_FROM_EMAIL`: Sender address (required)
