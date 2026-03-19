@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
 )
 
@@ -66,45 +67,63 @@ func doPostWithIPHeader(t *testing.T, path string, body interface{}, ip string) 
 
 func TestAuthLoginFlow(t *testing.T) {
 	testutil.WaitForAPI(t)
+	emailVerificationEnabled := config.Load().EnableEmailVerification
 	allEmails := []string{
 		"auth_new@test.com", "auth_existing@test.com",
 		"auth_wrongotp@test.com", "auth_maxattempts@test.com",
 		"auth_replay@test.com", "auth_expired@test.com",
 		"auth_case_identity@test.com", "auth_case_cooldown@test.com",
+		"auth_cooldown_ip_limit@test.com",
 		"auth_mock_start_bypass@test.com", "auth_mock_verify_bypass@test.com",
 	}
 	testutil.CleanupTestEmails(t, allEmails...)
 
-	t.Run("NewUser_OTP_RegisterAndLogin", func(t *testing.T) {
+	t.Run("NewUser_Login", func(t *testing.T) {
 		email := "auth_new@test.com"
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 		startData := testutil.LoginStart(t, email)
-		challengeID := startData["challenge_id"].(string)
-		expiresIn := int(startData["expires_in_sec"].(float64))
-		resendAfter := int(startData["resend_after_sec"].(float64))
+		if emailVerificationEnabled {
+			challengeID := startData["challenge_id"].(string)
+			expiresIn := int(startData["expires_in_sec"].(float64))
+			resendAfter := int(startData["resend_after_sec"].(float64))
 
-		if challengeID == "" {
-			t.Fatal("expected non-empty challenge_id")
-		}
-		if expiresIn <= 0 {
-			t.Fatalf("expected positive expires_in_sec, got %d", expiresIn)
-		}
-		if resendAfter <= 0 {
-			t.Fatalf("expected positive resend_after_sec, got %d", resendAfter)
-		}
-		t.Logf("Challenge created: id=%s, expires_in=%d, resend_after=%d", challengeID, expiresIn, resendAfter)
+			if challengeID == "" {
+				t.Fatal("expected non-empty challenge_id")
+			}
+			if expiresIn <= 0 {
+				t.Fatalf("expected positive expires_in_sec, got %d", expiresIn)
+			}
+			if resendAfter <= 0 {
+				t.Fatalf("expected positive resend_after_sec, got %d", resendAfter)
+			}
+			if startData["verification_required"] != true {
+				t.Fatalf("expected verification_required=true, got %v", startData["verification_required"])
+			}
+			t.Logf("Challenge created: id=%s, expires_in=%d, resend_after=%d", challengeID, expiresIn, resendAfter)
 
-		otp := testutil.GetMockOTP(t)
-		if len(otp) != 6 {
-			t.Fatalf("expected 6-digit OTP, got %q", otp)
+			otp := testutil.GetMockOTP(t)
+			if len(otp) != 6 {
+				t.Fatalf("expected 6-digit OTP, got %q", otp)
+			}
+		} else {
+			if startData["verification_required"] != false {
+				t.Fatalf("expected verification_required=false, got %v", startData["verification_required"])
+			}
+			if _, ok := startData["challenge_id"]; ok {
+				t.Fatalf("expected direct login without challenge_id, got %v", startData["challenge_id"])
+			}
 		}
 
-		verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
-		if int(verifyResp["code"].(float64)) != 0 {
-			t.Fatalf("verify failed: %v", verifyResp["msg"])
+		data := startData
+		if _, ok := startData["access_token"].(string); !ok || startData["access_token"].(string) == "" {
+			challengeID := startData["challenge_id"].(string)
+			verifyResp := testutil.LoginVerifyOTP(t, challengeID, testutil.GetMockOTP(t))
+			if int(verifyResp["code"].(float64)) != 0 {
+				t.Fatalf("verify failed: %v", verifyResp["msg"])
+			}
+			data = verifyResp["data"].(map[string]interface{})
 		}
-		data := verifyResp["data"].(map[string]interface{})
 		if !data["is_new_agent"].(bool) {
 			t.Error("expected is_new_agent=true for new email")
 		}
@@ -129,13 +148,15 @@ func TestAuthLoginFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("ExistingUser_OTP_LoginOnly", func(t *testing.T) {
+	t.Run("ExistingUser_LoginOnly", func(t *testing.T) {
 		email := "auth_existing@test.com"
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 		testutil.LoginAndGetToken(t, email)
-		h := sha256.Sum256([]byte(email))
-		testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+		if emailVerificationEnabled {
+			h := sha256.Sum256([]byte(email))
+			testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+		}
 
 		token, _, isNew := testutil.LoginAndGetToken(t, email)
 		if isNew {
@@ -156,29 +177,35 @@ func TestAuthLoginFlow(t *testing.T) {
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, emailLower, emailUpper) })
 
 		startA := testutil.LoginStart(t, emailUpper)
-		challengeA := startA["challenge_id"].(string)
-		otpA := testutil.GetMockOTP(t)
-		verifyA := testutil.LoginVerifyOTP(t, challengeA, otpA)
-		if int(verifyA["code"].(float64)) != 0 {
-			t.Fatalf("first verify failed: %v", verifyA["msg"])
+		dataA := startA
+		if _, ok := startA["access_token"].(string); !ok || startA["access_token"].(string) == "" {
+			challengeA := startA["challenge_id"].(string)
+			verifyA := testutil.LoginVerifyOTP(t, challengeA, testutil.GetMockOTP(t))
+			if int(verifyA["code"].(float64)) != 0 {
+				t.Fatalf("first verify failed: %v", verifyA["msg"])
+			}
+			dataA = verifyA["data"].(map[string]interface{})
 		}
-		dataA := verifyA["data"].(map[string]interface{})
 		agentIDA := testutil.MustID(t, dataA["agent_id"], "agent_id")
 		if !dataA["is_new_agent"].(bool) {
 			t.Fatal("expected first login to create new agent")
 		}
 
-		h := sha256.Sum256([]byte(emailLower))
-		testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+		if emailVerificationEnabled {
+			h := sha256.Sum256([]byte(emailLower))
+			testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+		}
 
 		startB := testutil.LoginStart(t, emailLower)
-		challengeB := startB["challenge_id"].(string)
-		otpB := testutil.GetMockOTP(t)
-		verifyB := testutil.LoginVerifyOTP(t, challengeB, otpB)
-		if int(verifyB["code"].(float64)) != 0 {
-			t.Fatalf("second verify failed: %v", verifyB["msg"])
+		dataB := startB
+		if _, ok := startB["access_token"].(string); !ok || startB["access_token"].(string) == "" {
+			challengeB := startB["challenge_id"].(string)
+			verifyB := testutil.LoginVerifyOTP(t, challengeB, testutil.GetMockOTP(t))
+			if int(verifyB["code"].(float64)) != 0 {
+				t.Fatalf("second verify failed: %v", verifyB["msg"])
+			}
+			dataB = verifyB["data"].(map[string]interface{})
 		}
-		dataB := verifyB["data"].(map[string]interface{})
 		agentIDB := testutil.MustID(t, dataB["agent_id"], "agent_id")
 		if dataB["is_new_agent"].(bool) {
 			t.Fatal("expected second login to be existing user")
@@ -205,161 +232,213 @@ func TestAuthLoginFlow(t *testing.T) {
 			"login_method": "email",
 			"email":        emailLower,
 		})
-		if int(resp2["code"].(float64)) != 429 {
-			t.Fatalf("expected case-insensitive cooldown hit (429), got code=%v msg=%v", resp2["code"], resp2["msg"])
+		if emailVerificationEnabled {
+			if int(resp2["code"].(float64)) != 429 {
+				t.Fatalf("expected case-insensitive cooldown hit (429), got code=%v msg=%v", resp2["code"], resp2["msg"])
+			}
+		} else {
+			if int(resp2["code"].(float64)) != 0 {
+				t.Fatalf("expected second direct login to succeed, got code=%v msg=%v", resp2["code"], resp2["msg"])
+			}
 		}
 	})
 
-	t.Run("MockWhitelist_BypassesStartIPRateLimit", func(t *testing.T) {
-		email := "auth_mock_start_bypass@test.com"
-		ip := mockWhitelistedIP(t)
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+	if emailVerificationEnabled {
+		t.Run("CooldownRetries_DoNotConsumeStartIPQuota", func(t *testing.T) {
+			email := "auth_cooldown_ip_limit@test.com"
+			ip := "203.0.113.20"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
-		ctx := context.Background()
-		rdb := testutil.GetTestRedis()
-		key := "auth:login:start:email:ip:" + ip
-		if err := rdb.Set(ctx, key, "10", 10*time.Minute).Err(); err != nil {
-			t.Fatalf("failed to seed start rate limit key: %v", err)
-		}
+			ctx := context.Background()
+			rdb := testutil.GetTestRedis()
+			emailHash := sha256.Sum256([]byte(email))
+			cooldownKey := "auth:login:email:cooldown:" + hex.EncodeToString(emailHash[:])
+			ipKey := "auth:login:start:email:ip:" + ip
+			if err := rdb.Del(ctx, cooldownKey, ipKey).Err(); err != nil {
+				t.Fatalf("failed to reset cooldown/rate-limit keys: %v", err)
+			}
 
-		resp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
-			"login_method": "email",
-			"email":        email,
-		}, ip)
-		if int(resp["code"].(float64)) != 0 {
-			t.Fatalf("expected mock allowlisted start to bypass IP limit, got code=%v msg=%v", resp["code"], resp["msg"])
-		}
+			first := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
+				"login_method": "email",
+				"email":        email,
+			}, ip)
+			if int(first["code"].(float64)) != 0 {
+				t.Fatalf("first login start failed: %v", first["msg"])
+			}
 
-		counter, err := rdb.Get(ctx, key).Result()
-		if err != nil {
-			t.Fatalf("failed to read start rate limit key: %v", err)
-		}
-		if counter != "10" {
-			t.Fatalf("expected start rate limit key to remain 10, got %s", counter)
-		}
-	})
+			for i := 0; i < 10; i++ {
+				resp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
+					"login_method": "email",
+					"email":        email,
+				}, ip)
+				if int(resp["code"].(float64)) != 429 {
+					t.Fatalf("expected cooldown response on retry %d, got code=%v msg=%v", i+1, resp["code"], resp["msg"])
+				}
+				if msg := fmt.Sprint(resp["msg"]); msg != "too many requests, please wait before retrying" {
+					t.Fatalf("expected cooldown response on retry %d, got msg=%v", i+1, resp["msg"])
+				}
+			}
 
-	t.Run("WrongOTP_IncrementAttempt", func(t *testing.T) {
-		email := "auth_wrongotp@test.com"
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+			counter, err := rdb.Get(ctx, ipKey).Result()
+			if err != nil {
+				t.Fatalf("failed to read start rate limit key: %v", err)
+			}
+			if counter != "1" {
+				t.Fatalf("expected cooldown retries to leave start rate limit key at 1, got %s", counter)
+			}
+		})
 
-		startData := testutil.LoginStart(t, email)
-		challengeID := startData["challenge_id"].(string)
+		t.Run("MockWhitelist_BypassesStartIPRateLimit", func(t *testing.T) {
+			email := "auth_mock_start_bypass@test.com"
+			ip := mockWhitelistedIP(t)
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
-		resp := testutil.LoginVerifyOTP(t, challengeID, "000000")
-		code := int(resp["code"].(float64))
-		if code == 0 {
-			t.Fatal("expected failure for wrong OTP")
-		}
-		t.Logf("Wrong OTP correctly rejected: code=%d, msg=%v", code, resp["msg"])
-	})
+			ctx := context.Background()
+			rdb := testutil.GetTestRedis()
+			key := "auth:login:start:email:ip:" + ip
+			if err := rdb.Set(ctx, key, "10", 10*time.Minute).Err(); err != nil {
+				t.Fatalf("failed to seed start rate limit key: %v", err)
+			}
 
-	t.Run("MaxAttempts_ChallengeExhausted", func(t *testing.T) {
-		email := "auth_maxattempts@test.com"
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+			resp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
+				"login_method": "email",
+				"email":        email,
+			}, ip)
+			if int(resp["code"].(float64)) != 0 {
+				t.Fatalf("expected mock allowlisted start to bypass IP limit, got code=%v msg=%v", resp["code"], resp["msg"])
+			}
 
-		startData := testutil.LoginStart(t, email)
-		challengeID := startData["challenge_id"].(string)
-		otp := testutil.GetMockOTP(t)
+			counter, err := rdb.Get(ctx, key).Result()
+			if err != nil {
+				t.Fatalf("failed to read start rate limit key: %v", err)
+			}
+			if counter != "10" {
+				t.Fatalf("expected start rate limit key to remain 10, got %s", counter)
+			}
+		})
 
-		for i := 0; i < 5; i++ {
+		t.Run("WrongOTP_IncrementAttempt", func(t *testing.T) {
+			email := "auth_wrongotp@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+
 			resp := testutil.LoginVerifyOTP(t, challengeID, "000000")
 			code := int(resp["code"].(float64))
 			if code == 0 {
 				t.Fatal("expected failure for wrong OTP")
 			}
-		}
+			t.Logf("Wrong OTP correctly rejected: code=%d, msg=%v", code, resp["msg"])
+		})
 
-		resp := testutil.LoginVerifyOTP(t, challengeID, otp)
-		code := int(resp["code"].(float64))
-		if code == 0 {
-			t.Fatal("expected failure after max attempts exhausted")
-		}
-		t.Log("Challenge correctly exhausted after max attempts")
-	})
+		t.Run("MaxAttempts_ChallengeExhausted", func(t *testing.T) {
+			email := "auth_maxattempts@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
-	t.Run("MockWhitelist_BypassesVerifyIPRateLimit", func(t *testing.T) {
-		email := "auth_mock_verify_bypass@test.com"
-		ip := mockWhitelistedIP(t)
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+			otp := testutil.GetMockOTP(t)
 
-		startResp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
-			"login_method": "email",
-			"email":        email,
-		}, ip)
-		if int(startResp["code"].(float64)) != 0 {
-			t.Fatalf("login start failed: %v", startResp["msg"])
-		}
+			for i := 0; i < 5; i++ {
+				resp := testutil.LoginVerifyOTP(t, challengeID, "000000")
+				code := int(resp["code"].(float64))
+				if code == 0 {
+					t.Fatal("expected failure for wrong OTP")
+				}
+			}
 
-		ctx := context.Background()
-		rdb := testutil.GetTestRedis()
-		key := "auth:login:verify:email:ip:" + ip
-		if err := rdb.Set(ctx, key, "30", 10*time.Minute).Err(); err != nil {
-			t.Fatalf("failed to seed verify rate limit key: %v", err)
-		}
+			resp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			code := int(resp["code"].(float64))
+			if code == 0 {
+				t.Fatal("expected failure after max attempts exhausted")
+			}
+			t.Log("Challenge correctly exhausted after max attempts")
+		})
 
-		verifyResp := doPostWithIPHeader(t, "/api/v1/auth/login/verify", map[string]string{
-			"login_method": "email",
-			"challenge_id": startResp["data"].(map[string]interface{})["challenge_id"].(string),
-			"code":         testutil.GetMockOTP(t),
-		}, ip)
-		if int(verifyResp["code"].(float64)) != 0 {
-			t.Fatalf("expected mock allowlisted verify to bypass IP limit, got code=%v msg=%v", verifyResp["code"], verifyResp["msg"])
-		}
+		t.Run("MockWhitelist_BypassesVerifyIPRateLimit", func(t *testing.T) {
+			email := "auth_mock_verify_bypass@test.com"
+			ip := mockWhitelistedIP(t)
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
-		counter, err := rdb.Get(ctx, key).Result()
-		if err != nil {
-			t.Fatalf("failed to read verify rate limit key: %v", err)
-		}
-		if counter != "30" {
-			t.Fatalf("expected verify rate limit key to remain 30, got %s", counter)
-		}
-	})
+			startResp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
+				"login_method": "email",
+				"email":        email,
+			}, ip)
+			if int(startResp["code"].(float64)) != 0 {
+				t.Fatalf("login start failed: %v", startResp["msg"])
+			}
 
-	t.Run("Replay_ConsumedChallenge", func(t *testing.T) {
-		email := "auth_replay@test.com"
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+			ctx := context.Background()
+			rdb := testutil.GetTestRedis()
+			key := "auth:login:verify:email:ip:" + ip
+			if err := rdb.Set(ctx, key, "30", 10*time.Minute).Err(); err != nil {
+				t.Fatalf("failed to seed verify rate limit key: %v", err)
+			}
 
-		startData := testutil.LoginStart(t, email)
-		challengeID := startData["challenge_id"].(string)
-		otp := testutil.GetMockOTP(t)
+			verifyResp := doPostWithIPHeader(t, "/api/v1/auth/login/verify", map[string]string{
+				"login_method": "email",
+				"challenge_id": startResp["data"].(map[string]interface{})["challenge_id"].(string),
+				"code":         testutil.GetMockOTP(t),
+			}, ip)
+			if int(verifyResp["code"].(float64)) != 0 {
+				t.Fatalf("expected mock allowlisted verify to bypass IP limit, got code=%v msg=%v", verifyResp["code"], verifyResp["msg"])
+			}
 
-		verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
-		if int(verifyResp["code"].(float64)) != 0 {
-			t.Fatalf("first verify should succeed: %v", verifyResp["msg"])
-		}
+			counter, err := rdb.Get(ctx, key).Result()
+			if err != nil {
+				t.Fatalf("failed to read verify rate limit key: %v", err)
+			}
+			if counter != "30" {
+				t.Fatalf("expected verify rate limit key to remain 30, got %s", counter)
+			}
+		})
 
-		replayResp := testutil.LoginVerifyOTP(t, challengeID, otp)
-		code := int(replayResp["code"].(float64))
-		if code == 0 {
-			t.Fatal("expected failure for replay of consumed challenge")
-		}
-		t.Log("Replay of consumed challenge correctly rejected")
-	})
+		t.Run("Replay_ConsumedChallenge", func(t *testing.T) {
+			email := "auth_replay@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
-	t.Run("Expired_Challenge", func(t *testing.T) {
-		email := "auth_expired@test.com"
-		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+			otp := testutil.GetMockOTP(t)
 
-		startData := testutil.LoginStart(t, email)
-		challengeID := startData["challenge_id"].(string)
-		otp := testutil.GetMockOTP(t)
+			verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			if int(verifyResp["code"].(float64)) != 0 {
+				t.Fatalf("first verify should succeed: %v", verifyResp["msg"])
+			}
 
-		_, err := testutil.TestDB.Exec(
-			"UPDATE auth_email_challenges SET expire_at = $1 WHERE challenge_id = $2",
-			time.Now().Add(-1*time.Minute).UnixMilli(), challengeID,
-		)
-		if err != nil {
-			t.Fatalf("failed to expire challenge: %v", err)
-		}
+			replayResp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			code := int(replayResp["code"].(float64))
+			if code == 0 {
+				t.Fatal("expected failure for replay of consumed challenge")
+			}
+			t.Log("Replay of consumed challenge correctly rejected")
+		})
 
-		resp := testutil.LoginVerifyOTP(t, challengeID, otp)
-		code := int(resp["code"].(float64))
-		if code == 0 {
-			t.Fatal("expected failure for expired challenge")
-		}
-		t.Log("Expired challenge correctly rejected")
-	})
+		t.Run("Expired_Challenge", func(t *testing.T) {
+			email := "auth_expired@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+			otp := testutil.GetMockOTP(t)
+
+			_, err := testutil.TestDB.Exec(
+				"UPDATE auth_email_challenges SET expire_at = $1 WHERE challenge_id = $2",
+				time.Now().Add(-1*time.Minute).UnixMilli(), challengeID,
+			)
+			if err != nil {
+				t.Fatalf("failed to expire challenge: %v", err)
+			}
+
+			resp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			code := int(resp["code"].(float64))
+			if code == 0 {
+				t.Fatal("expected failure for expired challenge")
+			}
+			t.Log("Expired challenge correctly rejected")
+		})
+	}
 
 	t.Run("InvalidLoginMethod_Start", func(t *testing.T) {
 		resp := testutil.LoginStartRaw(t, map[string]string{
@@ -374,6 +453,9 @@ func TestAuthLoginFlow(t *testing.T) {
 	})
 
 	t.Run("InvalidLoginMethod_Verify", func(t *testing.T) {
+		if !emailVerificationEnabled {
+			t.Skip("verify endpoint is not used when email verification is disabled")
+		}
 		resp := testutil.DoPost(t, "/api/v1/auth/login/verify", map[string]string{
 			"login_method": "phone",
 			"challenge_id": "fake",
@@ -387,6 +469,9 @@ func TestAuthLoginFlow(t *testing.T) {
 	})
 
 	t.Run("NonexistentChallenge", func(t *testing.T) {
+		if !emailVerificationEnabled {
+			t.Skip("verify endpoint is not used when email verification is disabled")
+		}
 		resp := testutil.LoginVerifyOTP(t, "ch_nonexistent_999", "123456")
 		code := int(resp["code"].(float64))
 		if code == 0 {
@@ -562,12 +647,17 @@ func verifyProfileCompletedAtAfterRelogin(t *testing.T, email string) (interface
 
 func reloginAndVerify(t *testing.T, email string) map[string]interface{} {
 	t.Helper()
-	h := sha256.Sum256([]byte(email))
-	testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+	if config.Load().EnableEmailVerification {
+		h := sha256.Sum256([]byte(email))
+		testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
+	}
 	startData := testutil.LoginStart(t, email)
+	if token, ok := startData["access_token"].(string); ok && token != "" {
+		return startData
+	}
+
 	challengeID := startData["challenge_id"].(string)
-	otp := testutil.GetMockOTP(t)
-	verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
+	verifyResp := testutil.LoginVerifyOTP(t, challengeID, testutil.GetMockOTP(t))
 	if int(verifyResp["code"].(float64)) != 0 {
 		t.Fatalf("verify failed: %v", verifyResp["msg"])
 	}
@@ -605,6 +695,9 @@ func TestAuthAntiEnumeration(t *testing.T) {
 
 func TestAuthVerifyTokenRejected(t *testing.T) {
 	testutil.WaitForAPI(t)
+	if !config.Load().EnableEmailVerification {
+		t.Skip("verify_token is only relevant when email verification is enabled")
+	}
 	email := "auth_verify_token_rejected@test.com"
 	testutil.CleanupTestEmails(t, email)
 	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })

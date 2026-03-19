@@ -45,11 +45,16 @@ func main() {
 	}()
 	log.Printf("auth agent id generator ready: worker_id=%d", agentIDGen.WorkerID())
 
-	if strings.TrimSpace(cfg.ResendApiKey) == "" || strings.TrimSpace(cfg.ResendFromEmail) == "" {
-		log.Fatalf("invalid configuration: RESEND_API_KEY and RESEND_FROM_EMAIL are required")
+	var emailSender email.Sender
+	if cfg.EnableEmailVerification {
+		if strings.TrimSpace(cfg.ResendApiKey) == "" || strings.TrimSpace(cfg.ResendFromEmail) == "" {
+			log.Fatalf("invalid configuration: RESEND_API_KEY and RESEND_FROM_EMAIL are required when ENABLE_EMAIL_VERIFICATION=true")
+		}
+		emailSender = email.NewResendSender(cfg.ResendApiKey, cfg.ResendFromEmail)
+		log.Printf("auth email sender: resend (env=%s)", strings.ToLower(strings.TrimSpace(cfg.AppEnv)))
+	} else {
+		log.Printf("auth email verification disabled: login will issue sessions directly")
 	}
-	emailSender := email.NewResendSender(cfg.ResendApiKey, cfg.ResendFromEmail)
-	log.Printf("auth email sender: resend (env=%s)", strings.ToLower(strings.TrimSpace(cfg.AppEnv)))
 
 	r, err := etcd.NewEtcdRegistry(etcdEndpoints)
 	if err != nil {
@@ -60,11 +65,12 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := authservice.NewServer(
 		&AuthServiceImpl{
-			emailSender:        emailSender,
-			mockUniversalOTP:   strings.TrimSpace(cfg.MockUniversalOTP),
-			mockOTPEmailSuffix: cfg.MockOTPEmailSuffixes,
-			mockOTPIPWhitelist: cfg.MockOTPIPWhitelist,
-			agentIDGen:         agentIDGen,
+			emailSender:              emailSender,
+			emailVerificationEnabled: cfg.EnableEmailVerification,
+			mockUniversalOTP:         strings.TrimSpace(cfg.MockUniversalOTP),
+			mockOTPEmailSuffix:       cfg.MockOTPEmailSuffixes,
+			mockOTPIPWhitelist:       cfg.MockOTPIPWhitelist,
+			agentIDGen:               agentIDGen,
 		},
 		server.WithServiceAddr(addr),
 		server.WithRegistry(r),

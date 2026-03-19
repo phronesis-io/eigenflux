@@ -26,11 +26,12 @@ var emailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA
 
 // AuthServiceImpl implements the kitex-generated AuthService interface.
 type AuthServiceImpl struct {
-	emailSender        email.Sender
-	mockUniversalOTP   string
-	mockOTPEmailSuffix []string // e.g. ["@test.com"]
-	mockOTPIPWhitelist []string // e.g. ["10.0.0.1"]
-	agentIDGen         interface {
+	emailSender              email.Sender
+	emailVerificationEnabled bool
+	mockUniversalOTP         string
+	mockOTPEmailSuffix       []string // e.g. ["@test.com"]
+	mockOTPIPWhitelist       []string // e.g. ["10.0.0.1"]
+	agentIDGen               interface {
 		NextID() (int64, error)
 	}
 }
@@ -113,6 +114,107 @@ func checkIPRateLimit(ctx context.Context, key string, limit int64, window time.
 	return nil
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func (s *AuthServiceImpl) buildStartLoginDirectResp(loginResp *auth.VerifyLoginResp) *auth.StartLoginResp {
+	resp := &auth.StartLoginResp{
+		AgentId:                &loginResp.AgentId,
+		AccessToken:            &loginResp.AccessToken,
+		ExpiresAt:              &loginResp.ExpiresAt,
+		IsNewAgent:             &loginResp.IsNewAgent,
+		NeedsProfileCompletion: &loginResp.NeedsProfileCompletion,
+		VerificationRequired:   boolPtr(false),
+		BaseResp:               loginResp.BaseResp,
+	}
+	if loginResp.ProfileCompletedAt != nil {
+		resp.ProfileCompletedAt = loginResp.ProfileCompletedAt
+	}
+	return resp
+}
+
+func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmail string, clientIP, userAgent *string) (*auth.VerifyLoginResp, error) {
+	var agent *dal.Agent
+	var err error
+	isNew := false
+
+	agent, err = dal.GetAgentByEmail(db.DB, normalizedEmail)
+	if err != nil {
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "db error: " + err.Error()},
+		}, nil
+	}
+
+	if agent == nil {
+		if s.agentIDGen == nil {
+			return &auth.VerifyLoginResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "agent id generator is not initialized"},
+			}, nil
+		}
+		newAgentID, genErr := s.agentIDGen.NextID()
+		if genErr != nil {
+			return &auth.VerifyLoginResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate agent id: " + genErr.Error()},
+			}, nil
+		}
+		agent, err = dal.CreateMinimalAgent(db.DB, newAgentID, normalizedEmail)
+		if err != nil {
+			return &auth.VerifyLoginResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create agent: " + err.Error()},
+			}, nil
+		}
+		isNew = true
+	}
+
+	now := time.Now().UnixMilli()
+	_ = dal.SetEmailVerifiedAt(db.DB, agent.AgentID, now)
+
+	accessToken := "at_" + uuid.New().String()
+	tokenHash := sha256Hex(accessToken)
+	expireAt := now + int64(30*24*time.Hour.Milliseconds())
+
+	session := &dal.AgentSession{
+		AgentID:   agent.AgentID,
+		TokenHash: tokenHash,
+		Status:    0,
+		ExpireAt:  expireAt,
+		ClientIP:  clientIP,
+		UserAgent: userAgent,
+	}
+	if err := dal.CreateSession(db.DB, session); err != nil {
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create session: " + err.Error()},
+		}, nil
+	}
+
+	cacheKey := "auth:session:" + tokenHash
+	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d", agent.AgentID), 10*time.Minute)
+
+	latestAgent, _ := dal.GetAgentByEmail(db.DB, agent.Email)
+	if latestAgent != nil {
+		agent = latestAgent
+	}
+
+	needsProfile := agent.AgentName == "" || agent.Bio == ""
+	if agent.ProfileCompletedAt != nil && agent.AgentName != "" && agent.Bio != "" {
+		needsProfile = false
+	}
+
+	resp := &auth.VerifyLoginResp{
+		AgentId:                agent.AgentID,
+		AccessToken:            accessToken,
+		ExpiresAt:              expireAt,
+		IsNewAgent:             isNew,
+		NeedsProfileCompletion: needsProfile,
+		BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
+	}
+	if agent.ProfileCompletedAt != nil {
+		resp.ProfileCompletedAt = agent.ProfileCompletedAt
+	}
+	return resp, nil
+}
+
 // StartLogin creates a challenge, sends OTP verification email, and returns challenge metadata.
 func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginReq) (*auth.StartLoginResp, error) {
 	if req.LoginMethod != "email" {
@@ -134,6 +236,14 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		clientIP = *req.ClientIp
 	}
 	mockBypass := s.isMockOTPBypass(normalizedEmail, clientIP)
+
+	if !s.emailVerificationEnabled {
+		loginResp, err := s.completeEmailLogin(ctx, normalizedEmail, req.ClientIp, req.UserAgent)
+		if err != nil {
+			return nil, err
+		}
+		return s.buildStartLoginDirectResp(loginResp), nil
+	}
 
 	// Check email cooldown (60 s)
 	cooldownKey := "auth:login:email:cooldown:" + emailHash
@@ -209,15 +319,22 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 	mq.RDB.Set(ctx, cooldownKey, "1", 60*time.Second)
 
 	return &auth.StartLoginResp{
-		ChallengeId:    challengeID,
-		ExpiresInSec:   600,
-		ResendAfterSec: 60,
-		BaseResp:       &base.BaseResp{Code: 0, Msg: "success"},
+		ChallengeId:          &challengeID,
+		ExpiresInSec:         func() *int32 { v := int32(600); return &v }(),
+		ResendAfterSec:       func() *int32 { v := int32(60); return &v }(),
+		VerificationRequired: boolPtr(true),
+		BaseResp:             &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 
 // VerifyLogin validates the OTP code and issues a session token.
 func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLoginReq) (*auth.VerifyLoginResp, error) {
+	if !s.emailVerificationEnabled {
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: "email verification is disabled; call /api/v1/auth/login directly"},
+		}, nil
+	}
+
 	if req.LoginMethod != "email" {
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "unsupported login_method"},
@@ -307,102 +424,13 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 		}, nil
 	}
 
-	// Look up or create agent
-	var agent *dal.Agent
-	isNew := false
-
-	if challenge.Email != nil && *challenge.Email != "" {
-		normalizedEmail := normalizeEmail(*challenge.Email)
-		agent, err = dal.GetAgentByEmail(db.DB, normalizedEmail)
-		if err != nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "db error: " + err.Error()},
-			}, nil
-		}
-	}
-
-	if agent == nil {
-		if challenge.Email == nil || *challenge.Email == "" {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 400, Msg: "no email associated with challenge"},
-			}, nil
-		}
-		if s.agentIDGen == nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "agent id generator is not initialized"},
-			}, nil
-		}
-		newAgentID, genErr := s.agentIDGen.NextID()
-		if genErr != nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate agent id: " + genErr.Error()},
-			}, nil
-		}
-		normalizedEmail := normalizeEmail(*challenge.Email)
-		agent, err = dal.CreateMinimalAgent(db.DB, newAgentID, normalizedEmail)
-		if err != nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create agent: " + err.Error()},
-			}, nil
-		}
-		isNew = true
-	}
-
-	// Set email_verified_at if not already set
-	_ = dal.SetEmailVerifiedAt(db.DB, agent.AgentID, now)
-
-	// Generate session token
-	accessToken := "at_" + uuid.New().String()
-	tokenHash := sha256Hex(accessToken)
-
-	expireAt := now + int64(30*24*time.Hour.Milliseconds())
-
-	session := &dal.AgentSession{
-		AgentID:   agent.AgentID,
-		TokenHash: tokenHash,
-		Status:    0,
-		ExpireAt:  expireAt,
-	}
-	if req.ClientIp != nil {
-		session.ClientIP = req.ClientIp
-	}
-	if req.UserAgent != nil {
-		session.UserAgent = req.UserAgent
-	}
-
-	if err := dal.CreateSession(db.DB, session); err != nil {
+	if challenge.Email == nil || *challenge.Email == "" {
 		return &auth.VerifyLoginResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create session: " + err.Error()},
+			BaseResp: &base.BaseResp{Code: 400, Msg: "no email associated with challenge"},
 		}, nil
 	}
 
-	// Cache session in Redis (10 min TTL)
-	cacheKey := "auth:session:" + tokenHash
-	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d", agent.AgentID), 10*time.Minute)
-
-	// Refresh agent to get latest email_verified_at / profile_completed_at
-	latestAgent, _ := dal.GetAgentByEmail(db.DB, agent.Email)
-	if latestAgent != nil {
-		agent = latestAgent
-	}
-
-	needsProfile := agent.AgentName == "" || agent.Bio == ""
-	if agent.ProfileCompletedAt != nil && agent.AgentName != "" && agent.Bio != "" {
-		needsProfile = false
-	}
-
-	resp := &auth.VerifyLoginResp{
-		AgentId:                agent.AgentID,
-		AccessToken:            accessToken,
-		ExpiresAt:              expireAt,
-		IsNewAgent:             isNew,
-		NeedsProfileCompletion: needsProfile,
-		BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
-	}
-	if agent.ProfileCompletedAt != nil {
-		resp.ProfileCompletedAt = agent.ProfileCompletedAt
-	}
-	return resp, nil
+	return s.completeEmailLogin(ctx, normalizeEmail(*challenge.Email), req.ClientIp, req.UserAgent)
 }
 
 // ValidateSession verifies an access token and returns the associated agent_id.

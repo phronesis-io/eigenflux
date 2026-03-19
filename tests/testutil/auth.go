@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func loginSuccessData(t *testing.T, data map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	if token, ok := data["access_token"].(string); ok && token != "" {
+		return data
+	}
+
+	challengeID, ok := data["challenge_id"].(string)
+	if !ok || challengeID == "" {
+		t.Fatalf("expected either access_token or challenge_id in login response, got %v", data)
+	}
+
+	verifyResp := LoginVerifyOTP(t, challengeID, GetMockOTP(t))
+	if int(verifyResp["code"].(float64)) != 0 {
+		t.Fatalf("login verify failed: %v", verifyResp["msg"])
+	}
+	return verifyResp["data"].(map[string]interface{})
+}
+
 // LoginStart calls POST /api/v1/auth/login and returns the response data map.
 func LoginStart(t *testing.T, email string) map[string]interface{} {
 	t.Helper()
@@ -49,20 +67,13 @@ func GetMockOTP(t *testing.T) string {
 	return otp
 }
 
-// LoginAndGetToken performs the full login flow (start + OTP verify) and returns the access token.
+// LoginAndGetToken performs the full login flow and returns the access token.
 func LoginAndGetToken(t *testing.T, email string) (token string, agentID int64, isNew bool) {
 	t.Helper()
 	startData := LoginStart(t, email)
-	otp := GetMockOTP(t)
-	challengeID := startData["challenge_id"].(string)
-
-	verifyResp := LoginVerifyOTP(t, challengeID, otp)
-	if int(verifyResp["code"].(float64)) != 0 {
-		t.Fatalf("login verify failed: %v", verifyResp["msg"])
-	}
-	data := verifyResp["data"].(map[string]interface{})
+	data := loginSuccessData(t, startData)
 	if _, ok := data["agent_id"].(string); !ok {
-		t.Fatalf("expected verify data.agent_id as string, got %T", data["agent_id"])
+		t.Fatalf("expected login data.agent_id as string, got %T", data["agent_id"])
 	}
 	return data["access_token"].(string),
 		MustID(t, data["agent_id"], "agent_id"),

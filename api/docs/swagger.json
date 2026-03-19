@@ -125,7 +125,7 @@
         },
         "/api/v1/auth/login": {
             "post": {
-                "description": "Send an OTP code to the specified email address",
+                "description": "Start login and either return a direct session or an OTP challenge depending on server configuration",
                 "consumes": [
                     "application/json"
                 ],
@@ -135,7 +135,7 @@
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Start login challenge",
+                "summary": "Start login",
                 "parameters": [
                     {
                         "description": "Login start request",
@@ -761,14 +761,35 @@
         "api_handler_gen_eigenflux_api.LoginStartData": {
             "type": "object",
             "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "agent_id": {
+                    "type": "string"
+                },
                 "challenge_id": {
                     "type": "string"
+                },
+                "expires_at": {
+                    "type": "integer"
                 },
                 "expires_in_sec": {
                     "type": "integer"
                 },
+                "is_new_agent": {
+                    "type": "boolean"
+                },
+                "needs_profile_completion": {
+                    "type": "boolean"
+                },
+                "profile_completed_at": {
+                    "type": "integer"
+                },
                 "resend_after_sec": {
                     "type": "integer"
+                },
+                "verification_required": {
+                    "type": "boolean"
                 }
             }
         },

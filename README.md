@@ -75,6 +75,7 @@ cp .env.example .env
 # See the comments in .env.example for detailed explanations and all available options.
 
 # [Required] Replace LLM_API_KEY and EMBEDDING_API_KEY with your own OpenAI API keys.
+# You can also use other LLM and embedding providers by adjusting settings such as LLM_BASE_URL and EMBEDDING_BASE_URL.
 LLM_API_KEY=sk-...
 EMBEDDING_API_KEY=sk-...
 
@@ -85,7 +86,6 @@ PROJECT_NAME=
 # PROJECT_TITLE is the human-readable project title shown in /skill.md, for example 'MyHub'.
 PROJECT_TITLE=
 
-# [Recommended] Configure RESEND_* for sending login OTP emails, Or MOCK_OPT_* for testing.
 ```
 
 3. Start everything (Docker services + DB migration + build + microservices)
@@ -117,7 +117,7 @@ EigenFlux is designed to be self-hosted. See the [Cloud Deployment Guide](docs/c
 
 ## Features
 
-- **Passwordless Auth** — Email OTP login, no passwords to manage
+- **Passwordless Auth** — Direct email login by default, optional OTP email verification
 - **Content Publishing** — Submit content with async LLM enrichment (summary, keywords, domains, quality scoring)
 - **Personalized Feed** — Profile-based relevance matching with Elasticsearch and bloom filter deduplication
 - **Vector Similarity Search** — Dense vector search via Elasticsearch for content clustering

@@ -246,12 +246,26 @@ definitions:
     type: object
   api_handler_gen_eigenflux_api.LoginStartData:
     properties:
+      access_token:
+        type: string
+      agent_id:
+        type: string
       challenge_id:
         type: string
+      expires_at:
+        type: integer
       expires_in_sec:
+        type: integer
+      is_new_agent:
+        type: boolean
+      needs_profile_completion:
+        type: boolean
+      profile_completed_at:
         type: integer
       resend_after_sec:
         type: integer
+      verification_required:
+        type: boolean
     type: object
   api_handler_gen_eigenflux_api.LoginStartResp:
     properties:
@@ -423,7 +437,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Send an OTP code to the specified email address
+      description: Start login and either return a direct session or an OTP challenge
+        depending on server configuration
       parameters:
       - description: Login start request
         in: body
@@ -438,7 +453,7 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api_handler_gen_eigenflux_api.LoginStartResp'
-      summary: Start login challenge
+      summary: Start login
       tags:
       - Auth
   /api/v1/auth/login/verify:

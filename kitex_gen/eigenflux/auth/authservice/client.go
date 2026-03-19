@@ -3,8 +3,8 @@
 package authservice
 
 import (
-	auth "eigenflux_server/kitex_gen/eigenflux/auth"
 	"context"
+	auth "eigenflux_server/kitex_gen/eigenflux/auth"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
 )
