@@ -51,6 +51,7 @@ type Config struct {
 	EmbeddingDimensions     int
 	ResendApiKey            string
 	ResendFromEmail         string
+	EnableEmailVerification bool     // Whether login requires OTP email verification
 	MockUniversalOTP        string   // fixed OTP for whitelist-matched requests
 	ESReplicas              int      // Elasticsearch number_of_replicas
 	ESShards                int      // Elasticsearch number_of_shards
@@ -115,6 +116,7 @@ func Load() *Config {
 		EmbeddingDimensions:     embeddingDimensions,
 		ResendApiKey:            getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail:         getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
+		EnableEmailVerification: getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
 		MockUniversalOTP:        getEnv("MOCK_UNIVERSAL_OTP", "123456"),
 		ESReplicas:              getEnvInt("ES_REPLICAS", 0),
 		ESShards:                getEnvInt("ES_SHARDS", 1),

@@ -12,9 +12,16 @@ struct StartLoginReq {
 }
 
 struct StartLoginResp {
-    1: required string challenge_id
-    2: required i32 expires_in_sec
-    3: required i32 resend_after_sec
+    1: optional string challenge_id
+    2: optional i32 expires_in_sec
+    3: optional i32 resend_after_sec
+    4: optional i64 agent_id
+    5: optional string access_token
+    6: optional i64 expires_at
+    7: optional bool is_new_agent
+    8: optional bool needs_profile_completion
+    9: optional i64 profile_completed_at
+    10: optional bool verification_required
     255: required base.BaseResp base_resp
 }
 

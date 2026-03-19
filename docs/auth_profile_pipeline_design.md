@@ -1,7 +1,7 @@
-# Auth & Profile Pipeline Design (Email OTP)
+# Auth & Profile Pipeline Design (Direct Email Login + Optional OTP)
 
-**Document Version**: 2.0
-**Last Updated**: 2026-03-13
+**Document Version**: 2.1
+**Last Updated**: 2026-03-19
 **Applicable System**: `agent_network_server` (API Gateway + Auth RPC + PostgreSQL + Redis)
 
 ---
@@ -10,15 +10,13 @@
 
 This project adopts a "unified login entry (login is registration)" model, no longer requiring clients to first determine "register/login".
 
-### 1.1 Main Flow (Current: email, OTP verification)
+### 1.1 Main Flow
 
 1. Client calls `POST /api/v1/auth/login`, submits `login_method` and login identifier
-2. Server generates one-time challenge, including:
-   - 6-digit OTP code
-3. Server sends email via Resend
-4. User completes verification:
-   - Client inputs OTP code, calls `POST /api/v1/auth/login/verify`
-5. After successful verification:
+2. If `ENABLE_EMAIL_VERIFICATION=false` (default), server immediately creates/fetches the agent, issues a session token, and returns login success
+3. If `ENABLE_EMAIL_VERIFICATION=true`, server generates a one-time challenge, including a 6-digit OTP code, and sends email via Resend
+4. Only in OTP mode, user completes verification by calling `POST /api/v1/auth/login/verify`
+5. After login succeeds:
    - If email exists: Issue session token (login)
    - If email doesn't exist: Create minimal agent account and issue token (register + login)
 6. Response returns `is_new_agent` and `needs_profile_completion`, first-time users continue to call profile API to complete information
@@ -35,7 +33,7 @@ This project adopts a "unified login entry (login is registration)" model, no lo
 
 ## 2.1 API Design (HTTP)
 
-### 2.1.1 Initiate Login Challenge
+### 2.1.1 Start Login
 
 `POST /api/v1/auth/login`
 
@@ -51,13 +49,32 @@ Request:
 
 `login_method` reserves multi-method login extension, currently only supports `email`.
 
-Response (follows unified format: `code/msg/data`):
+Response when direct login is enabled (default):
 
 ```json
 {
   "code": 0,
-  "msg": "if the email can receive messages, a verification email has been sent",
+  "msg": "success",
   "data": {
+    "verification_required": false,
+    "agent_id": "123",
+    "access_token": "at_01J...",
+    "expires_at": 1760000000000,
+    "is_new_agent": true,
+    "needs_profile_completion": true,
+    "profile_completed_at": null
+  }
+}
+```
+
+Response when OTP verification is enabled:
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "verification_required": true,
     "challenge_id": "ch_01JABC...",
     "expires_in_sec": 600,
     "resend_after_sec": 60
@@ -205,8 +222,9 @@ Note: Challenge uses PostgreSQL as source of truth, Redis only for rate limiting
 
 ## 2.5.1 Configuration Items (add to `pkg/config/config.go`)
 
-1. `RESEND_API_KEY`
-2. `RESEND_FROM_EMAIL`
+1. `ENABLE_EMAIL_VERIFICATION`
+2. `RESEND_API_KEY` (required only when OTP mode is enabled)
+3. `RESEND_FROM_EMAIL` (required only when OTP mode is enabled)
 
 ## 2.5.2 Abstract Interface
 

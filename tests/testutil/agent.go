@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// RegisterAgent uses the email OTP auth flow to create/login an agent and
+// RegisterAgent uses the email auth flow to create/login an agent and
 // optionally complete the profile. Returns map with "token" and "agent_id".
 func RegisterAgent(t *testing.T, email, agentName, bio string) map[string]interface{} {
 	t.Helper()

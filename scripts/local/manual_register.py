@@ -104,6 +104,14 @@ def load_env_config(project_root: Path) -> Dict[str, str]:
     return values
 
 
+def resolve_project_root() -> Path:
+    current = Path(__file__).resolve().parent
+    for candidate in (current, *current.parents):
+        if (candidate / ".env").exists() or (candidate / "mise.toml").exists():
+            return candidate
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def resolve_mock_universal_otp(env_cfg: Dict[str, str]) -> Optional[str]:
     otp = (
         os.getenv("MOCK_UNIVERSAL_OTP")
@@ -121,7 +129,7 @@ def resolve_api_base_default(env_cfg: Dict[str, str]) -> str:
 
 
 def main() -> int:
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = resolve_project_root()
     env_cfg = load_env_config(project_root)
     default_api_base = resolve_api_base_default(env_cfg)
 
@@ -139,7 +147,7 @@ def main() -> int:
     email = args.email.strip()
     mock_universal_otp = resolve_mock_universal_otp(env_cfg)
 
-    print("== 1) Start login challenge ==")
+    print("== 1) Start login ==")
     start_resp = http_json(
         "POST",
         f"{api_base}/auth/login",
@@ -149,42 +157,49 @@ def main() -> int:
         raise RuntimeError(f"Login challenge failed: {start_resp}")
 
     start_data = start_resp["data"]
-    challenge_id = start_data["challenge_id"]
-    print(f"challenge_id: {challenge_id}")
-    print(f"expires_in_sec: {start_data.get('expires_in_sec')}")
-    print(f"resend_after_sec: {start_data.get('resend_after_sec')}")
-    print()
+    verification_required = bool(start_data.get("verification_required"))
+    access_token = start_data.get("access_token", "")
+    login_data = start_data
 
-    print("== 2) Verify email ==")
-    if mock_universal_otp:
-        otp_code = mock_universal_otp
-        print(f"Using MOCK_UNIVERSAL_OTP: {otp_code}")
+    if verification_required:
+        challenge_id = start_data["challenge_id"]
+        print(f"challenge_id: {challenge_id}")
+        print(f"expires_in_sec: {start_data.get('expires_in_sec')}")
+        print(f"resend_after_sec: {start_data.get('resend_after_sec')}")
+        print()
+
+        print("== 2) Verify email ==")
+        if mock_universal_otp:
+            otp_code = mock_universal_otp
+            print(f"Using MOCK_UNIVERSAL_OTP: {otp_code}")
+        else:
+            print("Resend mode is active. Enter the 6-digit OTP from the email.")
+            otp_code = prompt("OTP (6 digits)")
+        if not is_otp(otp_code):
+            raise RuntimeError("Invalid OTP format, it must be 6 digits")
+
+        verify_payload: Dict[str, Any] = {
+            "login_method": args.login_method,
+            "challenge_id": challenge_id,
+            "code": otp_code,
+        }
+        verify_resp = http_json("POST", f"{api_base}/auth/login/verify", verify_payload)
+        if int(verify_resp.get("code", -1)) != 0:
+            raise RuntimeError(f"Verification failed: {verify_resp}")
+        login_data = verify_resp["data"]
+        access_token = login_data.get("access_token", "")
     else:
-        print("Resend mode is active. Enter the 6-digit OTP from the email.")
-        otp_code = prompt("OTP (6 digits)")
-    if not is_otp(otp_code):
-        raise RuntimeError("Invalid OTP format, it must be 6 digits")
-
-    verify_payload: Dict[str, Any] = {
-        "login_method": args.login_method,
-        "challenge_id": challenge_id,
-        "code": otp_code,
-    }
-    verify_resp = http_json("POST", f"{api_base}/auth/login/verify", verify_payload)
-    if int(verify_resp.get("code", -1)) != 0:
-        raise RuntimeError(f"Verification failed: {verify_resp}")
-    verify_data = verify_resp["data"]
-    access_token = verify_data.get("access_token", "")
+        print("Direct login succeeded. OTP verification is not required.")
 
     if not access_token:
         raise RuntimeError("Did not receive access_token, stopping")
 
     print("\n== token details ==")
-    if verify_data:
-        print(f"agent_id: {verify_data.get('agent_id')}")
-        print(f"expires_at: {verify_data.get('expires_at')}")
-        print(f"is_new_agent: {verify_data.get('is_new_agent')}")
-        print(f"needs_profile_completion: {verify_data.get('needs_profile_completion')}")
+    if login_data:
+        print(f"agent_id: {login_data.get('agent_id')}")
+        print(f"expires_at: {login_data.get('expires_at')}")
+        print(f"is_new_agent: {login_data.get('is_new_agent')}")
+        print(f"needs_profile_completion: {login_data.get('needs_profile_completion')}")
     print(f"access_token: {access_token}")
 
     print("\n== 3) Validate login status ==")

@@ -287,9 +287,6 @@ func (p *StartLoginResp) FastRead(buf []byte) (int, error) {
 	var l int
 	var fieldTypeId thrift.TType
 	var fieldId int16
-	var issetChallengeId bool = false
-	var issetExpiresInSec bool = false
-	var issetResendAfterSec bool = false
 	var issetBaseResp bool = false
 	for {
 		fieldTypeId, fieldId, l, err = thrift.Binary.ReadFieldBegin(buf[offset:])
@@ -308,7 +305,6 @@ func (p *StartLoginResp) FastRead(buf []byte) (int, error) {
 				if err != nil {
 					goto ReadFieldError
 				}
-				issetChallengeId = true
 			} else {
 				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 				offset += l
@@ -323,7 +319,6 @@ func (p *StartLoginResp) FastRead(buf []byte) (int, error) {
 				if err != nil {
 					goto ReadFieldError
 				}
-				issetExpiresInSec = true
 			} else {
 				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 				offset += l
@@ -338,7 +333,104 @@ func (p *StartLoginResp) FastRead(buf []byte) (int, error) {
 				if err != nil {
 					goto ReadFieldError
 				}
-				issetResendAfterSec = true
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 4:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField4(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField6(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 7:
+			if fieldTypeId == thrift.BOOL {
+				l, err = p.FastReadField7(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 8:
+			if fieldTypeId == thrift.BOOL {
+				l, err = p.FastReadField8(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 9:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField9(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 10:
+			if fieldTypeId == thrift.BOOL {
+				l, err = p.FastReadField10(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
 			} else {
 				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 				offset += l
@@ -370,21 +462,6 @@ func (p *StartLoginResp) FastRead(buf []byte) (int, error) {
 		}
 	}
 
-	if !issetChallengeId {
-		fieldId = 1
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetExpiresInSec {
-		fieldId = 2
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetResendAfterSec {
-		fieldId = 3
-		goto RequiredFieldNotSetError
-	}
-
 	if !issetBaseResp {
 		fieldId = 255
 		goto RequiredFieldNotSetError
@@ -403,12 +480,12 @@ RequiredFieldNotSetError:
 func (p *StartLoginResp) FastReadField1(buf []byte) (int, error) {
 	offset := 0
 
-	var _field string
+	var _field *string
 	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
 		return offset, err
 	} else {
 		offset += l
-		_field = v
+		_field = &v
 	}
 	p.ChallengeId = _field
 	return offset, nil
@@ -417,12 +494,12 @@ func (p *StartLoginResp) FastReadField1(buf []byte) (int, error) {
 func (p *StartLoginResp) FastReadField2(buf []byte) (int, error) {
 	offset := 0
 
-	var _field int32
+	var _field *int32
 	if v, l, err := thrift.Binary.ReadI32(buf[offset:]); err != nil {
 		return offset, err
 	} else {
 		offset += l
-		_field = v
+		_field = &v
 	}
 	p.ExpiresInSec = _field
 	return offset, nil
@@ -431,14 +508,112 @@ func (p *StartLoginResp) FastReadField2(buf []byte) (int, error) {
 func (p *StartLoginResp) FastReadField3(buf []byte) (int, error) {
 	offset := 0
 
-	var _field int32
+	var _field *int32
 	if v, l, err := thrift.Binary.ReadI32(buf[offset:]); err != nil {
 		return offset, err
 	} else {
 		offset += l
-		_field = v
+		_field = &v
 	}
 	p.ResendAfterSec = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField4(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.AgentId = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField5(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.AccessToken = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField6(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.ExpiresAt = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField7(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *bool
+	if v, l, err := thrift.Binary.ReadBool(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.IsNewAgent = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField8(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *bool
+	if v, l, err := thrift.Binary.ReadBool(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.NeedsProfileCompletion = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField9(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.ProfileCompletedAt = _field
+	return offset, nil
+}
+
+func (p *StartLoginResp) FastReadField10(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *bool
+	if v, l, err := thrift.Binary.ReadBool(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.VerificationRequired = _field
 	return offset, nil
 }
 
@@ -463,7 +638,14 @@ func (p *StartLoginResp) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int 
 	if p != nil {
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
+		offset += p.fastWriteField4(buf[offset:], w)
+		offset += p.fastWriteField6(buf[offset:], w)
+		offset += p.fastWriteField7(buf[offset:], w)
+		offset += p.fastWriteField8(buf[offset:], w)
+		offset += p.fastWriteField9(buf[offset:], w)
+		offset += p.fastWriteField10(buf[offset:], w)
 		offset += p.fastWriteField1(buf[offset:], w)
+		offset += p.fastWriteField5(buf[offset:], w)
 		offset += p.fastWriteField255(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
@@ -476,6 +658,13 @@ func (p *StartLoginResp) BLength() int {
 		l += p.field1Length()
 		l += p.field2Length()
 		l += p.field3Length()
+		l += p.field4Length()
+		l += p.field5Length()
+		l += p.field6Length()
+		l += p.field7Length()
+		l += p.field8Length()
+		l += p.field9Length()
+		l += p.field10Length()
 		l += p.field255Length()
 	}
 	l += thrift.Binary.FieldStopLength()
@@ -484,22 +673,91 @@ func (p *StartLoginResp) BLength() int {
 
 func (p *StartLoginResp) fastWriteField1(buf []byte, w thrift.NocopyWriter) int {
 	offset := 0
-	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 1)
-	offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, p.ChallengeId)
+	if p.IsSetChallengeId() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 1)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.ChallengeId)
+	}
 	return offset
 }
 
 func (p *StartLoginResp) fastWriteField2(buf []byte, w thrift.NocopyWriter) int {
 	offset := 0
-	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I32, 2)
-	offset += thrift.Binary.WriteI32(buf[offset:], p.ExpiresInSec)
+	if p.IsSetExpiresInSec() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I32, 2)
+		offset += thrift.Binary.WriteI32(buf[offset:], *p.ExpiresInSec)
+	}
 	return offset
 }
 
 func (p *StartLoginResp) fastWriteField3(buf []byte, w thrift.NocopyWriter) int {
 	offset := 0
-	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I32, 3)
-	offset += thrift.Binary.WriteI32(buf[offset:], p.ResendAfterSec)
+	if p.IsSetResendAfterSec() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I32, 3)
+		offset += thrift.Binary.WriteI32(buf[offset:], *p.ResendAfterSec)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField4(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetAgentId() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 4)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.AgentId)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField5(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetAccessToken() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 5)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.AccessToken)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField6(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetExpiresAt() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 6)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.ExpiresAt)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField7(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetIsNewAgent() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.BOOL, 7)
+		offset += thrift.Binary.WriteBool(buf[offset:], *p.IsNewAgent)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField8(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetNeedsProfileCompletion() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.BOOL, 8)
+		offset += thrift.Binary.WriteBool(buf[offset:], *p.NeedsProfileCompletion)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField9(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetProfileCompletedAt() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 9)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.ProfileCompletedAt)
+	}
+	return offset
+}
+
+func (p *StartLoginResp) fastWriteField10(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetVerificationRequired() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.BOOL, 10)
+		offset += thrift.Binary.WriteBool(buf[offset:], *p.VerificationRequired)
+	}
 	return offset
 }
 
@@ -512,22 +770,91 @@ func (p *StartLoginResp) fastWriteField255(buf []byte, w thrift.NocopyWriter) in
 
 func (p *StartLoginResp) field1Length() int {
 	l := 0
-	l += thrift.Binary.FieldBeginLength()
-	l += thrift.Binary.StringLengthNocopy(p.ChallengeId)
+	if p.IsSetChallengeId() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.ChallengeId)
+	}
 	return l
 }
 
 func (p *StartLoginResp) field2Length() int {
 	l := 0
-	l += thrift.Binary.FieldBeginLength()
-	l += thrift.Binary.I32Length()
+	if p.IsSetExpiresInSec() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I32Length()
+	}
 	return l
 }
 
 func (p *StartLoginResp) field3Length() int {
 	l := 0
-	l += thrift.Binary.FieldBeginLength()
-	l += thrift.Binary.I32Length()
+	if p.IsSetResendAfterSec() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I32Length()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field4Length() int {
+	l := 0
+	if p.IsSetAgentId() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field5Length() int {
+	l := 0
+	if p.IsSetAccessToken() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.AccessToken)
+	}
+	return l
+}
+
+func (p *StartLoginResp) field6Length() int {
+	l := 0
+	if p.IsSetExpiresAt() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field7Length() int {
+	l := 0
+	if p.IsSetIsNewAgent() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.BoolLength()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field8Length() int {
+	l := 0
+	if p.IsSetNeedsProfileCompletion() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.BoolLength()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field9Length() int {
+	l := 0
+	if p.IsSetProfileCompletedAt() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *StartLoginResp) field10Length() int {
+	l := 0
+	if p.IsSetVerificationRequired() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.BoolLength()
+	}
 	return l
 }
 

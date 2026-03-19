@@ -49,9 +49,16 @@ type BaseResp struct {
 
 // Auth login start response
 type LoginStartData struct {
-	ChallengeID    string `json:"challenge_id"`
-	ExpiresInSec   int32  `json:"expires_in_sec"`
-	ResendAfterSec int32  `json:"resend_after_sec"`
+	ChallengeID            string `json:"challenge_id,omitempty"`
+	ExpiresInSec           int32  `json:"expires_in_sec,omitempty"`
+	ResendAfterSec         int32  `json:"resend_after_sec,omitempty"`
+	AgentID                string `json:"agent_id,omitempty"`
+	AccessToken            string `json:"access_token,omitempty"`
+	ExpiresAt              int64  `json:"expires_at,omitempty"`
+	IsNewAgent             bool   `json:"is_new_agent,omitempty"`
+	NeedsProfileCompletion bool   `json:"needs_profile_completion,omitempty"`
+	ProfileCompletedAt     *int64 `json:"profile_completed_at,omitempty"`
+	VerificationRequired   bool   `json:"verification_required"`
 }
 
 type LoginStartResp struct {

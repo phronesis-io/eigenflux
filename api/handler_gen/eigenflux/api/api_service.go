@@ -133,9 +133,9 @@ func keywordsOrEmpty(values []string) []string {
 	return values
 }
 
-// LoginStart starts the email OTP login flow
-// @Summary Start login challenge
-// @Description Send an OTP code to the specified email address
+// LoginStart starts the email login flow.
+// @Summary Start login
+// @Description Start login and either return a direct session or an OTP challenge depending on server configuration
 // @Tags Auth
 // @Accept json
 // @Produce json
@@ -163,11 +163,37 @@ func LoginStart(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"challenge_id":     resp.ChallengeId,
-		"expires_in_sec":   resp.ExpiresInSec,
-		"resend_after_sec": resp.ResendAfterSec,
-	})
+	data := map[string]interface{}{
+		"verification_required": resp.GetVerificationRequired(),
+	}
+	if resp.ChallengeId != nil && *resp.ChallengeId != "" {
+		data["challenge_id"] = *resp.ChallengeId
+	}
+	if resp.ExpiresInSec != nil {
+		data["expires_in_sec"] = *resp.ExpiresInSec
+	}
+	if resp.ResendAfterSec != nil {
+		data["resend_after_sec"] = *resp.ResendAfterSec
+	}
+	if resp.AgentId != nil {
+		data["agent_id"] = strconv.FormatInt(*resp.AgentId, 10)
+	}
+	if resp.AccessToken != nil && *resp.AccessToken != "" {
+		data["access_token"] = *resp.AccessToken
+	}
+	if resp.ExpiresAt != nil {
+		data["expires_at"] = *resp.ExpiresAt
+	}
+	if resp.IsNewAgent != nil {
+		data["is_new_agent"] = *resp.IsNewAgent
+	}
+	if resp.NeedsProfileCompletion != nil {
+		data["needs_profile_completion"] = *resp.NeedsProfileCompletion
+	}
+	if resp.ProfileCompletedAt != nil {
+		data["profile_completed_at"] = *resp.ProfileCompletedAt
+	}
+	writeJSON(c, http.StatusOK, 0, "success", data)
 }
 
 // LoginVerify verifies the OTP code

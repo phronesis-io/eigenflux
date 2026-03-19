@@ -3,8 +3,8 @@
 package auth
 
 import (
-	"eigenflux_server/kitex_gen/eigenflux/base"
 	"context"
+	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
 
@@ -83,10 +83,17 @@ var fieldIDToName_StartLoginReq = map[int16]string{
 }
 
 type StartLoginResp struct {
-	ChallengeId    string         `thrift:"challenge_id,1,required" frugal:"1,required,string" json:"challenge_id"`
-	ExpiresInSec   int32          `thrift:"expires_in_sec,2,required" frugal:"2,required,i32" json:"expires_in_sec"`
-	ResendAfterSec int32          `thrift:"resend_after_sec,3,required" frugal:"3,required,i32" json:"resend_after_sec"`
-	BaseResp       *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	ChallengeId            *string        `thrift:"challenge_id,1,optional" frugal:"1,optional,string" json:"challenge_id,omitempty"`
+	ExpiresInSec           *int32         `thrift:"expires_in_sec,2,optional" frugal:"2,optional,i32" json:"expires_in_sec,omitempty"`
+	ResendAfterSec         *int32         `thrift:"resend_after_sec,3,optional" frugal:"3,optional,i32" json:"resend_after_sec,omitempty"`
+	AgentId                *int64         `thrift:"agent_id,4,optional" frugal:"4,optional,i64" json:"agent_id,omitempty"`
+	AccessToken            *string        `thrift:"access_token,5,optional" frugal:"5,optional,string" json:"access_token,omitempty"`
+	ExpiresAt              *int64         `thrift:"expires_at,6,optional" frugal:"6,optional,i64" json:"expires_at,omitempty"`
+	IsNewAgent             *bool          `thrift:"is_new_agent,7,optional" frugal:"7,optional,bool" json:"is_new_agent,omitempty"`
+	NeedsProfileCompletion *bool          `thrift:"needs_profile_completion,8,optional" frugal:"8,optional,bool" json:"needs_profile_completion,omitempty"`
+	ProfileCompletedAt     *int64         `thrift:"profile_completed_at,9,optional" frugal:"9,optional,i64" json:"profile_completed_at,omitempty"`
+	VerificationRequired   *bool          `thrift:"verification_required,10,optional" frugal:"10,optional,bool" json:"verification_required,omitempty"`
+	BaseResp               *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewStartLoginResp() *StartLoginResp {
@@ -96,16 +103,94 @@ func NewStartLoginResp() *StartLoginResp {
 func (p *StartLoginResp) InitDefault() {
 }
 
+var StartLoginResp_ChallengeId_DEFAULT string
+
 func (p *StartLoginResp) GetChallengeId() (v string) {
-	return p.ChallengeId
+	if !p.IsSetChallengeId() {
+		return StartLoginResp_ChallengeId_DEFAULT
+	}
+	return *p.ChallengeId
 }
+
+var StartLoginResp_ExpiresInSec_DEFAULT int32
 
 func (p *StartLoginResp) GetExpiresInSec() (v int32) {
-	return p.ExpiresInSec
+	if !p.IsSetExpiresInSec() {
+		return StartLoginResp_ExpiresInSec_DEFAULT
+	}
+	return *p.ExpiresInSec
 }
 
+var StartLoginResp_ResendAfterSec_DEFAULT int32
+
 func (p *StartLoginResp) GetResendAfterSec() (v int32) {
-	return p.ResendAfterSec
+	if !p.IsSetResendAfterSec() {
+		return StartLoginResp_ResendAfterSec_DEFAULT
+	}
+	return *p.ResendAfterSec
+}
+
+var StartLoginResp_AgentId_DEFAULT int64
+
+func (p *StartLoginResp) GetAgentId() (v int64) {
+	if !p.IsSetAgentId() {
+		return StartLoginResp_AgentId_DEFAULT
+	}
+	return *p.AgentId
+}
+
+var StartLoginResp_AccessToken_DEFAULT string
+
+func (p *StartLoginResp) GetAccessToken() (v string) {
+	if !p.IsSetAccessToken() {
+		return StartLoginResp_AccessToken_DEFAULT
+	}
+	return *p.AccessToken
+}
+
+var StartLoginResp_ExpiresAt_DEFAULT int64
+
+func (p *StartLoginResp) GetExpiresAt() (v int64) {
+	if !p.IsSetExpiresAt() {
+		return StartLoginResp_ExpiresAt_DEFAULT
+	}
+	return *p.ExpiresAt
+}
+
+var StartLoginResp_IsNewAgent_DEFAULT bool
+
+func (p *StartLoginResp) GetIsNewAgent() (v bool) {
+	if !p.IsSetIsNewAgent() {
+		return StartLoginResp_IsNewAgent_DEFAULT
+	}
+	return *p.IsNewAgent
+}
+
+var StartLoginResp_NeedsProfileCompletion_DEFAULT bool
+
+func (p *StartLoginResp) GetNeedsProfileCompletion() (v bool) {
+	if !p.IsSetNeedsProfileCompletion() {
+		return StartLoginResp_NeedsProfileCompletion_DEFAULT
+	}
+	return *p.NeedsProfileCompletion
+}
+
+var StartLoginResp_ProfileCompletedAt_DEFAULT int64
+
+func (p *StartLoginResp) GetProfileCompletedAt() (v int64) {
+	if !p.IsSetProfileCompletedAt() {
+		return StartLoginResp_ProfileCompletedAt_DEFAULT
+	}
+	return *p.ProfileCompletedAt
+}
+
+var StartLoginResp_VerificationRequired_DEFAULT bool
+
+func (p *StartLoginResp) GetVerificationRequired() (v bool) {
+	if !p.IsSetVerificationRequired() {
+		return StartLoginResp_VerificationRequired_DEFAULT
+	}
+	return *p.VerificationRequired
 }
 
 var StartLoginResp_BaseResp_DEFAULT *base.BaseResp
@@ -116,17 +201,78 @@ func (p *StartLoginResp) GetBaseResp() (v *base.BaseResp) {
 	}
 	return p.BaseResp
 }
-func (p *StartLoginResp) SetChallengeId(val string) {
+func (p *StartLoginResp) SetChallengeId(val *string) {
 	p.ChallengeId = val
 }
-func (p *StartLoginResp) SetExpiresInSec(val int32) {
+func (p *StartLoginResp) SetExpiresInSec(val *int32) {
 	p.ExpiresInSec = val
 }
-func (p *StartLoginResp) SetResendAfterSec(val int32) {
+func (p *StartLoginResp) SetResendAfterSec(val *int32) {
 	p.ResendAfterSec = val
+}
+func (p *StartLoginResp) SetAgentId(val *int64) {
+	p.AgentId = val
+}
+func (p *StartLoginResp) SetAccessToken(val *string) {
+	p.AccessToken = val
+}
+func (p *StartLoginResp) SetExpiresAt(val *int64) {
+	p.ExpiresAt = val
+}
+func (p *StartLoginResp) SetIsNewAgent(val *bool) {
+	p.IsNewAgent = val
+}
+func (p *StartLoginResp) SetNeedsProfileCompletion(val *bool) {
+	p.NeedsProfileCompletion = val
+}
+func (p *StartLoginResp) SetProfileCompletedAt(val *int64) {
+	p.ProfileCompletedAt = val
+}
+func (p *StartLoginResp) SetVerificationRequired(val *bool) {
+	p.VerificationRequired = val
 }
 func (p *StartLoginResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *StartLoginResp) IsSetChallengeId() bool {
+	return p.ChallengeId != nil
+}
+
+func (p *StartLoginResp) IsSetExpiresInSec() bool {
+	return p.ExpiresInSec != nil
+}
+
+func (p *StartLoginResp) IsSetResendAfterSec() bool {
+	return p.ResendAfterSec != nil
+}
+
+func (p *StartLoginResp) IsSetAgentId() bool {
+	return p.AgentId != nil
+}
+
+func (p *StartLoginResp) IsSetAccessToken() bool {
+	return p.AccessToken != nil
+}
+
+func (p *StartLoginResp) IsSetExpiresAt() bool {
+	return p.ExpiresAt != nil
+}
+
+func (p *StartLoginResp) IsSetIsNewAgent() bool {
+	return p.IsNewAgent != nil
+}
+
+func (p *StartLoginResp) IsSetNeedsProfileCompletion() bool {
+	return p.NeedsProfileCompletion != nil
+}
+
+func (p *StartLoginResp) IsSetProfileCompletedAt() bool {
+	return p.ProfileCompletedAt != nil
+}
+
+func (p *StartLoginResp) IsSetVerificationRequired() bool {
+	return p.VerificationRequired != nil
 }
 
 func (p *StartLoginResp) IsSetBaseResp() bool {
@@ -144,6 +290,13 @@ var fieldIDToName_StartLoginResp = map[int16]string{
 	1:   "challenge_id",
 	2:   "expires_in_sec",
 	3:   "resend_after_sec",
+	4:   "agent_id",
+	5:   "access_token",
+	6:   "expires_at",
+	7:   "is_new_agent",
+	8:   "needs_profile_completion",
+	9:   "profile_completed_at",
+	10:  "verification_required",
 	255: "base_resp",
 }
 

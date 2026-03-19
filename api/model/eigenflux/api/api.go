@@ -413,9 +413,16 @@ func (p *LoginStartReq) String() string {
 }
 
 type LoginStartData struct {
-	ChallengeID    string `thrift:"challenge_id,1,required" form:"challenge_id,required" json:"challenge_id,required" query:"challenge_id,required"`
-	ExpiresInSec   int32  `thrift:"expires_in_sec,2,required" form:"expires_in_sec,required" json:"expires_in_sec,required" query:"expires_in_sec,required"`
-	ResendAfterSec int32  `thrift:"resend_after_sec,3,required" form:"resend_after_sec,required" json:"resend_after_sec,required" query:"resend_after_sec,required"`
+	ChallengeID            *string `thrift:"challenge_id,1,optional" form:"challenge_id" json:"challenge_id,omitempty" query:"challenge_id"`
+	ExpiresInSec           *int32  `thrift:"expires_in_sec,2,optional" form:"expires_in_sec" json:"expires_in_sec,omitempty" query:"expires_in_sec"`
+	ResendAfterSec         *int32  `thrift:"resend_after_sec,3,optional" form:"resend_after_sec" json:"resend_after_sec,omitempty" query:"resend_after_sec"`
+	AgentID                *string `thrift:"agent_id,4,optional" form:"agent_id" json:"agent_id,omitempty" query:"agent_id"`
+	AccessToken            *string `thrift:"access_token,5,optional" form:"access_token" json:"access_token,omitempty" query:"access_token"`
+	ExpiresAt              *int64  `thrift:"expires_at,6,optional" form:"expires_at" json:"expires_at,omitempty" query:"expires_at"`
+	IsNewAgent             *bool   `thrift:"is_new_agent,7,optional" form:"is_new_agent" json:"is_new_agent,omitempty" query:"is_new_agent"`
+	NeedsProfileCompletion *bool   `thrift:"needs_profile_completion,8,optional" form:"needs_profile_completion" json:"needs_profile_completion,omitempty" query:"needs_profile_completion"`
+	ProfileCompletedAt     *int64  `thrift:"profile_completed_at,9,optional" form:"profile_completed_at" json:"profile_completed_at,omitempty" query:"profile_completed_at"`
+	VerificationRequired   bool    `thrift:"verification_required,10,required" form:"verification_required,required" json:"verification_required,required" query:"verification_required,required"`
 }
 
 func NewLoginStartData() *LoginStartData {
@@ -425,31 +432,145 @@ func NewLoginStartData() *LoginStartData {
 func (p *LoginStartData) InitDefault() {
 }
 
+var LoginStartData_ChallengeID_DEFAULT string
+
 func (p *LoginStartData) GetChallengeID() (v string) {
-	return p.ChallengeID
+	if !p.IsSetChallengeID() {
+		return LoginStartData_ChallengeID_DEFAULT
+	}
+	return *p.ChallengeID
 }
+
+var LoginStartData_ExpiresInSec_DEFAULT int32
 
 func (p *LoginStartData) GetExpiresInSec() (v int32) {
-	return p.ExpiresInSec
+	if !p.IsSetExpiresInSec() {
+		return LoginStartData_ExpiresInSec_DEFAULT
+	}
+	return *p.ExpiresInSec
 }
 
+var LoginStartData_ResendAfterSec_DEFAULT int32
+
 func (p *LoginStartData) GetResendAfterSec() (v int32) {
-	return p.ResendAfterSec
+	if !p.IsSetResendAfterSec() {
+		return LoginStartData_ResendAfterSec_DEFAULT
+	}
+	return *p.ResendAfterSec
+}
+
+var LoginStartData_AgentID_DEFAULT string
+
+func (p *LoginStartData) GetAgentID() (v string) {
+	if !p.IsSetAgentID() {
+		return LoginStartData_AgentID_DEFAULT
+	}
+	return *p.AgentID
+}
+
+var LoginStartData_AccessToken_DEFAULT string
+
+func (p *LoginStartData) GetAccessToken() (v string) {
+	if !p.IsSetAccessToken() {
+		return LoginStartData_AccessToken_DEFAULT
+	}
+	return *p.AccessToken
+}
+
+var LoginStartData_ExpiresAt_DEFAULT int64
+
+func (p *LoginStartData) GetExpiresAt() (v int64) {
+	if !p.IsSetExpiresAt() {
+		return LoginStartData_ExpiresAt_DEFAULT
+	}
+	return *p.ExpiresAt
+}
+
+var LoginStartData_IsNewAgent_DEFAULT bool
+
+func (p *LoginStartData) GetIsNewAgent() (v bool) {
+	if !p.IsSetIsNewAgent() {
+		return LoginStartData_IsNewAgent_DEFAULT
+	}
+	return *p.IsNewAgent
+}
+
+var LoginStartData_NeedsProfileCompletion_DEFAULT bool
+
+func (p *LoginStartData) GetNeedsProfileCompletion() (v bool) {
+	if !p.IsSetNeedsProfileCompletion() {
+		return LoginStartData_NeedsProfileCompletion_DEFAULT
+	}
+	return *p.NeedsProfileCompletion
+}
+
+var LoginStartData_ProfileCompletedAt_DEFAULT int64
+
+func (p *LoginStartData) GetProfileCompletedAt() (v int64) {
+	if !p.IsSetProfileCompletedAt() {
+		return LoginStartData_ProfileCompletedAt_DEFAULT
+	}
+	return *p.ProfileCompletedAt
+}
+
+func (p *LoginStartData) GetVerificationRequired() (v bool) {
+	return p.VerificationRequired
 }
 
 var fieldIDToName_LoginStartData = map[int16]string{
-	1: "challenge_id",
-	2: "expires_in_sec",
-	3: "resend_after_sec",
+	1:  "challenge_id",
+	2:  "expires_in_sec",
+	3:  "resend_after_sec",
+	4:  "agent_id",
+	5:  "access_token",
+	6:  "expires_at",
+	7:  "is_new_agent",
+	8:  "needs_profile_completion",
+	9:  "profile_completed_at",
+	10: "verification_required",
+}
+
+func (p *LoginStartData) IsSetChallengeID() bool {
+	return p.ChallengeID != nil
+}
+
+func (p *LoginStartData) IsSetExpiresInSec() bool {
+	return p.ExpiresInSec != nil
+}
+
+func (p *LoginStartData) IsSetResendAfterSec() bool {
+	return p.ResendAfterSec != nil
+}
+
+func (p *LoginStartData) IsSetAgentID() bool {
+	return p.AgentID != nil
+}
+
+func (p *LoginStartData) IsSetAccessToken() bool {
+	return p.AccessToken != nil
+}
+
+func (p *LoginStartData) IsSetExpiresAt() bool {
+	return p.ExpiresAt != nil
+}
+
+func (p *LoginStartData) IsSetIsNewAgent() bool {
+	return p.IsNewAgent != nil
+}
+
+func (p *LoginStartData) IsSetNeedsProfileCompletion() bool {
+	return p.NeedsProfileCompletion != nil
+}
+
+func (p *LoginStartData) IsSetProfileCompletedAt() bool {
+	return p.ProfileCompletedAt != nil
 }
 
 func (p *LoginStartData) Read(iprot thrift.TProtocol) (err error) {
 
 	var fieldTypeId thrift.TType
 	var fieldId int16
-	var issetChallengeID bool = false
-	var issetExpiresInSec bool = false
-	var issetResendAfterSec bool = false
+	var issetVerificationRequired bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -470,7 +591,6 @@ func (p *LoginStartData) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField1(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetChallengeID = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -479,7 +599,6 @@ func (p *LoginStartData) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField2(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetExpiresInSec = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -488,7 +607,63 @@ func (p *LoginStartData) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField3(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetResendAfterSec = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 10:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField10(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetVerificationRequired = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -505,18 +680,8 @@ func (p *LoginStartData) Read(iprot thrift.TProtocol) (err error) {
 		goto ReadStructEndError
 	}
 
-	if !issetChallengeID {
-		fieldId = 1
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetExpiresInSec {
-		fieldId = 2
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetResendAfterSec {
-		fieldId = 3
+	if !issetVerificationRequired {
+		fieldId = 10
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -539,35 +704,112 @@ RequiredFieldNotSetError:
 
 func (p *LoginStartData) ReadField1(iprot thrift.TProtocol) error {
 
-	var _field string
+	var _field *string
 	if v, err := iprot.ReadString(); err != nil {
 		return err
 	} else {
-		_field = v
+		_field = &v
 	}
 	p.ChallengeID = _field
 	return nil
 }
 func (p *LoginStartData) ReadField2(iprot thrift.TProtocol) error {
 
-	var _field int32
+	var _field *int32
 	if v, err := iprot.ReadI32(); err != nil {
 		return err
 	} else {
-		_field = v
+		_field = &v
 	}
 	p.ExpiresInSec = _field
 	return nil
 }
 func (p *LoginStartData) ReadField3(iprot thrift.TProtocol) error {
 
-	var _field int32
+	var _field *int32
 	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ResendAfterSec = _field
+	return nil
+}
+func (p *LoginStartData) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AgentID = _field
+	return nil
+}
+func (p *LoginStartData) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AccessToken = _field
+	return nil
+}
+func (p *LoginStartData) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ExpiresAt = _field
+	return nil
+}
+func (p *LoginStartData) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.IsNewAgent = _field
+	return nil
+}
+func (p *LoginStartData) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.NeedsProfileCompletion = _field
+	return nil
+}
+func (p *LoginStartData) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ProfileCompletedAt = _field
+	return nil
+}
+func (p *LoginStartData) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
 		return err
 	} else {
 		_field = v
 	}
-	p.ResendAfterSec = _field
+	p.VerificationRequired = _field
 	return nil
 }
 
@@ -589,6 +831,34 @@ func (p *LoginStartData) Write(oprot thrift.TProtocol) (err error) {
 			fieldId = 3
 			goto WriteFieldError
 		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
+			goto WriteFieldError
+		}
 	}
 	if err = oprot.WriteFieldStop(); err != nil {
 		goto WriteFieldStopError
@@ -608,14 +878,16 @@ WriteStructEndError:
 }
 
 func (p *LoginStartData) writeField1(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("challenge_id", thrift.STRING, 1); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteString(p.ChallengeID); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
+	if p.IsSetChallengeID() {
+		if err = oprot.WriteFieldBegin("challenge_id", thrift.STRING, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ChallengeID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
 	}
 	return nil
 WriteFieldBeginError:
@@ -625,14 +897,16 @@ WriteFieldEndError:
 }
 
 func (p *LoginStartData) writeField2(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("expires_in_sec", thrift.I32, 2); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteI32(p.ExpiresInSec); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
+	if p.IsSetExpiresInSec() {
+		if err = oprot.WriteFieldBegin("expires_in_sec", thrift.I32, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.ExpiresInSec); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
 	}
 	return nil
 WriteFieldBeginError:
@@ -642,10 +916,143 @@ WriteFieldEndError:
 }
 
 func (p *LoginStartData) writeField3(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("resend_after_sec", thrift.I32, 3); err != nil {
+	if p.IsSetResendAfterSec() {
+		if err = oprot.WriteFieldBegin("resend_after_sec", thrift.I32, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.ResendAfterSec); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAgentID() {
+		if err = oprot.WriteFieldBegin("agent_id", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AgentID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAccessToken() {
+		if err = oprot.WriteFieldBegin("access_token", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AccessToken); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetExpiresAt() {
+		if err = oprot.WriteFieldBegin("expires_at", thrift.I64, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.ExpiresAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetIsNewAgent() {
+		if err = oprot.WriteFieldBegin("is_new_agent", thrift.BOOL, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.IsNewAgent); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetNeedsProfileCompletion() {
+		if err = oprot.WriteFieldBegin("needs_profile_completion", thrift.BOOL, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.NeedsProfileCompletion); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetProfileCompletedAt() {
+		if err = oprot.WriteFieldBegin("profile_completed_at", thrift.I64, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.ProfileCompletedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *LoginStartData) writeField10(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("verification_required", thrift.BOOL, 10); err != nil {
 		goto WriteFieldBeginError
 	}
-	if err := oprot.WriteI32(p.ResendAfterSec); err != nil {
+	if err := oprot.WriteBool(p.VerificationRequired); err != nil {
 		return err
 	}
 	if err = oprot.WriteFieldEnd(); err != nil {
@@ -653,9 +1060,9 @@ func (p *LoginStartData) writeField3(oprot thrift.TProtocol) (err error) {
 	}
 	return nil
 WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
 WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
 }
 
 func (p *LoginStartData) String() string {

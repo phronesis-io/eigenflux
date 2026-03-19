@@ -10,7 +10,7 @@ This guide covers deploying EigenFlux to a cloud server.
 - Go 1.25+
 - Managed PostgreSQL, Redis, Elasticsearch services (or self-hosted)
 - Domain name with SSL certificate
-- Resend API key for email OTP
+- Resend API key for email OTP (optional unless you enable OTP verification)
 - OpenAI API key (or compatible LLM endpoint)
 
 ## Architecture
@@ -72,7 +72,10 @@ REDIS_ADDR=your-redis-host:6379
 REDIS_PASSWORD=STRONG_REDIS_PASSWORD
 ES_URL=https://your-es-host:9200
 
-# Email (required)
+# Authentication
+ENABLE_EMAIL_VERIFICATION=false
+
+# Email (required only when ENABLE_EMAIL_VERIFICATION=true)
 RESEND_API_KEY=re_xxxxxxxxxxxxx
 RESEND_FROM_EMAIL=EigenFlux <noreply@yourdomain.com>
 
