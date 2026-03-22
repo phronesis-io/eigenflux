@@ -21,6 +21,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/notification"
 )
 
 var (
@@ -62,6 +63,12 @@ func main() {
 		log.Fatalf("failed to init milestone service: %v", err)
 	}
 
+	// Init notification service for system notifications
+	notifSvc := notification.NewService(db.DB, db.RDB)
+	if err := notifSvc.RecoverActiveNotifications(context.Background()); err != nil {
+		log.Printf("[Feed] Warning: failed to recover active system notifications: %v", err)
+	}
+
 	// Create etcd resolver for service discovery
 	resolver, err := etcd.NewEtcdResolver(etcdEndpoints)
 	if err != nil {
@@ -97,7 +104,7 @@ func main() {
 	listenAddr := cfg.ListenAddr(cfg.FeedRPCPort)
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := feedservice.NewServer(
-		NewFeedServiceImpl(cfg, milestoneSvc),
+		NewFeedServiceImpl(cfg, milestoneSvc, notifSvc),
 		server.WithServiceAddr(addr),
 		server.WithRegistry(registry),
 		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "FeedService"}),

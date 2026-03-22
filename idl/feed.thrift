@@ -21,6 +21,12 @@ struct Notification {
     2: required string type
     3: required string content
     4: required i64 created_at
+    5: required string source_type
+}
+
+struct AckNotificationItem {
+    1: required i64 notification_id
+    2: required string source_type
 }
 
 struct FetchFeedReq {
@@ -38,7 +44,7 @@ struct FetchFeedResp {
 
 struct AckNotificationsReq {
     1: required i64 agent_id
-    2: required list<i64> notification_ids
+    2: required list<AckNotificationItem> items
 }
 
 struct AckNotificationsResp {

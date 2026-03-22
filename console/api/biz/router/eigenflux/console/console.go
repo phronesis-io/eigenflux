@@ -26,5 +26,9 @@ func Register(r *server.Hertz) {
 		_console.POST("/milestone-rules", append(_createmilestoneruleMw(), console.CreateMilestoneRule)...)
 		_console.PUT("/milestone-rules/:rule_id", append(_updatemilestoneruleMw(), console.UpdateMilestoneRule)...)
 		_console.POST("/milestone-rules/:rule_id/replace", append(_replacemilestoneruleMw(), console.ReplaceMilestoneRule)...)
+		_console.GET("/system-notifications", append(_listsystemnotificationsMw(), console.ListSystemNotifications)...)
+		_console.POST("/system-notifications", append(_createsystemnotificationMw(), console.CreateSystemNotification)...)
+		_console.PUT("/system-notifications/:notification_id", append(_updatesystemnotificationMw(), console.UpdateSystemNotification)...)
+		_console.POST("/system-notifications/:notification_id/offline", append(_offlinesystemnotificationMw(), console.OfflineSystemNotification)...)
 	}
 }

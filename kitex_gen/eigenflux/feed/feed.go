@@ -3,8 +3,8 @@
 package feed
 
 import (
-	"eigenflux_server/kitex_gen/eigenflux/base"
 	"context"
+	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
 
@@ -204,6 +204,7 @@ type Notification struct {
 	Type           string `thrift:"type,2,required" frugal:"2,required,string" json:"type"`
 	Content        string `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
 	CreatedAt      int64  `thrift:"created_at,4,required" frugal:"4,required,i64" json:"created_at"`
+	SourceType     string `thrift:"source_type,5,required" frugal:"5,required,string" json:"source_type"`
 }
 
 func NewNotification() *Notification {
@@ -228,6 +229,10 @@ func (p *Notification) GetContent() (v string) {
 func (p *Notification) GetCreatedAt() (v int64) {
 	return p.CreatedAt
 }
+
+func (p *Notification) GetSourceType() (v string) {
+	return p.SourceType
+}
 func (p *Notification) SetNotificationId(val int64) {
 	p.NotificationId = val
 }
@@ -239,6 +244,9 @@ func (p *Notification) SetContent(val string) {
 }
 func (p *Notification) SetCreatedAt(val int64) {
 	p.CreatedAt = val
+}
+func (p *Notification) SetSourceType(val string) {
+	p.SourceType = val
 }
 
 func (p *Notification) String() string {
@@ -253,6 +261,45 @@ var fieldIDToName_Notification = map[int16]string{
 	2: "type",
 	3: "content",
 	4: "created_at",
+	5: "source_type",
+}
+
+type AckNotificationItem struct {
+	NotificationId int64  `thrift:"notification_id,1,required" frugal:"1,required,i64" json:"notification_id"`
+	SourceType     string `thrift:"source_type,2,required" frugal:"2,required,string" json:"source_type"`
+}
+
+func NewAckNotificationItem() *AckNotificationItem {
+	return &AckNotificationItem{}
+}
+
+func (p *AckNotificationItem) InitDefault() {
+}
+
+func (p *AckNotificationItem) GetNotificationId() (v int64) {
+	return p.NotificationId
+}
+
+func (p *AckNotificationItem) GetSourceType() (v string) {
+	return p.SourceType
+}
+func (p *AckNotificationItem) SetNotificationId(val int64) {
+	p.NotificationId = val
+}
+func (p *AckNotificationItem) SetSourceType(val string) {
+	p.SourceType = val
+}
+
+func (p *AckNotificationItem) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AckNotificationItem(%+v)", *p)
+}
+
+var fieldIDToName_AckNotificationItem = map[int16]string{
+	1: "notification_id",
+	2: "source_type",
 }
 
 type FetchFeedReq struct {
@@ -395,8 +442,8 @@ var fieldIDToName_FetchFeedResp = map[int16]string{
 }
 
 type AckNotificationsReq struct {
-	AgentId         int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	NotificationIds []int64 `thrift:"notification_ids,2,required" frugal:"2,required,list<i64>" json:"notification_ids"`
+	AgentId int64                  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Items   []*AckNotificationItem `thrift:"items,2,required" frugal:"2,required,list<AckNotificationItem>" json:"items"`
 }
 
 func NewAckNotificationsReq() *AckNotificationsReq {
@@ -410,14 +457,14 @@ func (p *AckNotificationsReq) GetAgentId() (v int64) {
 	return p.AgentId
 }
 
-func (p *AckNotificationsReq) GetNotificationIds() (v []int64) {
-	return p.NotificationIds
+func (p *AckNotificationsReq) GetItems() (v []*AckNotificationItem) {
+	return p.Items
 }
 func (p *AckNotificationsReq) SetAgentId(val int64) {
 	p.AgentId = val
 }
-func (p *AckNotificationsReq) SetNotificationIds(val []int64) {
-	p.NotificationIds = val
+func (p *AckNotificationsReq) SetItems(val []*AckNotificationItem) {
+	p.Items = val
 }
 
 func (p *AckNotificationsReq) String() string {
@@ -429,7 +476,7 @@ func (p *AckNotificationsReq) String() string {
 
 var fieldIDToName_AckNotificationsReq = map[int16]string{
 	1: "agent_id",
-	2: "notification_ids",
+	2: "items",
 }
 
 type AckNotificationsResp struct {

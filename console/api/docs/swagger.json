@@ -295,6 +295,148 @@
                     }
                 }
             }
+        },
+        "/console/api/v1/system-notifications": {
+            "get": {
+                "description": "Returns a paginated list of system notifications with optional status filter",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "List system notifications",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default: 20, max: 100)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by status (0=draft, 1=active, 2=offline)",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListSystemNotificationsResp"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new system notification",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Create system notification",
+                "parameters": [
+                    {
+                        "description": "Create request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.createSystemNotificationReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/system-notifications/{notification_id}": {
+            "put": {
+                "description": "Updates fields of an existing system notification",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Update system notification",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Notification ID",
+                        "name": "notification_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.updateSystemNotificationReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/system-notifications/{notification_id}/offline": {
+            "post": {
+                "description": "Sets a system notification to offline status",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Offline system notification",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Notification ID",
+                        "name": "notification_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -445,6 +587,40 @@
                 }
             }
         },
+        "console_api_biz_handler_eigenflux_console.ListSystemNotificationsData": {
+            "type": "object",
+            "properties": {
+                "notifications": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationInfo"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_api_biz_handler_eigenflux_console.ListSystemNotificationsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListSystemNotificationsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
         "console_api_biz_handler_eigenflux_console.MilestoneRuleData": {
             "type": "object",
             "properties": {
@@ -518,6 +694,66 @@
                 }
             }
         },
+        "console_api_biz_handler_eigenflux_console.SystemNotificationData": {
+            "type": "object",
+            "properties": {
+                "notification": {
+                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationInfo"
+                }
+            }
+        },
+        "console_api_biz_handler_eigenflux_console.SystemNotificationInfo": {
+            "type": "object",
+            "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "end_at": {
+                    "type": "integer"
+                },
+                "notification_id": {
+                    "type": "string"
+                },
+                "offline_at": {
+                    "type": "integer"
+                },
+                "start_at": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_api_biz_handler_eigenflux_console.SystemNotificationResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
         "console_api_biz_handler_eigenflux_console.createMilestoneRuleReq": {
             "type": "object",
             "properties": {
@@ -532,6 +768,26 @@
                 },
                 "threshold": {
                     "type": "integer"
+                }
+            }
+        },
+        "console_api_biz_handler_eigenflux_console.createSystemNotificationReq": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "end_at": {
+                    "type": "integer"
+                },
+                "start_at": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
@@ -560,6 +816,26 @@
                 },
                 "rule_enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "console_api_biz_handler_eigenflux_console.updateSystemNotificationReq": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "end_at": {
+                    "type": "integer"
+                },
+                "start_at": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },

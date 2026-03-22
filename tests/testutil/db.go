@@ -74,6 +74,7 @@ func CleanTestData(t *testing.T, emails ...string) {
 		TestDB.Exec("DELETE FROM processed_items WHERE item_id IN (SELECT item_id FROM raw_items WHERE author_agent_id = $1)", agentID)
 		TestDB.Exec("DELETE FROM raw_items WHERE author_agent_id = $1", agentID)
 		TestDB.Exec("DELETE FROM agent_profiles WHERE agent_id = $1", agentID)
+		TestDB.Exec("DELETE FROM notification_deliveries WHERE agent_id = $1", agentID)
 		TestDB.Exec("DELETE FROM milestone_events WHERE author_agent_id = $1", agentID)
 		TestDB.Exec("DELETE FROM agents WHERE agent_id = $1", agentID)
 	}
@@ -81,6 +82,7 @@ func CleanTestData(t *testing.T, emails ...string) {
 		TestDB.Exec("DELETE FROM auth_email_challenges WHERE email = $1", email)
 	}
 	resetMilestoneRules()
+	TestDB.Exec("DELETE FROM system_notifications")
 
 	// --- Redis ---
 	// Auth keys
@@ -108,6 +110,8 @@ func CleanTestData(t *testing.T, emails ...string) {
 	cleanRedisKeysByPattern(ctx, rdb, "cache:search:*")
 	cleanRedisKeysByPattern(ctx, rdb, "cache:profile:*")
 	cleanRedisKeysByPattern(ctx, rdb, "milestone:notify:*")
+	cleanRedisKeysByPattern(ctx, rdb, "notify:system:*")
+	cleanRedisKeysByPattern(ctx, rdb, "notify:pending:*")
 
 	t.Log("Test data cleaned (DB + ES + Redis)")
 }

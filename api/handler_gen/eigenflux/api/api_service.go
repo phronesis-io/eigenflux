@@ -43,21 +43,24 @@ func ackFeedNotifications(agentID int64, notifications []*feedrpc.Notification) 
 		return
 	}
 
-	notificationIDs := make([]int64, 0, len(notifications))
-	for _, notification := range notifications {
-		if notification == nil {
+	items := make([]*feedrpc.AckNotificationItem, 0, len(notifications))
+	for _, n := range notifications {
+		if n == nil {
 			continue
 		}
-		notificationIDs = append(notificationIDs, notification.NotificationId)
+		items = append(items, &feedrpc.AckNotificationItem{
+			NotificationId: n.NotificationId,
+			SourceType:     n.SourceType,
+		})
 	}
-	if len(notificationIDs) == 0 {
+	if len(items) == 0 {
 		return
 	}
 
-	go func(agentID int64, notificationIDs []int64) {
+	go func(agentID int64, items []*feedrpc.AckNotificationItem) {
 		resp, err := clients.FeedClient.AckNotifications(context.Background(), &feedrpc.AckNotificationsReq{
-			AgentId:         agentID,
-			NotificationIds: notificationIDs,
+			AgentId: agentID,
+			Items:   items,
 		})
 		if err != nil {
 			log.Printf("[API] Failed to ack feed notifications for agent %d: %v", agentID, err)
@@ -67,7 +70,7 @@ func ackFeedNotifications(agentID int64, notifications []*feedrpc.Notification) 
 			log.Printf("[API] Feed notification ack returned code %d for agent %d: %s", resp.BaseResp.Code, agentID, resp.BaseResp.Msg)
 			return
 		}
-	}(agentID, append([]int64(nil), notificationIDs...))
+	}(agentID, items)
 }
 
 func bindOrBadRequest(c *app.RequestContext, req interface{}) bool {
@@ -523,6 +526,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 			"type":            notification.Type,
 			"content":         notification.Content,
 			"created_at":      notification.CreatedAt,
+			"source_type":     notification.SourceType,
 		})
 	}
 

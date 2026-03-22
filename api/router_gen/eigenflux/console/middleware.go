@@ -16,6 +16,16 @@ func _consoleMw() []app.HandlerFunc {
 	return nil
 }
 
+func _apiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _v1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
 func _listagentsMw() []app.HandlerFunc {
 	// your code...
 	return nil
@@ -26,7 +36,7 @@ func _listitemsMw() []app.HandlerFunc {
 	return nil
 }
 
-func _listagentimpritemsMw() []app.HandlerFunc {
+func _milestone_rulesMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
@@ -36,7 +46,7 @@ func _listmilestonerulesMw() []app.HandlerFunc {
 	return nil
 }
 
-func _createmilestoneruleMw() []app.HandlerFunc {
+func _rule_idMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
@@ -51,18 +61,47 @@ func _replacemilestoneruleMw() []app.HandlerFunc {
 	return nil
 }
 
-func _listsystemnotificationsMw() []app.HandlerFunc {
+func _createmilestoneruleMw() []app.HandlerFunc {
+	// your code...
 	return nil
 }
 
-func _createsystemnotificationMw() []app.HandlerFunc {
+func _system_notificationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listsystemnotificationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _notification_idMw() []app.HandlerFunc {
+	// your code...
 	return nil
 }
 
 func _updatesystemnotificationMw() []app.HandlerFunc {
+	// your code...
 	return nil
 }
 
 func _offlinesystemnotificationMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createsystemnotificationMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _imprMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listagentimpritemsMw() []app.HandlerFunc {
+	// your code...
 	return nil
 }

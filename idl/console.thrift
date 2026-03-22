@@ -174,6 +174,72 @@ struct ReplaceMilestoneRuleResp {
     3: ReplaceMilestoneRuleData data
 }
 
+// ===== Console System Notification Structs =====
+
+struct ListSystemNotificationsReq {
+    1: i32 page (api.query="page")
+    2: i32 page_size (api.query="page_size")
+    3: optional i32 status (api.query="status")
+}
+
+struct SystemNotificationInfo {
+    1: string notification_id
+    2: string type
+    3: string content
+    4: i32 status
+    5: string audience_type
+    6: string audience_expression
+    7: i64 start_at
+    8: i64 end_at
+    9: i64 offline_at
+    10: i64 created_at
+    11: i64 updated_at
+}
+
+struct ListSystemNotificationsData {
+    1: list<SystemNotificationInfo> notifications
+    2: i64 total
+    3: i32 page
+    4: i32 page_size
+}
+
+struct ListSystemNotificationsResp {
+    1: i32 code
+    2: string msg
+    3: ListSystemNotificationsData data
+}
+
+struct CreateSystemNotificationReq {
+    1: required string type (api.body="type")
+    2: required string content (api.body="content")
+    3: optional i32 status (api.body="status")
+    4: optional i64 start_at (api.body="start_at")
+    5: optional i64 end_at (api.body="end_at")
+}
+
+struct UpdateSystemNotificationReq {
+    1: required i64 notification_id (api.path="notification_id")
+    2: optional string type (api.body="type")
+    3: optional string content (api.body="content")
+    4: optional i32 status (api.body="status")
+    5: optional i64 start_at (api.body="start_at")
+    6: optional i64 end_at (api.body="end_at")
+}
+
+struct OfflineSystemNotificationReq {
+    1: required i64 notification_id (api.path="notification_id")
+}
+
+struct SystemNotificationData {
+    1: SystemNotificationInfo notification
+}
+
+struct SystemNotificationResp {
+    1: i32 code
+    2: string msg
+    3: SystemNotificationData data
+}
+
 // ===== Service =====
 
 service ConsoleService {
@@ -184,4 +250,8 @@ service ConsoleService {
     MilestoneRuleResp CreateMilestoneRule(1: CreateMilestoneRuleReq req) (api.post="/console/api/v1/milestone-rules")
     MilestoneRuleResp UpdateMilestoneRule(1: UpdateMilestoneRuleReq req) (api.put="/console/api/v1/milestone-rules/:rule_id")
     ReplaceMilestoneRuleResp ReplaceMilestoneRule(1: ReplaceMilestoneRuleReq req) (api.post="/console/api/v1/milestone-rules/:rule_id/replace")
+    ListSystemNotificationsResp ListSystemNotifications(1: ListSystemNotificationsReq req) (api.get="/console/api/v1/system-notifications")
+    SystemNotificationResp CreateSystemNotification(1: CreateSystemNotificationReq req) (api.post="/console/api/v1/system-notifications")
+    SystemNotificationResp UpdateSystemNotification(1: UpdateSystemNotificationReq req) (api.put="/console/api/v1/system-notifications/:notification_id")
+    SystemNotificationResp OfflineSystemNotification(1: OfflineSystemNotificationReq req) (api.post="/console/api/v1/system-notifications/:notification_id/offline")
 }

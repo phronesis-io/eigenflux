@@ -9,16 +9,20 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"strings"
 
 	"eigenflux_server/console/api/dal"
+	consoleHandler "eigenflux_server/console/api/biz/handler/eigenflux/console"
 	_ "eigenflux_server/console/api/docs"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/notification"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
 	hertzSwagger "github.com/hertz-contrib/swagger"
@@ -34,11 +38,34 @@ func main() {
 	log.Println("PostgreSQL connected")
 
 	// Init Redis (for both console DAL and mq package)
+	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
 	if err := dal.InitRedis(cfg.RedisAddr, cfg.RedisPassword); err != nil {
 		log.Fatalf("failed to connect redis: %v", err)
 	}
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
 	log.Println("Redis connected")
+
+	// Init ID generator for system notifications
+	etcdEndpoints := strings.Split(cfg.EtcdAddr, ",")
+	notifIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+		Endpoints:      etcdEndpoints,
+		WorkerPrefix:   cfg.IDWorkerPrefix,
+		ServiceName:    "console-notif-id",
+		InstanceID:     cfg.IDInstanceID,
+		LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+		EpochMS:        cfg.IDSnowflakeEpoch,
+	})
+	if err != nil {
+		log.Fatalf("failed to init notification id generator: %v", err)
+	}
+	defer func() { _ = notifIDGen.Close(context.Background()) }()
+	consoleHandler.InitNotificationService(notifIDGen)
+
+	// Recover active system notifications to Redis
+	notifSvc := notification.NewService(db.DB, db.RDB)
+	if recoverErr := notifSvc.RecoverActiveNotifications(context.Background()); recoverErr != nil {
+		log.Printf("[console] Warning: failed to recover active notifications: %v", recoverErr)
+	}
 
 	listenAddr := cfg.ListenAddr(cfg.ConsoleApiPort)
 	h := server.Default(server.WithHostPorts(listenAddr))

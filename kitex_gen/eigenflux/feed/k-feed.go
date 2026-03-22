@@ -672,6 +672,7 @@ func (p *Notification) FastRead(buf []byte) (int, error) {
 	var issetType bool = false
 	var issetContent bool = false
 	var issetCreatedAt bool = false
+	var issetSourceType bool = false
 	for {
 		fieldTypeId, fieldId, l, err = thrift.Binary.ReadFieldBegin(buf[offset:])
 		offset += l
@@ -742,6 +743,21 @@ func (p *Notification) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+				issetSourceType = true
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -768,6 +784,11 @@ func (p *Notification) FastRead(buf []byte) (int, error) {
 
 	if !issetCreatedAt {
 		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourceType {
+		fieldId = 5
 		goto RequiredFieldNotSetError
 	}
 	return offset, nil
@@ -837,6 +858,20 @@ func (p *Notification) FastReadField4(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *Notification) FastReadField5(buf []byte) (int, error) {
+	offset := 0
+
+	var _field string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.SourceType = _field
+	return offset, nil
+}
+
 func (p *Notification) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -848,6 +883,7 @@ func (p *Notification) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 		offset += p.fastWriteField4(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
+		offset += p.fastWriteField5(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -860,6 +896,7 @@ func (p *Notification) BLength() int {
 		l += p.field2Length()
 		l += p.field3Length()
 		l += p.field4Length()
+		l += p.field5Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -893,6 +930,13 @@ func (p *Notification) fastWriteField4(buf []byte, w thrift.NocopyWriter) int {
 	return offset
 }
 
+func (p *Notification) fastWriteField5(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 5)
+	offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, p.SourceType)
+	return offset
+}
+
 func (p *Notification) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -918,6 +962,171 @@ func (p *Notification) field4Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *Notification) field5Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.StringLengthNocopy(p.SourceType)
+	return l
+}
+
+func (p *AckNotificationItem) FastRead(buf []byte) (int, error) {
+
+	var err error
+	var offset int
+	var l int
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetNotificationId bool = false
+	var issetSourceType bool = false
+	for {
+		fieldTypeId, fieldId, l, err = thrift.Binary.ReadFieldBegin(buf[offset:])
+		offset += l
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField1(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+				issetNotificationId = true
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField2(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+				issetSourceType = true
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		default:
+			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+			offset += l
+			if err != nil {
+				goto SkipFieldError
+			}
+		}
+	}
+
+	if !issetNotificationId {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourceType {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+	return offset, nil
+ReadFieldBeginError:
+	return offset, thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return offset, thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_AckNotificationItem[fieldId]), err)
+SkipFieldError:
+	return offset, thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+RequiredFieldNotSetError:
+	return offset, thrift.NewProtocolException(thrift.INVALID_DATA, fmt.Sprintf("required field %s is not set", fieldIDToName_AckNotificationItem[fieldId]))
+}
+
+func (p *AckNotificationItem) FastReadField1(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.NotificationId = _field
+	return offset, nil
+}
+
+func (p *AckNotificationItem) FastReadField2(buf []byte) (int, error) {
+	offset := 0
+
+	var _field string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.SourceType = _field
+	return offset, nil
+}
+
+func (p *AckNotificationItem) FastWrite(buf []byte) int {
+	return p.FastWriteNocopy(buf, nil)
+}
+
+func (p *AckNotificationItem) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p != nil {
+		offset += p.fastWriteField1(buf[offset:], w)
+		offset += p.fastWriteField2(buf[offset:], w)
+	}
+	offset += thrift.Binary.WriteFieldStop(buf[offset:])
+	return offset
+}
+
+func (p *AckNotificationItem) BLength() int {
+	l := 0
+	if p != nil {
+		l += p.field1Length()
+		l += p.field2Length()
+	}
+	l += thrift.Binary.FieldStopLength()
+	return l
+}
+
+func (p *AckNotificationItem) fastWriteField1(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 1)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.NotificationId)
+	return offset
+}
+
+func (p *AckNotificationItem) fastWriteField2(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 2)
+	offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, p.SourceType)
+	return offset
+}
+
+func (p *AckNotificationItem) field1Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *AckNotificationItem) field2Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.StringLengthNocopy(p.SourceType)
 	return l
 }
 
@@ -1431,7 +1640,7 @@ func (p *AckNotificationsReq) FastRead(buf []byte) (int, error) {
 	var fieldTypeId thrift.TType
 	var fieldId int16
 	var issetAgentId bool = false
-	var issetNotificationIds bool = false
+	var issetItems bool = false
 	for {
 		fieldTypeId, fieldId, l, err = thrift.Binary.ReadFieldBegin(buf[offset:])
 		offset += l
@@ -1464,7 +1673,7 @@ func (p *AckNotificationsReq) FastRead(buf []byte) (int, error) {
 				if err != nil {
 					goto ReadFieldError
 				}
-				issetNotificationIds = true
+				issetItems = true
 			} else {
 				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 				offset += l
@@ -1486,7 +1695,7 @@ func (p *AckNotificationsReq) FastRead(buf []byte) (int, error) {
 		goto RequiredFieldNotSetError
 	}
 
-	if !issetNotificationIds {
+	if !issetItems {
 		fieldId = 2
 		goto RequiredFieldNotSetError
 	}
@@ -1523,19 +1732,20 @@ func (p *AckNotificationsReq) FastReadField2(buf []byte) (int, error) {
 	if err != nil {
 		return offset, err
 	}
-	_field := make([]int64, 0, size)
+	_field := make([]*AckNotificationItem, 0, size)
+	values := make([]AckNotificationItem, size)
 	for i := 0; i < size; i++ {
-		var _elem int64
-		if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		_elem := &values[i]
+		_elem.InitDefault()
+		if l, err := _elem.FastRead(buf[offset:]); err != nil {
 			return offset, err
 		} else {
 			offset += l
-			_elem = v
 		}
 
 		_field = append(_field, _elem)
 	}
-	p.NotificationIds = _field
+	p.Items = _field
 	return offset, nil
 }
 
@@ -1576,11 +1786,11 @@ func (p *AckNotificationsReq) fastWriteField2(buf []byte, w thrift.NocopyWriter)
 	listBeginOffset := offset
 	offset += thrift.Binary.ListBeginLength()
 	var length int
-	for _, v := range p.NotificationIds {
+	for _, v := range p.Items {
 		length++
-		offset += thrift.Binary.WriteI64(buf[offset:], v)
+		offset += v.FastWriteNocopy(buf[offset:], w)
 	}
-	thrift.Binary.WriteListBegin(buf[listBeginOffset:], thrift.I64, length)
+	thrift.Binary.WriteListBegin(buf[listBeginOffset:], thrift.STRUCT, length)
 	return offset
 }
 
@@ -1595,8 +1805,10 @@ func (p *AckNotificationsReq) field2Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.ListBeginLength()
-	l +=
-		thrift.Binary.I64Length() * len(p.NotificationIds)
+	for _, v := range p.Items {
+		_ = v
+		l += v.BLength()
+	}
 	return l
 }
 

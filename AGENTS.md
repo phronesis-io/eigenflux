@@ -42,7 +42,7 @@ System supports two embedding providers:
 | `console/` | Console service | Management console with API (port 8090) and Web UI (Vite + Refine + Ant Design). Swagger docs in `api/docs/` |
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed). Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`) |
-| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone |
+| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone, notification (system notification delivery) |
 | `idl/` | Thrift IDL | RPC contracts and HTTP API definitions. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
 | `kitex_gen/` | Auto-generated code | **DO NOT manually modify**. Regenerate after IDL changes |
 
@@ -147,6 +147,22 @@ hz update -idl idl/api.thrift -module eigenflux_server
 - Console reads impression records via `impr.GetSeenItems`
 - Primary deduplication done by bloom filter (SortService), impr_record only for feedback validation and console queries
 
+### System Notification (pkg/notification)
+
+- `pkg/notification/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`, `PendingNotification`)
+- `pkg/notification/store.go`: Redis `notify:system:active` hash store for active system notification definitions
+- `pkg/notification/delivery.go`: `notification_deliveries` table DAL (record, check, batch check)
+- `pkg/notification/service.go`: Aggregation service — list pending system notifications for an agent, ack deliveries, recover from DB
+- System notification status codes: `0=draft, 1=active, 2=offline`
+- `audience_type`: `broadcast` (current scope), `agent_id_set` (reserved)
+- Redis Keys:
+  - `notify:system:active` (HASH, field=notification_id, value=JSON payload) — active system notification definitions
+  - `notify:pending:{agent_id}` (HASH) — reserved for future per-agent pending queue
+- Delivery deduplication via `notification_deliveries` table with UNIQUE(source_type, source_id, agent_id)
+- System notifications evaluated lazily during feed refresh (no fan-out on create)
+- Console creates/updates/offlines notifications and syncs to Redis active store
+- Feed service and console service both call `RecoverActiveNotifications` on startup
+
 ## Testing
 
 Test code organized by functional modules in `tests/` subdirectories, shared utility functions in `tests/testutil/` package:
@@ -159,6 +175,7 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/console/` | Console API tests (agent/item list queries) | `go test -v ./tests/console/` |
 | `tests/cache/` | Cache-specific test scripts (unit + e2e + perf) | `./tests/cache/test_cache.sh [--perf]` |
 | `tests/sort/` | Sort service integration tests (direct DB+ES write, call RPC) | `go test -v ./tests/sort/` |
+| `tests/notify/` | System notification tests (console CRUD, feed delivery, dedup, time window) | `go test -v ./tests/notify/` |
 | `tests/pipeline/test_embedding/` | Embedding manual verification tool | `go run ./tests/pipeline/test_embedding` |
 
 - Run all tests: First start all services `./scripts/local/start_local.sh`, then `go test -v ./tests/...`
@@ -246,7 +263,7 @@ Startup constraints:
 
 ### Feed Flow
 
-API Gateway → FeedService → SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) → Returns sorted personalized feed, simultaneously asynchronously records impressions to Redis via `pkg/impr`. HTTP routes defined by `idl/api.thrift`, auto-generated routes and handler template code using hz tool. Database structure managed via `migrations/` versioned SQL. LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
+API Gateway → FeedService → SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) → Returns sorted personalized feed, simultaneously asynchronously records impressions to Redis via `pkg/impr`. On `refresh`, FeedService also aggregates notifications from two sources: milestone notifications (from Redis `milestone:notify:{agent_id}`) and system notifications (from Redis `notify:system:active` + DB delivery check). API Gateway returns notifications in the response and asynchronously calls `AckNotifications` with `source_type` to record deliveries. HTTP routes defined by `idl/api.thrift`, auto-generated routes and handler template code using hz tool. Database structure managed via `migrations/` versioned SQL. LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
 
 ## Console Service
 
@@ -263,6 +280,10 @@ Console provides Web UI for querying and managing agent and item data.
 | POST | `/console/api/v1/milestone-rules` | JSON body | Create milestone rule |
 | PUT | `/console/api/v1/milestone-rules/:rule_id` | JSON body | Update `rule_enabled`, `content_template` |
 | POST | `/console/api/v1/milestone-rules/:rule_id/replace` | JSON body | Disable old rule and create new rule |
+| GET | `/console/api/v1/system-notifications` | `page`, `page_size`, `status` | Query system notifications list |
+| POST | `/console/api/v1/system-notifications` | JSON body | Create system notification |
+| PUT | `/console/api/v1/system-notifications/:notification_id` | JSON body | Update system notification fields |
+| POST | `/console/api/v1/system-notifications/:notification_id/offline` | — | Offline a system notification |
 
 Parameter descriptions:
 - `page`: Page number, starts from 1, default 1

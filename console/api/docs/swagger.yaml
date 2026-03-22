@@ -96,6 +96,28 @@ definitions:
       msg:
         type: string
     type: object
+  console_api_biz_handler_eigenflux_console.ListSystemNotificationsData:
+    properties:
+      notifications:
+        items:
+          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console_api_biz_handler_eigenflux_console.ListSystemNotificationsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListSystemNotificationsData'
+      msg:
+        type: string
+    type: object
   console_api_biz_handler_eigenflux_console.MilestoneRuleData:
     properties:
       rule:
@@ -143,6 +165,45 @@ definitions:
       msg:
         type: string
     type: object
+  console_api_biz_handler_eigenflux_console.SystemNotificationData:
+    properties:
+      notification:
+        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationInfo'
+    type: object
+  console_api_biz_handler_eigenflux_console.SystemNotificationInfo:
+    properties:
+      audience_expression:
+        type: string
+      audience_type:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: integer
+      end_at:
+        type: integer
+      notification_id:
+        type: string
+      offline_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
+      updated_at:
+        type: integer
+    type: object
+  console_api_biz_handler_eigenflux_console.SystemNotificationResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationData'
+      msg:
+        type: string
+    type: object
   console_api_biz_handler_eigenflux_console.createMilestoneRuleReq:
     properties:
       content_template:
@@ -153,6 +214,19 @@ definitions:
         type: boolean
       threshold:
         type: integer
+    type: object
+  console_api_biz_handler_eigenflux_console.createSystemNotificationReq:
+    properties:
+      content:
+        type: string
+      end_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
     type: object
   console_api_biz_handler_eigenflux_console.replaceMilestoneRuleReq:
     properties:
@@ -171,6 +245,19 @@ definitions:
         type: string
       rule_enabled:
         type: boolean
+    type: object
+  console_api_biz_handler_eigenflux_console.updateSystemNotificationReq:
+    properties:
+      content:
+        type: string
+      end_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
     type: object
   eigenflux_server_console_api_biz_model_eigenflux_console.ConsoleItemInfo:
     properties:
@@ -431,6 +518,100 @@ paths:
           schema:
             $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleResp'
       summary: Replace milestone rule
+      tags:
+      - console
+  /console/api/v1/system-notifications:
+    get:
+      description: Returns a paginated list of system notifications with optional
+        status filter
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by status (0=draft, 1=active, 2=offline)
+        in: query
+        name: status
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListSystemNotificationsResp'
+      summary: List system notifications
+      tags:
+      - console
+    post:
+      consumes:
+      - application/json
+      description: Creates a new system notification
+      parameters:
+      - description: Create request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.createSystemNotificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp'
+      summary: Create system notification
+      tags:
+      - console
+  /console/api/v1/system-notifications/{notification_id}:
+    put:
+      consumes:
+      - application/json
+      description: Updates fields of an existing system notification
+      parameters:
+      - description: Notification ID
+        in: path
+        name: notification_id
+        required: true
+        type: integer
+      - description: Update request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.updateSystemNotificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp'
+      summary: Update system notification
+      tags:
+      - console
+  /console/api/v1/system-notifications/{notification_id}/offline:
+    post:
+      description: Sets a system notification to offline status
+      parameters:
+      - description: Notification ID
+        in: path
+        name: notification_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.SystemNotificationResp'
+      summary: Offline system notification
       tags:
       - console
 swagger: "2.0"

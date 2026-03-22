@@ -17,6 +17,7 @@ import (
 	"eigenflux_server/pkg/impr"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/milestone"
+	"eigenflux_server/pkg/notification"
 	itemDal "eigenflux_server/rpc/item/dal"
 )
 
@@ -25,14 +26,16 @@ type FeedServiceImpl struct {
 	feedCache    *feedcache.FeedCache
 	config       *config.Config
 	milestoneSvc *milestone.Service
+	notifSvc     *notification.Service
 }
 
-func NewFeedServiceImpl(cfg *config.Config, milestoneSvc *milestone.Service) *FeedServiceImpl {
+func NewFeedServiceImpl(cfg *config.Config, milestoneSvc *milestone.Service, notifSvc *notification.Service) *FeedServiceImpl {
 	return &FeedServiceImpl{
 		bloomFilter:  bloomfilter.NewBloomFilter(db.RDB),
 		feedCache:    feedcache.NewFeedCache(db.RDB),
 		config:       cfg,
 		milestoneSvc: milestoneSvc,
+		notifSvc:     notifSvc,
 	}
 }
 
@@ -84,17 +87,44 @@ func (s *FeedServiceImpl) AckNotifications(ctx context.Context, req *feed.AckNot
 			BaseResp: &base.BaseResp{Code: 400, Msg: "nil request"},
 		}, nil
 	}
-	if len(req.NotificationIds) == 0 || s.milestoneSvc == nil {
+	if len(req.Items) == 0 {
 		return &feed.AckNotificationsResp{
 			BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 		}, nil
 	}
 
-	if err := s.milestoneSvc.MarkNotified(ctx, req.AgentId, req.NotificationIds); err != nil {
-		log.Printf("[Feed] Failed to ack milestone notifications for agent %d: %v", req.AgentId, err)
-		return &feed.AckNotificationsResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to ack milestone notifications"},
-		}, nil
+	// Separate by source type
+	var milestoneIDs []int64
+	var systemItems []notification.AckItem
+	for _, item := range req.Items {
+		if item == nil {
+			continue
+		}
+		switch item.SourceType {
+		case notification.SourceTypeMilestone:
+			milestoneIDs = append(milestoneIDs, item.NotificationId)
+		case notification.SourceTypeSystem:
+			systemItems = append(systemItems, notification.AckItem{
+				SourceType: notification.SourceTypeSystem,
+				SourceID:   item.NotificationId,
+			})
+		default:
+			log.Printf("[Feed] Unknown source_type in ack: %s", item.SourceType)
+		}
+	}
+
+	// Ack milestone notifications
+	if len(milestoneIDs) > 0 && s.milestoneSvc != nil {
+		if err := s.milestoneSvc.MarkNotified(ctx, req.AgentId, milestoneIDs); err != nil {
+			log.Printf("[Feed] Failed to ack milestone notifications for agent %d: %v", req.AgentId, err)
+		}
+	}
+
+	// Ack system notifications via unified delivery table
+	if len(systemItems) > 0 && s.notifSvc != nil {
+		if err := s.notifSvc.AckNotifications(ctx, req.AgentId, systemItems); err != nil {
+			log.Printf("[Feed] Failed to ack system notifications for agent %d: %v", req.AgentId, err)
+		}
 	}
 
 	return &feed.AckNotificationsResp{
@@ -382,31 +412,52 @@ func (s *FeedServiceImpl) attachNotifications(ctx context.Context, agentID int64
 		resp.Notifications = []*feed.Notification{}
 		return
 	}
-	if s.milestoneSvc == nil {
-		resp.Notifications = []*feed.Notification{}
-		return
-	}
 
-	notifications, err := s.milestoneSvc.ListNotifications(ctx, agentID)
-	if err != nil {
-		log.Printf("[Feed] Failed to list milestone notifications for agent %d: %v", agentID, err)
-		resp.Notifications = []*feed.Notification{}
-		return
-	}
+	var rpcNotifications []*feed.Notification
 
-	rpcNotifications := make([]*feed.Notification, 0, len(notifications))
-	for _, notification := range notifications {
-		eventID, err := strconv.ParseInt(notification.NotificationID, 10, 64)
+	// Milestone notifications from Redis
+	if s.milestoneSvc != nil {
+		milestoneNotifs, err := s.milestoneSvc.ListNotifications(ctx, agentID)
 		if err != nil {
-			log.Printf("[Feed] Invalid milestone notification id %q for agent %d: %v", notification.NotificationID, agentID, err)
-			continue
+			log.Printf("[Feed] Failed to list milestone notifications for agent %d: %v", agentID, err)
+		} else {
+			for _, n := range milestoneNotifs {
+				eventID, err := strconv.ParseInt(n.NotificationID, 10, 64)
+				if err != nil {
+					log.Printf("[Feed] Invalid milestone notification id %q for agent %d: %v", n.NotificationID, agentID, err)
+					continue
+				}
+				rpcNotifications = append(rpcNotifications, &feed.Notification{
+					NotificationId: eventID,
+					Type:           n.Type,
+					Content:        n.Content,
+					CreatedAt:      n.CreatedAt,
+					SourceType:     notification.SourceTypeMilestone,
+				})
+			}
 		}
-		rpcNotifications = append(rpcNotifications, &feed.Notification{
-			NotificationId: eventID,
-			Type:           notification.Type,
-			Content:        notification.Content,
-			CreatedAt:      notification.CreatedAt,
-		})
+	}
+
+	// System notifications from Redis + DB delivery check
+	if s.notifSvc != nil {
+		sysNotifs, err := s.notifSvc.ListPendingSystemNotifications(ctx, agentID)
+		if err != nil {
+			log.Printf("[Feed] Failed to list system notifications for agent %d: %v", agentID, err)
+		} else {
+			for _, n := range sysNotifs {
+				rpcNotifications = append(rpcNotifications, &feed.Notification{
+					NotificationId: n.NotificationID,
+					Type:           n.Type,
+					Content:        n.Content,
+					CreatedAt:      n.CreatedAt,
+					SourceType:     notification.SourceTypeSystem,
+				})
+			}
+		}
+	}
+
+	if rpcNotifications == nil {
+		rpcNotifications = []*feed.Notification{}
 	}
 	resp.Notifications = rpcNotifications
 }
