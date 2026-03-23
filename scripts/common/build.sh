@@ -24,7 +24,7 @@ ALL_SERVICES=(
   "feed:./rpc/feed/"
   "auth:./rpc/auth/"
   "api:./api/"
-  "console:./console/api/"
+  "console:./console/console_api/"
   "pipeline:./pipeline/"
   "cron:./pipeline/cron/"
 )
@@ -61,8 +61,8 @@ if [[ -x "$SWAG_CMD" ]]; then
   "$SWAG_CMD" init -g api/main.go -o api/docs --parseDependency --exclude console >/dev/null 2>&1 && \
     echo -e "${GREEN}✓ API gateway swagger${NC}" || echo -e "${RED}✗ API gateway swagger${NC}"
 
-  # Console API swagger (exclude api directory)
-  "$SWAG_CMD" init -g console/api/main.go -o console/api/docs --parseDependency --exclude api >/dev/null 2>&1 && \
+  # Console API swagger (run from console module directory)
+  (cd "$PROJECT_ROOT/console/console_api" && "$SWAG_CMD" init -g main.go -o docs --parseDependency) >/dev/null 2>&1 && \
     echo -e "${GREEN}✓ Console API swagger${NC}" || echo -e "${RED}✗ Console API swagger${NC}"
 else
   echo -e "${RED}swag not installed, skipping Swagger documentation generation${NC}"
@@ -84,11 +84,21 @@ for name in "${targets[@]}"; do
     exit 1
   }
   echo -ne "${CYAN}Compiling $name ...${NC} "
-  if "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" "$src" 2>&1; then
-    echo -e "${GREEN}OK${NC}"
+  if [[ "$name" == "console" ]]; then
+    # Console is an independent Go module; build from its own directory.
+    if (cd "$PROJECT_ROOT/$src" && "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" .) 2>&1; then
+      echo -e "${GREEN}OK${NC}"
+    else
+      echo -e "${RED}FAILED${NC}"
+      failed=1
+    fi
   else
-    echo -e "${RED}FAILED${NC}"
-    failed=1
+    if "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" "$src" 2>&1; then
+      echo -e "${GREEN}OK${NC}"
+    else
+      echo -e "${RED}FAILED${NC}"
+      failed=1
+    fi
   fi
 done
 

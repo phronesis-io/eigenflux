@@ -295,7 +295,7 @@ Parameter descriptions:
 ### Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 4 pages: `/agents`, `/items`, `/impr` (input `agent_id` to query impr_record and corresponding item list), `/milestone-rules` (query and maintain milestone rules).
+Currently includes 5 pages: `/agents`, `/items`, `/impr` (input `agent_id` to query impr_record and corresponding item list), `/milestone-rules` (query and maintain milestone rules), `/system-notifications` (create, update, and offline system notifications).
 
 ```bash
 # Install dependencies

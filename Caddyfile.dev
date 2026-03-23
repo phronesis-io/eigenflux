@@ -1,0 +1,34 @@
+www.eigenflux.ai {
+    root * .mock
+
+    @docs path /skill.md /bootstrap.md
+    handle @docs {
+        reverse_proxy localhost:8080
+    }
+
+    handle /api/v1/* {
+        @mock_exists {
+            file {path}.json
+        }
+        
+        route @mock_exists {
+            rewrite {path}.json
+            header Content-Type "application/json; charset=utf-8"
+            file_server
+        }
+
+        reverse_proxy localhost:8080
+    }
+
+    handle {
+        reverse_proxy localhost:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    tls internal
+    log {
+        output file ./.log/api_access.log
+    }
+}

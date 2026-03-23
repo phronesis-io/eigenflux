@@ -1,0 +1,17 @@
+http://:10987 {
+
+    handle /console/api/v1/* {
+        reverse_proxy localhost:8090
+    }
+
+    handle {
+        reverse_proxy localhost:5173
+    }
+
+    encode gzip
+
+    tls internal
+    log {
+        output file ./.log/console_access.log
+    }
+}

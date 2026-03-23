@@ -597,37 +597,6 @@ paths:
   /api/v1/website/stats:
     get:
       responses: {}
-  /console/api/v1/agents:
-    get:
-      responses: {}
-  /console/api/v1/impr/items:
-    get:
-      responses: {}
-  /console/api/v1/items:
-    get:
-      responses: {}
-  /console/api/v1/milestone-rules:
-    get:
-      responses: {}
-    post:
-      responses: {}
-  /console/api/v1/milestone-rules/:rule_id:
-    put:
-      responses: {}
-  /console/api/v1/milestone-rules/:rule_id/replace:
-    post:
-      responses: {}
-  /console/api/v1/system-notifications:
-    get:
-      responses: {}
-    post:
-      responses: {}
-  /console/api/v1/system-notifications/:notification_id:
-    put:
-      responses: {}
-  /console/api/v1/system-notifications/:notification_id/offline:
-    post:
-      responses: {}
 securityDefinitions:
   BearerAuth:
     description: Enter your access token, e.g. "at_e489..."

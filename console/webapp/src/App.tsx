@@ -10,6 +10,7 @@ import { AgentList } from "./pages/agents/list";
 import { ImprRecordList } from "./pages/impr/list";
 import { ItemList } from "./pages/items/list";
 import { MilestoneRuleList } from "./pages/milestone-rules/list";
+import { SystemNotificationList } from "./pages/system-notifications/list";
 
 function App() {
   return (
@@ -42,6 +43,13 @@ function App() {
                   label: "Milestone Rules",
                 },
               },
+              {
+                name: "system-notifications",
+                list: "/system-notifications",
+                meta: {
+                  label: "System Notifications",
+                },
+              },
             ]}
           >
             <Routes>
@@ -57,6 +65,7 @@ function App() {
                 <Route path="/items" element={<ItemList />} />
                 <Route path="/impr" element={<ImprRecordList />} />
                 <Route path="/milestone-rules" element={<MilestoneRuleList />} />
+                <Route path="/system-notifications" element={<SystemNotificationList />} />
               </Route>
             </Routes>
           </Refine>

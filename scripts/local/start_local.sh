@@ -233,7 +233,7 @@ print_service_logs() {
       app_log_dir="$PROJECT_ROOT/api/.log"
       ;;
     console)
-      app_log_dir="$PROJECT_ROOT/console/api/.log"
+      app_log_dir="$PROJECT_ROOT/console/console_api/.log"
       ;;
     pipeline)
       app_log_dir="$PROJECT_ROOT/pipeline/.log"
