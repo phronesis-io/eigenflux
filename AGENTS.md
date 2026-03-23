@@ -40,9 +40,9 @@ System supports two embedding providers:
 |-----------|---------------|-------|
 | `api/` | HTTP Gateway | Hertz-based API gateway (port 8080). hz-generated code in `handler_gen/`, `router_gen/`, `model/`. RPC clients in `clients/`. Swagger docs in `docs/` |
 | `console/` | Console subsystem | Independent Go module (`console.eigenflux.ai`). Own IDL, codegen, DAL, and build workflow. API (port 8090) and Web UI (Vite + Refine + Ant Design). Must not import root module packages |
-| `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed). Business logic in `handler.go`, data access in `dal/` |
+| `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, notification). Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`) |
-| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone, notification (system notification delivery) |
+| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone (rule evaluation and event creation for the pipeline write path) |
 | `idl/` | Thrift IDL | RPC contracts and public API definitions only. Console IDL lives under `console/console_api/idl/`. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
 | `kitex_gen/` | Auto-generated code | **DO NOT manually modify**. Regenerate after IDL changes |
 
@@ -101,7 +101,7 @@ All project documentation must be written in English.
 
 ```bash
 # RPC IDL (kitex)
-# 1. Modify idl/profile.thrift, idl/item.thrift, idl/sort.thrift, idl/feed.thrift or idl/auth.thrift
+# 1. Modify idl/profile.thrift, idl/item.thrift, idl/sort.thrift, idl/feed.thrift, idl/auth.thrift or idl/notification.thrift
 # 2. Regenerate
 export PATH=$PATH:$(go env GOPATH)/bin
 kitex -module eigenflux_server idl/profile.thrift
@@ -109,6 +109,7 @@ kitex -module eigenflux_server idl/item.thrift
 kitex -module eigenflux_server idl/sort.thrift
 kitex -module eigenflux_server idl/feed.thrift
 kitex -module eigenflux_server idl/auth.thrift
+kitex -module eigenflux_server idl/notification.thrift
 # 3. Update handler implementation
 # 4. go build ./...
 ```
@@ -162,21 +163,26 @@ bash scripts/generate_api.sh
 - Console reads impression records via `impr.GetSeenItems`
 - Primary deduplication done by bloom filter (SortService), impr_record only for feedback validation and console queries
 
-### System Notification (pkg/notification)
+### Notification Service (rpc/notification)
 
-- `pkg/notification/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`, `PendingNotification`)
-- `pkg/notification/store.go`: Redis `notify:system:active` hash store for active system notification definitions
-- `pkg/notification/delivery.go`: `notification_deliveries` table DAL (record, check, batch check)
-- `pkg/notification/service.go`: Aggregation service — list pending system notifications for an agent, ack deliveries, recover from DB
+Independent RPC service that aggregates and acknowledges notifications from all sources. Feed and API gateway are consumers only.
+
+- `rpc/notification/dal/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`), constants (`SourceTypeMilestone`, `SourceTypeSystem`, status codes)
+- `rpc/notification/dal/active_store.go`: Redis `notify:system:active` hash store for active system notification definitions
+- `rpc/notification/dal/delivery.go`: `notification_deliveries` table DAL (batch check, batch record)
+- `rpc/notification/dal/milestone_read.go`: Read/delete milestone notifications from Redis `milestone:notify:{agent_id}` hash, mark events notified in DB
+- `rpc/notification/handler.go`: `ListPending` aggregates milestone + system notifications; `AckNotifications` routes acks by source_type (milestone→Redis delete + DB update, system→delivery table insert)
+- `rpc/notification/main.go`: Service entry, recovers active system notifications on startup, registers as `NotificationService` via etcd
 - System notification status codes: `0=draft, 1=active, 2=offline`
 - `audience_type`: `broadcast` (current scope), `agent_id_set` (reserved)
 - Redis Keys:
   - `notify:system:active` (HASH, field=notification_id, value=JSON payload) — active system notification definitions
-  - `notify:pending:{agent_id}` (HASH) — reserved for future per-agent pending queue
+  - `milestone:notify:{agent_id}` (HASH, field=event_id, value=JSON payload) — pending milestone notifications (written by pipeline, read/deleted by notification service)
 - Delivery deduplication via `notification_deliveries` table with UNIQUE(source_type, source_id, agent_id)
 - System notifications evaluated lazily during feed refresh (no fan-out on create)
-- Console creates/updates/offlines notifications and syncs to Redis active store
-- Feed service and console service both call `RecoverActiveNotifications` on startup
+- Console creates/updates/offlines system notifications and syncs to Redis active store
+- Notification service and console service both call `RecoverActiveNotifications` on startup
+- FeedService calls `NotificationService.ListPending` to get notifications; API gateway calls `NotificationService.AckNotifications` directly (fire-and-forget) after returning feed response
 
 ## Testing
 
@@ -212,6 +218,7 @@ All ports support `.env` override; default values when not configured:
 | Sort RPC (kitex) | `SORT_RPC_PORT` | 8883 |
 | Feed RPC (kitex) | `FEED_RPC_PORT` | 8884 |
 | Auth RPC (kitex) | `AUTH_RPC_PORT` | 8886 |
+| Notification RPC (kitex) | `NOTIFICATION_RPC_PORT` | 8887 |
 | PostgreSQL (docker mapped) | `POSTGRES_PORT` | 5432 |
 | Redis (docker mapped) | `REDIS_PORT` | 6379 |
 | etcd (docker mapped) | `ETCD_PORT` | 2379 |
@@ -278,11 +285,23 @@ Startup constraints:
 
 ### Feed Flow
 
-API Gateway → FeedService → SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) → Returns sorted personalized feed, simultaneously asynchronously records impressions to Redis via `pkg/impr`. On `refresh`, FeedService also aggregates notifications from two sources: milestone notifications (from Redis `milestone:notify:{agent_id}`) and system notifications (from Redis `notify:system:active` + DB delivery check). API Gateway returns notifications in the response and asynchronously calls `AckNotifications` with `source_type` to record deliveries. HTTP routes defined by `idl/api.thrift`, auto-generated routes and handler template code using hz tool. Database structure managed via `migrations/` versioned SQL. LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
+API Gateway → FeedService → SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) → Returns sorted personalized feed, simultaneously asynchronously records impressions to Redis via `pkg/impr`. FeedService only handles content delivery; it has no notification awareness. On `refresh`, API Gateway directly calls NotificationService.ListPending (which aggregates milestone and system notifications), merges notifications into the HTTP response, and asynchronously calls NotificationService.AckNotifications to record deliveries. HTTP routes defined by `idl/api.thrift`, auto-generated routes and handler template code using hz tool. Database structure managed via `migrations/` versioned SQL. LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
 
 ## Console Service
 
-Console is an independent subsystem with its own Go module (`console.eigenflux.ai`), IDL, codegen, and build workflow. It shares the same database and Redis but has zero import dependencies on the root module.
+Console is an independent subsystem with its own Go module (`console.eigenflux.ai`), IDL, codegen, and build workflow. It shares the same database and Redis but has zero import dependencies on the root module. Console is built and deployed independently from the core services.
+
+### Console Build & Start
+
+Console has its own build and start scripts, separate from the core `scripts/common/build.sh` and `scripts/local/start_local.sh`:
+
+```bash
+# Build console only
+./console/console_api/scripts/build.sh
+
+# Build and start console
+./console/console_api/scripts/start.sh
+```
 
 ### Console Directory Structure
 
@@ -296,6 +315,8 @@ console/
       console.thrift        # Console-owned IDL (NOT in root idl/)
       base.thrift
     scripts/
+      build.sh              # Independent build (outputs to build/console)
+      start.sh              # Independent build + start
       generate_api.sh       # hz codegen (run from console/console_api/)
       generate_swagger.sh   # swag generation
     handler_gen/            # Handler implementations (all in one file per service)
@@ -437,7 +458,7 @@ After each code change, remember to add or modify test cases. Run build and e2e 
 - Test case code goes in `tests/`
 - Don't add degradation logic just to make tests pass, otherwise testing is meaningless. Let humans handle errors that can't be handled.
 - Build and tool scripts go in `scripts`
-- Build artifacts must go in `build/` directory, never in source directories. Always use `-o build/<name>` when running `go build` manually (e.g. `go build -o build/console ./console/console_api/`). Running bare `go build .` will dump a binary named after the module into the current directory — do not do this. Use `bash scripts/common/build.sh` for the standard build workflow
+- Build artifacts must go in `build/` directory, never in source directories. Always use `-o build/<name>` when running `go build` manually (e.g. `go build -o build/auth ./rpc/auth/`). Running bare `go build .` will dump a binary named after the module into the current directory — do not do this. Use `bash scripts/common/build.sh` for core services and `./console/console_api/scripts/build.sh` for console
 
 ## Documentation Updates
 After each code change, remember to check if documentation needs updating, especially README.md and CLAUDE.md. These two documents are important and must be updated promptly.

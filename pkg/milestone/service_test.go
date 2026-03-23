@@ -234,7 +234,7 @@ func TestServiceCheckCreatesEventsAndIsIdempotent(t *testing.T) {
 	assert.Equal(t, `Your Content "Portable battery sto" reached 500 consumptions. Item Id 42`, events[0].NotificationContent)
 	assert.Equal(t, `Your Content "Portable battery sto" reached 500 consumptions. Item Id 42`, events[1].NotificationContent)
 
-	notifications, err := svc.ListNotifications(ctx, 2001)
+	notifications, err := svc.notifications.List(ctx, 2001)
 	require.NoError(t, err)
 	require.Len(t, notifications, 2)
 	assert.Equal(t, "7001", notifications[0].NotificationID)
@@ -312,14 +312,16 @@ func TestServiceRecoverPendingNotificationsAndMarkNotified(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, recovered)
 
-	notifications, err := svc.ListNotifications(context.Background(), 4001)
+	notifications, err := svc.notifications.List(context.Background(), 4001)
 	require.NoError(t, err)
 	require.Len(t, notifications, 1)
 	assert.Equal(t, "8101", notifications[0].NotificationID)
 
-	require.NoError(t, svc.MarkNotified(context.Background(), 4001, []int64{8101}))
+	// Simulate ack: delete from Redis + mark notified in DB
+	require.NoError(t, svc.notifications.Delete(context.Background(), 4001, []int64{8101}))
+	require.NoError(t, milestonedal.MarkEventsNotified(context.Background(), db, []int64{8101}, 1700000000400))
 
-	notifications, err = svc.ListNotifications(context.Background(), 4001)
+	notifications, err = svc.notifications.List(context.Background(), 4001)
 	require.NoError(t, err)
 	assert.Empty(t, notifications)
 
@@ -384,7 +386,7 @@ func TestServiceRecoverPendingNotificationsWalksAllBatches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, recovered)
 
-	notifications, err := svc.ListNotifications(context.Background(), 5001)
+	notifications, err := svc.notifications.List(context.Background(), 5001)
 	require.NoError(t, err)
 	require.Len(t, notifications, 3)
 	assert.Equal(t, "8201", notifications[0].NotificationID)

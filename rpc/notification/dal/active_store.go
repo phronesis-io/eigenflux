@@ -1,20 +1,14 @@
-package notification
+package dal
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-const (
-	activeSystemKey    = "notify:system:active"
-	activeSystemTTL    = 7 * 24 * time.Hour
-	pendingKeyPrefix   = "notify:pending:"
-	pendingKeyTTL      = 7 * 24 * time.Hour
-)
+const activeSystemKey = "notify:system:active"
 
 // ActiveStore manages the `notify:system:active` Redis hash.
 type ActiveStore struct {
@@ -49,25 +43,6 @@ func payloadFromNotification(n *SystemNotification) activePayload {
 		OfflineAt:      n.OfflineAt,
 		CreatedAt:      n.CreatedAt,
 	}
-}
-
-// Put writes or updates one system notification in the active set.
-func (s *ActiveStore) Put(ctx context.Context, n *SystemNotification) error {
-	data, err := json.Marshal(payloadFromNotification(n))
-	if err != nil {
-		return fmt.Errorf("marshal active notification: %w", err)
-	}
-	field := fmt.Sprintf("%d", n.NotificationID)
-	pipe := s.rdb.TxPipeline()
-	pipe.HSet(ctx, activeSystemKey, field, data)
-	pipe.Expire(ctx, activeSystemKey, activeSystemTTL)
-	_, err = pipe.Exec(ctx)
-	return err
-}
-
-// Remove deletes one notification from the active set.
-func (s *ActiveStore) Remove(ctx context.Context, notificationID int64) error {
-	return s.rdb.HDel(ctx, activeSystemKey, fmt.Sprintf("%d", notificationID)).Err()
 }
 
 // List returns all entries in notify:system:active.
@@ -107,9 +82,6 @@ func (s *ActiveStore) ReplaceAll(ctx context.Context, notifications []SystemNoti
 			continue
 		}
 		pipe.HSet(ctx, activeSystemKey, fmt.Sprintf("%d", notifications[i].NotificationID), data)
-	}
-	if len(notifications) > 0 {
-		pipe.Expire(ctx, activeSystemKey, activeSystemTTL)
 	}
 	_, err := pipe.Exec(ctx)
 	return err

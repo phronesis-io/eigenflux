@@ -199,109 +199,6 @@ var fieldIDToName_FeedItem = map[int16]string{
 	11: "updated_at",
 }
 
-type Notification struct {
-	NotificationId int64  `thrift:"notification_id,1,required" frugal:"1,required,i64" json:"notification_id"`
-	Type           string `thrift:"type,2,required" frugal:"2,required,string" json:"type"`
-	Content        string `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
-	CreatedAt      int64  `thrift:"created_at,4,required" frugal:"4,required,i64" json:"created_at"`
-	SourceType     string `thrift:"source_type,5,required" frugal:"5,required,string" json:"source_type"`
-}
-
-func NewNotification() *Notification {
-	return &Notification{}
-}
-
-func (p *Notification) InitDefault() {
-}
-
-func (p *Notification) GetNotificationId() (v int64) {
-	return p.NotificationId
-}
-
-func (p *Notification) GetType() (v string) {
-	return p.Type
-}
-
-func (p *Notification) GetContent() (v string) {
-	return p.Content
-}
-
-func (p *Notification) GetCreatedAt() (v int64) {
-	return p.CreatedAt
-}
-
-func (p *Notification) GetSourceType() (v string) {
-	return p.SourceType
-}
-func (p *Notification) SetNotificationId(val int64) {
-	p.NotificationId = val
-}
-func (p *Notification) SetType(val string) {
-	p.Type = val
-}
-func (p *Notification) SetContent(val string) {
-	p.Content = val
-}
-func (p *Notification) SetCreatedAt(val int64) {
-	p.CreatedAt = val
-}
-func (p *Notification) SetSourceType(val string) {
-	p.SourceType = val
-}
-
-func (p *Notification) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("Notification(%+v)", *p)
-}
-
-var fieldIDToName_Notification = map[int16]string{
-	1: "notification_id",
-	2: "type",
-	3: "content",
-	4: "created_at",
-	5: "source_type",
-}
-
-type AckNotificationItem struct {
-	NotificationId int64  `thrift:"notification_id,1,required" frugal:"1,required,i64" json:"notification_id"`
-	SourceType     string `thrift:"source_type,2,required" frugal:"2,required,string" json:"source_type"`
-}
-
-func NewAckNotificationItem() *AckNotificationItem {
-	return &AckNotificationItem{}
-}
-
-func (p *AckNotificationItem) InitDefault() {
-}
-
-func (p *AckNotificationItem) GetNotificationId() (v int64) {
-	return p.NotificationId
-}
-
-func (p *AckNotificationItem) GetSourceType() (v string) {
-	return p.SourceType
-}
-func (p *AckNotificationItem) SetNotificationId(val int64) {
-	p.NotificationId = val
-}
-func (p *AckNotificationItem) SetSourceType(val string) {
-	p.SourceType = val
-}
-
-func (p *AckNotificationItem) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("AckNotificationItem(%+v)", *p)
-}
-
-var fieldIDToName_AckNotificationItem = map[int16]string{
-	1: "notification_id",
-	2: "source_type",
-}
-
 type FetchFeedReq struct {
 	AgentId int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
 	Action  *string `thrift:"action,2,optional" frugal:"2,optional,string" json:"action,omitempty"`
@@ -368,10 +265,9 @@ var fieldIDToName_FetchFeedReq = map[int16]string{
 }
 
 type FetchFeedResp struct {
-	Items         []*FeedItem     `thrift:"items,1,required" frugal:"1,required,list<FeedItem>" json:"items"`
-	HasMore       bool            `thrift:"has_more,2,required" frugal:"2,required,bool" json:"has_more"`
-	Notifications []*Notification `thrift:"notifications,3,optional" frugal:"3,optional,list<Notification>" json:"notifications,omitempty"`
-	BaseResp      *base.BaseResp  `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	Items    []*FeedItem    `thrift:"items,1,required" frugal:"1,required,list<FeedItem>" json:"items"`
+	HasMore  bool           `thrift:"has_more,2,required" frugal:"2,required,bool" json:"has_more"`
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewFetchFeedResp() *FetchFeedResp {
@@ -389,15 +285,6 @@ func (p *FetchFeedResp) GetHasMore() (v bool) {
 	return p.HasMore
 }
 
-var FetchFeedResp_Notifications_DEFAULT []*Notification
-
-func (p *FetchFeedResp) GetNotifications() (v []*Notification) {
-	if !p.IsSetNotifications() {
-		return FetchFeedResp_Notifications_DEFAULT
-	}
-	return p.Notifications
-}
-
 var FetchFeedResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *FetchFeedResp) GetBaseResp() (v *base.BaseResp) {
@@ -412,15 +299,8 @@ func (p *FetchFeedResp) SetItems(val []*FeedItem) {
 func (p *FetchFeedResp) SetHasMore(val bool) {
 	p.HasMore = val
 }
-func (p *FetchFeedResp) SetNotifications(val []*Notification) {
-	p.Notifications = val
-}
 func (p *FetchFeedResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
-}
-
-func (p *FetchFeedResp) IsSetNotifications() bool {
-	return p.Notifications != nil
 }
 
 func (p *FetchFeedResp) IsSetBaseResp() bool {
@@ -437,90 +317,11 @@ func (p *FetchFeedResp) String() string {
 var fieldIDToName_FetchFeedResp = map[int16]string{
 	1:   "items",
 	2:   "has_more",
-	3:   "notifications",
-	255: "base_resp",
-}
-
-type AckNotificationsReq struct {
-	AgentId int64                  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	Items   []*AckNotificationItem `thrift:"items,2,required" frugal:"2,required,list<AckNotificationItem>" json:"items"`
-}
-
-func NewAckNotificationsReq() *AckNotificationsReq {
-	return &AckNotificationsReq{}
-}
-
-func (p *AckNotificationsReq) InitDefault() {
-}
-
-func (p *AckNotificationsReq) GetAgentId() (v int64) {
-	return p.AgentId
-}
-
-func (p *AckNotificationsReq) GetItems() (v []*AckNotificationItem) {
-	return p.Items
-}
-func (p *AckNotificationsReq) SetAgentId(val int64) {
-	p.AgentId = val
-}
-func (p *AckNotificationsReq) SetItems(val []*AckNotificationItem) {
-	p.Items = val
-}
-
-func (p *AckNotificationsReq) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("AckNotificationsReq(%+v)", *p)
-}
-
-var fieldIDToName_AckNotificationsReq = map[int16]string{
-	1: "agent_id",
-	2: "items",
-}
-
-type AckNotificationsResp struct {
-	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
-}
-
-func NewAckNotificationsResp() *AckNotificationsResp {
-	return &AckNotificationsResp{}
-}
-
-func (p *AckNotificationsResp) InitDefault() {
-}
-
-var AckNotificationsResp_BaseResp_DEFAULT *base.BaseResp
-
-func (p *AckNotificationsResp) GetBaseResp() (v *base.BaseResp) {
-	if !p.IsSetBaseResp() {
-		return AckNotificationsResp_BaseResp_DEFAULT
-	}
-	return p.BaseResp
-}
-func (p *AckNotificationsResp) SetBaseResp(val *base.BaseResp) {
-	p.BaseResp = val
-}
-
-func (p *AckNotificationsResp) IsSetBaseResp() bool {
-	return p.BaseResp != nil
-}
-
-func (p *AckNotificationsResp) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("AckNotificationsResp(%+v)", *p)
-}
-
-var fieldIDToName_AckNotificationsResp = map[int16]string{
 	255: "base_resp",
 }
 
 type FeedService interface {
 	FetchFeed(ctx context.Context, req *FetchFeedReq) (r *FetchFeedResp, err error)
-
-	AckNotifications(ctx context.Context, req *AckNotificationsReq) (r *AckNotificationsResp, err error)
 }
 
 type FeedServiceFetchFeedArgs struct {
@@ -596,81 +397,5 @@ func (p *FeedServiceFetchFeedResult) String() string {
 }
 
 var fieldIDToName_FeedServiceFetchFeedResult = map[int16]string{
-	0: "success",
-}
-
-type FeedServiceAckNotificationsArgs struct {
-	Req *AckNotificationsReq `thrift:"req,1" frugal:"1,default,AckNotificationsReq" json:"req"`
-}
-
-func NewFeedServiceAckNotificationsArgs() *FeedServiceAckNotificationsArgs {
-	return &FeedServiceAckNotificationsArgs{}
-}
-
-func (p *FeedServiceAckNotificationsArgs) InitDefault() {
-}
-
-var FeedServiceAckNotificationsArgs_Req_DEFAULT *AckNotificationsReq
-
-func (p *FeedServiceAckNotificationsArgs) GetReq() (v *AckNotificationsReq) {
-	if !p.IsSetReq() {
-		return FeedServiceAckNotificationsArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *FeedServiceAckNotificationsArgs) SetReq(val *AckNotificationsReq) {
-	p.Req = val
-}
-
-func (p *FeedServiceAckNotificationsArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *FeedServiceAckNotificationsArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("FeedServiceAckNotificationsArgs(%+v)", *p)
-}
-
-var fieldIDToName_FeedServiceAckNotificationsArgs = map[int16]string{
-	1: "req",
-}
-
-type FeedServiceAckNotificationsResult struct {
-	Success *AckNotificationsResp `thrift:"success,0,optional" frugal:"0,optional,AckNotificationsResp" json:"success,omitempty"`
-}
-
-func NewFeedServiceAckNotificationsResult() *FeedServiceAckNotificationsResult {
-	return &FeedServiceAckNotificationsResult{}
-}
-
-func (p *FeedServiceAckNotificationsResult) InitDefault() {
-}
-
-var FeedServiceAckNotificationsResult_Success_DEFAULT *AckNotificationsResp
-
-func (p *FeedServiceAckNotificationsResult) GetSuccess() (v *AckNotificationsResp) {
-	if !p.IsSetSuccess() {
-		return FeedServiceAckNotificationsResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *FeedServiceAckNotificationsResult) SetSuccess(x interface{}) {
-	p.Success = x.(*AckNotificationsResp)
-}
-
-func (p *FeedServiceAckNotificationsResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *FeedServiceAckNotificationsResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("FeedServiceAckNotificationsResult(%+v)", *p)
-}
-
-var fieldIDToName_FeedServiceAckNotificationsResult = map[int16]string{
 	0: "success",
 }

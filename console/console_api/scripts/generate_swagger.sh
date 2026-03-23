@@ -10,5 +10,5 @@ if command -v mise &>/dev/null; then
 fi
 
 echo "Regenerating console Swagger docs..."
-$SWAG init -g main.go -o docs --parseDependency -d "$MODULE_DIR"
+$SWAG init -g main.go -o "$MODULE_DIR/docs" --parseDependency -d "$MODULE_DIR"
 echo "Done."

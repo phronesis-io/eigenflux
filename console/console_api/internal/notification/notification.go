@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"console.eigenflux.ai/internal/model"
 
@@ -15,7 +14,6 @@ import (
 
 const (
 	activeSystemKey = "notify:system:active"
-	activeSystemTTL = 7 * 24 * time.Hour
 )
 
 type activePayload struct {
@@ -54,12 +52,7 @@ func (s *ActiveStore) Put(ctx context.Context, n *model.SystemNotification) erro
 	if err != nil {
 		return fmt.Errorf("marshal active notification: %w", err)
 	}
-	field := fmt.Sprintf("%d", n.NotificationID)
-	pipe := s.rdb.TxPipeline()
-	pipe.HSet(ctx, activeSystemKey, field, data)
-	pipe.Expire(ctx, activeSystemKey, activeSystemTTL)
-	_, err = pipe.Exec(ctx)
-	return err
+	return s.rdb.HSet(ctx, activeSystemKey, fmt.Sprintf("%d", n.NotificationID), data).Err()
 }
 
 func (s *ActiveStore) Remove(ctx context.Context, notificationID int64) error {
@@ -85,9 +78,6 @@ func (s *ActiveStore) ReplaceAll(ctx context.Context, notifications []model.Syst
 			continue
 		}
 		pipe.HSet(ctx, activeSystemKey, fmt.Sprintf("%d", notifications[i].NotificationID), data)
-	}
-	if len(notifications) > 0 {
-		pipe.Expire(ctx, activeSystemKey, activeSystemTTL)
 	}
 	_, err := pipe.Exec(ctx)
 	return err

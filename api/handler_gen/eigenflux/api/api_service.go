@@ -16,6 +16,7 @@ import (
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	itemrpc "eigenflux_server/kitex_gen/eigenflux/item"
+	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
@@ -38,17 +39,44 @@ func writeJSON(c *app.RequestContext, status int, code int32, msg string, data m
 	c.JSON(status, resp)
 }
 
-func ackFeedNotifications(agentID int64, notifications []*feedrpc.Notification) {
-	if len(notifications) == 0 {
+func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
+	pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
+		AgentId: agentID,
+	})
+	if err != nil {
+		log.Printf("[API] NotificationService.ListPending error for agent %d: %v", agentID, err)
+		return nil, nil
+	}
+	if pendingResp.BaseResp != nil && pendingResp.BaseResp.Code != 0 {
+		log.Printf("[API] NotificationService.ListPending returned code %d for agent %d: %s",
+			pendingResp.BaseResp.Code, agentID, pendingResp.BaseResp.Msg)
+		return nil, nil
+	}
+
+	jsonList := make([]map[string]interface{}, 0, len(pendingResp.Notifications))
+	for _, n := range pendingResp.Notifications {
+		jsonList = append(jsonList, map[string]interface{}{
+			"notification_id": strconv.FormatInt(n.NotificationId, 10),
+			"type":            n.Type,
+			"content":         n.Content,
+			"created_at":      n.CreatedAt,
+			"source_type":     n.SourceType,
+		})
+	}
+	return pendingResp.Notifications, jsonList
+}
+
+func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotification) {
+	if len(pending) == 0 {
 		return
 	}
 
-	items := make([]*feedrpc.AckNotificationItem, 0, len(notifications))
-	for _, n := range notifications {
+	items := make([]*notificationrpc.AckNotificationItem, 0, len(pending))
+	for _, n := range pending {
 		if n == nil {
 			continue
 		}
-		items = append(items, &feedrpc.AckNotificationItem{
+		items = append(items, &notificationrpc.AckNotificationItem{
 			NotificationId: n.NotificationId,
 			SourceType:     n.SourceType,
 		})
@@ -57,17 +85,17 @@ func ackFeedNotifications(agentID int64, notifications []*feedrpc.Notification) 
 		return
 	}
 
-	go func(agentID int64, items []*feedrpc.AckNotificationItem) {
-		resp, err := clients.FeedClient.AckNotifications(context.Background(), &feedrpc.AckNotificationsReq{
+	go func(agentID int64, items []*notificationrpc.AckNotificationItem) {
+		resp, err := clients.NotificationClient.AckNotifications(context.Background(), &notificationrpc.AckNotificationsReq{
 			AgentId: agentID,
 			Items:   items,
 		})
 		if err != nil {
-			log.Printf("[API] Failed to ack feed notifications for agent %d: %v", agentID, err)
+			log.Printf("[API] Failed to ack notifications for agent %d: %v", agentID, err)
 			return
 		}
 		if resp != nil && resp.BaseResp != nil && resp.BaseResp.Code != 0 {
-			log.Printf("[API] Feed notification ack returned code %d for agent %d: %s", resp.BaseResp.Code, agentID, resp.BaseResp.Msg)
+			log.Printf("[API] Notification ack returned code %d for agent %d: %s", resp.BaseResp.Code, agentID, resp.BaseResp.Msg)
 			return
 		}
 	}(agentID, items)
@@ -519,15 +547,11 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		items = append(items, item)
 	}
 
-	notifications := make([]map[string]interface{}, 0, len(resp.Notifications))
-	for _, notification := range resp.Notifications {
-		notifications = append(notifications, map[string]interface{}{
-			"notification_id": strconv.FormatInt(notification.NotificationId, 10),
-			"type":            notification.Type,
-			"content":         notification.Content,
-			"created_at":      notification.CreatedAt,
-			"source_type":     notification.SourceType,
-		})
+	// Fetch notifications directly from NotificationService on refresh
+	notifications := make([]map[string]interface{}, 0)
+	var pendingNotifications []*notificationrpc.PendingNotification
+	if *action == "refresh" {
+		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -535,7 +559,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"has_more":      resp.HasMore,
 		"notifications": notifications,
 	})
-	ackFeedNotifications(agentID, resp.Notifications)
+	ackNotifications(agentID, pendingNotifications)
 }
 
 // GetItem returns item detail by ID

@@ -75,6 +75,7 @@ fi
 if [[ "$SKIP_START" != "true" ]]; then
   export APP_ENV=test
   ./scripts/local/start_local.sh
+  ./console/console_api/scripts/start.sh
 fi
 
 export APP_ENV=test

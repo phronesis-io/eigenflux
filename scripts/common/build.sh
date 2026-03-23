@@ -6,6 +6,7 @@ set -e
 # Usage: ./scripts/common/build.sh [service_name...]
 #   No arguments: Compile all services
 #   Specify services: ./scripts/common/build.sh profile item sort feed api pipeline
+#   Console is an independent subsystem: ./console/console_api/scripts/build.sh
 # ============================================================
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.."; pwd)"
@@ -23,8 +24,8 @@ ALL_SERVICES=(
   "sort:./rpc/sort/"
   "feed:./rpc/feed/"
   "auth:./rpc/auth/"
+  "notification:./rpc/notification/"
   "api:./api/"
-  "console:./console/console_api/"
   "pipeline:./pipeline/"
   "cron:./pipeline/cron/"
 )
@@ -60,10 +61,6 @@ if [[ -x "$SWAG_CMD" ]]; then
   # API gateway swagger (exclude console directory)
   "$SWAG_CMD" init -g api/main.go -o api/docs --parseDependency --exclude console >/dev/null 2>&1 && \
     echo -e "${GREEN}✓ API gateway swagger${NC}" || echo -e "${RED}✗ API gateway swagger${NC}"
-
-  # Console API swagger (run from console module directory)
-  (cd "$PROJECT_ROOT/console/console_api" && "$SWAG_CMD" init -g main.go -o docs --parseDependency) >/dev/null 2>&1 && \
-    echo -e "${GREEN}✓ Console API swagger${NC}" || echo -e "${RED}✗ Console API swagger${NC}"
 else
   echo -e "${RED}swag not installed, skipping Swagger documentation generation${NC}"
 fi
@@ -80,25 +77,15 @@ failed=0
 for name in "${targets[@]}"; do
   src=$(get_source "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed auth api console pipeline cron"
+    echo "Available services: profile item sort feed auth notification api pipeline cron"
     exit 1
   }
   echo -ne "${CYAN}Compiling $name ...${NC} "
-  if [[ "$name" == "console" ]]; then
-    # Console is an independent Go module; build from its own directory.
-    if (cd "$PROJECT_ROOT/$src" && "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" .) 2>&1; then
-      echo -e "${GREEN}OK${NC}"
-    else
-      echo -e "${RED}FAILED${NC}"
-      failed=1
-    fi
+  if "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" "$src" 2>&1; then
+    echo -e "${GREEN}OK${NC}"
   else
-    if "${GO_CMD[@]}" build -o "$BUILD_DIR/$name" "$src" 2>&1; then
-      echo -e "${GREEN}OK${NC}"
-    else
-      echo -e "${RED}FAILED${NC}"
-      failed=1
-    fi
+    echo -e "${RED}FAILED${NC}"
+    failed=1
   fi
 done
 

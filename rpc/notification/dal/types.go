@@ -1,6 +1,4 @@
-package notification
-
-import "errors"
+package dal
 
 const (
 	SourceTypeMilestone = "milestone"
@@ -12,15 +10,6 @@ const (
 
 	AudienceTypeBroadcast = "broadcast"
 )
-
-var (
-	ErrNotFound = errors.New("system notification not found")
-)
-
-// IDGenerator abstracts snowflake ID generation.
-type IDGenerator interface {
-	NextID() (int64, error)
-}
 
 // SystemNotification maps to the system_notifications table.
 type SystemNotification struct {
@@ -66,12 +55,3 @@ type NotificationDelivery struct {
 }
 
 func (NotificationDelivery) TableName() string { return "notification_deliveries" }
-
-// PendingNotification is the unified shape returned to the feed layer.
-type PendingNotification struct {
-	NotificationID int64
-	SourceType     string
-	Type           string
-	Content        string
-	CreatedAt      int64
-}
