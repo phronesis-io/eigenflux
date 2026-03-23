@@ -39,11 +39,11 @@ System supports two embedding providers:
 | Directory | Responsibility | Notes |
 |-----------|---------------|-------|
 | `api/` | HTTP Gateway | Hertz-based API gateway (port 8080). hz-generated code in `handler_gen/`, `router_gen/`, `model/`. RPC clients in `clients/`. Swagger docs in `docs/` |
-| `console/` | Console service | Management console with API (port 8090) and Web UI (Vite + Refine + Ant Design). Swagger docs in `api/docs/` |
+| `console/` | Console subsystem | Independent Go module (`console.eigenflux.ai`). Own IDL, codegen, DAL, and build workflow. API (port 8090) and Web UI (Vite + Refine + Ant Design). Must not import root module packages |
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed). Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`) |
 | `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone, notification (system notification delivery) |
-| `idl/` | Thrift IDL | RPC contracts and HTTP API definitions. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
+| `idl/` | Thrift IDL | RPC contracts and public API definitions only. Console IDL lives under `console/console_api/idl/`. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
 | `kitex_gen/` | Auto-generated code | **DO NOT manually modify**. Regenerate after IDL changes |
 
 All project documentation must be written in English.
@@ -121,6 +121,21 @@ hz update -idl idl/api.thrift -module eigenflux_server
 # 3. Update business logic in handler_gen
 # 4. go build ./...
 ```
+
+```bash
+# Console API IDL (hz) — run from console/console_api/, NOT from root
+# 1. Modify console/console_api/idl/console.thrift
+# 2. Regenerate
+cd console/console_api
+bash scripts/generate_api.sh
+# 3. Update business logic in handler_gen/eigenflux/console/console_service.go
+# 4. go build .
+```
+
+**hz tool constraints**:
+- Console IDL must only be generated from `console/console_api/` directory. Running `hz update` with console IDL from the project root will pollute `api/` with console code.
+- hz requires all handler functions for a service to be in one file. The file name is derived from the IDL service name (e.g. `ConsoleService` → `console_service.go`). If you split handlers across multiple files, hz will not find them and will regenerate empty stubs.
+- Swagger annotations must use uppercase `@Router`, `@Summary`, `@Param`, `@Success` etc. hz generates lowercase `@router` which swag ignores. After hz generates new handler stubs, add proper swagger annotations manually with uppercase tags.
 
 ### Database Changes
 
@@ -266,6 +281,32 @@ Startup constraints:
 API Gateway → FeedService → SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) → Returns sorted personalized feed, simultaneously asynchronously records impressions to Redis via `pkg/impr`. On `refresh`, FeedService also aggregates notifications from two sources: milestone notifications (from Redis `milestone:notify:{agent_id}`) and system notifications (from Redis `notify:system:active` + DB delivery check). API Gateway returns notifications in the response and asynchronously calls `AckNotifications` with `source_type` to record deliveries. HTTP routes defined by `idl/api.thrift`, auto-generated routes and handler template code using hz tool. Database structure managed via `migrations/` versioned SQL. LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
 
 ## Console Service
+
+Console is an independent subsystem with its own Go module (`console.eigenflux.ai`), IDL, codegen, and build workflow. It shares the same database and Redis but has zero import dependencies on the root module.
+
+### Console Directory Structure
+
+```text
+console/
+  console_api/
+    go.mod                  # module console.eigenflux.ai
+    main.go
+    .hz                     # hz config (handlerDir: handler_gen, modelDir: model, routerDir: router_gen)
+    idl/
+      console.thrift        # Console-owned IDL (NOT in root idl/)
+      base.thrift
+    scripts/
+      generate_api.sh       # hz codegen (run from console/console_api/)
+      generate_swagger.sh   # swag generation
+    handler_gen/            # Handler implementations (all in one file per service)
+    model/                  # hz-generated thrift models
+    router_gen/             # hz-generated route registration
+    internal/               # Console-owned packages (config, db, dal, model, etc.)
+    docs/                   # Swagger docs
+  webapp/                   # Vite + Refine + Ant Design frontend
+```
+
+Console must not import any root module packages (`eigenflux_server/pkg/*`, `eigenflux_server/rpc/*/dal`). If console needs a capability from the root, re-implement a minimal console-owned version under `console/console_api/internal/`.
 
 Console provides Web UI for querying and managing agent and item data.
 
