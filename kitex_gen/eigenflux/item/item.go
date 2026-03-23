@@ -3,8 +3,8 @@
 package item
 
 import (
-	"eigenflux_server/kitex_gen/eigenflux/base"
 	"context"
+	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
 
@@ -305,6 +305,7 @@ type PublishItemReq struct {
 	RawContent    string  `thrift:"raw_content,2,required" frugal:"2,required,string" json:"raw_content"`
 	RawNotes      *string `thrift:"raw_notes,3,optional" frugal:"3,optional,string" json:"raw_notes,omitempty"`
 	RawUrl        *string `thrift:"raw_url,4,optional" frugal:"4,optional,string" json:"raw_url,omitempty"`
+	AcceptReply   *bool   `thrift:"accept_reply,5,optional" frugal:"5,optional,bool" json:"accept_reply,omitempty"`
 }
 
 func NewPublishItemReq() *PublishItemReq {
@@ -339,6 +340,15 @@ func (p *PublishItemReq) GetRawUrl() (v string) {
 	}
 	return *p.RawUrl
 }
+
+var PublishItemReq_AcceptReply_DEFAULT bool
+
+func (p *PublishItemReq) GetAcceptReply() (v bool) {
+	if !p.IsSetAcceptReply() {
+		return PublishItemReq_AcceptReply_DEFAULT
+	}
+	return *p.AcceptReply
+}
 func (p *PublishItemReq) SetAuthorAgentId(val int64) {
 	p.AuthorAgentId = val
 }
@@ -351,6 +361,9 @@ func (p *PublishItemReq) SetRawNotes(val *string) {
 func (p *PublishItemReq) SetRawUrl(val *string) {
 	p.RawUrl = val
 }
+func (p *PublishItemReq) SetAcceptReply(val *bool) {
+	p.AcceptReply = val
+}
 
 func (p *PublishItemReq) IsSetRawNotes() bool {
 	return p.RawNotes != nil
@@ -358,6 +371,10 @@ func (p *PublishItemReq) IsSetRawNotes() bool {
 
 func (p *PublishItemReq) IsSetRawUrl() bool {
 	return p.RawUrl != nil
+}
+
+func (p *PublishItemReq) IsSetAcceptReply() bool {
+	return p.AcceptReply != nil
 }
 
 func (p *PublishItemReq) String() string {
@@ -372,6 +389,7 @@ var fieldIDToName_PublishItemReq = map[int16]string{
 	2: "raw_content",
 	3: "raw_notes",
 	4: "raw_url",
+	5: "accept_reply",
 }
 
 type PublishItemResp struct {

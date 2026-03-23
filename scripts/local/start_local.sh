@@ -26,6 +26,7 @@ PROFILE_RPC_PORT="${PROFILE_RPC_PORT:-8881}"
 ITEM_RPC_PORT="${ITEM_RPC_PORT:-8882}"
 SORT_RPC_PORT="${SORT_RPC_PORT:-8883}"
 FEED_RPC_PORT="${FEED_RPC_PORT:-8884}"
+PM_RPC_PORT="${PM_RPC_PORT:-8885}"
 AUTH_RPC_PORT="${AUTH_RPC_PORT:-8886}"
 
 ETCD_PORT="${ETCD_PORT:-2379}"
@@ -167,6 +168,7 @@ SERVICE_MAP=(
   "item:${ITEM_RPC_PORT}"
   "sort:${SORT_RPC_PORT}"
   "feed:${FEED_RPC_PORT}"
+  "pm:${PM_RPC_PORT}"
   "auth:${AUTH_RPC_PORT}"
   "api:${API_PORT}"
   "console:${CONSOLE_API_PORT}"
@@ -313,7 +315,7 @@ start_service() {
   local port
   port=$(get_port "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed auth api console pipeline cron"
+    echo "Available services: profile item sort feed pm auth api console pipeline cron"
     exit 1
   }
 

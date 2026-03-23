@@ -22,6 +22,7 @@ ALL_SERVICES=(
   "item:./rpc/item/"
   "sort:./rpc/sort/"
   "feed:./rpc/feed/"
+  "pm:./rpc/pm/"
   "auth:./rpc/auth/"
   "api:./api/"
   "console:./console/api/"
@@ -57,12 +58,12 @@ cd "$PROJECT_ROOT"
 echo -e "${CYAN}Regenerating Swagger documentation...${NC}"
 SWAG_CMD="$(go env GOPATH)/bin/swag"
 if [[ -x "$SWAG_CMD" ]]; then
-  # API gateway swagger (exclude console directory)
-  "$SWAG_CMD" init -g api/main.go -o api/docs --parseDependency --exclude console >/dev/null 2>&1 && \
+  # API gateway swagger (run from api directory to avoid path resolution issues)
+  (cd api && "$SWAG_CMD" init -g main.go -o docs --parseDependency --exclude ../console >/dev/null 2>&1) && \
     echo -e "${GREEN}✓ API gateway swagger${NC}" || echo -e "${RED}✗ API gateway swagger${NC}"
 
-  # Console API swagger (exclude api directory)
-  "$SWAG_CMD" init -g console/api/main.go -o console/api/docs --parseDependency --exclude api >/dev/null 2>&1 && \
+  # Console API swagger (run from console/api directory)
+  (cd console/api && "$SWAG_CMD" init -g main.go -o docs --parseDependency --exclude ../../api >/dev/null 2>&1) && \
     echo -e "${GREEN}✓ Console API swagger${NC}" || echo -e "${RED}✗ Console API swagger${NC}"
 else
   echo -e "${RED}swag not installed, skipping Swagger documentation generation${NC}"
@@ -80,7 +81,7 @@ failed=0
 for name in "${targets[@]}"; do
   src=$(get_source "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed auth api console pipeline cron"
+    echo "Available services: profile item sort feed pm auth api console pipeline cron"
     exit 1
   }
   echo -ne "${CYAN}Compiling $name ...${NC} "

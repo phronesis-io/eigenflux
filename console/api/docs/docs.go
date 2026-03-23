@@ -55,7 +55,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListAgentsDocResp"
+                            "$ref": "#/definitions/console.ListAgentsDocResp"
                         }
                     }
                 }
@@ -84,7 +84,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListAgentImprItemsResp"
+                            "$ref": "#/definitions/console.ListAgentImprItemsResp"
                         }
                     }
                 }
@@ -136,7 +136,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsResp"
+                            "$ref": "#/definitions/console.ListItemsResp"
                         }
                     }
                 }
@@ -182,7 +182,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListMilestoneRulesResp"
+                            "$ref": "#/definitions/console.ListMilestoneRulesResp"
                         }
                     }
                 }
@@ -206,7 +206,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.createMilestoneRuleReq"
+                            "$ref": "#/definitions/console.createMilestoneRuleReq"
                         }
                     }
                 ],
@@ -214,7 +214,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleResp"
+                            "$ref": "#/definitions/console.MilestoneRuleResp"
                         }
                     }
                 }
@@ -247,7 +247,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.updateMilestoneRuleReq"
+                            "$ref": "#/definitions/console.updateMilestoneRuleReq"
                         }
                     }
                 ],
@@ -255,7 +255,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleResp"
+                            "$ref": "#/definitions/console.MilestoneRuleResp"
                         }
                     }
                 }
@@ -288,7 +288,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.replaceMilestoneRuleReq"
+                            "$ref": "#/definitions/console.replaceMilestoneRuleReq"
                         }
                     }
                 ],
@@ -296,7 +296,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleResp"
+                            "$ref": "#/definitions/console.ReplaceMilestoneRuleResp"
                         }
                     }
                 }
@@ -304,7 +304,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "console_api_biz_handler_eigenflux_console.ConsoleAgentDocInfo": {
+        "console.ConsoleAgentDocInfo": {
             "type": "object",
             "properties": {
                 "agent_id": {
@@ -336,240 +336,7 @@ const docTemplate = `{
                 }
             }
         },
-        "console_api_biz_handler_eigenflux_console.ListAgentImprItemsData": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "group_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "item_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                    }
-                },
-                "urls": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ListAgentImprItemsResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListAgentImprItemsData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ListAgentsDocData": {
-            "type": "object",
-            "properties": {
-                "agents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ConsoleAgentDocInfo"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ListAgentsDocResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListAgentsDocData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ListMilestoneRulesData": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ListMilestoneRulesResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ListMilestoneRulesData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.MilestoneRuleData": {
-            "type": "object",
-            "properties": {
-                "rule": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.MilestoneRuleInfo": {
-            "type": "object",
-            "properties": {
-                "content_template": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "integer"
-                },
-                "metric_key": {
-                    "type": "string"
-                },
-                "rule_enabled": {
-                    "type": "boolean"
-                },
-                "rule_id": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "integer"
-                },
-                "updated_at": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.MilestoneRuleResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleData": {
-            "type": "object",
-            "properties": {
-                "new_rule": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo"
-                },
-                "old_rule": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.createMilestoneRuleReq": {
-            "type": "object",
-            "properties": {
-                "content_template": {
-                    "type": "string"
-                },
-                "metric_key": {
-                    "type": "string"
-                },
-                "rule_enabled": {
-                    "type": "boolean"
-                },
-                "threshold": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.replaceMilestoneRuleReq": {
-            "type": "object",
-            "properties": {
-                "content_template": {
-                    "type": "string"
-                },
-                "metric_key": {
-                    "type": "string"
-                },
-                "rule_enabled": {
-                    "type": "boolean"
-                },
-                "threshold": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console_api_biz_handler_eigenflux_console.updateMilestoneRuleReq": {
-            "type": "object",
-            "properties": {
-                "content_template": {
-                    "type": "string"
-                },
-                "rule_enabled": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "eigenflux_server_console_api_biz_model_eigenflux_console.ConsoleItemInfo": {
+        "console.ConsoleItemInfo": {
             "type": "object",
             "properties": {
                 "author_agent_id": {
@@ -631,13 +398,60 @@ const docTemplate = `{
                 }
             }
         },
-        "eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsData": {
+        "console.ListAgentImprItemsData": {
             "type": "object",
             "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "group_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "item_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ConsoleItemInfo"
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "console.ListAgentImprItemsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.ListAgentImprItemsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.ListAgentsDocData": {
+            "type": "object",
+            "properties": {
+                "agents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console.ConsoleAgentDocInfo"
                     }
                 },
                 "page": {
@@ -651,17 +465,203 @@ const docTemplate = `{
                 }
             }
         },
-        "eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsResp": {
+        "console.ListAgentsDocResp": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "integer"
                 },
                 "data": {
-                    "$ref": "#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsData"
+                    "$ref": "#/definitions/console.ListAgentsDocData"
                 },
                 "msg": {
                     "type": "string"
+                }
+            }
+        },
+        "console.ListItemsData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console.ConsoleItemInfo"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console.ListItemsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.ListItemsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.ListMilestoneRulesData": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console.MilestoneRuleInfo"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console.ListMilestoneRulesResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.ListMilestoneRulesData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.MilestoneRuleData": {
+            "type": "object",
+            "properties": {
+                "rule": {
+                    "$ref": "#/definitions/console.MilestoneRuleInfo"
+                }
+            }
+        },
+        "console.MilestoneRuleInfo": {
+            "type": "object",
+            "properties": {
+                "content_template": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "metric_key": {
+                    "type": "string"
+                },
+                "rule_enabled": {
+                    "type": "boolean"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console.MilestoneRuleResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.MilestoneRuleData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.ReplaceMilestoneRuleData": {
+            "type": "object",
+            "properties": {
+                "new_rule": {
+                    "$ref": "#/definitions/console.MilestoneRuleInfo"
+                },
+                "old_rule": {
+                    "$ref": "#/definitions/console.MilestoneRuleInfo"
+                }
+            }
+        },
+        "console.ReplaceMilestoneRuleResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.ReplaceMilestoneRuleData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.createMilestoneRuleReq": {
+            "type": "object",
+            "properties": {
+                "content_template": {
+                    "type": "string"
+                },
+                "metric_key": {
+                    "type": "string"
+                },
+                "rule_enabled": {
+                    "type": "boolean"
+                },
+                "threshold": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console.replaceMilestoneRuleReq": {
+            "type": "object",
+            "properties": {
+                "content_template": {
+                    "type": "string"
+                },
+                "metric_key": {
+                    "type": "string"
+                },
+                "rule_enabled": {
+                    "type": "boolean"
+                },
+                "threshold": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console.updateMilestoneRuleReq": {
+            "type": "object",
+            "properties": {
+                "content_template": {
+                    "type": "string"
+                },
+                "rule_enabled": {
+                    "type": "boolean"
                 }
             }
         }

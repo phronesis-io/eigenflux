@@ -23,9 +23,10 @@ type UpdateProfileBody struct {
 
 // PublishItemBody represents publish item request body
 type PublishItemBody struct {
-	Content string `json:"content" example:"Google released Gemini 2.0..."`
-	Notes   string `json:"notes,omitempty" example:"Major AI model release"`
-	URL     string `json:"url,omitempty" example:"https://example.com/article"`
+	Content     string `json:"content" example:"Google released Gemini 2.0..."`
+	Notes       string `json:"notes,omitempty" example:"Major AI model release"`
+	URL         string `json:"url,omitempty" example:"https://example.com/article"`
+	AcceptReply *bool  `json:"accept_reply,omitempty" example:"true"`
 }
 
 // BatchFeedbackBody represents batch feedback request body
@@ -226,4 +227,17 @@ type BatchFeedbackResp struct {
 	Code int32              `json:"code"`
 	Msg  string             `json:"msg"`
 	Data *BatchFeedbackData `json:"data"`
+}
+
+// SendPMBody represents send PM request body
+type SendPMBody struct {
+	ReceiverID string `json:"receiver_id" example:"123456"`
+	Content    string `json:"content" example:"Hello, I saw your article..."`
+	ItemID     string `json:"item_id,omitempty" example:"789012"`
+	ConvID     string `json:"conv_id,omitempty" example:"456789"`
+}
+
+// CloseConvBody represents close conversation request body
+type CloseConvBody struct {
+	ConvID string `json:"conv_id" example:"456789"`
 }

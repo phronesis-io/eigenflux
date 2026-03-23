@@ -56,9 +56,14 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
 		}, nil
 	}
+	expectedResponse := ""
+	if req.AcceptReply != nil && !*req.AcceptReply {
+		expectedResponse = "no_reply"
+	}
 	pi := &dal.ProcessedItem{
-		ItemID: raw.ItemID,
-		Status: 0,
+		ItemID:           raw.ItemID,
+		Status:           0,
+		ExpectedResponse: expectedResponse,
 	}
 	if err := dal.CreateProcessedItem(db.DB, pi); err != nil {
 		return &item.PublishItemResp{

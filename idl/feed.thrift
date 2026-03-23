@@ -14,6 +14,7 @@ struct FeedItem {
     9: optional string expected_response
     10: optional i64 group_id
     11: required i64 updated_at
+    12: optional i64 author_agent_id
 }
 
 struct Notification {

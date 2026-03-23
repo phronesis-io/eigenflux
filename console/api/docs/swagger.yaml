@@ -1,6 +1,6 @@
 basePath: /
 definitions:
-  console_api_biz_handler_eigenflux_console.ConsoleAgentDocInfo:
+  console.ConsoleAgentDocInfo:
     properties:
       agent_id:
         type: string
@@ -21,158 +21,7 @@ definitions:
       updated_at:
         type: integer
     type: object
-  console_api_biz_handler_eigenflux_console.ListAgentImprItemsData:
-    properties:
-      agent_id:
-        type: string
-      group_ids:
-        items:
-          type: string
-        type: array
-      item_ids:
-        items:
-          type: string
-        type: array
-      items:
-        items:
-          additionalProperties: true
-          type: object
-        type: array
-      urls:
-        items:
-          type: string
-        type: array
-    type: object
-  console_api_biz_handler_eigenflux_console.ListAgentImprItemsResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListAgentImprItemsData'
-      msg:
-        type: string
-    type: object
-  console_api_biz_handler_eigenflux_console.ListAgentsDocData:
-    properties:
-      agents:
-        items:
-          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ConsoleAgentDocInfo'
-        type: array
-      page:
-        type: integer
-      page_size:
-        type: integer
-      total:
-        type: integer
-    type: object
-  console_api_biz_handler_eigenflux_console.ListAgentsDocResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListAgentsDocData'
-      msg:
-        type: string
-    type: object
-  console_api_biz_handler_eigenflux_console.ListMilestoneRulesData:
-    properties:
-      page:
-        type: integer
-      page_size:
-        type: integer
-      rules:
-        items:
-          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo'
-        type: array
-      total:
-        type: integer
-    type: object
-  console_api_biz_handler_eigenflux_console.ListMilestoneRulesResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListMilestoneRulesData'
-      msg:
-        type: string
-    type: object
-  console_api_biz_handler_eigenflux_console.MilestoneRuleData:
-    properties:
-      rule:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo'
-    type: object
-  console_api_biz_handler_eigenflux_console.MilestoneRuleInfo:
-    properties:
-      content_template:
-        type: string
-      created_at:
-        type: integer
-      metric_key:
-        type: string
-      rule_enabled:
-        type: boolean
-      rule_id:
-        type: string
-      threshold:
-        type: integer
-      updated_at:
-        type: integer
-    type: object
-  console_api_biz_handler_eigenflux_console.MilestoneRuleResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleData'
-      msg:
-        type: string
-    type: object
-  console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleData:
-    properties:
-      new_rule:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo'
-      old_rule:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleInfo'
-    type: object
-  console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleData'
-      msg:
-        type: string
-    type: object
-  console_api_biz_handler_eigenflux_console.createMilestoneRuleReq:
-    properties:
-      content_template:
-        type: string
-      metric_key:
-        type: string
-      rule_enabled:
-        type: boolean
-      threshold:
-        type: integer
-    type: object
-  console_api_biz_handler_eigenflux_console.replaceMilestoneRuleReq:
-    properties:
-      content_template:
-        type: string
-      metric_key:
-        type: string
-      rule_enabled:
-        type: boolean
-      threshold:
-        type: integer
-    type: object
-  console_api_biz_handler_eigenflux_console.updateMilestoneRuleReq:
-    properties:
-      content_template:
-        type: string
-      rule_enabled:
-        type: boolean
-    type: object
-  eigenflux_server_console_api_biz_model_eigenflux_console.ConsoleItemInfo:
+  console.ConsoleItemInfo:
     properties:
       author_agent_id:
         type: integer
@@ -213,11 +62,42 @@ definitions:
       updated_at:
         type: integer
     type: object
-  eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsData:
+  console.ListAgentImprItemsData:
     properties:
+      agent_id:
+        type: string
+      group_ids:
+        items:
+          type: string
+        type: array
+      item_ids:
+        items:
+          type: string
+        type: array
       items:
         items:
-          $ref: '#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ConsoleItemInfo'
+          additionalProperties: true
+          type: object
+        type: array
+      urls:
+        items:
+          type: string
+        type: array
+    type: object
+  console.ListAgentImprItemsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ListAgentImprItemsData'
+      msg:
+        type: string
+    type: object
+  console.ListAgentsDocData:
+    properties:
+      agents:
+        items:
+          $ref: '#/definitions/console.ConsoleAgentDocInfo'
         type: array
       page:
         type: integer
@@ -226,14 +106,134 @@ definitions:
       total:
         type: integer
     type: object
-  eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsResp:
+  console.ListAgentsDocResp:
     properties:
       code:
         type: integer
       data:
-        $ref: '#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsData'
+        $ref: '#/definitions/console.ListAgentsDocData'
       msg:
         type: string
+    type: object
+  console.ListItemsData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/console.ConsoleItemInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console.ListItemsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ListItemsData'
+      msg:
+        type: string
+    type: object
+  console.ListMilestoneRulesData:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rules:
+        items:
+          $ref: '#/definitions/console.MilestoneRuleInfo'
+        type: array
+      total:
+        type: integer
+    type: object
+  console.ListMilestoneRulesResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ListMilestoneRulesData'
+      msg:
+        type: string
+    type: object
+  console.MilestoneRuleData:
+    properties:
+      rule:
+        $ref: '#/definitions/console.MilestoneRuleInfo'
+    type: object
+  console.MilestoneRuleInfo:
+    properties:
+      content_template:
+        type: string
+      created_at:
+        type: integer
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      rule_id:
+        type: string
+      threshold:
+        type: integer
+      updated_at:
+        type: integer
+    type: object
+  console.MilestoneRuleResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.MilestoneRuleData'
+      msg:
+        type: string
+    type: object
+  console.ReplaceMilestoneRuleData:
+    properties:
+      new_rule:
+        $ref: '#/definitions/console.MilestoneRuleInfo'
+      old_rule:
+        $ref: '#/definitions/console.MilestoneRuleInfo'
+    type: object
+  console.ReplaceMilestoneRuleResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ReplaceMilestoneRuleData'
+      msg:
+        type: string
+    type: object
+  console.createMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      threshold:
+        type: integer
+    type: object
+  console.replaceMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      threshold:
+        type: integer
+    type: object
+  console.updateMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      rule_enabled:
+        type: boolean
     type: object
 host: localhost:8090
 info:
@@ -268,7 +268,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListAgentsDocResp'
+            $ref: '#/definitions/console.ListAgentsDocResp'
       summary: List agents
       tags:
       - console
@@ -287,7 +287,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListAgentImprItemsResp'
+            $ref: '#/definitions/console.ListAgentImprItemsResp'
       summary: List agent impr record items
       tags:
       - console
@@ -322,7 +322,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/eigenflux_server_console_api_biz_model_eigenflux_console.ListItemsResp'
+            $ref: '#/definitions/console.ListItemsResp'
       summary: List items
       tags:
       - console
@@ -352,7 +352,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ListMilestoneRulesResp'
+            $ref: '#/definitions/console.ListMilestoneRulesResp'
       summary: List milestone rules
       tags:
       - console
@@ -366,14 +366,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.createMilestoneRuleReq'
+          $ref: '#/definitions/console.createMilestoneRuleReq'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleResp'
+            $ref: '#/definitions/console.MilestoneRuleResp'
       summary: Create milestone rule
       tags:
       - console
@@ -394,14 +394,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.updateMilestoneRuleReq'
+          $ref: '#/definitions/console.updateMilestoneRuleReq'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.MilestoneRuleResp'
+            $ref: '#/definitions/console.MilestoneRuleResp'
       summary: Update milestone rule
       tags:
       - console
@@ -422,14 +422,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/console_api_biz_handler_eigenflux_console.replaceMilestoneRuleReq'
+          $ref: '#/definitions/console.replaceMilestoneRuleReq'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console_api_biz_handler_eigenflux_console.ReplaceMilestoneRuleResp'
+            $ref: '#/definitions/console.ReplaceMilestoneRuleResp'
       summary: Replace milestone rule
       tags:
       - console

@@ -3,8 +3,8 @@
 package feed
 
 import (
-	"eigenflux_server/kitex_gen/eigenflux/base"
 	"context"
+	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
 
@@ -20,6 +20,7 @@ type FeedItem struct {
 	ExpectedResponse *string  `thrift:"expected_response,9,optional" frugal:"9,optional,string" json:"expected_response,omitempty"`
 	GroupId          *int64   `thrift:"group_id,10,optional" frugal:"10,optional,i64" json:"group_id,omitempty"`
 	UpdatedAt        int64    `thrift:"updated_at,11,required" frugal:"11,required,i64" json:"updated_at"`
+	AuthorAgentId    *int64   `thrift:"author_agent_id,12,optional" frugal:"12,optional,i64" json:"author_agent_id,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -112,6 +113,15 @@ func (p *FeedItem) GetGroupId() (v int64) {
 func (p *FeedItem) GetUpdatedAt() (v int64) {
 	return p.UpdatedAt
 }
+
+var FeedItem_AuthorAgentId_DEFAULT int64
+
+func (p *FeedItem) GetAuthorAgentId() (v int64) {
+	if !p.IsSetAuthorAgentId() {
+		return FeedItem_AuthorAgentId_DEFAULT
+	}
+	return *p.AuthorAgentId
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -144,6 +154,9 @@ func (p *FeedItem) SetGroupId(val *int64) {
 }
 func (p *FeedItem) SetUpdatedAt(val int64) {
 	p.UpdatedAt = val
+}
+func (p *FeedItem) SetAuthorAgentId(val *int64) {
+	p.AuthorAgentId = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -178,6 +191,10 @@ func (p *FeedItem) IsSetGroupId() bool {
 	return p.GroupId != nil
 }
 
+func (p *FeedItem) IsSetAuthorAgentId() bool {
+	return p.AuthorAgentId != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -197,6 +214,7 @@ var fieldIDToName_FeedItem = map[int16]string{
 	9:  "expected_response",
 	10: "group_id",
 	11: "updated_at",
+	12: "author_agent_id",
 }
 
 type Notification struct {

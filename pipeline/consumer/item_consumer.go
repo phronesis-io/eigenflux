@@ -131,6 +131,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	log.Printf("[ItemConsumer] processing item_id=%d", itemID)
 
+	// Preserve publisher's expected_response if set to "no_reply"
+	publisherExpResp, _ := itemDal.GetProcessedItemExpectedResponse(db.DB, itemID)
+
 	// Set status to processing (1)
 	itemDal.UpdateProcessedItemStatus(db.DB, itemID, 1)
 
@@ -255,8 +258,14 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}
 	}
 
+	// Preserve publisher's "no_reply" intent over LLM analysis
+	finalExpectedResponse := result.ExpectedResponse
+	if publisherExpResp == "no_reply" {
+		finalExpectedResponse = "no_reply"
+	}
+
 	// Update processed item with LLM results, status=3 (done)
-	itemDal.UpdateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, result.ExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, 3)
+	itemDal.UpdateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, 3)
 	log.Printf("[ItemConsumer] item %d processed: broadcast_type=%s, domains=%v, keywords=%v, group_id=%d, quality=%.2f", itemID, result.BroadcastType, result.Domains, result.Keywords, finalGroupID, result.Quality)
 
 	// Index processed item to Elasticsearch
@@ -271,7 +280,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		ExpireTime:       parseExpireTime(result.ExpireTime),
 		Geo:              result.Geo,
 		SourceType:       result.SourceType,
-		ExpectedResponse: result.ExpectedResponse,
+		ExpectedResponse: finalExpectedResponse,
 		GroupID:          finalGroupID,
 		QualityScore:     result.Quality,
 		Lang:             result.Lang,

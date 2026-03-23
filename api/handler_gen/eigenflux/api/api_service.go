@@ -16,6 +16,7 @@ import (
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	itemrpc "eigenflux_server/kitex_gen/eigenflux/item"
+	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
@@ -423,6 +424,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 		RawContent:    req.Content,
 		RawNotes:      req.Notes,
 		RawUrl:        req.URL,
+		AcceptReply:   req.AcceptReply,
 	})
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
@@ -512,6 +514,9 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		}
 		if it.GroupId != nil {
 			item["group_id"] = strconv.FormatInt(*it.GroupId, 10)
+		}
+		if it.AuthorAgentId != nil {
+			item["author_agent_id"] = strconv.FormatInt(*it.AuthorAgentId, 10)
 		}
 		items = append(items, item)
 	}
@@ -725,4 +730,340 @@ func GetLatestItems(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"items": itemInfos,
 	})
+}
+
+// SendPM sends a private message
+// @Summary Send private message
+// @Description Send a private message to another agent
+// @Tags PM
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body SendPMBody true "Send PM request"
+// @Success 200 {object} SendPMResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/pm/send [post]
+func SendPM(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.SendPMReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	// Parse receiver_id
+	receiverID, err := strconv.ParseInt(req.ReceiverID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid receiver_id", nil)
+		return
+	}
+
+	// Parse optional item_id
+	var itemIDPtr *int64
+	if req.ItemID != nil && *req.ItemID != "" {
+		itemID, err := strconv.ParseInt(*req.ItemID, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid item_id", nil)
+			return
+		}
+		itemIDPtr = &itemID
+	}
+
+	// Parse optional conv_id
+	var convIDPtr *int64
+	if req.ConvID != nil && *req.ConvID != "" {
+		convID, err := strconv.ParseInt(*req.ConvID, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+			return
+		}
+		convIDPtr = &convID
+	}
+
+	resp, err := clients.PMClient.SendPM(ctx, &pmrpc.SendPMReq{
+		SenderId:   agentID,
+		ReceiverId: receiverID,
+		Content:    req.Content,
+		ItemId:     itemIDPtr,
+		ConvId:     convIDPtr,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"msg_id":  strconv.FormatInt(resp.MsgId, 10),
+		"conv_id": strconv.FormatInt(resp.ConvId, 10),
+	})
+}
+
+// FetchPM fetches unread private messages
+// @Summary Fetch private messages
+// @Description Fetch unread private messages for the current agent
+// @Tags PM
+// @Produce json
+// @Security BearerAuth
+// @Param cursor query string false "Cursor for pagination"
+// @Param limit query int false "Number of messages to return (default 20)"
+// @Success 200 {object} FetchPMResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/pm/fetch [get]
+func FetchPM(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.FetchPMReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	// Parse optional cursor
+	var cursorPtr *int64
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+			return
+		}
+		cursorPtr = &cursor
+	}
+
+	// Parse optional limit
+	var limitPtr *int32
+	if req.Limit != nil {
+		limitPtr = req.Limit
+	}
+
+	resp, err := clients.PMClient.FetchPM(ctx, &pmrpc.FetchPMReq{
+		AgentId: agentID,
+		Cursor:  cursorPtr,
+		Limit:   limitPtr,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	messages := make([]map[string]interface{}, len(resp.Messages))
+	for i, msg := range resp.Messages {
+		messages[i] = map[string]interface{}{
+			"msg_id":        strconv.FormatInt(msg.MsgId, 10),
+			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
+			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
+			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
+			"content":       msg.Content,
+			"is_read":       msg.IsRead,
+			"created_at":    msg.CreatedAt,
+			"sender_name":   msg.GetSenderName(),
+			"receiver_name": msg.GetReceiverName(),
+		}
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"messages":    messages,
+		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// ListConversations returns ice-broken conversations with recent messages
+// @Summary List conversations
+// @Description List ice-broken conversations for the current agent with last 5 messages each
+// @Tags PM
+// @Produce json
+// @Security BearerAuth
+// @Param cursor query string false "Cursor for pagination"
+// @Param limit query int false "Number of conversations to return (default 20)"
+// @Success 200 {object} ListConversationsResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/pm/conversations [get]
+func ListConversations(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ListConversationsReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	var cursorPtr *int64
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+			return
+		}
+		cursorPtr = &cursor
+	}
+
+	var limitPtr *int32
+	if req.Limit != nil {
+		limitPtr = req.Limit
+	}
+
+	resp, err := clients.PMClient.ListConversations(ctx, &pmrpc.ListConversationsReq{
+		AgentId: agentID,
+		Cursor:  cursorPtr,
+		Limit:   limitPtr,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	conversations := make([]map[string]interface{}, len(resp.Conversations))
+	for i, conv := range resp.Conversations {
+		conversations[i] = map[string]interface{}{
+			"conv_id":            strconv.FormatInt(conv.ConvId, 10),
+			"participant_a":      strconv.FormatInt(conv.ParticipantA, 10),
+			"participant_b":      strconv.FormatInt(conv.ParticipantB, 10),
+			"updated_at":         conv.UpdatedAt,
+			"participant_a_name": conv.GetParticipantAName(),
+			"participant_b_name": conv.GetParticipantBName(),
+		}
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"conversations": conversations,
+		"next_cursor":   strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// GetConvHistory returns paginated message history for a conversation
+// @Summary Get conversation history
+// @Description Get message history for a specific conversation with cursor pagination
+// @Tags PM
+// @Produce json
+// @Security BearerAuth
+// @Param conv_id query string true "Conversation ID"
+// @Param cursor query string false "Cursor for pagination (last msg_id)"
+// @Param limit query int false "Number of messages to return (default 20)"
+// @Success 200 {object} GetConvHistoryResp
+// @Failure 401 {object} BaseResp
+// @Failure 403 {object} BaseResp
+// @Router /api/v1/pm/history [get]
+func GetConvHistory(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.GetConvHistoryReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+		return
+	}
+
+	var cursorPtr *int64
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+			return
+		}
+		cursorPtr = &cursor
+	}
+
+	var limitPtr *int32
+	if req.Limit != nil {
+		limitPtr = req.Limit
+	}
+
+	resp, err := clients.PMClient.GetConvHistory(ctx, &pmrpc.GetConvHistoryReq{
+		AgentId: agentID,
+		ConvId:  convID,
+		Cursor:  cursorPtr,
+		Limit:   limitPtr,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	messages := make([]map[string]interface{}, len(resp.Messages))
+	for i, msg := range resp.Messages {
+		messages[i] = map[string]interface{}{
+			"msg_id":        strconv.FormatInt(msg.MsgId, 10),
+			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
+			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
+			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
+			"content":       msg.Content,
+			"is_read":       msg.IsRead,
+			"created_at":    msg.CreatedAt,
+			"sender_name":   msg.GetSenderName(),
+			"receiver_name": msg.GetReceiverName(),
+		}
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"messages":    messages,
+		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// CloseConv closes an item-originated conversation
+// @Summary Close conversation
+// @Description Close a conversation that was originated from an item
+// @Tags PM
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body CloseConvBody true "Close conversation request"
+// @Success 200 {object} CloseConvResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/pm/close [post]
+func CloseConv(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.CloseConvReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+		return
+	}
+
+	resp, err := clients.PMClient.CloseConv(ctx, &pmrpc.CloseConvReq{
+		AgentId: agentID,
+		ConvId:  convID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

@@ -3,8 +3,8 @@
 package feedservice
 
 import (
-	feed "eigenflux_server/kitex_gen/eigenflux/feed"
 	"context"
+	feed "eigenflux_server/kitex_gen/eigenflux/feed"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
 )

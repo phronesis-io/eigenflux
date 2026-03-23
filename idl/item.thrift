@@ -31,6 +31,7 @@ struct PublishItemReq {
     2: required string raw_content
     3: optional string raw_notes
     4: optional string raw_url
+    5: optional bool accept_reply
 }
 
 struct PublishItemResp {

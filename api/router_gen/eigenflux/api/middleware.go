@@ -100,3 +100,37 @@ func _getwebsitestatsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _pmMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _listconnectorsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _fetchpmMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _sendpmMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listconversationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getconvhistoryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _closeconvMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

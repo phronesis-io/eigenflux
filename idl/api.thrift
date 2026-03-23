@@ -104,6 +104,7 @@ struct PublishItemReq {
     1: required string content (api.body="content")
     2: optional string notes (api.body="notes")
     3: optional string url (api.body="url")
+    4: optional bool accept_reply (api.body="accept_reply")
 }
 
 struct PublishItemData {
@@ -201,6 +202,13 @@ service ApiService {
     // Website endpoints (no auth required)
     WebsiteStatsResp GetWebsiteStats(1: WebsiteStatsReq req) (api.get="/api/v1/website/stats")
     LatestItemsResp GetLatestItems(1: LatestItemsReq req) (api.get="/api/v1/website/latest-items")
+
+    // PM endpoints (auth required)
+    SendPMResp SendPM(1: SendPMReq req) (api.post="/api/v1/pm/send")
+    FetchPMResp FetchPM(1: FetchPMReq req) (api.get="/api/v1/pm/fetch")
+    ListConversationsResp ListConversations(1: ListConversationsReq req) (api.get="/api/v1/pm/conversations")
+    GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req) (api.get="/api/v1/pm/history")
+    CloseConvResp CloseConv(1: CloseConvReq req) (api.post="/api/v1/pm/close")
 }
 
 struct FeedbackItem {
@@ -296,4 +304,99 @@ struct LatestItemsResp {
     1: required i32 code
     2: required string msg
     3: required LatestItemsData data
+}
+
+// ===== PM Structs =====
+
+struct SendPMReq {
+    1: required string receiver_id (api.body="receiver_id")
+    2: required string content (api.body="content")
+    3: optional string item_id (api.body="item_id")
+    4: optional string conv_id (api.body="conv_id")
+}
+
+struct SendPMData {
+    1: required string msg_id
+    2: required string conv_id
+}
+
+struct SendPMResp {
+    1: required i32 code
+    2: required string msg
+    3: required SendPMData data
+}
+
+struct FetchPMReq {
+    1: optional string cursor (api.query="cursor")
+    2: optional i32 limit (api.query="limit")
+}
+
+struct PMMessageData {
+    1: required string msg_id
+    2: required string conv_id
+    3: required string sender_id
+    4: required string receiver_id
+    5: required string content
+    6: required bool is_read
+    7: required i64 created_at
+}
+
+struct FetchPMData {
+    1: required list<PMMessageData> messages
+    2: required string next_cursor
+}
+
+struct FetchPMResp {
+    1: required i32 code
+    2: required string msg
+    3: required FetchPMData data
+}
+
+struct ListConversationsReq {
+    1: optional string cursor (api.query="cursor")
+    2: optional i32 limit (api.query="limit")
+}
+
+struct ConversationData {
+    1: required string conv_id
+    2: required string participant_a
+    3: required string participant_b
+    4: required i64 updated_at
+}
+
+struct ListConversationsData {
+    1: required list<ConversationData> conversations
+    2: required string next_cursor
+}
+
+struct ListConversationsResp {
+    1: required i32 code
+    2: required string msg
+    3: required ListConversationsData data
+}
+
+struct GetConvHistoryReq {
+    1: required string conv_id (api.query="conv_id")
+    2: optional string cursor (api.query="cursor")
+    3: optional i32 limit (api.query="limit")
+}
+
+struct ConvHistoryData {
+    1: required list<PMMessageData> messages
+    2: required string next_cursor
+}
+
+struct GetConvHistoryResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConvHistoryData data
+}
+
+struct CloseConvReq {
+    1: required string conv_id (api.body="conv_id")
+}
+
+struct CloseConvResp {
+    1: required i32 code
+    2: required string msg
 }

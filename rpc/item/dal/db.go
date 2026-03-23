@@ -119,6 +119,17 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 	return db.Model(&ProcessedItem{}).Where("item_id = ?", itemID).Updates(updates).Error
 }
 
+func GetProcessedItemExpectedResponse(db *gorm.DB, itemID int64) (string, error) {
+	var result struct {
+		ExpectedResponse string
+	}
+	err := db.Table("processed_items").
+		Select("COALESCE(expected_response, '') as expected_response").
+		Where("item_id = ?", itemID).
+		First(&result).Error
+	return result.ExpectedResponse, err
+}
+
 func UpdateProcessedItemStatus(db *gorm.DB, itemID int64, status int16) error {
 	return db.Model(&ProcessedItem{}).Where("item_id = ?", itemID).Updates(map[string]interface{}{
 		"status":     status,
@@ -471,4 +482,32 @@ func GetItemsByGroupID(db *gorm.DB, groupID int64) ([]*ProcessedItem, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+// BatchGetRawItemAuthors retrieves author_agent_id for multiple items
+func BatchGetRawItemAuthors(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
+	if len(itemIDs) == 0 {
+		return make(map[int64]int64), nil
+	}
+
+	var results []struct {
+		ItemID        int64
+		AuthorAgentID int64
+	}
+
+	err := db.Table("raw_items").
+		Select("item_id, author_agent_id").
+		Where("item_id IN ?", itemIDs).
+		Find(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	authorMap := make(map[int64]int64, len(results))
+	for _, r := range results {
+		authorMap[r.ItemID] = r.AuthorAgentID
+	}
+
+	return authorMap, nil
 }

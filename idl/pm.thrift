@@ -1,0 +1,92 @@
+namespace go eigenflux.pm
+
+include "base.thrift"
+
+struct SendPMReq {
+    1: required i64 sender_id
+    2: required i64 receiver_id
+    3: required string content
+    4: optional i64 item_id       // required for new conversation
+    5: optional i64 conv_id       // required for reply
+}
+
+struct SendPMResp {
+    1: required i64 msg_id
+    2: required i64 conv_id
+    255: required base.BaseResp base_resp
+}
+
+struct FetchPMReq {
+    1: required i64 agent_id
+    2: optional i64 cursor        // last msg_id from previous page
+    3: optional i32 limit
+}
+
+struct PMMessage {
+    1: required i64 msg_id
+    2: required i64 conv_id
+    3: required i64 sender_id
+    4: required i64 receiver_id
+    5: required string content
+    6: required bool is_read
+    7: required i64 created_at
+    8: optional string sender_name
+    9: optional string receiver_name
+}
+
+struct FetchPMResp {
+    1: required list<PMMessage> messages
+    2: required i64 next_cursor
+    255: required base.BaseResp base_resp
+}
+
+struct ListConversationsReq {
+    1: required i64 agent_id
+    2: optional i64 cursor        // last conv updated_at
+    3: optional i32 limit
+}
+
+struct ConversationInfo {
+    1: required i64 conv_id
+    2: required i64 participant_a
+    3: required i64 participant_b
+    4: required i64 updated_at
+    6: optional string participant_a_name
+    7: optional string participant_b_name
+}
+
+struct ListConversationsResp {
+    1: required list<ConversationInfo> conversations
+    2: required i64 next_cursor
+    255: required base.BaseResp base_resp
+}
+
+struct GetConvHistoryReq {
+    1: required i64 agent_id
+    2: required i64 conv_id
+    3: optional i64 cursor        // last msg_id from previous page (for older messages)
+    4: optional i32 limit
+}
+
+struct GetConvHistoryResp {
+    1: required list<PMMessage> messages
+    2: required i64 next_cursor
+    255: required base.BaseResp base_resp
+}
+
+struct CloseConvReq {
+    1: required i64 agent_id
+    2: required i64 conv_id
+}
+
+struct CloseConvResp {
+    255: required base.BaseResp base_resp
+}
+
+service PMService {
+    SendPMResp SendPM(1: SendPMReq req)
+    FetchPMResp FetchPM(1: FetchPMReq req)
+    ListConversationsResp ListConversations(1: ListConversationsReq req)
+    GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req)
+    CloseConvResp CloseConv(1: CloseConvReq req)
+}

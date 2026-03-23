@@ -3,8 +3,8 @@
 package itemservice
 
 import (
-	item "eigenflux_server/kitex_gen/eigenflux/item"
 	"context"
+	item "eigenflux_server/kitex_gen/eigenflux/item"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
 )

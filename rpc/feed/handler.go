@@ -311,6 +311,22 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 
 func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*item.ProcessedItem) []*feed.FeedItem {
 	var feedItems []*feed.FeedItem
+
+	// Collect item IDs for batch author lookup
+	itemIDs := make([]int64, 0, len(groupIDs))
+	for _, gid := range groupIDs {
+		if pi, ok := itemMap[gid]; ok {
+			itemIDs = append(itemIDs, pi.ItemId)
+		}
+	}
+
+	// Batch get author IDs
+	authorMap, err := itemDal.BatchGetRawItemAuthors(db.DB, itemIDs)
+	if err != nil {
+		log.Printf("[Feed] Failed to batch get authors: %v", err)
+		authorMap = make(map[int64]int64) // Continue with empty map
+	}
+
 	for _, gid := range groupIDs {
 		pi, ok := itemMap[gid]
 		if !ok {
@@ -318,7 +334,7 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 			continue
 		}
 
-		feedItems = append(feedItems, &feed.FeedItem{
+		feedItem := &feed.FeedItem{
 			ItemId:           pi.ItemId,
 			Summary:          pi.Summary,
 			BroadcastType:    pi.BroadcastType,
@@ -330,7 +346,14 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 			ExpectedResponse: pi.ExpectedResponse,
 			GroupId:          pi.GroupId,
 			UpdatedAt:        pi.UpdatedAt,
-		})
+		}
+
+		// Add author_agent_id if found
+		if authorID, found := authorMap[pi.ItemId]; found {
+			feedItem.AuthorAgentId = &authorID
+		}
+
+		feedItems = append(feedItems, feedItem)
 	}
 	return feedItems
 }

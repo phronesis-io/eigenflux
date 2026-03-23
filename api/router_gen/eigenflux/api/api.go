@@ -41,6 +41,14 @@ func Register(r *server.Hertz) {
 				_items.POST("/publish", append(_publishMw(), api.Publish)...)
 			}
 			{
+				_pm := _v1.Group("/pm", _pmMw()...)
+				_pm.POST("/close", append(_closeconvMw(), api.CloseConv)...)
+				_pm.GET("/conversations", append(_listconversationsMw(), api.ListConversations)...)
+				_pm.GET("/fetch", append(_fetchpmMw(), api.FetchPM)...)
+				_pm.GET("/history", append(_getconvhistoryMw(), api.GetConvHistory)...)
+				_pm.POST("/send", append(_sendpmMw(), api.SendPM)...)
+			}
+			{
 				_website := _v1.Group("/website", _websiteMw()...)
 				_website.GET("/latest-items", append(_getlatestitemsMw(), api.GetLatestItems)...)
 				_website.GET("/stats", append(_getwebsitestatsMw(), api.GetWebsiteStats)...)
