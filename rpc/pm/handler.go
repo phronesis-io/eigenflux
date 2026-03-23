@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
+	"eigenflux_server/rpc/pm/relations"
 	"eigenflux_server/rpc/pm/validator"
 
 	"gorm.io/gorm"
@@ -29,6 +30,12 @@ type PMServiceImpl struct {
 }
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
+	// Block check - silent success if blocked
+	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ReceiverId, req.SenderId)
+	if blocked {
+		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	}
+
 	// Case 1: New conversation (item_id provided)
 	if req.ItemId != nil && *req.ItemId > 0 {
 		return s.handleNewConversation(ctx, req)
@@ -39,9 +46,8 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 		return s.handleReply(ctx, req)
 	}
 
-	return &pm.SendPMResp{
-		BaseResp: &base.BaseResp{Code: 400, Msg: "either item_id or conv_id must be provided"},
-	}, nil
+	// Case 3: Friend-based PM (neither item_id nor conv_id)
+	return s.handleFriendPM(ctx, req)
 }
 
 func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
@@ -240,6 +246,51 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq) (*pm
 	}, nil
 }
 
+func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
+	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, req.ReceiverId)
+	if !isFriend {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not friends"}}, nil
+	}
+	participantA, participantB := req.SenderId, req.ReceiverId
+	if participantA > participantB {
+		participantA, participantB = participantB, participantA
+	}
+	existingConvID, exists, err := s.validator.GetOrCreateConvID(ctx, participantA, participantB, 0)
+	if err != nil {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to check conversation"}}, nil
+	}
+	if exists {
+		req.ConvId = &existingConvID
+		return s.handleReply(ctx, req)
+	}
+	convID, _ := s.convIDGen.NextID()
+	msgID, _ := s.msgIDGen.NextID()
+	nameMap, _ := dal.BatchGetAgentNames(db.DB, []int64{req.SenderId, req.ReceiverId})
+	nameA, nameB := nameMap[participantA], nameMap[participantB]
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		conv := &dal.Conversation{
+			ConvID: convID, ParticipantA: participantA, ParticipantB: participantB,
+			InitiatorID: req.SenderId, LastSenderID: req.SenderId, OriginType: "friend",
+			OriginID: 0, MsgCount: 1, Status: 0, ParticipantAName: nameA, ParticipantBName: nameB,
+		}
+		if err := dal.CreateConversation(tx, conv); err != nil {
+			return err
+		}
+		msg := &dal.PrivateMessage{
+			MsgID: msgID, ConvID: convID, SenderID: req.SenderId, ReceiverID: req.ReceiverId,
+			Content: req.Content, IsRead: false, SenderName: nameMap[req.SenderId], ReceiverName: nameMap[req.ReceiverId],
+		}
+		return dal.CreateMessage(tx, msg)
+	})
+	if err != nil {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create"}}, nil
+	}
+	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
+	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
+	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+
 func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.FetchPMResp, error) {
 	limit := int(req.GetLimit())
 	if limit <= 0 {
@@ -435,3 +486,215 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
+
+func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
+	// Check if either blocked
+	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
+	if blocked {
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
+	}
+	blocked, _ = relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ToUid, req.FromUid)
+	if blocked {
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
+	}
+
+	// Check mutual pending
+	mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
+	if err == nil && mutualReq != nil {
+		// Auto-accept
+		err = db.DB.Transaction(func(tx *gorm.DB) error {
+			if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
+				return err
+			}
+			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid)
+		})
+		if err != nil {
+			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
+		}
+		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
+		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+		return &pm.SendFriendRequestResp{RequestId: mutualReq.ID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	}
+
+	requestID, err := dal.CreateFriendRequest(db.DB, req.FromUid, req.ToUid)
+	if err != nil {
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
+	}
+	return &pm.SendFriendRequestResp{RequestId: requestID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq) (*pm.HandleFriendRequestResp, error) {
+	friendReq, err := dal.GetFriendRequest(db.DB, req.RequestId)
+	if err != nil {
+		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "request not found"}}, nil
+	}
+
+	switch req.Action {
+	case pm.FriendRequestAction_ACCEPT:
+		if friendReq.ToUID != req.AgentId {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
+		}
+		err = db.DB.Transaction(func(tx *gorm.DB) error {
+			if err := dal.UpdateRequestStatus(tx, req.RequestId, dal.RequestStatusAccepted); err != nil {
+				return err
+			}
+			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID)
+		})
+		if err != nil {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
+		}
+		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.FromUID)
+		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.ToUID)
+
+	case pm.FriendRequestAction_REJECT:
+		if friendReq.ToUID != req.AgentId {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
+		}
+		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusRejected); err != nil {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to reject"}}, nil
+		}
+
+	case pm.FriendRequestAction_CANCEL:
+		if friendReq.FromUID != req.AgentId {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not sender"}}, nil
+		}
+		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusCancelled); err != nil {
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to cancel"}}, nil
+		}
+
+	default:
+		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid action"}}, nil
+	}
+
+	return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.UnfriendResp, error) {
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.DeleteFriendRelation(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
+		return tx.Model(&dal.FriendRequest{}).
+			Where("((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?)) AND status = ?",
+				req.FromUid, req.ToUid, req.ToUid, req.FromUid, dal.RequestStatusAccepted).
+			Update("status", dal.RequestStatusUnfriended).Error
+	})
+	if err != nil {
+		return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+	}
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.CreateBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
+		tx.Where("((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?)) AND rel_type = ?",
+			req.FromUid, req.ToUid, req.ToUid, req.FromUid, dal.RelTypeFriend).Delete(&dal.UserRelation{})
+		return tx.Model(&dal.FriendRequest{}).
+			Where("from_uid = ? AND to_uid = ? AND status = ?", req.ToUid, req.FromUid, dal.RequestStatusPending).
+			Update("status", dal.RequestStatusCancelled).Error
+	})
+	if err != nil {
+		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+	}
+	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq) (*pm.UnblockUserResp, error) {
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.DeleteBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
+		return tx.Model(&dal.FriendRequest{}).
+			Where("from_uid = ? AND to_uid = ? AND status = ?", req.ToUid, req.FromUid, dal.RequestStatusPending).
+			Update("status", dal.RequestStatusCancelled).Error
+	})
+	if err != nil {
+		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+	}
+	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
+	return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq) (*pm.ListFriendRequestsResp, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	cursor := int(req.GetCursor())
+
+	requests, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
+	if err != nil {
+		return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
+	}
+
+	var result []*pm.FriendRequestInfo
+	if len(requests) > 0 {
+		var uids []int64
+		for _, r := range requests {
+			uids = append(uids, r.FromUID, r.ToUID)
+		}
+		nameMap, _ := dal.BatchGetAgentNames(db.DB, uids)
+		for _, r := range requests {
+			fromName := nameMap[r.FromUID]
+			toName := nameMap[r.ToUID]
+			result = append(result, &pm.FriendRequestInfo{
+				RequestId: r.ID,
+				FromUid:   r.FromUID,
+				ToUid:     r.ToUID,
+				CreatedAt: r.CreatedAt,
+				FromName:  &fromName,
+				ToName:    &toName,
+			})
+		}
+	}
+
+	var nextCursor int64
+	if len(requests) > 0 {
+		nextCursor = requests[len(requests)-1].CreatedAt
+	}
+	return &pm.ListFriendRequestsResp{Requests: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq) (*pm.ListFriendsResp, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	cursor := int(req.GetCursor())
+
+	friends, err := dal.ListFriends(db.DB, req.AgentId, cursor, limit)
+	if err != nil {
+		return &pm.ListFriendsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
+	}
+
+	var result []*pm.FriendInfo
+	for _, f := range friends {
+		result = append(result, &pm.FriendInfo{
+			AgentId:     f.AgentID,
+			AgentName:   f.AgentName,
+			FriendSince: f.FriendSince,
+		})
+	}
+
+	var nextCursor int64
+	if len(friends) > 0 {
+		nextCursor = friends[len(friends)-1].FriendSince
+	}
+	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+

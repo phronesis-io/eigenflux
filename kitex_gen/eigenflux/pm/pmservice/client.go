@@ -16,6 +16,13 @@ type Client interface {
 	ListConversations(ctx context.Context, req *pm.ListConversationsReq, callOptions ...callopt.Option) (r *pm.ListConversationsResp, err error)
 	GetConvHistory(ctx context.Context, req *pm.GetConvHistoryReq, callOptions ...callopt.Option) (r *pm.GetConvHistoryResp, err error)
 	CloseConv(ctx context.Context, req *pm.CloseConvReq, callOptions ...callopt.Option) (r *pm.CloseConvResp, err error)
+	SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq, callOptions ...callopt.Option) (r *pm.SendFriendRequestResp, err error)
+	HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq, callOptions ...callopt.Option) (r *pm.HandleFriendRequestResp, err error)
+	Unfriend(ctx context.Context, req *pm.UnfriendReq, callOptions ...callopt.Option) (r *pm.UnfriendResp, err error)
+	BlockUser(ctx context.Context, req *pm.BlockUserReq, callOptions ...callopt.Option) (r *pm.BlockUserResp, err error)
+	UnblockUser(ctx context.Context, req *pm.UnblockUserReq, callOptions ...callopt.Option) (r *pm.UnblockUserResp, err error)
+	ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq, callOptions ...callopt.Option) (r *pm.ListFriendRequestsResp, err error)
+	ListFriends(ctx context.Context, req *pm.ListFriendsReq, callOptions ...callopt.Option) (r *pm.ListFriendsResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -70,4 +77,39 @@ func (p *kPMServiceClient) GetConvHistory(ctx context.Context, req *pm.GetConvHi
 func (p *kPMServiceClient) CloseConv(ctx context.Context, req *pm.CloseConvReq, callOptions ...callopt.Option) (r *pm.CloseConvResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.CloseConv(ctx, req)
+}
+
+func (p *kPMServiceClient) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq, callOptions ...callopt.Option) (r *pm.SendFriendRequestResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SendFriendRequest(ctx, req)
+}
+
+func (p *kPMServiceClient) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq, callOptions ...callopt.Option) (r *pm.HandleFriendRequestResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.HandleFriendRequest(ctx, req)
+}
+
+func (p *kPMServiceClient) Unfriend(ctx context.Context, req *pm.UnfriendReq, callOptions ...callopt.Option) (r *pm.UnfriendResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.Unfriend(ctx, req)
+}
+
+func (p *kPMServiceClient) BlockUser(ctx context.Context, req *pm.BlockUserReq, callOptions ...callopt.Option) (r *pm.BlockUserResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.BlockUser(ctx, req)
+}
+
+func (p *kPMServiceClient) UnblockUser(ctx context.Context, req *pm.UnblockUserReq, callOptions ...callopt.Option) (r *pm.UnblockUserResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UnblockUser(ctx, req)
+}
+
+func (p *kPMServiceClient) ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq, callOptions ...callopt.Option) (r *pm.ListFriendRequestsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ListFriendRequests(ctx, req)
+}
+
+func (p *kPMServiceClient) ListFriends(ctx context.Context, req *pm.ListFriendsReq, callOptions ...callopt.Option) (r *pm.ListFriendsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ListFriends(ctx, req)
 }

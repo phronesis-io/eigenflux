@@ -48,6 +48,55 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"SendFriendRequest": kitex.NewMethodInfo(
+		sendFriendRequestHandler,
+		newPMServiceSendFriendRequestArgs,
+		newPMServiceSendFriendRequestResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"HandleFriendRequest": kitex.NewMethodInfo(
+		handleFriendRequestHandler,
+		newPMServiceHandleFriendRequestArgs,
+		newPMServiceHandleFriendRequestResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"Unfriend": kitex.NewMethodInfo(
+		unfriendHandler,
+		newPMServiceUnfriendArgs,
+		newPMServiceUnfriendResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"BlockUser": kitex.NewMethodInfo(
+		blockUserHandler,
+		newPMServiceBlockUserArgs,
+		newPMServiceBlockUserResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"UnblockUser": kitex.NewMethodInfo(
+		unblockUserHandler,
+		newPMServiceUnblockUserArgs,
+		newPMServiceUnblockUserResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ListFriendRequests": kitex.NewMethodInfo(
+		listFriendRequestsHandler,
+		newPMServiceListFriendRequestsArgs,
+		newPMServiceListFriendRequestsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ListFriends": kitex.NewMethodInfo(
+		listFriendsHandler,
+		newPMServiceListFriendsArgs,
+		newPMServiceListFriendsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -204,6 +253,132 @@ func newPMServiceCloseConvResult() interface{} {
 	return pm.NewPMServiceCloseConvResult()
 }
 
+func sendFriendRequestHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceSendFriendRequestArgs)
+	realResult := result.(*pm.PMServiceSendFriendRequestResult)
+	success, err := handler.(pm.PMService).SendFriendRequest(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceSendFriendRequestArgs() interface{} {
+	return pm.NewPMServiceSendFriendRequestArgs()
+}
+
+func newPMServiceSendFriendRequestResult() interface{} {
+	return pm.NewPMServiceSendFriendRequestResult()
+}
+
+func handleFriendRequestHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceHandleFriendRequestArgs)
+	realResult := result.(*pm.PMServiceHandleFriendRequestResult)
+	success, err := handler.(pm.PMService).HandleFriendRequest(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceHandleFriendRequestArgs() interface{} {
+	return pm.NewPMServiceHandleFriendRequestArgs()
+}
+
+func newPMServiceHandleFriendRequestResult() interface{} {
+	return pm.NewPMServiceHandleFriendRequestResult()
+}
+
+func unfriendHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceUnfriendArgs)
+	realResult := result.(*pm.PMServiceUnfriendResult)
+	success, err := handler.(pm.PMService).Unfriend(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceUnfriendArgs() interface{} {
+	return pm.NewPMServiceUnfriendArgs()
+}
+
+func newPMServiceUnfriendResult() interface{} {
+	return pm.NewPMServiceUnfriendResult()
+}
+
+func blockUserHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceBlockUserArgs)
+	realResult := result.(*pm.PMServiceBlockUserResult)
+	success, err := handler.(pm.PMService).BlockUser(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceBlockUserArgs() interface{} {
+	return pm.NewPMServiceBlockUserArgs()
+}
+
+func newPMServiceBlockUserResult() interface{} {
+	return pm.NewPMServiceBlockUserResult()
+}
+
+func unblockUserHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceUnblockUserArgs)
+	realResult := result.(*pm.PMServiceUnblockUserResult)
+	success, err := handler.(pm.PMService).UnblockUser(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceUnblockUserArgs() interface{} {
+	return pm.NewPMServiceUnblockUserArgs()
+}
+
+func newPMServiceUnblockUserResult() interface{} {
+	return pm.NewPMServiceUnblockUserResult()
+}
+
+func listFriendRequestsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceListFriendRequestsArgs)
+	realResult := result.(*pm.PMServiceListFriendRequestsResult)
+	success, err := handler.(pm.PMService).ListFriendRequests(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceListFriendRequestsArgs() interface{} {
+	return pm.NewPMServiceListFriendRequestsArgs()
+}
+
+func newPMServiceListFriendRequestsResult() interface{} {
+	return pm.NewPMServiceListFriendRequestsResult()
+}
+
+func listFriendsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceListFriendsArgs)
+	realResult := result.(*pm.PMServiceListFriendsResult)
+	success, err := handler.(pm.PMService).ListFriends(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceListFriendsArgs() interface{} {
+	return pm.NewPMServiceListFriendsArgs()
+}
+
+func newPMServiceListFriendsResult() interface{} {
+	return pm.NewPMServiceListFriendsResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -259,6 +434,76 @@ func (p *kClient) CloseConv(ctx context.Context, req *pm.CloseConvReq) (r *pm.Cl
 	_args.Req = req
 	var _result pm.PMServiceCloseConvResult
 	if err = p.c.Call(ctx, "CloseConv", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (r *pm.SendFriendRequestResp, err error) {
+	var _args pm.PMServiceSendFriendRequestArgs
+	_args.Req = req
+	var _result pm.PMServiceSendFriendRequestResult
+	if err = p.c.Call(ctx, "SendFriendRequest", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq) (r *pm.HandleFriendRequestResp, err error) {
+	var _args pm.PMServiceHandleFriendRequestArgs
+	_args.Req = req
+	var _result pm.PMServiceHandleFriendRequestResult
+	if err = p.c.Call(ctx, "HandleFriendRequest", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) Unfriend(ctx context.Context, req *pm.UnfriendReq) (r *pm.UnfriendResp, err error) {
+	var _args pm.PMServiceUnfriendArgs
+	_args.Req = req
+	var _result pm.PMServiceUnfriendResult
+	if err = p.c.Call(ctx, "Unfriend", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) BlockUser(ctx context.Context, req *pm.BlockUserReq) (r *pm.BlockUserResp, err error) {
+	var _args pm.PMServiceBlockUserArgs
+	_args.Req = req
+	var _result pm.PMServiceBlockUserResult
+	if err = p.c.Call(ctx, "BlockUser", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UnblockUser(ctx context.Context, req *pm.UnblockUserReq) (r *pm.UnblockUserResp, err error) {
+	var _args pm.PMServiceUnblockUserArgs
+	_args.Req = req
+	var _result pm.PMServiceUnblockUserResult
+	if err = p.c.Call(ctx, "UnblockUser", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq) (r *pm.ListFriendRequestsResp, err error) {
+	var _args pm.PMServiceListFriendRequestsArgs
+	_args.Req = req
+	var _result pm.PMServiceListFriendRequestsResult
+	if err = p.c.Call(ctx, "ListFriendRequests", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ListFriends(ctx context.Context, req *pm.ListFriendsReq) (r *pm.ListFriendsResp, err error) {
+	var _args pm.PMServiceListFriendsArgs
+	_args.Req = req
+	var _result pm.PMServiceListFriendsResult
+	if err = p.c.Call(ctx, "ListFriends", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
