@@ -12,7 +12,6 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	FetchFeed(ctx context.Context, req *feed.FetchFeedReq, callOptions ...callopt.Option) (r *feed.FetchFeedResp, err error)
-	AckNotifications(ctx context.Context, req *feed.AckNotificationsReq, callOptions ...callopt.Option) (r *feed.AckNotificationsResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -47,9 +46,4 @@ type kFeedServiceClient struct {
 func (p *kFeedServiceClient) FetchFeed(ctx context.Context, req *feed.FetchFeedReq, callOptions ...callopt.Option) (r *feed.FetchFeedResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.FetchFeed(ctx, req)
-}
-
-func (p *kFeedServiceClient) AckNotifications(ctx context.Context, req *feed.AckNotificationsReq, callOptions ...callopt.Option) (r *feed.AckNotificationsResp, err error) {
-	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
-	return p.kClient.AckNotifications(ctx, req)
 }

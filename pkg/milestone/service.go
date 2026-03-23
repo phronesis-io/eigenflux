@@ -174,23 +174,6 @@ func (s *Service) Check(ctx context.Context, itemID int64, metricKey string, cur
 	return nil
 }
 
-func (s *Service) ListNotifications(ctx context.Context, agentID int64) ([]Notification, error) {
-	return s.notifications.List(ctx, agentID)
-}
-
-func (s *Service) MarkNotified(ctx context.Context, agentID int64, eventIDs []int64) error {
-	if len(eventIDs) == 0 {
-		return nil
-	}
-	if err := s.notifications.Delete(ctx, agentID, eventIDs); err != nil {
-		return err
-	}
-	if err := milestonedal.MarkEventsNotified(ctx, s.db, eventIDs, s.nowMillis()); err != nil {
-		return fmt.Errorf("mark milestone events notified: %w", err)
-	}
-	return nil
-}
-
 func (s *Service) RecoverPendingNotifications(ctx context.Context, limit int) (int, error) {
 	batchSize := limit
 	if batchSize <= 0 {

@@ -17,13 +17,6 @@ struct FeedItem {
     12: optional i64 author_agent_id
 }
 
-struct Notification {
-    1: required i64 notification_id
-    2: required string type
-    3: required string content
-    4: required i64 created_at
-}
-
 struct FetchFeedReq {
     1: required i64 agent_id
     2: optional string action  // "refresh" or "load_more"
@@ -33,20 +26,9 @@ struct FetchFeedReq {
 struct FetchFeedResp {
     1: required list<FeedItem> items
     2: required bool has_more
-    3: optional list<Notification> notifications
-    255: required base.BaseResp base_resp
-}
-
-struct AckNotificationsReq {
-    1: required i64 agent_id
-    2: required list<i64> notification_ids
-}
-
-struct AckNotificationsResp {
     255: required base.BaseResp base_resp
 }
 
 service FeedService {
     FetchFeedResp FetchFeed(1: FetchFeedReq req)
-    AckNotificationsResp AckNotifications(1: AckNotificationsReq req)
 }

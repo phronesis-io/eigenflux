@@ -40,8 +40,8 @@ type Config struct {
 	SortRPCPort             int
 	FeedRPCPort             int
 	AuthRPCPort             int
-	PushRPCPort             int
 	PMRPCPort               int
+	NotificationRPCPort     int
 	LLMApiKey               string
 	LLMBaseURL              string
 	LLMModel                string
@@ -105,9 +105,9 @@ func Load() *Config {
 		ItemRPCPort:             getEnvInt("ITEM_RPC_PORT", 8882),
 		SortRPCPort:             getEnvInt("SORT_RPC_PORT", 8883),
 		FeedRPCPort:             getEnvInt("FEED_RPC_PORT", 8884),
-		AuthRPCPort:             getEnvInt("AUTH_RPC_PORT", 8886),
-		PushRPCPort:             getEnvInt("PUSH_RPC_PORT", 8887),
 		PMRPCPort:               getEnvInt("PM_RPC_PORT", 8885),
+		AuthRPCPort:             getEnvInt("AUTH_RPC_PORT", 8886),
+		NotificationRPCPort:     getEnvInt("NOTIFICATION_RPC_PORT", 8887),
 		LLMApiKey:               getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:              getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                getEnv("LLM_MODEL", "gpt-4o-mini"),

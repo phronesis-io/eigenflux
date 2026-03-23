@@ -41,6 +41,8 @@ export const consoleDataProvider = (
       resourceData = data.data.items ?? [];
     } else if (resource === "milestone-rules") {
       resourceData = data.data.rules ?? [];
+    } else if (resource === "system-notifications") {
+      resourceData = data.data.notifications ?? [];
     }
 
     return {

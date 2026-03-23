@@ -16,6 +16,7 @@
     "@refinedev/simple-rest": "^6.0.1",
     "antd": "^5.23.0",
     "axios": "^1.13.6",
+    "dayjs": "^1.11.20",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

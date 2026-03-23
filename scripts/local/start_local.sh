@@ -6,6 +6,7 @@ set -e
 # Usage: ./scripts/local/start_local.sh [service_name]
 #   No arguments: Start Docker dependencies + all microservices
 #   Specify service: ./scripts/local/start_local.sh api
+#   Console is an independent subsystem: ./console/console_api/scripts/start.sh
 # ============================================================
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.."; pwd)"
@@ -21,13 +22,13 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
 fi
 
 API_PORT="${API_PORT:-8080}"
-CONSOLE_API_PORT="${CONSOLE_API_PORT:-8090}"
 PROFILE_RPC_PORT="${PROFILE_RPC_PORT:-8881}"
 ITEM_RPC_PORT="${ITEM_RPC_PORT:-8882}"
 SORT_RPC_PORT="${SORT_RPC_PORT:-8883}"
 FEED_RPC_PORT="${FEED_RPC_PORT:-8884}"
 PM_RPC_PORT="${PM_RPC_PORT:-8885}"
 AUTH_RPC_PORT="${AUTH_RPC_PORT:-8886}"
+NOTIFICATION_RPC_PORT="${NOTIFICATION_RPC_PORT:-8887}"
 
 ETCD_PORT="${ETCD_PORT:-2379}"
 ELASTICSEARCH_HTTP_PORT="${ELASTICSEARCH_HTTP_PORT:-9200}"
@@ -170,8 +171,8 @@ SERVICE_MAP=(
   "feed:${FEED_RPC_PORT}"
   "pm:${PM_RPC_PORT}"
   "auth:${AUTH_RPC_PORT}"
+  "notification:${NOTIFICATION_RPC_PORT}"
   "api:${API_PORT}"
-  "console:${CONSOLE_API_PORT}"
   "pipeline:"
   "cron:"
 )
@@ -234,9 +235,6 @@ print_service_logs() {
     api)
       app_log_dir="$PROJECT_ROOT/api/.log"
       ;;
-    console)
-      app_log_dir="$PROJECT_ROOT/console/api/.log"
-      ;;
     pipeline)
       app_log_dir="$PROJECT_ROOT/pipeline/.log"
       ;;
@@ -273,9 +271,6 @@ wait_for_service_ready() {
   case "$name" in
     api)
       wait_for_http_ready "http://127.0.0.1:${port}/skill.md" 30
-      ;;
-    console)
-      wait_for_http_ready "http://127.0.0.1:${port}/swagger/index.html" 30
       ;;
     pipeline|cron)
       sleep 2
@@ -315,7 +310,8 @@ start_service() {
   local port
   port=$(get_port "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed pm auth api console pipeline cron"
+    echo "Available services: profile item sort feed pm auth notification api pipeline cron"
+    echo "Console is an independent subsystem: ./console/console_api/scripts/start.sh"
     exit 1
   }
 

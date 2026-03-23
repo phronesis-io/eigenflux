@@ -6,6 +6,7 @@ set -e
 # Usage: ./scripts/common/build.sh [service_name...]
 #   No arguments: Compile all services
 #   Specify services: ./scripts/common/build.sh profile item sort feed api pipeline
+#   Console is an independent subsystem: ./console/console_api/scripts/build.sh
 # ============================================================
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.."; pwd)"
@@ -24,8 +25,8 @@ ALL_SERVICES=(
   "feed:./rpc/feed/"
   "pm:./rpc/pm/"
   "auth:./rpc/auth/"
+  "notification:./rpc/notification/"
   "api:./api/"
-  "console:./console/api/"
   "pipeline:./pipeline/"
   "cron:./pipeline/cron/"
 )
@@ -61,10 +62,6 @@ if [[ -x "$SWAG_CMD" ]]; then
   # API gateway swagger (run from api directory to avoid path resolution issues)
   (cd api && "$SWAG_CMD" init -g main.go -o docs --parseDependency --exclude ../console >/dev/null 2>&1) && \
     echo -e "${GREEN}✓ API gateway swagger${NC}" || echo -e "${RED}✗ API gateway swagger${NC}"
-
-  # Console API swagger (run from console/api directory)
-  (cd console/api && "$SWAG_CMD" init -g main.go -o docs --parseDependency --exclude ../../api >/dev/null 2>&1) && \
-    echo -e "${GREEN}✓ Console API swagger${NC}" || echo -e "${RED}✗ Console API swagger${NC}"
 else
   echo -e "${RED}swag not installed, skipping Swagger documentation generation${NC}"
 fi
@@ -81,7 +78,7 @@ failed=0
 for name in "${targets[@]}"; do
   src=$(get_source "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed pm auth api console pipeline cron"
+    echo "Available services: profile item sort feed pm auth notification api pipeline cron"
     exit 1
   }
   echo -ne "${CYAN}Compiling $name ...${NC} "

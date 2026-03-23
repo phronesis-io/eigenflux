@@ -28,6 +28,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/item/itemservice"
+	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/pkg/config"
@@ -102,12 +103,22 @@ func main() {
 	}
 	log.Println("PM RPC client initialized")
 
+	notificationClient, err := notificationservice.NewClient("NotificationService",
+		client.WithResolver(r),
+		client.WithRPCTimeout(3*time.Second),
+	)
+	if err != nil {
+		log.Fatalf("failed to create notification client: %v", err)
+	}
+	log.Println("Notification RPC client initialized")
+
 	// Wire RPC clients for generated handlers
 	clients.ProfileClient = profileClient
 	clients.ItemClient = itemClient
 	clients.FeedClient = feedClient
 	clients.AuthClient = authClient
 	clients.PMClient = pmClient
+	clients.NotificationClient = notificationClient
 
 	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
 	renderedSkill, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{

@@ -20,13 +20,6 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
-	"AckNotifications": kitex.NewMethodInfo(
-		ackNotificationsHandler,
-		newFeedServiceAckNotificationsArgs,
-		newFeedServiceAckNotificationsResult,
-		false,
-		kitex.WithStreamingMode(kitex.StreamingNone),
-	),
 }
 
 var (
@@ -111,24 +104,6 @@ func newFeedServiceFetchFeedResult() interface{} {
 	return feed.NewFeedServiceFetchFeedResult()
 }
 
-func ackNotificationsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
-	realArg := arg.(*feed.FeedServiceAckNotificationsArgs)
-	realResult := result.(*feed.FeedServiceAckNotificationsResult)
-	success, err := handler.(feed.FeedService).AckNotifications(ctx, realArg.Req)
-	if err != nil {
-		return err
-	}
-	realResult.Success = success
-	return nil
-}
-func newFeedServiceAckNotificationsArgs() interface{} {
-	return feed.NewFeedServiceAckNotificationsArgs()
-}
-
-func newFeedServiceAckNotificationsResult() interface{} {
-	return feed.NewFeedServiceAckNotificationsResult()
-}
-
 type kClient struct {
 	c client.Client
 }
@@ -144,16 +119,6 @@ func (p *kClient) FetchFeed(ctx context.Context, req *feed.FetchFeedReq) (r *fee
 	_args.Req = req
 	var _result feed.FeedServiceFetchFeedResult
 	if err = p.c.Call(ctx, "FetchFeed", &_args, &_result); err != nil {
-		return
-	}
-	return _result.GetSuccess(), nil
-}
-
-func (p *kClient) AckNotifications(ctx context.Context, req *feed.AckNotificationsReq) (r *feed.AckNotificationsResp, err error) {
-	var _args feed.FeedServiceAckNotificationsArgs
-	_args.Req = req
-	var _result feed.FeedServiceAckNotificationsResult
-	if err = p.c.Call(ctx, "AckNotifications", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

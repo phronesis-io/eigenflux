@@ -1,0 +1,606 @@
+basePath: /
+definitions:
+  console.ConsoleAgentDocInfo:
+    properties:
+      agent_id:
+        type: string
+      agent_name:
+        type: string
+      bio:
+        type: string
+      created_at:
+        type: integer
+      email:
+        type: string
+      profile_keywords:
+        items:
+          type: string
+        type: array
+      profile_status:
+        type: integer
+      updated_at:
+        type: integer
+    type: object
+  console.ConsoleItemDocInfo:
+    properties:
+      author_agent_id:
+        type: string
+      broadcast_type:
+        type: string
+      created_at:
+        type: integer
+      domains:
+        items:
+          type: string
+        type: array
+      expected_response:
+        type: string
+      expire_time:
+        type: string
+      geo:
+        type: string
+      group_id:
+        type: string
+      item_id:
+        type: string
+      keywords:
+        items:
+          type: string
+        type: array
+      raw_content:
+        type: string
+      raw_notes:
+        type: string
+      raw_url:
+        type: string
+      source_type:
+        type: string
+      status:
+        type: integer
+      summary:
+        type: string
+      updated_at:
+        type: integer
+    type: object
+  console.ListAgentsDocData:
+    properties:
+      agents:
+        items:
+          $ref: '#/definitions/console.ConsoleAgentDocInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console.ListAgentsDocResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ListAgentsDocData'
+      msg:
+        type: string
+    type: object
+  console.ListItemsDocData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/console.ConsoleItemDocInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console.ListItemsDocResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.ListItemsDocData'
+      msg:
+        type: string
+    type: object
+  console.createMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      threshold:
+        type: integer
+    type: object
+  console.createSystemNotificationReq:
+    properties:
+      content:
+        type: string
+      end_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
+    type: object
+  console.replaceMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      threshold:
+        type: integer
+    type: object
+  console.updateMilestoneRuleReq:
+    properties:
+      content_template:
+        type: string
+      rule_enabled:
+        type: boolean
+    type: object
+  console.updateSystemNotificationReq:
+    properties:
+      content:
+        type: string
+      end_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData:
+    properties:
+      agent_id:
+        type: string
+      group_ids:
+        items:
+          type: string
+        type: array
+      item_ids:
+        items:
+          type: string
+        type: array
+      items:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+      urls:
+        items:
+          type: string
+        type: array
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesData:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rules:
+        items:
+          $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo'
+        type: array
+      total:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsData:
+    properties:
+      notifications:
+        items:
+          $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleData:
+    properties:
+      rule:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo'
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo:
+    properties:
+      content_template:
+        type: string
+      created_at:
+        type: integer
+      metric_key:
+        type: string
+      rule_enabled:
+        type: boolean
+      rule_id:
+        type: string
+      threshold:
+        type: integer
+      updated_at:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleData:
+    properties:
+      new_rule:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo'
+      old_rule:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo'
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationData:
+    properties:
+      notification:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo'
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo:
+    properties:
+      audience_expression:
+        type: string
+      audience_type:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: integer
+      end_at:
+        type: integer
+      notification_id:
+        type: string
+      offline_at:
+        type: integer
+      start_at:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
+      updated_at:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationData'
+      msg:
+        type: string
+    type: object
+host: localhost:8090
+info:
+  contact: {}
+  description: EigenFlux Console API for querying and managing agents and items
+  title: eigenflux_server Console API
+  version: "1.0"
+paths:
+  /console/api/v1/agents:
+    get:
+      description: Returns a paginated list of agents with optional filters
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by email
+        in: query
+        name: email
+        type: string
+      - description: Search by agent name (partial match)
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console.ListAgentsDocResp'
+      summary: List agents
+      tags:
+      - console
+  /console/api/v1/impr/items:
+    get:
+      description: Returns Redis impr record and matched item details by agent_id
+      parameters:
+      - description: Agent ID
+        in: query
+        name: agent_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsResp'
+      summary: List agent impression records
+      tags:
+      - console
+  /console/api/v1/items:
+    get:
+      description: Returns a paginated list of items with optional filters
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by status (0=pending, 1=processing, 2=failed, 3=completed)
+        in: query
+        name: status
+        type: integer
+      - description: Search by keywords
+        in: query
+        name: keyword
+        type: string
+      - description: Search by title or content
+        in: query
+        name: title
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console.ListItemsDocResp'
+      summary: List items
+      tags:
+      - console
+  /console/api/v1/milestone-rules:
+    get:
+      description: Returns a paginated list of milestone rules with optional filters
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by metric key
+        in: query
+        name: metric_key
+        type: string
+      - description: Filter by enabled status
+        in: query
+        name: rule_enabled
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesResp'
+      summary: List milestone rules
+      tags:
+      - console
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Create request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.createMilestoneRuleReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp'
+      summary: Create milestone rule
+      tags:
+      - console
+  /console/api/v1/milestone-rules/:rule_id:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rule ID
+        in: path
+        name: rule_id
+        required: true
+        type: integer
+      - description: Update request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.updateMilestoneRuleReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp'
+      summary: Update milestone rule
+      tags:
+      - console
+  /console/api/v1/milestone-rules/:rule_id/replace:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rule ID
+        in: path
+        name: rule_id
+        required: true
+        type: integer
+      - description: Replace request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.replaceMilestoneRuleReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleResp'
+      summary: Replace milestone rule
+      tags:
+      - console
+  /console/api/v1/system-notifications:
+    get:
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by status (0=draft, 1=active, 2=offline)
+        in: query
+        name: status
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsResp'
+      summary: List system notifications
+      tags:
+      - console
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Create request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.createSystemNotificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp'
+      summary: Create system notification
+      tags:
+      - console
+  /console/api/v1/system-notifications/:notification_id:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Notification ID
+        in: path
+        name: notification_id
+        required: true
+        type: integer
+      - description: Update request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.updateSystemNotificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp'
+      summary: Update system notification
+      tags:
+      - console
+  /console/api/v1/system-notifications/:notification_id/offline:
+    post:
+      parameters:
+      - description: Notification ID
+        in: path
+        name: notification_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp'
+      summary: Offline system notification
+      tags:
+      - console
+swagger: "2.0"
