@@ -12,5 +12,5 @@ if command -v mise &>/dev/null; then
 fi
 
 echo "Regenerating console API from idl/console.thrift..."
-$HZ update -idl "$MODULE_DIR/idl/console.thrift" -module eigenflux_server/console
+$HZ update -idl "$MODULE_DIR/idl/console.thrift" -module console.eigenflux.ai
 echo "Done."

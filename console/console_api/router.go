@@ -3,7 +3,7 @@
 package main
 
 import (
-	handler "console.eigenflux.ai/biz/handler"
+	handler "console.eigenflux.ai/handler_gen"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 

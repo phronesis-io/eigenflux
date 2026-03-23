@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	consoleHandler "console.eigenflux.ai/biz/handler/eigenflux/console"
+	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	_ "console.eigenflux.ai/docs"
 	"console.eigenflux.ai/internal/config"
 	"console.eigenflux.ai/internal/db"

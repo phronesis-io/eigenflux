@@ -3,7 +3,7 @@
 package router
 
 import (
-	eigenflux_console "console.eigenflux.ai/biz/router/eigenflux/console"
+	eigenflux_console "console.eigenflux.ai/router_gen/eigenflux/console"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 

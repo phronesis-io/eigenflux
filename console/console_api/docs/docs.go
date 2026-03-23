@@ -70,7 +70,7 @@ const docTemplate = `{
                 "tags": [
                     "console"
                 ],
-                "summary": "List agent impr record items",
+                "summary": "List agent impression records",
                 "parameters": [
                     {
                         "type": "integer",
@@ -84,7 +84,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.ListAgentImprItemsResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsResp"
                         }
                     }
                 }
@@ -92,7 +92,7 @@ const docTemplate = `{
         },
         "/console/api/v1/items": {
             "get": {
-                "description": "Returns a paginated list of items with optional filters by status, keyword, or title",
+                "description": "Returns a paginated list of items with optional filters",
                 "produces": [
                     "application/json"
                 ],
@@ -115,7 +115,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Filter by status: 0=Pending, 1=Processing, 2=Failed, 3=Completed",
+                        "description": "Filter by status (0=pending, 1=processing, 2=failed, 3=completed)",
                         "name": "status",
                         "in": "query"
                     },
@@ -182,13 +182,12 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.ListMilestoneRulesResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesResp"
                         }
                     }
                 }
             },
             "post": {
-                "description": "Creates a new milestone rule",
                 "consumes": [
                     "application/json"
                 ],
@@ -201,7 +200,7 @@ const docTemplate = `{
                 "summary": "Create milestone rule",
                 "parameters": [
                     {
-                        "description": "Create milestone rule request",
+                        "description": "Create request",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -214,15 +213,14 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.MilestoneRuleResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp"
                         }
                     }
                 }
             }
         },
-        "/console/api/v1/milestone-rules/{rule_id}": {
+        "/console/api/v1/milestone-rules/:rule_id": {
             "put": {
-                "description": "Updates rule_enabled and/or content_template of an existing milestone rule",
                 "consumes": [
                     "application/json"
                 ],
@@ -242,7 +240,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Update milestone rule request",
+                        "description": "Update request",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -255,15 +253,14 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.MilestoneRuleResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp"
                         }
                     }
                 }
             }
         },
-        "/console/api/v1/milestone-rules/{rule_id}/replace": {
+        "/console/api/v1/milestone-rules/:rule_id/replace": {
             "post": {
-                "description": "Disables an existing milestone rule and creates a new replacement rule",
                 "consumes": [
                     "application/json"
                 ],
@@ -283,7 +280,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Replace milestone rule request",
+                        "description": "Replace request",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -296,7 +293,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.ReplaceMilestoneRuleResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleResp"
                         }
                     }
                 }
@@ -304,7 +301,6 @@ const docTemplate = `{
         },
         "/console/api/v1/system-notifications": {
             "get": {
-                "description": "Returns a paginated list of system notifications with optional status filter",
                 "produces": [
                     "application/json"
                 ],
@@ -336,13 +332,12 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.ListSystemNotificationsResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsResp"
                         }
                     }
                 }
             },
             "post": {
-                "description": "Creates a new system notification",
                 "consumes": [
                     "application/json"
                 ],
@@ -368,15 +363,14 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.SystemNotificationResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp"
                         }
                     }
                 }
             }
         },
-        "/console/api/v1/system-notifications/{notification_id}": {
+        "/console/api/v1/system-notifications/:notification_id": {
             "put": {
-                "description": "Updates fields of an existing system notification",
                 "consumes": [
                     "application/json"
                 ],
@@ -409,15 +403,14 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.SystemNotificationResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp"
                         }
                     }
                 }
             }
         },
-        "/console/api/v1/system-notifications/{notification_id}/offline": {
+        "/console/api/v1/system-notifications/:notification_id/offline": {
             "post": {
-                "description": "Sets a system notification to offline status",
                 "produces": [
                     "application/json"
                 ],
@@ -438,7 +431,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.SystemNotificationResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp"
                         }
                     }
                 }
@@ -540,53 +533,6 @@ const docTemplate = `{
                 }
             }
         },
-        "console.ListAgentImprItemsData": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "group_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "item_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                    }
-                },
-                "urls": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "console.ListAgentImprItemsResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.ListAgentImprItemsData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
         "console.ListAgentsDocData": {
             "type": "object",
             "properties": {
@@ -649,207 +595,6 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/console.ListItemsDocData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.ListMilestoneRulesData": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/console.MilestoneRuleInfo"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console.ListMilestoneRulesResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.ListMilestoneRulesData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.ListSystemNotificationsData": {
-            "type": "object",
-            "properties": {
-                "notifications": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/console.SystemNotificationInfo"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console.ListSystemNotificationsResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.ListSystemNotificationsData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.MilestoneRuleData": {
-            "type": "object",
-            "properties": {
-                "rule": {
-                    "$ref": "#/definitions/console.MilestoneRuleInfo"
-                }
-            }
-        },
-        "console.MilestoneRuleInfo": {
-            "type": "object",
-            "properties": {
-                "content_template": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "integer"
-                },
-                "metric_key": {
-                    "type": "string"
-                },
-                "rule_enabled": {
-                    "type": "boolean"
-                },
-                "rule_id": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "integer"
-                },
-                "updated_at": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console.MilestoneRuleResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.MilestoneRuleData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.ReplaceMilestoneRuleData": {
-            "type": "object",
-            "properties": {
-                "new_rule": {
-                    "$ref": "#/definitions/console.MilestoneRuleInfo"
-                },
-                "old_rule": {
-                    "$ref": "#/definitions/console.MilestoneRuleInfo"
-                }
-            }
-        },
-        "console.ReplaceMilestoneRuleResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.ReplaceMilestoneRuleData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.SystemNotificationData": {
-            "type": "object",
-            "properties": {
-                "notification": {
-                    "$ref": "#/definitions/console.SystemNotificationInfo"
-                }
-            }
-        },
-        "console.SystemNotificationInfo": {
-            "type": "object",
-            "properties": {
-                "audience_expression": {
-                    "type": "string"
-                },
-                "audience_type": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "integer"
-                },
-                "end_at": {
-                    "type": "integer"
-                },
-                "notification_id": {
-                    "type": "string"
-                },
-                "offline_at": {
-                    "type": "integer"
-                },
-                "start_at": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "integer"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "integer"
-                }
-            }
-        },
-        "console.SystemNotificationResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.SystemNotificationData"
                 },
                 "msg": {
                     "type": "string"
@@ -937,6 +682,254 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "group_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "item_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesData": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListMilestoneRulesData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsData": {
+            "type": "object",
+            "properties": {
+                "notifications": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListSystemNotificationsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleData": {
+            "type": "object",
+            "properties": {
+                "rule": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo": {
+            "type": "object",
+            "properties": {
+                "content_template": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "metric_key": {
+                    "type": "string"
+                },
+                "rule_enabled": {
+                    "type": "boolean"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleData": {
+            "type": "object",
+            "properties": {
+                "new_rule": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo"
+                },
+                "old_rule": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.MilestoneRuleInfo"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ReplaceMilestoneRuleData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationData": {
+            "type": "object",
+            "properties": {
+                "notification": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationInfo": {
+            "type": "object",
+            "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "end_at": {
+                    "type": "integer"
+                },
+                "notification_id": {
+                    "type": "string"
+                },
+                "offline_at": {
+                    "type": "integer"
+                },
+                "start_at": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationData"
+                },
+                "msg": {
                     "type": "string"
                 }
             }

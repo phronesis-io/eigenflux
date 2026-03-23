@@ -66,3 +66,38 @@ func _updatesystemnotificationMw() []app.HandlerFunc {
 func _offlinesystemnotificationMw() []app.HandlerFunc {
 	return nil
 }
+
+func _apiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _v1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _milestone_rulesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _rule_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _system_notificationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _notification_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _imprMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
