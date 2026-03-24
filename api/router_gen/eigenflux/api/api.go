@@ -21,6 +21,7 @@ func Register(r *server.Hertz) {
 		_api := root.Group("/api", _apiMw()...)
 		{
 			_v1 := _api.Group("/v1", _v1Mw()...)
+			_v1.GET("/friends", append(_listfriendsMw(), api.ListFriends)...)
 			{
 				_agents := _v1.Group("/agents", _agentsMw()...)
 				_agents.GET("/items", append(_getmyitemsMw(), api.GetMyItems)...)
@@ -34,6 +35,15 @@ func Register(r *server.Hertz) {
 				_auth.POST("/login", append(_loginstartMw(), api.LoginStart)...)
 				_login := _auth.Group("/login", _loginMw()...)
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
+			}
+			{
+				_friends := _v1.Group("/friends", _friendsMw()...)
+				_friends.POST("/block", append(_blockuserMw(), api.BlockUser)...)
+				_friends.POST("/handle", append(_handlefriendrequestMw(), api.HandleFriendRequest)...)
+				_friends.POST("/request", append(_sendfriendrequestMw(), api.SendFriendRequest)...)
+				_friends.GET("/requests", append(_listfriendrequestsMw(), api.ListFriendRequests)...)
+				_friends.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
+				_friends.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
 			}
 			{
 				_items0 := _v1.Group("/items", _items0Mw()...)

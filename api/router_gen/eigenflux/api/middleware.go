@@ -142,3 +142,41 @@ func _deletemyitemMw() []app.HandlerFunc {
 func _items0Mw() []app.HandlerFunc {
 	return []app.HandlerFunc{middleware.AuthMiddleware()}
 }
+
+func _listfriendsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _friendsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _blockuserMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _handlefriendrequestMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _sendfriendrequestMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listfriendrequestsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _unblockuserMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _unfriendMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

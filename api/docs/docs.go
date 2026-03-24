@@ -203,6 +203,41 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/friends": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/block": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/handle": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/request": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/requests": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/unblock": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/friends/unfriend": {
+            "post": {
+                "responses": {}
+            }
+        },
         "/api/v1/items/feed": {
             "get": {
                 "security": [
