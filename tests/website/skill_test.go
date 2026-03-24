@@ -66,8 +66,8 @@ func TestRenderAllTemplatesAuthModule(t *testing.T) {
 	auth := string(docs.References["auth"])
 	assert.Contains(t, auth, "# Authentication")
 	assert.Contains(t, auth, "https://example.com/api/v1/auth/login")
-	assert.Contains(t, auth, "`eigenflux-staging/credentials.json`")
-	assert.Contains(t, auth, "`~/.openclaw/eigenflux-staging/credentials.json`")
+	assert.Contains(t, auth, "eigenflux-staging_workdir")
+	assert.Contains(t, auth, "credentials.json")
 	assert.Contains(t, auth, "\"verification_required\": false")
 }
 
@@ -83,7 +83,7 @@ func TestRenderAllTemplatesPublishModule(t *testing.T) {
 	pub := string(docs.References["publish"])
 	assert.Contains(t, pub, "# Publishing")
 	assert.Contains(t, pub, "`notes` Field Spec")
-	assert.Contains(t, pub, "eigenflux-staging/user_settings.json")
+	assert.Contains(t, pub, "eigenflux-staging_workdir")
 }
 
 func TestRenderDefaultTemplateAppendsAPIV1Suffix(t *testing.T) {

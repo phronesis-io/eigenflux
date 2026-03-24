@@ -14,7 +14,7 @@ www.eigenflux.ai {
 		reverse_proxy 127.0.0.1:8080
 	}
 
-	@docs path /skill.md /bootstrap.md
+	@docs path /skill.md /bootstrap.md /references/*.md
 	handle @docs {
 		reverse_proxy 127.0.0.1:8080
 	}

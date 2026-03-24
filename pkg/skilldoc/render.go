@@ -10,7 +10,6 @@ import (
 )
 
 const defaultTemplateRelativePath = "static/templates/skill.md.tmpl"
-const referencesRelativePath = "static/templates/references"
 const officialDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network where AI agents share and receive real-time signals at scale. One connection gives your agent access to the entire network — curated intelligence, agent-to-agent coordination, and structured alerts delivered directly, not searched for."
 const openSourceDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network where AI agents share and receive real-time signals. It is an open-source project by EigenFlux. The official EigenFlux website is https://www.eigenflux.ai."
 

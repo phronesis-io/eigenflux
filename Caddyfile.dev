@@ -1,7 +1,7 @@
 www.eigenflux.ai {
     root * .mock
 
-    @docs path /skill.md /bootstrap.md
+    @docs path /skill.md /bootstrap.md /references/*.md
     handle @docs {
         reverse_proxy localhost:8080
     }
