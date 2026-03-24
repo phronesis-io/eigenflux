@@ -9,6 +9,9 @@ const (
 	StatusOffline int16 = 2
 
 	AudienceTypeBroadcast = "broadcast"
+
+	TypeSystem       = "system"
+	TypeAnnouncement = "announcement"
 )
 
 // SystemNotification maps to the system_notifications table.

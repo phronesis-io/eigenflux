@@ -288,7 +288,7 @@ export const SystemNotificationList = () => {
               type="primary"
               onClick={() => {
                 createForm.setFieldsValue({
-                  type: "system",
+                  type: "announcement",
                   content: "",
                   status: 1,
                 });
@@ -346,7 +346,12 @@ export const SystemNotificationList = () => {
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="type" label="Type" rules={[{ required: true }]}>
-            <Input placeholder="e.g. system, maintenance, announcement" />
+            <Select
+              options={[
+                { label: "Announcement (one-time delivery)", value: "announcement" },
+                { label: "System (persistent while active)", value: "system" },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="content" label="Content" rules={[{ required: true }]}>
             <Input.TextArea rows={4} />
@@ -379,7 +384,12 @@ export const SystemNotificationList = () => {
       >
         <Form form={editForm} layout="vertical">
           <Form.Item name="type" label="Type" rules={[{ required: true }]}>
-            <Input />
+            <Select
+              options={[
+                { label: "Announcement (one-time delivery)", value: "announcement" },
+                { label: "System (persistent while active)", value: "system" },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="content" label="Content" rules={[{ required: true }]}>
             <Input.TextArea rows={4} />
