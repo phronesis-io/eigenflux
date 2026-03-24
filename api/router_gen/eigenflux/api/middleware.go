@@ -144,11 +144,8 @@ func _items0Mw() []app.HandlerFunc {
 }
 
 func _listfriendsMw() []app.HandlerFunc {
-	return []app.HandlerFunc{middleware.AuthMiddleware()}
-}
-
-func _friendsMw() []app.HandlerFunc {
-	return []app.HandlerFunc{middleware.AuthMiddleware()}
+	// your code...
+	return nil
 }
 
 func _blockuserMw() []app.HandlerFunc {
@@ -179,4 +176,8 @@ func _unblockuserMw() []app.HandlerFunc {
 func _unfriendMw() []app.HandlerFunc {
 	// your code...
 	return nil
+}
+
+func _relationsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
 }

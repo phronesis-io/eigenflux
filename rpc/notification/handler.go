@@ -82,6 +82,27 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		}
 	}
 
+	// 3. PM (friend request) notifications from Redis
+	pmNotifs, err := dal.ListPMNotifications(ctx, s.rdb, req.AgentId)
+	if err != nil {
+		log.Printf("[Notification] Failed to list PM notifications for agent %d: %v", req.AgentId, err)
+	} else {
+		for _, n := range pmNotifs {
+			requestID, err := strconv.ParseInt(n.NotificationID, 10, 64)
+			if err != nil {
+				log.Printf("[Notification] Invalid PM notification id %q: %v", n.NotificationID, err)
+				continue
+			}
+			all = append(all, &notificationrpc.PendingNotification{
+				NotificationId: requestID,
+				SourceType:     dal.SourceTypeFriendRequest,
+				Type:           n.Type,
+				Content:        n.Content,
+				CreatedAt:      n.CreatedAt,
+			})
+		}
+	}
+
 	// Sort by created_at ASC, notification_id ASC
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].CreatedAt != all[j].CreatedAt {
@@ -114,6 +135,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 
 	var milestoneIDs []int64
 	var systemItems []dal.NotificationDelivery
+	var pmIDs []int64
 	now := time.Now().UnixMilli()
 
 	for _, item := range req.Items {
@@ -130,6 +152,8 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 				AgentID:     req.AgentId,
 				DeliveredAt: now,
 			})
+		case dal.SourceTypeFriendRequest:
+			pmIDs = append(pmIDs, item.NotificationId)
 		default:
 			log.Printf("[Notification] Unknown source_type in ack: %s", item.SourceType)
 		}
@@ -149,6 +173,13 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	if len(systemItems) > 0 {
 		if err := dal.RecordDeliveries(ctx, s.db, systemItems); err != nil {
 			log.Printf("[Notification] Failed to record system notification deliveries for agent %d: %v", req.AgentId, err)
+		}
+	}
+
+	// Ack friend request: delete from Redis
+	if len(pmIDs) > 0 {
+		if err := dal.DeletePMNotifications(ctx, s.rdb, req.AgentId, pmIDs); err != nil {
+			log.Printf("[Notification] Failed to delete PM notifications from Redis for agent %d: %v", req.AgentId, err)
 		}
 	}
 

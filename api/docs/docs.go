@@ -203,37 +203,37 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/friends": {
+        "/api/v1/relations/friends": {
             "get": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/block": {
+        "/api/v1/relations/block": {
             "post": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/handle": {
+        "/api/v1/relations/handle": {
             "post": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/request": {
+        "/api/v1/relations/apply": {
             "post": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/requests": {
+        "/api/v1/relations/applications": {
             "get": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/unblock": {
+        "/api/v1/relations/unblock": {
             "post": {
                 "responses": {}
             }
         },
-        "/api/v1/friends/unfriend": {
+        "/api/v1/relations/unfriend": {
             "post": {
                 "responses": {}
             }

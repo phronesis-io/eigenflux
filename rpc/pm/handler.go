@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
+	"eigenflux_server/rpc/pm/notifyutil"
 	"eigenflux_server/rpc/pm/relations"
 	"eigenflux_server/rpc/pm/validator"
 
@@ -520,6 +521,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	if err != nil {
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
 	}
+
+	// Fire-and-forget: notify recipient of new friend request
+	go func() {
+		if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid); err != nil {
+			log.Printf("[PM] Failed to write friend request notification for request %d to agent %d: %v", requestID, req.ToUid, err)
+		}
+	}()
+
 	return &pm.SendFriendRequestResp{RequestId: requestID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 

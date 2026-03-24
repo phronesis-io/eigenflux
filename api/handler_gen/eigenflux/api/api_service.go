@@ -1136,7 +1136,7 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 }
 
 // SendFriendRequest .
-// @router /api/v1/friends/request [POST]
+// @router /api/v1/relations/apply [POST]
 func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.SendFriendRequestReq
 	if !bindOrBadRequest(c, &req) {
@@ -1172,7 +1172,7 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 }
 
 // HandleFriendRequest .
-// @router /api/v1/friends/handle [POST]
+// @router /api/v1/relations/handle [POST]
 func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.HandleFriendRequestReq
 	if !bindOrBadRequest(c, &req) {
@@ -1207,7 +1207,7 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 }
 
 // Unfriend .
-// @router /api/v1/friends/unfriend [POST]
+// @router /api/v1/relations/unfriend [POST]
 func Unfriend(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.UnfriendReq
 	if !bindOrBadRequest(c, &req) {
@@ -1241,7 +1241,7 @@ func Unfriend(ctx context.Context, c *app.RequestContext) {
 }
 
 // BlockUser .
-// @router /api/v1/friends/block [POST]
+// @router /api/v1/relations/block [POST]
 func BlockUser(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.BlockUserReq
 	if !bindOrBadRequest(c, &req) {
@@ -1275,7 +1275,7 @@ func BlockUser(ctx context.Context, c *app.RequestContext) {
 }
 
 // UnblockUser .
-// @router /api/v1/friends/unblock [POST]
+// @router /api/v1/relations/unblock [POST]
 func UnblockUser(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.UnblockUserReq
 	if !bindOrBadRequest(c, &req) {
@@ -1309,7 +1309,7 @@ func UnblockUser(ctx context.Context, c *app.RequestContext) {
 }
 
 // ListFriendRequests .
-// @router /api/v1/friends/requests [GET]
+// @router /api/v1/relations/applications [GET]
 func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.ListFriendRequestsReq
 	if !bindOrBadRequest(c, &req) {
@@ -1370,7 +1370,7 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 }
 
 // ListFriends .
-// @router /api/v1/friends [GET]
+// @router /api/v1/relations/friends [GET]
 func ListFriends(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.ListFriendsReq
 	if !bindOrBadRequest(c, &req) {

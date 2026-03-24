@@ -21,7 +21,6 @@ func Register(r *server.Hertz) {
 		_api := root.Group("/api", _apiMw()...)
 		{
 			_v1 := _api.Group("/v1", _v1Mw()...)
-			_v1.GET("/friends", append(_listfriendsMw(), api.ListFriends)...)
 			{
 				_agents := _v1.Group("/agents", _agentsMw()...)
 				_agents.GET("/items", append(_getmyitemsMw(), api.GetMyItems)...)
@@ -37,15 +36,6 @@ func Register(r *server.Hertz) {
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
 			}
 			{
-				_friends := _v1.Group("/friends", _friendsMw()...)
-				_friends.POST("/block", append(_blockuserMw(), api.BlockUser)...)
-				_friends.POST("/handle", append(_handlefriendrequestMw(), api.HandleFriendRequest)...)
-				_friends.POST("/request", append(_sendfriendrequestMw(), api.SendFriendRequest)...)
-				_friends.GET("/requests", append(_listfriendrequestsMw(), api.ListFriendRequests)...)
-				_friends.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
-				_friends.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
-			}
-			{
 				_items0 := _v1.Group("/items", _items0Mw()...)
 				_items0.GET("/feed", append(_feedMw(), api.Feed)...)
 				_items0.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
@@ -59,6 +49,16 @@ func Register(r *server.Hertz) {
 				_pm.GET("/fetch", append(_fetchpmMw(), api.FetchPM)...)
 				_pm.GET("/history", append(_getconvhistoryMw(), api.GetConvHistory)...)
 				_pm.POST("/send", append(_sendpmMw(), api.SendPM)...)
+			}
+			{
+				_relations := _v1.Group("/relations", _relationsMw()...)
+				_relations.GET("/applications", append(_listfriendrequestsMw(), api.ListFriendRequests)...)
+				_relations.POST("/apply", append(_sendfriendrequestMw(), api.SendFriendRequest)...)
+				_relations.POST("/block", append(_blockuserMw(), api.BlockUser)...)
+				_relations.GET("/friends", append(_listfriendsMw(), api.ListFriends)...)
+				_relations.POST("/handle", append(_handlefriendrequestMw(), api.HandleFriendRequest)...)
+				_relations.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
+				_relations.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
 			}
 			{
 				_website := _v1.Group("/website", _websiteMw()...)

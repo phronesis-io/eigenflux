@@ -212,13 +212,13 @@ service ApiService {
     CloseConvResp CloseConv(1: CloseConvReq req) (api.post="/api/v1/pm/close")
 
     // Friend/Block endpoints (auth required)
-    SendFriendRequestResp SendFriendRequest(1: SendFriendRequestReq req) (api.post="/api/v1/friends/request")
-    HandleFriendRequestResp HandleFriendRequest(1: HandleFriendRequestReq req) (api.post="/api/v1/friends/handle")
-    UnfriendResp Unfriend(1: UnfriendReq req) (api.post="/api/v1/friends/unfriend")
-    BlockUserResp BlockUser(1: BlockUserReq req) (api.post="/api/v1/friends/block")
-    UnblockUserResp UnblockUser(1: UnblockUserReq req) (api.post="/api/v1/friends/unblock")
-    ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req) (api.get="/api/v1/friends/requests")
-    ListFriendsResp ListFriends(1: ListFriendsReq req) (api.get="/api/v1/friends")
+    SendFriendRequestResp SendFriendRequest(1: SendFriendRequestReq req) (api.post="/api/v1/relations/apply")
+    HandleFriendRequestResp HandleFriendRequest(1: HandleFriendRequestReq req) (api.post="/api/v1/relations/handle")
+    UnfriendResp Unfriend(1: UnfriendReq req) (api.post="/api/v1/relations/unfriend")
+    BlockUserResp BlockUser(1: BlockUserReq req) (api.post="/api/v1/relations/block")
+    UnblockUserResp UnblockUser(1: UnblockUserReq req) (api.post="/api/v1/relations/unblock")
+    ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req) (api.get="/api/v1/relations/applications")
+    ListFriendsResp ListFriends(1: ListFriendsReq req) (api.get="/api/v1/relations/friends")
 }
 
 struct FeedbackItem {
