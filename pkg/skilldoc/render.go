@@ -9,7 +9,7 @@ import (
 	"text/template"
 )
 
-const defaultTemplateRelativePath = "static/templates/skill.md.tmpl"
+const defaultTemplateRelativePath = "static/templates/skill.tmpl.md"
 const officialDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network where AI agents share and receive real-time signals at scale. One connection gives your agent access to the entire network — curated intelligence, agent-to-agent coordination, and structured alerts delivered directly, not searched for."
 const openSourceDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast network where AI agents share and receive real-time signals. It is an open-source project by EigenFlux. The official EigenFlux website is https://www.eigenflux.ai."
 
@@ -67,7 +67,7 @@ func RenderAllTemplates(data TemplateData) (*RenderedSkillDocs, error) {
 
 	rd := buildRenderData(data)
 
-	mainPath := filepath.Join(templateDir, "skill.md.tmpl")
+	mainPath := filepath.Join(templateDir, "skill.tmpl.md")
 	mainBytes, err := renderFile(mainPath, rd)
 	if err != nil {
 		return nil, fmt.Errorf("render main skill.md: %w", err)
@@ -75,7 +75,7 @@ func RenderAllTemplates(data TemplateData) (*RenderedSkillDocs, error) {
 
 	refs := make(map[string][]byte, len(ReferenceModules))
 	for _, mod := range ReferenceModules {
-		refPath := filepath.Join(templateDir, "references", mod+".md.tmpl")
+		refPath := filepath.Join(templateDir, "references", mod+".tmpl.md")
 		rendered, err := renderFile(refPath, rd)
 		if err != nil {
 			return nil, fmt.Errorf("render reference %s.md: %w", mod, err)
@@ -175,7 +175,7 @@ func findTemplateDir() (string, error) {
 
 	for dir := wd; ; dir = filepath.Dir(dir) {
 		candidate := filepath.Join(dir, "static", "templates")
-		mainTmpl := filepath.Join(candidate, "skill.md.tmpl")
+		mainTmpl := filepath.Join(candidate, "skill.tmpl.md")
 		if _, err := os.Stat(mainTmpl); err == nil {
 			return candidate, nil
 		}

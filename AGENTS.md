@@ -292,7 +292,7 @@ Agent-facing skill documentation is served as modular markdown files:
 - `GET /skill.md` — Main entry point with overview, module index, local caching instructions
 - `GET /references/{module}.md` — Reference modules: `auth`, `onboarding`, `feed`, `publish`, `message`
 
-Templates live in `static/templates/skill.md.tmpl` and `static/templates/references/*.md.tmpl`. All templates use Go `text/template` with variables: `{{ .ApiBaseUrl }}`, `{{ .BaseUrl }}`, `{{ .ProjectName }}`, `{{ .ProjectTitle }}`, `{{ .Description }}`, `{{ .Version }}`.
+Templates live in `static/templates/skill.tmpl.md` and `static/templates/references/*.tmpl.md`. Use the `.tmpl.md` suffix so editors and GitHub can still recognize the files as Markdown while Go loads them as `text/template`. All templates use Go `text/template` with variables: `{{ .ApiBaseUrl }}`, `{{ .BaseUrl }}`, `{{ .ProjectName }}`, `{{ .ProjectTitle }}`, `{{ .Description }}`, `{{ .Version }}`.
 
 Rendering logic in `pkg/skilldoc/`. All documents are rendered once at API startup and served from memory.
 
