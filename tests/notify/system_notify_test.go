@@ -572,7 +572,7 @@ func TestSystemNotificationMultipleActive(t *testing.T) {
 	t.Log("=== Create two active notifications ===")
 	n1 := createSystemNotification(t, "system", "Notification one", 1, 0, 0)
 	n2 := createSystemNotification(t, "announcement", "Notification two", 1, 0, 0)
-	n1ID := testutil.MustID(t, n1.NotificationID, "notification_id")
+	_ = n1 // persistent: no delivery record expected
 	n2ID := testutil.MustID(t, n2.NotificationID, "notification_id")
 
 	t.Log("=== Refresh returns both ===")
@@ -589,8 +589,7 @@ func TestSystemNotificationMultipleActive(t *testing.T) {
 		t.Fatalf("expected notifications sorted by id ASC, got %d before %d", id0, id1)
 	}
 
-	t.Log("=== Wait for both deliveries ===")
-	waitForNotificationDelivery(t, "system", n1ID, agentID, 15*time.Second)
+	t.Log("=== Wait for announcement delivery (persistent skips ack) ===")
 	waitForNotificationDelivery(t, "system", n2ID, agentID, 15*time.Second)
 
 	t.Log("=== Refresh again → only system (persistent) remains ===")
@@ -663,8 +662,18 @@ func TestPersistentSystemNotification(t *testing.T) {
 		t.Fatalf("unexpected content: %v", n1[0]["content"])
 	}
 
-	t.Log("=== Wait for delivery record (written for audit) ===")
-	waitForNotificationDelivery(t, "system", notifID, agentID, 15*time.Second)
+	t.Log("=== Verify no delivery record (persistent notifications skip ack) ===")
+	var count int
+	err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM notification_deliveries WHERE source_type = 'system' AND source_id = $1 AND agent_id = $2",
+		notifID, agentID,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("query delivery count failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 delivery rows for persistent notification, got %d", count)
+	}
 
 	t.Log("=== Second refresh → still gets notification (persistent) ===")
 	feed2 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)

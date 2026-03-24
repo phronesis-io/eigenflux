@@ -78,6 +78,11 @@ func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotificat
 		if n == nil {
 			continue
 		}
+		// Persistent notifications (source_type=system, type=system) are
+		// returned on every refresh; skip ack to avoid unbounded DB writes.
+		if n.SourceType == "system" && n.Type == "system" {
+			continue
+		}
 		items = append(items, &notificationrpc.AckNotificationItem{
 			NotificationId: n.NotificationId,
 			SourceType:     n.SourceType,
