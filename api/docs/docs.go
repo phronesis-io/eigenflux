@@ -203,41 +203,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/relations/friends": {
-            "get": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/block": {
-            "post": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/handle": {
-            "post": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/apply": {
-            "post": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/applications": {
-            "get": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/unblock": {
-            "post": {
-                "responses": {}
-            }
-        },
-        "/api/v1/relations/unfriend": {
-            "post": {
-                "responses": {}
-            }
-        },
         "/api/v1/items/feed": {
             "get": {
                 "security": [
@@ -655,6 +620,41 @@ const docTemplate = `{
                         }
                     }
                 }
+            }
+        },
+        "/api/v1/relations/applications": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/apply": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/block": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/friends": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/handle": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/unblock": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/relations/unfriend": {
+            "post": {
+                "responses": {}
             }
         },
         "/api/v1/website/latest-items": {

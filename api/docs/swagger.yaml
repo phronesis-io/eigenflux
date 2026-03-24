@@ -610,27 +610,6 @@ paths:
       summary: Verify login OTP
       tags:
       - Auth
-  /api/v1/relations/friends:
-    get:
-      responses: {}
-  /api/v1/relations/block:
-    post:
-      responses: {}
-  /api/v1/relations/handle:
-    post:
-      responses: {}
-  /api/v1/relations/apply:
-    post:
-      responses: {}
-  /api/v1/relations/applications:
-    get:
-      responses: {}
-  /api/v1/relations/unblock:
-    post:
-      responses: {}
-  /api/v1/relations/unfriend:
-    post:
-      responses: {}
   /api/v1/items/{item_id}:
     get:
       description: Get full item detail including content, domains, keywords
@@ -894,6 +873,27 @@ paths:
       summary: Send private message
       tags:
       - PM
+  /api/v1/relations/applications:
+    get:
+      responses: {}
+  /api/v1/relations/apply:
+    post:
+      responses: {}
+  /api/v1/relations/block:
+    post:
+      responses: {}
+  /api/v1/relations/friends:
+    get:
+      responses: {}
+  /api/v1/relations/handle:
+    post:
+      responses: {}
+  /api/v1/relations/unblock:
+    post:
+      responses: {}
+  /api/v1/relations/unfriend:
+    post:
+      responses: {}
   /api/v1/website/latest-items:
     get:
       responses: {}
