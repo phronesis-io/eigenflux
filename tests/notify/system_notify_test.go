@@ -355,7 +355,7 @@ func TestSystemNotificationDeliveryAndDedup(t *testing.T) {
 	agentBID := testutil.MustID(t, agentB["agent_id"], "agent_id")
 
 	t.Log("=== Create active broadcast notification ===")
-	created := createSystemNotification(t, "system", "Platform maintenance at 02:00 UTC", 1, 0, 0)
+	created := createSystemNotification(t, "announcement", "Platform maintenance at 02:00 UTC", 1, 0, 0)
 	notifID := testutil.MustID(t, created.NotificationID, "notification_id")
 
 	t.Log("=== Agent A refresh → gets notification ===")
@@ -367,8 +367,8 @@ func TestSystemNotificationDeliveryAndDedup(t *testing.T) {
 	if notificationsA[0]["content"] != "Platform maintenance at 02:00 UTC" {
 		t.Fatalf("unexpected content: %v", notificationsA[0]["content"])
 	}
-	if notificationsA[0]["type"] != "system" {
-		t.Fatalf("expected type=system, got %v", notificationsA[0]["type"])
+	if notificationsA[0]["type"] != "announcement" {
+		t.Fatalf("expected type=announcement, got %v", notificationsA[0]["type"])
 	}
 	if notificationsA[0]["source_type"] != "system" {
 		t.Fatalf("expected source_type=system, got %v", notificationsA[0]["source_type"])
@@ -527,7 +527,7 @@ func TestSystemNotificationUpdateContent(t *testing.T) {
 	tokenB := agentB["token"].(string)
 
 	t.Log("=== Create active notification v1 ===")
-	created := createSystemNotification(t, "system", "Content v1", 1, 0, 0)
+	created := createSystemNotification(t, "announcement", "Content v1", 1, 0, 0)
 	notifID := testutil.MustID(t, created.NotificationID, "notification_id")
 
 	t.Log("=== Agent A gets v1 ===")
@@ -593,10 +593,14 @@ func TestSystemNotificationMultipleActive(t *testing.T) {
 	waitForNotificationDelivery(t, "system", n1ID, agentID, 15*time.Second)
 	waitForNotificationDelivery(t, "system", n2ID, agentID, 15*time.Second)
 
-	t.Log("=== Refresh again returns neither ===")
-	feed2 := testutil.FetchFeedRefresh(t, token, 20)
-	if n := feedNotifications(t, feed2); len(n) > 0 {
-		t.Fatalf("expected 0 notifications after ack, got %d", len(n))
+	t.Log("=== Refresh again → only system (persistent) remains ===")
+	feed2 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)
+	notifications2 := feedNotifications(t, feed2)
+	if len(notifications2) != 1 {
+		t.Fatalf("expected 1 persistent notification after ack, got %d", len(notifications2))
+	}
+	if notifications2[0]["type"] != "system" {
+		t.Fatalf("expected persistent notification type=system, got %v", notifications2[0]["type"])
 	}
 }
 
@@ -612,7 +616,7 @@ func TestSystemNotificationDeliveryUniqueness(t *testing.T) {
 	token := agent["token"].(string)
 	agentID := testutil.MustID(t, agent["agent_id"], "agent_id")
 
-	created := createSystemNotification(t, "system", "Uniqueness test", 1, 0, 0)
+	created := createSystemNotification(t, "announcement", "Uniqueness test", 1, 0, 0)
 	notifID := testutil.MustID(t, created.NotificationID, "notification_id")
 
 	t.Log("=== First refresh delivers notification ===")
@@ -630,5 +634,97 @@ func TestSystemNotificationDeliveryUniqueness(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly 1 delivery row, got %d", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Persistent (type=system) notification survives ack
+// ---------------------------------------------------------------------------
+
+func TestPersistentSystemNotification(t *testing.T) {
+	testutil.WaitForAPI(t)
+	cleanNotifyTestData(t)
+
+	agent := testutil.RegisterAgent(t, "sysnotify_persist@test.com", "SysNotifyPersist", "test")
+	token := agent["token"].(string)
+	agentID := testutil.MustID(t, agent["agent_id"], "agent_id")
+
+	t.Log("=== Create persistent (type=system) notification ===")
+	created := createSystemNotification(t, "system", "Persistent notice", 1, 0, 0)
+	notifID := testutil.MustID(t, created.NotificationID, "notification_id")
+
+	t.Log("=== First refresh → gets notification ===")
+	feed1 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)
+	n1 := feedNotifications(t, feed1)
+	if len(n1) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(n1))
+	}
+	if n1[0]["content"] != "Persistent notice" {
+		t.Fatalf("unexpected content: %v", n1[0]["content"])
+	}
+
+	t.Log("=== Wait for delivery record (written for audit) ===")
+	waitForNotificationDelivery(t, "system", notifID, agentID, 15*time.Second)
+
+	t.Log("=== Second refresh → still gets notification (persistent) ===")
+	feed2 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)
+	n2 := feedNotifications(t, feed2)
+	if len(n2) != 1 {
+		t.Fatalf("expected 1 notification on second refresh, got %d", len(n2))
+	}
+	if n2[0]["content"] != "Persistent notice" {
+		t.Fatalf("unexpected content on second refresh: %v", n2[0]["content"])
+	}
+
+	t.Log("=== Third refresh → still there ===")
+	feed3 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)
+	n3 := feedNotifications(t, feed3)
+	if len(n3) != 1 {
+		t.Fatalf("expected 1 notification on third refresh, got %d", len(n3))
+	}
+
+	t.Log("=== Offline the notification → stops appearing ===")
+	offlineSystemNotification(t, created.NotificationID)
+	time.Sleep(1 * time.Second)
+
+	feed4 := testutil.FetchFeedRefresh(t, token, 20)
+	if n := feedNotifications(t, feed4); len(n) > 0 {
+		t.Fatalf("expected 0 notifications after offline, got %d", len(n))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Announcement (type=announcement) is one-time delivery
+// ---------------------------------------------------------------------------
+
+func TestAnnouncementOneTimeDelivery(t *testing.T) {
+	testutil.WaitForAPI(t)
+	cleanNotifyTestData(t)
+
+	agent := testutil.RegisterAgent(t, "sysnotify_announce@test.com", "SysNotifyAnnounce", "test")
+	token := agent["token"].(string)
+	agentID := testutil.MustID(t, agent["agent_id"], "agent_id")
+
+	t.Log("=== Create announcement notification ===")
+	created := createSystemNotification(t, "announcement", "One-time notice", 1, 0, 0)
+	notifID := testutil.MustID(t, created.NotificationID, "notification_id")
+
+	t.Log("=== First refresh → gets notification ===")
+	feed1 := testutil.WaitForFeedNotifications(t, token, 1, 20*time.Second)
+	n1 := feedNotifications(t, feed1)
+	if len(n1) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(n1))
+	}
+	if n1[0]["content"] != "One-time notice" {
+		t.Fatalf("unexpected content: %v", n1[0]["content"])
+	}
+
+	t.Log("=== Wait for delivery record ===")
+	waitForNotificationDelivery(t, "system", notifID, agentID, 15*time.Second)
+
+	t.Log("=== Second refresh → no notification (one-time, already delivered) ===")
+	feed2 := testutil.FetchFeedRefresh(t, token, 20)
+	if n := feedNotifications(t, feed2); len(n) > 0 {
+		t.Fatalf("expected 0 notifications after ack for announcement, got %d", len(n))
 	}
 }
