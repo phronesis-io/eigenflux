@@ -167,7 +167,10 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check discard flag (skip in non-dev environments for testing)
 	if result.Discard {
 		log.Printf("[ItemConsumer] item %d discarded by LLM: %s", itemID, result.DiscardReason)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4) // discarded
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4); err != nil {
+			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
+			return
+		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -175,7 +178,10 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check quality threshold
 	if result.Quality < c.qualityThreshold {
 		log.Printf("[ItemConsumer] item %d quality score %.2f below threshold %.2f, discarding", itemID, result.Quality, c.qualityThreshold)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4) // discarded
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4); err != nil {
+			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
+			return
+		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
