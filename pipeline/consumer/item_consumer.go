@@ -28,6 +28,12 @@ const (
 	simThreshold = 0.70
 )
 
+var (
+	updateProcessedItem       = itemDal.UpdateProcessedItem
+	updateProcessedItemStatus = itemDal.UpdateProcessedItemStatus
+	ackItemMessage            = mq.Ack
+)
+
 type ItemConsumer struct {
 	llmClient        *llm.Client
 	embeddingClient  *embedding.Client
@@ -271,8 +277,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	}
 
 	// Update processed item with LLM results, status=3 (done)
-	itemDal.UpdateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, 3)
-	log.Printf("[ItemConsumer] item %d processed: broadcast_type=%s, domains=%v, keywords=%v, group_id=%d, quality=%.2f", itemID, result.BroadcastType, result.Domains, result.Keywords, finalGroupID, result.Quality)
+	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID) {
+		return
+	}
 
 	// Index processed item to Elasticsearch
 	esItem := &sortDal.Item{
@@ -359,6 +366,22 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	}
 
 	mq.Ack(ctx, itemStream, itemGroup, msgID)
+}
+
+func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64) bool {
+	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, 3); err != nil {
+		log.Printf("[ItemConsumer] failed to persist processed item %d: broadcast_type=%s, err=%v", itemID, result.BroadcastType, err)
+
+		if statusErr := updateProcessedItemStatus(db.DB, itemID, 2); statusErr != nil {
+			log.Printf("[ItemConsumer] failed to mark item %d as failed after persist error: %v", itemID, statusErr)
+		}
+
+		ackItemMessage(ctx, itemStream, itemGroup, msgID)
+		return false
+	}
+
+	log.Printf("[ItemConsumer] item %d processed: broadcast_type=%s, domains=%v, keywords=%v, group_id=%d, quality=%.2f", itemID, result.BroadcastType, result.Domains, result.Keywords, finalGroupID, result.Quality)
+	return true
 }
 
 // parseExpireTime parses expire time string to *time.Time

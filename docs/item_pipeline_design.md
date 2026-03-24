@@ -1,7 +1,7 @@
 # Item Processing Pipeline Design
 
 > Status: Active
-> Last Updated: 2026-03-18
+> Last Updated: 2026-03-24
 
 ## 1. Overview
 
@@ -33,8 +33,8 @@ The item processing pipeline is an asynchronous system that enriches raw content
 **Characteristics**:
 - At-least-once delivery guarantee
 - Consumer group ensures load balancing across multiple consumers
-- Automatic retry for failed messages
-- Message acknowledgment (ACK) after successful processing
+- Consumer-internal retries for transient LLM and embedding failures
+- Message acknowledgment (ACK) after the consumer reaches a terminal outcome
 
 ### 2.2 Item Consumer (`pipeline/consumer/item_consumer.go`)
 
@@ -50,7 +50,7 @@ Main processing loop that:
 **Processing States**:
 - `0`: Pending (initial state after submission)
 - `1`: Processing (consumer picked up the message)
-- `2`: Failed (processing error, will retry)
+- `2`: Failed (terminal processing error, message already ACKed)
 - `3`: Completed (successfully processed)
 
 ### 2.3 LLM Client (`pipeline/llm/client.go`)
@@ -124,6 +124,7 @@ ItemConsumer
   -> Update processed_items (PostgreSQL)
     -> Set extracted fields
     -> Set status=3 (completed)
+    -> If this persistence step fails, log the error, set status=2, then ACK
   -> Index to Elasticsearch
     -> Write to `items` alias (ILM-managed)
     -> Include embedding vector for kNN search
@@ -145,7 +146,8 @@ ItemConsumer
 **Retry Strategy**:
 - Maximum 3 retry attempts
 - Exponential backoff between retries
-- After max retries, set status=2 (failed)
+- After max retries, set status=2 (failed) and ACK the message
+- If the final `UpdateProcessedItem(..., status=3)` write fails, log the error, set status=2, and ACK the message to avoid endless retries
 - Failed items can be manually reprocessed
 
 ### 3.3 Monitoring and Observability
