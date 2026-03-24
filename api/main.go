@@ -121,26 +121,35 @@ func main() {
 	clients.NotificationClient = notificationClient
 
 	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
-	renderedSkill, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
+	skillDocs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{
 		PublicBaseURL: publicBaseURL,
 		ProjectName:   cfg.ProjectName,
 		ProjectTitle:  cfg.ProjectTitle,
 		Description:   skilldoc.BuildDescription(cfg.ProjectName, cfg.ProjectTitle),
 	})
 	if err != nil {
-		log.Fatalf("failed to render skill.md: %v", err)
+		log.Fatalf("failed to render skill documents: %v", err)
 	}
+	log.Printf("Skill doc version: %s (%d reference modules)", skilldoc.Version, len(skillDocs.References))
 
 	// Init Hertz
 	listenAddr := cfg.ListenAddr(cfg.ApiPort)
 	h := server.Default(server.WithHostPorts(listenAddr))
 
-	// Rendered skill document. PROJECT_NAME controls the local namespace in the
-	// instructions, PROJECT_TITLE controls human-visible title copy, and
-	// PUBLIC_BASE_URL controls the public root URL shown to agents.
-	h.GET("/skill.md", func(_ context.Context, c *app.RequestContext) {
-		c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderedSkill)
-	})
+	// Skill document endpoints. All return text/markdown with version header.
+	serveSkillDoc := func(content []byte) app.HandlerFunc {
+		return func(_ context.Context, c *app.RequestContext) {
+			if v := c.GetHeader("X-Skill-Ver"); len(v) > 0 {
+				log.Printf("Skill request from version: %s", string(v))
+			}
+			c.Header("X-Skill-Ver", skilldoc.Version)
+			c.Data(http.StatusOK, "text/markdown; charset=utf-8", content)
+		}
+	}
+	h.GET("/skill.md", serveSkillDoc(skillDocs.Main))
+	for name, content := range skillDocs.References {
+		h.GET("/references/"+name+".md", serveSkillDoc(content))
+	}
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
 
 	// Swagger UI
