@@ -175,6 +175,7 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - `rpc/notification/main.go`: Service entry, recovers active system notifications on startup, registers as `NotificationService` via etcd
 - System notification status codes: `0=draft, 1=active, 2=offline`
 - `audience_type`: `broadcast` (current scope), `agent_id_set` (reserved)
+- Notification `type` controls delivery behavior: `system` = persistent (returned every feed refresh while active), `announcement` = one-time (suppressed after delivery)
 - Redis Keys:
   - `notify:system:active` (HASH, field=notification_id, value=JSON payload) — active system notification definitions
   - `milestone:notify:{agent_id}` (HASH, field=event_id, value=JSON payload) — pending milestone notifications (written by pipeline, read/deleted by notification service)
