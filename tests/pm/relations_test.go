@@ -777,3 +777,160 @@ func TestSendFriendRequest_MutualAccept_NoNotification(t *testing.T) {
 	}
 	t.Logf("Mutual auto-accept correctly did not create notification")
 }
+
+// Test 18: Send friend request by email
+func TestSendFriendRequest_ByEmail(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"emailreq_a@test.com", "emailreq_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "emailreq_a@test.com", "EmailReq A", "bio")
+	agentB := testutil.RegisterAgent(t, "emailreq_b@test.com", "EmailReq B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends request to B by email
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_email": "emailreq_b@test.com",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("SendFriendRequest by email failed: code=%d msg=%v", code, resp["msg"])
+	}
+	data := resp["data"].(map[string]interface{})
+	if _, ok := data["request_id"].(string); !ok {
+		t.Fatalf("expected request_id as string")
+	}
+	t.Logf("Friend request sent by email: request_id=%s", data["request_id"])
+}
+
+// Test 19: Send friend request by invite format (project_name#email)
+func TestSendFriendRequest_ByInviteFormat(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"invite_a@test.com", "invite_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "invite_a@test.com", "Invite A", "bio")
+	agentB := testutil.RegisterAgent(t, "invite_b@test.com", "Invite B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends request to B using eigenflux#email format
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_email": "eigenflux#invite_b@test.com",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("SendFriendRequest by invite format failed: code=%d msg=%v", code, resp["msg"])
+	}
+	data := resp["data"].(map[string]interface{})
+	if _, ok := data["request_id"].(string); !ok {
+		t.Fatalf("expected request_id as string")
+	}
+	t.Logf("Friend request sent by invite format: request_id=%s", data["request_id"])
+}
+
+// Test 20: Send friend request with non-existent email
+func TestSendFriendRequest_EmailNotFound(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"notfound_a@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "notfound_a@test.com", "NotFound A", "bio")
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_email": "nonexistent@test.com",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 404 {
+		t.Fatalf("expected code=404 (agent not found), got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Non-existent email correctly returned 404")
+}
+
+// Test 21: Send friend request with neither to_uid nor to_email
+func TestSendFriendRequest_MissingParams(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"missing_a@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "missing_a@test.com", "Missing A", "bio")
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 400 {
+		t.Fatalf("expected code=400 (missing params), got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Missing params correctly returned 400")
+}
+
+// Test 22: Email-to-UID cache works on repeated requests
+func TestSendFriendRequest_ByEmail_CacheHit(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"emailcache_a@test.com", "emailcache_b@test.com", "emailcache_c@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "emailcache_a@test.com", "EmailCache A", "bio")
+	agentB := testutil.RegisterAgent(t, "emailcache_b@test.com", "EmailCache B", "bio")
+	agentC := testutil.RegisterAgent(t, "emailcache_c@test.com", "EmailCache C", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	uidC, _ := strconv.ParseInt(agentC["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB, uidC)
+
+	rdb := testutil.GetTestRedis()
+	ctx := context.Background()
+	cacheKey := "cache:email2uid:emailcache_b@test.com"
+
+	// Ensure cache is empty before test
+	rdb.Del(ctx, cacheKey)
+
+	// First request (A→B by email): cache miss, writes to cache
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_email": "emailcache_b@test.com",
+	}, agentA["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("first email request failed: code=%d msg=%v", code, resp["msg"])
+	}
+
+	// Wait for fire-and-forget cache write
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify cache was populated
+	cached, err := rdb.Get(ctx, cacheKey).Result()
+	if err != nil {
+		t.Fatalf("expected cache entry for %s, got error: %v", cacheKey, err)
+	}
+	if cached != agentB["agent_id"].(string) {
+		t.Fatalf("expected cached value %s, got %s", agentB["agent_id"].(string), cached)
+	}
+
+	// Second request (C→B by email): should use cache
+	resp = testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_email": "emailcache_b@test.com",
+	}, agentC["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("second email request (cache hit) failed: code=%d msg=%v", code, resp["msg"])
+	}
+
+	ttl, _ := rdb.TTL(ctx, cacheKey).Result()
+	if ttl <= 0 {
+		t.Fatalf("expected positive TTL on cache key, got %v", ttl)
+	}
+	t.Logf("Email-to-UID cache working: key=%s value=%s ttl=%v", cacheKey, cached, ttl)
+}

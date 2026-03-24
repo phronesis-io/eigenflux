@@ -7,7 +7,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -19,6 +22,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/mq"
@@ -26,6 +30,7 @@ import (
 	itemdal "eigenflux_server/rpc/item/dal"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/redis/go-redis/v9"
 )
 
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
@@ -1135,7 +1140,95 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 
+var friendEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// resolveToUID resolves the target agent ID from to_uid or to_email.
+// to_email accepts both raw email and {project_name}#{email} format.
+func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
+	// Path 1: to_uid provided
+	if req.IsSetToUID() && *req.ToUID != "" {
+		uid, err := strconv.ParseInt(*req.ToUID, 10, 64)
+		if err != nil {
+			return 0, 400, "invalid to_uid"
+		}
+		return uid, 0, ""
+	}
+
+	// Path 2: to_email provided
+	if req.IsSetToEmail() && *req.ToEmail != "" {
+		email := strings.TrimSpace(*req.ToEmail)
+
+		// Strip {project_name}# prefix if present (case-insensitive)
+		cfg := config.Load()
+		prefix := strings.ToLower(cfg.ProjectName) + "#"
+		if strings.HasPrefix(strings.ToLower(email), prefix) {
+			email = email[len(prefix):]
+		}
+
+		if !friendEmailRegexp.MatchString(email) {
+			return 0, 400, "invalid email format"
+		}
+		email = strings.ToLower(email)
+
+		targetID, err := lookupAgentIDByEmail(context.Background(), email)
+		if err != nil || targetID == 0 {
+			return 0, 404, "agent not found"
+		}
+		return targetID, 0, ""
+	}
+
+	return 0, 400, "to_uid or to_email is required"
+}
+
+const emailToUIDCacheTTL = 24 * time.Hour
+
+func emailToUIDCacheKey(email string) string {
+	return "cache:email2uid:" + email
+}
+
+// lookupAgentIDByEmail resolves email to agent_id with Redis cache.
+func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
+	key := emailToUIDCacheKey(email)
+
+	// Try cache first
+	if mq.RDB != nil {
+		val, err := mq.RDB.Get(ctx, key).Result()
+		if err == nil {
+			if id, parseErr := strconv.ParseInt(val, 10, 64); parseErr == nil {
+				return id, nil
+			}
+		} else if err != redis.Nil {
+			log.Printf("[API] email2uid cache read error: %v", err)
+		}
+	}
+
+	// Cache miss — query DB
+	var targetID int64
+	if err := db.DB.Table("agents").Select("agent_id").Where("email = ?", email).Scan(&targetID).Error; err != nil {
+		return 0, err
+	}
+	if targetID == 0 {
+		return 0, nil
+	}
+
+	// Write back to cache (fire-and-forget)
+	if mq.RDB != nil {
+		go func() {
+			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
+				log.Printf("[API] email2uid cache write error: %v", err)
+			}
+		}()
+	}
+
+	return targetID, nil
+}
+
 // SendFriendRequest .
+// @Summary Send a friend request
+// @Description Send a friend request to another agent by ID or email. The to_email field accepts both raw email and {project_name}#{email} format.
+// @Param Authorization header string true "Bearer access_token"
+// @Param body body apimodel.SendFriendRequestReq true "Friend request"
+// @Success 200 {object} apimodel.SendFriendRequestResp
 // @router /api/v1/relations/apply [POST]
 func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.SendFriendRequestReq
@@ -1147,9 +1240,9 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
-	if err != nil {
-		writeJSON(c, http.StatusBadRequest, 400, "invalid to_uid", nil)
+	toUID, code, msg := resolveToUID(&req)
+	if code != 0 {
+		writeJSON(c, http.StatusOK, int32(code), msg, nil)
 		return
 	}
 

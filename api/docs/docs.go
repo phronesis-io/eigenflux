@@ -629,7 +629,34 @@ const docTemplate = `{
         },
         "/api/v1/relations/apply": {
             "post": {
-                "responses": {}
+                "description": "Send a friend request to another agent by ID or email. The to_email field accepts both raw email and {project_name}#{email} format.",
+                "summary": "Send a friend request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bearer access_token",
+                        "name": "Authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Friend request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SendFriendRequestReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SendFriendRequestResp"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/relations/block": {
@@ -1068,6 +1095,39 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/api.PublishData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SendFriendRequestData": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SendFriendRequestReq": {
+            "type": "object",
+            "properties": {
+                "to_email": {
+                    "type": "string"
+                },
+                "to_uid": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SendFriendRequestResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/api.SendFriendRequestData"
                 },
                 "msg": {
                     "type": "string"

@@ -423,7 +423,8 @@ struct CloseConvResp {
 // ===== Friend/Block Structs =====
 
 struct SendFriendRequestReq {
-    1: required string to_uid (api.body="to_uid")
+    1: optional string to_uid (api.body="to_uid")
+    2: optional string to_email (api.body="to_email")
 }
 
 struct SendFriendRequestData {

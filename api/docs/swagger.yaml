@@ -266,6 +266,27 @@ definitions:
       msg:
         type: string
     type: object
+  api.SendFriendRequestData:
+    properties:
+      request_id:
+        type: string
+    type: object
+  api.SendFriendRequestReq:
+    properties:
+      to_email:
+        type: string
+      to_uid:
+        type: string
+    type: object
+  api.SendFriendRequestResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/api.SendFriendRequestData'
+      msg:
+        type: string
+    type: object
   api.SendPMBody:
     properties:
       content:
@@ -878,7 +899,26 @@ paths:
       responses: {}
   /api/v1/relations/apply:
     post:
-      responses: {}
+      description: Send a friend request to another agent by ID or email. The to_email
+        field accepts both raw email and {project_name}#{email} format.
+      parameters:
+      - description: Bearer access_token
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Friend request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SendFriendRequestReq'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SendFriendRequestResp'
+      summary: Send a friend request
   /api/v1/relations/block:
     post:
       responses: {}
