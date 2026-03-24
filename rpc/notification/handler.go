@@ -151,7 +151,9 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	}, nil
 }
 
-// listPendingSystemNotifications returns system notifications not yet delivered to the agent.
+// listPendingSystemNotifications returns system notifications pending for the agent.
+// type=system (persistent): always returned while IsActive, delivery check skipped.
+// type=announcement (one-time): only returned if not yet delivered.
 func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Context, agentID int64) ([]pendingSystem, error) {
 	active, err := s.activeStore.List(ctx)
 	if err != nil {
@@ -163,27 +165,46 @@ func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Con
 
 	nowMS := time.Now().UnixMilli()
 
-	var candidates []dal.SystemNotification
+	var persistent []dal.SystemNotification
+	var oneTime []dal.SystemNotification
 	for i := range active {
-		if active[i].IsActive(nowMS) {
-			candidates = append(candidates, active[i])
+		if !active[i].IsActive(nowMS) {
+			continue
+		}
+		if active[i].Type == dal.TypeSystem {
+			persistent = append(persistent, active[i])
+		} else {
+			oneTime = append(oneTime, active[i])
 		}
 	}
-	if len(candidates) == 0 {
-		return nil, nil
-	}
 
-	sourceIDs := make([]int64, len(candidates))
-	for i, c := range candidates {
-		sourceIDs[i] = c.NotificationID
-	}
-	delivered, err := dal.AreDelivered(ctx, s.db, dal.SourceTypeSystem, sourceIDs, agentID)
-	if err != nil {
-		return nil, err
+	// Delivery check only for one-time (announcement) notifications
+	var delivered map[int64]bool
+	if len(oneTime) > 0 {
+		sourceIDs := make([]int64, len(oneTime))
+		for i, c := range oneTime {
+			sourceIDs[i] = c.NotificationID
+		}
+		delivered, err = dal.AreDelivered(ctx, s.db, dal.SourceTypeSystem, sourceIDs, agentID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var pending []pendingSystem
-	for _, c := range candidates {
+
+	// Persistent notifications: always included
+	for _, c := range persistent {
+		pending = append(pending, pendingSystem{
+			NotificationID: c.NotificationID,
+			Type:           c.Type,
+			Content:        c.Content,
+			CreatedAt:      c.CreatedAt,
+		})
+	}
+
+	// One-time notifications: only if not yet delivered
+	for _, c := range oneTime {
 		if delivered[c.NotificationID] {
 			continue
 		}
