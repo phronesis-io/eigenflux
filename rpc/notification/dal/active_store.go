@@ -28,7 +28,8 @@ type activePayload struct {
 	StartAt        int64  `json:"start_at"`
 	EndAt          int64  `json:"end_at"`
 	OfflineAt      int64  `json:"offline_at"`
-	CreatedAt      int64  `json:"created_at"`
+	CreatedAt          int64  `json:"created_at"`
+	AudienceExpression string `json:"audience_expression"`
 }
 
 func payloadFromNotification(n *SystemNotification) activePayload {
@@ -40,8 +41,9 @@ func payloadFromNotification(n *SystemNotification) activePayload {
 		AudienceType:   n.AudienceType,
 		StartAt:        n.StartAt,
 		EndAt:          n.EndAt,
-		OfflineAt:      n.OfflineAt,
-		CreatedAt:      n.CreatedAt,
+		OfflineAt:          n.OfflineAt,
+		CreatedAt:          n.CreatedAt,
+		AudienceExpression: n.AudienceExpression,
 	}
 }
 
@@ -65,8 +67,9 @@ func (s *ActiveStore) List(ctx context.Context) ([]SystemNotification, error) {
 			AudienceType:   p.AudienceType,
 			StartAt:        p.StartAt,
 			EndAt:          p.EndAt,
-			OfflineAt:      p.OfflineAt,
-			CreatedAt:      p.CreatedAt,
+			OfflineAt:          p.OfflineAt,
+			CreatedAt:          p.CreatedAt,
+			AudienceExpression: p.AudienceExpression,
 		})
 	}
 	return result, nil
