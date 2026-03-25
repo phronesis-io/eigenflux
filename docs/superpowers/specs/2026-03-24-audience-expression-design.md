@@ -2,7 +2,7 @@
 
 ## Overview
 
-Enable targeted system notification delivery based on client context variables (starting with `skill_ver` and `skill_ver_num`). An `audience_expression` field on each system notification is evaluated at delivery time using the `expr-lang/expr` engine. Notifications are only delivered when the expression evaluates to `true` (or when the expression is empty, meaning broadcast to all).
+Enable targeted system notification delivery based on client context variables (`skill_ver`, `skill_ver_num`, `agent_id`). An `audience_expression` field on each system notification is evaluated at delivery time using the `expr-lang/expr` engine. Notifications are only delivered when the expression evaluates to `true` (or when the expression is empty, meaning broadcast to all).
 
 ## Architecture
 
@@ -20,7 +20,7 @@ Auth middleware ─── sets context["agent_id"]
   │
   ▼
 Feed handler
-  │  Builds context_vars: {"skill_ver": "0.0.2", "skill_ver_num": "2"}
+  │  Builds context_vars: {"skill_ver": "0.0.2", "skill_ver_num": "2", "agent_id": "123456789"}
   │
   ▼
 RPC: NotificationService.ListPending(agent_id, context_vars)
@@ -37,10 +37,11 @@ Feed response with filtered notifications
 
 ## Context Variables
 
-| Variable | Type | Description | No header | Malformed header |
-|----------|------|-------------|-----------|------------------|
-| `skill_ver` | string | Raw version string `"0.0.2"` | `""` | `""` |
-| `skill_ver_num` | int | `x*10000 + y*100 + z` = `2` | `0` | `0` |
+| Variable | Type | Description | No header / not authed |
+|----------|------|-------------|------------------------|
+| `skill_ver` | string | Raw version string `"0.0.2"` | `""` |
+| `skill_ver_num` | int | `x*10000 + y*100 + z` = `2` | `0` |
+| `agent_id` | int64 | Authenticated agent's snowflake ID | `0` |
 
 **`skill_ver_num` conversion rule**: `x.y.z` → `x*10000 + y*100 + z`. This implies y and z are each 0–99. Examples:
 - `"0.0.3"` → `3`
@@ -106,7 +107,7 @@ struct ListPendingReq {
 }
 ```
 
-Note: `context_vars` values are all strings. The audience engine parses `skill_ver_num` from string to int internally (see Section 4).
+Note: `context_vars` values are all strings. The audience engine parses `skill_ver_num` and `agent_id` from string to int/int64 internally (see Section 4).
 
 After IDL change, regenerate kitex code:
 ```bash
@@ -118,7 +119,7 @@ kitex -module eigenflux_server idl/notification.thrift
 In `fetchPendingNotifications()` (`api/handler_gen/eigenflux/api/api_service.go`):
 
 - Add `c *app.RequestContext` parameter to the function signature
-- Build `context_vars` from hertz context, including both `skill_ver` and `skill_ver_num`
+- Build `context_vars` from hertz context, including `skill_ver`, `skill_ver_num`, and `agent_id`
 - Pass into `ListPendingReq.ContextVars`
 - Update call site in `Feed()` handler to pass `c`
 
@@ -131,6 +132,7 @@ func fetchPendingNotifications(ctx context.Context, agentID int64, c *app.Reques
     if v, ok := c.Get("skill_ver_num"); ok {
         contextVars["skill_ver_num"] = strconv.Itoa(v.(int))
     }
+    contextVars["agent_id"] = strconv.FormatInt(agentID, 10)
     pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
         AgentId:     agentID,
         ContextVars: contextVars,
@@ -161,10 +163,11 @@ import (
 
 // knownVars declares all supported context variables and their types.
 // Expressions referencing unknown variables will fail at compile time.
-// String vars default to "", int vars default to 0.
+// String vars default to "", int vars default to 0, int64 vars default to 0.
 var knownVars = map[string]interface{}{
     "skill_ver":     "",
     "skill_ver_num": 0,
+    "agent_id":      int64(0),
 }
 
 // compileOptions returns the shared set of expr compile options.
@@ -208,6 +211,7 @@ func Validate(expression string) error {
 // buildEnv constructs the expression environment from context_vars.
 // String vars in context_vars are used as-is.
 // Int vars are parsed from their string representation; unparseable values default to 0.
+// Int64 vars are parsed via ParseInt; unparseable values default to 0.
 func buildEnv(vars map[string]string) map[string]interface{} {
     env := make(map[string]interface{}, len(knownVars))
     for k, defaultVal := range knownVars {
@@ -215,6 +219,12 @@ func buildEnv(vars map[string]string) map[string]interface{} {
         switch defaultVal.(type) {
         case int:
             n, err := strconv.Atoi(raw)
+            if err != nil {
+                n = 0
+            }
+            env[k] = n
+        case int64:
+            n, err := strconv.ParseInt(raw, 10, 64)
             if err != nil {
                 n = 0
             }
@@ -233,8 +243,9 @@ func buildEnv(vars map[string]string) map[string]interface{} {
 - **No custom functions needed**: `skill_ver_num` is an integer, so `expr-lang/expr` native `<`, `>`, `==` operators work directly. No `semver_compare` function, no `Masterminds/semver` dependency.
 - **`AsBool()`**: Ensures the expression must return a boolean value.
 - **`Evaluate` returns `(false, error)` on errors**: Callers can log the error for debugging while safely skipping the notification.
-- **Type-aware env building**: `buildEnv()` inspects `knownVars` types to convert string context_vars into the correct Go type (int for `skill_ver_num`, string for `skill_ver`).
+- **Type-aware env building**: `buildEnv()` inspects `knownVars` types to convert string context_vars into the correct Go type (`int` for `skill_ver_num`, `int64` for `agent_id`, `string` for `skill_ver`).
 - **`skill_ver_num == 0`** means either "no header" or "malformed version" or literally version `0.0.0`. In practice `0.0.0` is never used, so `skill_ver_num == 0` effectively means "no version info".
+- **`agent_id` is `int64`**: Snowflake IDs are large numbers. On 64-bit systems (all production targets), `expr-lang/expr` handles `int64` natively.
 
 **Expression examples:**
 ```
@@ -244,6 +255,9 @@ skill_ver_num == 0                             // no header or malformed
 skill_ver_num > 0 && skill_ver_num < 3         // has header AND version < 0.0.3
 skill_ver == "0.0.3"                           // exact version match
 skill_ver != ""                                // has header (any version)
+agent_id == 1234567890123                      // target specific agent
+agent_id != 1234567890123                      // exclude specific agent
+agent_id > 0 && skill_ver_num < 3             // authed agent with old version
 ```
 
 **`pkg/audience/audience_test.go`** — Unit tests:
@@ -254,6 +268,8 @@ skill_ver != ""                                // has header (any version)
 - `skill_ver_num < 3` with no header (skill_ver_num=0) → `(true, nil)`
 - `skill_ver_num > 0 && skill_ver_num < 3` with no header → `(false, nil)`
 - `skill_ver == "0.0.3"` with skill_ver="0.0.3" → `(true, nil)`
+- `agent_id == 123` with agent_id=123 → `(true, nil)`
+- `agent_id == 123` with agent_id=456 → `(false, nil)`
 - Unknown variable `foo_bar` → `Validate()` returns error
 - Invalid syntax → `Validate()` returns error, `Evaluate()` returns `(false, error)`
 - Valid expression → `Validate()` returns `nil`
@@ -364,6 +380,7 @@ import (
 var knownVars = map[string]interface{}{
     "skill_ver":     "",
     "skill_ver_num": 0,
+    "agent_id":      int64(0),
 }
 
 func compileOptions() []expr.Option {
@@ -432,7 +449,7 @@ type EditFormValues = {
 <Form.Item
   name="audience_expression"
   label="Audience Expression"
-  tooltip="Leave empty to target all agents. Available variables: skill_ver (string), skill_ver_num (int). Example: skill_ver_num < 3"
+  tooltip="Leave empty to target all agents. Variables: skill_ver (string), skill_ver_num (int), agent_id (int64). Example: skill_ver_num < 3"
 >
   <Input.TextArea
     rows={2}
@@ -512,6 +529,7 @@ No other dependencies. No custom functions needed — native `expr` integer/stri
 ### Console Validation Tests (`console/console_api/internal/audience/validate_test.go`)
 - Valid expression `skill_ver_num < 3` → nil
 - Valid expression `skill_ver == "0.0.3"` → nil
+- Valid expression `agent_id == 123` → nil
 - Unknown variable → error
 - Invalid syntax → error
 - Empty → nil
