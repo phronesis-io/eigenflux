@@ -184,6 +184,13 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - Console creates/updates/offlines system notifications and syncs to Redis active store
 - Notification service and console service both call `RecoverActiveNotifications` on startup
 - FeedService calls `NotificationService.ListPending` to get notifications; API gateway calls `NotificationService.AckNotifications` directly (fire-and-forget) after returning feed response
+- `audience_expression`: Optional expression string on system notifications, evaluated at delivery time using `expr-lang/expr`
+- Expression variables: `skill_ver` (string, from X-Skill-Ver header), `skill_ver_num` (int, x*10000+y*100+z), `agent_id` (int64, authenticated agent)
+- Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
+- `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
+- `api/middleware/common_param.go`: CommonParamMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
+- `context_vars` in `ListPendingReq`: Passes expression variables from API gateway to notification service via RPC
+- Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
 
 ## Testing
 
