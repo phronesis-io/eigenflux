@@ -8,7 +8,7 @@ import (
 	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"eigenflux_server/pkg/commonparam"
+	"eigenflux_server/pkg/clientinfo"
 )
 
 func CommonParamMiddleware() app.HandlerFunc {
@@ -18,8 +18,8 @@ func CommonParamMiddleware() app.HandlerFunc {
 			num := parseVersionNum(ver)
 			c.Set("skill_ver", ver)
 			c.Set("skill_ver_num", num)
-			ctx = metainfo.WithPersistentValue(ctx, commonparam.KeySkillVer, ver)
-			ctx = metainfo.WithPersistentValue(ctx, commonparam.KeySkillVerNum, strconv.Itoa(num))
+			ctx = metainfo.WithPersistentValue(ctx, clientinfo.KeySkillVer, ver)
+			ctx = metainfo.WithPersistentValue(ctx, clientinfo.KeySkillVerNum, strconv.Itoa(num))
 		}
 		c.Next(ctx)
 	}

@@ -11,7 +11,7 @@ import (
 
 	"eigenflux_server/api/clients"
 	auth "eigenflux_server/kitex_gen/eigenflux/auth"
-	"eigenflux_server/pkg/commonparam"
+	"eigenflux_server/pkg/authinfo"
 )
 
 func AuthMiddleware() app.HandlerFunc {
@@ -40,7 +40,7 @@ func AuthMiddleware() app.HandlerFunc {
 		}
 
 		c.Set("agent_id", resp.AgentId)
-		ctx = metainfo.WithPersistentValue(ctx, commonparam.KeyAgentID, strconv.FormatInt(resp.AgentId, 10))
+		ctx = metainfo.WithPersistentValue(ctx, authinfo.KeyAgentID, strconv.FormatInt(resp.AgentId, 10))
 		c.Next(ctx)
 	}
 }
