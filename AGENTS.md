@@ -185,13 +185,13 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - Notification service and console service both call `RecoverActiveNotifications` on startup
 - FeedService calls `NotificationService.ListPending` to get notifications; API gateway calls `NotificationService.AckNotifications` directly (fire-and-forget) after returning feed response
 - `audience_expression`: Optional expression string on system notifications, evaluated at delivery time using `expr-lang/expr`
-- Expression variables: `skill_ver` (string, from X-Skill-Ver header), `skill_ver_num` (int, x*10000+y*100+z), `agent_id` (int64, authenticated agent)
+- Expression variables: `skill_ver` (string, from X-Skill-Ver header), `skill_ver_num` (int, x*10000+y*100+z), `agent_id` (int64, authenticated agent), `email` (string, authenticated agent email)
 - Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
 - `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
-- `api/middleware/common_param.go`: CommonParamMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
+- `api/middleware/clientinfo.go`: ClientInfoMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
 - `context_vars` in `ListPendingReq`: Passes expression variables from API gateway to notification service via RPC
-- `pkg/clientinfo/`: Typed `ClientInfo` struct (SkillVer, SkillVerNum) with `FromContext(ctx)` and `ToVars()`. Written by CommonParamMiddleware, propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`)
-- `pkg/authinfo/`: Typed `AuthInfo` struct (AgentID) with `FromContext(ctx)` and `ToVars()`. Written by AuthMiddleware, propagated via Kitex `metainfo.PersistentValue`
+- `pkg/clientinfo/`: Typed `ClientInfo` struct (SkillVer, SkillVerNum) with `FromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware, propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`)
+- `pkg/authinfo/`: Typed `AuthInfo` struct (AgentID, Email) with `FromContext(ctx)` and `ToVars()`. Written by AuthMiddleware, propagated via Kitex `metainfo.PersistentValue`
 - Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
 
 ## Testing

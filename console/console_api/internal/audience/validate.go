@@ -8,6 +8,7 @@ var knownVars = map[string]interface{}{
 	"skill_ver":     "",
 	"skill_ver_num": 0,
 	"agent_id":      int64(0),
+	"email":         "",
 }
 
 func compileOptions() []expr.Option {

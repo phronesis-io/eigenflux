@@ -41,6 +41,9 @@ func AuthMiddleware() app.HandlerFunc {
 
 		c.Set("agent_id", resp.AgentId)
 		ctx = metainfo.WithPersistentValue(ctx, authinfo.KeyAgentID, strconv.FormatInt(resp.AgentId, 10))
+		if resp.Email != nil {
+			ctx = metainfo.WithPersistentValue(ctx, authinfo.KeyEmail, *resp.Email)
+		}
 		c.Next(ctx)
 	}
 }

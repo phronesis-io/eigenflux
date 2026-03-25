@@ -9,7 +9,7 @@ import (
 )
 
 func rootMw() []app.HandlerFunc {
-	return []app.HandlerFunc{middleware.CommonParamMiddleware()}
+	return []app.HandlerFunc{middleware.ClientInfoMiddleware()}
 }
 
 func _apiMw() []app.HandlerFunc {

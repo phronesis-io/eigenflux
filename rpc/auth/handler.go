@@ -189,7 +189,7 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 	}
 
 	cacheKey := "auth:session:" + tokenHash
-	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d", agent.AgentID), 10*time.Minute)
+	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", agent.AgentID, normalizedEmail), 10*time.Minute)
 
 	latestAgent, _ := dal.GetAgentByEmail(db.DB, agent.Email)
 	if latestAgent != nil {
@@ -433,7 +433,7 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 	return s.completeEmailLogin(ctx, normalizeEmail(*challenge.Email), req.ClientIp, req.UserAgent)
 }
 
-// ValidateSession verifies an access token and returns the associated agent_id.
+// ValidateSession verifies an access token and returns the associated agent_id and email.
 func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.ValidateSessionReq) (*auth.ValidateSessionResp, error) {
 	tokenHash := sha256Hex(req.AccessToken)
 
@@ -441,11 +441,17 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 	cacheKey := "auth:session:" + tokenHash
 	val, err := mq.RDB.Get(ctx, cacheKey).Result()
 	if err == nil && val != "" {
+		parts := strings.SplitN(val, ":", 2)
 		var agentID int64
-		fmt.Sscanf(val, "%d", &agentID)
+		var email string
+		fmt.Sscanf(parts[0], "%d", &agentID)
+		if len(parts) > 1 {
+			email = parts[1]
+		}
 		if agentID > 0 {
 			return &auth.ValidateSessionResp{
 				AgentId:  agentID,
+				Email:    &email,
 				BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 			}, nil
 		}
@@ -459,13 +465,21 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 		}, nil
 	}
 
+	// Fetch email for agent
+	var agentEmail string
+	var agent dal.Agent
+	if err := db.DB.Select("email").Where("agent_id = ?", session.AgentID).First(&agent).Error; err == nil {
+		agentEmail = agent.Email
+	}
+
 	// Cache result and update last_seen_at
-	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d", session.AgentID), 10*time.Minute)
+	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
 	now := time.Now().UnixMilli()
 	_ = dal.UpdateLastSeenAt(db.DB, session.SessionID, now)
 
 	return &auth.ValidateSessionResp{
 		AgentId:  session.AgentID,
+		Email:    &agentEmail,
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }

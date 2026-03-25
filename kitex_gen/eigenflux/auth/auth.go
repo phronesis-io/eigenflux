@@ -524,6 +524,7 @@ var fieldIDToName_ValidateSessionReq = map[int16]string{
 
 type ValidateSessionResp struct {
 	AgentId  int64          `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Email    *string        `thrift:"email,2,optional" frugal:"2,optional,string" json:"email,omitempty"`
 	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
@@ -538,6 +539,15 @@ func (p *ValidateSessionResp) GetAgentId() (v int64) {
 	return p.AgentId
 }
 
+var ValidateSessionResp_Email_DEFAULT string
+
+func (p *ValidateSessionResp) GetEmail() (v string) {
+	if !p.IsSetEmail() {
+		return ValidateSessionResp_Email_DEFAULT
+	}
+	return *p.Email
+}
+
 var ValidateSessionResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ValidateSessionResp) GetBaseResp() (v *base.BaseResp) {
@@ -549,8 +559,15 @@ func (p *ValidateSessionResp) GetBaseResp() (v *base.BaseResp) {
 func (p *ValidateSessionResp) SetAgentId(val int64) {
 	p.AgentId = val
 }
+func (p *ValidateSessionResp) SetEmail(val *string) {
+	p.Email = val
+}
 func (p *ValidateSessionResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *ValidateSessionResp) IsSetEmail() bool {
+	return p.Email != nil
 }
 
 func (p *ValidateSessionResp) IsSetBaseResp() bool {
@@ -566,6 +583,7 @@ func (p *ValidateSessionResp) String() string {
 
 var fieldIDToName_ValidateSessionResp = map[int16]string{
 	1:   "agent_id",
+	2:   "email",
 	255: "base_resp",
 }
 

@@ -9,10 +9,12 @@ import (
 
 const (
 	KeyAgentID = "ef.agent_id"
+	KeyEmail   = "ef.email"
 )
 
 type AuthInfo struct {
 	AgentID int64
+	Email   string
 }
 
 func FromContext(ctx context.Context) AuthInfo {
@@ -20,11 +22,15 @@ func FromContext(ctx context.Context) AuthInfo {
 	if v, ok := metainfo.GetPersistentValue(ctx, KeyAgentID); ok {
 		a.AgentID, _ = strconv.ParseInt(v, 10, 64)
 	}
+	if v, ok := metainfo.GetPersistentValue(ctx, KeyEmail); ok {
+		a.Email = v
+	}
 	return a
 }
 
 func (a AuthInfo) ToVars() map[string]string {
 	return map[string]string{
 		"agent_id": strconv.FormatInt(a.AgentID, 10),
+		"email":    a.Email,
 	}
 }
