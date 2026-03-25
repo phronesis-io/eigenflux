@@ -138,6 +138,114 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 	}
 }
 
+func TestAudienceExpressionSkillVerString(t *testing.T) {
+	testutil.WaitForAPI(t)
+	agent := testutil.RegisterAgent(t, "audience_skillver_str@test.com", "AudienceSkillVerStr", "test")
+	token := agent["token"].(string)
+
+	notif := createSystemNotificationWithExpr(t, "announcement", "exact version match", 1, 0, 0, `skill_ver == "0.0.3"`)
+	defer offlineSystemNotification(t, notif.NotificationID)
+	time.Sleep(200 * time.Millisecond)
+
+	// Matching version → delivered
+	feedData := testutil.DoGetWithHeaders(t, "/api/v1/items/feed?action=refresh", token,
+		map[string]string{"X-Skill-Ver": "0.0.3"})
+	notifications := feedNotifications(t, feedData["data"].(map[string]interface{}))
+	found := false
+	for _, n := range notifications {
+		if n["notification_id"] == notif.NotificationID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected notification for skill_ver == 0.0.3")
+	}
+
+	// Different version → NOT delivered
+	feedData2 := testutil.DoGetWithHeaders(t, "/api/v1/items/feed?action=refresh", token,
+		map[string]string{"X-Skill-Ver": "0.0.4"})
+	notifications2 := feedNotifications(t, feedData2["data"].(map[string]interface{}))
+	for _, n := range notifications2 {
+		if n["notification_id"] == notif.NotificationID {
+			t.Fatal("should NOT see notification for skill_ver 0.0.4")
+		}
+	}
+}
+
+func TestAudienceExpressionAgentID(t *testing.T) {
+	testutil.WaitForAPI(t)
+	agent1 := testutil.RegisterAgent(t, "audience_agentid_1@test.com", "AudienceAgent1", "test")
+	agent2 := testutil.RegisterAgent(t, "audience_agentid_2@test.com", "AudienceAgent2", "test")
+	token1 := agent1["token"].(string)
+	token2 := agent2["token"].(string)
+	agentID1 := agent1["agent_id"].(string)
+
+	// Target agent1 only
+	notif := createSystemNotificationWithExpr(t, "announcement", "agent targeted", 1, 0, 0, `agent_id == `+agentID1)
+	defer offlineSystemNotification(t, notif.NotificationID)
+	time.Sleep(200 * time.Millisecond)
+
+	// Agent1 → delivered
+	feedData := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", token1)
+	notifications := feedNotifications(t, feedData["data"].(map[string]interface{}))
+	found := false
+	for _, n := range notifications {
+		if n["notification_id"] == notif.NotificationID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected notification for targeted agent_id")
+	}
+
+	// Agent2 → NOT delivered
+	feedData2 := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", token2)
+	notifications2 := feedNotifications(t, feedData2["data"].(map[string]interface{}))
+	for _, n := range notifications2 {
+		if n["notification_id"] == notif.NotificationID {
+			t.Fatal("should NOT see notification for non-targeted agent_id")
+		}
+	}
+}
+
+func TestAudienceExpressionEmail(t *testing.T) {
+	testutil.WaitForAPI(t)
+	targetEmail := "audience_email_match@test.com"
+	agent1 := testutil.RegisterAgent(t, targetEmail, "AudienceEmailMatch", "test")
+	agent2 := testutil.RegisterAgent(t, "audience_email_other@test.com", "AudienceEmailOther", "test")
+	token1 := agent1["token"].(string)
+	token2 := agent2["token"].(string)
+
+	notif := createSystemNotificationWithExpr(t, "announcement", "email targeted", 1, 0, 0, `email == "`+targetEmail+`"`)
+	defer offlineSystemNotification(t, notif.NotificationID)
+	time.Sleep(200 * time.Millisecond)
+
+	// Matching email → delivered
+	feedData := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", token1)
+	notifications := feedNotifications(t, feedData["data"].(map[string]interface{}))
+	found := false
+	for _, n := range notifications {
+		if n["notification_id"] == notif.NotificationID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected notification for matching email")
+	}
+
+	// Non-matching email → NOT delivered
+	feedData2 := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", token2)
+	notifications2 := feedNotifications(t, feedData2["data"].(map[string]interface{}))
+	for _, n := range notifications2 {
+		if n["notification_id"] == notif.NotificationID {
+			t.Fatal("should NOT see notification for non-matching email")
+		}
+	}
+}
+
 func createSystemNotificationWithExpr(t *testing.T, notifType, content string, status int32, startAt, endAt int64, audienceExpr string) SystemNotificationInfo {
 	t.Helper()
 	body := map[string]interface{}{
