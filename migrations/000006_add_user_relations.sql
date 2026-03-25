@@ -12,7 +12,7 @@ CREATE INDEX idx_rel_from ON user_relations(from_uid, rel_type);
 CREATE INDEX idx_rel_to ON user_relations(to_uid, rel_type);
 
 CREATE TABLE friend_requests (
-    id          BIGSERIAL PRIMARY KEY,
+    id          BIGINT PRIMARY KEY,
     from_uid    BIGINT NOT NULL,
     to_uid      BIGINT NOT NULL,
     status      SMALLINT NOT NULL DEFAULT 0,

@@ -26,6 +26,9 @@ type PMServiceImpl struct {
 	msgIDGen interface {
 		NextID() (int64, error)
 	}
+	reqIDGen interface {
+		NextID() (int64, error)
+	}
 	iceBreaker *icebreak.IceBreaker
 	validator  *validator.Validator
 }
@@ -489,13 +492,17 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 }
 
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
+	log.Printf("[Relation] SendFriendRequest: from=%d to=%d", req.FromUid, req.ToUid)
+
 	// Check if either blocked
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
+		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (target blocked sender)", req.FromUid, req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
 	}
 	blocked, _ = relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ToUid, req.FromUid)
 	if blocked {
+		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (sender blocked target)", req.FromUid, req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
 	}
 
@@ -514,13 +521,23 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		}
 		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+		log.Printf("[Relation] SendFriendRequest auto-accepted mutual request: request_id=%d from=%d to=%d", mutualReq.ID, req.FromUid, req.ToUid)
 		return &pm.SendFriendRequestResp{RequestId: mutualReq.ID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
-	requestID, err := dal.CreateFriendRequest(db.DB, req.FromUid, req.ToUid)
+	requestID, err := s.reqIDGen.NextID()
 	if err != nil {
+		log.Printf("[Relation] SendFriendRequest failed to generate request_id: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate request id"}}, nil
+	}
+
+	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid)
+	if err != nil {
+		log.Printf("[Relation] SendFriendRequest failed to create: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
 	}
+
+	log.Printf("[Relation] SendFriendRequest created: request_id=%d from=%d to=%d", requestID, req.FromUid, req.ToUid)
 
 	// Fire-and-forget: notify recipient of new friend request
 	go func() {
@@ -533,6 +550,8 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 }
 
 func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq) (*pm.HandleFriendRequestResp, error) {
+	log.Printf("[Relation] HandleFriendRequest: request_id=%d agent=%d action=%v", req.RequestId, req.AgentId, req.Action)
+
 	friendReq, err := dal.GetFriendRequest(db.DB, req.RequestId)
 	if err != nil {
 		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "request not found"}}, nil
@@ -554,6 +573,7 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		}
 		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.FromUID)
 		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.ToUID)
+		log.Printf("[Relation] FriendRequest accepted: request_id=%d from=%d to=%d", req.RequestId, friendReq.FromUID, friendReq.ToUID)
 
 	case pm.FriendRequestAction_REJECT:
 		if friendReq.ToUID != req.AgentId {
@@ -562,6 +582,7 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusRejected); err != nil {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to reject"}}, nil
 		}
+		log.Printf("[Relation] FriendRequest rejected: request_id=%d by=%d", req.RequestId, req.AgentId)
 
 	case pm.FriendRequestAction_CANCEL:
 		if friendReq.FromUID != req.AgentId {
@@ -570,6 +591,7 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusCancelled); err != nil {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to cancel"}}, nil
 		}
+		log.Printf("[Relation] FriendRequest cancelled: request_id=%d by=%d", req.RequestId, req.AgentId)
 
 	default:
 		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid action"}}, nil
@@ -579,6 +601,8 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 }
 
 func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.UnfriendResp, error) {
+	log.Printf("[Relation] Unfriend: from=%d to=%d", req.FromUid, req.ToUid)
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := dal.DeleteFriendRelation(tx, req.FromUid, req.ToUid); err != nil {
 			return err
@@ -593,10 +617,13 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 	}
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	log.Printf("[Relation] Unfriend done: from=%d to=%d", req.FromUid, req.ToUid)
 	return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
+	log.Printf("[Relation] BlockUser: from=%d to=%d", req.FromUid, req.ToUid)
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := dal.CreateBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
 			return err
@@ -613,10 +640,13 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	log.Printf("[Relation] BlockUser done: from=%d to=%d", req.FromUid, req.ToUid)
 	return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq) (*pm.UnblockUserResp, error) {
+	log.Printf("[Relation] UnblockUser: from=%d to=%d", req.FromUid, req.ToUid)
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := dal.DeleteBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
 			return err
@@ -629,6 +659,7 @@ func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq)
 		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
 	}
 	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
+	log.Printf("[Relation] UnblockUser done: from=%d to=%d", req.FromUid, req.ToUid)
 	return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -644,8 +675,10 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 
 	requests, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
 	if err != nil {
+		log.Printf("[Relation] ListFriendRequests failed: agent=%d direction=%s err=%v", req.AgentId, req.Direction, err)
 		return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
 	}
+	log.Printf("[Relation] ListFriendRequests: agent=%d direction=%s count=%d", req.AgentId, req.Direction, len(requests))
 
 	var result []*pm.FriendRequestInfo
 	if len(requests) > 0 {
@@ -687,8 +720,10 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 
 	friends, err := dal.ListFriends(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
+		log.Printf("[Relation] ListFriends failed: agent=%d err=%v", req.AgentId, err)
 		return &pm.ListFriendsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
 	}
+	log.Printf("[Relation] ListFriends: agent=%d count=%d", req.AgentId, len(friends))
 
 	var result []*pm.FriendInfo
 	for _, f := range friends {

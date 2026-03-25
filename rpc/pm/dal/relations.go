@@ -45,10 +45,11 @@ type Friend struct {
 	FriendSince int64
 }
 
-// CreateFriendRequest creates a new friend request
-func CreateFriendRequest(db *gorm.DB, fromUID, toUID int64) (int64, error) {
+// CreateFriendRequest creates a new friend request with the given snowflake ID
+func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64) (int64, error) {
 	now := time.Now().UnixMilli()
 	req := &FriendRequest{
+		ID:        id,
 		FromUID:   fromUID,
 		ToUID:     toUID,
 		Status:    RequestStatusPending,
