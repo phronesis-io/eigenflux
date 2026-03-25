@@ -5,15 +5,21 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
+
+	"eigenflux_server/pkg/commonparam"
 )
 
 func CommonParamMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		if v := c.GetHeader("X-Skill-Ver"); len(v) > 0 {
 			ver := string(v)
+			num := parseVersionNum(ver)
 			c.Set("skill_ver", ver)
-			c.Set("skill_ver_num", parseVersionNum(ver))
+			c.Set("skill_ver_num", num)
+			ctx = metainfo.WithPersistentValue(ctx, commonparam.KeySkillVer, ver)
+			ctx = metainfo.WithPersistentValue(ctx, commonparam.KeySkillVerNum, strconv.Itoa(num))
 		}
 		c.Next(ctx)
 	}

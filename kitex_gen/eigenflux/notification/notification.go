@@ -112,8 +112,7 @@ var fieldIDToName_AckNotificationItem = map[int16]string{
 }
 
 type ListPendingReq struct {
-	AgentId     int64             `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	ContextVars map[string]string `thrift:"context_vars,2,optional" frugal:"2,optional,map<string:string>" json:"context_vars,omitempty"`
+	AgentId int64 `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
 }
 
 func NewListPendingReq() *ListPendingReq {
@@ -126,24 +125,8 @@ func (p *ListPendingReq) InitDefault() {
 func (p *ListPendingReq) GetAgentId() (v int64) {
 	return p.AgentId
 }
-
-var ListPendingReq_ContextVars_DEFAULT map[string]string
-
-func (p *ListPendingReq) GetContextVars() (v map[string]string) {
-	if !p.IsSetContextVars() {
-		return ListPendingReq_ContextVars_DEFAULT
-	}
-	return p.ContextVars
-}
 func (p *ListPendingReq) SetAgentId(val int64) {
 	p.AgentId = val
-}
-func (p *ListPendingReq) SetContextVars(val map[string]string) {
-	p.ContextVars = val
-}
-
-func (p *ListPendingReq) IsSetContextVars() bool {
-	return p.ContextVars != nil
 }
 
 func (p *ListPendingReq) String() string {
@@ -155,7 +138,6 @@ func (p *ListPendingReq) String() string {
 
 var fieldIDToName_ListPendingReq = map[int16]string{
 	1: "agent_id",
-	2: "context_vars",
 }
 
 type ListPendingResp struct {

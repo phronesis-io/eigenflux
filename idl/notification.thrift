@@ -17,7 +17,6 @@ struct AckNotificationItem {
 
 struct ListPendingReq {
     1: required i64 agent_id
-    2: optional map<string, string> context_vars
 }
 
 struct ListPendingResp {

@@ -19,12 +19,14 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/commonparam"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
 
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
@@ -41,18 +43,9 @@ func writeJSON(c *app.RequestContext, status int, code int32, msg string, data m
 	c.JSON(status, resp)
 }
 
-func fetchPendingNotifications(ctx context.Context, agentID int64, c *app.RequestContext) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
-	contextVars := make(map[string]string)
-	if v, ok := c.Get("skill_ver"); ok {
-		contextVars["skill_ver"] = v.(string)
-	}
-	if v, ok := c.Get("skill_ver_num"); ok {
-		contextVars["skill_ver_num"] = strconv.Itoa(v.(int))
-	}
-	contextVars["agent_id"] = strconv.FormatInt(agentID, 10)
+func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
 	pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
-		AgentId:     agentID,
-		ContextVars: contextVars,
+		AgentId: agentID,
 	})
 	if err != nil {
 		log.Printf("[API] NotificationService.ListPending error for agent %d: %v", agentID, err)
@@ -571,7 +564,8 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	notifications := make([]map[string]interface{}, 0)
 	var pendingNotifications []*notificationrpc.PendingNotification
 	if *action == "refresh" {
-		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID, c)
+		ctx = metainfo.WithPersistentValue(ctx, commonparam.KeyAgentID, strconv.FormatInt(agentID, 10))
+		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

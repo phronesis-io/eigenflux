@@ -189,7 +189,7 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
 - `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
 - `api/middleware/common_param.go`: CommonParamMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
-- `context_vars` in `ListPendingReq`: Passes expression variables from API gateway to notification service via RPC
+- `pkg/commonparam/`: Typed `CommonParam` struct with `FromContext(ctx)` and `ToVars()`. Propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`), automatically available to all downstream RPC services
 - Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
 
 ## Testing
