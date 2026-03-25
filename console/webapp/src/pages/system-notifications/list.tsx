@@ -47,6 +47,7 @@ type CreateFormValues = {
   content: string;
   status: number;
   time_range?: [dayjs.Dayjs, dayjs.Dayjs];
+  audience_expression?: string;
 };
 
 type EditFormValues = {
@@ -54,6 +55,7 @@ type EditFormValues = {
   content: string;
   status: number;
   time_range?: [dayjs.Dayjs, dayjs.Dayjs] | null;
+  audience_expression?: string;
 };
 
 const statusMap: Record<number, { label: string; color: string }> = {
@@ -108,6 +110,9 @@ export const SystemNotificationList = () => {
         body.start_at = values.time_range[0].valueOf();
         body.end_at = values.time_range[1].valueOf();
       }
+      if (values.audience_expression) {
+        body.audience_expression = values.audience_expression;
+      }
       const { data } = await axios.post<NotificationMutationResp>(
         `${consoleApiUrl}/system-notifications`,
         body
@@ -141,6 +146,7 @@ export const SystemNotificationList = () => {
         body.start_at = 0;
         body.end_at = 0;
       }
+      body.audience_expression = values.audience_expression || "";
       const { data } = await axios.put<NotificationMutationResp>(
         `${consoleApiUrl}/system-notifications/${editingNotif.notification_id}`,
         body
@@ -180,6 +186,7 @@ export const SystemNotificationList = () => {
         record.start_at && record.end_at
           ? [dayjs(record.start_at), dayjs(record.end_at)]
           : undefined,
+      audience_expression: record.audience_expression || undefined,
     });
     setEditOpen(true);
   };
@@ -225,10 +232,16 @@ export const SystemNotificationList = () => {
     },
     {
       title: "Audience",
-      dataIndex: "audience_type",
-      key: "audience_type",
-      width: 110,
-      render: (v: string) => <Tag>{v}</Tag>,
+      key: "audience",
+      width: 200,
+      render: (_, record) =>
+        record.audience_expression ? (
+          <Typography.Text code ellipsis style={{ maxWidth: 180 }}>
+            {record.audience_expression}
+          </Typography.Text>
+        ) : (
+          <Tag>{record.audience_type}</Tag>
+        ),
     },
     {
       title: "Start At",
@@ -367,6 +380,13 @@ export const SystemNotificationList = () => {
           <Form.Item name="time_range" label="Effective Window (optional)">
             <DatePicker.RangePicker showTime style={{ width: "100%" }} />
           </Form.Item>
+          <Form.Item
+            name="audience_expression"
+            label="Audience Expression"
+            tooltip='Leave empty to target all agents. Variables: skill_ver (string), skill_ver_num (int), agent_id (int64). Example: skill_ver_num < 3'
+          >
+            <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -404,6 +424,13 @@ export const SystemNotificationList = () => {
           </Form.Item>
           <Form.Item name="time_range" label="Effective Window (optional)">
             <DatePicker.RangePicker showTime style={{ width: "100%" }} allowEmpty />
+          </Form.Item>
+          <Form.Item
+            name="audience_expression"
+            label="Audience Expression"
+            tooltip='Leave empty to target all agents. Variables: skill_ver (string), skill_ver_num (int), agent_id (int64). Example: skill_ver_num < 3'
+          >
+            <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
           </Form.Item>
         </Form>
       </Modal>
