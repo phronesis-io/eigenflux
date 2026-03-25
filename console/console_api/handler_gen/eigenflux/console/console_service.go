@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"console.eigenflux.ai/internal/audience"
 	"console.eigenflux.ai/internal/dal"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
@@ -161,19 +162,21 @@ type SystemNotificationResp struct {
 }
 
 type createSystemNotificationReq struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-	Status  *int32 `json:"status"`
-	StartAt *int64 `json:"start_at"`
-	EndAt   *int64 `json:"end_at"`
+	Type               string  `json:"type"`
+	Content            string  `json:"content"`
+	Status             *int32  `json:"status"`
+	StartAt            *int64  `json:"start_at"`
+	EndAt              *int64  `json:"end_at"`
+	AudienceExpression *string `json:"audience_expression"`
 }
 
 type updateSystemNotificationReq struct {
-	Type    *string `json:"type"`
-	Content *string `json:"content"`
-	Status  *int32  `json:"status"`
-	StartAt *int64  `json:"start_at"`
-	EndAt   *int64  `json:"end_at"`
+	Type               *string `json:"type"`
+	Content            *string `json:"content"`
+	Status             *int32  `json:"status"`
+	StartAt            *int64  `json:"start_at"`
+	EndAt              *int64  `json:"end_at"`
+	AudienceExpression *string `json:"audience_expression"`
 }
 
 // ===========================================================================
@@ -580,6 +583,15 @@ func CreateSystemNotification(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	var audienceExpr string
+	if req.AudienceExpression != nil && strings.TrimSpace(*req.AudienceExpression) != "" {
+		audienceExpr = strings.TrimSpace(*req.AudienceExpression)
+		if err := audience.Validate(audienceExpr); err != nil {
+			writeConsoleError(c, "invalid audience_expression: "+err.Error())
+			return
+		}
+	}
+
 	if notifIDGen == nil {
 		writeConsoleError(c, "notification id generator not initialized")
 		return
@@ -605,6 +617,7 @@ func CreateSystemNotification(ctx context.Context, c *app.RequestContext) {
 	row, err := dal.CreateSystemNotification(ctx, db.DB, dal.CreateSystemNotificationParams{
 		NotificationID: notifID, Type: strings.TrimSpace(req.Type),
 		Content: strings.TrimSpace(req.Content), Status: status, StartAt: startAt, EndAt: endAt,
+		AudienceExpression: audienceExpr,
 	})
 	if err != nil {
 		writeConsoleError(c, "create failed: "+err.Error())
@@ -645,13 +658,21 @@ func UpdateSystemNotification(ctx context.Context, c *app.RequestContext) {
 		writeConsoleError(c, "invalid request: "+err.Error())
 		return
 	}
-	if req.Type == nil && req.Content == nil && req.Status == nil && req.StartAt == nil && req.EndAt == nil {
+	if req.Type == nil && req.Content == nil && req.Status == nil && req.StartAt == nil && req.EndAt == nil && req.AudienceExpression == nil {
 		writeConsoleError(c, "at least one field must be provided")
 		return
 	}
 
+	if req.AudienceExpression != nil && strings.TrimSpace(*req.AudienceExpression) != "" {
+		if err := audience.Validate(strings.TrimSpace(*req.AudienceExpression)); err != nil {
+			writeConsoleError(c, "invalid audience_expression: "+err.Error())
+			return
+		}
+	}
+
 	row, err := dal.UpdateSystemNotification(ctx, db.DB, notifID, dal.UpdateSystemNotificationParams{
 		Type: req.Type, Content: req.Content, Status: req.Status, StartAt: req.StartAt, EndAt: req.EndAt,
+		AudienceExpression: req.AudienceExpression,
 	})
 	if err != nil {
 		writeNotificationError(c, err)
