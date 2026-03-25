@@ -963,6 +963,7 @@ type HandleFriendRequestReq struct {
 	RequestId int64               `thrift:"request_id,2,required" frugal:"2,required,i64" json:"request_id"`
 	Action    FriendRequestAction `thrift:"action,3,required" frugal:"3,required,FriendRequestAction" json:"action"`
 	Remark    *string             `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+	Reason    *string             `thrift:"reason,5,optional" frugal:"5,optional,string" json:"reason,omitempty"`
 }
 
 func NewHandleFriendRequestReq() *HandleFriendRequestReq {
@@ -992,6 +993,15 @@ func (p *HandleFriendRequestReq) GetRemark() (v string) {
 	}
 	return *p.Remark
 }
+
+var HandleFriendRequestReq_Reason_DEFAULT string
+
+func (p *HandleFriendRequestReq) GetReason() (v string) {
+	if !p.IsSetReason() {
+		return HandleFriendRequestReq_Reason_DEFAULT
+	}
+	return *p.Reason
+}
 func (p *HandleFriendRequestReq) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -1004,9 +1014,16 @@ func (p *HandleFriendRequestReq) SetAction(val FriendRequestAction) {
 func (p *HandleFriendRequestReq) SetRemark(val *string) {
 	p.Remark = val
 }
+func (p *HandleFriendRequestReq) SetReason(val *string) {
+	p.Reason = val
+}
 
 func (p *HandleFriendRequestReq) IsSetRemark() bool {
 	return p.Remark != nil
+}
+
+func (p *HandleFriendRequestReq) IsSetReason() bool {
+	return p.Reason != nil
 }
 
 func (p *HandleFriendRequestReq) String() string {
@@ -1021,6 +1038,7 @@ var fieldIDToName_HandleFriendRequestReq = map[int16]string{
 	2: "request_id",
 	3: "action",
 	4: "remark",
+	5: "reason",
 }
 
 type HandleFriendRequestResp struct {
@@ -1058,6 +1076,91 @@ func (p *HandleFriendRequestResp) String() string {
 }
 
 var fieldIDToName_HandleFriendRequestResp = map[int16]string{
+	255: "base_resp",
+}
+
+type UpdateFriendRemarkReq struct {
+	AgentId   int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	FriendUid int64  `thrift:"friend_uid,2,required" frugal:"2,required,i64" json:"friend_uid"`
+	Remark    string `thrift:"remark,3,required" frugal:"3,required,string" json:"remark"`
+}
+
+func NewUpdateFriendRemarkReq() *UpdateFriendRemarkReq {
+	return &UpdateFriendRemarkReq{}
+}
+
+func (p *UpdateFriendRemarkReq) InitDefault() {
+}
+
+func (p *UpdateFriendRemarkReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *UpdateFriendRemarkReq) GetFriendUid() (v int64) {
+	return p.FriendUid
+}
+
+func (p *UpdateFriendRemarkReq) GetRemark() (v string) {
+	return p.Remark
+}
+func (p *UpdateFriendRemarkReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *UpdateFriendRemarkReq) SetFriendUid(val int64) {
+	p.FriendUid = val
+}
+func (p *UpdateFriendRemarkReq) SetRemark(val string) {
+	p.Remark = val
+}
+
+func (p *UpdateFriendRemarkReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateFriendRemarkReq(%+v)", *p)
+}
+
+var fieldIDToName_UpdateFriendRemarkReq = map[int16]string{
+	1: "agent_id",
+	2: "friend_uid",
+	3: "remark",
+}
+
+type UpdateFriendRemarkResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewUpdateFriendRemarkResp() *UpdateFriendRemarkResp {
+	return &UpdateFriendRemarkResp{}
+}
+
+func (p *UpdateFriendRemarkResp) InitDefault() {
+}
+
+var UpdateFriendRemarkResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *UpdateFriendRemarkResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return UpdateFriendRemarkResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *UpdateFriendRemarkResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *UpdateFriendRemarkResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *UpdateFriendRemarkResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateFriendRemarkResp(%+v)", *p)
+}
+
+var fieldIDToName_UpdateFriendRemarkResp = map[int16]string{
 	255: "base_resp",
 }
 
@@ -1757,6 +1860,8 @@ type PMService interface {
 	ListFriendRequests(ctx context.Context, req *ListFriendRequestsReq) (r *ListFriendRequestsResp, err error)
 
 	ListFriends(ctx context.Context, req *ListFriendsReq) (r *ListFriendsResp, err error)
+
+	UpdateFriendRemark(ctx context.Context, req *UpdateFriendRemarkReq) (r *UpdateFriendRemarkResp, err error)
 }
 
 type PMServiceSendPMArgs struct {
@@ -2668,5 +2773,81 @@ func (p *PMServiceListFriendsResult) String() string {
 }
 
 var fieldIDToName_PMServiceListFriendsResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceUpdateFriendRemarkArgs struct {
+	Req *UpdateFriendRemarkReq `thrift:"req,1" frugal:"1,default,UpdateFriendRemarkReq" json:"req"`
+}
+
+func NewPMServiceUpdateFriendRemarkArgs() *PMServiceUpdateFriendRemarkArgs {
+	return &PMServiceUpdateFriendRemarkArgs{}
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) InitDefault() {
+}
+
+var PMServiceUpdateFriendRemarkArgs_Req_DEFAULT *UpdateFriendRemarkReq
+
+func (p *PMServiceUpdateFriendRemarkArgs) GetReq() (v *UpdateFriendRemarkReq) {
+	if !p.IsSetReq() {
+		return PMServiceUpdateFriendRemarkArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceUpdateFriendRemarkArgs) SetReq(val *UpdateFriendRemarkReq) {
+	p.Req = val
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateFriendRemarkArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateFriendRemarkArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceUpdateFriendRemarkResult struct {
+	Success *UpdateFriendRemarkResp `thrift:"success,0,optional" frugal:"0,optional,UpdateFriendRemarkResp" json:"success,omitempty"`
+}
+
+func NewPMServiceUpdateFriendRemarkResult() *PMServiceUpdateFriendRemarkResult {
+	return &PMServiceUpdateFriendRemarkResult{}
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) InitDefault() {
+}
+
+var PMServiceUpdateFriendRemarkResult_Success_DEFAULT *UpdateFriendRemarkResp
+
+func (p *PMServiceUpdateFriendRemarkResult) GetSuccess() (v *UpdateFriendRemarkResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceUpdateFriendRemarkResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceUpdateFriendRemarkResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateFriendRemarkResp)
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateFriendRemarkResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateFriendRemarkResult = map[int16]string{
 	0: "success",
 }

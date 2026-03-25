@@ -220,3 +220,17 @@ func ListFriends(db *gorm.DB, agentID int64, cursor, limit int) ([]*Friend, erro
 	return friends, nil
 }
 
+// UpdateFriendRemark updates the remark for a friend relation.
+func UpdateFriendRemark(db *gorm.DB, agentID, friendUID int64, remark string) error {
+	result := db.Model(&UserRelation{}).
+		Where("from_uid = ? AND to_uid = ? AND rel_type = ?", agentID, friendUID, RelTypeFriend).
+		Update("remark", remark)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("friend relation not found")
+	}
+	return nil
+}
+

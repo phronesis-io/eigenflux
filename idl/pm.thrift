@@ -105,9 +105,20 @@ struct HandleFriendRequestReq {
     2: required i64 request_id
     3: required FriendRequestAction action
     4: optional string remark
+    5: optional string reason
 }
 
 struct HandleFriendRequestResp {
+    255: required base.BaseResp base_resp
+}
+
+struct UpdateFriendRemarkReq {
+    1: required i64 agent_id
+    2: required i64 friend_uid
+    3: required string remark
+}
+
+struct UpdateFriendRemarkResp {
     255: required base.BaseResp base_resp
 }
 
@@ -196,5 +207,6 @@ service PMService {
     UnblockUserResp UnblockUser(1: UnblockUserReq req)
     ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req)
     ListFriendsResp ListFriends(1: ListFriendsReq req)
+    UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req)
 }
 

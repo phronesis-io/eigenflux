@@ -23,6 +23,7 @@ type Client interface {
 	UnblockUser(ctx context.Context, req *pm.UnblockUserReq, callOptions ...callopt.Option) (r *pm.UnblockUserResp, err error)
 	ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq, callOptions ...callopt.Option) (r *pm.ListFriendRequestsResp, err error)
 	ListFriends(ctx context.Context, req *pm.ListFriendsReq, callOptions ...callopt.Option) (r *pm.ListFriendsResp, err error)
+	UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq, callOptions ...callopt.Option) (r *pm.UpdateFriendRemarkResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -112,4 +113,9 @@ func (p *kPMServiceClient) ListFriendRequests(ctx context.Context, req *pm.ListF
 func (p *kPMServiceClient) ListFriends(ctx context.Context, req *pm.ListFriendsReq, callOptions ...callopt.Option) (r *pm.ListFriendsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ListFriends(ctx, req)
+}
+
+func (p *kPMServiceClient) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq, callOptions ...callopt.Option) (r *pm.UpdateFriendRemarkResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UpdateFriendRemark(ctx, req)
 }

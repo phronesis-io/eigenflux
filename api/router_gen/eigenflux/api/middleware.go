@@ -181,3 +181,8 @@ func _unfriendMw() []app.HandlerFunc {
 func _relationsMw() []app.HandlerFunc {
 	return []app.HandlerFunc{middleware.AuthMiddleware()}
 }
+
+func _updatefriendremarkMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

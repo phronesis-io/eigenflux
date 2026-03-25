@@ -97,6 +97,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"UpdateFriendRemark": kitex.NewMethodInfo(
+		updateFriendRemarkHandler,
+		newPMServiceUpdateFriendRemarkArgs,
+		newPMServiceUpdateFriendRemarkResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -379,6 +386,24 @@ func newPMServiceListFriendsResult() interface{} {
 	return pm.NewPMServiceListFriendsResult()
 }
 
+func updateFriendRemarkHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceUpdateFriendRemarkArgs)
+	realResult := result.(*pm.PMServiceUpdateFriendRemarkResult)
+	success, err := handler.(pm.PMService).UpdateFriendRemark(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceUpdateFriendRemarkArgs() interface{} {
+	return pm.NewPMServiceUpdateFriendRemarkArgs()
+}
+
+func newPMServiceUpdateFriendRemarkResult() interface{} {
+	return pm.NewPMServiceUpdateFriendRemarkResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -504,6 +529,16 @@ func (p *kClient) ListFriends(ctx context.Context, req *pm.ListFriendsReq) (r *p
 	_args.Req = req
 	var _result pm.PMServiceListFriendsResult
 	if err = p.c.Call(ctx, "ListFriends", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq) (r *pm.UpdateFriendRemarkResp, err error) {
+	var _args pm.PMServiceUpdateFriendRemarkArgs
+	_args.Req = req
+	var _result pm.PMServiceUpdateFriendRemarkResult
+	if err = p.c.Call(ctx, "UpdateFriendRemark", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -35,9 +35,12 @@ type PMServiceImpl struct {
 }
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
+	log.Printf("[PM] SendPM: sender=%d receiver=%d item_id=%v conv_id=%v", req.SenderId, req.ReceiverId, req.ItemId, req.ConvId)
+
 	// Block check - silent success if blocked
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ReceiverId, req.SenderId)
 	if blocked {
+		log.Printf("[PM] SendPM blocked: sender=%d receiver=%d", req.SenderId, req.ReceiverId)
 		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
@@ -48,7 +51,7 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 
 	// Case 2: Reply (conv_id provided)
 	if req.ConvId != nil && *req.ConvId > 0 {
-		return s.handleReply(ctx, req)
+		return s.handleReply(ctx, req, false)
 	}
 
 	// Case 3: Friend-based PM (neither item_id nor conv_id)
@@ -89,7 +92,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	if exists {
 		// Treat as reply
 		req.ConvId = &existingConvID
-		return s.handleReply(ctx, req)
+		return s.handleReply(ctx, req, false)
 	}
 
 	// Generate IDs
@@ -172,7 +175,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	}, nil
 }
 
-func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
+func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skipIceBreak bool) (*pm.SendPMResp, error) {
 	convID := *req.ConvId
 
 	// Validate conversation membership
@@ -183,18 +186,23 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq) (*pm
 		}, nil
 	}
 
-	// Ice break check
-	iceStatus, lastSenderID, err := s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
-	if err != nil {
-		return &pm.SendPMResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "ice break check failed"},
-		}, nil
-	}
+	// Ice break check (skipped for friend conversations)
+	var iceStatus int
+	if !skipIceBreak {
+		var lastSenderID int64
+		iceStatus, lastSenderID, err = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
+		if err != nil {
+			return &pm.SendPMResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "ice break check failed"},
+			}, nil
+		}
 
-	if iceStatus == icebreak.IceStatusFirstMsg && lastSenderID == req.SenderId {
-		return &pm.SendPMResp{
-			BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
-		}, nil
+		if iceStatus == icebreak.IceStatusFirstMsg && lastSenderID == req.SenderId {
+			log.Printf("[PM] Reply rejected (icebreak): conv_id=%d sender=%d", convID, req.SenderId)
+			return &pm.SendPMResp{
+				BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
+			}, nil
+		}
 	}
 
 	// Generate message ID
@@ -254,8 +262,10 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq) (*pm
 func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, req.ReceiverId)
 	if !isFriend {
+		log.Printf("[PM] FriendPM rejected: sender=%d receiver=%d (not friends)", req.SenderId, req.ReceiverId)
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not friends"}}, nil
 	}
+	log.Printf("[PM] FriendPM: sender=%d receiver=%d", req.SenderId, req.ReceiverId)
 	participantA, participantB := req.SenderId, req.ReceiverId
 	if participantA > participantB {
 		participantA, participantB = participantB, participantA
@@ -265,13 +275,8 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to check conversation"}}, nil
 	}
 	if exists {
-		// Pre-break ice for friend conversations so handleReply won't block
-		bucketKey := fmt.Sprintf("pm:ice:h:%d", existingConvID/1000)
-		field := fmt.Sprintf("%d", existingConvID%1000)
-		db.RDB.HSet(ctx, bucketKey, field, "1")
-
 		req.ConvId = &existingConvID
-		return s.handleReply(ctx, req)
+		return s.handleReply(ctx, req, true)
 	}
 	convID, _ := s.convIDGen.NextID()
 	msgID, _ := s.msgIDGen.NextID()
@@ -297,6 +302,7 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
+	log.Printf("[PM] FriendPM new conv: conv_id=%d msg_id=%d sender=%d receiver=%d", convID, msgID, req.SenderId, req.ReceiverId)
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -327,6 +333,7 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	// Fetch unread messages from DB
 	messages, err := dal.FetchUnreadMessages(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
+		log.Printf("[PM] FetchPM failed: agent=%d err=%v", req.AgentId, err)
 		return &pm.FetchPMResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to fetch messages"},
 		}, nil
@@ -371,6 +378,7 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	}
 
 	nextCursor := messages[len(messages)-1].MsgID
+	log.Printf("[PM] FetchPM: agent=%d count=%d", req.AgentId, len(messages))
 
 	return &pm.FetchPMResp{
 		Messages:   respMessages,
@@ -492,6 +500,7 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 	// Invalidate cached conv info so membership checks see the new status
 	s.validator.InvalidateConvCache(ctx, req.ConvId)
 
+	log.Printf("[PM] CloseConv: agent=%d conv_id=%d", req.AgentId, req.ConvId)
 	return &pm.CloseConvResp{
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
@@ -576,12 +585,16 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "request not found"}}, nil
 	}
 
+	reason := ""
+	if req.Reason != nil {
+		reason = truncateByWeightedLength(*req.Reason, 200)
+	}
+
 	switch req.Action {
 	case pm.FriendRequestAction_ACCEPT:
 		if friendReq.ToUID != req.AgentId {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
 		}
-		// Truncate remark to 100 weighted characters
 		remark := ""
 		if req.Remark != nil {
 			remark = truncateByWeightedLength(*req.Remark, 100)
@@ -599,6 +612,12 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.ToUID)
 		log.Printf("[Relation] FriendRequest accepted: request_id=%d from=%d to=%d", req.RequestId, friendReq.FromUID, friendReq.ToUID)
 
+		go func() {
+			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, "friend_accepted", reason); err != nil {
+				log.Printf("[PM] Failed to write friend accepted notification for request %d to agent %d: %v", req.RequestId, friendReq.FromUID, err)
+			}
+		}()
+
 	case pm.FriendRequestAction_REJECT:
 		if friendReq.ToUID != req.AgentId {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
@@ -607,6 +626,12 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to reject"}}, nil
 		}
 		log.Printf("[Relation] FriendRequest rejected: request_id=%d by=%d", req.RequestId, req.AgentId)
+
+		go func() {
+			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, "friend_rejected", reason); err != nil {
+				log.Printf("[PM] Failed to write friend rejected notification for request %d to agent %d: %v", req.RequestId, friendReq.FromUID, err)
+			}
+		}()
 
 	case pm.FriendRequestAction_CANCEL:
 		if friendReq.FromUID != req.AgentId {
@@ -776,6 +801,20 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 		nextCursor = friends[len(friends)-1].FriendSince
 	}
 	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func (s *PMServiceImpl) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq) (*pm.UpdateFriendRemarkResp, error) {
+	log.Printf("[Relation] UpdateFriendRemark: agent=%d friend=%d", req.AgentId, req.FriendUid)
+
+	remark := truncateByWeightedLength(req.Remark, 100)
+
+	if err := dal.UpdateFriendRemark(db.DB, req.AgentId, req.FriendUid, remark); err != nil {
+		log.Printf("[Relation] UpdateFriendRemark failed: agent=%d friend=%d err=%v", req.AgentId, req.FriendUid, err)
+		return &pm.UpdateFriendRemarkResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+	}
+
+	log.Printf("[Relation] UpdateFriendRemark done: agent=%d friend=%d", req.AgentId, req.FriendUid)
+	return &pm.UpdateFriendRemarkResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 // truncateByWeightedLength truncates a string to fit within maxLen weighted characters.

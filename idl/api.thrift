@@ -219,6 +219,7 @@ service ApiService {
     UnblockUserResp UnblockUser(1: UnblockUserReq req) (api.post="/api/v1/relations/unblock")
     ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req) (api.get="/api/v1/relations/applications")
     ListFriendsResp ListFriends(1: ListFriendsReq req) (api.get="/api/v1/relations/friends")
+    UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req) (api.post="/api/v1/relations/remark")
 }
 
 struct FeedbackItem {
@@ -442,6 +443,7 @@ struct HandleFriendRequestReq {
     1: required string request_id (api.body="request_id")
     2: required i32 action (api.body="action")
     3: optional string remark (api.body="remark")
+    4: optional string reason (api.body="reason")
 }
 
 struct HandleFriendRequestResp {
@@ -525,4 +527,14 @@ struct ListFriendsResp {
     1: required i32 code
     2: required string msg
     3: required ListFriendsData data
+}
+
+struct UpdateFriendRemarkReq {
+    1: required string friend_uid (api.body="friend_uid")
+    2: required string remark (api.body="remark")
+}
+
+struct UpdateFriendRemarkResp {
+    1: required i32 code
+    2: required string msg
 }

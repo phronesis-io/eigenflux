@@ -674,6 +674,11 @@ const docTemplate = `{
                 "responses": {}
             }
         },
+        "/api/v1/relations/remark": {
+            "post": {
+                "responses": {}
+            }
+        },
         "/api/v1/relations/unblock": {
             "post": {
                 "responses": {}

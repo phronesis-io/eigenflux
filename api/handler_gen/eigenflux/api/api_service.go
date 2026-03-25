@@ -1294,6 +1294,9 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if req.Remark != nil && *req.Remark != "" {
 		rpcReq.Remark = req.Remark
 	}
+	if req.Reason != nil && *req.Reason != "" {
+		rpcReq.Reason = req.Reason
+	}
 	resp, err := clients.PMClient.HandleFriendRequest(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
@@ -1531,4 +1534,39 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		"friends":     friends,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
 	})
+}
+
+// UpdateFriendRemark .
+// @router /api/v1/relations/remark [POST]
+func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UpdateFriendRemarkReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	friendUID, err := strconv.ParseInt(req.FriendUID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid friend_uid", nil)
+		return
+	}
+
+	resp, err := clients.PMClient.UpdateFriendRemark(ctx, &pmrpc.UpdateFriendRemarkReq{
+		AgentId:   agentID,
+		FriendUid: friendUID,
+		Remark:    req.Remark,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

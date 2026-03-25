@@ -1102,3 +1102,208 @@ func TestSendFriendRequest_AlreadyFriends(t *testing.T) {
 	}
 	t.Logf("Friend request to existing friend correctly rejected")
 }
+
+// Test 26: Accepting friend request notifies the original sender
+func TestHandleFriendRequest_AcceptNotifiesSender(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"acceptnotif_a@test.com", "acceptnotif_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "acceptnotif_a@test.com", "AcceptNotif A", "bio")
+	agentB := testutil.RegisterAgent(t, "acceptnotif_b@test.com", "AcceptNotif B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends request to B
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	// Clear A's notification hash (in case of leftover)
+	rdb := testutil.GetTestRedis()
+	ctx := context.Background()
+	rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", uidA))
+
+	// B accepts
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+
+	// Wait for fire-and-forget notification
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify notification exists in Redis for agent A (the original sender)
+	key := fmt.Sprintf("pm:notify:%d", uidA)
+	vals, err := rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("failed to read pm:notify key: %v", err)
+	}
+	if len(vals) == 0 {
+		t.Fatalf("expected friend_accepted notification for agent A, got none")
+	}
+
+	// Find the accepted notification (negative request_id field)
+	reqIDInt, _ := strconv.ParseInt(requestID, 10, 64)
+	negField := strconv.FormatInt(-reqIDInt, 10)
+	payload, ok := vals[negField]
+	if !ok {
+		t.Fatalf("expected notification field %s, got fields: %v", negField, vals)
+	}
+	var notif map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+	if notif["type"] != "friend_accepted" {
+		t.Fatalf("expected type=friend_accepted, got %v", notif["type"])
+	}
+	t.Logf("Friend accepted notification created for sender: %v", notif)
+
+	// Verify it appears in feed refresh for A
+	feedResp := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", agentA["token"].(string))
+	feedCode := int(feedResp["code"].(float64))
+	if feedCode != 0 {
+		t.Fatalf("Feed refresh failed: code=%d msg=%v", feedCode, feedResp["msg"])
+	}
+	feedData := feedResp["data"].(map[string]interface{})
+	notifications := feedData["notifications"].([]interface{})
+
+	found := false
+	for _, n := range notifications {
+		notifMap := n.(map[string]interface{})
+		if notifMap["source_type"] == "friend_request" && notifMap["type"] == "friend_accepted" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected friend_accepted notification in feed, got: %v", notifications)
+	}
+	t.Logf("Friend accepted notification delivered via feed refresh")
+
+	// Verify acked after feed delivery
+	time.Sleep(200 * time.Millisecond)
+	remaining, _ := rdb.HLen(ctx, key).Result()
+	if remaining != 0 {
+		t.Fatalf("expected notification deleted after ack, got %d remaining", remaining)
+	}
+	t.Logf("Friend accepted notification acked and deleted from Redis")
+}
+
+// Test 27: Rejecting friend request notifies the original sender with reason
+func TestHandleFriendRequest_RejectNotifiesWithReason(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"rejectnotif_a@test.com", "rejectnotif_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "rejectnotif_a@test.com", "RejectNotif A", "bio")
+	agentB := testutil.RegisterAgent(t, "rejectnotif_b@test.com", "RejectNotif B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends request to B
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	// Clear A's notification hash
+	rdb := testutil.GetTestRedis()
+	ctx := context.Background()
+	rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", uidA))
+
+	// B rejects with reason
+	rejectReason := "Sorry, I don't know you"
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     2,
+		"reason":     rejectReason,
+	}, agentB["token"].(string))
+
+	// Wait for fire-and-forget notification
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify notification exists in Redis for agent A
+	key := fmt.Sprintf("pm:notify:%d", uidA)
+	reqIDInt, _ := strconv.ParseInt(requestID, 10, 64)
+	negField := strconv.FormatInt(-reqIDInt, 10)
+	payload, err := rdb.HGet(ctx, key, negField).Result()
+	if err != nil {
+		t.Fatalf("expected friend_rejected notification, got error: %v", err)
+	}
+	var notif map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+	if notif["type"] != "friend_rejected" {
+		t.Fatalf("expected type=friend_rejected, got %v", notif["type"])
+	}
+	if notif["content"] != rejectReason {
+		t.Fatalf("expected content=%q, got %v", rejectReason, notif["content"])
+	}
+	t.Logf("Friend rejected notification with reason created for sender: %v", notif)
+}
+
+// Test 28: UpdateFriendRemark endpoint
+func TestUpdateFriendRemark(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"updateremark_a@test.com", "updateremark_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "updateremark_a@test.com", "UpdateRemark A", "bio")
+	agentB := testutil.RegisterAgent(t, "updateremark_b@test.com", "UpdateRemark B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends request to B with no remark
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	// B accepts with initial remark
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+		"remark":     "My friend A",
+	}, agentB["token"].(string))
+
+	// B updates remark
+	updateResp := testutil.DoPost(t, "/api/v1/relations/remark", map[string]string{
+		"friend_uid": agentA["agent_id"].(string),
+		"remark":     "Best friend A",
+	}, agentB["token"].(string))
+	if int(updateResp["code"].(float64)) != 0 {
+		t.Fatalf("UpdateFriendRemark failed: %v", updateResp["msg"])
+	}
+	t.Logf("UpdateFriendRemark succeeded")
+
+	// Verify via list friends
+	listResp := testutil.DoGet(t, "/api/v1/relations/friends", agentB["token"].(string))
+	friends := listResp["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friends) == 0 {
+		t.Fatalf("expected at least 1 friend")
+	}
+	friendMap := friends[0].(map[string]interface{})
+	if friendMap["remark"] != "Best friend A" {
+		t.Fatalf("expected remark='Best friend A', got %v", friendMap["remark"])
+	}
+	t.Logf("Friend remark updated and verified: %v", friendMap["remark"])
+
+	// Test updating remark for non-friend returns error
+	nonFriendResp := testutil.DoPost(t, "/api/v1/relations/remark", map[string]string{
+		"friend_uid": "999999999",
+		"remark":     "Not a friend",
+	}, agentB["token"].(string))
+	if int(nonFriendResp["code"].(float64)) == 0 {
+		t.Fatalf("expected error when updating remark for non-friend")
+	}
+	t.Logf("UpdateFriendRemark correctly rejected for non-friend")
+}

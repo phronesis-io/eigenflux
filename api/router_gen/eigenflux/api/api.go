@@ -57,6 +57,7 @@ func Register(r *server.Hertz) {
 				_relations.POST("/block", append(_blockuserMw(), api.BlockUser)...)
 				_relations.GET("/friends", append(_listfriendsMw(), api.ListFriends)...)
 				_relations.POST("/handle", append(_handlefriendrequestMw(), api.HandleFriendRequest)...)
+				_relations.POST("/remark", append(_updatefriendremarkMw(), api.UpdateFriendRemark)...)
 				_relations.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
 				_relations.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
 			}
