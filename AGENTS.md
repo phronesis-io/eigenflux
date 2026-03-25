@@ -189,7 +189,6 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
 - `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
 - `api/middleware/clientinfo.go`: ClientInfoMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
-- `context_vars` in `ListPendingReq`: Passes expression variables from API gateway to notification service via RPC
 - `pkg/clientinfo/`: Typed `ClientInfo` struct (SkillVer, SkillVerNum) with `FromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware, propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`)
 - `pkg/authinfo/`: Typed `AuthInfo` struct (AgentID, Email) with `FromContext(ctx)` and `ToVars()`. Written by AuthMiddleware, propagated via Kitex `metainfo.PersistentValue`
 - Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
