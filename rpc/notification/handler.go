@@ -9,6 +9,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
+	"eigenflux_server/pkg/audience"
 	"eigenflux_server/rpc/notification/dal"
 
 	"github.com/redis/go-redis/v9"
@@ -61,7 +62,11 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 	}
 
 	// 2. System notifications from Redis active store + DB delivery check
-	sysNotifs, err := s.listPendingSystemNotifications(ctx, req.AgentId)
+	contextVars := req.ContextVars
+	if contextVars == nil {
+		contextVars = map[string]string{}
+	}
+	sysNotifs, err := s.listPendingSystemNotifications(ctx, req.AgentId, contextVars)
 	if err != nil {
 		log.Printf("[Notification] Failed to list system notifications for agent %d: %v", req.AgentId, err)
 	} else {
@@ -154,7 +159,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 // listPendingSystemNotifications returns system notifications pending for the agent.
 // type=system (persistent): always returned while IsActive, delivery check skipped.
 // type=announcement (one-time): only returned if not yet delivered.
-func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Context, agentID int64) ([]pendingSystem, error) {
+func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Context, agentID int64, contextVars map[string]string) ([]pendingSystem, error) {
 	active, err := s.activeStore.List(ctx)
 	if err != nil {
 		return nil, err
@@ -170,6 +175,16 @@ func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Con
 	for i := range active {
 		if !active[i].IsActive(nowMS) {
 			continue
+		}
+		if active[i].AudienceExpression != "" {
+			match, err := audience.Evaluate(active[i].AudienceExpression, contextVars)
+			if err != nil {
+				log.Printf("[Notification] audience expression error for %d: %v", active[i].NotificationID, err)
+				continue
+			}
+			if !match {
+				continue
+			}
 		}
 		if active[i].Type == dal.TypeSystem {
 			persistent = append(persistent, active[i])
