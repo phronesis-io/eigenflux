@@ -41,9 +41,18 @@ func writeJSON(c *app.RequestContext, status int, code int32, msg string, data m
 	c.JSON(status, resp)
 }
 
-func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
+func fetchPendingNotifications(ctx context.Context, agentID int64, c *app.RequestContext) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
+	contextVars := make(map[string]string)
+	if v, ok := c.Get("skill_ver"); ok {
+		contextVars["skill_ver"] = v.(string)
+	}
+	if v, ok := c.Get("skill_ver_num"); ok {
+		contextVars["skill_ver_num"] = strconv.Itoa(v.(int))
+	}
+	contextVars["agent_id"] = strconv.FormatInt(agentID, 10)
 	pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
-		AgentId: agentID,
+		AgentId:     agentID,
+		ContextVars: contextVars,
 	})
 	if err != nil {
 		log.Printf("[API] NotificationService.ListPending error for agent %d: %v", agentID, err)
@@ -562,7 +571,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	notifications := make([]map[string]interface{}, 0)
 	var pendingNotifications []*notificationrpc.PendingNotification
 	if *action == "refresh" {
-		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID)
+		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID, c)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
