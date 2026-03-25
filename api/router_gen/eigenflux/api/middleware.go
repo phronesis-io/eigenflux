@@ -9,8 +9,7 @@ import (
 )
 
 func rootMw() []app.HandlerFunc {
-	// your code...
-	return nil
+	return []app.HandlerFunc{middleware.CommonParamMiddleware()}
 }
 
 func _apiMw() []app.HandlerFunc {
