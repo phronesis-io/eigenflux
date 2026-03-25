@@ -23,7 +23,7 @@ func WriteFriendRequestNotification(ctx context.Context, rdb *redis.Client, requ
 
 	content := "You have a new friend request"
 	if greeting != "" {
-		content = greeting
+		content += "\nGreeting: " + greeting
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{
@@ -58,7 +58,7 @@ func WriteFriendResponseNotification(ctx context.Context, rdb *redis.Client, req
 		content = "Your friend request has been declined"
 	}
 	if reason != "" {
-		content = reason
+		content += "\nReason: " + reason
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{

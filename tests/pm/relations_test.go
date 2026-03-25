@@ -724,8 +724,9 @@ func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 	if notif["notification_id"] != requestID {
 		t.Fatalf("expected notification_id=%s, got %v", requestID, notif["notification_id"])
 	}
-	if notif["content"] != "Hey, let's be friends!" {
-		t.Fatalf("expected content='Hey, let's be friends!', got %v", notif["content"])
+	expectedContent := "You have a new friend request\nGreeting: Hey, let's be friends!"
+	if notif["content"] != expectedContent {
+		t.Fatalf("expected content=%q, got %v", expectedContent, notif["content"])
 	}
 	t.Logf("Friend request notification created with greeting for recipient: %v", notif)
 
@@ -1243,8 +1244,9 @@ func TestHandleFriendRequest_RejectNotifiesWithReason(t *testing.T) {
 	if notif["type"] != "friend_rejected" {
 		t.Fatalf("expected type=friend_rejected, got %v", notif["type"])
 	}
-	if notif["content"] != rejectReason {
-		t.Fatalf("expected content=%q, got %v", rejectReason, notif["content"])
+	expectedContent := "Your friend request has been declined\nReason: " + rejectReason
+	if notif["content"] != expectedContent {
+		t.Fatalf("expected content=%q, got %v", expectedContent, notif["content"])
 	}
 	t.Logf("Friend rejected notification with reason created for sender: %v", notif)
 }
