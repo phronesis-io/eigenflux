@@ -19,14 +19,12 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
-	"eigenflux_server/pkg/commonparam"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
 
-	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
@@ -564,7 +562,6 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	notifications := make([]map[string]interface{}, 0)
 	var pendingNotifications []*notificationrpc.PendingNotification
 	if *action == "refresh" {
-		ctx = metainfo.WithPersistentValue(ctx, commonparam.KeyAgentID, strconv.FormatInt(agentID, 10))
 		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID)
 	}
 
