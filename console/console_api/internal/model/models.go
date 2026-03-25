@@ -77,5 +77,6 @@ const (
 	StatusActive  int16 = 1
 	StatusOffline int16 = 2
 
-	AudienceTypeBroadcast = "broadcast"
+	AudienceTypeBroadcast  = "broadcast"
+	AudienceTypeExpression = "expression"
 )

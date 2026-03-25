@@ -46,6 +46,7 @@ type CreateSystemNotificationParams struct {
 	Status             int16
 	StartAt            int64
 	EndAt              int64
+	AudienceType       string
 	AudienceExpression string
 }
 
@@ -56,7 +57,7 @@ func CreateSystemNotification(ctx context.Context, gormDB *gorm.DB, params Creat
 		Type:               params.Type,
 		Content:            params.Content,
 		Status:             params.Status,
-		AudienceType:       model.AudienceTypeBroadcast,
+		AudienceType:       params.AudienceType,
 		AudienceExpression: params.AudienceExpression,
 		StartAt:            params.StartAt,
 		EndAt:              params.EndAt,
@@ -75,6 +76,7 @@ type UpdateSystemNotificationParams struct {
 	Status             *int32
 	StartAt            *int64
 	EndAt              *int64
+	AudienceType       *string
 	AudienceExpression *string
 }
 
@@ -107,6 +109,9 @@ func UpdateSystemNotification(ctx context.Context, gormDB *gorm.DB, notification
 	}
 	if params.AudienceExpression != nil {
 		updates["audience_expression"] = *params.AudienceExpression
+	}
+	if params.AudienceType != nil {
+		updates["audience_type"] = *params.AudienceType
 	}
 
 	if err := gormDB.WithContext(ctx).

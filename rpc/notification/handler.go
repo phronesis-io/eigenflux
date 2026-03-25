@@ -178,7 +178,7 @@ func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Con
 		if !active[i].IsActive(nowMS) {
 			continue
 		}
-		if active[i].AudienceExpression != "" {
+		if active[i].AudienceType == dal.AudienceTypeExpression && active[i].AudienceExpression != "" {
 			match, err := audience.Evaluate(active[i].AudienceExpression, contextVars)
 			if err != nil {
 				log.Printf("[Notification] audience expression error for %d: %v", active[i].NotificationID, err)
