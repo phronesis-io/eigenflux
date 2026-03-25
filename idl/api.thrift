@@ -425,6 +425,7 @@ struct CloseConvResp {
 struct SendFriendRequestReq {
     1: optional string to_uid (api.body="to_uid")
     2: optional string to_email (api.body="to_email")
+    3: optional string greeting (api.body="greeting")
 }
 
 struct SendFriendRequestData {
@@ -440,6 +441,7 @@ struct SendFriendRequestResp {
 struct HandleFriendRequestReq {
     1: required string request_id (api.body="request_id")
     2: required i32 action (api.body="action")
+    3: optional string remark (api.body="remark")
 }
 
 struct HandleFriendRequestResp {
@@ -458,6 +460,7 @@ struct UnfriendResp {
 
 struct BlockUserReq {
     1: required string to_uid (api.body="to_uid")
+    2: optional string remark (api.body="remark")
 }
 
 struct BlockUserResp {
@@ -487,6 +490,7 @@ struct FriendRequestData {
     4: required i64 created_at
     5: optional string from_name
     6: optional string to_name
+    7: optional string greeting
 }
 
 struct ListFriendRequestsData {
@@ -509,6 +513,7 @@ struct FriendData {
     1: required string agent_id
     2: required string agent_name
     3: required i64 friend_since
+    4: optional string remark
 }
 
 struct ListFriendsData {

@@ -19,22 +19,24 @@ const (
 )
 
 type UserRelation struct {
-	ID        int64 `gorm:"column:id;primaryKey"`
-	FromUID   int64 `gorm:"column:from_uid;not null"`
-	ToUID     int64 `gorm:"column:to_uid;not null"`
-	RelType   int16 `gorm:"column:rel_type;not null"`
-	CreatedAt int64 `gorm:"column:created_at;not null"`
+	ID        int64  `gorm:"column:id;primaryKey"`
+	FromUID   int64  `gorm:"column:from_uid;not null"`
+	ToUID     int64  `gorm:"column:to_uid;not null"`
+	RelType   int16  `gorm:"column:rel_type;not null"`
+	CreatedAt int64  `gorm:"column:created_at;not null"`
+	Remark    string `gorm:"column:remark;not null;default:''"`
 }
 
 func (UserRelation) TableName() string { return "user_relations" }
 
 type FriendRequest struct {
-	ID        int64 `gorm:"column:id;primaryKey"`
-	FromUID   int64 `gorm:"column:from_uid;not null"`
-	ToUID     int64 `gorm:"column:to_uid;not null"`
-	Status    int16 `gorm:"column:status;not null;default:0"`
-	CreatedAt int64 `gorm:"column:created_at;not null"`
-	UpdatedAt int64 `gorm:"column:updated_at;not null"`
+	ID        int64  `gorm:"column:id;primaryKey"`
+	FromUID   int64  `gorm:"column:from_uid;not null"`
+	ToUID     int64  `gorm:"column:to_uid;not null"`
+	Status    int16  `gorm:"column:status;not null;default:0"`
+	Greeting  string `gorm:"column:greeting;not null;default:''"`
+	CreatedAt int64  `gorm:"column:created_at;not null"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null"`
 }
 
 func (FriendRequest) TableName() string { return "friend_requests" }
@@ -43,16 +45,18 @@ type Friend struct {
 	AgentID     int64
 	AgentName   string
 	FriendSince int64
+	Remark      string
 }
 
 // CreateFriendRequest creates a new friend request with the given snowflake ID
-func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64) (int64, error) {
+func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64, greeting string) (int64, error) {
 	now := time.Now().UnixMilli()
 	req := &FriendRequest{
 		ID:        id,
 		FromUID:   fromUID,
 		ToUID:     toUID,
 		Status:    RequestStatusPending,
+		Greeting:  greeting,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -84,12 +88,13 @@ func UpdateRequestStatus(db *gorm.DB, requestID int64, status int16) error {
 		}).Error
 }
 
-// CreateFriendRelation creates 2 symmetric friend relation rows in a transaction
-func CreateFriendRelation(tx *gorm.DB, uidA, uidB int64) error {
+// CreateFriendRelation creates 2 symmetric friend relation rows in a transaction.
+// remarkByA is the remark set by uidA for uidB, remarkByB is the remark set by uidB for uidA.
+func CreateFriendRelation(tx *gorm.DB, uidA, uidB int64, remarkByA, remarkByB string) error {
 	now := time.Now().UnixMilli()
 	relations := []UserRelation{
-		{FromUID: uidA, ToUID: uidB, RelType: RelTypeFriend, CreatedAt: now},
-		{FromUID: uidB, ToUID: uidA, RelType: RelTypeFriend, CreatedAt: now},
+		{FromUID: uidA, ToUID: uidB, RelType: RelTypeFriend, CreatedAt: now, Remark: remarkByA},
+		{FromUID: uidB, ToUID: uidA, RelType: RelTypeFriend, CreatedAt: now, Remark: remarkByB},
 	}
 	return tx.Create(&relations).Error
 }
@@ -107,14 +112,15 @@ func DeleteFriendRelation(tx *gorm.DB, uidA, uidB int64) error {
 	return nil
 }
 
-// CreateBlockRelation creates a block relation row
-func CreateBlockRelation(tx *gorm.DB, fromUID, toUID int64) error {
+// CreateBlockRelation creates a block relation row with optional remark
+func CreateBlockRelation(tx *gorm.DB, fromUID, toUID int64, remark string) error {
 	now := time.Now().UnixMilli()
 	rel := &UserRelation{
 		FromUID:   fromUID,
 		ToUID:     toUID,
 		RelType:   RelTypeBlock,
 		CreatedAt: now,
+		Remark:    remark,
 	}
 	return tx.Create(rel).Error
 }
@@ -198,11 +204,16 @@ func ListFriends(db *gorm.DB, agentID int64, cursor, limit int) ([]*Friend, erro
 
 	// Combine results
 	friends := make([]*Friend, len(relations))
+	remarkMap := make(map[int64]string, len(relations))
+	for _, rel := range relations {
+		remarkMap[rel.ToUID] = rel.Remark
+	}
 	for i, rel := range relations {
 		friends[i] = &Friend{
 			AgentID:     rel.ToUID,
 			AgentName:   nameMap[rel.ToUID],
 			FriendSince: rel.CreatedAt,
+			Remark:      remarkMap[rel.ToUID],
 		}
 	}
 

@@ -1246,10 +1246,14 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	resp, err := clients.PMClient.SendFriendRequest(ctx, &pmrpc.SendFriendRequestReq{
+	rpcReq := &pmrpc.SendFriendRequestReq{
 		FromUid: agentID,
 		ToUid:   toUID,
-	})
+	}
+	if req.Greeting != nil && *req.Greeting != "" {
+		rpcReq.Greeting = req.Greeting
+	}
+	resp, err := clients.PMClient.SendFriendRequest(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -1282,11 +1286,15 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	resp, err := clients.PMClient.HandleFriendRequest(ctx, &pmrpc.HandleFriendRequestReq{
+	rpcReq := &pmrpc.HandleFriendRequestReq{
 		AgentId:   agentID,
 		RequestId: requestID,
 		Action:    pmrpc.FriendRequestAction(req.Action),
-	})
+	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcReq.Remark = req.Remark
+	}
+	resp, err := clients.PMClient.HandleFriendRequest(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -1351,10 +1359,14 @@ func BlockUser(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	resp, err := clients.PMClient.BlockUser(ctx, &pmrpc.BlockUserReq{
+	rpcBlockReq := &pmrpc.BlockUserReq{
 		FromUid: agentID,
 		ToUid:   toUID,
-	})
+	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcBlockReq.Remark = req.Remark
+	}
+	resp, err := clients.PMClient.BlockUser(ctx, rpcBlockReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -1453,6 +1465,9 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 		if r.ToName != nil {
 			item["to_name"] = *r.ToName
 		}
+		if r.Greeting != nil && *r.Greeting != "" {
+			item["greeting"] = *r.Greeting
+		}
 		requests = append(requests, item)
 	}
 
@@ -1501,11 +1516,15 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 
 	friends := make([]map[string]interface{}, 0, len(resp.Friends))
 	for _, f := range resp.Friends {
-		friends = append(friends, map[string]interface{}{
+		item := map[string]interface{}{
 			"agent_id":     strconv.FormatInt(f.AgentId, 10),
 			"agent_name":   f.AgentName,
 			"friend_since": f.FriendSince,
-		})
+		}
+		if f.Remark != nil && *f.Remark != "" {
+			item["remark"] = *f.Remark
+		}
+		friends = append(friends, item)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"unicode"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/pm"
@@ -264,6 +265,11 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to check conversation"}}, nil
 	}
 	if exists {
+		// Pre-break ice for friend conversations so handleReply won't block
+		bucketKey := fmt.Sprintf("pm:ice:h:%d", existingConvID/1000)
+		field := fmt.Sprintf("%d", existingConvID%1000)
+		db.RDB.HSet(ctx, bucketKey, field, "1")
+
 		req.ConvId = &existingConvID
 		return s.handleReply(ctx, req)
 	}
@@ -494,6 +500,12 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
 	log.Printf("[Relation] SendFriendRequest: from=%d to=%d", req.FromUid, req.ToUid)
 
+	// Truncate greeting to 200 weighted characters
+	greeting := ""
+	if req.Greeting != nil {
+		greeting = truncateByWeightedLength(*req.Greeting, 200)
+	}
+
 	// Check if either blocked
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
@@ -506,6 +518,13 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
 	}
 
+	// Check if already friends
+	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
+	if isFriend {
+		log.Printf("[Relation] SendFriendRequest rejected: from=%d to=%d (already friends)", req.FromUid, req.ToUid)
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "already friends"}}, nil
+	}
+
 	// Check mutual pending
 	mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
 	if err == nil && mutualReq != nil {
@@ -514,7 +533,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 			if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
 				return err
 			}
-			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid)
+			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, "", "")
 		})
 		if err != nil {
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
@@ -531,7 +550,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate request id"}}, nil
 	}
 
-	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid)
+	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid, greeting)
 	if err != nil {
 		log.Printf("[Relation] SendFriendRequest failed to create: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
@@ -541,7 +560,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 
 	// Fire-and-forget: notify recipient of new friend request
 	go func() {
-		if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid); err != nil {
+		if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
 			log.Printf("[PM] Failed to write friend request notification for request %d to agent %d: %v", requestID, req.ToUid, err)
 		}
 	}()
@@ -562,11 +581,16 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		if friendReq.ToUID != req.AgentId {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
 		}
+		// Truncate remark to 100 weighted characters
+		remark := ""
+		if req.Remark != nil {
+			remark = truncateByWeightedLength(*req.Remark, 100)
+		}
 		err = db.DB.Transaction(func(tx *gorm.DB) error {
 			if err := dal.UpdateRequestStatus(tx, req.RequestId, dal.RequestStatusAccepted); err != nil {
 				return err
 			}
-			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID)
+			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID, "", remark)
 		})
 		if err != nil {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
@@ -624,8 +648,13 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
 	log.Printf("[Relation] BlockUser: from=%d to=%d", req.FromUid, req.ToUid)
 
+	remark := ""
+	if req.Remark != nil {
+		remark = truncateByWeightedLength(*req.Remark, 100)
+	}
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := dal.CreateBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
+		if err := dal.CreateBlockRelation(tx, req.FromUid, req.ToUid, remark); err != nil {
 			return err
 		}
 		tx.Where("((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?)) AND rel_type = ?",
@@ -690,14 +719,18 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 		for _, r := range requests {
 			fromName := nameMap[r.FromUID]
 			toName := nameMap[r.ToUID]
-			result = append(result, &pm.FriendRequestInfo{
+			info := &pm.FriendRequestInfo{
 				RequestId: r.ID,
 				FromUid:   r.FromUID,
 				ToUid:     r.ToUID,
 				CreatedAt: r.CreatedAt,
 				FromName:  &fromName,
 				ToName:    &toName,
-			})
+			}
+			if r.Greeting != "" {
+				info.Greeting = &r.Greeting
+			}
+			result = append(result, info)
 		}
 	}
 
@@ -727,11 +760,15 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 
 	var result []*pm.FriendInfo
 	for _, f := range friends {
-		result = append(result, &pm.FriendInfo{
+		info := &pm.FriendInfo{
 			AgentId:     f.AgentID,
 			AgentName:   f.AgentName,
 			FriendSince: f.FriendSince,
-		})
+		}
+		if f.Remark != "" {
+			info.Remark = &f.Remark
+		}
+		result = append(result, info)
 	}
 
 	var nextCursor int64
@@ -739,6 +776,24 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 		nextCursor = friends[len(friends)-1].FriendSince
 	}
 	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+// truncateByWeightedLength truncates a string to fit within maxLen weighted characters.
+// ASCII characters count as 1, CJK characters count as 2.
+func truncateByWeightedLength(s string, maxLen int) string {
+	length := 0
+	for i, r := range s {
+		w := 1
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
+			unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			w = 2
+		}
+		if length+w > maxLen {
+			return s[:i]
+		}
+		length += w
+	}
+	return s
 }
 
 

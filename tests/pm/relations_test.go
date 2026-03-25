@@ -39,9 +39,9 @@ func TestSendFriendRequest_Success(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"from_uid": agentA["agent_id"].(string),
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
 		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Hi, I'd like to connect!",
 	}, agentA["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -97,7 +97,7 @@ func TestSendFriendRequest_MutualPending(t *testing.T) {
 	t.Logf("Mutual request auto-accepted, friendship created")
 }
 
-// Test 3: Accept friend request
+// Test 3: Accept friend request with remark
 func TestHandleFriendRequest_Accept(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"accept_a@test.com", "accept_b@test.com"}
@@ -112,16 +112,15 @@ func TestHandleFriendRequest_Accept(t *testing.T) {
 
 	// A sends request to B
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"from_uid": agentA["agent_id"].(string),
-		"to_uid":   agentB["agent_id"].(string),
+		"to_uid": agentB["agent_id"].(string),
 	}, agentA["token"].(string))
 	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
 
-	// B accepts
+	// B accepts with remark
 	resp = testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
-		"agent_id":   agentB["agent_id"].(string),
 		"request_id": requestID,
 		"action":     1, // ACCEPT
+		"remark":     "My colleague Alice",
 	}, agentB["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -138,7 +137,17 @@ func TestHandleFriendRequest_Accept(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("expected 2 friend relations, got %d", count)
 	}
-	t.Logf("Friend request accepted, 2 symmetric rows created")
+
+	// Verify remark is stored for B's view of A
+	var remark string
+	err = testutil.TestDB.QueryRow("SELECT remark FROM user_relations WHERE from_uid = $1 AND to_uid = $2 AND rel_type = 1", uidB, uidA).Scan(&remark)
+	if err != nil {
+		t.Fatalf("failed to query remark: %v", err)
+	}
+	if remark != "My colleague Alice" {
+		t.Fatalf("expected remark='My colleague Alice', got '%s'", remark)
+	}
+	t.Logf("Friend request accepted with remark, 2 symmetric rows created")
 }
 
 // Test 4: Reject friend request
@@ -564,7 +573,7 @@ func TestHandleFriendRequest_WrongPersonAccept(t *testing.T) {
 	t.Logf("Wrong person correctly rejected from accepting request")
 }
 
-// Test 14: List friend requests
+// Test 14: List friend requests with greeting
 func TestListFriendRequests_Success(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"listreq_a@test.com", "listreq_b@test.com"}
@@ -577,10 +586,10 @@ func TestListFriendRequests_Success(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	// A sends request to B
-	testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"from_uid": agentA["agent_id"].(string),
+	// A sends request to B with greeting
+	testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
 		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Hello from Agent A!",
 	}, agentA["token"].(string))
 
 	// B lists incoming requests
@@ -595,10 +604,15 @@ func TestListFriendRequests_Success(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("expected 1 incoming request, got %d", len(requests))
 	}
-	t.Logf("List friend requests successful")
+
+	reqData := requests[0].(map[string]interface{})
+	if reqData["greeting"] != "Hello from Agent A!" {
+		t.Fatalf("expected greeting='Hello from Agent A!', got %v", reqData["greeting"])
+	}
+	t.Logf("List friend requests with greeting successful")
 }
 
-// Test 15: List friends
+// Test 15: List friends with remark
 func TestListFriends_Success(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"listfriend_a@test.com", "listfriend_b@test.com"}
@@ -611,20 +625,19 @@ func TestListFriends_Success(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	// Create friendship
+	// Create friendship: A→B, B accepts with remark
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"from_uid": agentA["agent_id"].(string),
-		"to_uid":   agentB["agent_id"].(string),
+		"to_uid": agentB["agent_id"].(string),
 	}, agentA["token"].(string))
 	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
 	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
-		"agent_id":   agentB["agent_id"].(string),
 		"request_id": requestID,
 		"action":     1,
+		"remark":     "My buddy",
 	}, agentB["token"].(string))
 
-	// A lists friends
-	resp = testutil.DoGet(t, "/api/v1/relations/friends", agentA["token"].(string))
+	// B lists friends - should see remark
+	resp = testutil.DoGet(t, "/api/v1/relations/friends", agentB["token"].(string))
 	code := int(resp["code"].(float64))
 	if code != 0 {
 		t.Fatalf("ListFriends failed: code=%d msg=%v", code, resp["msg"])
@@ -637,13 +650,25 @@ func TestListFriends_Success(t *testing.T) {
 	}
 
 	friend := friends[0].(map[string]interface{})
-	if friend["agent_name"].(string) != "ListFriend B" {
-		t.Fatalf("expected friend name 'ListFriend B', got %v", friend["agent_name"])
+	if friend["agent_name"].(string) != "ListFriend A" {
+		t.Fatalf("expected friend name 'ListFriend A', got %v", friend["agent_name"])
 	}
-	t.Logf("List friends successful")
+	if friend["remark"] != "My buddy" {
+		t.Fatalf("expected remark='My buddy', got %v", friend["remark"])
+	}
+
+	// A lists friends - should NOT have remark (A didn't set one)
+	resp = testutil.DoGet(t, "/api/v1/relations/friends", agentA["token"].(string))
+	data = resp["data"].(map[string]interface{})
+	friends = data["friends"].([]interface{})
+	friend = friends[0].(map[string]interface{})
+	if _, hasRemark := friend["remark"]; hasRemark {
+		t.Fatalf("expected no remark for A's view, got %v", friend["remark"])
+	}
+	t.Logf("List friends with remark successful")
 }
 
-// Test 16: Friend request creates notification for recipient
+// Test 16: Friend request creates notification with greeting for recipient
 func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"notif_a@test.com", "notif_b@test.com"}
@@ -656,10 +681,10 @@ func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	// A sends request to B
-	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"from_uid": agentA["agent_id"].(string),
+	// A sends request to B with greeting
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
 		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Hey, let's be friends!",
 	}, agentA["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -699,7 +724,10 @@ func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 	if notif["notification_id"] != requestID {
 		t.Fatalf("expected notification_id=%s, got %v", requestID, notif["notification_id"])
 	}
-	t.Logf("Friend request notification created for recipient: %v", notif)
+	if notif["content"] != "Hey, let's be friends!" {
+		t.Fatalf("expected content='Hey, let's be friends!', got %v", notif["content"])
+	}
+	t.Logf("Friend request notification created with greeting for recipient: %v", notif)
 
 	// Verify notification appears in feed refresh for agent B
 	feedResp := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", agentB["token"].(string))
@@ -933,4 +961,144 @@ func TestSendFriendRequest_ByEmail_CacheHit(t *testing.T) {
 		t.Fatalf("expected positive TTL on cache key, got %v", ttl)
 	}
 	t.Logf("Email-to-UID cache working: key=%s value=%s ttl=%v", cacheKey, cached, ttl)
+}
+
+// Test 23: Block user with remark
+func TestBlockUser_WithRemark(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"blockremark_a@test.com", "blockremark_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "blockremark_a@test.com", "BlockRemark A", "bio")
+	agentB := testutil.RegisterAgent(t, "blockremark_b@test.com", "BlockRemark B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A blocks B with remark
+	resp := testutil.DoPost(t, "/api/v1/relations/block", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+		"remark": "Spammer",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Block with remark failed: code=%d msg=%v", code, resp["msg"])
+	}
+
+	// Verify remark stored in DB
+	var remark string
+	err := testutil.TestDB.QueryRow("SELECT remark FROM user_relations WHERE from_uid = $1 AND to_uid = $2 AND rel_type = 2", uidA, uidB).Scan(&remark)
+	if err != nil {
+		t.Fatalf("failed to query block remark: %v", err)
+	}
+	if remark != "Spammer" {
+		t.Fatalf("expected remark='Spammer', got '%s'", remark)
+	}
+	t.Logf("Block with remark successful")
+}
+
+// Test 24: Friend PM bypasses icebreak (same sender can send multiple messages)
+func TestFriendPM_NoIceBreak(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"fpmice_a@test.com", "fpmice_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "fpmice_a@test.com", "FPMIce A", "bio")
+	agentB := testutil.RegisterAgent(t, "fpmice_b@test.com", "FPMIce B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// Create friendship: A→B, B accepts
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+
+	// A sends first friend PM to B
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"receiver_id": agentB["agent_id"].(string),
+		"content":     "First message",
+	}, agentA["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("First friend PM failed: code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("First friend PM sent successfully")
+
+	// A sends second friend PM to B (should NOT be blocked by icebreak)
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"receiver_id": agentB["agent_id"].(string),
+		"content":     "Second message without reply",
+	}, agentA["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Second friend PM should NOT be blocked by icebreak: code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Second friend PM sent successfully (icebreak bypassed)")
+
+	// A sends third message too
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"receiver_id": agentB["agent_id"].(string),
+		"content":     "Third message",
+	}, agentA["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Third friend PM should also work: code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Third friend PM sent successfully (friends can message freely)")
+}
+
+// Test 25: Cannot send friend request to existing friend
+func TestSendFriendRequest_AlreadyFriends(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"dupfriend_a@test.com", "dupfriend_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "dupfriend_a@test.com", "DupFriend A", "bio")
+	agentB := testutil.RegisterAgent(t, "dupfriend_b@test.com", "DupFriend B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// Create friendship: A→B, B accepts
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+
+	// A tries to send another friend request to B
+	resp = testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 400 {
+		t.Fatalf("expected code=400 (already friends), got code=%d msg=%v", code, resp["msg"])
+	}
+
+	// Verify no new pending request created
+	var count int64
+	err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM friend_requests WHERE from_uid = $1 AND to_uid = $2 AND status = 0",
+		uidA, uidB).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to query DB: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 pending requests between friends, got %d", count)
+	}
+	t.Logf("Friend request to existing friend correctly rejected")
 }

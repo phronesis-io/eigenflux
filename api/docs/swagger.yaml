@@ -273,6 +273,8 @@ definitions:
     type: object
   api.SendFriendRequestReq:
     properties:
+      greeting:
+        type: string
       to_email:
         type: string
       to_uid:

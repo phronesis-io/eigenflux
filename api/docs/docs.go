@@ -1112,6 +1112,9 @@ const docTemplate = `{
         "api.SendFriendRequestReq": {
             "type": "object",
             "properties": {
+                "greeting": {
+                    "type": "string"
+                },
                 "to_email": {
                     "type": "string"
                 },

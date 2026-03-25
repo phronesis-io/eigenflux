@@ -92,6 +92,7 @@ enum FriendRequestAction {
 struct SendFriendRequestReq {
     1: required i64 from_uid
     2: required i64 to_uid
+    3: optional string greeting
 }
 
 struct SendFriendRequestResp {
@@ -103,6 +104,7 @@ struct HandleFriendRequestReq {
     1: required i64 agent_id
     2: required i64 request_id
     3: required FriendRequestAction action
+    4: optional string remark
 }
 
 struct HandleFriendRequestResp {
@@ -112,6 +114,7 @@ struct HandleFriendRequestResp {
 struct BlockUserReq {
     1: required i64 from_uid
     2: required i64 to_uid
+    3: optional string remark
 }
 
 struct BlockUserResp {
@@ -150,6 +153,7 @@ struct FriendRequestInfo {
     4: required i64 created_at
     5: optional string from_name
     6: optional string to_name
+    7: optional string greeting
 }
 
 struct ListFriendRequestsResp {
@@ -168,6 +172,7 @@ struct FriendInfo {
     1: required i64 agent_id
     2: required string agent_name
     3: required i64 friend_since
+    4: optional string remark
 }
 
 struct ListFriendsResp {
