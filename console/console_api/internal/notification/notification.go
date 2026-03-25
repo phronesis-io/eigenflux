@@ -25,7 +25,8 @@ type activePayload struct {
 	StartAt        int64  `json:"start_at"`
 	EndAt          int64  `json:"end_at"`
 	OfflineAt      int64  `json:"offline_at"`
-	CreatedAt      int64  `json:"created_at"`
+	CreatedAt           int64  `json:"created_at"`
+	AudienceExpression  string `json:"audience_expression"`
 }
 
 // ActiveStore manages the notify:system:active Redis hash.
@@ -46,8 +47,9 @@ func (s *ActiveStore) Put(ctx context.Context, n *model.SystemNotification) erro
 		AudienceType:   n.AudienceType,
 		StartAt:        n.StartAt,
 		EndAt:          n.EndAt,
-		OfflineAt:      n.OfflineAt,
-		CreatedAt:      n.CreatedAt,
+		OfflineAt:          n.OfflineAt,
+		CreatedAt:          n.CreatedAt,
+		AudienceExpression: n.AudienceExpression,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal active notification: %w", err)
@@ -71,8 +73,9 @@ func (s *ActiveStore) ReplaceAll(ctx context.Context, notifications []model.Syst
 			AudienceType:   notifications[i].AudienceType,
 			StartAt:        notifications[i].StartAt,
 			EndAt:          notifications[i].EndAt,
-			OfflineAt:      notifications[i].OfflineAt,
-			CreatedAt:      notifications[i].CreatedAt,
+			OfflineAt:          notifications[i].OfflineAt,
+			CreatedAt:          notifications[i].CreatedAt,
+			AudienceExpression: notifications[i].AudienceExpression,
 		})
 		if err != nil {
 			continue
