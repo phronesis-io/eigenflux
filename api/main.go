@@ -59,58 +59,48 @@ func main() {
 		log.Fatalf("failed to create etcd resolver: %v", err)
 	}
 
-	// Init kitex clients
-	profileClient, err := profileservice.NewClient("ProfileService",
+	// Common options for all kitex clients: TTHeader enables metainfo propagation.
+	commonOpts := []client.Option{
 		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+		client.WithRPCTimeout(3 * time.Second),
+		client.WithTransportProtocol(transport.TTHeader),
+		client.WithMetaHandler(transmeta.ClientTTHeaderHandler),
+	}
+
+	// Init kitex clients
+	profileClient, err := profileservice.NewClient("ProfileService", commonOpts...)
 	if err != nil {
 		log.Fatalf("failed to create profile client: %v", err)
 	}
 	log.Println("Profile RPC client initialized")
 
-	itemClient, err := itemservice.NewClient("ItemService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	itemClient, err := itemservice.NewClient("ItemService", commonOpts...)
 	if err != nil {
 		log.Fatalf("failed to create item client: %v", err)
 	}
 	log.Println("Item RPC client initialized")
 
-	feedClient, err := feedservice.NewClient("FeedService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	feedClient, err := feedservice.NewClient("FeedService", commonOpts...)
 	if err != nil {
 		log.Fatalf("failed to create feed client: %v", err)
 	}
 	log.Println("Feed RPC client initialized")
 
 	authClient, err := authservice.NewClient("AuthService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(5*time.Second),
+		append(commonOpts, client.WithRPCTimeout(5*time.Second))...,
 	)
 	if err != nil {
 		log.Fatalf("failed to create auth client: %v", err)
 	}
 	log.Println("Auth RPC client initialized")
 
-	pmClient, err := pmservice.NewClient("PMService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	pmClient, err := pmservice.NewClient("PMService", commonOpts...)
 	if err != nil {
 		log.Fatalf("failed to create pm client: %v", err)
 	}
 	log.Println("PM RPC client initialized")
 
-	notificationClient, err := notificationservice.NewClient("NotificationService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-		client.WithTransportProtocol(transport.TTHeader),
-		client.WithMetaHandler(transmeta.ClientTTHeaderHandler),
-	)
+	notificationClient, err := notificationservice.NewClient("NotificationService", commonOpts...)
 	if err != nil {
 		log.Fatalf("failed to create notification client: %v", err)
 	}
