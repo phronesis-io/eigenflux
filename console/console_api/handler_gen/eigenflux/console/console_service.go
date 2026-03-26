@@ -692,9 +692,16 @@ func UpdateSystemNotification(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	// Normalize audience_expression: trim whitespace, treat all-whitespace as empty.
+	var normExpr *string
+	if req.AudienceExpression != nil {
+		trimmed := strings.TrimSpace(*req.AudienceExpression)
+		normExpr = &trimmed
+	}
+
 	row, err := dal.UpdateSystemNotification(ctx, db.DB, notifID, dal.UpdateSystemNotificationParams{
 		Type: req.Type, Content: req.Content, Status: req.Status, StartAt: req.StartAt, EndAt: req.EndAt,
-		AudienceType: req.AudienceType, AudienceExpression: req.AudienceExpression,
+		AudienceType: req.AudienceType, AudienceExpression: normExpr,
 	})
 	if err != nil {
 		writeNotificationError(c, err)

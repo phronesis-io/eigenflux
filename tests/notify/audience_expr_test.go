@@ -154,6 +154,50 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 	}
 }
 
+func TestUpdateAudienceExpressionWhitespaceTrimmed(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	// Create a broadcast notification (no expression).
+	notif := createSystemNotification(t, "announcement", "ws trim test", 1, 0, 0)
+	defer offlineSystemNotification(t, notif.NotificationID)
+
+	// Update with whitespace-only audience_expression → should be stored as "".
+	updated := updateSystemNotification(t, notif.NotificationID, map[string]interface{}{
+		"audience_expression": "   \t\n  ",
+	})
+	if updated.AudienceExpression != "" {
+		t.Fatalf("expected empty audience_expression after whitespace-only update, got %q", updated.AudienceExpression)
+	}
+
+	// Update with padded valid expression → stored trimmed.
+	updated2 := updateSystemNotification(t, notif.NotificationID, map[string]interface{}{
+		"audience_type":       "expression",
+		"audience_expression": "  skill_ver_num < 5  ",
+	})
+	if updated2.AudienceExpression != "skill_ver_num < 5" {
+		t.Fatalf("expected trimmed expression, got %q", updated2.AudienceExpression)
+	}
+
+	// Verify delivery still works (expression evaluates correctly after trim).
+	agent := testutil.RegisterAgent(t, "ws_trim_verify@test.com", "WsTrimVerify", "test")
+	token := agent["token"].(string)
+	time.Sleep(200 * time.Millisecond)
+
+	feedData := testutil.DoGetWithHeaders(t, "/api/v1/items/feed?action=refresh", token,
+		map[string]string{"X-Skill-Ver": "0.0.2"})
+	notifications := feedNotifications(t, feedData["data"].(map[string]interface{}))
+	found := false
+	for _, n := range notifications {
+		if n["notification_id"] == notif.NotificationID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected notification delivery after trimmed expression update")
+	}
+}
+
 func TestAudienceExpressionSkillVerString(t *testing.T) {
 	testutil.WaitForAPI(t)
 	agent := testutil.RegisterAgent(t, "audience_skillver_str@test.com", "AudienceSkillVerStr", "test")
