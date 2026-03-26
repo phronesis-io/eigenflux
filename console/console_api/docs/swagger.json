@@ -615,6 +615,12 @@
         "console.createSystemNotificationReq": {
             "type": "object",
             "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
                 "content": {
                     "type": "string"
                 },
@@ -663,6 +669,12 @@
         "console.updateSystemNotificationReq": {
             "type": "object",
             "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
                 "content": {
                     "type": "string"
                 },

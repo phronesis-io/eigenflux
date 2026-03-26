@@ -621,6 +621,12 @@ const docTemplate = `{
         "console.createSystemNotificationReq": {
             "type": "object",
             "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
                 "content": {
                     "type": "string"
                 },
@@ -669,6 +675,12 @@ const docTemplate = `{
         "console.updateSystemNotificationReq": {
             "type": "object",
             "properties": {
+                "audience_expression": {
+                    "type": "string"
+                },
+                "audience_type": {
+                    "type": "string"
+                },
                 "content": {
                     "type": "string"
                 },

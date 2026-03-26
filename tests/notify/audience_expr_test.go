@@ -109,11 +109,12 @@ func TestAudienceExpressionEmpty(t *testing.T) {
 }
 
 func TestConsoleAudienceExpressionValidation(t *testing.T) {
-	// Unknown variable → error
+	// Unknown variable with audience_type=expression → error
 	body := map[string]interface{}{
 		"type":                "announcement",
 		"content":             "bad expr test",
 		"status":              1,
+		"audience_type":       "expression",
 		"audience_expression": "invalid_var_xyz == 1",
 	}
 	payload := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
@@ -123,11 +124,12 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 		t.Fatal("expected error for invalid audience_expression (unknown variable)")
 	}
 
-	// Invalid syntax → error
+	// Invalid syntax with audience_type=expression → error
 	body2 := map[string]interface{}{
 		"type":                "announcement",
 		"content":             "bad syntax test",
 		"status":              1,
+		"audience_type":       "expression",
 		"audience_expression": "skill_ver_num <><> 3",
 	}
 	payload2 := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body2)
@@ -135,6 +137,20 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 	mustDecodeResp(t, payload2, &resp2)
 	if resp2.Code == 0 {
 		t.Fatal("expected error for invalid audience_expression (bad syntax)")
+	}
+
+	// audience_type=expression without expression → error
+	body3 := map[string]interface{}{
+		"type":          "announcement",
+		"content":       "missing expr test",
+		"status":        1,
+		"audience_type": "expression",
+	}
+	payload3 := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body3)
+	var resp3 SystemNotificationResp
+	mustDecodeResp(t, payload3, &resp3)
+	if resp3.Code == 0 {
+		t.Fatal("expected error for expression type without expression")
 	}
 }
 
@@ -262,6 +278,7 @@ func createSystemNotificationWithExpr(t *testing.T, notifType, content string, s
 		body["end_at"] = endAt
 	}
 	if audienceExpr != "" {
+		body["audience_type"] = "expression"
 		body["audience_expression"] = audienceExpr
 	}
 	payload := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)

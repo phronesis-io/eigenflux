@@ -18,6 +18,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/pkg/transmeta"
+	"github.com/cloudwego/kitex/transport"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	etcd "github.com/kitex-contrib/registry-etcd"
 	swaggerFiles "github.com/swaggo/files"
@@ -106,6 +108,8 @@ func main() {
 	notificationClient, err := notificationservice.NewClient("NotificationService",
 		client.WithResolver(r),
 		client.WithRPCTimeout(3*time.Second),
+		client.WithTransportProtocol(transport.TTHeader),
+		client.WithMetaHandler(transmeta.ClientTTHeaderHandler),
 	)
 	if err != nil {
 		log.Fatalf("failed to create notification client: %v", err)

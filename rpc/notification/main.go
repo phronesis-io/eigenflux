@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
@@ -43,6 +44,7 @@ func main() {
 		server.WithServiceAddr(addr),
 		server.WithRegistry(registry),
 		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "NotificationService"}),
+		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
 	log.Printf("[Notification] Service starting on %s", listenAddr)
