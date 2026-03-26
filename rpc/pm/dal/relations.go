@@ -35,6 +35,7 @@ type FriendRequest struct {
 	ToUID     int64  `gorm:"column:to_uid;not null"`
 	Status    int16  `gorm:"column:status;not null;default:0"`
 	Greeting  string `gorm:"column:greeting;not null;default:''"`
+	Remark    string `gorm:"column:remark;not null;default:''"`
 	CreatedAt int64  `gorm:"column:created_at;not null"`
 	UpdatedAt int64  `gorm:"column:updated_at;not null"`
 }
@@ -49,7 +50,7 @@ type Friend struct {
 }
 
 // CreateFriendRequest creates a new friend request with the given snowflake ID
-func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64, greeting string) (int64, error) {
+func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64, greeting, remark string) (int64, error) {
 	now := time.Now().UnixMilli()
 	req := &FriendRequest{
 		ID:        id,
@@ -57,6 +58,7 @@ func CreateFriendRequest(db *gorm.DB, id, fromUID, toUID int64, greeting string)
 		ToUID:     toUID,
 		Status:    RequestStatusPending,
 		Greeting:  greeting,
+		Remark:    remark,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

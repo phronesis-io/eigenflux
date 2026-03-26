@@ -85,6 +85,7 @@ CREATE TABLE friend_requests (
     to_uid      BIGINT NOT NULL,
     status      SMALLINT NOT NULL DEFAULT 0,  -- 0=pending, 1=accepted, 2=rejected, 3=cancelled, 4=unfriended
     greeting    VARCHAR(400) NOT NULL DEFAULT '',
+    remark      VARCHAR(100) NOT NULL DEFAULT '',  -- sender's pre-filled remark for recipient
     created_at  BIGINT NOT NULL,
     updated_at  BIGINT NOT NULL,
     UNIQUE(from_uid, to_uid)
@@ -179,9 +180,12 @@ When sender is blocked by receiver:
 POST /api/v1/relations/apply
 {
   "to_uid": "123",           // or "to_email": "user@example.com"
-  "greeting": "Hello!"       // optional, max 200 weighted chars
+  "greeting": "Hello!",      // optional, max 200 weighted chars
+  "remark": "College friend" // optional, max 100 weighted chars, sender's label for recipient
 }
 ```
+
+The `remark` field allows the sender to pre-fill how they want to label the recipient. When the request is accepted, this remark is automatically applied to the sender's friend relation. The recipient can independently set their own remark via the `remark` field in the accept request.
 
 **Validation**:
 1. Rate limit: 10 requests/hour per user
@@ -194,7 +198,7 @@ POST /api/v1/relations/apply
 **Mutual Auto-Accept**:
 - If A→B request pending and B sends A→B request
 - System auto-accepts A's request
-- Creates symmetric friend relations
+- Creates symmetric friend relations with both parties' pre-filled remarks
 - No notification sent (both already aware)
 
 **Handle Request**:

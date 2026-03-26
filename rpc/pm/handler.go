@@ -529,6 +529,12 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		greeting = truncateByWeightedLength(*req.Greeting, 200)
 	}
 
+	// Truncate remark to 100 weighted characters
+	remark := ""
+	if req.Remark != nil {
+		remark = truncateByWeightedLength(*req.Remark, 100)
+	}
+
 	// Check block status
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
@@ -551,12 +557,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	// Check mutual pending
 	mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
 	if err == nil && mutualReq != nil {
-		// Auto-accept
+		// Auto-accept: use both parties' pre-filled remarks
 		err = db.DB.Transaction(func(tx *gorm.DB) error {
 			if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
 				return err
 			}
-			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, "", "")
+			// mutualReq.Remark is how toUid wants to label fromUid
+			// remark is how fromUid wants to label toUid
+			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, remark, mutualReq.Remark)
 		})
 		if err != nil {
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
@@ -573,19 +581,21 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate request id"}}, nil
 	}
 
-	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid, greeting)
+	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid, greeting, remark)
 	if err != nil {
 		// Check if this is a unique constraint violation (concurrent mutual request)
 		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
 			// Retry mutual pending check - the other request might have been created
 			mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
 			if err == nil && mutualReq != nil {
-				// Auto-accept
+				// Auto-accept: use both parties' pre-filled remarks
 				err = db.DB.Transaction(func(tx *gorm.DB) error {
 					if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
 						return err
 					}
-					return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, "", "")
+					// mutualReq.Remark is how toUid wants to label fromUid
+					// remark is how fromUid wants to label toUid
+					return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, remark, mutualReq.Remark)
 				})
 				if err != nil {
 					return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
@@ -630,15 +640,16 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		if friendReq.ToUID != req.AgentId {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
 		}
-		remark := ""
+		recipientRemark := ""
 		if req.Remark != nil {
-			remark = truncateByWeightedLength(*req.Remark, 100)
+			recipientRemark = truncateByWeightedLength(*req.Remark, 100)
 		}
+		senderRemark := friendReq.Remark // sender's pre-filled remark for recipient
 		err = db.DB.Transaction(func(tx *gorm.DB) error {
 			if err := dal.UpdateRequestStatus(tx, req.RequestId, dal.RequestStatusAccepted); err != nil {
 				return err
 			}
-			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID, "", remark)
+			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID, senderRemark, recipientRemark)
 		})
 		if err != nil {
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil

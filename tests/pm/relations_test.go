@@ -44,6 +44,7 @@ func TestSendFriendRequest_Success(t *testing.T) {
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
 		"to_uid":   agentB["agent_id"].(string),
 		"greeting": "Hi, I'd like to connect!",
+		"remark":   "My friend from college",
 	}, agentA["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -1468,3 +1469,143 @@ func TestSendFriendRequest_BlockedUserCannotSend(t *testing.T) {
 	}
 	t.Logf("Verified no friend request was created or delivered")
 }
+
+// Test 31: Remark pre-filling when sending friend request
+func TestSendFriendRequest_WithRemarkPrefill(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"remark_a@test.com", "remark_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "remark_a@test.com", "Agent A", "bio")
+	agentB := testutil.RegisterAgent(t, "remark_b@test.com", "Agent B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends friend request to B with pre-filled remark
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Hi, let's connect!",
+		"remark":   "My college friend",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Send friend request failed: code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Friend request sent with pre-filled remark")
+
+	// B accepts with their own remark
+	data := resp["data"].(map[string]interface{})
+	requestID := data["request_id"].(string)
+
+	acceptResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1, // ACCEPT
+		"remark":     "My work colleague",
+	}, agentB["token"].(string))
+
+	acceptCode := int(acceptResp["code"].(float64))
+	if acceptCode != 0 {
+		t.Fatalf("Accept friend request failed: code=%d msg=%v", acceptCode, acceptResp["msg"])
+	}
+	t.Logf("Friend request accepted with recipient's remark")
+
+	// Verify A's friend list shows their pre-filled remark for B
+	listRespA := testutil.DoGet(t, "/api/v1/relations/friends", agentA["token"].(string))
+	friendsA := listRespA["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friendsA) != 1 {
+		t.Fatalf("expected 1 friend for A, got %d", len(friendsA))
+	}
+	friendMapA := friendsA[0].(map[string]interface{})
+	if friendMapA["agent_id"] != agentB["agent_id"].(string) {
+		t.Fatalf("expected friend to be agent B")
+	}
+	remarkA, ok := friendMapA["remark"].(string)
+	if !ok || remarkA != "My college friend" {
+		t.Fatalf("expected A's remark for B to be 'My college friend', got '%v' (type: %T)", friendMapA["remark"], friendMapA["remark"])
+	}
+	t.Logf("A's remark for B: '%s' (pre-filled by sender)", remarkA)
+
+	// Verify B's friend list shows their remark for A
+	listRespB := testutil.DoGet(t, "/api/v1/relations/friends", agentB["token"].(string))
+	friendsB := listRespB["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friendsB) != 1 {
+		t.Fatalf("expected 1 friend for B, got %d", len(friendsB))
+	}
+	friendMapB := friendsB[0].(map[string]interface{})
+	if friendMapB["agent_id"] != agentA["agent_id"].(string) {
+		t.Fatalf("expected friend to be agent A")
+	}
+	remarkB, ok := friendMapB["remark"].(string)
+	if !ok || remarkB != "My work colleague" {
+		t.Fatalf("expected B's remark for A to be 'My work colleague', got '%v' (type: %T)", friendMapB["remark"], friendMapB["remark"])
+	}
+	t.Logf("B's remark for A: '%s' (set by recipient)", remarkB)
+}
+
+// Test 32: Sequential mutual friend requests with both parties pre-filling remarks
+func TestSendFriendRequest_MutualWithRemarks(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"mutual_remark_a@test.com", "mutual_remark_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "mutual_remark_a@test.com", "Agent A", "bio")
+	agentB := testutil.RegisterAgent(t, "mutual_remark_b@test.com", "Agent B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// A sends friend request to B with pre-filled remark
+	respA := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Hi from A",
+		"remark":   "A's label for B",
+	}, agentA["token"].(string))
+	if int(respA["code"].(float64)) != 0 {
+		t.Fatalf("Request A failed: code=%v msg=%v", respA["code"], respA["msg"])
+	}
+	t.Logf("A sent friend request with remark")
+
+	// B sends mutual friend request to A → auto-accepted with both remarks
+	respB := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentA["agent_id"].(string),
+		"greeting": "Hi from B",
+		"remark":   "B's label for A",
+	}, agentB["token"].(string))
+	if int(respB["code"].(float64)) != 0 {
+		t.Fatalf("Request B failed: code=%v msg=%v", respB["code"], respB["msg"])
+	}
+	t.Logf("B sent mutual friend request (auto-accepted)")
+
+	// Verify A's friend list: A's remark for B = A's original remark from the pending request
+	listRespA := testutil.DoGet(t, "/api/v1/relations/friends", agentA["token"].(string))
+	friendsA := listRespA["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friendsA) != 1 {
+		t.Fatalf("expected 1 friend for A after mutual requests, got %d", len(friendsA))
+	}
+	friendMapA := friendsA[0].(map[string]interface{})
+	remarkA, _ := friendMapA["remark"].(string)
+	// B triggered auto-accept: CreateFriendRelation(B, A, B's remark, A's pending remark)
+	// A queries from_uid=A → {FromUID: A, ToUID: B, Remark: A's pending remark}
+	if remarkA != "A's label for B" {
+		t.Fatalf("expected A's remark for B to be 'A's label for B', got '%s'", remarkA)
+	}
+	t.Logf("A's remark for B: '%s' (from A's original request)", remarkA)
+
+	// Verify B's friend list: B's remark for A = B's remark from mutual request
+	listRespB := testutil.DoGet(t, "/api/v1/relations/friends", agentB["token"].(string))
+	friendsB := listRespB["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friendsB) != 1 {
+		t.Fatalf("expected 1 friend for B after mutual requests, got %d", len(friendsB))
+	}
+	friendMapB := friendsB[0].(map[string]interface{})
+	remarkB, _ := friendMapB["remark"].(string)
+	if remarkB != "B's label for A" {
+		t.Fatalf("expected B's remark for A to be 'B's label for A', got '%s'", remarkB)
+	}
+	t.Logf("B's remark for A: '%s' (from B's mutual request)", remarkB)
+}
+

@@ -1120,6 +1120,9 @@ const docTemplate = `{
                 "greeting": {
                     "type": "string"
                 },
+                "remark": {
+                    "type": "string"
+                },
                 "to_email": {
                     "type": "string"
                 },

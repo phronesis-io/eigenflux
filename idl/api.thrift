@@ -427,6 +427,7 @@ struct SendFriendRequestReq {
     1: optional string to_uid (api.body="to_uid")
     2: optional string to_email (api.body="to_email")
     3: optional string greeting (api.body="greeting")
+    4: optional string remark (api.body="remark")
 }
 
 struct SendFriendRequestData {

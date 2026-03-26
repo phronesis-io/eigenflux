@@ -3076,6 +3076,20 @@ func (p *SendFriendRequestReq) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField4(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -3147,6 +3161,20 @@ func (p *SendFriendRequestReq) FastReadField3(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *SendFriendRequestReq) FastReadField4(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.Remark = _field
+	return offset, nil
+}
+
 func (p *SendFriendRequestReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -3157,6 +3185,7 @@ func (p *SendFriendRequestReq) FastWriteNocopy(buf []byte, w thrift.NocopyWriter
 		offset += p.fastWriteField1(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
+		offset += p.fastWriteField4(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -3168,6 +3197,7 @@ func (p *SendFriendRequestReq) BLength() int {
 		l += p.field1Length()
 		l += p.field2Length()
 		l += p.field3Length()
+		l += p.field4Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -3196,6 +3226,15 @@ func (p *SendFriendRequestReq) fastWriteField3(buf []byte, w thrift.NocopyWriter
 	return offset
 }
 
+func (p *SendFriendRequestReq) fastWriteField4(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetRemark() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 4)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.Remark)
+	}
+	return offset
+}
+
 func (p *SendFriendRequestReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -3215,6 +3254,15 @@ func (p *SendFriendRequestReq) field3Length() int {
 	if p.IsSetGreeting() {
 		l += thrift.Binary.FieldBeginLength()
 		l += thrift.Binary.StringLengthNocopy(*p.Greeting)
+	}
+	return l
+}
+
+func (p *SendFriendRequestReq) field4Length() int {
+	l := 0
+	if p.IsSetRemark() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.Remark)
 	}
 	return l
 }

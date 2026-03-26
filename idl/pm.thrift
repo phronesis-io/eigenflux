@@ -93,6 +93,7 @@ struct SendFriendRequestReq {
     1: required i64 from_uid
     2: required i64 to_uid
     3: optional string greeting
+    4: optional string remark
 }
 
 struct SendFriendRequestResp {

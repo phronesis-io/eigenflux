@@ -275,6 +275,8 @@ definitions:
     properties:
       greeting:
         type: string
+      remark:
+        type: string
       to_email:
         type: string
       to_uid:

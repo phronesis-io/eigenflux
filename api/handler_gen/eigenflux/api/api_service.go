@@ -1253,6 +1253,9 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if req.Greeting != nil && *req.Greeting != "" {
 		rpcReq.Greeting = req.Greeting
 	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcReq.Remark = req.Remark
+	}
 	resp, err := clients.PMClient.SendFriendRequest(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)

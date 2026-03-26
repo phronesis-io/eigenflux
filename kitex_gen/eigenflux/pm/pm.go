@@ -859,6 +859,7 @@ type SendFriendRequestReq struct {
 	FromUid  int64   `thrift:"from_uid,1,required" frugal:"1,required,i64" json:"from_uid"`
 	ToUid    int64   `thrift:"to_uid,2,required" frugal:"2,required,i64" json:"to_uid"`
 	Greeting *string `thrift:"greeting,3,optional" frugal:"3,optional,string" json:"greeting,omitempty"`
+	Remark   *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
 }
 
 func NewSendFriendRequestReq() *SendFriendRequestReq {
@@ -884,6 +885,15 @@ func (p *SendFriendRequestReq) GetGreeting() (v string) {
 	}
 	return *p.Greeting
 }
+
+var SendFriendRequestReq_Remark_DEFAULT string
+
+func (p *SendFriendRequestReq) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return SendFriendRequestReq_Remark_DEFAULT
+	}
+	return *p.Remark
+}
 func (p *SendFriendRequestReq) SetFromUid(val int64) {
 	p.FromUid = val
 }
@@ -893,9 +903,16 @@ func (p *SendFriendRequestReq) SetToUid(val int64) {
 func (p *SendFriendRequestReq) SetGreeting(val *string) {
 	p.Greeting = val
 }
+func (p *SendFriendRequestReq) SetRemark(val *string) {
+	p.Remark = val
+}
 
 func (p *SendFriendRequestReq) IsSetGreeting() bool {
 	return p.Greeting != nil
+}
+
+func (p *SendFriendRequestReq) IsSetRemark() bool {
+	return p.Remark != nil
 }
 
 func (p *SendFriendRequestReq) String() string {
@@ -909,6 +926,7 @@ var fieldIDToName_SendFriendRequestReq = map[int16]string{
 	1: "from_uid",
 	2: "to_uid",
 	3: "greeting",
+	4: "remark",
 }
 
 type SendFriendRequestResp struct {
