@@ -1,33 +1,17 @@
 package notify_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
 )
 
-var consoleBaseURL = resolveConsoleBaseURL()
-
 func TestMain(m *testing.M) {
 	testutil.RunTestMain(m)
-}
-
-func resolveConsoleBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("CONSOLE_API_BASE_URL")); v != "" {
-		return strings.TrimSuffix(v, "/")
-	}
-	cfg := config.Load()
-	return fmt.Sprintf("http://localhost:%d", cfg.ConsoleApiPort)
 }
 
 // ---------------------------------------------------------------------------
@@ -90,9 +74,9 @@ func createSystemNotification(t *testing.T, notifType, content string, status in
 	if endAt != 0 {
 		body["end_at"] = endAt
 	}
-	payload := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
+	payload := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
 	var resp SystemNotificationResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code != 0 || resp.Data == nil {
 		t.Fatalf("create system notification failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
@@ -101,10 +85,10 @@ func createSystemNotification(t *testing.T, notifType, content string, status in
 
 func updateSystemNotification(t *testing.T, notificationID string, updates map[string]interface{}) SystemNotificationInfo {
 	t.Helper()
-	payload := doConsoleJSONRequest(t, http.MethodPut,
+	payload := testutil.DoConsoleJSONRequest(t, http.MethodPut,
 		"/console/api/v1/system-notifications/"+notificationID, updates)
 	var resp SystemNotificationResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code != 0 || resp.Data == nil {
 		t.Fatalf("update system notification failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
@@ -113,10 +97,10 @@ func updateSystemNotification(t *testing.T, notificationID string, updates map[s
 
 func offlineSystemNotification(t *testing.T, notificationID string) SystemNotificationInfo {
 	t.Helper()
-	payload := doConsoleJSONRequest(t, http.MethodPost,
+	payload := testutil.DoConsoleJSONRequest(t, http.MethodPost,
 		"/console/api/v1/system-notifications/"+notificationID+"/offline", nil)
 	var resp SystemNotificationResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code != 0 || resp.Data == nil {
 		t.Fatalf("offline system notification failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
@@ -129,65 +113,13 @@ func listSystemNotifications(t *testing.T, page, pageSize int, statusFilter *int
 	if statusFilter != nil {
 		path += fmt.Sprintf("&status=%d", *statusFilter)
 	}
-	payload := doConsoleRequest(t, http.MethodGet, path, nil)
+	payload := testutil.DoConsoleRequest(t, http.MethodGet, path, nil)
 	var resp ListSystemNotificationsResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code != 0 {
 		t.Fatalf("list system notifications failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	return resp
-}
-
-// ---------------------------------------------------------------------------
-// HTTP / decode helpers
-// ---------------------------------------------------------------------------
-
-func doConsoleRequest(t *testing.T, method, path string, body io.Reader) []byte {
-	t.Helper()
-	req, err := http.NewRequest(method, consoleBaseURL+path, body)
-	if err != nil {
-		t.Fatalf("new request failed: %v", err)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Skipf("Console API not running: %v", err)
-		return nil
-	}
-	defer resp.Body.Close()
-	payload, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response body failed: %v", err)
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		t.Skipf("endpoint not found: %s %s", method, path)
-		return nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d body=%s", resp.StatusCode, string(payload))
-	}
-	return payload
-}
-
-func doConsoleJSONRequest(t *testing.T, method, path string, body interface{}) []byte {
-	t.Helper()
-	if body == nil {
-		return doConsoleRequest(t, method, path, nil)
-	}
-	payload, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal request failed: %v", err)
-	}
-	return doConsoleRequest(t, method, path, bytes.NewReader(payload))
-}
-
-func mustDecodeResp(t *testing.T, payload []byte, target interface{}) {
-	t.Helper()
-	if err := json.Unmarshal(payload, target); err != nil {
-		t.Fatalf("failed to parse response: %v, body=%s", err, string(payload))
-	}
 }
 
 // ---------------------------------------------------------------------------

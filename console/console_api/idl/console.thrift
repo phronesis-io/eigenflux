@@ -215,6 +215,8 @@ struct CreateSystemNotificationReq {
     3: optional i32 status (api.body="status")
     4: optional i64 start_at (api.body="start_at")
     5: optional i64 end_at (api.body="end_at")
+    6: optional string audience_expression (api.body="audience_expression")
+    7: optional string audience_type (api.body="audience_type")
 }
 
 struct UpdateSystemNotificationReq {
@@ -224,6 +226,8 @@ struct UpdateSystemNotificationReq {
     4: optional i32 status (api.body="status")
     5: optional i64 start_at (api.body="start_at")
     6: optional i64 end_at (api.body="end_at")
+    7: optional string audience_expression (api.body="audience_expression")
+    8: optional string audience_type (api.body="audience_type")
 }
 
 struct OfflineSystemNotificationReq {

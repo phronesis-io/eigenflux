@@ -3,12 +3,15 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
 
 	"eigenflux_server/api/clients"
 	auth "eigenflux_server/kitex_gen/eigenflux/auth"
+	"eigenflux_server/pkg/reqinfo"
 )
 
 func AuthMiddleware() app.HandlerFunc {
@@ -37,6 +40,10 @@ func AuthMiddleware() app.HandlerFunc {
 		}
 
 		c.Set("agent_id", resp.AgentId)
+		ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyAgentID, strconv.FormatInt(resp.AgentId, 10))
+		if resp.Email != nil {
+			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyEmail, *resp.Email)
+		}
 		c.Next(ctx)
 	}
 }

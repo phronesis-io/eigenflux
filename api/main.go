@@ -13,11 +13,9 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/kitex/client"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	etcd "github.com/kitex-contrib/registry-etcd"
 	swaggerFiles "github.com/swaggo/files"
@@ -36,6 +34,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/publicurl"
+	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/skilldoc"
 )
 
@@ -58,55 +57,37 @@ func main() {
 	}
 
 	// Init kitex clients
-	profileClient, err := profileservice.NewClient("ProfileService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	profileClient, err := profileservice.NewClient("ProfileService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create profile client: %v", err)
 	}
 	log.Println("Profile RPC client initialized")
 
-	itemClient, err := itemservice.NewClient("ItemService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	itemClient, err := itemservice.NewClient("ItemService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create item client: %v", err)
 	}
 	log.Println("Item RPC client initialized")
 
-	feedClient, err := feedservice.NewClient("FeedService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	feedClient, err := feedservice.NewClient("FeedService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create feed client: %v", err)
 	}
 	log.Println("Feed RPC client initialized")
 
-	authClient, err := authservice.NewClient("AuthService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(5*time.Second),
-	)
+	authClient, err := authservice.NewClient("AuthService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create auth client: %v", err)
 	}
 	log.Println("Auth RPC client initialized")
 
-	pmClient, err := pmservice.NewClient("PMService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	pmClient, err := pmservice.NewClient("PMService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create pm client: %v", err)
 	}
 	log.Println("PM RPC client initialized")
 
-	notificationClient, err := notificationservice.NewClient("NotificationService",
-		client.WithResolver(r),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	notificationClient, err := notificationservice.NewClient("NotificationService", rpcx.ClientOptions(r)...)
 	if err != nil {
 		log.Fatalf("failed to create notification client: %v", err)
 	}

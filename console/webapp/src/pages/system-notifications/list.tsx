@@ -47,6 +47,8 @@ type CreateFormValues = {
   content: string;
   status: number;
   time_range?: [dayjs.Dayjs, dayjs.Dayjs];
+  audience_type?: string;
+  audience_expression?: string;
 };
 
 type EditFormValues = {
@@ -54,6 +56,8 @@ type EditFormValues = {
   content: string;
   status: number;
   time_range?: [dayjs.Dayjs, dayjs.Dayjs] | null;
+  audience_type?: string;
+  audience_expression?: string;
 };
 
 const statusMap: Record<number, { label: string; color: string }> = {
@@ -81,6 +85,9 @@ export const SystemNotificationList = () => {
   const [createForm] = Form.useForm<CreateFormValues>();
   const [editForm] = Form.useForm<EditFormValues>();
 
+  const createAudienceType = Form.useWatch("audience_type", createForm);
+  const editAudienceType = Form.useWatch("audience_type", editForm);
+
   const { query } = useList<SystemNotification>({
     resource: "system-notifications",
     pagination: { currentPage: current, pageSize, mode: "server" },
@@ -107,6 +114,12 @@ export const SystemNotificationList = () => {
       if (values.time_range) {
         body.start_at = values.time_range[0].valueOf();
         body.end_at = values.time_range[1].valueOf();
+      }
+      if (values.audience_type) {
+        body.audience_type = values.audience_type;
+      }
+      if (values.audience_type === "expression" && values.audience_expression) {
+        body.audience_expression = values.audience_expression;
       }
       const { data } = await axios.post<NotificationMutationResp>(
         `${consoleApiUrl}/system-notifications`,
@@ -140,6 +153,14 @@ export const SystemNotificationList = () => {
       } else {
         body.start_at = 0;
         body.end_at = 0;
+      }
+      if (values.audience_type) {
+        body.audience_type = values.audience_type;
+      }
+      if (values.audience_type === "expression") {
+        body.audience_expression = values.audience_expression || "";
+      } else {
+        body.audience_expression = "";
       }
       const { data } = await axios.put<NotificationMutationResp>(
         `${consoleApiUrl}/system-notifications/${editingNotif.notification_id}`,
@@ -180,6 +201,8 @@ export const SystemNotificationList = () => {
         record.start_at && record.end_at
           ? [dayjs(record.start_at), dayjs(record.end_at)]
           : undefined,
+      audience_type: record.audience_type || "broadcast",
+      audience_expression: record.audience_expression || undefined,
     });
     setEditOpen(true);
   };
@@ -225,10 +248,16 @@ export const SystemNotificationList = () => {
     },
     {
       title: "Audience",
-      dataIndex: "audience_type",
-      key: "audience_type",
-      width: 110,
-      render: (v: string) => <Tag>{v}</Tag>,
+      key: "audience",
+      width: 200,
+      render: (_, record) =>
+        record.audience_expression ? (
+          <Typography.Text code ellipsis style={{ maxWidth: 180 }}>
+            {record.audience_expression}
+          </Typography.Text>
+        ) : (
+          <Tag>{record.audience_type}</Tag>
+        ),
     },
     {
       title: "Start At",
@@ -291,6 +320,7 @@ export const SystemNotificationList = () => {
                   type: "announcement",
                   content: "",
                   status: 1,
+                  audience_type: "broadcast",
                 });
                 setCreateOpen(true);
               }}
@@ -367,6 +397,24 @@ export const SystemNotificationList = () => {
           <Form.Item name="time_range" label="Effective Window (optional)">
             <DatePicker.RangePicker showTime style={{ width: "100%" }} />
           </Form.Item>
+          <Form.Item name="audience_type" label="Audience Type" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { label: "Broadcast (all agents)", value: "broadcast" },
+                { label: "Expression (filtered)", value: "expression" },
+              ]}
+            />
+          </Form.Item>
+          {createAudienceType === "expression" && (
+            <Form.Item
+              name="audience_expression"
+              label="Audience Expression"
+              rules={[{ required: true, message: "Expression is required" }]}
+              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+            >
+              <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
 
@@ -405,6 +453,24 @@ export const SystemNotificationList = () => {
           <Form.Item name="time_range" label="Effective Window (optional)">
             <DatePicker.RangePicker showTime style={{ width: "100%" }} allowEmpty />
           </Form.Item>
+          <Form.Item name="audience_type" label="Audience Type" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { label: "Broadcast (all agents)", value: "broadcast" },
+                { label: "Expression (filtered)", value: "expression" },
+              ]}
+            />
+          </Form.Item>
+          {editAudienceType === "expression" && (
+            <Form.Item
+              name="audience_expression"
+              label="Audience Expression"
+              rules={[{ required: true, message: "Expression is required" }]}
+              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+            >
+              <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </>

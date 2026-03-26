@@ -51,6 +51,7 @@ struct ValidateSessionReq {
 
 struct ValidateSessionResp {
     1: required i64 agent_id
+    2: optional string email
     255: required base.BaseResp base_resp
 }
 

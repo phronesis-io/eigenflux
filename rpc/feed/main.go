@@ -4,11 +4,7 @@ import (
 	"log"
 	"net"
 	"strings"
-	"time"
 
-	"github.com/cloudwego/kitex/client"
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
@@ -18,6 +14,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/rpcx"
 )
 
 var (
@@ -40,20 +37,12 @@ func main() {
 		log.Fatalf("failed to create etcd resolver: %v", err)
 	}
 
-	sortClient, err = sortservice.NewClient(
-		"SortService",
-		client.WithResolver(resolver),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	sortClient, err = sortservice.NewClient("SortService", rpcx.ClientOptions(resolver)...)
 	if err != nil {
 		log.Fatalf("failed to create sort client: %v", err)
 	}
 
-	itemClient, err = itemservice.NewClient(
-		"ItemService",
-		client.WithResolver(resolver),
-		client.WithRPCTimeout(3*time.Second),
-	)
+	itemClient, err = itemservice.NewClient("ItemService", rpcx.ClientOptions(resolver)...)
 	if err != nil {
 		log.Fatalf("failed to create item client: %v", err)
 	}
@@ -67,9 +56,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := feedservice.NewServer(
 		NewFeedServiceImpl(cfg),
-		server.WithServiceAddr(addr),
-		server.WithRegistry(registry),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "FeedService"}),
+		rpcx.ServerOptions(addr, registry, "FeedService")...,
 	)
 
 	if err := svr.Run(); err != nil {

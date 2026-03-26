@@ -8565,11 +8565,13 @@ func (p *ListSystemNotificationsResp) String() string {
 }
 
 type CreateSystemNotificationReq struct {
-	Type    string `thrift:"type,1,required" form:"type,required" json:"type,required"`
-	Content string `thrift:"content,2,required" form:"content,required" json:"content,required"`
-	Status  *int32 `thrift:"status,3,optional" form:"status" json:"status,omitempty"`
-	StartAt *int64 `thrift:"start_at,4,optional" form:"start_at" json:"start_at,omitempty"`
-	EndAt   *int64 `thrift:"end_at,5,optional" form:"end_at" json:"end_at,omitempty"`
+	Type               string  `thrift:"type,1,required" form:"type,required" json:"type,required"`
+	Content            string  `thrift:"content,2,required" form:"content,required" json:"content,required"`
+	Status             *int32  `thrift:"status,3,optional" form:"status" json:"status,omitempty"`
+	StartAt            *int64  `thrift:"start_at,4,optional" form:"start_at" json:"start_at,omitempty"`
+	EndAt              *int64  `thrift:"end_at,5,optional" form:"end_at" json:"end_at,omitempty"`
+	AudienceExpression *string `thrift:"audience_expression,6,optional" form:"audience_expression" json:"audience_expression,omitempty"`
+	AudienceType       *string `thrift:"audience_type,7,optional" form:"audience_type" json:"audience_type,omitempty"`
 }
 
 func NewCreateSystemNotificationReq() *CreateSystemNotificationReq {
@@ -8614,12 +8616,32 @@ func (p *CreateSystemNotificationReq) GetEndAt() (v int64) {
 	return *p.EndAt
 }
 
+var CreateSystemNotificationReq_AudienceExpression_DEFAULT string
+
+func (p *CreateSystemNotificationReq) GetAudienceExpression() (v string) {
+	if !p.IsSetAudienceExpression() {
+		return CreateSystemNotificationReq_AudienceExpression_DEFAULT
+	}
+	return *p.AudienceExpression
+}
+
+var CreateSystemNotificationReq_AudienceType_DEFAULT string
+
+func (p *CreateSystemNotificationReq) GetAudienceType() (v string) {
+	if !p.IsSetAudienceType() {
+		return CreateSystemNotificationReq_AudienceType_DEFAULT
+	}
+	return *p.AudienceType
+}
+
 var fieldIDToName_CreateSystemNotificationReq = map[int16]string{
 	1: "type",
 	2: "content",
 	3: "status",
 	4: "start_at",
 	5: "end_at",
+	6: "audience_expression",
+	7: "audience_type",
 }
 
 func (p *CreateSystemNotificationReq) IsSetStatus() bool {
@@ -8632,6 +8654,14 @@ func (p *CreateSystemNotificationReq) IsSetStartAt() bool {
 
 func (p *CreateSystemNotificationReq) IsSetEndAt() bool {
 	return p.EndAt != nil
+}
+
+func (p *CreateSystemNotificationReq) IsSetAudienceExpression() bool {
+	return p.AudienceExpression != nil
+}
+
+func (p *CreateSystemNotificationReq) IsSetAudienceType() bool {
+	return p.AudienceType != nil
 }
 
 func (p *CreateSystemNotificationReq) Read(iprot thrift.TProtocol) (err error) {
@@ -8692,6 +8722,22 @@ func (p *CreateSystemNotificationReq) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.I64 {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -8792,6 +8838,28 @@ func (p *CreateSystemNotificationReq) ReadField5(iprot thrift.TProtocol) error {
 	p.EndAt = _field
 	return nil
 }
+func (p *CreateSystemNotificationReq) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AudienceExpression = _field
+	return nil
+}
+func (p *CreateSystemNotificationReq) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AudienceType = _field
+	return nil
+}
 
 func (p *CreateSystemNotificationReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -8817,6 +8885,14 @@ func (p *CreateSystemNotificationReq) Write(oprot thrift.TProtocol) (err error) 
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -8928,6 +9004,44 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
+func (p *CreateSystemNotificationReq) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAudienceExpression() {
+		if err = oprot.WriteFieldBegin("audience_expression", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AudienceExpression); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *CreateSystemNotificationReq) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAudienceType() {
+		if err = oprot.WriteFieldBegin("audience_type", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AudienceType); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
 func (p *CreateSystemNotificationReq) String() string {
 	if p == nil {
 		return "<nil>"
@@ -8937,12 +9051,14 @@ func (p *CreateSystemNotificationReq) String() string {
 }
 
 type UpdateSystemNotificationReq struct {
-	NotificationID int64   `thrift:"notification_id,1,required" json:"notification_id,required" path:"notification_id,required"`
-	Type           *string `thrift:"type,2,optional" form:"type" json:"type,omitempty"`
-	Content        *string `thrift:"content,3,optional" form:"content" json:"content,omitempty"`
-	Status         *int32  `thrift:"status,4,optional" form:"status" json:"status,omitempty"`
-	StartAt        *int64  `thrift:"start_at,5,optional" form:"start_at" json:"start_at,omitempty"`
-	EndAt          *int64  `thrift:"end_at,6,optional" form:"end_at" json:"end_at,omitempty"`
+	NotificationID     int64   `thrift:"notification_id,1,required" json:"notification_id,required" path:"notification_id,required"`
+	Type               *string `thrift:"type,2,optional" form:"type" json:"type,omitempty"`
+	Content            *string `thrift:"content,3,optional" form:"content" json:"content,omitempty"`
+	Status             *int32  `thrift:"status,4,optional" form:"status" json:"status,omitempty"`
+	StartAt            *int64  `thrift:"start_at,5,optional" form:"start_at" json:"start_at,omitempty"`
+	EndAt              *int64  `thrift:"end_at,6,optional" form:"end_at" json:"end_at,omitempty"`
+	AudienceExpression *string `thrift:"audience_expression,7,optional" form:"audience_expression" json:"audience_expression,omitempty"`
+	AudienceType       *string `thrift:"audience_type,8,optional" form:"audience_type" json:"audience_type,omitempty"`
 }
 
 func NewUpdateSystemNotificationReq() *UpdateSystemNotificationReq {
@@ -9001,6 +9117,24 @@ func (p *UpdateSystemNotificationReq) GetEndAt() (v int64) {
 	return *p.EndAt
 }
 
+var UpdateSystemNotificationReq_AudienceExpression_DEFAULT string
+
+func (p *UpdateSystemNotificationReq) GetAudienceExpression() (v string) {
+	if !p.IsSetAudienceExpression() {
+		return UpdateSystemNotificationReq_AudienceExpression_DEFAULT
+	}
+	return *p.AudienceExpression
+}
+
+var UpdateSystemNotificationReq_AudienceType_DEFAULT string
+
+func (p *UpdateSystemNotificationReq) GetAudienceType() (v string) {
+	if !p.IsSetAudienceType() {
+		return UpdateSystemNotificationReq_AudienceType_DEFAULT
+	}
+	return *p.AudienceType
+}
+
 var fieldIDToName_UpdateSystemNotificationReq = map[int16]string{
 	1: "notification_id",
 	2: "type",
@@ -9008,6 +9142,8 @@ var fieldIDToName_UpdateSystemNotificationReq = map[int16]string{
 	4: "status",
 	5: "start_at",
 	6: "end_at",
+	7: "audience_expression",
+	8: "audience_type",
 }
 
 func (p *UpdateSystemNotificationReq) IsSetType() bool {
@@ -9028,6 +9164,14 @@ func (p *UpdateSystemNotificationReq) IsSetStartAt() bool {
 
 func (p *UpdateSystemNotificationReq) IsSetEndAt() bool {
 	return p.EndAt != nil
+}
+
+func (p *UpdateSystemNotificationReq) IsSetAudienceExpression() bool {
+	return p.AudienceExpression != nil
+}
+
+func (p *UpdateSystemNotificationReq) IsSetAudienceType() bool {
+	return p.AudienceType != nil
 }
 
 func (p *UpdateSystemNotificationReq) Read(iprot thrift.TProtocol) (err error) {
@@ -9094,6 +9238,22 @@ func (p *UpdateSystemNotificationReq) Read(iprot thrift.TProtocol) (err error) {
 		case 6:
 			if fieldTypeId == thrift.I64 {
 				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -9200,6 +9360,28 @@ func (p *UpdateSystemNotificationReq) ReadField6(iprot thrift.TProtocol) error {
 	p.EndAt = _field
 	return nil
 }
+func (p *UpdateSystemNotificationReq) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AudienceExpression = _field
+	return nil
+}
+func (p *UpdateSystemNotificationReq) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AudienceType = _field
+	return nil
+}
 
 func (p *UpdateSystemNotificationReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -9229,6 +9411,14 @@ func (p *UpdateSystemNotificationReq) Write(oprot thrift.TProtocol) (err error) 
 		}
 		if err = p.writeField6(oprot); err != nil {
 			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
 			goto WriteFieldError
 		}
 	}
@@ -9359,6 +9549,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *UpdateSystemNotificationReq) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAudienceExpression() {
+		if err = oprot.WriteFieldBegin("audience_expression", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AudienceExpression); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *UpdateSystemNotificationReq) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAudienceType() {
+		if err = oprot.WriteFieldBegin("audience_type", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AudienceType); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
 }
 
 func (p *UpdateSystemNotificationReq) String() string {

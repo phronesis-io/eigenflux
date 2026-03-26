@@ -137,3 +137,25 @@ func DoGet(t *testing.T, path string, token string) map[string]interface{} {
 	}
 	return result
 }
+
+func DoGetWithHeaders(t *testing.T, path string, token string, headers map[string]string) map[string]interface{} {
+	t.Helper()
+	req, _ := http.NewRequest("GET", BaseURL+path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s failed: %v", path, err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		t.Fatalf("failed to parse response from GET %s: %v, body: %s", path, err, string(respBody))
+	}
+	return result
+}

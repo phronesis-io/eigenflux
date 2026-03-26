@@ -119,6 +119,10 @@ definitions:
     type: object
   console.createSystemNotificationReq:
     properties:
+      audience_expression:
+        type: string
+      audience_type:
+        type: string
       content:
         type: string
       end_at:
@@ -150,6 +154,10 @@ definitions:
     type: object
   console.updateSystemNotificationReq:
     properties:
+      audience_expression:
+        type: string
+      audience_type:
+        type: string
       content:
         type: string
       end_at:
@@ -390,7 +398,8 @@ paths:
         in: query
         name: page_size
         type: integer
-      - description: Filter by status (0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)
+      - description: Filter by status (0=pending, 1=processing, 2=failed, 3=completed,
+          4=discarded)
         in: query
         name: status
         type: integer

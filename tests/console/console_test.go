@@ -1,28 +1,15 @@
 package console_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"eigenflux_server/pkg/config"
+	"eigenflux_server/tests/testutil"
 )
-
-var consoleBaseURL = resolveConsoleBaseURL()
-
-func resolveConsoleBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("CONSOLE_API_BASE_URL")); v != "" {
-		return strings.TrimSuffix(v, "/")
-	}
-	cfg := config.Load()
-	return fmt.Sprintf("http://localhost:%d", cfg.ConsoleApiPort)
-}
 
 type ListAgentsData struct {
 	Agents   []map[string]interface{} `json:"agents"`
@@ -107,7 +94,7 @@ type ReplaceMilestoneRuleResp struct {
 }
 
 func TestConsoleListAgents(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=10", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=10", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -132,7 +119,7 @@ func TestConsoleListAgents(t *testing.T) {
 }
 
 func TestConsoleListItems(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -157,7 +144,7 @@ func TestConsoleListItems(t *testing.T) {
 }
 
 func TestConsoleListAgentsPaginationParams(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=2&page_size=1", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=2&page_size=1", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -184,7 +171,7 @@ func TestConsoleListAgentsPaginationParams(t *testing.T) {
 }
 
 func TestConsoleListItemsPaginationParams(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=2&page_size=1", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=2&page_size=1", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -211,7 +198,7 @@ func TestConsoleListItemsPaginationParams(t *testing.T) {
 }
 
 func TestConsoleListAgentsWithFilters(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=10&name=test", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=10&name=test", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -232,7 +219,7 @@ func TestConsoleListAgentsWithFilters(t *testing.T) {
 }
 
 func TestConsoleListItemsWithFilters(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10&status=3", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10&status=3", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -253,7 +240,7 @@ func TestConsoleListItemsWithFilters(t *testing.T) {
 }
 
 func TestConsoleListAgentImprItems(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/impr/items?agent_id=999999999", consoleBaseURL))
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/impr/items?agent_id=999999999", testutil.ConsoleBaseURL))
 	if err != nil {
 		t.Skipf("Console API not running: %v", err)
 		return
@@ -291,14 +278,14 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 	updatedTemplate := fmt.Sprintf("Updated template %d for {{.ItemID}} / {{.CounterValue}}", initialThreshold)
 	replacedTemplate := fmt.Sprintf("Replacement template %d for {{.ItemSummary}}", replacementThreshold)
 
-	createResp := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/milestone-rules", map[string]interface{}{
+	createResp := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/milestone-rules", map[string]interface{}{
 		"metric_key":       "consumed",
 		"threshold":        initialThreshold,
 		"rule_enabled":     true,
 		"content_template": initialTemplate,
 	})
 	var created MilestoneRuleResp
-	mustDecodeConsoleResp(t, createResp, &created)
+	testutil.MustDecodeResp(t, createResp, &created)
 	if created.Code != 0 || created.Data == nil {
 		t.Fatalf("create milestone rule failed: code=%d msg=%s", created.Code, created.Msg)
 	}
@@ -306,9 +293,9 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 		t.Fatalf("expected created threshold=%d, got %d", initialThreshold, created.Data.Rule.Threshold)
 	}
 
-	listResp := doConsoleRequest(t, http.MethodGet, fmt.Sprintf("/console/api/v1/milestone-rules?page=1&page_size=20&metric_key=consumed&rule_enabled=true"), nil)
+	listResp := testutil.DoConsoleRequest(t, http.MethodGet, fmt.Sprintf("/console/api/v1/milestone-rules?page=1&page_size=20&metric_key=consumed&rule_enabled=true"), nil)
 	var listed ListMilestoneRulesResp
-	mustDecodeConsoleResp(t, listResp, &listed)
+	testutil.MustDecodeResp(t, listResp, &listed)
 	if listed.Code != 0 {
 		t.Fatalf("list milestone rules failed: code=%d msg=%s", listed.Code, listed.Msg)
 	}
@@ -323,12 +310,12 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 		t.Fatalf("created milestone rule %s not found in list response", created.Data.Rule.RuleID)
 	}
 
-	updateResp := doConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/milestone-rules/"+created.Data.Rule.RuleID, map[string]interface{}{
+	updateResp := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/milestone-rules/"+created.Data.Rule.RuleID, map[string]interface{}{
 		"rule_enabled":     false,
 		"content_template": updatedTemplate,
 	})
 	var updated MilestoneRuleResp
-	mustDecodeConsoleResp(t, updateResp, &updated)
+	testutil.MustDecodeResp(t, updateResp, &updated)
 	if updated.Code != 0 || updated.Data == nil {
 		t.Fatalf("update milestone rule failed: code=%d msg=%s", updated.Code, updated.Msg)
 	}
@@ -339,14 +326,14 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 		t.Fatalf("expected updated template=%q, got %q", updatedTemplate, updated.Data.Rule.ContentTemplate)
 	}
 
-	replaceResp := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/milestone-rules/"+created.Data.Rule.RuleID+"/replace", map[string]interface{}{
+	replaceResp := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/milestone-rules/"+created.Data.Rule.RuleID+"/replace", map[string]interface{}{
 		"metric_key":       "score_2",
 		"threshold":        replacementThreshold,
 		"rule_enabled":     true,
 		"content_template": replacedTemplate,
 	})
 	var replaced ReplaceMilestoneRuleResp
-	mustDecodeConsoleResp(t, replaceResp, &replaced)
+	testutil.MustDecodeResp(t, replaceResp, &replaced)
 	if replaced.Code != 0 || replaced.Data == nil {
 		t.Fatalf("replace milestone rule failed: code=%d msg=%s", replaced.Code, replaced.Msg)
 	}
@@ -357,60 +344,15 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 		t.Fatalf("unexpected replacement rule: %+v", replaced.Data.NewRule)
 	}
 
-	cleanupResp := doConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/milestone-rules/"+replaced.Data.NewRule.RuleID, map[string]interface{}{
+	cleanupResp := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/milestone-rules/"+replaced.Data.NewRule.RuleID, map[string]interface{}{
 		"rule_enabled": false,
 	})
 	var cleaned MilestoneRuleResp
-	mustDecodeConsoleResp(t, cleanupResp, &cleaned)
+	testutil.MustDecodeResp(t, cleanupResp, &cleaned)
 	if cleaned.Code != 0 || cleaned.Data == nil {
 		t.Fatalf("cleanup disable milestone rule failed: code=%d msg=%s", cleaned.Code, cleaned.Msg)
 	}
 	if cleaned.Data.Rule.RuleEnabled {
 		t.Fatalf("expected cleanup rule to be disabled")
-	}
-}
-
-func doConsoleRequest(t *testing.T, method, path string, body io.Reader) []byte {
-	t.Helper()
-	req, err := http.NewRequest(method, consoleBaseURL+path, body)
-	if err != nil {
-		t.Fatalf("new request failed: %v", err)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Skipf("Console API not running: %v", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	payload, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response body failed: %v", err)
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		t.Fatalf("unexpected 404 for %s %s: %s", method, path, string(payload))
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d body=%s", resp.StatusCode, string(payload))
-	}
-	return payload
-}
-
-func doConsoleJSONRequest(t *testing.T, method, path string, body interface{}) []byte {
-	t.Helper()
-	payload, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal request failed: %v", err)
-	}
-	return doConsoleRequest(t, method, path, bytes.NewReader(payload))
-}
-
-func mustDecodeConsoleResp(t *testing.T, payload []byte, target interface{}) {
-	t.Helper()
-	if err := json.Unmarshal(payload, target); err != nil {
-		t.Fatalf("failed to parse response: %v, body=%s", err, string(payload))
 	}
 }

@@ -6,8 +6,6 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
@@ -15,6 +13,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/rpcx"
 )
 
 func main() {
@@ -48,9 +47,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := profileservice.NewServer(
 		&ProfileServiceImpl{agentIDGen: agentIDGen},
-		server.WithServiceAddr(addr),
-		server.WithRegistry(r),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "ProfileService"}),
+		rpcx.ServerOptions(addr, r, "ProfileService")...,
 	)
 
 	if err := svr.Run(); err != nil {

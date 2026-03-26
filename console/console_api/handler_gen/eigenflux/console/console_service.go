@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"console.eigenflux.ai/internal/audience"
 	"console.eigenflux.ai/internal/dal"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
@@ -161,19 +162,23 @@ type SystemNotificationResp struct {
 }
 
 type createSystemNotificationReq struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-	Status  *int32 `json:"status"`
-	StartAt *int64 `json:"start_at"`
-	EndAt   *int64 `json:"end_at"`
+	Type               string  `json:"type"`
+	Content            string  `json:"content"`
+	Status             *int32  `json:"status"`
+	StartAt            *int64  `json:"start_at"`
+	EndAt              *int64  `json:"end_at"`
+	AudienceType       *string `json:"audience_type"`
+	AudienceExpression *string `json:"audience_expression"`
 }
 
 type updateSystemNotificationReq struct {
-	Type    *string `json:"type"`
-	Content *string `json:"content"`
-	Status  *int32  `json:"status"`
-	StartAt *int64  `json:"start_at"`
-	EndAt   *int64  `json:"end_at"`
+	Type               *string `json:"type"`
+	Content            *string `json:"content"`
+	Status             *int32  `json:"status"`
+	StartAt            *int64  `json:"start_at"`
+	EndAt              *int64  `json:"end_at"`
+	AudienceType       *string `json:"audience_type"`
+	AudienceExpression *string `json:"audience_expression"`
 }
 
 // ===========================================================================
@@ -580,6 +585,23 @@ func CreateSystemNotification(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	audienceType := model.AudienceTypeBroadcast
+	var audienceExpr string
+	if req.AudienceType != nil && strings.TrimSpace(*req.AudienceType) != "" {
+		audienceType = strings.TrimSpace(*req.AudienceType)
+	}
+	if audienceType == model.AudienceTypeExpression {
+		if req.AudienceExpression == nil || strings.TrimSpace(*req.AudienceExpression) == "" {
+			writeConsoleError(c, "audience_expression is required when audience_type is expression")
+			return
+		}
+		audienceExpr = strings.TrimSpace(*req.AudienceExpression)
+		if err := audience.Validate(audienceExpr); err != nil {
+			writeConsoleError(c, "invalid audience_expression: "+err.Error())
+			return
+		}
+	}
+
 	if notifIDGen == nil {
 		writeConsoleError(c, "notification id generator not initialized")
 		return
@@ -605,6 +627,7 @@ func CreateSystemNotification(ctx context.Context, c *app.RequestContext) {
 	row, err := dal.CreateSystemNotification(ctx, db.DB, dal.CreateSystemNotificationParams{
 		NotificationID: notifID, Type: strings.TrimSpace(req.Type),
 		Content: strings.TrimSpace(req.Content), Status: status, StartAt: startAt, EndAt: endAt,
+		AudienceType: audienceType, AudienceExpression: audienceExpr,
 	})
 	if err != nil {
 		writeConsoleError(c, "create failed: "+err.Error())
@@ -645,13 +668,40 @@ func UpdateSystemNotification(ctx context.Context, c *app.RequestContext) {
 		writeConsoleError(c, "invalid request: "+err.Error())
 		return
 	}
-	if req.Type == nil && req.Content == nil && req.Status == nil && req.StartAt == nil && req.EndAt == nil {
+	if req.Type == nil && req.Content == nil && req.Status == nil && req.StartAt == nil && req.EndAt == nil && req.AudienceExpression == nil && req.AudienceType == nil {
 		writeConsoleError(c, "at least one field must be provided")
 		return
 	}
 
+	if req.AudienceType != nil {
+		at := strings.TrimSpace(*req.AudienceType)
+		if at == model.AudienceTypeExpression {
+			if req.AudienceExpression == nil || strings.TrimSpace(*req.AudienceExpression) == "" {
+				writeConsoleError(c, "audience_expression is required when audience_type is expression")
+				return
+			}
+			if err := audience.Validate(strings.TrimSpace(*req.AudienceExpression)); err != nil {
+				writeConsoleError(c, "invalid audience_expression: "+err.Error())
+				return
+			}
+		}
+	} else if req.AudienceExpression != nil && strings.TrimSpace(*req.AudienceExpression) != "" {
+		if err := audience.Validate(strings.TrimSpace(*req.AudienceExpression)); err != nil {
+			writeConsoleError(c, "invalid audience_expression: "+err.Error())
+			return
+		}
+	}
+
+	// Normalize audience_expression: trim whitespace, treat all-whitespace as empty.
+	var normExpr *string
+	if req.AudienceExpression != nil {
+		trimmed := strings.TrimSpace(*req.AudienceExpression)
+		normExpr = &trimmed
+	}
+
 	row, err := dal.UpdateSystemNotification(ctx, db.DB, notifID, dal.UpdateSystemNotificationParams{
 		Type: req.Type, Content: req.Content, Status: req.Status, StartAt: req.StartAt, EndAt: req.EndAt,
+		AudienceType: req.AudienceType, AudienceExpression: normExpr,
 	})
 	if err != nil {
 		writeNotificationError(c, err)

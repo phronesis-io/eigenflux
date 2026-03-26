@@ -6,8 +6,6 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cloudwego/kitex/server"
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
@@ -16,6 +14,7 @@ import (
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/validator"
 )
@@ -82,9 +81,7 @@ func main() {
 			iceBreaker: iceBreaker,
 			validator:  pmValidator,
 		},
-		server.WithServiceAddr(addr),
-		server.WithRegistry(registry),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "PMService"}),
+		rpcx.ServerOptions(addr, registry, "PMService")...,
 	)
 
 	log.Printf("PM service starting on %s", listenAddr)
