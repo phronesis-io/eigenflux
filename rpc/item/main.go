@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
@@ -51,6 +52,7 @@ func main() {
 		server.WithServiceAddr(addr),
 		server.WithRegistry(r),
 		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "ItemService"}),
+		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
 	if err := svr.Run(); err != nil {

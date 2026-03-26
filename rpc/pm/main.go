@@ -6,8 +6,9 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cloudwego/kitex/server"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/transmeta"
+	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
@@ -85,6 +86,7 @@ func main() {
 		server.WithServiceAddr(addr),
 		server.WithRegistry(registry),
 		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "PMService"}),
+		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
 	log.Printf("PM service starting on %s", listenAddr)

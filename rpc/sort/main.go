@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
@@ -68,6 +69,7 @@ func main() {
 		server.WithServiceAddr(addr),
 		server.WithRegistry(r),
 		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "SortService"}),
+		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
 	log.Printf("Sort service (ES) started on %s", listenAddr)
