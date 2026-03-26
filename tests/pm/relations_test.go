@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
 )
 
@@ -505,7 +507,7 @@ func TestSendPM_BlockedUser_SilentSuccess(t *testing.T) {
 	t.Logf("Blocked user PM returned success but no delivery")
 }
 
-// Test 12: Cannot send request when blocked
+// Test 12: Target-blocked friend request returns silent success with no delivery
 func TestSendFriendRequest_BlockedByReceiver(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"blockreq_a@test.com", "blockreq_b@test.com"}
@@ -524,17 +526,48 @@ func TestSendFriendRequest_BlockedByReceiver(t *testing.T) {
 		"to_uid":   agentA["agent_id"].(string),
 	}, agentB["token"].(string))
 
-	// A tries to send request to B
+	// A tries to send request to B and should perceive success
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
 		"from_uid": agentA["agent_id"].(string),
 		"to_uid":   agentB["agent_id"].(string),
 	}, agentA["token"].(string))
 
 	code := int(resp["code"].(float64))
-	if code != 403 {
-		t.Fatalf("expected code=403 (blocked), got code=%d", code)
+	if code != 0 {
+		t.Fatalf("expected code=0 (silent success when target blocked sender), got code=%d msg=%v", code, resp["msg"])
 	}
-	t.Logf("Friend request correctly rejected when blocked")
+
+	listResp := testutil.DoGet(t, "/api/v1/relations/applications?direction=incoming", agentB["token"].(string))
+	requests := listResp["data"].(map[string]interface{})["requests"].([]interface{})
+	if len(requests) != 0 {
+		t.Fatalf("expected 0 incoming requests for B, got %d", len(requests))
+	}
+
+	rdb := testutil.GetTestRedis()
+	ctx := context.Background()
+	key := fmt.Sprintf("pm:notify:%d", uidB)
+	time.Sleep(200 * time.Millisecond)
+	vals, err := rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("failed to read pm:notify key: %v", err)
+	}
+	if len(vals) != 0 {
+		t.Fatalf("expected no pm notification for blocked friend request, got %v", vals)
+	}
+
+	feedResp := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", agentB["token"].(string))
+	feedCode := int(feedResp["code"].(float64))
+	if feedCode != 0 {
+		t.Fatalf("Feed refresh failed: code=%d msg=%v", feedCode, feedResp["msg"])
+	}
+	notifications := feedResp["data"].(map[string]interface{})["notifications"].([]interface{})
+	for _, n := range notifications {
+		notifMap := n.(map[string]interface{})
+		if notifMap["source_type"] == "friend_request" && notifMap["type"] == "friend_request" {
+			t.Fatalf("expected no friend_request notification in feed, got %v", notifications)
+		}
+	}
+	t.Logf("Target-blocked friend request returned silent success without creation or delivery")
 }
 
 // Test 13: Wrong person cannot accept request
@@ -849,9 +882,11 @@ func TestSendFriendRequest_ByInviteFormat(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	// A sends request to B using eigenflux#email format
+	projectName := config.Load().ProjectName
+
+	// A sends request to B using {project_name}#email format
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
-		"to_email": "eigenflux#invite_b@test.com",
+		"to_email": projectName + "#invite_b@test.com",
 	}, agentA["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -1308,4 +1343,128 @@ func TestUpdateFriendRemark(t *testing.T) {
 		t.Fatalf("expected error when updating remark for non-friend")
 	}
 	t.Logf("UpdateFriendRemark correctly rejected for non-friend")
+}
+// Test 29: Concurrent friend requests (race condition test)
+func TestSendFriendRequest_Concurrent(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"concurrent_a@test.com", "concurrent_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "concurrent_a@test.com", "Concurrent A", "bio")
+	agentB := testutil.RegisterAgent(t, "concurrent_b@test.com", "Concurrent B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// Both users send friend requests to each other concurrently
+	var wg sync.WaitGroup
+	var respA, respB map[string]interface{}
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		respA = testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   agentB["agent_id"].(string),
+			"greeting": "Hi from A",
+		}, agentA["token"].(string))
+	}()
+	go func() {
+		defer wg.Done()
+		respB = testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   agentA["agent_id"].(string),
+			"greeting": "Hi from B",
+		}, agentB["token"].(string))
+	}()
+	wg.Wait()
+
+	// Both requests should succeed
+	codeA := int(respA["code"].(float64))
+	codeB := int(respB["code"].(float64))
+	if codeA != 0 {
+		t.Fatalf("Request A failed: code=%d msg=%v", codeA, respA["msg"])
+	}
+	if codeB != 0 {
+		t.Fatalf("Request B failed: code=%d msg=%v", codeB, respB["msg"])
+	}
+
+	// Verify they are now friends (auto-accepted)
+	listResp := testutil.DoGet(t, "/api/v1/relations/friends", agentA["token"].(string))
+	friends := listResp["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friends) != 1 {
+		t.Fatalf("expected 1 friend after concurrent requests, got %d", len(friends))
+	}
+	friendMap := friends[0].(map[string]interface{})
+	if friendMap["agent_id"] != agentB["agent_id"].(string) {
+		t.Fatalf("expected friend to be agent B")
+	}
+	t.Logf("Concurrent friend requests handled correctly, users are now friends")
+}
+
+// Test 30: Blocked user cannot send friend request
+func TestSendFriendRequest_BlockedUserCannotSend(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"blocked_sender@test.com", "blocker@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "blocked_sender@test.com", "Blocked Sender", "bio")
+	agentB := testutil.RegisterAgent(t, "blocker@test.com", "Blocker", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	// B blocks A
+	blockResp := testutil.DoPost(t, "/api/v1/relations/block", map[string]string{
+		"to_uid": agentA["agent_id"].(string),
+	}, agentB["token"].(string))
+	if int(blockResp["code"].(float64)) != 0 {
+		t.Fatalf("Block failed: %v", blockResp["msg"])
+	}
+	t.Logf("B blocked A successfully")
+
+	// A tries to send friend request to B and should perceive success
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "Can we be friends?",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("expected silent success when blocked user sends request, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Blocked user send request returned silent success")
+
+	// Verify no friend request was created
+	listResp := testutil.DoGet(t, "/api/v1/relations/applications?direction=incoming", agentB["token"].(string))
+	requests := listResp["data"].(map[string]interface{})["requests"].([]interface{})
+	if len(requests) != 0 {
+		t.Fatalf("expected 0 incoming requests for B, got %d", len(requests))
+	}
+
+	rdb := testutil.GetTestRedis()
+	ctx := context.Background()
+	key := fmt.Sprintf("pm:notify:%d", uidB)
+	time.Sleep(200 * time.Millisecond)
+	vals, err := rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("failed to read pm:notify key: %v", err)
+	}
+	if len(vals) != 0 {
+		t.Fatalf("expected no pm notification for blocked friend request, got %v", vals)
+	}
+
+	feedResp := testutil.DoGet(t, "/api/v1/items/feed?action=refresh", agentB["token"].(string))
+	feedCode := int(feedResp["code"].(float64))
+	if feedCode != 0 {
+		t.Fatalf("Feed refresh failed: code=%d msg=%v", feedCode, feedResp["msg"])
+	}
+	notifications := feedResp["data"].(map[string]interface{})["notifications"].([]interface{})
+	for _, n := range notifications {
+		notifMap := n.(map[string]interface{})
+		if notifMap["source_type"] == "friend_request" && notifMap["type"] == "friend_request" {
+			t.Fatalf("expected no friend_request notification in feed, got %v", notifications)
+		}
+	}
+	t.Logf("Verified no friend request was created or delivered")
 }

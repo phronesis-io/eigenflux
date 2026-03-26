@@ -3,6 +3,7 @@ package relations
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"eigenflux_server/rpc/pm/dal"
 
@@ -14,6 +15,9 @@ const (
 	RedisKeyFriendSet   = "friend:%d"       // SET of friend IDs
 	RedisKeyBlockSet    = "block:%d"        // SET of blocked user IDs
 	RedisKeyFriendCount = "friend_count:%d" // STRING friend count cache
+
+	// Cache TTL for friend and block sets (24 hours)
+	RelationCacheTTL = 24 * time.Hour
 )
 
 // LoadFriendSet loads friend IDs from DB to Redis SET
@@ -34,6 +38,7 @@ func LoadFriendSet(ctx context.Context, rdb *redis.Client, db *gorm.DB, uid int6
 			members[i] = rel.ToUID
 		}
 		pipe.SAdd(ctx, key, members...)
+		pipe.Expire(ctx, key, RelationCacheTTL)
 	}
 
 	_, err = pipe.Exec(ctx)
@@ -58,6 +63,7 @@ func LoadBlockSet(ctx context.Context, rdb *redis.Client, db *gorm.DB, uid int64
 			members[i] = rel.ToUID
 		}
 		pipe.SAdd(ctx, key, members...)
+		pipe.Expire(ctx, key, RelationCacheTTL)
 	}
 
 	_, err = pipe.Exec(ctx)

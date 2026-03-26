@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 	"unicode"
 
@@ -509,22 +510,35 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
 	log.Printf("[Relation] SendFriendRequest: from=%d to=%d", req.FromUid, req.ToUid)
 
+	// Rate limiting: max 10 requests per hour per user
+	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
+	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
+	if err == nil {
+		if count == 1 {
+			db.RDB.Expire(ctx, rateLimitKey, time.Hour)
+		}
+		if count > 10 {
+			log.Printf("[Relation] SendFriendRequest rate limited: from=%d count=%d", req.FromUid, count)
+			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 429, Msg: "too many requests, please try again later"}}, nil
+		}
+	}
+
 	// Truncate greeting to 200 weighted characters
 	greeting := ""
 	if req.Greeting != nil {
 		greeting = truncateByWeightedLength(*req.Greeting, 200)
 	}
 
-	// Check if either blocked
+	// Check block status
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
-		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (target blocked sender)", req.FromUid, req.ToUid)
+		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (sender blocked target)", req.FromUid, req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
 	}
 	blocked, _ = relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ToUid, req.FromUid)
 	if blocked {
-		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (sender blocked target)", req.FromUid, req.ToUid)
-		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
+		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (target blocked sender)", req.FromUid, req.ToUid)
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
 	// Check if already friends
@@ -561,6 +575,27 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 
 	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid, greeting)
 	if err != nil {
+		// Check if this is a unique constraint violation (concurrent mutual request)
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
+			// Retry mutual pending check - the other request might have been created
+			mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
+			if err == nil && mutualReq != nil {
+				// Auto-accept
+				err = db.DB.Transaction(func(tx *gorm.DB) error {
+					if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
+						return err
+					}
+					return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, "", "")
+				})
+				if err != nil {
+					return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
+				}
+				_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
+				_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+				log.Printf("[Relation] SendFriendRequest auto-accepted mutual request (after retry): request_id=%d from=%d to=%d", mutualReq.ID, req.FromUid, req.ToUid)
+				return &pm.SendFriendRequestResp{RequestId: mutualReq.ID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+			}
+		}
 		log.Printf("[Relation] SendFriendRequest failed to create: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
 	}
