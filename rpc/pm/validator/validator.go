@@ -115,11 +115,11 @@ type ConvInfo struct {
 	ParticipantA int64
 	ParticipantB int64
 	Status       int16
+	OriginType   string
 }
 
-// ValidateConvMembership validates that sender is a participant in the conversation
-// Returns (receiverID, error)
-func (v *Validator) ValidateConvMembership(ctx context.Context, convID, senderID int64) (int64, error) {
+// GetConversationInfo returns cached conversation metadata for routing and validation.
+func (v *Validator) GetConversationInfo(ctx context.Context, convID int64) (*ConvInfo, error) {
 	cacheKey := fmt.Sprintf("pm:conv:%d", convID)
 
 	// Try cache first
@@ -127,7 +127,7 @@ func (v *Validator) ValidateConvMembership(ctx context.Context, convID, senderID
 	if err == nil {
 		var info ConvInfo
 		if err := json.Unmarshal([]byte(cached), &info); err == nil {
-			return v.checkMembership(&info, senderID)
+			return &info, nil
 		}
 	}
 
@@ -142,6 +142,7 @@ func (v *Validator) ValidateConvMembership(ctx context.Context, convID, senderID
 			ParticipantA: conv.ParticipantA,
 			ParticipantB: conv.ParticipantB,
 			Status:       conv.Status,
+			OriginType:   conv.OriginType,
 		}
 
 		// Cache result
@@ -151,10 +152,20 @@ func (v *Validator) ValidateConvMembership(ctx context.Context, convID, senderID
 	})
 
 	if err != nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	return result.(*ConvInfo), nil
+}
+
+// ValidateConvMembership validates that sender is a participant in the conversation
+// Returns (receiverID, error)
+func (v *Validator) ValidateConvMembership(ctx context.Context, convID, senderID int64) (int64, error) {
+	info, err := v.GetConversationInfo(ctx, convID)
+	if err != nil {
 		return 0, fmt.Errorf("conversation not found")
 	}
 
-	info := result.(*ConvInfo)
 	return v.checkMembership(info, senderID)
 }
 

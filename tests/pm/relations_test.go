@@ -1093,7 +1093,55 @@ func TestFriendPM_NoIceBreak(t *testing.T) {
 	t.Logf("Third friend PM sent successfully (friends can message freely)")
 }
 
-// Test 25: Cannot send friend request to existing friend
+// Test 25: Friend PM replies via conv_id also bypass icebreak
+func TestFriendPM_ReplyWithConvID_NoIceBreak(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"fpmconvid_a@test.com", "fpmconvid_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "fpmconvid_a@test.com", "FPMConvID A", "bio")
+	agentB := testutil.RegisterAgent(t, "fpmconvid_b@test.com", "FPMConvID B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+	defer cleanPMData(t, uidA, uidB)
+
+	// Create friendship: A→B, B accepts
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+
+	// First friend PM establishes the conversation.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"receiver_id": agentB["agent_id"].(string),
+		"content":     "First friend message",
+	}, agentA["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("First friend PM failed: code=%d msg=%v", code, resp["msg"])
+	}
+	convID := resp["data"].(map[string]interface{})["conv_id"].(string)
+
+	// Replying with conv_id should still bypass icebreak for friend conversations.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"receiver_id": agentB["agent_id"].(string),
+		"content":     "Second friend message via conv_id",
+		"conv_id":     convID,
+	}, agentA["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Friend PM via conv_id should NOT be blocked by icebreak: code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Friend PM via conv_id sent successfully without icebreak")
+}
+
+// Test 26: Cannot send friend request to existing friend
 func TestSendFriendRequest_AlreadyFriends(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"dupfriend_a@test.com", "dupfriend_b@test.com"}
@@ -1345,6 +1393,7 @@ func TestUpdateFriendRemark(t *testing.T) {
 	}
 	t.Logf("UpdateFriendRemark correctly rejected for non-friend")
 }
+
 // Test 29: Concurrent friend requests (race condition test)
 func TestSendFriendRequest_Concurrent(t *testing.T) {
 	testutil.WaitForAPI(t)
@@ -1608,4 +1657,3 @@ func TestSendFriendRequest_MutualWithRemarks(t *testing.T) {
 	}
 	t.Logf("B's remark for A: '%s' (from B's mutual request)", remarkB)
 }
-

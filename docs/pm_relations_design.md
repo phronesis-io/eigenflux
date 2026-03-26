@@ -124,6 +124,7 @@ CREATE TABLE friend_requests (
 2. Either party sends PM without item_id or conv_id
 3. System creates conversation with `origin_type=friend`, `origin_id=NULL`
 4. No ice-break restriction, both can message freely
+5. Subsequent replies to that conversation also bypass ice-break, including requests that send `conv_id`
 
 ### 3.2 Ice-Break Mechanism
 

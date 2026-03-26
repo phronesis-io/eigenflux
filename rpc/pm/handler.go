@@ -52,7 +52,11 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 
 	// Case 2: Reply (conv_id provided)
 	if req.ConvId != nil && *req.ConvId > 0 {
-		return s.handleReply(ctx, req, false)
+		skipIceBreak := false
+		if convInfo, err := s.validator.GetConversationInfo(ctx, *req.ConvId); err == nil && strings.EqualFold(convInfo.OriginType, "friend") {
+			skipIceBreak = true
+		}
+		return s.handleReply(ctx, req, skipIceBreak)
 	}
 
 	// Case 3: Friend-based PM (neither item_id nor conv_id)
@@ -306,7 +310,6 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 	log.Printf("[PM] FriendPM new conv: conv_id=%d msg_id=%d sender=%d receiver=%d", convID, msgID, req.SenderId, req.ReceiverId)
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
-
 
 func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.FetchPMResp, error) {
 	limit := int(req.GetLimit())
@@ -880,5 +883,3 @@ func truncateByWeightedLength(s string, maxLen int) string {
 	}
 	return s
 }
-
-
