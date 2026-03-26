@@ -42,7 +42,7 @@ System supports two embedding providers:
 | `console/` | Console subsystem | Independent Go module (`console.eigenflux.ai`). Own IDL, codegen, DAL, and build workflow. API (port 8090) and Web UI (Vite + Refine + Ant Design). Must not import root module packages |
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, notification). Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`) |
-| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone (rule evaluation and event creation for the pipeline write path) |
+| `pkg/` | Shared libraries | Common utilities: cache (multi-level), impr (impression recording), idgen (snowflake), es (Elasticsearch), mq (Redis Stream), email, logger, validator, stats, milestone (rule evaluation and event creation for the pipeline write path), reqinfo (typed ClientInfo + AuthInfo for cross-RPC propagation), rpcx (Kitex client/server bootstrap helpers) |
 | `idl/` | Thrift IDL | RPC contracts and public API definitions only. Console IDL lives under `console/console_api/idl/`. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
 | `kitex_gen/` | Auto-generated code | **DO NOT manually modify**. Regenerate after IDL changes |
 
@@ -189,9 +189,19 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
 - `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
 - `api/middleware/clientinfo.go`: ClientInfoMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
-- `pkg/clientinfo/`: Typed `ClientInfo` struct (SkillVer, SkillVerNum) with `FromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware, propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`)
-- `pkg/authinfo/`: Typed `AuthInfo` struct (AgentID, Email) with `FromContext(ctx)` and `ToVars()`. Written by AuthMiddleware, propagated via Kitex `metainfo.PersistentValue`
+- `pkg/reqinfo/`: Shared request-info package containing two typed structs propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`):
+  - `client.go`: `ClientInfo` struct (SkillVer, SkillVerNum) with `reqinfo.ClientFromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware.
+  - `auth.go`: `AuthInfo` struct (AgentID, Email) with `reqinfo.AuthFromContext(ctx)` and `ToVars()`. Written by AuthMiddleware.
 - Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
+
+### RPC Bootstrap Conventions (pkg/rpcx)
+
+`pkg/rpcx/options.go` provides canonical helpers for constructing Kitex client and server options. All RPC clients and servers must use these helpers instead of configuring Kitex options manually.
+
+- `ClientOptions(resolver, ...extra client.Option) []client.Option` — returns a base option set with TTHeader transport, transmeta codec, and a 10s RPC timeout. Pass additional options via `extra` to override defaults.
+- `ServerOptions(addr string, registry registry.Registry, serviceName string, ...extra server.Option) []server.Option` — returns a base option set with the given address, etcd registry, TTHeader transport, and transmeta codec. Pass additional options via `extra` to override defaults.
+- Default RPC timeout is **10s** (previously 3s). Override per-call with `callopt.WithRPCTimeout` or globally via an extra option.
+- TTHeader + transmeta are always enabled, ensuring `metainfo.PersistentValue` keys (including `ef.*` reqinfo keys) are propagated across all hops without per-service configuration.
 
 ## Testing
 

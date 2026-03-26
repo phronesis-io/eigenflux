@@ -1,4 +1,4 @@
-package authinfo
+package reqinfo
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type AuthInfo struct {
 	Email   string
 }
 
-func FromContext(ctx context.Context) AuthInfo {
+func AuthFromContext(ctx context.Context) AuthInfo {
 	var a AuthInfo
 	if v, ok := metainfo.GetPersistentValue(ctx, KeyAgentID); ok {
 		a.AgentID, _ = strconv.ParseInt(v, 10, 64)

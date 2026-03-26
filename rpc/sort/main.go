@@ -5,9 +5,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/pkg/transmeta"
-	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
@@ -18,6 +15,7 @@ import (
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/rpcx"
 )
 
 var bf *bloomfilter.BloomFilter
@@ -65,11 +63,8 @@ func main() {
 	listenAddr := cfg.ListenAddr(cfg.SortRPCPort)
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := sortservice.NewServer(
-		new(SortServiceESImpl), // Use ES implementation
-		server.WithServiceAddr(addr),
-		server.WithRegistry(r),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "SortService"}),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		new(SortServiceESImpl),
+		rpcx.ServerOptions(addr, r, "SortService")...,
 	)
 
 	log.Printf("Sort service (ES) started on %s", listenAddr)

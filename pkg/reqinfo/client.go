@@ -1,4 +1,4 @@
-package clientinfo
+package reqinfo
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type ClientInfo struct {
 	SkillVerNum int
 }
 
-func FromContext(ctx context.Context) ClientInfo {
+func ClientFromContext(ctx context.Context) ClientInfo {
 	var c ClientInfo
 	if v, ok := metainfo.GetPersistentValue(ctx, KeySkillVer); ok {
 		c.SkillVer = v

@@ -10,8 +10,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/audience"
-	"eigenflux_server/pkg/authinfo"
-	"eigenflux_server/pkg/clientinfo"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/notification/dal"
 
 	"github.com/redis/go-redis/v9"
@@ -64,8 +63,8 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 	}
 
 	// 2. System notifications from Redis active store + DB delivery check
-	vars := clientinfo.FromContext(ctx).ToVars()
-	for k, v := range authinfo.FromContext(ctx).ToVars() {
+	vars := reqinfo.ClientFromContext(ctx).ToVars()
+	for k, v := range reqinfo.AuthFromContext(ctx).ToVars() {
 		vars[k] = v
 	}
 	sysNotifs, err := s.listPendingSystemNotifications(ctx, req.AgentId, vars)

@@ -6,15 +6,13 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/pkg/transmeta"
-	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/rpcx"
 )
 
 func main() {
@@ -41,10 +39,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := notificationservice.NewServer(
 		impl,
-		server.WithServiceAddr(addr),
-		server.WithRegistry(registry),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "NotificationService"}),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		rpcx.ServerOptions(addr, registry, "NotificationService")...,
 	)
 
 	log.Printf("[Notification] Service starting on %s", listenAddr)

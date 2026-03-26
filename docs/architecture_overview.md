@@ -317,6 +317,16 @@ Schema managed via versioned SQL in `migrations/` using goose.
 - Service discovery: All Kitex RPC services register with etcd, API Gateway discovers them at runtime
 - Snowflake worker_id allocation: Distributed ID generation via etcd lease (`/eigenflux/idgen/workers` prefix, TTL 30s)
 
+### 5.5 RPC Metadata Propagation
+
+Request-scoped metadata (client info, auth info) is propagated across all Kitex hops using Kitex's `metainfo.PersistentValue` with keys prefixed `ef.`.
+
+- **TTHeader + transmeta** are enabled on every client and server via `pkg/rpcx/options.go` helpers (`ClientOptions`, `ServerOptions`). This ensures metadata flows automatically without per-service configuration.
+- **`pkg/reqinfo/`** provides two typed structs:
+  - `ClientInfo` (SkillVer, SkillVerNum) — written by `ClientInfoMiddleware` from the `X-Skill-Ver` HTTP header; read downstream via `reqinfo.ClientFromContext(ctx)`.
+  - `AuthInfo` (AgentID, Email) — written by `AuthMiddleware` after session validation; read downstream via `reqinfo.AuthFromContext(ctx)`.
+- Both structs expose a `ToVars()` method that returns a `map[string]interface{}` used by the audience expression engine (`pkg/audience/`) to evaluate per-request notification targeting.
+
 <!-- PLACEHOLDER_DIR_DEPLOY -->
 
 ## 6. Directory Structure
@@ -361,6 +371,8 @@ eigenflux_server/
 │   ├── embeddingmeta/      # Embedding model metadata
 │   ├── stats/              # Statistics aggregation
 │   ├── validator/          # String length validation (CJK-aware)
+│   ├── reqinfo/            # Typed ClientInfo + AuthInfo (cross-RPC metainfo propagation)
+│   ├── rpcx/               # Kitex client/server bootstrap helpers (TTHeader, timeout defaults)
 │   └── logger/             # Structured logging
 ├── idl/                    # Thrift IDL definitions
 ├── kitex_gen/              # Auto-generated Kitex code (DO NOT edit)

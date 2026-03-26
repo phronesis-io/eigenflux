@@ -117,9 +117,9 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 		"audience_type":       "expression",
 		"audience_expression": "invalid_var_xyz == 1",
 	}
-	payload := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
+	payload := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
 	var resp SystemNotificationResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code == 0 {
 		t.Fatal("expected error for invalid audience_expression (unknown variable)")
 	}
@@ -132,9 +132,9 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 		"audience_type":       "expression",
 		"audience_expression": "skill_ver_num <><> 3",
 	}
-	payload2 := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body2)
+	payload2 := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body2)
 	var resp2 SystemNotificationResp
-	mustDecodeResp(t, payload2, &resp2)
+	testutil.MustDecodeResp(t, payload2, &resp2)
 	if resp2.Code == 0 {
 		t.Fatal("expected error for invalid audience_expression (bad syntax)")
 	}
@@ -146,9 +146,9 @@ func TestConsoleAudienceExpressionValidation(t *testing.T) {
 		"status":        1,
 		"audience_type": "expression",
 	}
-	payload3 := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body3)
+	payload3 := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body3)
 	var resp3 SystemNotificationResp
-	mustDecodeResp(t, payload3, &resp3)
+	testutil.MustDecodeResp(t, payload3, &resp3)
 	if resp3.Code == 0 {
 		t.Fatal("expected error for expression type without expression")
 	}
@@ -281,9 +281,9 @@ func createSystemNotificationWithExpr(t *testing.T, notifType, content string, s
 		body["audience_type"] = "expression"
 		body["audience_expression"] = audienceExpr
 	}
-	payload := doConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
+	payload := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/system-notifications", body)
 	var resp SystemNotificationResp
-	mustDecodeResp(t, payload, &resp)
+	testutil.MustDecodeResp(t, payload, &resp)
 	if resp.Code != 0 || resp.Data == nil {
 		t.Fatalf("create system notification with expr failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}

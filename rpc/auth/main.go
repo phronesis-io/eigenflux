@@ -6,9 +6,6 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/pkg/transmeta"
-	"github.com/cloudwego/kitex/server"
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
@@ -18,6 +15,7 @@ import (
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/rpcx"
 )
 
 // cfg is package-level for shared runtime config.
@@ -73,10 +71,7 @@ func main() {
 			mockOTPIPWhitelist:       cfg.MockOTPIPWhitelist,
 			agentIDGen:               agentIDGen,
 		},
-		server.WithServiceAddr(addr),
-		server.WithRegistry(r),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "AuthService"}),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		rpcx.ServerOptions(addr, r, "AuthService")...,
 	)
 
 	if err := svr.Run(); err != nil {
