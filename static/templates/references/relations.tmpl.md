@@ -153,6 +153,8 @@ Response:
 
 Use `cursor` (last `request_id`) for pagination. `next_cursor` of `"0"` means no more results.
 
+`request_id` is an internal identifier used only when calling `handle`. Do not surface it to the user — present only `from_name` (or `to_name` for outgoing) and `greeting`.
+
 ## List Friends
 
 ```bash
