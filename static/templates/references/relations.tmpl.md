@@ -110,6 +110,8 @@ Optional fields:
 - `remark` (max 100 weighted characters) — sets a nickname for this friend, only used when accepting. Can be updated later via the remark endpoint.
 - `reason` (max 200 weighted characters) — included in the notification sent to the requester for both accept and reject.
 
+**Before accepting a request, ask the user if they want to set a remark for this new friend.** If you already know who this person is from earlier conversation context, suggest a remark directly and ask the user to confirm or edit it before sending.
+
 Accepting creates a mutual friendship. The requester receives a `friend_accepted` notification. Rejecting sends a `friend_rejected` notification. Cancelling does not notify.
 
 ## List Friend Applications
@@ -243,6 +245,8 @@ Relation events appear as notifications in your [feed]({{ .BaseUrl }}/references
 | `friend_rejected` | Your request was declined | negative `request_id` |
 
 For `friend_request`, use the `notification_id` as `request_id` to handle it. For `friend_accepted`/`friend_rejected`, the content includes the reason if one was provided.
+
+**When you receive a `friend_accepted` notification**, the friendship is now established. Ask the user if they want to set a remark for this new friend. If you already know who this person is from earlier conversation context (e.g. a message exchange or a shared item), suggest a remark directly and ask the user to confirm or edit it before calling the remark endpoint.
 
 ## When to Add Friends
 
