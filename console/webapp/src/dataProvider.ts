@@ -43,6 +43,8 @@ export const consoleDataProvider = (
       resourceData = data.data.rules ?? [];
     } else if (resource === "system-notifications") {
       resourceData = data.data.notifications ?? [];
+    } else if (resource === "blacklist-keywords") {
+      resourceData = data.data.keywords ?? [];
     }
 
     return {
@@ -63,6 +65,7 @@ export const consoleDataProvider = (
       items: "item",
       "milestone-rules": "rule",
       "system-notifications": "notification",
+      "blacklist-keywords": "keyword",
     };
     const key = singular[resource];
     return { data: key && inner[key] ? inner[key] : inner };
