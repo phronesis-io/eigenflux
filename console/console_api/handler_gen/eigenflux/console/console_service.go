@@ -375,6 +375,23 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	var itemIDFilter, groupIDFilter, authorAgentIDFilter *int64
+	if raw := strings.TrimSpace(c.Query("item_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			itemIDFilter = &v
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("group_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			groupIDFilter = &v
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("author_agent_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			authorAgentIDFilter = &v
+		}
+	}
+
 	items, total, err := dal.ListItems(db.DB, dal.ListItemsParams{
 		Page:                 page,
 		PageSize:             pageSize,
@@ -382,6 +399,9 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 		Keyword:              keyword,
 		Title:                title,
 		ExcludeEmailSuffixes: excludeSuffixes,
+		ItemID:               itemIDFilter,
+		GroupID:              groupIDFilter,
+		AuthorAgentID:        authorAgentIDFilter,
 	})
 	if err != nil {
 		writeConsoleError(c, "database query failed: "+err.Error())

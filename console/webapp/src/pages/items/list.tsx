@@ -80,8 +80,14 @@ export const ItemList = () => {
   // Exclude email suffixes filter
   const [excludeSuffixes, setExcludeSuffixes] = useState<string[]>([]);
 
-  // Status update loading tracker
+  // ID filters
+  const [itemIdFilter, setItemIdFilter] = useState<string>("");
+  const [groupIdFilter, setGroupIdFilter] = useState<string>("");
+  const [authorAgentIdFilter, setAuthorAgentIdFilter] = useState<string>("");
+
+  // Status update
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [editingStatusItemId, setEditingStatusItemId] = useState<string | null>(null);
 
   const fetchAgentDetail = async (agentId: string) => {
     setAgentLoading(true);
@@ -109,6 +115,7 @@ export const ItemList = () => {
       messageApi.error(error instanceof Error ? error.message : "Failed to update status");
     } finally {
       setUpdatingItemId(null);
+      setEditingStatusItemId(null);
     }
   };
 
@@ -123,6 +130,9 @@ export const ItemList = () => {
       ...(statusFilter !== undefined ? [{ field: "status", operator: "eq" as const, value: statusFilter }] : []),
       ...(keywordFilter ? [{ field: "keyword", operator: "contains" as const, value: keywordFilter }] : []),
       ...(excludeSuffixes.length > 0 ? [{ field: "exclude_email_suffixes", operator: "eq" as const, value: excludeSuffixes.join(",") }] : []),
+      ...(itemIdFilter ? [{ field: "item_id", operator: "eq" as const, value: itemIdFilter }] : []),
+      ...(groupIdFilter ? [{ field: "group_id", operator: "eq" as const, value: groupIdFilter }] : []),
+      ...(authorAgentIdFilter ? [{ field: "author_agent_id", operator: "eq" as const, value: authorAgentIdFilter }] : []),
     ],
   });
 
@@ -162,19 +172,44 @@ export const ItemList = () => {
       dataIndex: "status",
       key: "status",
       width: 140,
-      render: (status: number, record: Item) => (
-        <Select
-          value={status}
-          onChange={(value) => void handleStatusChange(record.item_id, value)}
-          loading={updatingItemId === record.item_id}
-          disabled={updatingItemId === record.item_id}
-          style={{ width: 130 }}
-          options={Object.entries(statusMap).map(([val, { label }]) => ({
-            label,
-            value: Number(val),
-          }))}
-        />
-      ),
+      render: (status: number, record: Item) => {
+        const isEditing = editingStatusItemId === record.item_id;
+        const isUpdating = updatingItemId === record.item_id;
+        const s = statusMap[status];
+
+        if (isEditing || isUpdating) {
+          return (
+            <Select
+              autoFocus
+              open={isEditing && !isUpdating}
+              value={status}
+              onChange={(value) => void handleStatusChange(record.item_id, value)}
+              onBlur={() => setEditingStatusItemId(null)}
+              loading={isUpdating}
+              disabled={isUpdating}
+              style={{ width: 130 }}
+              optionRender={(option) => {
+                const st = statusMap[option.value as number];
+                return st ? <Tag color={st.color}>{st.label}</Tag> : <>{option.label}</>;
+              }}
+              options={Object.entries(statusMap).map(([val, { label }]) => ({
+                label,
+                value: Number(val),
+              }))}
+            />
+          );
+        }
+
+        return (
+          <Tag
+            color={s?.color}
+            style={{ cursor: "pointer" }}
+            onDoubleClick={() => setEditingStatusItemId(record.item_id)}
+          >
+            {s?.label ?? status}
+          </Tag>
+        );
+      },
     },
     {
       title: "Broadcast Type",
@@ -294,24 +329,36 @@ export const ItemList = () => {
       {contextHolder}
       <List
         headerButtons={
-          <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Input.Search
+              placeholder="Item ID"
+              allowClear
+              onSearch={(value) => { setItemIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
+            <Input.Search
+              placeholder="Group ID"
+              allowClear
+              onSearch={(value) => { setGroupIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
+            <Input.Search
+              placeholder="Agent ID"
+              allowClear
+              onSearch={(value) => { setAuthorAgentIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
             <Input.Search
               placeholder="Search keywords"
               allowClear
-              onSearch={(value) => {
-                setKeywordFilter(value);
-                setCurrent(1);
-              }}
-              style={{ width: 200, marginRight: 8 }}
+              onSearch={(value) => { setKeywordFilter(value); setCurrent(1); }}
+              style={{ width: 180 }}
             />
             <Select
               placeholder="Filter by status"
               allowClear
-              onChange={(value) => {
-                setStatusFilter(value);
-                setCurrent(1);
-              }}
-              style={{ width: 150, marginRight: 8 }}
+              onChange={(value) => { setStatusFilter(value); setCurrent(1); }}
+              style={{ width: 150 }}
               options={[
                 { label: "Pending", value: 0 },
                 { label: "Processing", value: 1 },
@@ -324,14 +371,11 @@ export const ItemList = () => {
               mode="tags"
               placeholder="Exclude email suffixes"
               value={excludeSuffixes}
-              onChange={(values) => {
-                setExcludeSuffixes(values);
-                setCurrent(1);
-              }}
+              onChange={(values) => { setExcludeSuffixes(values); setCurrent(1); }}
               style={{ minWidth: 220 }}
               tokenSeparators={[","]}
             />
-          </>
+          </div>
         }
       >
         <Table

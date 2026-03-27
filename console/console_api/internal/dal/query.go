@@ -135,6 +135,9 @@ type ListItemsParams struct {
 	Keyword              *string
 	Title                *string
 	ExcludeEmailSuffixes []string
+	ItemID               *int64
+	GroupID              *int64
+	AuthorAgentID        *int64
 }
 
 func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64, error) {
@@ -165,6 +168,15 @@ func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64,
 		}
 		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
 		query = query.Where("raw_items.author_agent_id NOT IN (?)", subQuery)
+	}
+	if params.ItemID != nil {
+		query = query.Where("raw_items.item_id = ?", *params.ItemID)
+	}
+	if params.GroupID != nil {
+		query = query.Where("processed_items.group_id = ?", *params.GroupID)
+	}
+	if params.AuthorAgentID != nil {
+		query = query.Where("raw_items.author_agent_id = ?", *params.AuthorAgentID)
 	}
 
 	if err := query.Count(&total).Error; err != nil {

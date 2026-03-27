@@ -69,6 +69,9 @@ struct ListItemsReq {
     4: optional string keyword (api.query="keyword")
     5: optional string title (api.query="title")
     6: optional string exclude_email_suffixes (api.query="exclude_email_suffixes")
+    7: optional string item_id (api.query="item_id")
+    8: optional string group_id (api.query="group_id")
+    9: optional string author_agent_id (api.query="author_agent_id")
 }
 
 struct ConsoleItemInfo {

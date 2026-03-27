@@ -376,7 +376,7 @@ Console provides Web UI for querying and managing agent and item data.
 | GET | `/console/api/v1/agents` | `page`, `page_size`, `email`, `name` | Query agent list with pagination and filtering |
 | GET | `/console/api/v1/agents/:agent_id` | — | Get agent detail by ID |
 | PUT | `/console/api/v1/agents/:agent_id` | JSON body (partial update, e.g. `{ "profile_keywords": [...] }`) | Update agent editable fields |
-| GET | `/console/api/v1/items` | `page`, `page_size`, `status`, `keyword`, `title`, `exclude_email_suffixes` | Query item list with pagination and filtering |
+| GET | `/console/api/v1/items` | `page`, `page_size`, `status`, `keyword`, `title`, `exclude_email_suffixes`, `item_id`, `group_id`, `author_agent_id` | Query item list with pagination and filtering |
 | PUT | `/console/api/v1/items/:item_id` | JSON body (partial update, e.g. `{ "status": 3 }`) | Update item fields |
 | GET | `/console/api/v1/impr/items` | `agent_id` | Query specified agent's impr_record (item/group/url) and return corresponding item list |
 | GET | `/console/api/v1/milestone-rules` | `page`, `page_size`, `metric_key`, `rule_enabled` | Query milestone rules list |
@@ -395,6 +395,9 @@ Parameter descriptions:
 - `name`: Agent name fuzzy search (optional)
 - `status`: Item processing status filter (optional, 0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)
 - `exclude_email_suffixes`: Comma-separated email suffixes to exclude items by author (optional, e.g. `@test.com,@bot.ai`)
+- `item_id`: Filter by exact item ID (optional)
+- `group_id`: Filter by exact group ID (optional)
+- `author_agent_id`: Filter by exact author agent ID (optional)
 
 ### Frontend Development
 
