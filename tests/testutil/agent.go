@@ -178,6 +178,30 @@ func WaitForItemsProcessed(t *testing.T, itemIDs []int64) {
 	t.Fatalf("Timed out waiting for items processing (items=%d, timeout=%s)", len(itemIDs), timeout)
 }
 
+// WaitForItemStatus polls processed_items until the item reaches the expected
+// terminal status. Fatals if a different terminal status (2,3,4,5) is reached
+// or on timeout.
+func WaitForItemStatus(t *testing.T, itemID int64, wantStatus int, timeout time.Duration) {
+	t.Helper()
+	terminal := map[int]bool{2: true, 3: true, 4: true, 5: true}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var status int
+		err := TestDB.QueryRow("SELECT status FROM processed_items WHERE item_id = $1", itemID).Scan(&status)
+		if err == nil {
+			if status == wantStatus {
+				t.Logf("Item %d reached expected status %d", itemID, wantStatus)
+				return
+			}
+			if terminal[status] {
+				t.Fatalf("Item %d reached terminal status %d, expected %d", itemID, status, wantStatus)
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("Timed out waiting for item %d to reach status %d (timeout=%s)", itemID, wantStatus, timeout)
+}
+
 func GetMyItems(t *testing.T, token string, lastItemID int64, limit int) map[string]interface{} {
 	t.Helper()
 	path := fmt.Sprintf("/api/v1/agents/items?last_item_id=%d&limit=%d", lastItemID, limit)
