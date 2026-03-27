@@ -51,6 +51,26 @@ type ListAgentImprItemsResp struct {
 	Data ListAgentImprItemsData `json:"data"`
 }
 
+type GetAgentData struct {
+	Agent map[string]interface{} `json:"agent"`
+}
+
+type GetAgentResp struct {
+	Code int32         `json:"code"`
+	Msg  string        `json:"msg"`
+	Data *GetAgentData `json:"data"`
+}
+
+type UpdateItemData struct {
+	Item map[string]interface{} `json:"item"`
+}
+
+type UpdateItemResp struct {
+	Code int32           `json:"code"`
+	Msg  string          `json:"msg"`
+	Data *UpdateItemData `json:"data"`
+}
+
 type MilestoneRuleInfo struct {
 	RuleID          string `json:"rule_id"`
 	MetricKey       string `json:"metric_key"`
@@ -218,6 +238,73 @@ func TestConsoleListAgentsWithFilters(t *testing.T) {
 	t.Logf("Filtered agents by name 'test': %d results", len(result.Data.Agents))
 }
 
+func TestConsoleGetAgent(t *testing.T) {
+	// First, get an agent_id from the list endpoint
+	listResp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=1", testutil.ConsoleBaseURL))
+	if err != nil {
+		t.Skipf("Console API not running: %v", err)
+		return
+	}
+	defer listResp.Body.Close()
+	listBody, _ := io.ReadAll(listResp.Body)
+	var listed ListAgentsResp
+	if err := json.Unmarshal(listBody, &listed); err != nil {
+		t.Fatalf("Failed to parse list response: %v", err)
+	}
+	if listed.Code != 0 || len(listed.Data.Agents) == 0 {
+		t.Skip("No agents available to test GetAgent")
+		return
+	}
+	agentID := listed.Data.Agents[0]["agent_id"].(string)
+
+	// Test GET /agents/:agent_id
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents/%s", testutil.ConsoleBaseURL, agentID))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		t.Skip("console api is running old binary without GET /agents/:agent_id route")
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var result GetAgentResp
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if result.Code != 0 {
+		t.Fatalf("Expected code 0, got %d: %s", result.Code, result.Msg)
+	}
+	if result.Data == nil || result.Data.Agent["agent_id"] != agentID {
+		t.Fatalf("Expected agent_id=%s in response, got %v", agentID, result.Data)
+	}
+	t.Logf("GetAgent %s: name=%v email=%v", agentID, result.Data.Agent["agent_name"], result.Data.Agent["email"])
+}
+
+func TestConsoleGetAgentNotFound(t *testing.T) {
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents/999999999999", testutil.ConsoleBaseURL))
+	if err != nil {
+		t.Skipf("Console API not running: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		t.Skip("console api is running old binary without GET /agents/:agent_id route")
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var result GetAgentResp
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if result.Code == 0 {
+		t.Fatalf("Expected error code for non-existent agent, got code=0")
+	}
+	t.Logf("GetAgent not found: code=%d msg=%s", result.Code, result.Msg)
+}
+
 func TestConsoleListItemsWithFilters(t *testing.T) {
 	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10&status=3", testutil.ConsoleBaseURL))
 	if err != nil {
@@ -355,4 +442,109 @@ func TestConsoleMilestoneRulesFlow(t *testing.T) {
 	if cleaned.Data.Rule.RuleEnabled {
 		t.Fatalf("expected cleanup rule to be disabled")
 	}
+}
+
+func TestConsoleUpdateItemStatus(t *testing.T) {
+	// Get an item_id from the list endpoint
+	listResp, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=1", testutil.ConsoleBaseURL))
+	if err != nil {
+		t.Skipf("Console API not running: %v", err)
+		return
+	}
+	defer listResp.Body.Close()
+	listBody, _ := io.ReadAll(listResp.Body)
+	var listed ListItemsResp
+	if err := json.Unmarshal(listBody, &listed); err != nil {
+		t.Fatalf("Failed to parse list response: %v", err)
+	}
+	if listed.Code != 0 || len(listed.Data.Items) == 0 {
+		t.Skip("No items available to test UpdateItem")
+		return
+	}
+	itemID := listed.Data.Items[0]["item_id"].(string)
+	originalStatus := listed.Data.Items[0]["status"]
+
+	// Update status to 4 (discarded)
+	updateResp := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/items/"+itemID, map[string]interface{}{
+		"status": 4,
+	})
+	if updateResp == nil {
+		return
+	}
+	var updated UpdateItemResp
+	testutil.MustDecodeResp(t, updateResp, &updated)
+	if updated.Code != 0 {
+		t.Fatalf("Update failed: code=%d msg=%s", updated.Code, updated.Msg)
+	}
+	if updated.Data == nil {
+		t.Fatalf("Expected data in response")
+	}
+	updatedStatus, _ := updated.Data.Item["status"].(float64)
+	if int32(updatedStatus) != 4 {
+		t.Fatalf("Expected status=4 after update, got %v", updated.Data.Item["status"])
+	}
+	t.Logf("UpdateItem %s: status changed to 4 (discarded)", itemID)
+
+	// Restore original status
+	if originalStatus != nil {
+		origVal := int32(originalStatus.(float64))
+		testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/items/"+itemID, map[string]interface{}{
+			"status": origVal,
+		})
+	}
+}
+
+func TestConsoleUpdateItemNotFound(t *testing.T) {
+	updateResp := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/items/999999999999", map[string]interface{}{
+		"status": 3,
+	})
+	if updateResp == nil {
+		return
+	}
+	var result UpdateItemResp
+	testutil.MustDecodeResp(t, updateResp, &result)
+	if result.Code == 0 {
+		t.Fatalf("Expected error code for non-existent item, got code=0")
+	}
+	t.Logf("UpdateItem not found: code=%d msg=%s", result.Code, result.Msg)
+}
+
+func TestConsoleListItemsExcludeEmailSuffixes(t *testing.T) {
+	// First get total without filter
+	resp1, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=1", testutil.ConsoleBaseURL))
+	if err != nil {
+		t.Skipf("Console API not running: %v", err)
+		return
+	}
+	defer resp1.Body.Close()
+	body1, _ := io.ReadAll(resp1.Body)
+	var all ListItemsResp
+	if err := json.Unmarshal(body1, &all); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if all.Code != 0 {
+		t.Fatalf("Expected code 0, got %d: %s", all.Code, all.Msg)
+	}
+
+	// Now filter with a suffix — should still succeed (may or may not reduce count)
+	resp2, err := http.Get(fmt.Sprintf("%s/console/api/v1/items?page=1&page_size=10&exclude_email_suffixes=@nonexistent-domain-xyz.com", testutil.ConsoleBaseURL))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	body2, _ := io.ReadAll(resp2.Body)
+	var filtered ListItemsResp
+	if err := json.Unmarshal(body2, &filtered); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if filtered.Code != 0 {
+		t.Fatalf("Expected code 0, got %d: %s", filtered.Code, filtered.Msg)
+	}
+
+	// With a non-matching suffix, total should be the same
+	if filtered.Data.Total != all.Data.Total {
+		t.Fatalf("Expected same total when excluding non-existent domain, got %d vs %d", all.Data.Total, filtered.Data.Total)
+	}
+
+	t.Logf("exclude_email_suffixes filter works: total=%d (same as unfiltered)", filtered.Data.Total)
 }

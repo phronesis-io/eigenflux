@@ -109,3 +109,18 @@ func _imprMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _getagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _itemsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updateitemMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

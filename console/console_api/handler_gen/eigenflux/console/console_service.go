@@ -72,6 +72,38 @@ type UpdateAgentResp struct {
 }
 
 // ---------------------------------------------------------------------------
+// Request/Response types: Get Agent
+// ---------------------------------------------------------------------------
+
+type GetAgentData struct {
+	Agent map[string]interface{} `json:"agent"`
+}
+
+type GetAgentResp struct {
+	Code int32         `json:"code"`
+	Msg  string        `json:"msg"`
+	Data *GetAgentData `json:"data,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Request/Response types: Update Item
+// ---------------------------------------------------------------------------
+
+type updateItemReq struct {
+	Status *int32 `json:"status"`
+}
+
+type UpdateItemData struct {
+	Item map[string]interface{} `json:"item"`
+}
+
+type UpdateItemResp struct {
+	Code int32           `json:"code"`
+	Msg  string          `json:"msg"`
+	Data *UpdateItemData `json:"data,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
 // Response types: Milestone Rules
 // ---------------------------------------------------------------------------
 
@@ -313,11 +345,16 @@ func UpdateAgent(ctx context.Context, c *app.RequestContext) {
 // @Description  Returns a paginated list of items with optional filters
 // @Tags         console
 // @Produce      json
-// @Param        page       query  integer  false  "Page number (default: 1)"
-// @Param        page_size  query  integer  false  "Items per page (default: 20, max: 100)"
-// @Param        status     query  integer  false  "Filter by status (0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)"
-// @Param        keyword    query  string   false  "Search by keywords"
-// @Param        title      query  string   false  "Search by title or content"
+// @Param        page                     query  integer  false  "Page number (default: 1)"
+// @Param        page_size                query  integer  false  "Items per page (default: 20, max: 100)"
+// @Param        status                   query  integer  false  "Filter by status (0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)"
+// @Param        keyword                  query  string   false  "Search by keywords"
+// @Param        title                    query  string   false  "Search by title or content"
+// @Param        exclude_email_suffixes   query  string   false  "Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)"
+// @Param        include_email_suffixes   query  string   false  "Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)"
+// @Param        item_id                  query  integer  false  "Filter by exact item ID"
+// @Param        group_id                 query  integer  false  "Filter by exact group ID"
+// @Param        author_agent_id          query  integer  false  "Filter by exact author agent ID"
 // @Success      200  {object}  ListItemsDocResp
 // @Router /console/api/v1/items [GET]
 func ListItems(ctx context.Context, c *app.RequestContext) {
@@ -333,12 +370,53 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 	keyword := strPtr(strings.TrimSpace(c.Query("keyword")))
 	title := strPtr(strings.TrimSpace(c.Query("title")))
 
+	var excludeSuffixes []string
+	if raw := strings.TrimSpace(c.Query("exclude_email_suffixes")); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				excludeSuffixes = append(excludeSuffixes, s)
+			}
+		}
+	}
+	var includeSuffixes []string
+	if raw := strings.TrimSpace(c.Query("include_email_suffixes")); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				includeSuffixes = append(includeSuffixes, s)
+			}
+		}
+	}
+
+	var itemIDFilter, groupIDFilter, authorAgentIDFilter *int64
+	if raw := strings.TrimSpace(c.Query("item_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			itemIDFilter = &v
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("group_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			groupIDFilter = &v
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("author_agent_id")); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
+			authorAgentIDFilter = &v
+		}
+	}
+
 	items, total, err := dal.ListItems(db.DB, dal.ListItemsParams{
-		Page:     page,
-		PageSize: pageSize,
-		Status:   statusFilter,
-		Keyword:  keyword,
-		Title:    title,
+		Page:                 page,
+		PageSize:             pageSize,
+		Status:               statusFilter,
+		Keyword:              keyword,
+		Title:                title,
+		ExcludeEmailSuffixes: excludeSuffixes,
+		IncludeEmailSuffixes: includeSuffixes,
+		ItemID:               itemIDFilter,
+		GroupID:              groupIDFilter,
+		AuthorAgentID:        authorAgentIDFilter,
 	})
 	if err != nil {
 		writeConsoleError(c, "database query failed: "+err.Error())
@@ -948,4 +1026,81 @@ func toSystemNotificationInfo(n model.SystemNotification) SystemNotificationInfo
 		Status: int32(n.Status), AudienceType: n.AudienceType, AudienceExpression: n.AudienceExpression,
 		StartAt: n.StartAt, EndAt: n.EndAt, OfflineAt: n.OfflineAt, CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt,
 	}
+}
+
+// GetAgent godoc
+// @Summary      Get agent by ID
+// @Description  Returns a single agent with profile data
+// @Tags         console
+// @Produce      json
+// @Param        agent_id  path  integer  true  "Agent ID"
+// @Success      200  {object}  GetAgentResp
+// @Router /console/api/v1/agents/{agent_id} [GET]
+func GetAgent(ctx context.Context, c *app.RequestContext) {
+	agentID, err := strconv.ParseInt(strings.TrimSpace(c.Param("agent_id")), 10, 64)
+	if err != nil || agentID <= 0 {
+		writeConsoleError(c, "invalid agent_id")
+		return
+	}
+
+	agent, err := dal.GetAgentByID(db.DB, agentID)
+	if err != nil {
+		if errors.Is(err, dal.ErrAgentNotFound) {
+			writeConsoleError(c, "agent not found")
+			return
+		}
+		writeConsoleError(c, "database query failed: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, &GetAgentResp{
+		Code: 0, Msg: "success",
+		Data: &GetAgentData{Agent: toConsoleAgentInfo(*agent)},
+	})
+}
+
+// UpdateItem godoc
+// @Summary      Update item
+// @Description  Partially update an item's fields (currently status)
+// @Tags         console
+// @Accept       json
+// @Produce      json
+// @Param        item_id  path  integer  true  "Item ID"
+// @Param        body     body  updateItemReq  true  "Update request (all fields optional)"
+// @Success      200  {object}  UpdateItemResp
+// @Router /console/api/v1/items/{item_id} [PUT]
+func UpdateItem(ctx context.Context, c *app.RequestContext) {
+	itemID, err := strconv.ParseInt(strings.TrimSpace(c.Param("item_id")), 10, 64)
+	if err != nil || itemID <= 0 {
+		writeConsoleError(c, "invalid item_id")
+		return
+	}
+
+	var req updateItemReq
+	if err := c.BindAndValidate(&req); err != nil {
+		writeConsoleError(c, "invalid request: "+err.Error())
+		return
+	}
+
+	if req.Status == nil {
+		writeConsoleError(c, "at least one field must be provided")
+		return
+	}
+
+	item, err := dal.UpdateItem(db.DB, itemID, dal.UpdateItemParams{
+		Status: req.Status,
+	})
+	if err != nil {
+		if errors.Is(err, dal.ErrItemNotFound) {
+			writeConsoleError(c, "item not found")
+			return
+		}
+		writeConsoleError(c, "update failed: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, &UpdateItemResp{
+		Code: 0, Msg: "success",
+		Data: &UpdateItemData{Item: toConsoleItemInfo(*item)},
+	})
 }

@@ -96,7 +96,36 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/console.UpdateAgentResp"
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateAgentResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/agents/{agent_id}": {
+            "get": {
+                "description": "Returns a single agent with profile data",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Get agent by ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Agent ID",
+                        "name": "agent_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp"
                         }
                     }
                 }
@@ -171,6 +200,36 @@ const docTemplate = `{
                         "description": "Search by title or content",
                         "name": "title",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)",
+                        "name": "exclude_email_suffixes",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)",
+                        "name": "include_email_suffixes",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by exact item ID",
+                        "name": "item_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by exact group ID",
+                        "name": "group_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by exact author agent ID",
+                        "name": "author_agent_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -178,6 +237,47 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/console.ListItemsDocResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/items/{item_id}": {
+            "put": {
+                "description": "Partially update an item's fields (currently status)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Update item",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Item ID",
+                        "name": "item_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request (all fields optional)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console.updateItemReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemResp"
                         }
                     }
                 }
@@ -651,20 +751,6 @@ const docTemplate = `{
                 }
             }
         },
-        "console.UpdateAgentResp": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "data": {
-                    "$ref": "#/definitions/console.UpdateAgentData"
-                },
-                "msg": {
-                    "type": "string"
-                }
-            }
-        },
         "console.createMilestoneRuleReq": {
             "type": "object",
             "properties": {
@@ -737,6 +823,14 @@ const docTemplate = `{
                 }
             }
         },
+        "console.updateItemReq": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "integer"
+                }
+            }
+        },
         "console.updateMilestoneRuleReq": {
             "type": "object",
             "properties": {
@@ -770,6 +864,29 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData"
+                },
+                "msg": {
                     "type": "string"
                 }
             }
@@ -1016,6 +1133,43 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.SystemNotificationData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.UpdateAgentResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console.UpdateAgentData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemData": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemData"
                 },
                 "msg": {
                     "type": "string"

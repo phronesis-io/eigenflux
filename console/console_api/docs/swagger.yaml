@@ -112,15 +112,6 @@ definitions:
         additionalProperties: true
         type: object
     type: object
-  console.UpdateAgentResp:
-    properties:
-      code:
-        type: integer
-      data:
-        $ref: '#/definitions/console.UpdateAgentData'
-      msg:
-        type: string
-    type: object
   console.createMilestoneRuleReq:
     properties:
       content_template:
@@ -168,6 +159,11 @@ definitions:
           type: string
         type: array
     type: object
+  console.updateItemReq:
+    properties:
+      status:
+        type: integer
+    type: object
   console.updateMilestoneRuleReq:
     properties:
       content_template:
@@ -190,6 +186,21 @@ definitions:
       status:
         type: integer
       type:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData:
+    properties:
+      agent:
+        additionalProperties: true
+        type: object
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData'
+      msg:
         type: string
     type: object
   console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData:
@@ -353,6 +364,30 @@ definitions:
       msg:
         type: string
     type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.UpdateAgentResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console.UpdateAgentData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemData:
+    properties:
+      item:
+        additionalProperties: true
+        type: object
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemData'
+      msg:
+        type: string
+    type: object
 host: localhost:8090
 info:
   contact: {}
@@ -413,8 +448,27 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/console.UpdateAgentResp'
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateAgentResp'
       summary: Update agent
+      tags:
+      - console
+  /console/api/v1/agents/{agent_id}:
+    get:
+      description: Returns a single agent with profile data
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp'
+      summary: Get agent by ID
       tags:
       - console
   /console/api/v1/impr/items:
@@ -461,6 +515,26 @@ paths:
         in: query
         name: title
         type: string
+      - description: Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)
+        in: query
+        name: exclude_email_suffixes
+        type: string
+      - description: Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)
+        in: query
+        name: include_email_suffixes
+        type: string
+      - description: Filter by exact item ID
+        in: query
+        name: item_id
+        type: integer
+      - description: Filter by exact group ID
+        in: query
+        name: group_id
+        type: integer
+      - description: Filter by exact author agent ID
+        in: query
+        name: author_agent_id
+        type: integer
       produces:
       - application/json
       responses:
@@ -469,6 +543,33 @@ paths:
           schema:
             $ref: '#/definitions/console.ListItemsDocResp'
       summary: List items
+      tags:
+      - console
+  /console/api/v1/items/{item_id}:
+    put:
+      consumes:
+      - application/json
+      description: Partially update an item's fields (currently status)
+      parameters:
+      - description: Item ID
+        in: path
+        name: item_id
+        required: true
+        type: integer
+      - description: Update request (all fields optional)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.updateItemReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateItemResp'
+      summary: Update item
       tags:
       - console
   /console/api/v1/milestone-rules:

@@ -37,6 +37,29 @@ struct ListAgentsResp {
     3: ListAgentsData data
 }
 
+struct UpdateAgentReq {
+    1: required i64 agent_id (api.path="agent_id")
+}
+
+struct UpdateAgentResp {
+    1: i32 code
+    2: string msg
+}
+
+struct GetAgentReq {
+    1: required i64 agent_id (api.path="agent_id")
+}
+
+struct GetAgentData {
+    1: ConsoleAgentInfo agent
+}
+
+struct GetAgentResp {
+    1: i32 code
+    2: string msg
+    3: GetAgentData data
+}
+
 // ===== Console Item Structs =====
 
 struct ListItemsReq {
@@ -45,6 +68,11 @@ struct ListItemsReq {
     3: optional i32 status (api.query="status")
     4: optional string keyword (api.query="keyword")
     5: optional string title (api.query="title")
+    6: optional string exclude_email_suffixes (api.query="exclude_email_suffixes")
+    7: optional string item_id (api.query="item_id")
+    8: optional string group_id (api.query="group_id")
+    9: optional string author_agent_id (api.query="author_agent_id")
+    10: optional string include_email_suffixes (api.query="include_email_suffixes")
 }
 
 struct ConsoleItemInfo {
@@ -78,6 +106,21 @@ struct ListItemsResp {
     1: i32 code
     2: string msg
     3: ListItemsData data
+}
+
+struct UpdateItemReq {
+    1: required i64 item_id (api.path="item_id")
+    2: optional i32 status (api.body="status")
+}
+
+struct UpdateItemData {
+    1: ConsoleItemInfo item
+}
+
+struct UpdateItemResp {
+    1: i32 code
+    2: string msg
+    3: UpdateItemData data
 }
 
 // ===== Console Impr Structs =====
@@ -248,7 +291,10 @@ struct SystemNotificationResp {
 
 service ConsoleService {
     ListAgentsResp ListAgents(1: ListAgentsReq req) (api.get="/console/api/v1/agents")
+    UpdateAgentResp UpdateAgent(1: UpdateAgentReq req) (api.put="/console/api/v1/agents/:agent_id")
+    GetAgentResp GetAgent(1: GetAgentReq req) (api.get="/console/api/v1/agents/:agent_id")
     ListItemsResp ListItems(1: ListItemsReq req) (api.get="/console/api/v1/items")
+    UpdateItemResp UpdateItem(1: UpdateItemReq req) (api.put="/console/api/v1/items/:item_id")
     ListAgentImprItemsResp ListAgentImprItems(1: ListAgentImprItemsReq req) (api.get="/console/api/v1/impr/items")
     ListMilestoneRulesResp ListMilestoneRules(1: ListMilestoneRulesReq req) (api.get="/console/api/v1/milestone-rules")
     MilestoneRuleResp CreateMilestoneRule(1: CreateMilestoneRuleReq req) (api.post="/console/api/v1/milestone-rules")

@@ -54,7 +54,18 @@ export const consoleDataProvider = (
   getOne: async ({ resource, id }) => {
     const url = `${apiUrl}/${resource}/${id}`;
     const { data } = await httpClient.get(url);
-    return { data };
+    if (data.code !== 0 || !data.data) {
+      throw new Error(data.msg || "API request failed");
+    }
+    const inner = data.data;
+    const singular: Record<string, string> = {
+      agents: "agent",
+      items: "item",
+      "milestone-rules": "rule",
+      "system-notifications": "notification",
+    };
+    const key = singular[resource];
+    return { data: key && inner[key] ? inner[key] : inner };
   },
 
   create: async ({ resource, variables }) => {
@@ -65,8 +76,11 @@ export const consoleDataProvider = (
 
   update: async ({ resource, id, variables }) => {
     const url = `${apiUrl}/${resource}/${id}`;
-    const { data } = await httpClient.patch(url, variables);
-    return { data };
+    const { data } = await httpClient.put(url, variables);
+    if (data.code !== 0) {
+      throw new Error(data.msg || "Update failed");
+    }
+    return { data: data.data };
   },
 
   deleteOne: async ({ resource, id }) => {

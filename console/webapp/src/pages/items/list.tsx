@@ -1,8 +1,11 @@
 import { useList } from "@refinedev/core";
 import { List } from "@refinedev/antd";
-import { Table, Select, Input, Tag, Tooltip, Typography } from "antd";
+import { Descriptions, Modal, Select, Table, Input, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import axios from "axios";
 import { useState } from "react";
+
+import { consoleApiUrl } from "../../config";
 
 interface Item {
   item_id: string;
@@ -22,6 +25,17 @@ interface Item {
   group_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+interface Agent {
+  agent_id: string;
+  agent_name: string;
+  email: string;
+  bio: string;
+  created_at: number;
+  updated_at: number;
+  profile_status: number | null;
+  profile_keywords: string[];
 }
 
 const statusMap: Record<number, { label: string; color: string }> = {
@@ -56,6 +70,56 @@ export const ItemList = () => {
   const [current, setCurrent] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
 
+  const [messageApi, contextHolder] = message.useMessage();
+
+  // Agent detail modal
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+
+  // Email suffixes filters
+  const [excludeSuffixes, setExcludeSuffixes] = useState<string[]>([]);
+  const [includeSuffixes, setIncludeSuffixes] = useState<string[]>([]);
+
+  // ID filters
+  const [itemIdFilter, setItemIdFilter] = useState<string>("");
+  const [groupIdFilter, setGroupIdFilter] = useState<string>("");
+  const [authorAgentIdFilter, setAuthorAgentIdFilter] = useState<string>("");
+
+  // Status update
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [editingStatusItemId, setEditingStatusItemId] = useState<string | null>(null);
+
+  const fetchAgentDetail = async (agentId: string) => {
+    setAgentLoading(true);
+    setAgentModalOpen(true);
+    try {
+      const { data } = await axios.get(`${consoleApiUrl}/agents/${agentId}`);
+      if (data.code !== 0) throw new Error(data.msg || "Failed to fetch agent");
+      setAgentDetail(data.data.agent);
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "Failed to fetch agent details");
+      setAgentModalOpen(false);
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (itemId: string, newStatus: number) => {
+    setUpdatingItemId(itemId);
+    try {
+      const { data } = await axios.put(`${consoleApiUrl}/items/${itemId}`, { status: newStatus });
+      if (data.code !== 0) throw new Error(data.msg || "Update failed");
+      messageApi.success("Status updated");
+      await query.refetch();
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "Failed to update status");
+    } finally {
+      setUpdatingItemId(null);
+      setEditingStatusItemId(null);
+    }
+  };
+
   const { query } = useList<Item>({
     resource: "items",
     pagination: {
@@ -66,6 +130,11 @@ export const ItemList = () => {
     filters: [
       ...(statusFilter !== undefined ? [{ field: "status", operator: "eq" as const, value: statusFilter }] : []),
       ...(keywordFilter ? [{ field: "keyword", operator: "contains" as const, value: keywordFilter }] : []),
+      ...(excludeSuffixes.length > 0 ? [{ field: "exclude_email_suffixes", operator: "eq" as const, value: excludeSuffixes.join(",") }] : []),
+      ...(includeSuffixes.length > 0 ? [{ field: "include_email_suffixes", operator: "eq" as const, value: includeSuffixes.join(",") }] : []),
+      ...(itemIdFilter ? [{ field: "item_id", operator: "eq" as const, value: itemIdFilter }] : []),
+      ...(groupIdFilter ? [{ field: "group_id", operator: "eq" as const, value: groupIdFilter }] : []),
+      ...(authorAgentIdFilter ? [{ field: "author_agent_id", operator: "eq" as const, value: authorAgentIdFilter }] : []),
     ],
   });
 
@@ -82,6 +151,9 @@ export const ItemList = () => {
       dataIndex: "author_agent_id",
       key: "author_agent_id",
       width: 130,
+      render: (agentId: string) => (
+        <a onClick={() => fetchAgentDetail(agentId)}>{agentId}</a>
+      ),
     },
     {
       title: "Raw Content",
@@ -101,10 +173,44 @@ export const ItemList = () => {
       title: "Status",
       dataIndex: "status",
       key: "status",
-      width: 120,
-      render: (status: number) => {
+      width: 140,
+      render: (status: number, record: Item) => {
+        const isEditing = editingStatusItemId === record.item_id;
+        const isUpdating = updatingItemId === record.item_id;
         const s = statusMap[status];
-        return s ? <Tag color={s.color}>{s.label}</Tag> : <Tag>{status}</Tag>;
+
+        if (isEditing || isUpdating) {
+          return (
+            <Select
+              autoFocus
+              open={isEditing && !isUpdating}
+              value={status}
+              onChange={(value) => void handleStatusChange(record.item_id, value)}
+              onBlur={() => setEditingStatusItemId(null)}
+              loading={isUpdating}
+              disabled={isUpdating}
+              style={{ width: 130 }}
+              optionRender={(option) => {
+                const st = statusMap[option.value as number];
+                return st ? <Tag color={st.color}>{st.label}</Tag> : <>{option.label}</>;
+              }}
+              options={Object.entries(statusMap).map(([val, { label }]) => ({
+                label,
+                value: Number(val),
+              }))}
+            />
+          );
+        }
+
+        return (
+          <Tag
+            color={s?.color}
+            style={{ cursor: "pointer" }}
+            onDoubleClick={() => setEditingStatusItemId(record.item_id)}
+          >
+            {s?.label ?? status}
+          </Tag>
+        );
       },
     },
     {
@@ -221,55 +327,122 @@ export const ItemList = () => {
   ];
 
   return (
-    <List
-      headerButtons={
-        <>
-          <Input.Search
-            placeholder="Search keywords"
-            allowClear
-            onSearch={(value) => {
-              setKeywordFilter(value);
-              setCurrent(1);
-            }}
-            style={{ width: 200, marginRight: 8 }}
-          />
-          <Select
-            placeholder="Filter by status"
-            allowClear
-            onChange={(value) => {
-              setStatusFilter(value);
-              setCurrent(1);
-            }}
-            style={{ width: 150 }}
-            options={[
-              { label: "Pending", value: 0 },
-              { label: "Processing", value: 1 },
-              { label: "Failed", value: 2 },
-              { label: "Completed", value: 3 },
-              { label: "Discarded", value: 4 },
-            ]}
-          />
-        </>
-      }
-    >
-      <Table
-        dataSource={query.data?.data}
-        columns={columns}
-        rowKey="item_id"
-        loading={query.isLoading}
-        scroll={{ x: 2800 }}
-        pagination={{
-          current,
-          pageSize,
-          total: query.data?.total ?? 0,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50, 100],
-          onChange: (nextPage, nextPageSize) => {
-            setCurrent(nextPage);
-            setPageSize(nextPageSize);
-          },
+    <>
+      {contextHolder}
+      <List
+        headerButtons={
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Input.Search
+              placeholder="Item ID"
+              allowClear
+              onSearch={(value) => { setItemIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
+            <Input.Search
+              placeholder="Group ID"
+              allowClear
+              onSearch={(value) => { setGroupIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
+            <Input.Search
+              placeholder="Agent ID"
+              allowClear
+              onSearch={(value) => { setAuthorAgentIdFilter(value.trim()); setCurrent(1); }}
+              style={{ width: 140 }}
+            />
+            <Input.Search
+              placeholder="Search keywords"
+              allowClear
+              onSearch={(value) => { setKeywordFilter(value); setCurrent(1); }}
+              style={{ width: 180 }}
+            />
+            <Select
+              placeholder="Filter by status"
+              allowClear
+              onChange={(value) => { setStatusFilter(value); setCurrent(1); }}
+              style={{ width: 150 }}
+              options={[
+                { label: "Pending", value: 0 },
+                { label: "Processing", value: 1 },
+                { label: "Failed", value: 2 },
+                { label: "Completed", value: 3 },
+                { label: "Discarded", value: 4 },
+              ]}
+            />
+            <Select
+              mode="tags"
+              placeholder="Include email suffixes"
+              value={includeSuffixes}
+              onChange={(values) => { setIncludeSuffixes(values); setCurrent(1); }}
+              style={{ minWidth: 220 }}
+              tokenSeparators={[","]}
+            />
+            <Select
+              mode="tags"
+              placeholder="Exclude email suffixes"
+              value={excludeSuffixes}
+              onChange={(values) => { setExcludeSuffixes(values); setCurrent(1); }}
+              style={{ minWidth: 220 }}
+              tokenSeparators={[","]}
+            />
+          </div>
+        }
+      >
+        <Table
+          dataSource={query.data?.data}
+          columns={columns}
+          rowKey="item_id"
+          loading={query.isLoading}
+          scroll={{ x: 2800 }}
+          pagination={{
+            current,
+            pageSize,
+            total: query.data?.total ?? 0,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (nextPage, nextPageSize) => {
+              setCurrent(nextPage);
+              setPageSize(nextPageSize);
+            },
+          }}
+        />
+      </List>
+
+      <Modal
+        title={agentDetail ? `Agent: ${agentDetail.agent_name || agentDetail.agent_id}` : "Agent Details"}
+        open={agentModalOpen}
+        onCancel={() => {
+          setAgentModalOpen(false);
+          setAgentDetail(null);
         }}
-      />
-    </List>
+        footer={null}
+        loading={agentLoading}
+        destroyOnHidden
+      >
+        {agentDetail && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="ID">{agentDetail.agent_id}</Descriptions.Item>
+            <Descriptions.Item label="Name">{agentDetail.agent_name}</Descriptions.Item>
+            <Descriptions.Item label="Email">{agentDetail.email}</Descriptions.Item>
+            <Descriptions.Item label="Bio">{agentDetail.bio || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Profile Status">
+              {agentDetail.profile_status !== null && agentDetail.profile_status !== undefined
+                ? (() => {
+                    const statusLabels: Record<number, string> = { 0: "Pending", 1: "Processing", 2: "Failed", 3: "Completed" };
+                    return statusLabels[agentDetail.profile_status] ?? String(agentDetail.profile_status);
+                  })()
+                : "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Profile Keywords">
+              {agentDetail.profile_keywords?.length > 0
+                ? agentDetail.profile_keywords.map((kw) => <Tag key={kw}>{kw}</Tag>)
+                : "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Created At">{formatTimestamp(agentDetail.created_at)}</Descriptions.Item>
+            <Descriptions.Item label="Updated At">{formatTimestamp(agentDetail.updated_at)}</Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
+    </>
   );
 };
