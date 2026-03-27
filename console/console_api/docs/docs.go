@@ -265,8 +265,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp"
                         }
                     }
                 }

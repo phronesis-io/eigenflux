@@ -1295,7 +1295,7 @@ func UpdateBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 // @Tags         console
 // @Produce      json
 // @Param        keyword_id  path  integer  true  "Keyword ID"
-// @Success      200  {object}  map[string]interface{}
+// @Success      200  {object}  BlacklistKeywordResp
 // @Router /console/api/v1/blacklist-keywords/{keyword_id} [DELETE]
 func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 	keywordID, ok := parseKeywordID(c)
@@ -1307,5 +1307,5 @@ func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 		writeBlacklistError(c, err)
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]interface{}{"code": 0, "msg": "success"})
+	c.JSON(consts.StatusOK, BlacklistKeywordResp{Msg: "success"})
 }
