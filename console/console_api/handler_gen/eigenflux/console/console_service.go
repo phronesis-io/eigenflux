@@ -1028,6 +1028,36 @@ func toSystemNotificationInfo(n model.SystemNotification) SystemNotificationInfo
 	}
 }
 
+func parseKeywordID(c *app.RequestContext) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("keyword_id")), 10, 64)
+	if err != nil || id <= 0 {
+		writeConsoleError(c, "invalid keyword_id")
+		return 0, false
+	}
+	return id, true
+}
+
+func toBlacklistKeywordInfo(kw model.BlacklistKeyword) BlacklistKeywordInfo {
+	return BlacklistKeywordInfo{
+		KeywordID: strconv.FormatInt(kw.KeywordID, 10),
+		Keyword:   kw.Keyword,
+		Enabled:   kw.Enabled,
+		CreatedAt: kw.CreatedAt,
+		UpdatedAt: kw.UpdatedAt,
+	}
+}
+
+func writeBlacklistError(c *app.RequestContext, err error) {
+	switch {
+	case errors.Is(err, dal.ErrBlacklistKeywordNotFound):
+		writeConsoleError(c, err.Error())
+	case errors.Is(err, gorm.ErrDuplicatedKey):
+		writeConsoleError(c, "keyword already exists")
+	default:
+		writeConsoleError(c, err.Error())
+	}
+}
+
 // GetAgent godoc
 // @Summary      Get agent by ID
 // @Description  Returns a single agent with profile data
@@ -1103,4 +1133,179 @@ func UpdateItem(ctx context.Context, c *app.RequestContext) {
 		Code: 0, Msg: "success",
 		Data: &UpdateItemData{Item: toConsoleItemInfo(*item)},
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Response types: Blacklist Keywords
+// ---------------------------------------------------------------------------
+
+type BlacklistKeywordInfo struct {
+	KeywordID string `json:"keyword_id"`
+	Keyword   string `json:"keyword"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type ListBlacklistKeywordsData struct {
+	Keywords []BlacklistKeywordInfo `json:"keywords"`
+	Total    int64                  `json:"total"`
+	Page     int32                  `json:"page"`
+	PageSize int32                  `json:"page_size"`
+}
+
+type ListBlacklistKeywordsResp struct {
+	Code int32                      `json:"code"`
+	Msg  string                     `json:"msg"`
+	Data *ListBlacklistKeywordsData `json:"data,omitempty"`
+}
+
+type BlacklistKeywordData struct {
+	Keyword BlacklistKeywordInfo `json:"keyword"`
+}
+
+type BlacklistKeywordResp struct {
+	Code int32                 `json:"code"`
+	Msg  string                `json:"msg"`
+	Data *BlacklistKeywordData `json:"data,omitempty"`
+}
+
+type createBlacklistKeywordReq struct {
+	Keyword string `json:"keyword"`
+}
+
+type updateBlacklistKeywordReq struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// ===========================================================================
+// Handlers: Blacklist Keywords
+// ===========================================================================
+
+// ListBlacklistKeywords godoc
+// @Summary      List blacklist keywords
+// @Description  Returns a paginated list of content blacklist keywords
+// @Tags         console
+// @Produce      json
+// @Param        page       query  integer  false  "Page number (default: 1)"
+// @Param        page_size  query  integer  false  "Items per page (default: 20, max: 100)"
+// @Param        enabled    query  boolean  false  "Filter by enabled status"
+// @Success      200  {object}  ListBlacklistKeywordsResp
+// @Router /console/api/v1/blacklist-keywords [GET]
+func ListBlacklistKeywords(ctx context.Context, c *app.RequestContext) {
+	page, pageSize := parsePagination(c)
+
+	var enabled *bool
+	if raw := strings.TrimSpace(c.Query("enabled")); raw != "" {
+		if raw == "true" {
+			v := true
+			enabled = &v
+		} else if raw == "false" {
+			v := false
+			enabled = &v
+		}
+	}
+
+	rows, total, err := dal.ListBlacklistKeywords(db.DB, dal.ListBlacklistKeywordsParams{
+		Page: page, PageSize: pageSize, Enabled: enabled,
+	})
+	if err != nil {
+		writeConsoleError(c, err.Error())
+		return
+	}
+
+	items := make([]BlacklistKeywordInfo, len(rows))
+	for i, r := range rows {
+		items[i] = toBlacklistKeywordInfo(r)
+	}
+	c.JSON(consts.StatusOK, ListBlacklistKeywordsResp{
+		Msg:  "success",
+		Data: &ListBlacklistKeywordsData{Keywords: items, Total: total, Page: page, PageSize: pageSize},
+	})
+}
+
+// CreateBlacklistKeyword godoc
+// @Summary      Create blacklist keyword
+// @Description  Creates a new content blacklist keyword
+// @Tags         console
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createBlacklistKeywordReq  true  "Keyword"
+// @Success      200  {object}  BlacklistKeywordResp
+// @Router /console/api/v1/blacklist-keywords [POST]
+func CreateBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
+	var req createBlacklistKeywordReq
+	if err := c.BindAndValidate(&req); err != nil {
+		writeConsoleError(c, "invalid request body")
+		return
+	}
+	keyword := strings.TrimSpace(req.Keyword)
+	if keyword == "" {
+		writeConsoleError(c, "keyword cannot be empty")
+		return
+	}
+
+	row, err := dal.CreateBlacklistKeyword(ctx, db.DB, keyword)
+	if err != nil {
+		writeBlacklistError(c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, BlacklistKeywordResp{
+		Msg:  "success",
+		Data: &BlacklistKeywordData{Keyword: toBlacklistKeywordInfo(*row)},
+	})
+}
+
+// UpdateBlacklistKeyword godoc
+// @Summary      Update blacklist keyword
+// @Description  Updates the enabled status of a blacklist keyword
+// @Tags         console
+// @Accept       json
+// @Produce      json
+// @Param        keyword_id  path  integer  true  "Keyword ID"
+// @Param        body  body  updateBlacklistKeywordReq  true  "Update fields"
+// @Success      200  {object}  BlacklistKeywordResp
+// @Router /console/api/v1/blacklist-keywords/{keyword_id} [PUT]
+func UpdateBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
+	keywordID, ok := parseKeywordID(c)
+	if !ok {
+		return
+	}
+
+	var req updateBlacklistKeywordReq
+	if err := c.BindAndValidate(&req); err != nil {
+		writeConsoleError(c, "invalid request body")
+		return
+	}
+
+	row, err := dal.UpdateBlacklistKeyword(ctx, db.DB, keywordID, req.Enabled)
+	if err != nil {
+		writeBlacklistError(c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, BlacklistKeywordResp{
+		Msg:  "success",
+		Data: &BlacklistKeywordData{Keyword: toBlacklistKeywordInfo(*row)},
+	})
+}
+
+// DeleteBlacklistKeyword godoc
+// @Summary      Delete blacklist keyword
+// @Description  Permanently deletes a blacklist keyword
+// @Tags         console
+// @Produce      json
+// @Param        keyword_id  path  integer  true  "Keyword ID"
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/blacklist-keywords/{keyword_id} [DELETE]
+func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
+	keywordID, ok := parseKeywordID(c)
+	if !ok {
+		return
+	}
+
+	if err := dal.DeleteBlacklistKeyword(ctx, db.DB, keywordID); err != nil {
+		writeBlacklistError(c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, map[string]interface{}{"code": 0, "msg": "success"})
 }
