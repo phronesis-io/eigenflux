@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +149,17 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		log.Printf("[ItemConsumer] raw item not found: %d, err: %v", itemID, err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, 2) // failed
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+
+	// Check blacklist keywords before LLM processing
+	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
+		log.Printf("[ItemConsumer] item %d discarded by blacklist keyword: %q", itemID, matched)
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4); err != nil {
+			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
+			return
+		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -382,6 +394,27 @@ func persistProcessedItem(ctx context.Context, msgID string, itemID int64, resul
 
 	log.Printf("[ItemConsumer] item %d processed: broadcast_type=%s, domains=%v, keywords=%v, group_id=%d, quality=%.2f", itemID, result.BroadcastType, result.Domains, result.Keywords, finalGroupID, result.Quality)
 	return true
+}
+
+// matchBlacklist returns the first matching keyword if any blacklist keyword is found
+// in the concatenated raw content, or empty string if no match.
+func matchBlacklist(keywords []string, rawContent, rawURL, rawNotes string) string {
+	if len(keywords) == 0 {
+		return ""
+	}
+	combined := strings.ToLower(rawContent + " " + rawURL + " " + rawNotes)
+	for _, kw := range keywords {
+		if strings.Contains(combined, strings.ToLower(kw)) {
+			return kw
+		}
+	}
+	return ""
+}
+
+// checkBlacklist loads keywords from cache and checks for matches.
+func checkBlacklist(ctx context.Context, rawContent, rawURL, rawNotes string) string {
+	keywords := loadBlacklistKeywords(ctx)
+	return matchBlacklist(keywords, rawContent, rawURL, rawNotes)
 }
 
 // parseExpireTime parses expire time string to *time.Time
