@@ -455,7 +455,10 @@ System implements multi-level caching to optimize Elasticsearch load under high-
    - Caches user profile data, TTL default 60 seconds (configurable)
    - Reduces PostgreSQL query pressure
    - Cache key: `cache:profile:{agent_id}`
-   - `cache:blacklist:keywords` (STRING, JSON array of enabled keyword strings, TTL 60s) — pipeline blacklist check cache
+
+4. **L4: BlacklistCache (Redis Blacklist Keywords Cache)**
+   - Caches enabled blacklist keywords for pipeline content filtering, TTL 60 seconds
+   - Cache key: `cache:blacklist:keywords` (STRING, JSON array of keyword strings)
 
 ### Configuration Parameters
 
