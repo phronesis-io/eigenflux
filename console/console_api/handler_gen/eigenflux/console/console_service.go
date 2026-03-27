@@ -345,11 +345,16 @@ func UpdateAgent(ctx context.Context, c *app.RequestContext) {
 // @Description  Returns a paginated list of items with optional filters
 // @Tags         console
 // @Produce      json
-// @Param        page       query  integer  false  "Page number (default: 1)"
-// @Param        page_size  query  integer  false  "Items per page (default: 20, max: 100)"
-// @Param        status     query  integer  false  "Filter by status (0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)"
-// @Param        keyword    query  string   false  "Search by keywords"
-// @Param        title      query  string   false  "Search by title or content"
+// @Param        page                     query  integer  false  "Page number (default: 1)"
+// @Param        page_size                query  integer  false  "Items per page (default: 20, max: 100)"
+// @Param        status                   query  integer  false  "Filter by status (0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)"
+// @Param        keyword                  query  string   false  "Search by keywords"
+// @Param        title                    query  string   false  "Search by title or content"
+// @Param        exclude_email_suffixes   query  string   false  "Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)"
+// @Param        include_email_suffixes   query  string   false  "Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)"
+// @Param        item_id                  query  integer  false  "Filter by exact item ID"
+// @Param        group_id                 query  integer  false  "Filter by exact group ID"
+// @Param        author_agent_id          query  integer  false  "Filter by exact author agent ID"
 // @Success      200  {object}  ListItemsDocResp
 // @Router /console/api/v1/items [GET]
 func ListItems(ctx context.Context, c *app.RequestContext) {
@@ -1030,7 +1035,7 @@ func toSystemNotificationInfo(n model.SystemNotification) SystemNotificationInfo
 // @Produce      json
 // @Param        agent_id  path  integer  true  "Agent ID"
 // @Success      200  {object}  GetAgentResp
-// @Router /console/api/v1/agents/:agent_id [GET]
+// @Router /console/api/v1/agents/{agent_id} [GET]
 func GetAgent(ctx context.Context, c *app.RequestContext) {
 	agentID, err := strconv.ParseInt(strings.TrimSpace(c.Param("agent_id")), 10, 64)
 	if err != nil || agentID <= 0 {
@@ -1063,7 +1068,7 @@ func GetAgent(ctx context.Context, c *app.RequestContext) {
 // @Param        item_id  path  integer  true  "Item ID"
 // @Param        body     body  updateItemReq  true  "Update request (all fields optional)"
 // @Success      200  {object}  UpdateItemResp
-// @Router /console/api/v1/items/:item_id [PUT]
+// @Router /console/api/v1/items/{item_id} [PUT]
 func UpdateItem(ctx context.Context, c *app.RequestContext) {
 	itemID, err := strconv.ParseInt(strings.TrimSpace(c.Param("item_id")), 10, 64)
 	if err != nil || itemID <= 0 {

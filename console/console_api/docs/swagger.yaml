@@ -426,24 +426,6 @@ paths:
       tags:
       - console
   /console/api/v1/agents/:agent_id:
-    get:
-      description: Returns a single agent with profile data
-      parameters:
-      - description: Agent ID
-        in: path
-        name: agent_id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp'
-      summary: Get agent by ID
-      tags:
-      - console
     put:
       consumes:
       - application/json
@@ -468,6 +450,25 @@ paths:
           schema:
             $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.UpdateAgentResp'
       summary: Update agent
+      tags:
+      - console
+  /console/api/v1/agents/{agent_id}:
+    get:
+      description: Returns a single agent with profile data
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp'
+      summary: Get agent by ID
       tags:
       - console
   /console/api/v1/impr/items:
@@ -514,6 +515,26 @@ paths:
         in: query
         name: title
         type: string
+      - description: Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)
+        in: query
+        name: exclude_email_suffixes
+        type: string
+      - description: Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)
+        in: query
+        name: include_email_suffixes
+        type: string
+      - description: Filter by exact item ID
+        in: query
+        name: item_id
+        type: integer
+      - description: Filter by exact group ID
+        in: query
+        name: group_id
+        type: integer
+      - description: Filter by exact author agent ID
+        in: query
+        name: author_agent_id
+        type: integer
       produces:
       - application/json
       responses:
@@ -524,7 +545,7 @@ paths:
       summary: List items
       tags:
       - console
-  /console/api/v1/items/:item_id:
+  /console/api/v1/items/{item_id}:
     put:
       consumes:
       - application/json
