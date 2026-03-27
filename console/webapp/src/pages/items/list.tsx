@@ -77,8 +77,9 @@ export const ItemList = () => {
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
 
-  // Exclude email suffixes filter
+  // Email suffixes filters
   const [excludeSuffixes, setExcludeSuffixes] = useState<string[]>([]);
+  const [includeSuffixes, setIncludeSuffixes] = useState<string[]>([]);
 
   // ID filters
   const [itemIdFilter, setItemIdFilter] = useState<string>("");
@@ -130,6 +131,7 @@ export const ItemList = () => {
       ...(statusFilter !== undefined ? [{ field: "status", operator: "eq" as const, value: statusFilter }] : []),
       ...(keywordFilter ? [{ field: "keyword", operator: "contains" as const, value: keywordFilter }] : []),
       ...(excludeSuffixes.length > 0 ? [{ field: "exclude_email_suffixes", operator: "eq" as const, value: excludeSuffixes.join(",") }] : []),
+      ...(includeSuffixes.length > 0 ? [{ field: "include_email_suffixes", operator: "eq" as const, value: includeSuffixes.join(",") }] : []),
       ...(itemIdFilter ? [{ field: "item_id", operator: "eq" as const, value: itemIdFilter }] : []),
       ...(groupIdFilter ? [{ field: "group_id", operator: "eq" as const, value: groupIdFilter }] : []),
       ...(authorAgentIdFilter ? [{ field: "author_agent_id", operator: "eq" as const, value: authorAgentIdFilter }] : []),
@@ -366,6 +368,14 @@ export const ItemList = () => {
                 { label: "Completed", value: 3 },
                 { label: "Discarded", value: 4 },
               ]}
+            />
+            <Select
+              mode="tags"
+              placeholder="Include email suffixes"
+              value={includeSuffixes}
+              onChange={(values) => { setIncludeSuffixes(values); setCurrent(1); }}
+              style={{ minWidth: 220 }}
+              tokenSeparators={[","]}
             />
             <Select
               mode="tags"

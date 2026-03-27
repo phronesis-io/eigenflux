@@ -135,6 +135,7 @@ type ListItemsParams struct {
 	Keyword              *string
 	Title                *string
 	ExcludeEmailSuffixes []string
+	IncludeEmailSuffixes []string
 	ItemID               *int64
 	GroupID              *int64
 	AuthorAgentID        *int64
@@ -168,6 +169,17 @@ func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64,
 		}
 		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
 		query = query.Where("raw_items.author_agent_id NOT IN (?)", subQuery)
+	}
+	if len(params.IncludeEmailSuffixes) > 0 {
+		subQuery := db.Table("agents").Select("agent_id")
+		conditions := make([]string, 0, len(params.IncludeEmailSuffixes))
+		args := make([]interface{}, 0, len(params.IncludeEmailSuffixes))
+		for _, suffix := range params.IncludeEmailSuffixes {
+			conditions = append(conditions, "agents.email ILIKE ?")
+			args = append(args, "%"+suffix)
+		}
+		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
+		query = query.Where("raw_items.author_agent_id IN (?)", subQuery)
 	}
 	if params.ItemID != nil {
 		query = query.Where("raw_items.item_id = ?", *params.ItemID)

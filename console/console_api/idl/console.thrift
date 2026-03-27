@@ -72,6 +72,7 @@ struct ListItemsReq {
     7: optional string item_id (api.query="item_id")
     8: optional string group_id (api.query="group_id")
     9: optional string author_agent_id (api.query="author_agent_id")
+    10: optional string include_email_suffixes (api.query="include_email_suffixes")
 }
 
 struct ConsoleItemInfo {

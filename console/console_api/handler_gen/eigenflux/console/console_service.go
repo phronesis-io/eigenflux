@@ -374,6 +374,15 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 			}
 		}
 	}
+	var includeSuffixes []string
+	if raw := strings.TrimSpace(c.Query("include_email_suffixes")); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				includeSuffixes = append(includeSuffixes, s)
+			}
+		}
+	}
 
 	var itemIDFilter, groupIDFilter, authorAgentIDFilter *int64
 	if raw := strings.TrimSpace(c.Query("item_id")); raw != "" {
@@ -399,6 +408,7 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 		Keyword:              keyword,
 		Title:                title,
 		ExcludeEmailSuffixes: excludeSuffixes,
+		IncludeEmailSuffixes: includeSuffixes,
 		ItemID:               itemIDFilter,
 		GroupID:              groupIDFilter,
 		AuthorAgentID:        authorAgentIDFilter,
