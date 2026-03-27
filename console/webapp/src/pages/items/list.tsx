@@ -1,8 +1,11 @@
 import { useList } from "@refinedev/core";
 import { List } from "@refinedev/antd";
-import { Table, Select, Input, Tag, Tooltip, Typography } from "antd";
+import { Descriptions, Modal, Select, Table, Input, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import axios from "axios";
 import { useState } from "react";
+
+import { consoleApiUrl } from "../../config";
 
 interface Item {
   item_id: string;
@@ -22,6 +25,17 @@ interface Item {
   group_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+interface Agent {
+  agent_id: string;
+  agent_name: string;
+  email: string;
+  bio: string;
+  created_at: number;
+  updated_at: number;
+  profile_status: number | null;
+  profile_keywords: string[];
 }
 
 const statusMap: Record<number, { label: string; color: string }> = {
@@ -56,6 +70,48 @@ export const ItemList = () => {
   const [current, setCurrent] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
 
+  const [messageApi, contextHolder] = message.useMessage();
+
+  // Agent detail modal
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+
+  // Exclude email suffixes filter
+  const [excludeSuffixes, setExcludeSuffixes] = useState<string[]>([]);
+
+  // Status update loading tracker
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+
+  const fetchAgentDetail = async (agentId: string) => {
+    setAgentLoading(true);
+    setAgentModalOpen(true);
+    try {
+      const { data } = await axios.get(`${consoleApiUrl}/agents/${agentId}`);
+      if (data.code !== 0) throw new Error(data.msg || "Failed to fetch agent");
+      setAgentDetail(data.data.agent);
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "Failed to fetch agent details");
+      setAgentModalOpen(false);
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (itemId: string, newStatus: number) => {
+    setUpdatingItemId(itemId);
+    try {
+      const { data } = await axios.put(`${consoleApiUrl}/items/${itemId}`, { status: newStatus });
+      if (data.code !== 0) throw new Error(data.msg || "Update failed");
+      messageApi.success("Status updated");
+      await query.refetch();
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "Failed to update status");
+    } finally {
+      setUpdatingItemId(null);
+    }
+  };
+
   const { query } = useList<Item>({
     resource: "items",
     pagination: {
@@ -66,6 +122,7 @@ export const ItemList = () => {
     filters: [
       ...(statusFilter !== undefined ? [{ field: "status", operator: "eq" as const, value: statusFilter }] : []),
       ...(keywordFilter ? [{ field: "keyword", operator: "contains" as const, value: keywordFilter }] : []),
+      ...(excludeSuffixes.length > 0 ? [{ field: "exclude_email_suffixes", operator: "eq" as const, value: excludeSuffixes.join(",") }] : []),
     ],
   });
 
@@ -82,6 +139,9 @@ export const ItemList = () => {
       dataIndex: "author_agent_id",
       key: "author_agent_id",
       width: 130,
+      render: (agentId: string) => (
+        <a onClick={() => fetchAgentDetail(agentId)}>{agentId}</a>
+      ),
     },
     {
       title: "Raw Content",
@@ -101,11 +161,20 @@ export const ItemList = () => {
       title: "Status",
       dataIndex: "status",
       key: "status",
-      width: 120,
-      render: (status: number) => {
-        const s = statusMap[status];
-        return s ? <Tag color={s.color}>{s.label}</Tag> : <Tag>{status}</Tag>;
-      },
+      width: 140,
+      render: (status: number, record: Item) => (
+        <Select
+          value={status}
+          onChange={(value) => void handleStatusChange(record.item_id, value)}
+          loading={updatingItemId === record.item_id}
+          disabled={updatingItemId === record.item_id}
+          style={{ width: 130 }}
+          options={Object.entries(statusMap).map(([val, { label }]) => ({
+            label,
+            value: Number(val),
+          }))}
+        />
+      ),
     },
     {
       title: "Broadcast Type",
@@ -221,55 +290,105 @@ export const ItemList = () => {
   ];
 
   return (
-    <List
-      headerButtons={
-        <>
-          <Input.Search
-            placeholder="Search keywords"
-            allowClear
-            onSearch={(value) => {
-              setKeywordFilter(value);
-              setCurrent(1);
-            }}
-            style={{ width: 200, marginRight: 8 }}
-          />
-          <Select
-            placeholder="Filter by status"
-            allowClear
-            onChange={(value) => {
-              setStatusFilter(value);
-              setCurrent(1);
-            }}
-            style={{ width: 150 }}
-            options={[
-              { label: "Pending", value: 0 },
-              { label: "Processing", value: 1 },
-              { label: "Failed", value: 2 },
-              { label: "Completed", value: 3 },
-              { label: "Discarded", value: 4 },
-            ]}
-          />
-        </>
-      }
-    >
-      <Table
-        dataSource={query.data?.data}
-        columns={columns}
-        rowKey="item_id"
-        loading={query.isLoading}
-        scroll={{ x: 2800 }}
-        pagination={{
-          current,
-          pageSize,
-          total: query.data?.total ?? 0,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50, 100],
-          onChange: (nextPage, nextPageSize) => {
-            setCurrent(nextPage);
-            setPageSize(nextPageSize);
-          },
+    <>
+      {contextHolder}
+      <List
+        headerButtons={
+          <>
+            <Input.Search
+              placeholder="Search keywords"
+              allowClear
+              onSearch={(value) => {
+                setKeywordFilter(value);
+                setCurrent(1);
+              }}
+              style={{ width: 200, marginRight: 8 }}
+            />
+            <Select
+              placeholder="Filter by status"
+              allowClear
+              onChange={(value) => {
+                setStatusFilter(value);
+                setCurrent(1);
+              }}
+              style={{ width: 150, marginRight: 8 }}
+              options={[
+                { label: "Pending", value: 0 },
+                { label: "Processing", value: 1 },
+                { label: "Failed", value: 2 },
+                { label: "Completed", value: 3 },
+                { label: "Discarded", value: 4 },
+              ]}
+            />
+            <Select
+              mode="tags"
+              placeholder="Exclude email suffixes"
+              value={excludeSuffixes}
+              onChange={(values) => {
+                setExcludeSuffixes(values);
+                setCurrent(1);
+              }}
+              style={{ minWidth: 220 }}
+              tokenSeparators={[","]}
+            />
+          </>
+        }
+      >
+        <Table
+          dataSource={query.data?.data}
+          columns={columns}
+          rowKey="item_id"
+          loading={query.isLoading}
+          scroll={{ x: 2800 }}
+          pagination={{
+            current,
+            pageSize,
+            total: query.data?.total ?? 0,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (nextPage, nextPageSize) => {
+              setCurrent(nextPage);
+              setPageSize(nextPageSize);
+            },
+          }}
+        />
+      </List>
+
+      <Modal
+        title={agentDetail ? `Agent: ${agentDetail.agent_name || agentDetail.agent_id}` : "Agent Details"}
+        open={agentModalOpen}
+        onCancel={() => {
+          setAgentModalOpen(false);
+          setAgentDetail(null);
         }}
-      />
-    </List>
+        footer={null}
+        loading={agentLoading}
+        destroyOnHidden
+      >
+        {agentDetail && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="ID">{agentDetail.agent_id}</Descriptions.Item>
+            <Descriptions.Item label="Name">{agentDetail.agent_name}</Descriptions.Item>
+            <Descriptions.Item label="Email">{agentDetail.email}</Descriptions.Item>
+            <Descriptions.Item label="Bio">{agentDetail.bio || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Profile Status">
+              {agentDetail.profile_status !== null && agentDetail.profile_status !== undefined
+                ? (() => {
+                    const statusLabels: Record<number, string> = { 0: "Pending", 1: "Processing", 2: "Failed", 3: "Completed" };
+                    return statusLabels[agentDetail.profile_status] ?? String(agentDetail.profile_status);
+                  })()
+                : "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Profile Keywords">
+              {agentDetail.profile_keywords?.length > 0
+                ? agentDetail.profile_keywords.map((kw) => <Tag key={kw}>{kw}</Tag>)
+                : "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Created At">{formatTimestamp(agentDetail.created_at)}</Descriptions.Item>
+            <Descriptions.Item label="Updated At">{formatTimestamp(agentDetail.updated_at)}</Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
+    </>
   );
 };

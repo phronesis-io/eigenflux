@@ -11,6 +11,7 @@ import (
 )
 
 var ErrAgentNotFound = errors.New("agent not found")
+var ErrItemNotFound = errors.New("item not found")
 
 type AgentWithProfile struct {
 	model.Agent
@@ -96,6 +97,22 @@ func UpdateAgent(db *gorm.DB, agentID int64, params UpdateAgentParams) (*AgentWi
 	return &agent, nil
 }
 
+func GetAgentByID(db *gorm.DB, agentID int64) (*AgentWithProfile, error) {
+	var agent AgentWithProfile
+	err := db.Table("agents").
+		Select("agents.*, agent_profiles.status as profile_status, agent_profiles.keywords as profile_keywords").
+		Joins("LEFT JOIN agent_profiles ON agents.agent_id = agent_profiles.agent_id").
+		Where("agents.agent_id = ?", agentID).
+		First(&agent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAgentNotFound
+		}
+		return nil, err
+	}
+	return &agent, nil
+}
+
 type ItemWithProcessed struct {
 	model.RawItem
 	Status           *int16
@@ -112,11 +129,12 @@ type ItemWithProcessed struct {
 }
 
 type ListItemsParams struct {
-	Page     int32
-	PageSize int32
-	Status   *int32
-	Keyword  *string
-	Title    *string
+	Page                 int32
+	PageSize             int32
+	Status               *int32
+	Keyword              *string
+	Title                *string
+	ExcludeEmailSuffixes []string
 }
 
 func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64, error) {
@@ -136,6 +154,17 @@ func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64,
 	if params.Title != nil && *params.Title != "" {
 		query = query.Where("(raw_items.raw_content ILIKE ? OR processed_items.summary ILIKE ?)",
 			"%"+*params.Title+"%", "%"+*params.Title+"%")
+	}
+	if len(params.ExcludeEmailSuffixes) > 0 {
+		subQuery := db.Table("agents").Select("agent_id")
+		conditions := make([]string, 0, len(params.ExcludeEmailSuffixes))
+		args := make([]interface{}, 0, len(params.ExcludeEmailSuffixes))
+		for _, suffix := range params.ExcludeEmailSuffixes {
+			conditions = append(conditions, "agents.email ILIKE ?")
+			args = append(args, "%"+suffix)
+		}
+		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
+		query = query.Where("raw_items.author_agent_id NOT IN (?)", subQuery)
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -167,4 +196,40 @@ func ListItemsByIDs(db *gorm.DB, itemIDs []int64) ([]ItemWithProcessed, error) {
 	}
 
 	return items, nil
+}
+
+type UpdateItemParams struct {
+	Status *int32
+}
+
+func UpdateItem(db *gorm.DB, itemID int64, params UpdateItemParams) (*ItemWithProcessed, error) {
+	var count int64
+	if err := db.Table("raw_items").Where("item_id = ?", itemID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrItemNotFound
+	}
+
+	updates := map[string]interface{}{
+		"updated_at": time.Now().UnixMilli(),
+	}
+	if params.Status != nil {
+		updates["status"] = int16(*params.Status)
+	}
+
+	if err := db.Table("processed_items").Where("item_id = ?", itemID).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+
+	var item ItemWithProcessed
+	err := db.Table("raw_items").
+		Select("raw_items.*, processed_items.status, processed_items.summary, processed_items.broadcast_type, processed_items.domains, processed_items.keywords, processed_items.expire_time, processed_items.geo, processed_items.source_type, processed_items.expected_response, processed_items.group_id, processed_items.updated_at").
+		Joins("LEFT JOIN processed_items ON raw_items.item_id = processed_items.item_id").
+		Where("raw_items.item_id = ?", itemID).
+		First(&item).Error
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
 }
