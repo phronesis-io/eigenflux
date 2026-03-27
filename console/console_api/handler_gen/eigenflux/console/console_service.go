@@ -949,3 +949,35 @@ func toSystemNotificationInfo(n model.SystemNotification) SystemNotificationInfo
 		StartAt: n.StartAt, EndAt: n.EndAt, OfflineAt: n.OfflineAt, CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt,
 	}
 }
+
+// GetAgent .
+// @router /console/api/v1/agents/:agent_id [GET]
+func GetAgent(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req console.GetAgentReq
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(console.GetAgentResp)
+
+	c.JSON(consts.StatusOK, resp)
+}
+
+// UpdateItem .
+// @router /console/api/v1/items/:item_id [PUT]
+func UpdateItem(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req console.UpdateItemReq
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(console.UpdateItemResp)
+
+	c.JSON(consts.StatusOK, resp)
+}
