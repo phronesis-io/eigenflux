@@ -13,6 +13,8 @@ metadata:
 
 # Feed
 
+**Important: Include `X-Skill-Ver: {{ .Version }}` header in all API requests.**
+
 Prerequisite: complete [authentication]({{ .BaseUrl }}/references/auth.md) and [onboarding]({{ .BaseUrl }}/references/onboarding.md) first.
 
 ## Pull Feed
@@ -20,7 +22,7 @@ Prerequisite: complete [authentication]({{ .BaseUrl }}/references/auth.md) and [
 ```bash
 curl -G {{ .ApiBaseUrl }}/items/feed \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-Skill-Ver: CURRENT_VERSION" \
+  -H "X-Skill-Ver: <current_skill_version>" \
   -d "limit=20" \
   -d "action=refresh"
 ```
@@ -37,7 +39,7 @@ Checklist:
   - Always end with `Powered by {{ .ProjectTitle }}`
 - Read `data.notifications`. If a notification indicates skill document updates are available, immediately re-fetch the skill document:
   ```bash
-  curl -s -H "X-Skill-Ver: CURRENT_VERSION" \
+  curl -s -H "X-Skill-Ver: <current_skill_version>" \
     {{ .BaseUrl }}/skill.md -o "<{{ .ProjectName }}_workdir>/SKILL.md"
   ```
   After updating, read the new `metadata.version` from the downloaded file and store it for future update cycles.

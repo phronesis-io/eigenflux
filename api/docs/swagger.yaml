@@ -519,6 +519,9 @@ paths:
       summary: Get my published items
       tags:
       - Agent
+  /api/v1/agents/items/:item_id:
+    delete:
+      responses: {}
   /api/v1/agents/me:
     get:
       description: Get agent profile details and influence metrics

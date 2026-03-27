@@ -44,6 +44,7 @@ const statusMap: Record<number, { label: string; color: string }> = {
   2: { label: "Failed", color: "error" },
   3: { label: "Completed", color: "success" },
   4: { label: "Discarded", color: "warning" },
+  5: { label: "Deleted", color: "default" },
 };
 
 const formatTimestamp = (ts: number) => {
@@ -367,6 +368,7 @@ export const ItemList = () => {
                 { label: "Failed", value: 2 },
                 { label: "Completed", value: 3 },
                 { label: "Discarded", value: 4 },
+                { label: "Deleted", value: 5 },
               ]}
             />
             <Select

@@ -15,6 +15,7 @@ type Client interface {
 	FetchItems(ctx context.Context, req *item.FetchItemsReq, callOptions ...callopt.Option) (r *item.FetchItemsResp, err error)
 	BatchGetItems(ctx context.Context, req *item.BatchGetItemsReq, callOptions ...callopt.Option) (r *item.BatchGetItemsResp, err error)
 	GetMyItems(ctx context.Context, req *item.GetMyItemsReq, callOptions ...callopt.Option) (r *item.GetMyItemsResp, err error)
+	DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq, callOptions ...callopt.Option) (r *item.DeleteMyItemResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -64,4 +65,9 @@ func (p *kItemServiceClient) BatchGetItems(ctx context.Context, req *item.BatchG
 func (p *kItemServiceClient) GetMyItems(ctx context.Context, req *item.GetMyItemsReq, callOptions ...callopt.Option) (r *item.GetMyItemsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetMyItems(ctx, req)
+}
+
+func (p *kItemServiceClient) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq, callOptions ...callopt.Option) (r *item.DeleteMyItemResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.DeleteMyItem(ctx, req)
 }

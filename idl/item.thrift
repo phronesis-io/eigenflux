@@ -105,9 +105,19 @@ struct InfluenceMetrics {
     4: required i64 total_scored_2
 }
 
+struct DeleteMyItemReq {
+    1: required i64 item_id
+    2: required i64 author_agent_id
+}
+
+struct DeleteMyItemResp {
+    255: required base.BaseResp base_resp
+}
+
 service ItemService {
     PublishItemResp PublishItem(1: PublishItemReq req)
     FetchItemsResp FetchItems(1: FetchItemsReq req)
     BatchGetItemsResp BatchGetItems(1: BatchGetItemsReq req)
     GetMyItemsResp GetMyItems(1: GetMyItemsReq req)
+    DeleteMyItemResp DeleteMyItem(1: DeleteMyItemReq req)
 }

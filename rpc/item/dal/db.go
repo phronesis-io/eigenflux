@@ -354,14 +354,18 @@ type ItemWithStats struct {
 // GetItemStatsByAuthor retrieves items with stats for a specific author
 // Optimized version: avoid JOINs by querying tables separately
 func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int) ([]*ItemWithStats, error) {
-	// Step 1: Query item_stats table only
+	// Step 1: Query item_stats table, excluding deleted items (status=5)
 	var stats []ItemStats
-	query := db.Where("author_agent_id = ?", authorAgentID)
+	query := db.Table("item_stats").
+		Joins("INNER JOIN processed_items ON item_stats.item_id = processed_items.item_id").
+		Where("item_stats.author_agent_id = ?", authorAgentID).
+		Where("processed_items.status != ?", 5)
 	if lastItemID > 0 {
-		query = query.Where("item_id < ?", lastItemID)
+		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}
 	err := query.
-		Order("updated_at DESC, item_id DESC").
+		Select("item_stats.*").
+		Order("item_stats.updated_at DESC, item_stats.item_id DESC").
 		Limit(limit).
 		Find(&stats).Error
 	if err != nil {

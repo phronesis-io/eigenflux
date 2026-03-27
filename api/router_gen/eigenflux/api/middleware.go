@@ -133,3 +133,12 @@ func _closeconvMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _deletemyitemMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _items0Mw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}

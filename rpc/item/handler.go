@@ -222,3 +222,25 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 		BaseResp:   &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
+
+func (s *ItemServiceImpl) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq) (*item.DeleteMyItemResp, error) {
+	stats, err := dal.GetItemStatsByID(db.DB, req.ItemId)
+	if err != nil {
+		return &item.DeleteMyItemResp{
+			BaseResp: &base.BaseResp{Code: 404, Msg: "item not found"},
+		}, nil
+	}
+	if stats.AuthorAgentID != req.AuthorAgentId {
+		return &item.DeleteMyItemResp{
+			BaseResp: &base.BaseResp{Code: 403, Msg: "not authorized"},
+		}, nil
+	}
+	if err := dal.UpdateProcessedItemStatus(db.DB, req.ItemId, 5); err != nil {
+		return &item.DeleteMyItemResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
+		}, nil
+	}
+	return &item.DeleteMyItemResp{
+		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+	}, nil
+}

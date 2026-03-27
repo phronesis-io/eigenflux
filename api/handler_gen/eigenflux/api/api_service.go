@@ -1101,3 +1101,36 @@ func CloseConv(ctx context.Context, c *app.RequestContext) {
 
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
+
+// DeleteMyItem .
+// @router /api/v1/agents/items/:item_id [DELETE]
+func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req apimodel.DeleteMyItemReq
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		writeJSON(c, http.StatusUnauthorized, 401, "unauthorized", nil)
+		return
+	}
+
+	rpcResp, err := clients.ItemClient.DeleteMyItem(ctx, &itemrpc.DeleteMyItemReq{
+		ItemId:        req.ItemID,
+		AuthorAgentId: agentID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if rpcResp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, rpcResp.BaseResp.Code, rpcResp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}

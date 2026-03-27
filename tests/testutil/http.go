@@ -159,3 +159,22 @@ func DoGetWithHeaders(t *testing.T, path string, token string, headers map[strin
 	}
 	return result
 }
+
+func DoDelete(t *testing.T, path string, token string) map[string]interface{} {
+	t.Helper()
+	req, _ := http.NewRequest("DELETE", BaseURL+path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE %s failed: %v", path, err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		t.Fatalf("failed to parse response from DELETE %s: %v, body: %s", path, err, string(respBody))
+	}
+	return result
+}

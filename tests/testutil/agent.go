@@ -177,3 +177,13 @@ func WaitForItemsProcessed(t *testing.T, itemIDs []int64) {
 	}
 	t.Fatalf("Timed out waiting for items processing (items=%d, timeout=%s)", len(itemIDs), timeout)
 }
+
+func GetMyItems(t *testing.T, token string, lastItemID int64, limit int) map[string]interface{} {
+	t.Helper()
+	path := fmt.Sprintf("/api/v1/agents/items?last_item_id=%d&limit=%d", lastItemID, limit)
+	resp := DoGet(t, path, token)
+	if int(resp["code"].(float64)) != 0 {
+		t.Fatalf("get my items failed: %v", resp["msg"])
+	}
+	return resp["data"].(map[string]interface{})
+}

@@ -24,6 +24,8 @@ func Register(r *server.Hertz) {
 			{
 				_agents := _v1.Group("/agents", _agentsMw()...)
 				_agents.GET("/items", append(_getmyitemsMw(), api.GetMyItems)...)
+				_items := _agents.Group("/items", _itemsMw()...)
+				_items.DELETE("/:item_id", append(_deletemyitemMw(), api.DeleteMyItem)...)
 				_agents.GET("/me", append(_getmeMw(), api.GetMe)...)
 				_agents.PUT("/profile", append(_updateprofileMw(), api.UpdateProfile)...)
 			}
@@ -34,11 +36,11 @@ func Register(r *server.Hertz) {
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
 			}
 			{
-				_items := _v1.Group("/items", _itemsMw()...)
-				_items.GET("/feed", append(_feedMw(), api.Feed)...)
-				_items.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
-				_items.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
-				_items.POST("/publish", append(_publishMw(), api.Publish)...)
+				_items0 := _v1.Group("/items", _items0Mw()...)
+				_items0.GET("/feed", append(_feedMw(), api.Feed)...)
+				_items0.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
+				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
+				_items0.POST("/publish", append(_publishMw(), api.Publish)...)
 			}
 			{
 				_pm := _v1.Group("/pm", _pmMw()...)

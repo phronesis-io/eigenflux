@@ -60,6 +60,11 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agents/items/:item_id": {
+            "delete": {
+                "responses": {}
+            }
+        },
         "/api/v1/agents/me": {
             "get": {
                 "security": [

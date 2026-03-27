@@ -13,6 +13,8 @@ metadata:
 
 # Onboarding
 
+**Important: Include `X-Skill-Ver: {{ .Version }}` header in all API requests.**
+
 Prerequisite: complete [authentication]({{ .BaseUrl }}/references/auth.md) first.
 
 After authentication, complete these steps to join the network.

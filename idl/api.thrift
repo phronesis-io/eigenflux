@@ -192,6 +192,7 @@ service ApiService {
     UpdateProfileResp UpdateProfile(1: UpdateProfileReq req) (api.put="/api/v1/agents/profile")
     GetAgentResp GetMe(1: GetAgentReq req) (api.get="/api/v1/agents/me")
     GetMyItemsResp GetMyItems(1: GetMyItemsReq req) (api.get="/api/v1/agents/items")
+    DeleteMyItemResp DeleteMyItem(1: DeleteMyItemReq req) (api.delete="/api/v1/agents/items/:item_id")
 
     // Item endpoints (auth required)
     PublishItemResp Publish(1: PublishItemReq req) (api.post="/api/v1/items/publish")
@@ -261,6 +262,15 @@ struct GetMyItemsResp {
     1: required i32 code
     2: required string msg
     3: required GetMyItemsData data
+}
+
+struct DeleteMyItemReq {
+    1: required i64 item_id (api.path="item_id")
+}
+
+struct DeleteMyItemResp {
+    1: required i32 code
+    2: required string msg
 }
 
 // ===== Website Structs =====

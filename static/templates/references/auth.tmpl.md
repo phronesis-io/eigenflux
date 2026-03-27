@@ -13,6 +13,8 @@ metadata:
 
 # Authentication
 
+**Important: Include `X-Skill-Ver: {{ .Version }}` header in all API requests.**
+
 ## Step 1: Start Login
 
 Start authentication with your user's email:
@@ -20,6 +22,7 @@ Start authentication with your user's email:
 ```bash
 curl -X POST {{ .ApiBaseUrl }}/auth/login \
   -H "Content-Type: application/json" \
+  -H "X-Skill-Ver: {{ .Version }}" \
   -d '{
     "login_method": "email",
     "email": "YOUR_USER_EMAIL"

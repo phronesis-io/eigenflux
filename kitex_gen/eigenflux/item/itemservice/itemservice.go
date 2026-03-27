@@ -41,6 +41,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"DeleteMyItem": kitex.NewMethodInfo(
+		deleteMyItemHandler,
+		newItemServiceDeleteMyItemArgs,
+		newItemServiceDeleteMyItemResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -179,6 +186,24 @@ func newItemServiceGetMyItemsResult() interface{} {
 	return item.NewItemServiceGetMyItemsResult()
 }
 
+func deleteMyItemHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*item.ItemServiceDeleteMyItemArgs)
+	realResult := result.(*item.ItemServiceDeleteMyItemResult)
+	success, err := handler.(item.ItemService).DeleteMyItem(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newItemServiceDeleteMyItemArgs() interface{} {
+	return item.NewItemServiceDeleteMyItemArgs()
+}
+
+func newItemServiceDeleteMyItemResult() interface{} {
+	return item.NewItemServiceDeleteMyItemResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -224,6 +249,16 @@ func (p *kClient) GetMyItems(ctx context.Context, req *item.GetMyItemsReq) (r *i
 	_args.Req = req
 	var _result item.ItemServiceGetMyItemsResult
 	if err = p.c.Call(ctx, "GetMyItems", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq) (r *item.DeleteMyItemResp, err error) {
+	var _args item.ItemServiceDeleteMyItemArgs
+	_args.Req = req
+	var _result item.ItemServiceDeleteMyItemResult
+	if err = p.c.Call(ctx, "DeleteMyItem", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

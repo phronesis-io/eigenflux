@@ -1042,6 +1042,82 @@ var fieldIDToName_InfluenceMetrics = map[int16]string{
 	4: "total_scored_2",
 }
 
+type DeleteMyItemReq struct {
+	ItemId        int64 `thrift:"item_id,1,required" frugal:"1,required,i64" json:"item_id"`
+	AuthorAgentId int64 `thrift:"author_agent_id,2,required" frugal:"2,required,i64" json:"author_agent_id"`
+}
+
+func NewDeleteMyItemReq() *DeleteMyItemReq {
+	return &DeleteMyItemReq{}
+}
+
+func (p *DeleteMyItemReq) InitDefault() {
+}
+
+func (p *DeleteMyItemReq) GetItemId() (v int64) {
+	return p.ItemId
+}
+
+func (p *DeleteMyItemReq) GetAuthorAgentId() (v int64) {
+	return p.AuthorAgentId
+}
+func (p *DeleteMyItemReq) SetItemId(val int64) {
+	p.ItemId = val
+}
+func (p *DeleteMyItemReq) SetAuthorAgentId(val int64) {
+	p.AuthorAgentId = val
+}
+
+func (p *DeleteMyItemReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteMyItemReq(%+v)", *p)
+}
+
+var fieldIDToName_DeleteMyItemReq = map[int16]string{
+	1: "item_id",
+	2: "author_agent_id",
+}
+
+type DeleteMyItemResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewDeleteMyItemResp() *DeleteMyItemResp {
+	return &DeleteMyItemResp{}
+}
+
+func (p *DeleteMyItemResp) InitDefault() {
+}
+
+var DeleteMyItemResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *DeleteMyItemResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return DeleteMyItemResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *DeleteMyItemResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *DeleteMyItemResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *DeleteMyItemResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteMyItemResp(%+v)", *p)
+}
+
+var fieldIDToName_DeleteMyItemResp = map[int16]string{
+	255: "base_resp",
+}
+
 type ItemService interface {
 	PublishItem(ctx context.Context, req *PublishItemReq) (r *PublishItemResp, err error)
 
@@ -1050,6 +1126,8 @@ type ItemService interface {
 	BatchGetItems(ctx context.Context, req *BatchGetItemsReq) (r *BatchGetItemsResp, err error)
 
 	GetMyItems(ctx context.Context, req *GetMyItemsReq) (r *GetMyItemsResp, err error)
+
+	DeleteMyItem(ctx context.Context, req *DeleteMyItemReq) (r *DeleteMyItemResp, err error)
 }
 
 type ItemServicePublishItemArgs struct {
@@ -1353,5 +1431,81 @@ func (p *ItemServiceGetMyItemsResult) String() string {
 }
 
 var fieldIDToName_ItemServiceGetMyItemsResult = map[int16]string{
+	0: "success",
+}
+
+type ItemServiceDeleteMyItemArgs struct {
+	Req *DeleteMyItemReq `thrift:"req,1" frugal:"1,default,DeleteMyItemReq" json:"req"`
+}
+
+func NewItemServiceDeleteMyItemArgs() *ItemServiceDeleteMyItemArgs {
+	return &ItemServiceDeleteMyItemArgs{}
+}
+
+func (p *ItemServiceDeleteMyItemArgs) InitDefault() {
+}
+
+var ItemServiceDeleteMyItemArgs_Req_DEFAULT *DeleteMyItemReq
+
+func (p *ItemServiceDeleteMyItemArgs) GetReq() (v *DeleteMyItemReq) {
+	if !p.IsSetReq() {
+		return ItemServiceDeleteMyItemArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *ItemServiceDeleteMyItemArgs) SetReq(val *DeleteMyItemReq) {
+	p.Req = val
+}
+
+func (p *ItemServiceDeleteMyItemArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ItemServiceDeleteMyItemArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ItemServiceDeleteMyItemArgs(%+v)", *p)
+}
+
+var fieldIDToName_ItemServiceDeleteMyItemArgs = map[int16]string{
+	1: "req",
+}
+
+type ItemServiceDeleteMyItemResult struct {
+	Success *DeleteMyItemResp `thrift:"success,0,optional" frugal:"0,optional,DeleteMyItemResp" json:"success,omitempty"`
+}
+
+func NewItemServiceDeleteMyItemResult() *ItemServiceDeleteMyItemResult {
+	return &ItemServiceDeleteMyItemResult{}
+}
+
+func (p *ItemServiceDeleteMyItemResult) InitDefault() {
+}
+
+var ItemServiceDeleteMyItemResult_Success_DEFAULT *DeleteMyItemResp
+
+func (p *ItemServiceDeleteMyItemResult) GetSuccess() (v *DeleteMyItemResp) {
+	if !p.IsSetSuccess() {
+		return ItemServiceDeleteMyItemResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *ItemServiceDeleteMyItemResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DeleteMyItemResp)
+}
+
+func (p *ItemServiceDeleteMyItemResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ItemServiceDeleteMyItemResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ItemServiceDeleteMyItemResult(%+v)", *p)
+}
+
+var fieldIDToName_ItemServiceDeleteMyItemResult = map[int16]string{
 	0: "success",
 }
