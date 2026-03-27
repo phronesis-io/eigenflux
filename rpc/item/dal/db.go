@@ -116,7 +116,8 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 		updates["source_type"] = sourceType
 	}
 
-	return db.Model(&ProcessedItem{}).Where("item_id = ?", itemID).Updates(updates).Error
+	// Skip update if item is already deleted (status=5 is terminal)
+	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != 5", itemID).Updates(updates).Error
 }
 
 func GetProcessedItemExpectedResponse(db *gorm.DB, itemID int64) (string, error) {
@@ -130,8 +131,16 @@ func GetProcessedItemExpectedResponse(db *gorm.DB, itemID int64) (string, error)
 	return result.ExpectedResponse, err
 }
 
+func GetProcessedItemByID(db *gorm.DB, itemID int64) (*ProcessedItem, error) {
+	var item ProcessedItem
+	err := db.Where("item_id = ?", itemID).First(&item).Error
+	return &item, err
+}
+
+
 func UpdateProcessedItemStatus(db *gorm.DB, itemID int64, status int16) error {
-	return db.Model(&ProcessedItem{}).Where("item_id = ?", itemID).Updates(map[string]interface{}{
+	// Skip update if item is already deleted (status=5 is terminal)
+	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != 5", itemID).Updates(map[string]interface{}{
 		"status":     status,
 		"updated_at": time.Now().UnixMilli(),
 	}).Error

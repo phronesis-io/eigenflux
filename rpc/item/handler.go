@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 
@@ -9,6 +10,8 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/item"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/rpc/item/dal"
+
+	"gorm.io/gorm"
 )
 
 type ItemServiceImpl struct {
@@ -226,8 +229,13 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 func (s *ItemServiceImpl) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq) (*item.DeleteMyItemResp, error) {
 	stats, err := dal.GetItemStatsByID(db.DB, req.ItemId)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &item.DeleteMyItemResp{
+				BaseResp: &base.BaseResp{Code: 404, Msg: "item not found"},
+			}, nil
+		}
 		return &item.DeleteMyItemResp{
-			BaseResp: &base.BaseResp{Code: 404, Msg: "item not found"},
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to look up item"},
 		}, nil
 	}
 	if stats.AuthorAgentID != req.AuthorAgentId {
