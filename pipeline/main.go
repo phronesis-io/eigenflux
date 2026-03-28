@@ -17,11 +17,19 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("pipeline/.log")
+	logFlush := logger.Init("pipeline/.log", "pipeline", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.Init(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
