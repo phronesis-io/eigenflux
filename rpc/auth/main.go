@@ -16,6 +16,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 // cfg is package-level for shared runtime config.
@@ -23,7 +24,15 @@ var cfg *config.Config
 
 func main() {
 	cfg = config.Load()
-	logger.Init("rpc/auth/.log")
+	logFlush := logger.Init("rpc/auth/.log", "AuthService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("AuthService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
+
 	db.Init(cfg.PgDSN)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
 

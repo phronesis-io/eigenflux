@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 var bf *bloomfilter.BloomFilter
@@ -25,7 +27,14 @@ var profileCache *cache.ProfileCache
 
 func main() {
 	cfg = config.Load()
-	logger.Init("rpc/sort/.log")
+	logFlush := logger.Init("rpc/sort/.log", "SortService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("SortService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	// Initialize PostgreSQL (for fetching user profiles)
 	db.Init(cfg.PgDSN)

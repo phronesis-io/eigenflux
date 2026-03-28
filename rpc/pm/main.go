@@ -15,13 +15,21 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/validator"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("rpc/pm/.log")
+	logFlush := logger.Init("rpc/pm/.log", "PMService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("PMService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	// Initialize database connection
 	db.Init(cfg.PgDSN)

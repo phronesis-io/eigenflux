@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 var (
@@ -24,7 +26,14 @@ var (
 
 func main() {
 	cfg := config.Load()
-	logger.Init("rpc/feed/.log")
+	logFlush := logger.Init("rpc/feed/.log", "FeedService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("FeedService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.Init(cfg.PgDSN)
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
