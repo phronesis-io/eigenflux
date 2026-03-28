@@ -49,4 +49,5 @@ __pycache__
 .draft/
 
 # superpowers
+.superpowers
 docs/superpowers/
