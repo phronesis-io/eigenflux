@@ -287,6 +287,58 @@ struct SystemNotificationResp {
     3: SystemNotificationData data
 }
 
+// ===== Console Blacklist Keyword Structs =====
+
+struct ListBlacklistKeywordsReq {
+    1: i32 page (api.query="page")
+    2: i32 page_size (api.query="page_size")
+    3: optional bool enabled (api.query="enabled")
+}
+
+struct BlacklistKeywordInfo {
+    1: string keyword_id
+    2: string keyword
+    3: bool enabled
+    4: i64 created_at
+    5: i64 updated_at
+}
+
+struct ListBlacklistKeywordsData {
+    1: list<BlacklistKeywordInfo> keywords
+    2: i64 total
+    3: i32 page
+    4: i32 page_size
+}
+
+struct ListBlacklistKeywordsResp {
+    1: i32 code
+    2: string msg
+    3: ListBlacklistKeywordsData data
+}
+
+struct CreateBlacklistKeywordReq {
+    1: required string keyword (api.body="keyword")
+}
+
+struct UpdateBlacklistKeywordReq {
+    1: required i64 keyword_id (api.path="keyword_id")
+    2: optional bool enabled (api.body="enabled")
+}
+
+struct DeleteBlacklistKeywordReq {
+    1: required i64 keyword_id (api.path="keyword_id")
+}
+
+struct BlacklistKeywordData {
+    1: BlacklistKeywordInfo keyword
+}
+
+struct BlacklistKeywordResp {
+    1: i32 code
+    2: string msg
+    3: BlacklistKeywordData data
+}
+
 // ===== Service =====
 
 service ConsoleService {
@@ -304,4 +356,8 @@ service ConsoleService {
     SystemNotificationResp CreateSystemNotification(1: CreateSystemNotificationReq req) (api.post="/console/api/v1/system-notifications")
     SystemNotificationResp UpdateSystemNotification(1: UpdateSystemNotificationReq req) (api.put="/console/api/v1/system-notifications/:notification_id")
     SystemNotificationResp OfflineSystemNotification(1: OfflineSystemNotificationReq req) (api.post="/console/api/v1/system-notifications/:notification_id/offline")
+    ListBlacklistKeywordsResp ListBlacklistKeywords(1: ListBlacklistKeywordsReq req) (api.get="/console/api/v1/blacklist-keywords")
+    BlacklistKeywordResp CreateBlacklistKeyword(1: CreateBlacklistKeywordReq req) (api.post="/console/api/v1/blacklist-keywords")
+    BlacklistKeywordResp UpdateBlacklistKeyword(1: UpdateBlacklistKeywordReq req) (api.put="/console/api/v1/blacklist-keywords/:keyword_id")
+    BlacklistKeywordResp DeleteBlacklistKeyword(1: DeleteBlacklistKeywordReq req) (api.delete="/console/api/v1/blacklist-keywords/:keyword_id")
 }

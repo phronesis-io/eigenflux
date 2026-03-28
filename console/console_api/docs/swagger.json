@@ -125,6 +125,146 @@
                 }
             }
         },
+        "/console/api/v1/blacklist-keywords": {
+            "get": {
+                "description": "Returns a paginated list of content blacklist keywords",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "List blacklist keywords",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default: 20, max: 100)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter by enabled status",
+                        "name": "enabled",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsResp"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new content blacklist keyword",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Create blacklist keyword",
+                "parameters": [
+                    {
+                        "description": "Keyword",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console.createBlacklistKeywordReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/blacklist-keywords/{keyword_id}": {
+            "put": {
+                "description": "Updates the enabled status of a blacklist keyword",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Update blacklist keyword",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Keyword ID",
+                        "name": "keyword_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update fields",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console.updateBlacklistKeywordReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Permanently deletes a blacklist keyword",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Delete blacklist keyword",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Keyword ID",
+                        "name": "keyword_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp"
+                        }
+                    }
+                }
+            }
+        },
         "/console/api/v1/impr/items": {
             "get": {
                 "description": "Returns Redis impr record and matched item details by agent_id",
@@ -745,6 +885,14 @@
                 }
             }
         },
+        "console.createBlacklistKeywordReq": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string"
+                }
+            }
+        },
         "console.createMilestoneRuleReq": {
             "type": "object",
             "properties": {
@@ -817,6 +965,14 @@
                 }
             }
         },
+        "console.updateBlacklistKeywordReq": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "console.updateItemReq": {
             "type": "object",
             "properties": {
@@ -858,6 +1014,48 @@
                     "type": "integer"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordData": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "keyword": {
+                    "type": "string"
+                },
+                "keyword_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordData"
+                },
+                "msg": {
                     "type": "string"
                 }
             }
@@ -926,6 +1124,40 @@
                 },
                 "data": {
                     "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData": {
+            "type": "object",
+            "properties": {
+                "keywords": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData"
                 },
                 "msg": {
                     "type": "string"

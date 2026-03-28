@@ -71,6 +71,37 @@ type UpdateItemResp struct {
 	Data *UpdateItemData `json:"data"`
 }
 
+type BlacklistKeywordInfo struct {
+	KeywordID string `json:"keyword_id"`
+	Keyword   string `json:"keyword"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type ListBlacklistKeywordsData struct {
+	Keywords []BlacklistKeywordInfo `json:"keywords"`
+	Total    int64                  `json:"total"`
+	Page     int32                  `json:"page"`
+	PageSize int32                  `json:"page_size"`
+}
+
+type ListBlacklistKeywordsResp struct {
+	Code int32                      `json:"code"`
+	Msg  string                     `json:"msg"`
+	Data *ListBlacklistKeywordsData `json:"data"`
+}
+
+type BlacklistKeywordData struct {
+	Keyword BlacklistKeywordInfo `json:"keyword"`
+}
+
+type BlacklistKeywordResp struct {
+	Code int32                 `json:"code"`
+	Msg  string                `json:"msg"`
+	Data *BlacklistKeywordData `json:"data"`
+}
+
 type MilestoneRuleInfo struct {
 	RuleID          string `json:"rule_id"`
 	MetricKey       string `json:"metric_key"`
@@ -547,4 +578,113 @@ func TestConsoleListItemsExcludeEmailSuffixes(t *testing.T) {
 	}
 
 	t.Logf("exclude_email_suffixes filter works: total=%d (same as unfiltered)", filtered.Data.Total)
+}
+
+func TestConsoleBlacklistKeywordsFlow(t *testing.T) {
+	seed := time.Now().UnixNano() % 1_000_000_000
+	testKeyword := fmt.Sprintf("test-blacklist-%d", seed)
+
+	// 1. Create a blacklist keyword
+	createResp := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/blacklist-keywords", map[string]interface{}{
+		"keyword": testKeyword,
+	})
+	var created BlacklistKeywordResp
+	testutil.MustDecodeResp(t, createResp, &created)
+	if created.Code != 0 || created.Data == nil {
+		t.Fatalf("create blacklist keyword failed: code=%d msg=%s", created.Code, created.Msg)
+	}
+	if created.Data.Keyword.Keyword != testKeyword {
+		t.Fatalf("expected keyword=%q, got %q", testKeyword, created.Data.Keyword.Keyword)
+	}
+	if !created.Data.Keyword.Enabled {
+		t.Fatalf("expected keyword to be enabled by default")
+	}
+	keywordID := created.Data.Keyword.KeywordID
+
+	// 2. List keywords and verify it appears
+	listResp := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/blacklist-keywords?page=1&page_size=100&enabled=true", nil)
+	var listed ListBlacklistKeywordsResp
+	testutil.MustDecodeResp(t, listResp, &listed)
+	if listed.Code != 0 {
+		t.Fatalf("list blacklist keywords failed: code=%d msg=%s", listed.Code, listed.Msg)
+	}
+	found := false
+	for _, kw := range listed.Data.Keywords {
+		if kw.KeywordID == keywordID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created keyword %s not found in list response", keywordID)
+	}
+
+	// 3. Duplicate keyword should fail
+	dupResp := testutil.DoConsoleJSONRequest(t, http.MethodPost, "/console/api/v1/blacklist-keywords", map[string]interface{}{
+		"keyword": testKeyword,
+	})
+	var dup BlacklistKeywordResp
+	testutil.MustDecodeResp(t, dupResp, &dup)
+	if dup.Code == 0 {
+		t.Fatalf("expected duplicate keyword to fail, but got code=0")
+	}
+
+	// 4. Disable the keyword
+	updateResp := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/blacklist-keywords/"+keywordID, map[string]interface{}{
+		"enabled": false,
+	})
+	var updated BlacklistKeywordResp
+	testutil.MustDecodeResp(t, updateResp, &updated)
+	if updated.Code != 0 || updated.Data == nil {
+		t.Fatalf("update blacklist keyword failed: code=%d msg=%s", updated.Code, updated.Msg)
+	}
+	if updated.Data.Keyword.Enabled {
+		t.Fatalf("expected keyword to be disabled after update")
+	}
+
+	// 5. Filter by enabled=false should include our keyword
+	listDisabledResp := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/blacklist-keywords?page=1&page_size=100&enabled=false", nil)
+	var listedDisabled ListBlacklistKeywordsResp
+	testutil.MustDecodeResp(t, listDisabledResp, &listedDisabled)
+	if listedDisabled.Code != 0 {
+		t.Fatalf("list disabled keywords failed: code=%d msg=%s", listedDisabled.Code, listedDisabled.Msg)
+	}
+	foundDisabled := false
+	for _, kw := range listedDisabled.Data.Keywords {
+		if kw.KeywordID == keywordID {
+			foundDisabled = true
+			break
+		}
+	}
+	if !foundDisabled {
+		t.Fatalf("disabled keyword %s not found in enabled=false filter", keywordID)
+	}
+
+	// 6. Delete the keyword (cleanup)
+	delResp := testutil.DoConsoleJSONRequest(t, http.MethodDelete, "/console/api/v1/blacklist-keywords/"+keywordID, nil)
+	var deleted map[string]interface{}
+	testutil.MustDecodeResp(t, delResp, &deleted)
+	code, _ := deleted["code"].(float64)
+	if int(code) != 0 {
+		t.Fatalf("delete blacklist keyword failed: %v", deleted)
+	}
+
+	// 7. Verify deletion: keyword no longer in list
+	listAfterDelResp := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/blacklist-keywords?page=1&page_size=100", nil)
+	var listedAfterDel ListBlacklistKeywordsResp
+	testutil.MustDecodeResp(t, listAfterDelResp, &listedAfterDel)
+	for _, kw := range listedAfterDel.Data.Keywords {
+		if kw.KeywordID == keywordID {
+			t.Fatalf("keyword %s should have been deleted but still appears in list", keywordID)
+		}
+	}
+
+	// 8. Delete non-existent keyword should fail
+	delNonExistResp := testutil.DoConsoleJSONRequest(t, http.MethodDelete, "/console/api/v1/blacklist-keywords/999999999", nil)
+	var delNonExist map[string]interface{}
+	testutil.MustDecodeResp(t, delNonExistResp, &delNonExist)
+	code2, _ := delNonExist["code"].(float64)
+	if int(code2) == 0 {
+		t.Fatalf("expected delete of non-existent keyword to fail, but got code=0")
+	}
 }

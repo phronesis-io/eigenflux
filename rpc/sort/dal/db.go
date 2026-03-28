@@ -7,6 +7,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// Item processing status codes (subset relevant to sort queries).
+const StatusCompleted int16 = 3
+
 // MatchItemsByKeywords finds item_ids matching any of the given keywords using ILIKE on the processed_items table's keywords column.
 // Returns item_ids ordered by updated_at DESC with cursor pagination using lastUpdatedAt.
 func MatchItemsByKeywords(db *gorm.DB, keywords []string, lastUpdatedAt int64, limit int) ([]int64, []int64, error) {
@@ -27,7 +30,7 @@ func MatchItemsByKeywords(db *gorm.DB, keywords []string, lastUpdatedAt int64, l
 		return nil, nil, nil
 	}
 
-	whereClause := "status = 3 AND (" + strings.Join(conditions, " OR ") + ")"
+	whereClause := fmt.Sprintf("status = %d AND (", StatusCompleted) + strings.Join(conditions, " OR ") + ")"
 	if lastUpdatedAt > 0 {
 		whereClause += " AND updated_at < ?"
 		args = append(args, lastUpdatedAt)
@@ -65,7 +68,7 @@ func GetLatestItemIDs(db *gorm.DB, lastUpdatedAt int64, limit int) ([]int64, []i
 		UpdatedAt int64 `gorm:"column:updated_at"`
 	}
 	var results []result
-	tx := db.Table("processed_items").Select("item_id, updated_at").Where("status = 3")
+	tx := db.Table("processed_items").Select("item_id, updated_at").Where("status = ?", StatusCompleted)
 	if lastUpdatedAt > 0 {
 		tx = tx.Where("updated_at < ?", lastUpdatedAt)
 	}

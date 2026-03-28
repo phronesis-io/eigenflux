@@ -38,6 +38,16 @@ type ProcessedItem struct {
 
 func (ProcessedItem) TableName() string { return "processed_items" }
 
+// Item processing status codes.
+const (
+	StatusPending    int16 = 0
+	StatusProcessing int16 = 1
+	StatusFailed     int16 = 2
+	StatusCompleted  int16 = 3
+	StatusDiscarded  int16 = 4
+	StatusDeleted    int16 = 5
+)
+
 // type ItemStats struct {
 // 	ItemID         int64 `gorm:"column:item_id;primaryKey"`
 // 	AuthorAgentID  int64 `gorm:"column:author_agent_id;not null"`
@@ -116,8 +126,8 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 		updates["source_type"] = sourceType
 	}
 
-	// Skip update if item is already deleted (status=5 is terminal)
-	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != 5", itemID).Updates(updates).Error
+	// Skip update if item is already deleted (terminal)
+	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != ?", itemID, StatusDeleted).Updates(updates).Error
 }
 
 func GetProcessedItemExpectedResponse(db *gorm.DB, itemID int64) (string, error) {
@@ -139,8 +149,8 @@ func GetProcessedItemByID(db *gorm.DB, itemID int64) (*ProcessedItem, error) {
 
 
 func UpdateProcessedItemStatus(db *gorm.DB, itemID int64, status int16) error {
-	// Skip update if item is already deleted (status=5 is terminal)
-	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != 5", itemID).Updates(map[string]interface{}{
+	// Skip update if item is already deleted (terminal)
+	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != ?", itemID, StatusDeleted).Updates(map[string]interface{}{
 		"status":     status,
 		"updated_at": time.Now().UnixMilli(),
 	}).Error
@@ -151,7 +161,7 @@ func BatchGetProcessedItems(db *gorm.DB, itemIDs []int64) ([]*ProcessedItem, err
 		return nil, nil
 	}
 	var items []*ProcessedItem
-	err := db.Where("item_id IN ? AND status = 3", itemIDs).Find(&items).Error
+	err := db.Where("item_id IN ? AND status = ?", itemIDs, StatusCompleted).Find(&items).Error
 	return items, err
 }
 
@@ -208,7 +218,7 @@ func GetLatestItems(db *gorm.DB, lastItemID int64, limit int) ([]*ProcessedItem,
 		limit = 20
 	}
 	var items []*ProcessedItem
-	tx := db.Where("status = 3")
+	tx := db.Where("status = ?", StatusCompleted)
 	if lastItemID > 0 {
 		tx = tx.Where("item_id > ?", lastItemID)
 	}
@@ -228,7 +238,7 @@ func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 	err := db.Table("processed_items").
 		Select("processed_items.*, raw_items.raw_url, raw_items.raw_content").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
-		Where("processed_items.item_id = ? AND processed_items.status = 3", itemID).
+		Where("processed_items.item_id = ? AND processed_items.status = ?", itemID, StatusCompleted).
 		First(&result).Error
 	return &result, err
 }
@@ -241,7 +251,7 @@ func BatchGetItemsWithURL(db *gorm.DB, itemIDs []int64) ([]*ItemWithURL, error) 
 	err := db.Table("processed_items").
 		Select("processed_items.*, raw_items.raw_url").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
-		Where("processed_items.item_id IN ? AND processed_items.status = 3", itemIDs).
+		Where("processed_items.item_id IN ? AND processed_items.status = ?", itemIDs, StatusCompleted).
 		Find(&items).Error
 	return items, err
 }
@@ -255,7 +265,7 @@ func GetItemsSince(db *gorm.DB, sinceUpdatedAt int64, limit int) ([]*ItemWithURL
 	tx := db.Table("processed_items").
 		Select("processed_items.*, raw_items.raw_url").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
-		Where("processed_items.status = 3")
+		Where("processed_items.status = ?", StatusCompleted)
 
 	if sinceUpdatedAt > 0 {
 		tx = tx.Where("processed_items.updated_at > ?", sinceUpdatedAt)
@@ -363,12 +373,12 @@ type ItemWithStats struct {
 // GetItemStatsByAuthor retrieves items with stats for a specific author
 // Optimized version: avoid JOINs by querying tables separately
 func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int) ([]*ItemWithStats, error) {
-	// Step 1: Query item_stats table, excluding deleted items (status=5)
+	// Step 1: Query item_stats table, excluding deleted items
 	var stats []ItemStats
 	query := db.Table("item_stats").
 		Joins("INNER JOIN processed_items ON item_stats.item_id = processed_items.item_id").
 		Where("item_stats.author_agent_id = ?", authorAgentID).
-		Where("processed_items.status != ?", 5)
+		Where("processed_items.status != ?", StatusDeleted)
 	if lastItemID > 0 {
 		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}

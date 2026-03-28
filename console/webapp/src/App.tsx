@@ -11,6 +11,7 @@ import { ImprRecordList } from "./pages/impr/list";
 import { ItemList } from "./pages/items/list";
 import { MilestoneRuleList } from "./pages/milestone-rules/list";
 import { SystemNotificationList } from "./pages/system-notifications/list";
+import { BlacklistKeywordList } from "./pages/blacklist/list";
 
 function App() {
   return (
@@ -50,6 +51,7 @@ function App() {
                   label: "System Notifications",
                 },
               },
+              { name: "blacklist-keywords", list: "/blacklist-keywords", meta: { label: "Blacklist Keywords" } },
             ]}
           >
             <Routes>
@@ -66,6 +68,7 @@ function App() {
                 <Route path="/impr" element={<ImprRecordList />} />
                 <Route path="/milestone-rules" element={<MilestoneRuleList />} />
                 <Route path="/system-notifications" element={<SystemNotificationList />} />
+                <Route path="/blacklist-keywords" element={<BlacklistKeywordList />} />
               </Route>
             </Routes>
           </Refine>

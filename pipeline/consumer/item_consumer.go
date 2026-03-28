@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,14 +141,25 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Preserve publisher's expected_response if set to "no_reply"
 	publisherExpResp, _ := itemDal.GetProcessedItemExpectedResponse(db.DB, itemID)
 
-	// Set status to processing (1)
-	itemDal.UpdateProcessedItemStatus(db.DB, itemID, 1)
+	// Set status to processing
+	itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusProcessing)
 
 	// Get raw item
 	raw, err := itemDal.GetRawItemByID(db.DB, itemID)
 	if err != nil {
 		log.Printf("[ItemConsumer] raw item not found: %d, err: %v", itemID, err)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, 2) // failed
+		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+
+	// Check blacklist keywords before LLM processing
+	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
+		log.Printf("[ItemConsumer] item %d discarded by blacklist keyword: %q", itemID, matched)
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
+			return
+		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -165,7 +177,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	if err != nil {
 		log.Printf("[ItemConsumer] all retries failed for item %d: %v", itemID, err)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, 2) // failed
+		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -173,7 +185,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check discard flag (skip in non-dev environments for testing)
 	if result.Discard {
 		log.Printf("[ItemConsumer] item %d discarded by LLM: %s", itemID, result.DiscardReason)
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4); err != nil {
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
 			return
 		}
@@ -184,7 +196,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check quality threshold
 	if result.Quality < c.qualityThreshold {
 		log.Printf("[ItemConsumer] item %d quality score %.2f below threshold %.2f, discarding", itemID, result.Quality, c.qualityThreshold)
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, 4); err != nil {
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
 			return
 		}
@@ -276,7 +288,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		finalExpectedResponse = "no_reply"
 	}
 
-	// Update processed item with LLM results, status=3 (done)
+	// Update processed item with LLM results
 	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID) {
 		return
 	}
@@ -369,10 +381,10 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64) bool {
-	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, 3); err != nil {
+	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, itemDal.StatusCompleted); err != nil {
 		log.Printf("[ItemConsumer] failed to persist processed item %d: broadcast_type=%s, err=%v", itemID, result.BroadcastType, err)
 
-		if statusErr := updateProcessedItemStatus(db.DB, itemID, 2); statusErr != nil {
+		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {
 			log.Printf("[ItemConsumer] failed to mark item %d as failed after persist error: %v", itemID, statusErr)
 		}
 
@@ -382,6 +394,27 @@ func persistProcessedItem(ctx context.Context, msgID string, itemID int64, resul
 
 	log.Printf("[ItemConsumer] item %d processed: broadcast_type=%s, domains=%v, keywords=%v, group_id=%d, quality=%.2f", itemID, result.BroadcastType, result.Domains, result.Keywords, finalGroupID, result.Quality)
 	return true
+}
+
+// matchBlacklist returns the first matching keyword if any blacklist keyword is found
+// in the concatenated raw content, or empty string if no match.
+func matchBlacklist(keywords []string, rawContent, rawURL, rawNotes string) string {
+	if len(keywords) == 0 {
+		return ""
+	}
+	combined := strings.ToLower(rawContent + " " + rawURL + " " + rawNotes)
+	for _, kw := range keywords {
+		if strings.Contains(combined, strings.ToLower(kw)) {
+			return kw
+		}
+	}
+	return ""
+}
+
+// checkBlacklist loads keywords from cache and checks for matches.
+func checkBlacklist(ctx context.Context, rawContent, rawURL, rawNotes string) string {
+	keywords := loadBlacklistKeywords(ctx)
+	return matchBlacklist(keywords, rawContent, rawURL, rawNotes)
 }
 
 // parseExpireTime parses expire time string to *time.Time

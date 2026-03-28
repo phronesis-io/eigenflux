@@ -55,6 +55,17 @@ type SystemNotification struct {
 
 func (SystemNotification) TableName() string { return "system_notifications" }
 
+// BlacklistKeyword maps to the content_blacklist_keywords table.
+type BlacklistKeyword struct {
+	KeywordID int64  `gorm:"column:keyword_id;primaryKey;autoIncrement"`
+	Keyword   string `gorm:"column:keyword;type:text;not null"`
+	Enabled   bool   `gorm:"column:enabled;not null;default:true"`
+	CreatedAt int64  `gorm:"column:created_at;not null"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null"`
+}
+
+func (BlacklistKeyword) TableName() string { return "content_blacklist_keywords" }
+
 // IsActive returns true if the notification is in the active lifecycle window.
 func (n *SystemNotification) IsActive(nowMS int64) bool {
 	if n.Status != StatusActive {
@@ -72,6 +83,7 @@ func (n *SystemNotification) IsActive(nowMS int64) bool {
 	return true
 }
 
+// System notification status codes.
 const (
 	StatusDraft   int16 = 0
 	StatusActive  int16 = 1
@@ -79,4 +91,14 @@ const (
 
 	AudienceTypeBroadcast  = "broadcast"
 	AudienceTypeExpression = "expression"
+)
+
+// Item processing status codes.
+const (
+	ItemStatusPending    int16 = 0
+	ItemStatusProcessing int16 = 1
+	ItemStatusFailed     int16 = 2
+	ItemStatusCompleted  int16 = 3
+	ItemStatusDiscarded  int16 = 4
+	ItemStatusDeleted    int16 = 5
 )

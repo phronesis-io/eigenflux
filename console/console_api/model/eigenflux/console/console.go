@@ -2326,6 +2326,10 @@ type ListItemsReq struct {
 	Keyword              *string `thrift:"keyword,4,optional" json:"keyword,omitempty" query:"keyword"`
 	Title                *string `thrift:"title,5,optional" json:"title,omitempty" query:"title"`
 	ExcludeEmailSuffixes *string `thrift:"exclude_email_suffixes,6,optional" json:"exclude_email_suffixes,omitempty" query:"exclude_email_suffixes"`
+	ItemID               *string `thrift:"item_id,7,optional" json:"item_id,omitempty" query:"item_id"`
+	GroupID              *string `thrift:"group_id,8,optional" json:"group_id,omitempty" query:"group_id"`
+	AuthorAgentID        *string `thrift:"author_agent_id,9,optional" json:"author_agent_id,omitempty" query:"author_agent_id"`
+	IncludeEmailSuffixes *string `thrift:"include_email_suffixes,10,optional" json:"include_email_suffixes,omitempty" query:"include_email_suffixes"`
 }
 
 func NewListItemsReq() *ListItemsReq {
@@ -2379,13 +2383,53 @@ func (p *ListItemsReq) GetExcludeEmailSuffixes() (v string) {
 	return *p.ExcludeEmailSuffixes
 }
 
+var ListItemsReq_ItemID_DEFAULT string
+
+func (p *ListItemsReq) GetItemID() (v string) {
+	if !p.IsSetItemID() {
+		return ListItemsReq_ItemID_DEFAULT
+	}
+	return *p.ItemID
+}
+
+var ListItemsReq_GroupID_DEFAULT string
+
+func (p *ListItemsReq) GetGroupID() (v string) {
+	if !p.IsSetGroupID() {
+		return ListItemsReq_GroupID_DEFAULT
+	}
+	return *p.GroupID
+}
+
+var ListItemsReq_AuthorAgentID_DEFAULT string
+
+func (p *ListItemsReq) GetAuthorAgentID() (v string) {
+	if !p.IsSetAuthorAgentID() {
+		return ListItemsReq_AuthorAgentID_DEFAULT
+	}
+	return *p.AuthorAgentID
+}
+
+var ListItemsReq_IncludeEmailSuffixes_DEFAULT string
+
+func (p *ListItemsReq) GetIncludeEmailSuffixes() (v string) {
+	if !p.IsSetIncludeEmailSuffixes() {
+		return ListItemsReq_IncludeEmailSuffixes_DEFAULT
+	}
+	return *p.IncludeEmailSuffixes
+}
+
 var fieldIDToName_ListItemsReq = map[int16]string{
-	1: "page",
-	2: "page_size",
-	3: "status",
-	4: "keyword",
-	5: "title",
-	6: "exclude_email_suffixes",
+	1:  "page",
+	2:  "page_size",
+	3:  "status",
+	4:  "keyword",
+	5:  "title",
+	6:  "exclude_email_suffixes",
+	7:  "item_id",
+	8:  "group_id",
+	9:  "author_agent_id",
+	10: "include_email_suffixes",
 }
 
 func (p *ListItemsReq) IsSetStatus() bool {
@@ -2402,6 +2446,22 @@ func (p *ListItemsReq) IsSetTitle() bool {
 
 func (p *ListItemsReq) IsSetExcludeEmailSuffixes() bool {
 	return p.ExcludeEmailSuffixes != nil
+}
+
+func (p *ListItemsReq) IsSetItemID() bool {
+	return p.ItemID != nil
+}
+
+func (p *ListItemsReq) IsSetGroupID() bool {
+	return p.GroupID != nil
+}
+
+func (p *ListItemsReq) IsSetAuthorAgentID() bool {
+	return p.AuthorAgentID != nil
+}
+
+func (p *ListItemsReq) IsSetIncludeEmailSuffixes() bool {
+	return p.IncludeEmailSuffixes != nil
 }
 
 func (p *ListItemsReq) Read(iprot thrift.TProtocol) (err error) {
@@ -2466,6 +2526,38 @@ func (p *ListItemsReq) Read(iprot thrift.TProtocol) (err error) {
 		case 6:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 10:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField10(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -2566,6 +2658,50 @@ func (p *ListItemsReq) ReadField6(iprot thrift.TProtocol) error {
 	p.ExcludeEmailSuffixes = _field
 	return nil
 }
+func (p *ListItemsReq) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ItemID = _field
+	return nil
+}
+func (p *ListItemsReq) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.GroupID = _field
+	return nil
+}
+func (p *ListItemsReq) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AuthorAgentID = _field
+	return nil
+}
+func (p *ListItemsReq) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.IncludeEmailSuffixes = _field
+	return nil
+}
 
 func (p *ListItemsReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -2595,6 +2731,22 @@ func (p *ListItemsReq) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField6(oprot); err != nil {
 			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
 			goto WriteFieldError
 		}
 	}
@@ -2723,6 +2875,82 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *ListItemsReq) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetItemID() {
+		if err = oprot.WriteFieldBegin("item_id", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ItemID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *ListItemsReq) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetGroupID() {
+		if err = oprot.WriteFieldBegin("group_id", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.GroupID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *ListItemsReq) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAuthorAgentID() {
+		if err = oprot.WriteFieldBegin("author_agent_id", thrift.STRING, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AuthorAgentID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *ListItemsReq) writeField10(oprot thrift.TProtocol) (err error) {
+	if p.IsSetIncludeEmailSuffixes() {
+		if err = oprot.WriteFieldBegin("include_email_suffixes", thrift.STRING, 10); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.IncludeEmailSuffixes); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
 }
 
 func (p *ListItemsReq) String() string {
@@ -11641,6 +11869,1995 @@ func (p *SystemNotificationResp) String() string {
 
 }
 
+// ===== Console Blacklist Keyword Structs =====
+type ListBlacklistKeywordsReq struct {
+	Page     int32 `thrift:"page,1" json:"page" query:"page"`
+	PageSize int32 `thrift:"page_size,2" json:"page_size" query:"page_size"`
+	Enabled  *bool `thrift:"enabled,3,optional" json:"enabled,omitempty" query:"enabled"`
+}
+
+func NewListBlacklistKeywordsReq() *ListBlacklistKeywordsReq {
+	return &ListBlacklistKeywordsReq{}
+}
+
+func (p *ListBlacklistKeywordsReq) InitDefault() {
+}
+
+func (p *ListBlacklistKeywordsReq) GetPage() (v int32) {
+	return p.Page
+}
+
+func (p *ListBlacklistKeywordsReq) GetPageSize() (v int32) {
+	return p.PageSize
+}
+
+var ListBlacklistKeywordsReq_Enabled_DEFAULT bool
+
+func (p *ListBlacklistKeywordsReq) GetEnabled() (v bool) {
+	if !p.IsSetEnabled() {
+		return ListBlacklistKeywordsReq_Enabled_DEFAULT
+	}
+	return *p.Enabled
+}
+
+var fieldIDToName_ListBlacklistKeywordsReq = map[int16]string{
+	1: "page",
+	2: "page_size",
+	3: "enabled",
+}
+
+func (p *ListBlacklistKeywordsReq) IsSetEnabled() bool {
+	return p.Enabled != nil
+}
+
+func (p *ListBlacklistKeywordsReq) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListBlacklistKeywordsReq[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsReq) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Page = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsReq) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.PageSize = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsReq) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Enabled = _field
+	return nil
+}
+
+func (p *ListBlacklistKeywordsReq) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListBlacklistKeywordsReq"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsReq) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("page", thrift.I32, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.Page); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsReq) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("page_size", thrift.I32, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.PageSize); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsReq) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEnabled() {
+		if err = oprot.WriteFieldBegin("enabled", thrift.BOOL, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.Enabled); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListBlacklistKeywordsReq(%+v)", *p)
+
+}
+
+type BlacklistKeywordInfo struct {
+	KeywordID string `thrift:"keyword_id,1" form:"keyword_id" json:"keyword_id" query:"keyword_id"`
+	Keyword   string `thrift:"keyword,2" form:"keyword" json:"keyword" query:"keyword"`
+	Enabled   bool   `thrift:"enabled,3" form:"enabled" json:"enabled" query:"enabled"`
+	CreatedAt int64  `thrift:"created_at,4" form:"created_at" json:"created_at" query:"created_at"`
+	UpdatedAt int64  `thrift:"updated_at,5" form:"updated_at" json:"updated_at" query:"updated_at"`
+}
+
+func NewBlacklistKeywordInfo() *BlacklistKeywordInfo {
+	return &BlacklistKeywordInfo{}
+}
+
+func (p *BlacklistKeywordInfo) InitDefault() {
+}
+
+func (p *BlacklistKeywordInfo) GetKeywordID() (v string) {
+	return p.KeywordID
+}
+
+func (p *BlacklistKeywordInfo) GetKeyword() (v string) {
+	return p.Keyword
+}
+
+func (p *BlacklistKeywordInfo) GetEnabled() (v bool) {
+	return p.Enabled
+}
+
+func (p *BlacklistKeywordInfo) GetCreatedAt() (v int64) {
+	return p.CreatedAt
+}
+
+func (p *BlacklistKeywordInfo) GetUpdatedAt() (v int64) {
+	return p.UpdatedAt
+}
+
+var fieldIDToName_BlacklistKeywordInfo = map[int16]string{
+	1: "keyword_id",
+	2: "keyword",
+	3: "enabled",
+	4: "created_at",
+	5: "updated_at",
+}
+
+func (p *BlacklistKeywordInfo) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_BlacklistKeywordInfo[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.KeywordID = _field
+	return nil
+}
+func (p *BlacklistKeywordInfo) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Keyword = _field
+	return nil
+}
+func (p *BlacklistKeywordInfo) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Enabled = _field
+	return nil
+}
+func (p *BlacklistKeywordInfo) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.CreatedAt = _field
+	return nil
+}
+func (p *BlacklistKeywordInfo) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.UpdatedAt = _field
+	return nil
+}
+
+func (p *BlacklistKeywordInfo) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("BlacklistKeywordInfo"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.KeywordID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Keyword); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("enabled", thrift.BOOL, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.Enabled); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("created_at", thrift.I64, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.CreatedAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("updated_at", thrift.I64, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.UpdatedAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordInfo) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlacklistKeywordInfo(%+v)", *p)
+
+}
+
+type ListBlacklistKeywordsData struct {
+	Keywords []*BlacklistKeywordInfo `thrift:"keywords,1,default,list<BlacklistKeywordInfo>" form:"keywords" json:"keywords" query:"keywords"`
+	Total    int64                   `thrift:"total,2" form:"total" json:"total" query:"total"`
+	Page     int32                   `thrift:"page,3" form:"page" json:"page" query:"page"`
+	PageSize int32                   `thrift:"page_size,4" form:"page_size" json:"page_size" query:"page_size"`
+}
+
+func NewListBlacklistKeywordsData() *ListBlacklistKeywordsData {
+	return &ListBlacklistKeywordsData{}
+}
+
+func (p *ListBlacklistKeywordsData) InitDefault() {
+}
+
+func (p *ListBlacklistKeywordsData) GetKeywords() (v []*BlacklistKeywordInfo) {
+	return p.Keywords
+}
+
+func (p *ListBlacklistKeywordsData) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *ListBlacklistKeywordsData) GetPage() (v int32) {
+	return p.Page
+}
+
+func (p *ListBlacklistKeywordsData) GetPageSize() (v int32) {
+	return p.PageSize
+}
+
+var fieldIDToName_ListBlacklistKeywordsData = map[int16]string{
+	1: "keywords",
+	2: "total",
+	3: "page",
+	4: "page_size",
+}
+
+func (p *ListBlacklistKeywordsData) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListBlacklistKeywordsData[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) ReadField1(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*BlacklistKeywordInfo, 0, size)
+	values := make([]BlacklistKeywordInfo, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Keywords = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsData) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Total = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsData) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Page = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsData) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.PageSize = _field
+	return nil
+}
+
+func (p *ListBlacklistKeywordsData) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListBlacklistKeywordsData"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keywords", thrift.LIST, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Keywords)); err != nil {
+		return err
+	}
+	for _, v := range p.Keywords {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("total", thrift.I64, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.Total); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("page", thrift.I32, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.Page); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("page_size", thrift.I32, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.PageSize); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsData) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListBlacklistKeywordsData(%+v)", *p)
+
+}
+
+type ListBlacklistKeywordsResp struct {
+	Code int32                      `thrift:"code,1" form:"code" json:"code" query:"code"`
+	Msg  string                     `thrift:"msg,2" form:"msg" json:"msg" query:"msg"`
+	Data *ListBlacklistKeywordsData `thrift:"data,3" form:"data" json:"data" query:"data"`
+}
+
+func NewListBlacklistKeywordsResp() *ListBlacklistKeywordsResp {
+	return &ListBlacklistKeywordsResp{}
+}
+
+func (p *ListBlacklistKeywordsResp) InitDefault() {
+}
+
+func (p *ListBlacklistKeywordsResp) GetCode() (v int32) {
+	return p.Code
+}
+
+func (p *ListBlacklistKeywordsResp) GetMsg() (v string) {
+	return p.Msg
+}
+
+var ListBlacklistKeywordsResp_Data_DEFAULT *ListBlacklistKeywordsData
+
+func (p *ListBlacklistKeywordsResp) GetData() (v *ListBlacklistKeywordsData) {
+	if !p.IsSetData() {
+		return ListBlacklistKeywordsResp_Data_DEFAULT
+	}
+	return p.Data
+}
+
+var fieldIDToName_ListBlacklistKeywordsResp = map[int16]string{
+	1: "code",
+	2: "msg",
+	3: "data",
+}
+
+func (p *ListBlacklistKeywordsResp) IsSetData() bool {
+	return p.Data != nil
+}
+
+func (p *ListBlacklistKeywordsResp) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListBlacklistKeywordsResp[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsResp) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Code = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsResp) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Msg = _field
+	return nil
+}
+func (p *ListBlacklistKeywordsResp) ReadField3(iprot thrift.TProtocol) error {
+	_field := NewListBlacklistKeywordsData()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Data = _field
+	return nil
+}
+
+func (p *ListBlacklistKeywordsResp) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListBlacklistKeywordsResp"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsResp) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("code", thrift.I32, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.Code); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsResp) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("msg", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Msg); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsResp) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("data", thrift.STRUCT, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Data.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ListBlacklistKeywordsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListBlacklistKeywordsResp(%+v)", *p)
+
+}
+
+type CreateBlacklistKeywordReq struct {
+	Keyword string `thrift:"keyword,1,required" form:"keyword,required" json:"keyword,required"`
+}
+
+func NewCreateBlacklistKeywordReq() *CreateBlacklistKeywordReq {
+	return &CreateBlacklistKeywordReq{}
+}
+
+func (p *CreateBlacklistKeywordReq) InitDefault() {
+}
+
+func (p *CreateBlacklistKeywordReq) GetKeyword() (v string) {
+	return p.Keyword
+}
+
+var fieldIDToName_CreateBlacklistKeywordReq = map[int16]string{
+	1: "keyword",
+}
+
+func (p *CreateBlacklistKeywordReq) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetKeyword bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetKeyword = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetKeyword {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_CreateBlacklistKeywordReq[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_CreateBlacklistKeywordReq[fieldId]))
+}
+
+func (p *CreateBlacklistKeywordReq) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Keyword = _field
+	return nil
+}
+
+func (p *CreateBlacklistKeywordReq) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("CreateBlacklistKeywordReq"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *CreateBlacklistKeywordReq) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Keyword); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *CreateBlacklistKeywordReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateBlacklistKeywordReq(%+v)", *p)
+
+}
+
+type UpdateBlacklistKeywordReq struct {
+	KeywordID int64 `thrift:"keyword_id,1,required" json:"keyword_id,required" path:"keyword_id,required"`
+	Enabled   *bool `thrift:"enabled,2,optional" form:"enabled" json:"enabled,omitempty"`
+}
+
+func NewUpdateBlacklistKeywordReq() *UpdateBlacklistKeywordReq {
+	return &UpdateBlacklistKeywordReq{}
+}
+
+func (p *UpdateBlacklistKeywordReq) InitDefault() {
+}
+
+func (p *UpdateBlacklistKeywordReq) GetKeywordID() (v int64) {
+	return p.KeywordID
+}
+
+var UpdateBlacklistKeywordReq_Enabled_DEFAULT bool
+
+func (p *UpdateBlacklistKeywordReq) GetEnabled() (v bool) {
+	if !p.IsSetEnabled() {
+		return UpdateBlacklistKeywordReq_Enabled_DEFAULT
+	}
+	return *p.Enabled
+}
+
+var fieldIDToName_UpdateBlacklistKeywordReq = map[int16]string{
+	1: "keyword_id",
+	2: "enabled",
+}
+
+func (p *UpdateBlacklistKeywordReq) IsSetEnabled() bool {
+	return p.Enabled != nil
+}
+
+func (p *UpdateBlacklistKeywordReq) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetKeywordID bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetKeywordID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetKeywordID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_UpdateBlacklistKeywordReq[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_UpdateBlacklistKeywordReq[fieldId]))
+}
+
+func (p *UpdateBlacklistKeywordReq) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.KeywordID = _field
+	return nil
+}
+func (p *UpdateBlacklistKeywordReq) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Enabled = _field
+	return nil
+}
+
+func (p *UpdateBlacklistKeywordReq) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("UpdateBlacklistKeywordReq"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *UpdateBlacklistKeywordReq) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword_id", thrift.I64, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.KeywordID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *UpdateBlacklistKeywordReq) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEnabled() {
+		if err = oprot.WriteFieldBegin("enabled", thrift.BOOL, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.Enabled); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *UpdateBlacklistKeywordReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateBlacklistKeywordReq(%+v)", *p)
+
+}
+
+type DeleteBlacklistKeywordReq struct {
+	KeywordID int64 `thrift:"keyword_id,1,required" json:"keyword_id,required" path:"keyword_id,required"`
+}
+
+func NewDeleteBlacklistKeywordReq() *DeleteBlacklistKeywordReq {
+	return &DeleteBlacklistKeywordReq{}
+}
+
+func (p *DeleteBlacklistKeywordReq) InitDefault() {
+}
+
+func (p *DeleteBlacklistKeywordReq) GetKeywordID() (v int64) {
+	return p.KeywordID
+}
+
+var fieldIDToName_DeleteBlacklistKeywordReq = map[int16]string{
+	1: "keyword_id",
+}
+
+func (p *DeleteBlacklistKeywordReq) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetKeywordID bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetKeywordID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetKeywordID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_DeleteBlacklistKeywordReq[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_DeleteBlacklistKeywordReq[fieldId]))
+}
+
+func (p *DeleteBlacklistKeywordReq) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.KeywordID = _field
+	return nil
+}
+
+func (p *DeleteBlacklistKeywordReq) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("DeleteBlacklistKeywordReq"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *DeleteBlacklistKeywordReq) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword_id", thrift.I64, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.KeywordID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *DeleteBlacklistKeywordReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteBlacklistKeywordReq(%+v)", *p)
+
+}
+
+type BlacklistKeywordData struct {
+	Keyword *BlacklistKeywordInfo `thrift:"keyword,1" form:"keyword" json:"keyword" query:"keyword"`
+}
+
+func NewBlacklistKeywordData() *BlacklistKeywordData {
+	return &BlacklistKeywordData{}
+}
+
+func (p *BlacklistKeywordData) InitDefault() {
+}
+
+var BlacklistKeywordData_Keyword_DEFAULT *BlacklistKeywordInfo
+
+func (p *BlacklistKeywordData) GetKeyword() (v *BlacklistKeywordInfo) {
+	if !p.IsSetKeyword() {
+		return BlacklistKeywordData_Keyword_DEFAULT
+	}
+	return p.Keyword
+}
+
+var fieldIDToName_BlacklistKeywordData = map[int16]string{
+	1: "keyword",
+}
+
+func (p *BlacklistKeywordData) IsSetKeyword() bool {
+	return p.Keyword != nil
+}
+
+func (p *BlacklistKeywordData) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_BlacklistKeywordData[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordData) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewBlacklistKeywordInfo()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Keyword = _field
+	return nil
+}
+
+func (p *BlacklistKeywordData) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("BlacklistKeywordData"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordData) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Keyword.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordData) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlacklistKeywordData(%+v)", *p)
+
+}
+
+type BlacklistKeywordResp struct {
+	Code int32                 `thrift:"code,1" form:"code" json:"code" query:"code"`
+	Msg  string                `thrift:"msg,2" form:"msg" json:"msg" query:"msg"`
+	Data *BlacklistKeywordData `thrift:"data,3" form:"data" json:"data" query:"data"`
+}
+
+func NewBlacklistKeywordResp() *BlacklistKeywordResp {
+	return &BlacklistKeywordResp{}
+}
+
+func (p *BlacklistKeywordResp) InitDefault() {
+}
+
+func (p *BlacklistKeywordResp) GetCode() (v int32) {
+	return p.Code
+}
+
+func (p *BlacklistKeywordResp) GetMsg() (v string) {
+	return p.Msg
+}
+
+var BlacklistKeywordResp_Data_DEFAULT *BlacklistKeywordData
+
+func (p *BlacklistKeywordResp) GetData() (v *BlacklistKeywordData) {
+	if !p.IsSetData() {
+		return BlacklistKeywordResp_Data_DEFAULT
+	}
+	return p.Data
+}
+
+var fieldIDToName_BlacklistKeywordResp = map[int16]string{
+	1: "code",
+	2: "msg",
+	3: "data",
+}
+
+func (p *BlacklistKeywordResp) IsSetData() bool {
+	return p.Data != nil
+}
+
+func (p *BlacklistKeywordResp) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_BlacklistKeywordResp[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordResp) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Code = _field
+	return nil
+}
+func (p *BlacklistKeywordResp) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Msg = _field
+	return nil
+}
+func (p *BlacklistKeywordResp) ReadField3(iprot thrift.TProtocol) error {
+	_field := NewBlacklistKeywordData()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Data = _field
+	return nil
+}
+
+func (p *BlacklistKeywordResp) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("BlacklistKeywordResp"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *BlacklistKeywordResp) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("code", thrift.I32, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.Code); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordResp) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("msg", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Msg); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordResp) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("data", thrift.STRUCT, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Data.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *BlacklistKeywordResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlacklistKeywordResp(%+v)", *p)
+
+}
+
 // ===== Service =====
 type ConsoleService interface {
 	ListAgents(ctx context.Context, req *ListAgentsReq) (r *ListAgentsResp, err error)
@@ -11670,6 +13887,14 @@ type ConsoleService interface {
 	UpdateSystemNotification(ctx context.Context, req *UpdateSystemNotificationReq) (r *SystemNotificationResp, err error)
 
 	OfflineSystemNotification(ctx context.Context, req *OfflineSystemNotificationReq) (r *SystemNotificationResp, err error)
+
+	ListBlacklistKeywords(ctx context.Context, req *ListBlacklistKeywordsReq) (r *ListBlacklistKeywordsResp, err error)
+
+	CreateBlacklistKeyword(ctx context.Context, req *CreateBlacklistKeywordReq) (r *BlacklistKeywordResp, err error)
+
+	UpdateBlacklistKeyword(ctx context.Context, req *UpdateBlacklistKeywordReq) (r *BlacklistKeywordResp, err error)
+
+	DeleteBlacklistKeyword(ctx context.Context, req *DeleteBlacklistKeywordReq) (r *BlacklistKeywordResp, err error)
 }
 
 type ConsoleServiceClient struct {
@@ -11824,6 +14049,42 @@ func (p *ConsoleServiceClient) OfflineSystemNotification(ctx context.Context, re
 	}
 	return _result.GetSuccess(), nil
 }
+func (p *ConsoleServiceClient) ListBlacklistKeywords(ctx context.Context, req *ListBlacklistKeywordsReq) (r *ListBlacklistKeywordsResp, err error) {
+	var _args ConsoleServiceListBlacklistKeywordsArgs
+	_args.Req = req
+	var _result ConsoleServiceListBlacklistKeywordsResult
+	if err = p.Client_().Call(ctx, "ListBlacklistKeywords", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ConsoleServiceClient) CreateBlacklistKeyword(ctx context.Context, req *CreateBlacklistKeywordReq) (r *BlacklistKeywordResp, err error) {
+	var _args ConsoleServiceCreateBlacklistKeywordArgs
+	_args.Req = req
+	var _result ConsoleServiceCreateBlacklistKeywordResult
+	if err = p.Client_().Call(ctx, "CreateBlacklistKeyword", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ConsoleServiceClient) UpdateBlacklistKeyword(ctx context.Context, req *UpdateBlacklistKeywordReq) (r *BlacklistKeywordResp, err error) {
+	var _args ConsoleServiceUpdateBlacklistKeywordArgs
+	_args.Req = req
+	var _result ConsoleServiceUpdateBlacklistKeywordResult
+	if err = p.Client_().Call(ctx, "UpdateBlacklistKeyword", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ConsoleServiceClient) DeleteBlacklistKeyword(ctx context.Context, req *DeleteBlacklistKeywordReq) (r *BlacklistKeywordResp, err error) {
+	var _args ConsoleServiceDeleteBlacklistKeywordArgs
+	_args.Req = req
+	var _result ConsoleServiceDeleteBlacklistKeywordResult
+	if err = p.Client_().Call(ctx, "DeleteBlacklistKeyword", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
 
 type ConsoleServiceProcessor struct {
 	processorMap map[string]thrift.TProcessorFunction
@@ -11859,6 +14120,10 @@ func NewConsoleServiceProcessor(handler ConsoleService) *ConsoleServiceProcessor
 	self.AddToProcessorMap("CreateSystemNotification", &consoleServiceProcessorCreateSystemNotification{handler: handler})
 	self.AddToProcessorMap("UpdateSystemNotification", &consoleServiceProcessorUpdateSystemNotification{handler: handler})
 	self.AddToProcessorMap("OfflineSystemNotification", &consoleServiceProcessorOfflineSystemNotification{handler: handler})
+	self.AddToProcessorMap("ListBlacklistKeywords", &consoleServiceProcessorListBlacklistKeywords{handler: handler})
+	self.AddToProcessorMap("CreateBlacklistKeyword", &consoleServiceProcessorCreateBlacklistKeyword{handler: handler})
+	self.AddToProcessorMap("UpdateBlacklistKeyword", &consoleServiceProcessorUpdateBlacklistKeyword{handler: handler})
+	self.AddToProcessorMap("DeleteBlacklistKeyword", &consoleServiceProcessorDeleteBlacklistKeyword{handler: handler})
 	return self
 }
 func (p *ConsoleServiceProcessor) Process(ctx context.Context, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
@@ -12534,6 +14799,198 @@ func (p *consoleServiceProcessorOfflineSystemNotification) Process(ctx context.C
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("OfflineSystemNotification", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type consoleServiceProcessorListBlacklistKeywords struct {
+	handler ConsoleService
+}
+
+func (p *consoleServiceProcessorListBlacklistKeywords) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ConsoleServiceListBlacklistKeywordsArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ListBlacklistKeywords", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ConsoleServiceListBlacklistKeywordsResult{}
+	var retval *ListBlacklistKeywordsResp
+	if retval, err2 = p.handler.ListBlacklistKeywords(ctx, args.Req); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ListBlacklistKeywords: "+err2.Error())
+		oprot.WriteMessageBegin("ListBlacklistKeywords", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ListBlacklistKeywords", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type consoleServiceProcessorCreateBlacklistKeyword struct {
+	handler ConsoleService
+}
+
+func (p *consoleServiceProcessorCreateBlacklistKeyword) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ConsoleServiceCreateBlacklistKeywordArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("CreateBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ConsoleServiceCreateBlacklistKeywordResult{}
+	var retval *BlacklistKeywordResp
+	if retval, err2 = p.handler.CreateBlacklistKeyword(ctx, args.Req); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing CreateBlacklistKeyword: "+err2.Error())
+		oprot.WriteMessageBegin("CreateBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("CreateBlacklistKeyword", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type consoleServiceProcessorUpdateBlacklistKeyword struct {
+	handler ConsoleService
+}
+
+func (p *consoleServiceProcessorUpdateBlacklistKeyword) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ConsoleServiceUpdateBlacklistKeywordArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("UpdateBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ConsoleServiceUpdateBlacklistKeywordResult{}
+	var retval *BlacklistKeywordResp
+	if retval, err2 = p.handler.UpdateBlacklistKeyword(ctx, args.Req); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing UpdateBlacklistKeyword: "+err2.Error())
+		oprot.WriteMessageBegin("UpdateBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("UpdateBlacklistKeyword", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type consoleServiceProcessorDeleteBlacklistKeyword struct {
+	handler ConsoleService
+}
+
+func (p *consoleServiceProcessorDeleteBlacklistKeyword) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ConsoleServiceDeleteBlacklistKeywordArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("DeleteBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ConsoleServiceDeleteBlacklistKeywordResult{}
+	var retval *BlacklistKeywordResp
+	if retval, err2 = p.handler.DeleteBlacklistKeyword(ctx, args.Req); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing DeleteBlacklistKeyword: "+err2.Error())
+		oprot.WriteMessageBegin("DeleteBlacklistKeyword", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("DeleteBlacklistKeyword", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -16664,5 +19121,1181 @@ func (p *ConsoleServiceOfflineSystemNotificationResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ConsoleServiceOfflineSystemNotificationResult(%+v)", *p)
+
+}
+
+type ConsoleServiceListBlacklistKeywordsArgs struct {
+	Req *ListBlacklistKeywordsReq `thrift:"req,1"`
+}
+
+func NewConsoleServiceListBlacklistKeywordsArgs() *ConsoleServiceListBlacklistKeywordsArgs {
+	return &ConsoleServiceListBlacklistKeywordsArgs{}
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) InitDefault() {
+}
+
+var ConsoleServiceListBlacklistKeywordsArgs_Req_DEFAULT *ListBlacklistKeywordsReq
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) GetReq() (v *ListBlacklistKeywordsReq) {
+	if !p.IsSetReq() {
+		return ConsoleServiceListBlacklistKeywordsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+
+var fieldIDToName_ConsoleServiceListBlacklistKeywordsArgs = map[int16]string{
+	1: "req",
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceListBlacklistKeywordsArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewListBlacklistKeywordsReq()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Req = _field
+	return nil
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListBlacklistKeywords_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("req", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Req.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceListBlacklistKeywordsArgs(%+v)", *p)
+
+}
+
+type ConsoleServiceListBlacklistKeywordsResult struct {
+	Success *ListBlacklistKeywordsResp `thrift:"success,0,optional"`
+}
+
+func NewConsoleServiceListBlacklistKeywordsResult() *ConsoleServiceListBlacklistKeywordsResult {
+	return &ConsoleServiceListBlacklistKeywordsResult{}
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) InitDefault() {
+}
+
+var ConsoleServiceListBlacklistKeywordsResult_Success_DEFAULT *ListBlacklistKeywordsResp
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) GetSuccess() (v *ListBlacklistKeywordsResp) {
+	if !p.IsSetSuccess() {
+		return ConsoleServiceListBlacklistKeywordsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ConsoleServiceListBlacklistKeywordsResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceListBlacklistKeywordsResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewListBlacklistKeywordsResp()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListBlacklistKeywords_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ConsoleServiceListBlacklistKeywordsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceListBlacklistKeywordsResult(%+v)", *p)
+
+}
+
+type ConsoleServiceCreateBlacklistKeywordArgs struct {
+	Req *CreateBlacklistKeywordReq `thrift:"req,1"`
+}
+
+func NewConsoleServiceCreateBlacklistKeywordArgs() *ConsoleServiceCreateBlacklistKeywordArgs {
+	return &ConsoleServiceCreateBlacklistKeywordArgs{}
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) InitDefault() {
+}
+
+var ConsoleServiceCreateBlacklistKeywordArgs_Req_DEFAULT *CreateBlacklistKeywordReq
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) GetReq() (v *CreateBlacklistKeywordReq) {
+	if !p.IsSetReq() {
+		return ConsoleServiceCreateBlacklistKeywordArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+
+var fieldIDToName_ConsoleServiceCreateBlacklistKeywordArgs = map[int16]string{
+	1: "req",
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceCreateBlacklistKeywordArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewCreateBlacklistKeywordReq()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Req = _field
+	return nil
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("CreateBlacklistKeyword_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("req", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Req.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceCreateBlacklistKeywordArgs(%+v)", *p)
+
+}
+
+type ConsoleServiceCreateBlacklistKeywordResult struct {
+	Success *BlacklistKeywordResp `thrift:"success,0,optional"`
+}
+
+func NewConsoleServiceCreateBlacklistKeywordResult() *ConsoleServiceCreateBlacklistKeywordResult {
+	return &ConsoleServiceCreateBlacklistKeywordResult{}
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) InitDefault() {
+}
+
+var ConsoleServiceCreateBlacklistKeywordResult_Success_DEFAULT *BlacklistKeywordResp
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) GetSuccess() (v *BlacklistKeywordResp) {
+	if !p.IsSetSuccess() {
+		return ConsoleServiceCreateBlacklistKeywordResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ConsoleServiceCreateBlacklistKeywordResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceCreateBlacklistKeywordResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewBlacklistKeywordResp()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("CreateBlacklistKeyword_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ConsoleServiceCreateBlacklistKeywordResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceCreateBlacklistKeywordResult(%+v)", *p)
+
+}
+
+type ConsoleServiceUpdateBlacklistKeywordArgs struct {
+	Req *UpdateBlacklistKeywordReq `thrift:"req,1"`
+}
+
+func NewConsoleServiceUpdateBlacklistKeywordArgs() *ConsoleServiceUpdateBlacklistKeywordArgs {
+	return &ConsoleServiceUpdateBlacklistKeywordArgs{}
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) InitDefault() {
+}
+
+var ConsoleServiceUpdateBlacklistKeywordArgs_Req_DEFAULT *UpdateBlacklistKeywordReq
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) GetReq() (v *UpdateBlacklistKeywordReq) {
+	if !p.IsSetReq() {
+		return ConsoleServiceUpdateBlacklistKeywordArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+
+var fieldIDToName_ConsoleServiceUpdateBlacklistKeywordArgs = map[int16]string{
+	1: "req",
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceUpdateBlacklistKeywordArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewUpdateBlacklistKeywordReq()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Req = _field
+	return nil
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("UpdateBlacklistKeyword_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("req", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Req.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceUpdateBlacklistKeywordArgs(%+v)", *p)
+
+}
+
+type ConsoleServiceUpdateBlacklistKeywordResult struct {
+	Success *BlacklistKeywordResp `thrift:"success,0,optional"`
+}
+
+func NewConsoleServiceUpdateBlacklistKeywordResult() *ConsoleServiceUpdateBlacklistKeywordResult {
+	return &ConsoleServiceUpdateBlacklistKeywordResult{}
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) InitDefault() {
+}
+
+var ConsoleServiceUpdateBlacklistKeywordResult_Success_DEFAULT *BlacklistKeywordResp
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) GetSuccess() (v *BlacklistKeywordResp) {
+	if !p.IsSetSuccess() {
+		return ConsoleServiceUpdateBlacklistKeywordResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ConsoleServiceUpdateBlacklistKeywordResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceUpdateBlacklistKeywordResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewBlacklistKeywordResp()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("UpdateBlacklistKeyword_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ConsoleServiceUpdateBlacklistKeywordResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceUpdateBlacklistKeywordResult(%+v)", *p)
+
+}
+
+type ConsoleServiceDeleteBlacklistKeywordArgs struct {
+	Req *DeleteBlacklistKeywordReq `thrift:"req,1"`
+}
+
+func NewConsoleServiceDeleteBlacklistKeywordArgs() *ConsoleServiceDeleteBlacklistKeywordArgs {
+	return &ConsoleServiceDeleteBlacklistKeywordArgs{}
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) InitDefault() {
+}
+
+var ConsoleServiceDeleteBlacklistKeywordArgs_Req_DEFAULT *DeleteBlacklistKeywordReq
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) GetReq() (v *DeleteBlacklistKeywordReq) {
+	if !p.IsSetReq() {
+		return ConsoleServiceDeleteBlacklistKeywordArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+
+var fieldIDToName_ConsoleServiceDeleteBlacklistKeywordArgs = map[int16]string{
+	1: "req",
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceDeleteBlacklistKeywordArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewDeleteBlacklistKeywordReq()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Req = _field
+	return nil
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("DeleteBlacklistKeyword_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("req", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Req.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceDeleteBlacklistKeywordArgs(%+v)", *p)
+
+}
+
+type ConsoleServiceDeleteBlacklistKeywordResult struct {
+	Success *BlacklistKeywordResp `thrift:"success,0,optional"`
+}
+
+func NewConsoleServiceDeleteBlacklistKeywordResult() *ConsoleServiceDeleteBlacklistKeywordResult {
+	return &ConsoleServiceDeleteBlacklistKeywordResult{}
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) InitDefault() {
+}
+
+var ConsoleServiceDeleteBlacklistKeywordResult_Success_DEFAULT *BlacklistKeywordResp
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) GetSuccess() (v *BlacklistKeywordResp) {
+	if !p.IsSetSuccess() {
+		return ConsoleServiceDeleteBlacklistKeywordResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ConsoleServiceDeleteBlacklistKeywordResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleServiceDeleteBlacklistKeywordResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewBlacklistKeywordResp()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("DeleteBlacklistKeyword_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ConsoleServiceDeleteBlacklistKeywordResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleServiceDeleteBlacklistKeywordResult(%+v)", *p)
 
 }

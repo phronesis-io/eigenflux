@@ -154,6 +154,17 @@ bash scripts/generate_api.sh
 - Message body is `map[string]interface{}`, key is `agent_id` or `item_id` (string format)
 - Consumers responsible for ACK, max 3 retries on failure
 
+### Pipeline Item Processing
+
+Item processing flow in `pipeline/consumer/item_consumer.go`:
+
+1. **Get raw item** — fetch `raw_content`, `raw_url`, `raw_notes` from DB
+2. **Blacklist check** — check fields against enabled keywords from `content_blacklist_keywords` table (case-insensitive substring match); keywords cached in Redis (`cache:blacklist:keywords`, STRING, JSON array, TTL 60s); on match: set item status to 4 (discarded), ACK, skip remaining steps
+3. **LLM processing** — call LLM to extract `broadcast_type`, `summary`, `domains`, `keywords`, etc.
+4. **Quality check** — validate LLM output fields
+5. **Dedup** — similarity grouping via embedding + ES
+6. **Index** — write processed item to DB and Elasticsearch
+
 ### Impression Recording (pkg/impr)
 
 - Implementation in `pkg/impr/impr.go`, pure library functions, receives `*redis.Client` parameter
@@ -387,6 +398,10 @@ Console provides Web UI for querying and managing agent and item data.
 | POST | `/console/api/v1/system-notifications` | JSON body | Create system notification |
 | PUT | `/console/api/v1/system-notifications/:notification_id` | JSON body | Update system notification fields |
 | POST | `/console/api/v1/system-notifications/:notification_id/offline` | — | Offline a system notification |
+| GET | `/console/api/v1/blacklist-keywords` | `page`, `page_size`, `enabled` | Query blacklist keywords with pagination and filtering |
+| POST | `/console/api/v1/blacklist-keywords` | JSON body `{ "keyword": "..." }` | Create blacklist keyword |
+| PUT | `/console/api/v1/blacklist-keywords/:keyword_id` | JSON body `{ "enabled": false }` | Update keyword enabled status |
+| DELETE | `/console/api/v1/blacklist-keywords/:keyword_id` | — | Delete keyword |
 
 Parameter descriptions:
 - `page`: Page number, starts from 1, default 1
@@ -403,7 +418,7 @@ Parameter descriptions:
 ### Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 5 pages: `/agents`, `/items`, `/impr` (input `agent_id` to query impr_record and corresponding item list), `/milestone-rules` (query and maintain milestone rules), `/system-notifications` (create, update, and offline system notifications).
+Currently includes 6 pages: `/agents`, `/items`, `/impr` (input `agent_id` to query impr_record and corresponding item list), `/milestone-rules` (query and maintain milestone rules), `/system-notifications` (create, update, and offline system notifications), `/blacklist-keywords` (create, enable/disable, and delete pipeline content blacklist keywords).
 
 ```bash
 # Install dependencies
@@ -440,6 +455,10 @@ System implements multi-level caching to optimize Elasticsearch load under high-
    - Caches user profile data, TTL default 60 seconds (configurable)
    - Reduces PostgreSQL query pressure
    - Cache key: `cache:profile:{agent_id}`
+
+4. **L4: BlacklistCache (Redis Blacklist Keywords Cache)**
+   - Caches enabled blacklist keywords for pipeline content filtering, TTL 60 seconds
+   - Cache key: `cache:blacklist:keywords` (STRING, JSON array of keyword strings)
 
 ### Configuration Parameters
 

@@ -112,6 +112,11 @@ definitions:
         additionalProperties: true
         type: object
     type: object
+  console.createBlacklistKeywordReq:
+    properties:
+      keyword:
+        type: string
+    type: object
   console.createMilestoneRuleReq:
     properties:
       content_template:
@@ -159,6 +164,11 @@ definitions:
           type: string
         type: array
     type: object
+  console.updateBlacklistKeywordReq:
+    properties:
+      enabled:
+        type: boolean
+    type: object
   console.updateItemReq:
     properties:
       status:
@@ -186,6 +196,33 @@ definitions:
       status:
         type: integer
       type:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordData:
+    properties:
+      keyword:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo'
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo:
+    properties:
+      created_at:
+        type: integer
+      enabled:
+        type: boolean
+      keyword:
+        type: string
+      keyword_id:
+        type: string
+      updated_at:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordData'
+      msg:
         type: string
     type: object
   console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData:
@@ -231,6 +268,28 @@ definitions:
         type: integer
       data:
         $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListAgentImprItemsData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData:
+    properties:
+      keywords:
+        items:
+          $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData'
       msg:
         type: string
     type: object
@@ -469,6 +528,98 @@ paths:
           schema:
             $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentResp'
       summary: Get agent by ID
+      tags:
+      - console
+  /console/api/v1/blacklist-keywords:
+    get:
+      description: Returns a paginated list of content blacklist keywords
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by enabled status
+        in: query
+        name: enabled
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsResp'
+      summary: List blacklist keywords
+      tags:
+      - console
+    post:
+      consumes:
+      - application/json
+      description: Creates a new content blacklist keyword
+      parameters:
+      - description: Keyword
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.createBlacklistKeywordReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp'
+      summary: Create blacklist keyword
+      tags:
+      - console
+  /console/api/v1/blacklist-keywords/{keyword_id}:
+    delete:
+      description: Permanently deletes a blacklist keyword
+      parameters:
+      - description: Keyword ID
+        in: path
+        name: keyword_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp'
+      summary: Delete blacklist keyword
+      tags:
+      - console
+    put:
+      consumes:
+      - application/json
+      description: Updates the enabled status of a blacklist keyword
+      parameters:
+      - description: Keyword ID
+        in: path
+        name: keyword_id
+        required: true
+        type: integer
+      - description: Update fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/console.updateBlacklistKeywordReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp'
+      summary: Update blacklist keyword
       tags:
       - console
   /console/api/v1/impr/items:

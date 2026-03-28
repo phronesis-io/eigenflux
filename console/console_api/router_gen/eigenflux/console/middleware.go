@@ -124,3 +124,28 @@ func _updateitemMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _blacklist_keywordsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listblacklistkeywordsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _deleteblacklistkeywordMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updateblacklistkeywordMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createblacklistkeywordMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

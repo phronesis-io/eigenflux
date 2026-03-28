@@ -47,3 +47,7 @@ __pycache__
 .audit/
 .mock/
 .draft/
+
+# superpowers
+.superpowers
+docs/superpowers/
