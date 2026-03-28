@@ -8,7 +8,7 @@ CREATE TABLE content_blacklist_keywords (
   updated_at   BIGINT NOT NULL
 );
 
-CREATE UNIQUE INDEX idx_blacklist_keyword_unique ON content_blacklist_keywords(keyword);
+CREATE UNIQUE INDEX idx_blacklist_keyword_lower_unique ON content_blacklist_keywords(lower(keyword));
 -- +goose StatementEnd
 
 -- +goose Down
