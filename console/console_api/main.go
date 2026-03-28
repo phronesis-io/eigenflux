@@ -21,15 +21,23 @@ import (
 	"console.eigenflux.ai/internal/idgen"
 	"console.eigenflux.ai/internal/logger"
 	"console.eigenflux.ai/internal/notification"
+	"console.eigenflux.ai/internal/telemetry"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
+	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	swaggerFiles "github.com/swaggo/files"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("console/console_api/.log")
+	logger.Init("console/console_api/.log", "console-api")
+
+	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.InitPostgres(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
@@ -57,7 +65,12 @@ func main() {
 		log.Printf("[console] Warning: failed to recover active notifications: %v", recoverErr)
 	}
 
-	h := server.Default(server.WithHostPorts(cfg.ListenAddr()))
+	tracer, tracerCfg := hertztracing.NewServerTracer()
+	h := server.Default(
+		server.WithHostPorts(cfg.ListenAddr()),
+		tracer,
+	)
+	h.Use(hertztracing.ServerMiddleware(tracerCfg))
 
 	allowOrigins := parseAllowOrigins()
 	h.Use(cors.New(cors.Config{
