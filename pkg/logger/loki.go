@@ -22,7 +22,9 @@ type LokiHandler struct {
 	client  *http.Client
 	ch      chan lokiEntry
 	done    chan struct{}
+	flushed chan struct{}
 	once    sync.Once
+	bufPool sync.Pool
 }
 
 type lokiEntry struct {
@@ -56,6 +58,8 @@ func NewLokiHandler(inner slog.Handler, service string, lokiURL string) *LokiHan
 		client:  &http.Client{Timeout: 5 * time.Second},
 		ch:      make(chan lokiEntry, lokiChanSize),
 		done:    make(chan struct{}),
+		flushed: make(chan struct{}),
+		bufPool: sync.Pool{New: func() any { return new(bytes.Buffer) }},
 	}
 	go h.batchLoop()
 	return h
@@ -72,8 +76,9 @@ func (h *LokiHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 
 	// Build the JSON line for Loki from the record.
-	var buf bytes.Buffer
-	tmpHandler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	buf := h.bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	tmpHandler := slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	_ = tmpHandler.Handle(ctx, r)
 
 	entry := lokiEntry{
@@ -81,6 +86,7 @@ func (h *LokiHandler) Handle(ctx context.Context, r slog.Record) error {
 		Line:      buf.String(),
 		Level:     r.Level.String(),
 	}
+	h.bufPool.Put(buf)
 
 	// Non-blocking send: drop if buffer full (tracing must never block).
 	select {
@@ -114,6 +120,8 @@ func (h *LokiHandler) WithGroup(name string) slog.Handler {
 }
 
 func (h *LokiHandler) batchLoop() {
+	defer close(h.flushed)
+
 	ticker := time.NewTicker(lokiFlushInterval)
 	defer ticker.Stop()
 
@@ -123,7 +131,6 @@ func (h *LokiHandler) batchLoop() {
 		select {
 		case entry, ok := <-h.ch:
 			if !ok {
-				// Channel closed during flush.
 				if len(batch) > 0 {
 					h.push(batch)
 				}
@@ -200,7 +207,6 @@ func (h *LokiHandler) push(entries []lokiEntry) {
 func (h *LokiHandler) Flush() {
 	h.once.Do(func() {
 		close(h.done)
-		// Give the batch loop a moment to drain.
-		time.Sleep(100 * time.Millisecond)
+		<-h.flushed
 	})
 }
