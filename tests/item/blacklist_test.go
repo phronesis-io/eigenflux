@@ -63,11 +63,11 @@ func TestBlacklistItemDiscard(t *testing.T) {
 	itemBID := testutil.MustID(t, itemB["item_id"], "item_id")
 	t.Logf("Published clean item B: %d", itemBID)
 
-	// 5. Wait for item A to be discarded (status=4)
-	testutil.WaitForItemStatus(t, itemAID, 4, 120*time.Second)
+	// 5. Wait for item A to be discarded
+	testutil.WaitForItemStatus(t, itemAID, testutil.ItemStatusDiscarded, 120*time.Second)
 	t.Logf("Item A (%d) correctly discarded by blacklist", itemAID)
 
-	// 6. Wait for item B to be processed normally (status=3)
-	testutil.WaitForItemStatus(t, itemBID, 3, 120*time.Second)
+	// 6. Wait for item B to be processed normally
+	testutil.WaitForItemStatus(t, itemBID, testutil.ItemStatusCompleted, 120*time.Second)
 	t.Logf("Item B (%d) correctly processed", itemBID)
 }

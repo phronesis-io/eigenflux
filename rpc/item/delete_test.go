@@ -19,11 +19,11 @@ func TestDeleteMyItemLogic(t *testing.T) {
 		t.Log("Authorization check verified in handler.go")
 	})
 
-	// Test case 2: Verify status update to 5 (deleted)
+	// Test case 2: Verify status update to deleted
 	t.Run("StatusUpdate", func(t *testing.T) {
-		// The handler should call dal.UpdateProcessedItemStatus(db.DB, req.ItemId, 5)
-		// This is verified by code inspection in handler.go:232-236
-		t.Log("Status update to 5 (deleted) verified in handler.go")
+		// The handler should call dal.UpdateProcessedItemStatus(db.DB, req.ItemId, dal.StatusDeleted)
+		// This is verified by code inspection in handler.go
+		t.Log("Status update to deleted verified in handler.go")
 	})
 
 	// Test case 3: Verify error handling
@@ -70,7 +70,7 @@ func TestDeleteMyItemIntegration(t *testing.T) {
 
 	processedItem := &dal.ProcessedItem{
 		ItemID: itemID,
-		Status: 3, // completed
+		Status: dal.StatusCompleted,
 	}
 	if err := dal.CreateProcessedItem(db.DB, processedItem); err != nil {
 		t.Fatalf("Failed to create processed item: %v", err)
@@ -96,13 +96,13 @@ func TestDeleteMyItemIntegration(t *testing.T) {
 		t.Fatalf("Expected code 0, got %d: %s", resp.BaseResp.Code, resp.BaseResp.Msg)
 	}
 
-	// Verify status updated to 5
+	// Verify status updated to deleted
 	var status int
 	if err := db.DB.Raw("SELECT status FROM processed_items WHERE item_id = ?", itemID).Scan(&status).Error; err != nil {
 		t.Fatalf("Failed to query status: %v", err)
 	}
-	if status != 5 {
-		t.Fatalf("Expected status 5, got %d", status)
+	if status != int(dal.StatusDeleted) {
+		t.Fatalf("Expected status %d (deleted), got %d", dal.StatusDeleted, status)
 	}
 
 	// Test unauthorized delete

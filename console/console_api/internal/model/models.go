@@ -83,6 +83,7 @@ func (n *SystemNotification) IsActive(nowMS int64) bool {
 	return true
 }
 
+// System notification status codes.
 const (
 	StatusDraft   int16 = 0
 	StatusActive  int16 = 1
@@ -90,4 +91,14 @@ const (
 
 	AudienceTypeBroadcast  = "broadcast"
 	AudienceTypeExpression = "expression"
+)
+
+// Item processing status codes.
+const (
+	ItemStatusPending    int16 = 0
+	ItemStatusProcessing int16 = 1
+	ItemStatusFailed     int16 = 2
+	ItemStatusCompleted  int16 = 3
+	ItemStatusDiscarded  int16 = 4
+	ItemStatusDeleted    int16 = 5
 )

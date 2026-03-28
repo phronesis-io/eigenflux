@@ -7,6 +7,22 @@ import (
 	"time"
 )
 
+// Item processing status codes.
+const (
+	ItemStatusPending    = 0
+	ItemStatusProcessing = 1
+	ItemStatusFailed     = 2
+	ItemStatusCompleted  = 3
+	ItemStatusDiscarded  = 4
+	ItemStatusDeleted    = 5
+)
+
+// Profile processing status codes.
+const (
+	ProfileStatusFailed    = 2
+	ProfileStatusCompleted = 3
+)
+
 // RegisterAgent uses the email auth flow to create/login an agent and
 // optionally complete the profile. Returns map with "token" and "agent_id".
 func RegisterAgent(t *testing.T, email, agentName, bio string) map[string]interface{} {
@@ -137,12 +153,12 @@ func WaitForProfileProcessed(t *testing.T, agentID int64) {
 	for time.Now().Before(deadline) {
 		var status int
 		err := TestDB.QueryRow("SELECT status FROM agent_profiles WHERE agent_id = $1", agentID).Scan(&status)
-		if err == nil && status == 3 {
+		if err == nil && status == ProfileStatusCompleted {
 			t.Logf("Profile processing completed for agent %d", agentID)
 			return
 		}
-		if err == nil && status == 2 {
-			t.Fatalf("Profile processing failed (status=2) for agent %d", agentID)
+		if err == nil && status == ProfileStatusFailed {
+			t.Fatalf("Profile processing failed (status=%d) for agent %d", ProfileStatusFailed, agentID)
 		}
 		time.Sleep(2 * time.Second)
 	}
@@ -158,12 +174,12 @@ func WaitForItemsProcessed(t *testing.T, itemIDs []int64) {
 		for _, id := range itemIDs {
 			var status int
 			err := TestDB.QueryRow("SELECT status FROM processed_items WHERE item_id = $1", id).Scan(&status)
-			if err != nil || status != 3 {
-				if err == nil && status == 2 {
-					t.Fatalf("Item processing failed (status=2) for item %d", id)
+			if err != nil || status != ItemStatusCompleted {
+				if err == nil && status == ItemStatusFailed {
+					t.Fatalf("Item processing failed (status=%d) for item %d", ItemStatusFailed, id)
 				}
-				if err == nil && status == 4 {
-					t.Fatalf("Item discarded by LLM (status=4) for item %d", id)
+				if err == nil && status == ItemStatusDiscarded {
+					t.Fatalf("Item discarded by LLM (status=%d) for item %d", ItemStatusDiscarded, id)
 				}
 				allDone = false
 				break
@@ -183,7 +199,7 @@ func WaitForItemsProcessed(t *testing.T, itemIDs []int64) {
 // or on timeout.
 func WaitForItemStatus(t *testing.T, itemID int64, wantStatus int, timeout time.Duration) {
 	t.Helper()
-	terminal := map[int]bool{2: true, 3: true, 4: true, 5: true}
+	terminal := map[int]bool{ItemStatusFailed: true, ItemStatusCompleted: true, ItemStatusDiscarded: true, ItemStatusDeleted: true}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		var status int

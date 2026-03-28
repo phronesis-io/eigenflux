@@ -6,6 +6,7 @@ import axios from "axios";
 import { useState } from "react";
 
 import { consoleApiUrl } from "../../config";
+import { itemStatusMap } from "../../constants";
 
 interface Item {
   item_id: string;
@@ -38,14 +39,7 @@ interface Agent {
   profile_keywords: string[];
 }
 
-const statusMap: Record<number, { label: string; color: string }> = {
-  0: { label: "Pending", color: "default" },
-  1: { label: "Processing", color: "processing" },
-  2: { label: "Failed", color: "error" },
-  3: { label: "Completed", color: "success" },
-  4: { label: "Discarded", color: "warning" },
-  5: { label: "Deleted", color: "default" },
-};
+const statusMap = itemStatusMap;
 
 const formatTimestamp = (ts: number) => {
   if (!ts) return "-";

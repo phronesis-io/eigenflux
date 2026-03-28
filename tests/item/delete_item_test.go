@@ -73,8 +73,8 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	// Wait for item to be created in DB
 	time.Sleep(100 * time.Millisecond)
 
-	// Simulate: item is being processed (status=1)
-	err := dal.UpdateProcessedItemStatus(db.DB, itemID, 1)
+	// Simulate: item is being processed
+	err := dal.UpdateProcessedItemStatus(db.DB, itemID, dal.StatusProcessing)
 	if err != nil {
 		t.Fatalf("failed to set status=1: %v", err)
 	}
@@ -90,12 +90,12 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get item: %v", err)
 	}
-	if item.Status != 5 {
-		t.Fatalf("expected status=5, got %d", item.Status)
+	if item.Status != dal.StatusDeleted {
+		t.Fatalf("expected status=%d (deleted), got %d", dal.StatusDeleted, item.Status)
 	}
 
-	// Simulate: async pipeline tries to update the item to completed (status=3)
-	// This should be IGNORED because status=5 is terminal
+	// Simulate: async pipeline tries to update the item to completed
+	// This should be IGNORED because deleted is terminal
 	err = dal.UpdateProcessedItem(
 		db.DB,
 		itemID,
@@ -111,18 +111,18 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 		0.8,
 		"en",
 		"timely",
-		3, // trying to set status=3
+		dal.StatusCompleted,
 	)
 	if err != nil {
 		t.Fatalf("UpdateProcessedItem failed: %v", err)
 	}
 
-	// Verify item is STILL deleted (status=5)
+	// Verify item is STILL deleted
 	item, err = dal.GetProcessedItemByID(db.DB, itemID)
 	if err != nil {
 		t.Fatalf("failed to get item after update: %v", err)
 	}
-	if item.Status != 5 {
+	if item.Status != dal.StatusDeleted {
 		t.Fatalf("item should remain deleted, got status=%d", item.Status)
 	}
 	if item.Summary != "" {
@@ -130,7 +130,7 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	}
 
 	// Also test UpdateProcessedItemStatus
-	err = dal.UpdateProcessedItemStatus(db.DB, itemID, 3)
+	err = dal.UpdateProcessedItemStatus(db.DB, itemID, dal.StatusCompleted)
 	if err != nil {
 		t.Fatalf("UpdateProcessedItemStatus failed: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get item after status update: %v", err)
 	}
-	if item.Status != 5 {
+	if item.Status != dal.StatusDeleted {
 		t.Fatalf("item should remain deleted after status update, got status=%d", item.Status)
 	}
 }
