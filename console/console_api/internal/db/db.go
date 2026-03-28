@@ -1,7 +1,8 @@
 package db
 
 import (
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
@@ -20,11 +21,13 @@ func InitPostgres(dsn string) {
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
-		log.Fatalf("failed to connect to postgres: %v", err)
+		slog.Error("failed to connect to postgres", "err", err)
+		os.Exit(1)
 	}
 	sqlDB, err := DB.DB()
 	if err != nil {
-		log.Fatalf("failed to get sql.DB: %v", err)
+		slog.Error("failed to get sql.DB", "err", err)
+		os.Exit(1)
 	}
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetMaxIdleConns(10)

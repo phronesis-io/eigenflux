@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/pm"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/validator"
@@ -152,7 +152,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
 
-	log.Printf("[PM] New conversation: conv_id=%d msg_id=%d sender=%d receiver=%d item=%d", convID, msgID, req.SenderId, req.ReceiverId, itemID)
+	logger.FromContext(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", itemID)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -231,7 +231,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq) (*pm
 	// Post-commit: invalidate fetch cache
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
 
-	log.Printf("[PM] Reply: conv_id=%d msg_id=%d sender=%d receiver=%d", convID, msgID, req.SenderId, receiverID)
+	logger.FromContext(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,

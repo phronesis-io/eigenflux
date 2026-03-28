@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"console.eigenflux.ai/internal/model"
 
@@ -111,7 +111,7 @@ func (s *Service) RecoverActiveNotifications(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("[notification] Recovered %d active system notifications to Redis", len(notifications))
+	slog.Info("recovered active system notifications to Redis", "count", len(notifications))
 	return s.activeStore.ReplaceAll(ctx, notifications)
 }
 

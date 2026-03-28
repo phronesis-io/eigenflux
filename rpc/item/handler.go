@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"strings"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/item"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/rpc/item/dal"
 
 	"gorm.io/gorm"
@@ -76,7 +76,7 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 
 	// Create item stats record
 	if err := dal.CreateItemStats(db.DB, raw.ItemID, req.AuthorAgentId); err != nil {
-		log.Printf("[PUBLISH ITEM] CreateItemStats error : %v", err)
+		logger.FromContext(ctx).Error("CreateItemStats error", "err", err)
 	}
 
 	return &item.PublishItemResp{

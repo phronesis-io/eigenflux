@@ -1,7 +1,8 @@
 package db
 
 import (
-	"log"
+	"log/slog"
+	"os"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -20,11 +21,13 @@ func InitWithLogLevel(dsn string, level logger.LogLevel) {
 		Logger: logger.Default.LogMode(level),
 	})
 	if err != nil {
-		log.Fatalf("failed to connect to postgres: %v", err)
+		slog.Error("failed to connect to postgres", "err", err)
+		os.Exit(1)
 	}
 	sqlDB, err := DB.DB()
 	if err != nil {
-		log.Fatalf("failed to get sql.DB: %v", err)
+		slog.Error("failed to get sql.DB", "err", err)
+		os.Exit(1)
 	}
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetMaxIdleConns(10)

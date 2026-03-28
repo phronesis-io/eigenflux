@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,8 +14,7 @@ import (
 
 // buildSearchQuery builds the Elasticsearch query based on search parameters
 func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
-	log.Printf("[ES Query] Building query: domains=%v, keywords=%v, geo=%s",
-		req.Domains, req.Keywords, req.Geo)
+	slog.Debug("building ES query", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo)
 
 	mustClauses := []interface{}{}
 
@@ -131,7 +130,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 
 	// If there are should conditions, add them to bool query (OR relationship)
 	if len(shouldClauses) > 0 {
-		log.Printf("[ES Query] Adding should clauses with relevance scoring: count=%d", len(shouldClauses))
+		slog.Debug("adding should clauses with relevance scoring", "count", len(shouldClauses))
 		mustClauses = append(mustClauses, map[string]interface{}{
 			"bool": map[string]interface{}{
 				"should":              shouldClauses,
@@ -139,7 +138,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 			},
 		})
 	} else {
-		log.Printf("[ES Query] No should clauses (no domains/keywords/geo)")
+		slog.Debug("no should clauses (no domains/keywords/geo)")
 	}
 
 	// Build final query
@@ -166,7 +165,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 
 	// Log the final query for debugging
 	queryJSON, _ := json.MarshalIndent(query, "", "  ")
-	log.Printf("[ES Query] Final query:\n%s", string(queryJSON))
+	slog.Debug("final ES query", "query", string(queryJSON))
 
 	return query
 }
