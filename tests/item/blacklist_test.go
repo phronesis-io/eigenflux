@@ -43,10 +43,6 @@ func TestBlacklistItemDiscard(t *testing.T) {
 		t.Logf("Cleaned up blacklist keyword %s", keywordID)
 	}()
 
-	// Wait for cache to expire so pipeline picks up the new keyword
-	// (blacklist cache TTL is 60s; we sleep a bit to be safe)
-	time.Sleep(5 * time.Second)
-
 	// 2. Register author
 	author := testutil.RegisterAgent(t, "blacklist-author@test.com", "BlacklistTestBot", "I test blacklist")
 	token := author["token"].(string)

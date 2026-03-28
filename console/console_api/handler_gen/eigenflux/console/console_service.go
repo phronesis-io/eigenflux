@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 
@@ -1058,6 +1059,14 @@ func writeBlacklistError(c *app.RequestContext, err error) {
 	}
 }
 
+const blacklistCacheKey = "cache:blacklist:keywords"
+
+func invalidateBlacklistCache() {
+	if err := db.RDB.Del(context.Background(), blacklistCacheKey).Err(); err != nil {
+		log.Printf("[Blacklist] failed to invalidate cache: %v", err)
+	}
+}
+
 // GetAgent godoc
 // @Summary      Get agent by ID
 // @Description  Returns a single agent with profile data
@@ -1250,6 +1259,7 @@ func CreateBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 		writeBlacklistError(c, err)
 		return
 	}
+	invalidateBlacklistCache()
 	c.JSON(consts.StatusOK, BlacklistKeywordResp{
 		Msg:  "success",
 		Data: &BlacklistKeywordData{Keyword: toBlacklistKeywordInfo(*row)},
@@ -1283,6 +1293,7 @@ func UpdateBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 		writeBlacklistError(c, err)
 		return
 	}
+	invalidateBlacklistCache()
 	c.JSON(consts.StatusOK, BlacklistKeywordResp{
 		Msg:  "success",
 		Data: &BlacklistKeywordData{Keyword: toBlacklistKeywordInfo(*row)},
@@ -1307,5 +1318,6 @@ func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 		writeBlacklistError(c, err)
 		return
 	}
+	invalidateBlacklistCache()
 	c.JSON(consts.StatusOK, BlacklistKeywordResp{Msg: "success"})
 }

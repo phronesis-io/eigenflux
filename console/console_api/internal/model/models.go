@@ -58,7 +58,7 @@ func (SystemNotification) TableName() string { return "system_notifications" }
 // BlacklistKeyword maps to the content_blacklist_keywords table.
 type BlacklistKeyword struct {
 	KeywordID int64  `gorm:"column:keyword_id;primaryKey;autoIncrement"`
-	Keyword   string `gorm:"column:keyword;type:text;not null;uniqueIndex:idx_blacklist_keyword_unique"`
+	Keyword   string `gorm:"column:keyword;type:text;not null"`
 	Enabled   bool   `gorm:"column:enabled;not null;default:true"`
 	CreatedAt int64  `gorm:"column:created_at;not null"`
 	UpdatedAt int64  `gorm:"column:updated_at;not null"`

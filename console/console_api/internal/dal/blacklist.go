@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"console.eigenflux.ai/internal/model"
@@ -42,7 +43,7 @@ func ListBlacklistKeywords(gormDB *gorm.DB, params ListBlacklistKeywordsParams) 
 func CreateBlacklistKeyword(ctx context.Context, gormDB *gorm.DB, keyword string) (*model.BlacklistKeyword, error) {
 	now := time.Now().UnixMilli()
 	row := &model.BlacklistKeyword{
-		Keyword:   keyword,
+		Keyword:   strings.ToLower(keyword),
 		Enabled:   true,
 		CreatedAt: now,
 		UpdatedAt: now,
