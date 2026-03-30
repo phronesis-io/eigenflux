@@ -77,3 +77,17 @@ func WriteFriendResponseNotification(ctx context.Context, rdb *redis.Client, req
 	_, err = pipe.Exec(ctx)
 	return err
 }
+
+// DeletePMNotifications removes friend-request notification entries by positive request ID.
+func DeletePMNotifications(ctx context.Context, rdb *redis.Client, agentID int64, requestIDs ...int64) error {
+	if rdb == nil || len(requestIDs) == 0 {
+		return nil
+	}
+
+	key := fmt.Sprintf("%s%d", pmNotifyKeyPrefix, agentID)
+	fields := make([]string, 0, len(requestIDs))
+	for _, requestID := range requestIDs {
+		fields = append(fields, strconv.FormatInt(requestID, 10))
+	}
+	return rdb.HDel(ctx, key, fields...).Err()
+}

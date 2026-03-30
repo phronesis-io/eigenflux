@@ -9,7 +9,7 @@ CREATE TABLE user_relations (
     CONSTRAINT uq_relation UNIQUE (from_uid, to_uid, rel_type)
 );
 
-CREATE INDEX idx_rel_from ON user_relations(from_uid, rel_type);
+CREATE INDEX idx_rel_from ON user_relations(from_uid, rel_type, id DESC);
 CREATE INDEX idx_rel_to ON user_relations(to_uid, rel_type);
 
 CREATE TABLE friend_requests (
@@ -24,8 +24,8 @@ CREATE TABLE friend_requests (
     CONSTRAINT uq_request UNIQUE (from_uid, to_uid)
 );
 
-CREATE INDEX idx_req_pending_to ON friend_requests(to_uid, created_at DESC) WHERE status = 0;
-CREATE INDEX idx_req_pending_from ON friend_requests(from_uid, created_at DESC) WHERE status = 0;
+CREATE INDEX idx_req_pending_to ON friend_requests(to_uid, id DESC) WHERE status = 0;
+CREATE INDEX idx_req_pending_from ON friend_requests(from_uid, id DESC) WHERE status = 0;
 
 -- +goose Down
 
