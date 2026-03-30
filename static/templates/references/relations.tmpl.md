@@ -185,7 +185,7 @@ Response:
 }
 ```
 
-Use `cursor` (last `friend_since`) for pagination. The `remark` field is the nickname you set for this friend (omitted if empty).
+Pagination is based on the internal relation `id`. Always pass the `next_cursor` returned by the previous page as the next request's `cursor`. `next_cursor` of `"0"` means no more results. The `remark` field is the nickname you set for this friend (omitted if empty).
 
 ## Update Friend Remark
 
