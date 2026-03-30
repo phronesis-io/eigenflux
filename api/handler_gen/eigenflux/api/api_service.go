@@ -7,7 +7,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -19,6 +22,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/mq"
@@ -26,6 +30,7 @@ import (
 	itemdal "eigenflux_server/rpc/item/dal"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/redis/go-redis/v9"
 )
 
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
@@ -1129,6 +1134,440 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 	}
 	if rpcResp.BaseResp.Code != 0 {
 		writeJSON(c, http.StatusOK, rpcResp.BaseResp.Code, rpcResp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+var friendEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// resolveToUID resolves the target agent ID from to_uid or to_email.
+// to_email accepts both raw email and {project_name}#{email} format.
+func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
+	// Path 1: to_uid provided
+	if req.IsSetToUID() && *req.ToUID != "" {
+		uid, err := strconv.ParseInt(*req.ToUID, 10, 64)
+		if err != nil {
+			return 0, 400, "invalid to_uid"
+		}
+		return uid, 0, ""
+	}
+
+	// Path 2: to_email provided
+	if req.IsSetToEmail() && *req.ToEmail != "" {
+		email := strings.TrimSpace(*req.ToEmail)
+
+		// Strip {project_name}# prefix if present (case-insensitive)
+		cfg := config.Load()
+		prefix := strings.ToLower(cfg.ProjectName) + "#"
+		if strings.HasPrefix(strings.ToLower(email), prefix) {
+			email = email[len(prefix):]
+		}
+
+		if !friendEmailRegexp.MatchString(email) {
+			return 0, 400, "invalid email format"
+		}
+		email = strings.ToLower(email)
+
+		targetID, err := lookupAgentIDByEmail(context.Background(), email)
+		if err != nil || targetID == 0 {
+			return 0, 404, "agent not found"
+		}
+		return targetID, 0, ""
+	}
+
+	return 0, 400, "to_uid or to_email is required"
+}
+
+const emailToUIDCacheTTL = 24 * time.Hour
+
+func emailToUIDCacheKey(email string) string {
+	return "cache:email2uid:" + email
+}
+
+// lookupAgentIDByEmail resolves email to agent_id with Redis cache.
+func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
+	key := emailToUIDCacheKey(email)
+
+	// Try cache first
+	if mq.RDB != nil {
+		val, err := mq.RDB.Get(ctx, key).Result()
+		if err == nil {
+			if id, parseErr := strconv.ParseInt(val, 10, 64); parseErr == nil {
+				return id, nil
+			}
+		} else if err != redis.Nil {
+			log.Printf("[API] email2uid cache read error: %v", err)
+		}
+	}
+
+	// Cache miss — query DB
+	var targetID int64
+	if err := db.DB.Table("agents").Select("agent_id").Where("email = ?", email).Scan(&targetID).Error; err != nil {
+		return 0, err
+	}
+	if targetID == 0 {
+		return 0, nil
+	}
+
+	// Write back to cache (fire-and-forget)
+	if mq.RDB != nil {
+		go func() {
+			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
+				log.Printf("[API] email2uid cache write error: %v", err)
+			}
+		}()
+	}
+
+	return targetID, nil
+}
+
+// SendFriendRequest .
+// @Summary Send a friend request
+// @Description Send a friend request to another agent by ID or email. The to_email field accepts both raw email and {project_name}#{email} format.
+// @Param Authorization header string true "Bearer access_token"
+// @Param body body apimodel.SendFriendRequestReq true "Friend request"
+// @Success 200 {object} apimodel.SendFriendRequestResp
+// @router /api/v1/relations/apply [POST]
+func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.SendFriendRequestReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	toUID, code, msg := resolveToUID(&req)
+	if code != 0 {
+		writeJSON(c, http.StatusOK, int32(code), msg, nil)
+		return
+	}
+
+	rpcReq := &pmrpc.SendFriendRequestReq{
+		FromUid: agentID,
+		ToUid:   toUID,
+	}
+	if req.Greeting != nil && *req.Greeting != "" {
+		rpcReq.Greeting = req.Greeting
+	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcReq.Remark = req.Remark
+	}
+	resp, err := clients.PMClient.SendFriendRequest(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"request_id": strconv.FormatInt(resp.RequestId, 10),
+	})
+}
+
+// HandleFriendRequest .
+// @router /api/v1/relations/handle [POST]
+func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.HandleFriendRequestReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	requestID, err := strconv.ParseInt(req.RequestID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid request_id", nil)
+		return
+	}
+
+	rpcReq := &pmrpc.HandleFriendRequestReq{
+		AgentId:   agentID,
+		RequestId: requestID,
+		Action:    pmrpc.FriendRequestAction(req.Action),
+	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcReq.Remark = req.Remark
+	}
+	if req.Reason != nil && *req.Reason != "" {
+		rpcReq.Reason = req.Reason
+	}
+	resp, err := clients.PMClient.HandleFriendRequest(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// Unfriend .
+// @router /api/v1/relations/unfriend [POST]
+func Unfriend(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UnfriendReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid to_uid", nil)
+		return
+	}
+
+	resp, err := clients.PMClient.Unfriend(ctx, &pmrpc.UnfriendReq{
+		FromUid: agentID,
+		ToUid:   toUID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// BlockUser .
+// @router /api/v1/relations/block [POST]
+func BlockUser(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.BlockUserReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid to_uid", nil)
+		return
+	}
+
+	rpcBlockReq := &pmrpc.BlockUserReq{
+		FromUid: agentID,
+		ToUid:   toUID,
+	}
+	if req.Remark != nil && *req.Remark != "" {
+		rpcBlockReq.Remark = req.Remark
+	}
+	resp, err := clients.PMClient.BlockUser(ctx, rpcBlockReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// UnblockUser .
+// @router /api/v1/relations/unblock [POST]
+func UnblockUser(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UnblockUserReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid to_uid", nil)
+		return
+	}
+
+	resp, err := clients.PMClient.UnblockUser(ctx, &pmrpc.UnblockUserReq{
+		FromUid: agentID,
+		ToUid:   toUID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// ListFriendRequests .
+// @router /api/v1/relations/applications [GET]
+func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ListFriendRequestsReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	rpcReq := &pmrpc.ListFriendRequestsReq{
+		AgentId:   agentID,
+		Direction: req.Direction,
+	}
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+			return
+		}
+		rpcReq.Cursor = &cursor
+	}
+	if req.Limit != nil {
+		rpcReq.Limit = req.Limit
+	}
+
+	resp, err := clients.PMClient.ListFriendRequests(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	requests := make([]map[string]interface{}, 0, len(resp.Requests))
+	for _, r := range resp.Requests {
+		item := map[string]interface{}{
+			"request_id": strconv.FormatInt(r.RequestId, 10),
+			"from_uid":   strconv.FormatInt(r.FromUid, 10),
+			"to_uid":     strconv.FormatInt(r.ToUid, 10),
+			"created_at": r.CreatedAt,
+		}
+		if r.FromName != nil {
+			item["from_name"] = *r.FromName
+		}
+		if r.ToName != nil {
+			item["to_name"] = *r.ToName
+		}
+		if r.Greeting != nil && *r.Greeting != "" {
+			item["greeting"] = *r.Greeting
+		}
+		requests = append(requests, item)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"requests":    requests,
+		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// ListFriends .
+// @router /api/v1/relations/friends [GET]
+func ListFriends(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ListFriendsReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	rpcReq := &pmrpc.ListFriendsReq{
+		AgentId: agentID,
+	}
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+			return
+		}
+		rpcReq.Cursor = &cursor
+	}
+	if req.Limit != nil {
+		rpcReq.Limit = req.Limit
+	}
+
+	resp, err := clients.PMClient.ListFriends(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	friends := make([]map[string]interface{}, 0, len(resp.Friends))
+	for _, f := range resp.Friends {
+		item := map[string]interface{}{
+			"agent_id":     strconv.FormatInt(f.AgentId, 10),
+			"agent_name":   f.AgentName,
+			"friend_since": f.FriendSince,
+		}
+		if f.Remark != nil && *f.Remark != "" {
+			item["remark"] = *f.Remark
+		}
+		friends = append(friends, item)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"friends":     friends,
+		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// UpdateFriendRemark .
+// @router /api/v1/relations/remark [POST]
+func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UpdateFriendRemarkReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	friendUID, err := strconv.ParseInt(req.FriendUID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid friend_uid", nil)
+		return
+	}
+
+	resp, err := clients.PMClient.UpdateFriendRemark(ctx, &pmrpc.UpdateFriendRemarkReq{
+		AgentId:   agentID,
+		FriendUid: friendUID,
+		Remark:    req.Remark,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 		return
 	}
 

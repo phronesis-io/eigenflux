@@ -210,6 +210,16 @@ service ApiService {
     ListConversationsResp ListConversations(1: ListConversationsReq req) (api.get="/api/v1/pm/conversations")
     GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req) (api.get="/api/v1/pm/history")
     CloseConvResp CloseConv(1: CloseConvReq req) (api.post="/api/v1/pm/close")
+
+    // Friend/Block endpoints (auth required)
+    SendFriendRequestResp SendFriendRequest(1: SendFriendRequestReq req) (api.post="/api/v1/relations/apply")
+    HandleFriendRequestResp HandleFriendRequest(1: HandleFriendRequestReq req) (api.post="/api/v1/relations/handle")
+    UnfriendResp Unfriend(1: UnfriendReq req) (api.post="/api/v1/relations/unfriend")
+    BlockUserResp BlockUser(1: BlockUserReq req) (api.post="/api/v1/relations/block")
+    UnblockUserResp UnblockUser(1: UnblockUserReq req) (api.post="/api/v1/relations/unblock")
+    ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req) (api.get="/api/v1/relations/applications")
+    ListFriendsResp ListFriends(1: ListFriendsReq req) (api.get="/api/v1/relations/friends")
+    UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req) (api.post="/api/v1/relations/remark")
 }
 
 struct FeedbackItem {
@@ -407,6 +417,125 @@ struct CloseConvReq {
 }
 
 struct CloseConvResp {
+    1: required i32 code
+    2: required string msg
+}
+
+// ===== Friend/Block Structs =====
+
+struct SendFriendRequestReq {
+    1: optional string to_uid (api.body="to_uid")
+    2: optional string to_email (api.body="to_email")
+    3: optional string greeting (api.body="greeting")
+    4: optional string remark (api.body="remark")
+}
+
+struct SendFriendRequestData {
+    1: required string request_id
+}
+
+struct SendFriendRequestResp {
+    1: required i32 code
+    2: required string msg
+    3: required SendFriendRequestData data
+}
+
+struct HandleFriendRequestReq {
+    1: required string request_id (api.body="request_id")
+    2: required i32 action (api.body="action")
+    3: optional string remark (api.body="remark")
+    4: optional string reason (api.body="reason")
+}
+
+struct HandleFriendRequestResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct UnfriendReq {
+    1: required string to_uid (api.body="to_uid")
+}
+
+struct UnfriendResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct BlockUserReq {
+    1: required string to_uid (api.body="to_uid")
+    2: optional string remark (api.body="remark")
+}
+
+struct BlockUserResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct UnblockUserReq {
+    1: required string to_uid (api.body="to_uid")
+}
+
+struct UnblockUserResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct ListFriendRequestsReq {
+    1: required string direction (api.query="direction")
+    2: optional string cursor (api.query="cursor")
+    3: optional i32 limit (api.query="limit")
+}
+
+struct FriendRequestData {
+    1: required string request_id
+    2: required string from_uid
+    3: required string to_uid
+    4: required i64 created_at
+    5: optional string from_name
+    6: optional string to_name
+    7: optional string greeting
+}
+
+struct ListFriendRequestsData {
+    1: required list<FriendRequestData> requests
+    2: required string next_cursor
+}
+
+struct ListFriendRequestsResp {
+    1: required i32 code
+    2: required string msg
+    3: required ListFriendRequestsData data
+}
+
+struct ListFriendsReq {
+    1: optional string cursor (api.query="cursor")
+    2: optional i32 limit (api.query="limit")
+}
+
+struct FriendData {
+    1: required string agent_id
+    2: required string agent_name
+    3: required i64 friend_since
+    4: optional string remark
+}
+
+struct ListFriendsData {
+    1: required list<FriendData> friends
+    2: required string next_cursor
+}
+
+struct ListFriendsResp {
+    1: required i32 code
+    2: required string msg
+    3: required ListFriendsData data
+}
+
+struct UpdateFriendRemarkReq {
+    1: required string friend_uid (api.body="friend_uid")
+    2: required string remark (api.body="remark")
+}
+
+struct UpdateFriendRemarkResp {
     1: required i32 code
     2: required string msg
 }

@@ -1,8 +1,9 @@
 package dal
 
 const (
-	SourceTypeMilestone = "milestone"
-	SourceTypeSystem    = "system"
+	SourceTypeMilestone     = "milestone"
+	SourceTypeSystem        = "system"
+	SourceTypeFriendRequest = "friend_request"
 
 	StatusDraft   int16 = 0
 	StatusActive  int16 = 1

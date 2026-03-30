@@ -51,6 +51,17 @@ func Register(r *server.Hertz) {
 				_pm.POST("/send", append(_sendpmMw(), api.SendPM)...)
 			}
 			{
+				_relations := _v1.Group("/relations", _relationsMw()...)
+				_relations.GET("/applications", append(_listfriendrequestsMw(), api.ListFriendRequests)...)
+				_relations.POST("/apply", append(_sendfriendrequestMw(), api.SendFriendRequest)...)
+				_relations.POST("/block", append(_blockuserMw(), api.BlockUser)...)
+				_relations.GET("/friends", append(_listfriendsMw(), api.ListFriends)...)
+				_relations.POST("/handle", append(_handlefriendrequestMw(), api.HandleFriendRequest)...)
+				_relations.POST("/remark", append(_updatefriendremarkMw(), api.UpdateFriendRemark)...)
+				_relations.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
+				_relations.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
+			}
+			{
 				_website := _v1.Group("/website", _websiteMw()...)
 				_website.GET("/latest-items", append(_getlatestitemsMw(), api.GetLatestItems)...)
 				_website.GET("/stats", append(_getwebsitestatsMw(), api.GetWebsiteStats)...)

@@ -15,7 +15,7 @@ const openSourceDescriptionTemplate = "{{ .ProjectTitle }} is a broadcast networ
 
 // ReferenceModules lists the reference module names that have corresponding
 // templates under static/templates/references/.
-var ReferenceModules = []string{"auth", "onboarding", "feed", "publish", "message"}
+var ReferenceModules = []string{"auth", "onboarding", "feed", "publish", "message", "relations"}
 
 type TemplateData struct {
 	PublicBaseURL string

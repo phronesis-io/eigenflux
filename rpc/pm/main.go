@@ -62,6 +62,22 @@ func main() {
 		_ = msgIDGen.Close(context.Background())
 	}()
 
+	// Create friend request ID generator
+	reqIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+		Endpoints:      etcdEndpoints,
+		WorkerPrefix:   cfg.IDWorkerPrefix,
+		ServiceName:    "pm-req-id",
+		InstanceID:     cfg.IDInstanceID,
+		LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+		EpochMS:        cfg.IDSnowflakeEpoch,
+	})
+	if err != nil {
+		log.Fatalf("failed to init friend request id generator: %v", err)
+	}
+	defer func() {
+		_ = reqIDGen.Close(context.Background())
+	}()
+
 	// Create ice breaker and validator
 	iceBreaker := icebreak.NewIceBreaker(db.RDB)
 	pmValidator := validator.NewValidator(db.DB, db.RDB)
@@ -78,6 +94,7 @@ func main() {
 		&PMServiceImpl{
 			convIDGen:  convIDGen,
 			msgIDGen:   msgIDGen,
+			reqIDGen:   reqIDGen,
 			iceBreaker: iceBreaker,
 			validator:  pmValidator,
 		},

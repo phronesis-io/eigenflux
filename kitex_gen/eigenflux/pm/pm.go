@@ -4,9 +4,58 @@ package pm
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
+
+type FriendRequestAction int64
+
+const (
+	FriendRequestAction_ACCEPT FriendRequestAction = 1
+	FriendRequestAction_REJECT FriendRequestAction = 2
+	FriendRequestAction_CANCEL FriendRequestAction = 3
+)
+
+func (p FriendRequestAction) String() string {
+	switch p {
+	case FriendRequestAction_ACCEPT:
+		return "ACCEPT"
+	case FriendRequestAction_REJECT:
+		return "REJECT"
+	case FriendRequestAction_CANCEL:
+		return "CANCEL"
+	}
+	return "<UNSET>"
+}
+
+func FriendRequestActionFromString(s string) (FriendRequestAction, error) {
+	switch s {
+	case "ACCEPT":
+		return FriendRequestAction_ACCEPT, nil
+	case "REJECT":
+		return FriendRequestAction_REJECT, nil
+	case "CANCEL":
+		return FriendRequestAction_CANCEL, nil
+	}
+	return FriendRequestAction(0), fmt.Errorf("not a valid FriendRequestAction string")
+}
+
+func FriendRequestActionPtr(v FriendRequestAction) *FriendRequestAction { return &v }
+func (p *FriendRequestAction) Scan(value interface{}) (err error) {
+	var result sql.NullInt64
+	err = result.Scan(value)
+	*p = FriendRequestAction(result.Int64)
+	return
+}
+
+func (p *FriendRequestAction) Value() (driver.Value, error) {
+	if p == nil {
+		return nil, nil
+	}
+	return int64(*p), nil
+}
 
 type SendPMReq struct {
 	SenderId   int64  `thrift:"sender_id,1,required" frugal:"1,required,i64" json:"sender_id"`
@@ -806,6 +855,1005 @@ var fieldIDToName_CloseConvResp = map[int16]string{
 	255: "base_resp",
 }
 
+type SendFriendRequestReq struct {
+	FromUid  int64   `thrift:"from_uid,1,required" frugal:"1,required,i64" json:"from_uid"`
+	ToUid    int64   `thrift:"to_uid,2,required" frugal:"2,required,i64" json:"to_uid"`
+	Greeting *string `thrift:"greeting,3,optional" frugal:"3,optional,string" json:"greeting,omitempty"`
+	Remark   *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+}
+
+func NewSendFriendRequestReq() *SendFriendRequestReq {
+	return &SendFriendRequestReq{}
+}
+
+func (p *SendFriendRequestReq) InitDefault() {
+}
+
+func (p *SendFriendRequestReq) GetFromUid() (v int64) {
+	return p.FromUid
+}
+
+func (p *SendFriendRequestReq) GetToUid() (v int64) {
+	return p.ToUid
+}
+
+var SendFriendRequestReq_Greeting_DEFAULT string
+
+func (p *SendFriendRequestReq) GetGreeting() (v string) {
+	if !p.IsSetGreeting() {
+		return SendFriendRequestReq_Greeting_DEFAULT
+	}
+	return *p.Greeting
+}
+
+var SendFriendRequestReq_Remark_DEFAULT string
+
+func (p *SendFriendRequestReq) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return SendFriendRequestReq_Remark_DEFAULT
+	}
+	return *p.Remark
+}
+func (p *SendFriendRequestReq) SetFromUid(val int64) {
+	p.FromUid = val
+}
+func (p *SendFriendRequestReq) SetToUid(val int64) {
+	p.ToUid = val
+}
+func (p *SendFriendRequestReq) SetGreeting(val *string) {
+	p.Greeting = val
+}
+func (p *SendFriendRequestReq) SetRemark(val *string) {
+	p.Remark = val
+}
+
+func (p *SendFriendRequestReq) IsSetGreeting() bool {
+	return p.Greeting != nil
+}
+
+func (p *SendFriendRequestReq) IsSetRemark() bool {
+	return p.Remark != nil
+}
+
+func (p *SendFriendRequestReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SendFriendRequestReq(%+v)", *p)
+}
+
+var fieldIDToName_SendFriendRequestReq = map[int16]string{
+	1: "from_uid",
+	2: "to_uid",
+	3: "greeting",
+	4: "remark",
+}
+
+type SendFriendRequestResp struct {
+	RequestId int64          `thrift:"request_id,1,required" frugal:"1,required,i64" json:"request_id"`
+	BaseResp  *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewSendFriendRequestResp() *SendFriendRequestResp {
+	return &SendFriendRequestResp{}
+}
+
+func (p *SendFriendRequestResp) InitDefault() {
+}
+
+func (p *SendFriendRequestResp) GetRequestId() (v int64) {
+	return p.RequestId
+}
+
+var SendFriendRequestResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *SendFriendRequestResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return SendFriendRequestResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *SendFriendRequestResp) SetRequestId(val int64) {
+	p.RequestId = val
+}
+func (p *SendFriendRequestResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *SendFriendRequestResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *SendFriendRequestResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SendFriendRequestResp(%+v)", *p)
+}
+
+var fieldIDToName_SendFriendRequestResp = map[int16]string{
+	1:   "request_id",
+	255: "base_resp",
+}
+
+type HandleFriendRequestReq struct {
+	AgentId   int64               `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	RequestId int64               `thrift:"request_id,2,required" frugal:"2,required,i64" json:"request_id"`
+	Action    FriendRequestAction `thrift:"action,3,required" frugal:"3,required,FriendRequestAction" json:"action"`
+	Remark    *string             `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+	Reason    *string             `thrift:"reason,5,optional" frugal:"5,optional,string" json:"reason,omitempty"`
+}
+
+func NewHandleFriendRequestReq() *HandleFriendRequestReq {
+	return &HandleFriendRequestReq{}
+}
+
+func (p *HandleFriendRequestReq) InitDefault() {
+}
+
+func (p *HandleFriendRequestReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *HandleFriendRequestReq) GetRequestId() (v int64) {
+	return p.RequestId
+}
+
+func (p *HandleFriendRequestReq) GetAction() (v FriendRequestAction) {
+	return p.Action
+}
+
+var HandleFriendRequestReq_Remark_DEFAULT string
+
+func (p *HandleFriendRequestReq) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return HandleFriendRequestReq_Remark_DEFAULT
+	}
+	return *p.Remark
+}
+
+var HandleFriendRequestReq_Reason_DEFAULT string
+
+func (p *HandleFriendRequestReq) GetReason() (v string) {
+	if !p.IsSetReason() {
+		return HandleFriendRequestReq_Reason_DEFAULT
+	}
+	return *p.Reason
+}
+func (p *HandleFriendRequestReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *HandleFriendRequestReq) SetRequestId(val int64) {
+	p.RequestId = val
+}
+func (p *HandleFriendRequestReq) SetAction(val FriendRequestAction) {
+	p.Action = val
+}
+func (p *HandleFriendRequestReq) SetRemark(val *string) {
+	p.Remark = val
+}
+func (p *HandleFriendRequestReq) SetReason(val *string) {
+	p.Reason = val
+}
+
+func (p *HandleFriendRequestReq) IsSetRemark() bool {
+	return p.Remark != nil
+}
+
+func (p *HandleFriendRequestReq) IsSetReason() bool {
+	return p.Reason != nil
+}
+
+func (p *HandleFriendRequestReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("HandleFriendRequestReq(%+v)", *p)
+}
+
+var fieldIDToName_HandleFriendRequestReq = map[int16]string{
+	1: "agent_id",
+	2: "request_id",
+	3: "action",
+	4: "remark",
+	5: "reason",
+}
+
+type HandleFriendRequestResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewHandleFriendRequestResp() *HandleFriendRequestResp {
+	return &HandleFriendRequestResp{}
+}
+
+func (p *HandleFriendRequestResp) InitDefault() {
+}
+
+var HandleFriendRequestResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *HandleFriendRequestResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return HandleFriendRequestResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *HandleFriendRequestResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *HandleFriendRequestResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *HandleFriendRequestResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("HandleFriendRequestResp(%+v)", *p)
+}
+
+var fieldIDToName_HandleFriendRequestResp = map[int16]string{
+	255: "base_resp",
+}
+
+type UpdateFriendRemarkReq struct {
+	AgentId   int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	FriendUid int64  `thrift:"friend_uid,2,required" frugal:"2,required,i64" json:"friend_uid"`
+	Remark    string `thrift:"remark,3,required" frugal:"3,required,string" json:"remark"`
+}
+
+func NewUpdateFriendRemarkReq() *UpdateFriendRemarkReq {
+	return &UpdateFriendRemarkReq{}
+}
+
+func (p *UpdateFriendRemarkReq) InitDefault() {
+}
+
+func (p *UpdateFriendRemarkReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *UpdateFriendRemarkReq) GetFriendUid() (v int64) {
+	return p.FriendUid
+}
+
+func (p *UpdateFriendRemarkReq) GetRemark() (v string) {
+	return p.Remark
+}
+func (p *UpdateFriendRemarkReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *UpdateFriendRemarkReq) SetFriendUid(val int64) {
+	p.FriendUid = val
+}
+func (p *UpdateFriendRemarkReq) SetRemark(val string) {
+	p.Remark = val
+}
+
+func (p *UpdateFriendRemarkReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateFriendRemarkReq(%+v)", *p)
+}
+
+var fieldIDToName_UpdateFriendRemarkReq = map[int16]string{
+	1: "agent_id",
+	2: "friend_uid",
+	3: "remark",
+}
+
+type UpdateFriendRemarkResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewUpdateFriendRemarkResp() *UpdateFriendRemarkResp {
+	return &UpdateFriendRemarkResp{}
+}
+
+func (p *UpdateFriendRemarkResp) InitDefault() {
+}
+
+var UpdateFriendRemarkResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *UpdateFriendRemarkResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return UpdateFriendRemarkResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *UpdateFriendRemarkResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *UpdateFriendRemarkResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *UpdateFriendRemarkResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateFriendRemarkResp(%+v)", *p)
+}
+
+var fieldIDToName_UpdateFriendRemarkResp = map[int16]string{
+	255: "base_resp",
+}
+
+type BlockUserReq struct {
+	FromUid int64   `thrift:"from_uid,1,required" frugal:"1,required,i64" json:"from_uid"`
+	ToUid   int64   `thrift:"to_uid,2,required" frugal:"2,required,i64" json:"to_uid"`
+	Remark  *string `thrift:"remark,3,optional" frugal:"3,optional,string" json:"remark,omitempty"`
+}
+
+func NewBlockUserReq() *BlockUserReq {
+	return &BlockUserReq{}
+}
+
+func (p *BlockUserReq) InitDefault() {
+}
+
+func (p *BlockUserReq) GetFromUid() (v int64) {
+	return p.FromUid
+}
+
+func (p *BlockUserReq) GetToUid() (v int64) {
+	return p.ToUid
+}
+
+var BlockUserReq_Remark_DEFAULT string
+
+func (p *BlockUserReq) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return BlockUserReq_Remark_DEFAULT
+	}
+	return *p.Remark
+}
+func (p *BlockUserReq) SetFromUid(val int64) {
+	p.FromUid = val
+}
+func (p *BlockUserReq) SetToUid(val int64) {
+	p.ToUid = val
+}
+func (p *BlockUserReq) SetRemark(val *string) {
+	p.Remark = val
+}
+
+func (p *BlockUserReq) IsSetRemark() bool {
+	return p.Remark != nil
+}
+
+func (p *BlockUserReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockUserReq(%+v)", *p)
+}
+
+var fieldIDToName_BlockUserReq = map[int16]string{
+	1: "from_uid",
+	2: "to_uid",
+	3: "remark",
+}
+
+type BlockUserResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewBlockUserResp() *BlockUserResp {
+	return &BlockUserResp{}
+}
+
+func (p *BlockUserResp) InitDefault() {
+}
+
+var BlockUserResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *BlockUserResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return BlockUserResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *BlockUserResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *BlockUserResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *BlockUserResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BlockUserResp(%+v)", *p)
+}
+
+var fieldIDToName_BlockUserResp = map[int16]string{
+	255: "base_resp",
+}
+
+type UnblockUserReq struct {
+	FromUid int64 `thrift:"from_uid,1,required" frugal:"1,required,i64" json:"from_uid"`
+	ToUid   int64 `thrift:"to_uid,2,required" frugal:"2,required,i64" json:"to_uid"`
+}
+
+func NewUnblockUserReq() *UnblockUserReq {
+	return &UnblockUserReq{}
+}
+
+func (p *UnblockUserReq) InitDefault() {
+}
+
+func (p *UnblockUserReq) GetFromUid() (v int64) {
+	return p.FromUid
+}
+
+func (p *UnblockUserReq) GetToUid() (v int64) {
+	return p.ToUid
+}
+func (p *UnblockUserReq) SetFromUid(val int64) {
+	p.FromUid = val
+}
+func (p *UnblockUserReq) SetToUid(val int64) {
+	p.ToUid = val
+}
+
+func (p *UnblockUserReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnblockUserReq(%+v)", *p)
+}
+
+var fieldIDToName_UnblockUserReq = map[int16]string{
+	1: "from_uid",
+	2: "to_uid",
+}
+
+type UnblockUserResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewUnblockUserResp() *UnblockUserResp {
+	return &UnblockUserResp{}
+}
+
+func (p *UnblockUserResp) InitDefault() {
+}
+
+var UnblockUserResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *UnblockUserResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return UnblockUserResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *UnblockUserResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *UnblockUserResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *UnblockUserResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnblockUserResp(%+v)", *p)
+}
+
+var fieldIDToName_UnblockUserResp = map[int16]string{
+	255: "base_resp",
+}
+
+type UnfriendReq struct {
+	FromUid int64 `thrift:"from_uid,1,required" frugal:"1,required,i64" json:"from_uid"`
+	ToUid   int64 `thrift:"to_uid,2,required" frugal:"2,required,i64" json:"to_uid"`
+}
+
+func NewUnfriendReq() *UnfriendReq {
+	return &UnfriendReq{}
+}
+
+func (p *UnfriendReq) InitDefault() {
+}
+
+func (p *UnfriendReq) GetFromUid() (v int64) {
+	return p.FromUid
+}
+
+func (p *UnfriendReq) GetToUid() (v int64) {
+	return p.ToUid
+}
+func (p *UnfriendReq) SetFromUid(val int64) {
+	p.FromUid = val
+}
+func (p *UnfriendReq) SetToUid(val int64) {
+	p.ToUid = val
+}
+
+func (p *UnfriendReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnfriendReq(%+v)", *p)
+}
+
+var fieldIDToName_UnfriendReq = map[int16]string{
+	1: "from_uid",
+	2: "to_uid",
+}
+
+type UnfriendResp struct {
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewUnfriendResp() *UnfriendResp {
+	return &UnfriendResp{}
+}
+
+func (p *UnfriendResp) InitDefault() {
+}
+
+var UnfriendResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *UnfriendResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return UnfriendResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *UnfriendResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *UnfriendResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *UnfriendResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnfriendResp(%+v)", *p)
+}
+
+var fieldIDToName_UnfriendResp = map[int16]string{
+	255: "base_resp",
+}
+
+type ListFriendRequestsReq struct {
+	AgentId   int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Direction string `thrift:"direction,2,required" frugal:"2,required,string" json:"direction"`
+	Cursor    *int64 `thrift:"cursor,3,optional" frugal:"3,optional,i64" json:"cursor,omitempty"`
+	Limit     *int32 `thrift:"limit,4,optional" frugal:"4,optional,i32" json:"limit,omitempty"`
+}
+
+func NewListFriendRequestsReq() *ListFriendRequestsReq {
+	return &ListFriendRequestsReq{}
+}
+
+func (p *ListFriendRequestsReq) InitDefault() {
+}
+
+func (p *ListFriendRequestsReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *ListFriendRequestsReq) GetDirection() (v string) {
+	return p.Direction
+}
+
+var ListFriendRequestsReq_Cursor_DEFAULT int64
+
+func (p *ListFriendRequestsReq) GetCursor() (v int64) {
+	if !p.IsSetCursor() {
+		return ListFriendRequestsReq_Cursor_DEFAULT
+	}
+	return *p.Cursor
+}
+
+var ListFriendRequestsReq_Limit_DEFAULT int32
+
+func (p *ListFriendRequestsReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return ListFriendRequestsReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *ListFriendRequestsReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *ListFriendRequestsReq) SetDirection(val string) {
+	p.Direction = val
+}
+func (p *ListFriendRequestsReq) SetCursor(val *int64) {
+	p.Cursor = val
+}
+func (p *ListFriendRequestsReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *ListFriendRequestsReq) IsSetCursor() bool {
+	return p.Cursor != nil
+}
+
+func (p *ListFriendRequestsReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *ListFriendRequestsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListFriendRequestsReq(%+v)", *p)
+}
+
+var fieldIDToName_ListFriendRequestsReq = map[int16]string{
+	1: "agent_id",
+	2: "direction",
+	3: "cursor",
+	4: "limit",
+}
+
+type FriendRequestInfo struct {
+	RequestId int64   `thrift:"request_id,1,required" frugal:"1,required,i64" json:"request_id"`
+	FromUid   int64   `thrift:"from_uid,2,required" frugal:"2,required,i64" json:"from_uid"`
+	ToUid     int64   `thrift:"to_uid,3,required" frugal:"3,required,i64" json:"to_uid"`
+	CreatedAt int64   `thrift:"created_at,4,required" frugal:"4,required,i64" json:"created_at"`
+	FromName  *string `thrift:"from_name,5,optional" frugal:"5,optional,string" json:"from_name,omitempty"`
+	ToName    *string `thrift:"to_name,6,optional" frugal:"6,optional,string" json:"to_name,omitempty"`
+	Greeting  *string `thrift:"greeting,7,optional" frugal:"7,optional,string" json:"greeting,omitempty"`
+}
+
+func NewFriendRequestInfo() *FriendRequestInfo {
+	return &FriendRequestInfo{}
+}
+
+func (p *FriendRequestInfo) InitDefault() {
+}
+
+func (p *FriendRequestInfo) GetRequestId() (v int64) {
+	return p.RequestId
+}
+
+func (p *FriendRequestInfo) GetFromUid() (v int64) {
+	return p.FromUid
+}
+
+func (p *FriendRequestInfo) GetToUid() (v int64) {
+	return p.ToUid
+}
+
+func (p *FriendRequestInfo) GetCreatedAt() (v int64) {
+	return p.CreatedAt
+}
+
+var FriendRequestInfo_FromName_DEFAULT string
+
+func (p *FriendRequestInfo) GetFromName() (v string) {
+	if !p.IsSetFromName() {
+		return FriendRequestInfo_FromName_DEFAULT
+	}
+	return *p.FromName
+}
+
+var FriendRequestInfo_ToName_DEFAULT string
+
+func (p *FriendRequestInfo) GetToName() (v string) {
+	if !p.IsSetToName() {
+		return FriendRequestInfo_ToName_DEFAULT
+	}
+	return *p.ToName
+}
+
+var FriendRequestInfo_Greeting_DEFAULT string
+
+func (p *FriendRequestInfo) GetGreeting() (v string) {
+	if !p.IsSetGreeting() {
+		return FriendRequestInfo_Greeting_DEFAULT
+	}
+	return *p.Greeting
+}
+func (p *FriendRequestInfo) SetRequestId(val int64) {
+	p.RequestId = val
+}
+func (p *FriendRequestInfo) SetFromUid(val int64) {
+	p.FromUid = val
+}
+func (p *FriendRequestInfo) SetToUid(val int64) {
+	p.ToUid = val
+}
+func (p *FriendRequestInfo) SetCreatedAt(val int64) {
+	p.CreatedAt = val
+}
+func (p *FriendRequestInfo) SetFromName(val *string) {
+	p.FromName = val
+}
+func (p *FriendRequestInfo) SetToName(val *string) {
+	p.ToName = val
+}
+func (p *FriendRequestInfo) SetGreeting(val *string) {
+	p.Greeting = val
+}
+
+func (p *FriendRequestInfo) IsSetFromName() bool {
+	return p.FromName != nil
+}
+
+func (p *FriendRequestInfo) IsSetToName() bool {
+	return p.ToName != nil
+}
+
+func (p *FriendRequestInfo) IsSetGreeting() bool {
+	return p.Greeting != nil
+}
+
+func (p *FriendRequestInfo) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FriendRequestInfo(%+v)", *p)
+}
+
+var fieldIDToName_FriendRequestInfo = map[int16]string{
+	1: "request_id",
+	2: "from_uid",
+	3: "to_uid",
+	4: "created_at",
+	5: "from_name",
+	6: "to_name",
+	7: "greeting",
+}
+
+type ListFriendRequestsResp struct {
+	Requests   []*FriendRequestInfo `thrift:"requests,1,required" frugal:"1,required,list<FriendRequestInfo>" json:"requests"`
+	NextCursor int64                `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	BaseResp   *base.BaseResp       `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewListFriendRequestsResp() *ListFriendRequestsResp {
+	return &ListFriendRequestsResp{}
+}
+
+func (p *ListFriendRequestsResp) InitDefault() {
+}
+
+func (p *ListFriendRequestsResp) GetRequests() (v []*FriendRequestInfo) {
+	return p.Requests
+}
+
+func (p *ListFriendRequestsResp) GetNextCursor() (v int64) {
+	return p.NextCursor
+}
+
+var ListFriendRequestsResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *ListFriendRequestsResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return ListFriendRequestsResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *ListFriendRequestsResp) SetRequests(val []*FriendRequestInfo) {
+	p.Requests = val
+}
+func (p *ListFriendRequestsResp) SetNextCursor(val int64) {
+	p.NextCursor = val
+}
+func (p *ListFriendRequestsResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *ListFriendRequestsResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *ListFriendRequestsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListFriendRequestsResp(%+v)", *p)
+}
+
+var fieldIDToName_ListFriendRequestsResp = map[int16]string{
+	1:   "requests",
+	2:   "next_cursor",
+	255: "base_resp",
+}
+
+type ListFriendsReq struct {
+	AgentId int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Cursor  *int64 `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
+	Limit   *int32 `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+}
+
+func NewListFriendsReq() *ListFriendsReq {
+	return &ListFriendsReq{}
+}
+
+func (p *ListFriendsReq) InitDefault() {
+}
+
+func (p *ListFriendsReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+var ListFriendsReq_Cursor_DEFAULT int64
+
+func (p *ListFriendsReq) GetCursor() (v int64) {
+	if !p.IsSetCursor() {
+		return ListFriendsReq_Cursor_DEFAULT
+	}
+	return *p.Cursor
+}
+
+var ListFriendsReq_Limit_DEFAULT int32
+
+func (p *ListFriendsReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return ListFriendsReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *ListFriendsReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *ListFriendsReq) SetCursor(val *int64) {
+	p.Cursor = val
+}
+func (p *ListFriendsReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *ListFriendsReq) IsSetCursor() bool {
+	return p.Cursor != nil
+}
+
+func (p *ListFriendsReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *ListFriendsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListFriendsReq(%+v)", *p)
+}
+
+var fieldIDToName_ListFriendsReq = map[int16]string{
+	1: "agent_id",
+	2: "cursor",
+	3: "limit",
+}
+
+type FriendInfo struct {
+	AgentId     int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	AgentName   string  `thrift:"agent_name,2,required" frugal:"2,required,string" json:"agent_name"`
+	FriendSince int64   `thrift:"friend_since,3,required" frugal:"3,required,i64" json:"friend_since"`
+	Remark      *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+}
+
+func NewFriendInfo() *FriendInfo {
+	return &FriendInfo{}
+}
+
+func (p *FriendInfo) InitDefault() {
+}
+
+func (p *FriendInfo) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *FriendInfo) GetAgentName() (v string) {
+	return p.AgentName
+}
+
+func (p *FriendInfo) GetFriendSince() (v int64) {
+	return p.FriendSince
+}
+
+var FriendInfo_Remark_DEFAULT string
+
+func (p *FriendInfo) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return FriendInfo_Remark_DEFAULT
+	}
+	return *p.Remark
+}
+func (p *FriendInfo) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *FriendInfo) SetAgentName(val string) {
+	p.AgentName = val
+}
+func (p *FriendInfo) SetFriendSince(val int64) {
+	p.FriendSince = val
+}
+func (p *FriendInfo) SetRemark(val *string) {
+	p.Remark = val
+}
+
+func (p *FriendInfo) IsSetRemark() bool {
+	return p.Remark != nil
+}
+
+func (p *FriendInfo) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FriendInfo(%+v)", *p)
+}
+
+var fieldIDToName_FriendInfo = map[int16]string{
+	1: "agent_id",
+	2: "agent_name",
+	3: "friend_since",
+	4: "remark",
+}
+
+type ListFriendsResp struct {
+	Friends    []*FriendInfo  `thrift:"friends,1,required" frugal:"1,required,list<FriendInfo>" json:"friends"`
+	NextCursor int64          `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	BaseResp   *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewListFriendsResp() *ListFriendsResp {
+	return &ListFriendsResp{}
+}
+
+func (p *ListFriendsResp) InitDefault() {
+}
+
+func (p *ListFriendsResp) GetFriends() (v []*FriendInfo) {
+	return p.Friends
+}
+
+func (p *ListFriendsResp) GetNextCursor() (v int64) {
+	return p.NextCursor
+}
+
+var ListFriendsResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *ListFriendsResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return ListFriendsResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *ListFriendsResp) SetFriends(val []*FriendInfo) {
+	p.Friends = val
+}
+func (p *ListFriendsResp) SetNextCursor(val int64) {
+	p.NextCursor = val
+}
+func (p *ListFriendsResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *ListFriendsResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *ListFriendsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListFriendsResp(%+v)", *p)
+}
+
+var fieldIDToName_ListFriendsResp = map[int16]string{
+	1:   "friends",
+	2:   "next_cursor",
+	255: "base_resp",
+}
+
 type PMService interface {
 	SendPM(ctx context.Context, req *SendPMReq) (r *SendPMResp, err error)
 
@@ -816,6 +1864,22 @@ type PMService interface {
 	GetConvHistory(ctx context.Context, req *GetConvHistoryReq) (r *GetConvHistoryResp, err error)
 
 	CloseConv(ctx context.Context, req *CloseConvReq) (r *CloseConvResp, err error)
+
+	SendFriendRequest(ctx context.Context, req *SendFriendRequestReq) (r *SendFriendRequestResp, err error)
+
+	HandleFriendRequest(ctx context.Context, req *HandleFriendRequestReq) (r *HandleFriendRequestResp, err error)
+
+	Unfriend(ctx context.Context, req *UnfriendReq) (r *UnfriendResp, err error)
+
+	BlockUser(ctx context.Context, req *BlockUserReq) (r *BlockUserResp, err error)
+
+	UnblockUser(ctx context.Context, req *UnblockUserReq) (r *UnblockUserResp, err error)
+
+	ListFriendRequests(ctx context.Context, req *ListFriendRequestsReq) (r *ListFriendRequestsResp, err error)
+
+	ListFriends(ctx context.Context, req *ListFriendsReq) (r *ListFriendsResp, err error)
+
+	UpdateFriendRemark(ctx context.Context, req *UpdateFriendRemarkReq) (r *UpdateFriendRemarkResp, err error)
 }
 
 type PMServiceSendPMArgs struct {
@@ -1195,5 +2259,613 @@ func (p *PMServiceCloseConvResult) String() string {
 }
 
 var fieldIDToName_PMServiceCloseConvResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceSendFriendRequestArgs struct {
+	Req *SendFriendRequestReq `thrift:"req,1" frugal:"1,default,SendFriendRequestReq" json:"req"`
+}
+
+func NewPMServiceSendFriendRequestArgs() *PMServiceSendFriendRequestArgs {
+	return &PMServiceSendFriendRequestArgs{}
+}
+
+func (p *PMServiceSendFriendRequestArgs) InitDefault() {
+}
+
+var PMServiceSendFriendRequestArgs_Req_DEFAULT *SendFriendRequestReq
+
+func (p *PMServiceSendFriendRequestArgs) GetReq() (v *SendFriendRequestReq) {
+	if !p.IsSetReq() {
+		return PMServiceSendFriendRequestArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceSendFriendRequestArgs) SetReq(val *SendFriendRequestReq) {
+	p.Req = val
+}
+
+func (p *PMServiceSendFriendRequestArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceSendFriendRequestArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceSendFriendRequestArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceSendFriendRequestArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceSendFriendRequestResult struct {
+	Success *SendFriendRequestResp `thrift:"success,0,optional" frugal:"0,optional,SendFriendRequestResp" json:"success,omitempty"`
+}
+
+func NewPMServiceSendFriendRequestResult() *PMServiceSendFriendRequestResult {
+	return &PMServiceSendFriendRequestResult{}
+}
+
+func (p *PMServiceSendFriendRequestResult) InitDefault() {
+}
+
+var PMServiceSendFriendRequestResult_Success_DEFAULT *SendFriendRequestResp
+
+func (p *PMServiceSendFriendRequestResult) GetSuccess() (v *SendFriendRequestResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceSendFriendRequestResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceSendFriendRequestResult) SetSuccess(x interface{}) {
+	p.Success = x.(*SendFriendRequestResp)
+}
+
+func (p *PMServiceSendFriendRequestResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceSendFriendRequestResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceSendFriendRequestResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceSendFriendRequestResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceHandleFriendRequestArgs struct {
+	Req *HandleFriendRequestReq `thrift:"req,1" frugal:"1,default,HandleFriendRequestReq" json:"req"`
+}
+
+func NewPMServiceHandleFriendRequestArgs() *PMServiceHandleFriendRequestArgs {
+	return &PMServiceHandleFriendRequestArgs{}
+}
+
+func (p *PMServiceHandleFriendRequestArgs) InitDefault() {
+}
+
+var PMServiceHandleFriendRequestArgs_Req_DEFAULT *HandleFriendRequestReq
+
+func (p *PMServiceHandleFriendRequestArgs) GetReq() (v *HandleFriendRequestReq) {
+	if !p.IsSetReq() {
+		return PMServiceHandleFriendRequestArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceHandleFriendRequestArgs) SetReq(val *HandleFriendRequestReq) {
+	p.Req = val
+}
+
+func (p *PMServiceHandleFriendRequestArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceHandleFriendRequestArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceHandleFriendRequestArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceHandleFriendRequestArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceHandleFriendRequestResult struct {
+	Success *HandleFriendRequestResp `thrift:"success,0,optional" frugal:"0,optional,HandleFriendRequestResp" json:"success,omitempty"`
+}
+
+func NewPMServiceHandleFriendRequestResult() *PMServiceHandleFriendRequestResult {
+	return &PMServiceHandleFriendRequestResult{}
+}
+
+func (p *PMServiceHandleFriendRequestResult) InitDefault() {
+}
+
+var PMServiceHandleFriendRequestResult_Success_DEFAULT *HandleFriendRequestResp
+
+func (p *PMServiceHandleFriendRequestResult) GetSuccess() (v *HandleFriendRequestResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceHandleFriendRequestResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceHandleFriendRequestResult) SetSuccess(x interface{}) {
+	p.Success = x.(*HandleFriendRequestResp)
+}
+
+func (p *PMServiceHandleFriendRequestResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceHandleFriendRequestResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceHandleFriendRequestResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceHandleFriendRequestResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceUnfriendArgs struct {
+	Req *UnfriendReq `thrift:"req,1" frugal:"1,default,UnfriendReq" json:"req"`
+}
+
+func NewPMServiceUnfriendArgs() *PMServiceUnfriendArgs {
+	return &PMServiceUnfriendArgs{}
+}
+
+func (p *PMServiceUnfriendArgs) InitDefault() {
+}
+
+var PMServiceUnfriendArgs_Req_DEFAULT *UnfriendReq
+
+func (p *PMServiceUnfriendArgs) GetReq() (v *UnfriendReq) {
+	if !p.IsSetReq() {
+		return PMServiceUnfriendArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceUnfriendArgs) SetReq(val *UnfriendReq) {
+	p.Req = val
+}
+
+func (p *PMServiceUnfriendArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceUnfriendArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUnfriendArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUnfriendArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceUnfriendResult struct {
+	Success *UnfriendResp `thrift:"success,0,optional" frugal:"0,optional,UnfriendResp" json:"success,omitempty"`
+}
+
+func NewPMServiceUnfriendResult() *PMServiceUnfriendResult {
+	return &PMServiceUnfriendResult{}
+}
+
+func (p *PMServiceUnfriendResult) InitDefault() {
+}
+
+var PMServiceUnfriendResult_Success_DEFAULT *UnfriendResp
+
+func (p *PMServiceUnfriendResult) GetSuccess() (v *UnfriendResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceUnfriendResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceUnfriendResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UnfriendResp)
+}
+
+func (p *PMServiceUnfriendResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceUnfriendResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUnfriendResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUnfriendResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceBlockUserArgs struct {
+	Req *BlockUserReq `thrift:"req,1" frugal:"1,default,BlockUserReq" json:"req"`
+}
+
+func NewPMServiceBlockUserArgs() *PMServiceBlockUserArgs {
+	return &PMServiceBlockUserArgs{}
+}
+
+func (p *PMServiceBlockUserArgs) InitDefault() {
+}
+
+var PMServiceBlockUserArgs_Req_DEFAULT *BlockUserReq
+
+func (p *PMServiceBlockUserArgs) GetReq() (v *BlockUserReq) {
+	if !p.IsSetReq() {
+		return PMServiceBlockUserArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceBlockUserArgs) SetReq(val *BlockUserReq) {
+	p.Req = val
+}
+
+func (p *PMServiceBlockUserArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceBlockUserArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceBlockUserArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceBlockUserArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceBlockUserResult struct {
+	Success *BlockUserResp `thrift:"success,0,optional" frugal:"0,optional,BlockUserResp" json:"success,omitempty"`
+}
+
+func NewPMServiceBlockUserResult() *PMServiceBlockUserResult {
+	return &PMServiceBlockUserResult{}
+}
+
+func (p *PMServiceBlockUserResult) InitDefault() {
+}
+
+var PMServiceBlockUserResult_Success_DEFAULT *BlockUserResp
+
+func (p *PMServiceBlockUserResult) GetSuccess() (v *BlockUserResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceBlockUserResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceBlockUserResult) SetSuccess(x interface{}) {
+	p.Success = x.(*BlockUserResp)
+}
+
+func (p *PMServiceBlockUserResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceBlockUserResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceBlockUserResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceBlockUserResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceUnblockUserArgs struct {
+	Req *UnblockUserReq `thrift:"req,1" frugal:"1,default,UnblockUserReq" json:"req"`
+}
+
+func NewPMServiceUnblockUserArgs() *PMServiceUnblockUserArgs {
+	return &PMServiceUnblockUserArgs{}
+}
+
+func (p *PMServiceUnblockUserArgs) InitDefault() {
+}
+
+var PMServiceUnblockUserArgs_Req_DEFAULT *UnblockUserReq
+
+func (p *PMServiceUnblockUserArgs) GetReq() (v *UnblockUserReq) {
+	if !p.IsSetReq() {
+		return PMServiceUnblockUserArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceUnblockUserArgs) SetReq(val *UnblockUserReq) {
+	p.Req = val
+}
+
+func (p *PMServiceUnblockUserArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceUnblockUserArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUnblockUserArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUnblockUserArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceUnblockUserResult struct {
+	Success *UnblockUserResp `thrift:"success,0,optional" frugal:"0,optional,UnblockUserResp" json:"success,omitempty"`
+}
+
+func NewPMServiceUnblockUserResult() *PMServiceUnblockUserResult {
+	return &PMServiceUnblockUserResult{}
+}
+
+func (p *PMServiceUnblockUserResult) InitDefault() {
+}
+
+var PMServiceUnblockUserResult_Success_DEFAULT *UnblockUserResp
+
+func (p *PMServiceUnblockUserResult) GetSuccess() (v *UnblockUserResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceUnblockUserResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceUnblockUserResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UnblockUserResp)
+}
+
+func (p *PMServiceUnblockUserResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceUnblockUserResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUnblockUserResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUnblockUserResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceListFriendRequestsArgs struct {
+	Req *ListFriendRequestsReq `thrift:"req,1" frugal:"1,default,ListFriendRequestsReq" json:"req"`
+}
+
+func NewPMServiceListFriendRequestsArgs() *PMServiceListFriendRequestsArgs {
+	return &PMServiceListFriendRequestsArgs{}
+}
+
+func (p *PMServiceListFriendRequestsArgs) InitDefault() {
+}
+
+var PMServiceListFriendRequestsArgs_Req_DEFAULT *ListFriendRequestsReq
+
+func (p *PMServiceListFriendRequestsArgs) GetReq() (v *ListFriendRequestsReq) {
+	if !p.IsSetReq() {
+		return PMServiceListFriendRequestsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceListFriendRequestsArgs) SetReq(val *ListFriendRequestsReq) {
+	p.Req = val
+}
+
+func (p *PMServiceListFriendRequestsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceListFriendRequestsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceListFriendRequestsArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceListFriendRequestsArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceListFriendRequestsResult struct {
+	Success *ListFriendRequestsResp `thrift:"success,0,optional" frugal:"0,optional,ListFriendRequestsResp" json:"success,omitempty"`
+}
+
+func NewPMServiceListFriendRequestsResult() *PMServiceListFriendRequestsResult {
+	return &PMServiceListFriendRequestsResult{}
+}
+
+func (p *PMServiceListFriendRequestsResult) InitDefault() {
+}
+
+var PMServiceListFriendRequestsResult_Success_DEFAULT *ListFriendRequestsResp
+
+func (p *PMServiceListFriendRequestsResult) GetSuccess() (v *ListFriendRequestsResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceListFriendRequestsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceListFriendRequestsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListFriendRequestsResp)
+}
+
+func (p *PMServiceListFriendRequestsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceListFriendRequestsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceListFriendRequestsResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceListFriendRequestsResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceListFriendsArgs struct {
+	Req *ListFriendsReq `thrift:"req,1" frugal:"1,default,ListFriendsReq" json:"req"`
+}
+
+func NewPMServiceListFriendsArgs() *PMServiceListFriendsArgs {
+	return &PMServiceListFriendsArgs{}
+}
+
+func (p *PMServiceListFriendsArgs) InitDefault() {
+}
+
+var PMServiceListFriendsArgs_Req_DEFAULT *ListFriendsReq
+
+func (p *PMServiceListFriendsArgs) GetReq() (v *ListFriendsReq) {
+	if !p.IsSetReq() {
+		return PMServiceListFriendsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceListFriendsArgs) SetReq(val *ListFriendsReq) {
+	p.Req = val
+}
+
+func (p *PMServiceListFriendsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceListFriendsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceListFriendsArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceListFriendsArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceListFriendsResult struct {
+	Success *ListFriendsResp `thrift:"success,0,optional" frugal:"0,optional,ListFriendsResp" json:"success,omitempty"`
+}
+
+func NewPMServiceListFriendsResult() *PMServiceListFriendsResult {
+	return &PMServiceListFriendsResult{}
+}
+
+func (p *PMServiceListFriendsResult) InitDefault() {
+}
+
+var PMServiceListFriendsResult_Success_DEFAULT *ListFriendsResp
+
+func (p *PMServiceListFriendsResult) GetSuccess() (v *ListFriendsResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceListFriendsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceListFriendsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListFriendsResp)
+}
+
+func (p *PMServiceListFriendsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceListFriendsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceListFriendsResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceListFriendsResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceUpdateFriendRemarkArgs struct {
+	Req *UpdateFriendRemarkReq `thrift:"req,1" frugal:"1,default,UpdateFriendRemarkReq" json:"req"`
+}
+
+func NewPMServiceUpdateFriendRemarkArgs() *PMServiceUpdateFriendRemarkArgs {
+	return &PMServiceUpdateFriendRemarkArgs{}
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) InitDefault() {
+}
+
+var PMServiceUpdateFriendRemarkArgs_Req_DEFAULT *UpdateFriendRemarkReq
+
+func (p *PMServiceUpdateFriendRemarkArgs) GetReq() (v *UpdateFriendRemarkReq) {
+	if !p.IsSetReq() {
+		return PMServiceUpdateFriendRemarkArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceUpdateFriendRemarkArgs) SetReq(val *UpdateFriendRemarkReq) {
+	p.Req = val
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceUpdateFriendRemarkArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateFriendRemarkArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateFriendRemarkArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceUpdateFriendRemarkResult struct {
+	Success *UpdateFriendRemarkResp `thrift:"success,0,optional" frugal:"0,optional,UpdateFriendRemarkResp" json:"success,omitempty"`
+}
+
+func NewPMServiceUpdateFriendRemarkResult() *PMServiceUpdateFriendRemarkResult {
+	return &PMServiceUpdateFriendRemarkResult{}
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) InitDefault() {
+}
+
+var PMServiceUpdateFriendRemarkResult_Success_DEFAULT *UpdateFriendRemarkResp
+
+func (p *PMServiceUpdateFriendRemarkResult) GetSuccess() (v *UpdateFriendRemarkResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceUpdateFriendRemarkResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceUpdateFriendRemarkResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateFriendRemarkResp)
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceUpdateFriendRemarkResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateFriendRemarkResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateFriendRemarkResult = map[int16]string{
 	0: "success",
 }
