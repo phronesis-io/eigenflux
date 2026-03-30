@@ -1657,3 +1657,316 @@ func TestSendFriendRequest_MutualWithRemarks(t *testing.T) {
 	}
 	t.Logf("B's remark for A: '%s' (from B's mutual request)", remarkB)
 }
+
+func TestSendFriendRequest_RejectedCanResend(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"resendreject_a@test.com", "resendreject_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "ResendReject A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "ResendReject B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	firstResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "first try",
+	}, agentA["token"].(string))
+	firstID := firstResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": firstID,
+		"action":     2,
+	}, agentB["token"].(string))
+
+	secondResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   agentB["agent_id"].(string),
+		"greeting": "second try",
+	}, agentA["token"].(string))
+	if int(secondResp["code"].(float64)) != 0 {
+		t.Fatalf("resend after reject failed: %v", secondResp["msg"])
+	}
+	secondID := secondResp["data"].(map[string]interface{})["request_id"].(string)
+	if secondID == firstID {
+		t.Fatalf("expected a new request_id after resend, got same id %s", secondID)
+	}
+
+	var count int
+	var greeting string
+	err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*), MAX(greeting) FROM friend_requests WHERE from_uid = $1 AND to_uid = $2 AND status = 0",
+		uidA, uidB,
+	).Scan(&count, &greeting)
+	if err != nil {
+		t.Fatalf("failed to query reset request: %v", err)
+	}
+	if count != 1 || greeting != "second try" {
+		t.Fatalf("expected one reset pending request with updated greeting, got count=%d greeting=%q", count, greeting)
+	}
+}
+
+func TestSendFriendRequest_CancelledCanResend(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"resendcancel_a@test.com", "resendcancel_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "ResendCancel A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "ResendCancel B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	firstResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	firstID := firstResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": firstID,
+		"action":     3,
+	}, agentA["token"].(string))
+
+	secondResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if int(secondResp["code"].(float64)) != 0 {
+		t.Fatalf("resend after cancel failed: %v", secondResp["msg"])
+	}
+	secondID := secondResp["data"].(map[string]interface{})["request_id"].(string)
+	if secondID == firstID {
+		t.Fatalf("expected a new request_id after resend, got same id %s", secondID)
+	}
+}
+
+func TestSendFriendRequest_UnfriendedCanResend(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"resendunfriend_a@test.com", "resendunfriend_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "ResendUnfriend A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "ResendUnfriend B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	firstResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	firstID := firstResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": firstID,
+		"action":     1,
+	}, agentB["token"].(string))
+	testutil.DoPost(t, "/api/v1/relations/unfriend", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+
+	secondResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if int(secondResp["code"].(float64)) != 0 {
+		t.Fatalf("resend after unfriend failed: %v", secondResp["msg"])
+	}
+	secondID := secondResp["data"].(map[string]interface{})["request_id"].(string)
+	if secondID == firstID {
+		t.Fatalf("expected a new request_id after resend, got same id %s", secondID)
+	}
+}
+
+func TestHandleFriendRequest_NonPendingRejected(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"staleaction_a@test.com", "staleaction_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "StaleAction A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "StaleAction B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     3,
+	}, agentA["token"].(string))
+
+	staleResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+	if int(staleResp["code"].(float64)) != 400 {
+		t.Fatalf("expected stale accept to return 400, got %v", staleResp)
+	}
+}
+
+func TestBlockUser_CancelsBothDirectionsAndRejectsStaleAccept(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"blockstale_a@test.com", "blockstale_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "BlockStale A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "BlockStale B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	manualID := time.Now().UnixNano()
+	_, err := testutil.TestDB.Exec(
+		"INSERT INTO friend_requests (id, from_uid, to_uid, status, greeting, remark, created_at, updated_at) VALUES ($1,$2,$3,0,'','', $4, $4)",
+		manualID, uidB, uidA, time.Now().UnixMilli(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert reverse pending request: %v", err)
+	}
+
+	blockResp := testutil.DoPost(t, "/api/v1/relations/block", map[string]interface{}{
+		"to_uid": agentA["agent_id"].(string),
+	}, agentB["token"].(string))
+	if int(blockResp["code"].(float64)) != 0 {
+		t.Fatalf("block failed: %v", blockResp["msg"])
+	}
+
+	var pendingCount int
+	err = testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM friend_requests WHERE ((from_uid = $1 AND to_uid = $2) OR (from_uid = $2 AND to_uid = $1)) AND status = 0",
+		uidA, uidB,
+	).Scan(&pendingCount)
+	if err != nil {
+		t.Fatalf("failed to verify pending cleanup: %v", err)
+	}
+	if pendingCount != 0 {
+		t.Fatalf("expected block to cancel both directions, got %d pending rows", pendingCount)
+	}
+
+	staleResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+	if int(staleResp["code"].(float64)) != 400 {
+		t.Fatalf("expected stale accept after block to return 400, got %v", staleResp)
+	}
+}
+
+func TestListFriendRequests_IDCursor(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"idcursor_req_a@test.com", "idcursor_req_b@test.com", "idcursor_req_c@test.com", "idcursor_req_d@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "CursorReq A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "CursorReq B", "bio")
+	agentC := testutil.RegisterAgent(t, emails[2], "CursorReq C", "bio")
+	agentD := testutil.RegisterAgent(t, emails[3], "CursorReq D", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	uidC, _ := strconv.ParseInt(agentC["agent_id"].(string), 10, 64)
+	uidD, _ := strconv.ParseInt(agentD["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB, uidC, uidD)
+
+	for _, agent := range []map[string]interface{}{agentA, agentC, agentD} {
+		resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid": agentB["agent_id"].(string),
+		}, agent["token"].(string))
+		if int(resp["code"].(float64)) != 0 {
+			t.Fatalf("failed to create request for cursor test: %v", resp["msg"])
+		}
+	}
+
+	page1 := testutil.DoGet(t, "/api/v1/relations/applications?direction=incoming&limit=2", agentB["token"].(string))
+	requests1 := page1["data"].(map[string]interface{})["requests"].([]interface{})
+	cursor := page1["data"].(map[string]interface{})["next_cursor"].(string)
+	if len(requests1) != 2 || cursor == "" || cursor == "0" {
+		t.Fatalf("expected first page to contain 2 requests and a next cursor, got len=%d cursor=%q", len(requests1), cursor)
+	}
+
+	page2 := testutil.DoGet(t, "/api/v1/relations/applications?direction=incoming&limit=2&cursor="+cursor, agentB["token"].(string))
+	requests2 := page2["data"].(map[string]interface{})["requests"].([]interface{})
+	if len(requests2) != 1 {
+		t.Fatalf("expected second page to contain 1 request, got %d", len(requests2))
+	}
+
+	seen := map[string]bool{}
+	for _, page := range [][]interface{}{requests1, requests2} {
+		for _, item := range page {
+			id := item.(map[string]interface{})["request_id"].(string)
+			if seen[id] {
+				t.Fatalf("duplicate request_id across pages: %s", id)
+			}
+			seen[id] = true
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("expected 3 unique request IDs across pages, got %d", len(seen))
+	}
+}
+
+func TestListFriends_IDCursor(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"idcursor_friend_a@test.com", "idcursor_friend_b@test.com", "idcursor_friend_c@test.com", "idcursor_friend_d@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "CursorFriend A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "CursorFriend B", "bio")
+	agentC := testutil.RegisterAgent(t, emails[2], "CursorFriend C", "bio")
+	agentD := testutil.RegisterAgent(t, emails[3], "CursorFriend D", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	uidC, _ := strconv.ParseInt(agentC["agent_id"].(string), 10, 64)
+	uidD, _ := strconv.ParseInt(agentD["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB, uidC, uidD)
+
+	for _, friend := range []map[string]interface{}{agentB, agentC, agentD} {
+		resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid": friend["agent_id"].(string),
+		}, agentA["token"].(string))
+		requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+		acceptResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+			"request_id": requestID,
+			"action":     1,
+		}, friend["token"].(string))
+		if int(acceptResp["code"].(float64)) != 0 {
+			t.Fatalf("failed to accept friend request for cursor test: %v", acceptResp["msg"])
+		}
+	}
+
+	page1 := testutil.DoGet(t, "/api/v1/relations/friends?limit=2", agentA["token"].(string))
+	friends1 := page1["data"].(map[string]interface{})["friends"].([]interface{})
+	cursor := page1["data"].(map[string]interface{})["next_cursor"].(string)
+	if len(friends1) != 2 || cursor == "" || cursor == "0" {
+		t.Fatalf("expected first page to contain 2 friends and a next cursor, got len=%d cursor=%q", len(friends1), cursor)
+	}
+
+	page2 := testutil.DoGet(t, "/api/v1/relations/friends?limit=2&cursor="+cursor, agentA["token"].(string))
+	friends2 := page2["data"].(map[string]interface{})["friends"].([]interface{})
+	if len(friends2) != 1 {
+		t.Fatalf("expected second page to contain 1 friend, got %d", len(friends2))
+	}
+
+	seen := map[string]bool{}
+	for _, page := range [][]interface{}{friends1, friends2} {
+		for _, item := range page {
+			id := item.(map[string]interface{})["agent_id"].(string)
+			if seen[id] {
+				t.Fatalf("duplicate friend across pages: %s", id)
+			}
+			seen[id] = true
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("expected 3 unique friends across pages, got %d", len(seen))
+	}
+}

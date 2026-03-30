@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -20,6 +21,17 @@ import (
 
 	"gorm.io/gorm"
 )
+
+var (
+	errFriendRequestAlreadyPending = errors.New("friend request already pending")
+	errFriendRequestNotPending     = errors.New("request is no longer pending")
+	errFriendRequestBlocked        = errors.New("request cannot be accepted while either side is blocked")
+)
+
+type pendingNotificationDeletion struct {
+	agentID   int64
+	requestID int64
+}
 
 type PMServiceImpl struct {
 	convIDGen interface {
@@ -513,7 +525,6 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
 	log.Printf("[Relation] SendFriendRequest: from=%d to=%d", req.FromUid, req.ToUid)
 
-	// Rate limiting: max 10 requests per hour per user
 	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
 	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
 	if err == nil {
@@ -526,19 +537,16 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		}
 	}
 
-	// Truncate greeting to 200 weighted characters
 	greeting := ""
 	if req.Greeting != nil {
 		greeting = truncateByWeightedLength(*req.Greeting, 200)
 	}
 
-	// Truncate remark to 100 weighted characters
 	remark := ""
 	if req.Remark != nil {
 		remark = truncateByWeightedLength(*req.Remark, 100)
 	}
 
-	// Check block status
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
 		log.Printf("[Relation] SendFriendRequest blocked: from=%d to=%d (sender blocked target)", req.FromUid, req.ToUid)
@@ -550,77 +558,99 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
-	// Check if already friends
 	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if isFriend {
 		log.Printf("[Relation] SendFriendRequest rejected: from=%d to=%d (already friends)", req.FromUid, req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "already friends"}}, nil
 	}
 
-	// Check mutual pending
-	mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
-	if err == nil && mutualReq != nil {
-		// Auto-accept: use both parties' pre-filled remarks
-		err = db.DB.Transaction(func(tx *gorm.DB) error {
-			if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
+	var requestID int64
+	var notifyRecipient bool
+	var deletions []pendingNotificationDeletion
+
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.LockRelationPair(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
+
+		outgoingReq, err := dal.GetFriendRequestBetweenForUpdate(tx, req.FromUid, req.ToUid)
+		if err != nil {
+			return err
+		}
+		incomingReq, err := dal.GetFriendRequestBetweenForUpdate(tx, req.ToUid, req.FromUid)
+		if err != nil {
+			return err
+		}
+
+		if incomingReq != nil && incomingReq.Status == dal.RequestStatusPending {
+			updated, err := dal.UpdateRequestStatusIfPending(tx, incomingReq.ID, dal.RequestStatusAccepted)
+			if err != nil {
 				return err
 			}
-			// mutualReq.Remark is how toUid wants to label fromUid
-			// remark is how fromUid wants to label toUid
-			return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, remark, mutualReq.Remark)
-		})
-		if err != nil {
-			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
+			if !updated {
+				return errFriendRequestNotPending
+			}
+			if err := dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, remark, incomingReq.Remark); err != nil {
+				return err
+			}
+			requestID = incomingReq.ID
+			deletions = append(deletions, pendingNotificationDeletion{agentID: req.FromUid, requestID: incomingReq.ID})
+			return nil
 		}
-		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
-		_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
-		log.Printf("[Relation] SendFriendRequest auto-accepted mutual request: request_id=%d from=%d to=%d", mutualReq.ID, req.FromUid, req.ToUid)
-		return &pm.SendFriendRequestResp{RequestId: mutualReq.ID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
-	}
 
-	requestID, err := s.reqIDGen.NextID()
-	if err != nil {
-		log.Printf("[Relation] SendFriendRequest failed to generate request_id: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
-		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate request id"}}, nil
-	}
-
-	_, err = dal.CreateFriendRequest(db.DB, requestID, req.FromUid, req.ToUid, greeting, remark)
-	if err != nil {
-		// Check if this is a unique constraint violation (concurrent mutual request)
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
-			// Retry mutual pending check - the other request might have been created
-			mutualReq, err := dal.GetPendingRequestBetween(db.DB, req.ToUid, req.FromUid)
-			if err == nil && mutualReq != nil {
-				// Auto-accept: use both parties' pre-filled remarks
-				err = db.DB.Transaction(func(tx *gorm.DB) error {
-					if err := dal.UpdateRequestStatus(tx, mutualReq.ID, dal.RequestStatusAccepted); err != nil {
-						return err
-					}
-					// mutualReq.Remark is how toUid wants to label fromUid
-					// remark is how fromUid wants to label toUid
-					return dal.CreateFriendRelation(tx, req.FromUid, req.ToUid, remark, mutualReq.Remark)
-				})
+		if outgoingReq != nil {
+			switch outgoingReq.Status {
+			case dal.RequestStatusPending:
+				return errFriendRequestAlreadyPending
+			case dal.RequestStatusRejected, dal.RequestStatusCancelled, dal.RequestStatusUnfriended, dal.RequestStatusAccepted:
+				requestID, err = s.reqIDGen.NextID()
 				if err != nil {
-					return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
+					return err
 				}
-				_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
-				_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
-				log.Printf("[Relation] SendFriendRequest auto-accepted mutual request (after retry): request_id=%d from=%d to=%d", mutualReq.ID, req.FromUid, req.ToUid)
-				return &pm.SendFriendRequestResp{RequestId: mutualReq.ID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+				if err := dal.ResetFriendRequest(tx, outgoingReq.ID, requestID, greeting, remark); err != nil {
+					return err
+				}
+				deletions = append(deletions, pendingNotificationDeletion{agentID: req.ToUid, requestID: outgoingReq.ID})
+				notifyRecipient = true
+				return nil
+			default:
+				return fmt.Errorf("unsupported friend request status: %d", outgoingReq.Status)
 			}
 		}
-		log.Printf("[Relation] SendFriendRequest failed to create: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
-		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
+
+		requestID, err = s.reqIDGen.NextID()
+		if err != nil {
+			return err
+		}
+		if _, err := dal.CreateFriendRequest(tx, requestID, req.FromUid, req.ToUid, greeting, remark); err != nil {
+			return err
+		}
+		notifyRecipient = true
+		return nil
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, errFriendRequestAlreadyPending):
+			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		default:
+			log.Printf("[Relation] SendFriendRequest failed: from=%d to=%d err=%v", req.FromUid, req.ToUid, err)
+			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
+		}
 	}
 
-	log.Printf("[Relation] SendFriendRequest created: request_id=%d from=%d to=%d", requestID, req.FromUid, req.ToUid)
-
-	// Fire-and-forget: notify recipient of new friend request
-	go func() {
-		if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
-			log.Printf("[PM] Failed to write friend request notification for request %d to agent %d: %v", requestID, req.ToUid, err)
-		}
-	}()
+	if notifyRecipient {
+		log.Printf("[Relation] SendFriendRequest created: request_id=%d from=%d to=%d", requestID, req.FromUid, req.ToUid)
+		go func() {
+			if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
+				log.Printf("[PM] Failed to write friend request notification for request %d to agent %d: %v", requestID, req.ToUid, err)
+			}
+		}()
+	} else {
+		log.Printf("[Relation] SendFriendRequest auto-accepted mutual request: request_id=%d from=%d to=%d", requestID, req.FromUid, req.ToUid)
+	}
+	s.deletePendingFriendRequestNotifications(deletions)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
 
 	return &pm.SendFriendRequestResp{RequestId: requestID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -628,71 +658,146 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq) (*pm.HandleFriendRequestResp, error) {
 	log.Printf("[Relation] HandleFriendRequest: request_id=%d agent=%d action=%v", req.RequestId, req.AgentId, req.Action)
 
-	friendReq, err := dal.GetFriendRequest(db.DB, req.RequestId)
-	if err != nil {
-		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "request not found"}}, nil
-	}
-
 	reason := ""
 	if req.Reason != nil {
 		reason = truncateByWeightedLength(*req.Reason, 200)
 	}
 
-	switch req.Action {
-	case pm.FriendRequestAction_ACCEPT:
-		if friendReq.ToUID != req.AgentId {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
+	var friendReq *dal.FriendRequest
+	var responseNotifType string
+	var deletePending bool
+
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		friendReq, err = dal.GetFriendRequestForUpdate(tx, req.RequestId)
+		if err != nil {
+			return err
 		}
-		recipientRemark := ""
-		if req.Remark != nil {
-			recipientRemark = truncateByWeightedLength(*req.Remark, 100)
+		if friendReq == nil {
+			return gorm.ErrRecordNotFound
 		}
-		senderRemark := friendReq.Remark // sender's pre-filled remark for recipient
-		err = db.DB.Transaction(func(tx *gorm.DB) error {
-			if err := dal.UpdateRequestStatus(tx, req.RequestId, dal.RequestStatusAccepted); err != nil {
+		if err := dal.LockRelationPair(tx, friendReq.FromUID, friendReq.ToUID); err != nil {
+			return err
+		}
+		if friendReq.Status != dal.RequestStatusPending {
+			return errFriendRequestNotPending
+		}
+
+		switch req.Action {
+		case pm.FriendRequestAction_ACCEPT:
+			if friendReq.ToUID != req.AgentId {
+				return fmt.Errorf("not recipient")
+			}
+			blockedBySender, err := dal.IsBlocked(tx, friendReq.FromUID, friendReq.ToUID)
+			if err != nil {
 				return err
 			}
-			return dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID, senderRemark, recipientRemark)
-		})
-		if err != nil {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to accept"}}, nil
-		}
-		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.FromUID)
-		_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.ToUID)
-		log.Printf("[Relation] FriendRequest accepted: request_id=%d from=%d to=%d", req.RequestId, friendReq.FromUID, friendReq.ToUID)
+			blockedByRecipient, err := dal.IsBlocked(tx, friendReq.ToUID, friendReq.FromUID)
+			if err != nil {
+				return err
+			}
+			if blockedBySender || blockedByRecipient {
+				return errFriendRequestBlocked
+			}
 
+			recipientRemark := ""
+			if req.Remark != nil {
+				recipientRemark = truncateByWeightedLength(*req.Remark, 100)
+			}
+			updated, err := dal.UpdateRequestStatusIfPending(tx, req.RequestId, dal.RequestStatusAccepted)
+			if err != nil {
+				return err
+			}
+			if !updated {
+				return errFriendRequestNotPending
+			}
+			isFriend, err := dal.IsFriend(tx, friendReq.FromUID, friendReq.ToUID)
+			if err != nil {
+				return err
+			}
+			if !isFriend {
+				if err := dal.CreateFriendRelation(tx, friendReq.FromUID, friendReq.ToUID, friendReq.Remark, recipientRemark); err != nil {
+					return err
+				}
+			}
+			responseNotifType = "friend_accepted"
+			deletePending = true
+
+		case pm.FriendRequestAction_REJECT:
+			if friendReq.ToUID != req.AgentId {
+				return fmt.Errorf("not recipient")
+			}
+			updated, err := dal.UpdateRequestStatusIfPending(tx, req.RequestId, dal.RequestStatusRejected)
+			if err != nil {
+				return err
+			}
+			if !updated {
+				return errFriendRequestNotPending
+			}
+			responseNotifType = "friend_rejected"
+			deletePending = true
+
+		case pm.FriendRequestAction_CANCEL:
+			if friendReq.FromUID != req.AgentId {
+				return fmt.Errorf("not sender")
+			}
+			updated, err := dal.UpdateRequestStatusIfPending(tx, req.RequestId, dal.RequestStatusCancelled)
+			if err != nil {
+				return err
+			}
+			if !updated {
+				return errFriendRequestNotPending
+			}
+			deletePending = true
+
+		default:
+			return fmt.Errorf("invalid action")
+		}
+		return nil
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "request not found"}}, nil
+		case errors.Is(err, errFriendRequestNotPending):
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		case errors.Is(err, errFriendRequestBlocked):
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: err.Error()}}, nil
+		case err.Error() == "not recipient":
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
+		case err.Error() == "not sender":
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not sender"}}, nil
+		case err.Error() == "invalid action":
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid action"}}, nil
+		default:
+			log.Printf("[Relation] HandleFriendRequest failed: request_id=%d agent=%d err=%v", req.RequestId, req.AgentId, err)
+			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to handle request"}}, nil
+		}
+	}
+
+	if deletePending {
+		s.deletePendingFriendRequestNotifications([]pendingNotificationDeletion{{agentID: friendReq.ToUID, requestID: friendReq.ID}})
+	}
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.FromUID)
+	_ = relations.InvalidateFriendCache(ctx, db.RDB, friendReq.ToUID)
+
+	switch responseNotifType {
+	case "friend_accepted":
+		log.Printf("[Relation] FriendRequest accepted: request_id=%d from=%d to=%d", req.RequestId, friendReq.FromUID, friendReq.ToUID)
 		go func() {
-			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, "friend_accepted", reason); err != nil {
+			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
 				log.Printf("[PM] Failed to write friend accepted notification for request %d to agent %d: %v", req.RequestId, friendReq.FromUID, err)
 			}
 		}()
-
-	case pm.FriendRequestAction_REJECT:
-		if friendReq.ToUID != req.AgentId {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not recipient"}}, nil
-		}
-		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusRejected); err != nil {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to reject"}}, nil
-		}
+	case "friend_rejected":
 		log.Printf("[Relation] FriendRequest rejected: request_id=%d by=%d", req.RequestId, req.AgentId)
-
 		go func() {
-			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, "friend_rejected", reason); err != nil {
+			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
 				log.Printf("[PM] Failed to write friend rejected notification for request %d to agent %d: %v", req.RequestId, friendReq.FromUID, err)
 			}
 		}()
-
-	case pm.FriendRequestAction_CANCEL:
-		if friendReq.FromUID != req.AgentId {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not sender"}}, nil
-		}
-		if err := dal.UpdateRequestStatus(db.DB, req.RequestId, dal.RequestStatusCancelled); err != nil {
-			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to cancel"}}, nil
-		}
-		log.Printf("[Relation] FriendRequest cancelled: request_id=%d by=%d", req.RequestId, req.AgentId)
-
 	default:
-		return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid action"}}, nil
+		log.Printf("[Relation] FriendRequest cancelled: request_id=%d by=%d", req.RequestId, req.AgentId)
 	}
 
 	return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
@@ -727,15 +832,44 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 		remark = truncateByWeightedLength(*req.Remark, 100)
 	}
 
+	var deletions []pendingNotificationDeletion
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.LockRelationPair(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
+		outgoingReq, err := dal.GetFriendRequestBetweenForUpdate(tx, req.FromUid, req.ToUid)
+		if err != nil {
+			return err
+		}
+		incomingReq, err := dal.GetFriendRequestBetweenForUpdate(tx, req.ToUid, req.FromUid)
+		if err != nil {
+			return err
+		}
 		if err := dal.CreateBlockRelation(tx, req.FromUid, req.ToUid, remark); err != nil {
 			return err
 		}
 		tx.Where("((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?)) AND rel_type = ?",
 			req.FromUid, req.ToUid, req.ToUid, req.FromUid, dal.RelTypeFriend).Delete(&dal.UserRelation{})
-		return tx.Model(&dal.FriendRequest{}).
-			Where("from_uid = ? AND to_uid = ? AND status = ?", req.ToUid, req.FromUid, dal.RequestStatusPending).
-			Update("status", dal.RequestStatusCancelled).Error
+		for _, request := range []*dal.FriendRequest{outgoingReq, incomingReq} {
+			if request == nil {
+				continue
+			}
+			switch request.Status {
+			case dal.RequestStatusPending:
+				updated, err := dal.UpdateRequestStatusIfPending(tx, request.ID, dal.RequestStatusCancelled)
+				if err != nil {
+					return err
+				}
+				if updated {
+					deletions = append(deletions, pendingNotificationDeletion{agentID: request.ToUID, requestID: request.ID})
+				}
+			case dal.RequestStatusAccepted:
+				if err := dal.UpdateRequestStatus(tx, request.ID, dal.RequestStatusUnfriended); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
@@ -743,6 +877,7 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	s.deletePendingFriendRequestNotifications(deletions)
 	log.Printf("[Relation] BlockUser done: from=%d to=%d", req.FromUid, req.ToUid)
 	return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -774,7 +909,7 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 	if limit > 100 {
 		limit = 100
 	}
-	cursor := int(req.GetCursor())
+	cursor := req.GetCursor()
 
 	requests, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
 	if err != nil {
@@ -810,7 +945,7 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 
 	var nextCursor int64
 	if len(requests) > 0 {
-		nextCursor = requests[len(requests)-1].CreatedAt
+		nextCursor = requests[len(requests)-1].ID
 	}
 	return &pm.ListFriendRequestsResp{Requests: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -823,7 +958,7 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 	if limit > 100 {
 		limit = 100
 	}
-	cursor := int(req.GetCursor())
+	cursor := req.GetCursor()
 
 	friends, err := dal.ListFriends(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
@@ -847,7 +982,7 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 
 	var nextCursor int64
 	if len(friends) > 0 {
-		nextCursor = friends[len(friends)-1].FriendSince
+		nextCursor = friends[len(friends)-1].RelationID
 	}
 	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -882,4 +1017,18 @@ func truncateByWeightedLength(s string, maxLen int) string {
 		length += w
 	}
 	return s
+}
+
+func (s *PMServiceImpl) deletePendingFriendRequestNotifications(items []pendingNotificationDeletion) {
+	if db.RDB == nil || len(items) == 0 {
+		return
+	}
+
+	go func() {
+		for _, item := range items {
+			if err := notifyutil.DeletePMNotifications(context.Background(), db.RDB, item.agentID, item.requestID); err != nil {
+				log.Printf("[PM] Failed to delete friend request notification %d for agent %d: %v", item.requestID, item.agentID, err)
+			}
+		}
+	}()
 }
