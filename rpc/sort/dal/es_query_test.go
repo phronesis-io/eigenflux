@@ -3,7 +3,6 @@ package dal
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func getTopLevelBoolQuery(t *testing.T, query map[string]interface{}) map[string]interface{} {
@@ -12,11 +11,32 @@ func getTopLevelBoolQuery(t *testing.T, query map[string]interface{}) map[string
 	if !ok {
 		t.Fatalf("query.query is missing or invalid")
 	}
-	boolQuery, ok := queryObj["bool"].(map[string]interface{})
+	functionScore, ok := queryObj["function_score"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("query.query.bool is missing or invalid")
+		t.Fatalf("query.query.function_score is missing or invalid")
+	}
+	baseQuery, ok := functionScore["query"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("query.query.function_score.query is missing or invalid")
+	}
+	boolQuery, ok := baseQuery["bool"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("query.query.function_score.query.bool is missing or invalid")
 	}
 	return boolQuery
+}
+
+func getFunctionScoreQuery(t *testing.T, query map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	queryObj, ok := query["query"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("query.query is missing or invalid")
+	}
+	functionScore, ok := queryObj["function_score"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("query.query.function_score is missing or invalid")
+	}
+	return functionScore
 }
 
 func getRelevanceShouldClauses(t *testing.T, query map[string]interface{}) []interface{} {
@@ -125,34 +145,6 @@ func TestBuildSearchQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "cursor pagination",
-			req: &SearchItemsRequest{
-				LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-				Limit:         10,
-			},
-			validate: func(t *testing.T, query map[string]interface{}) {
-				queryObj := query["query"].(map[string]interface{})
-				boolQuery := queryObj["bool"].(map[string]interface{})
-				must := boolQuery["must"].([]interface{})
-
-				// Check if there is a range query for updated_at
-				foundRange := false
-				for _, clause := range must {
-					clauseMap := clause.(map[string]interface{})
-					if rangeQuery, ok := clauseMap["range"]; ok {
-						rangeMap := rangeQuery.(map[string]interface{})
-						if _, ok := rangeMap["updated_at"]; ok {
-							foundRange = true
-							break
-						}
-					}
-				}
-				if !foundRange {
-					t.Error("Expected range query for updated_at")
-				}
-			},
-		},
-		{
 			name: "combined query",
 			req: &SearchItemsRequest{
 				Domains:  []string{"AI", "technology"},
@@ -194,6 +186,31 @@ func TestBuildSearchQuery(t *testing.T) {
 	}
 }
 
+func TestBuildSearchQueryDoesNotUseLastUpdatedAtRange(t *testing.T) {
+	req := &SearchItemsRequest{
+		Domains: []string{"AI"},
+		Limit:   10,
+	}
+
+	query := buildSearchQuery(req)
+	boolQuery := getTopLevelBoolQuery(t, query)
+	must := boolQuery["must"].([]interface{})
+
+	for _, clause := range must {
+		clauseMap, ok := clause.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rangeQuery, ok := clauseMap["range"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, ok := rangeQuery["updated_at"]; ok {
+			t.Fatal("did not expect updated_at range filter in ES query")
+		}
+	}
+}
+
 // TestExpireTimeFilter tests expire time filtering logic
 func TestExpireTimeFilter(t *testing.T) {
 	req := &SearchItemsRequest{
@@ -205,8 +222,7 @@ func TestExpireTimeFilter(t *testing.T) {
 	t.Logf("Expire time filter query:\n%s", string(queryJSON))
 
 	// Check if must clause contains expire time filter
-	queryObj := query["query"].(map[string]interface{})
-	boolQuery := queryObj["bool"].(map[string]interface{})
+	boolQuery := getTopLevelBoolQuery(t, query)
 	must := boolQuery["must"].([]interface{})
 
 	if len(must) == 0 {
@@ -264,6 +280,54 @@ func TestQuerySorting(t *testing.T) {
 	}
 
 	t.Log("✓ Sorting by _score DESC, then updated_at DESC is correctly configured")
+}
+
+func TestFreshnessFunctionScore(t *testing.T) {
+	req := &SearchItemsRequest{
+		Keywords: []string{"ai"},
+		Limit:    10,
+	}
+
+	query := buildSearchQuery(req)
+	functionScore := getFunctionScoreQuery(t, query)
+
+	if functionScore["score_mode"] != "multiply" {
+		t.Fatalf("expected score_mode=multiply, got %v", functionScore["score_mode"])
+	}
+	if functionScore["boost_mode"] != "multiply" {
+		t.Fatalf("expected boost_mode=multiply, got %v", functionScore["boost_mode"])
+	}
+
+	functions, ok := functionScore["functions"].([]interface{})
+	if !ok || len(functions) == 0 {
+		t.Fatal("expected at least one function_score function")
+	}
+
+	firstFn, ok := functions[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("first function should be an object")
+	}
+	gauss, ok := firstFn["gauss"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected gauss freshness function")
+	}
+	updatedAt, ok := gauss["updated_at"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected gauss freshness function on updated_at")
+	}
+
+	if updatedAt["origin"] != "now" {
+		t.Fatalf("expected freshness origin=now, got %v", updatedAt["origin"])
+	}
+	if updatedAt["offset"] != defaultFreshnessOffset {
+		t.Fatalf("expected freshness offset=%s, got %v", defaultFreshnessOffset, updatedAt["offset"])
+	}
+	if updatedAt["scale"] != defaultFreshnessScale {
+		t.Fatalf("expected freshness scale=%s, got %v", defaultFreshnessScale, updatedAt["scale"])
+	}
+	if updatedAt["decay"] != defaultFreshnessDecay {
+		t.Fatalf("expected freshness decay=%v, got %v", defaultFreshnessDecay, updatedAt["decay"])
+	}
 }
 
 // TestCaseInsensitiveMatch tests case-insensitive matching
@@ -331,8 +395,7 @@ func TestFuzzyMatch(t *testing.T) {
 	t.Logf("Fuzzy match query:\n%s", string(queryJSON))
 
 	// Check if there is a match query against the .text subfield
-	queryObj := query["query"].(map[string]interface{})
-	boolQuery := queryObj["bool"].(map[string]interface{})
+	boolQuery := getTopLevelBoolQuery(t, query)
 	must := boolQuery["must"].([]interface{})
 
 	foundMatchQuery := false
@@ -385,8 +448,7 @@ func TestRelevanceScoring(t *testing.T) {
 	t.Logf("Relevance scoring query:\n%s", string(queryJSON))
 
 	// Check boost weights
-	queryObj := query["query"].(map[string]interface{})
-	boolQuery := queryObj["bool"].(map[string]interface{})
+	boolQuery := getTopLevelBoolQuery(t, query)
 	must := boolQuery["must"].([]interface{})
 
 	foundTermBoost := false

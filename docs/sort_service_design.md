@@ -87,9 +87,9 @@ sequenceDiagram
 
 1. **Profile Retrieval**: Try ProfileCache (L3, TTL 60s). On cache miss, query PostgreSQL `agent_profiles` table. Extract `keywords`, `domains`, `geo` from profile (status=3 only). Update cache asynchronously.
 
-2. **Search Execution**: Build cache key `cache:search:{hash}:{time_bucket}` (excludes `last_updated_at` for better hit rate). Use SingleFlight (L1) to deduplicate concurrent requests with same cache key. Try SearchCache (L2, TTL 2s). On cache miss, query Elasticsearch with `limit * 3` (over-fetch for dedup). Update cache asynchronously (fire-and-forget).
+2. **Search Execution**: Build cache key `cache:search:{hash}:{time_bucket}` (excludes `last_updated_at` for better hit rate). Use SingleFlight (L1) to deduplicate concurrent requests with same cache key. Try SearchCache (L2, TTL 2s). On cache miss, query Elasticsearch with `limit * 3` (over-fetch for dedup). ES ranking uses relevance score multiplied by a mild freshness decay on `updated_at`. Update cache asynchronously (fire-and-forget).
 
-3. **Timestamp Filtering**: Client-side filtering `item.updated_at > last_updated_at`. Enables cache sharing across clients with different cursors.
+3. **Timestamp Filtering**: If `last_updated_at` is provided by an upstream caller, apply `item.updated_at > last_updated_at` filtering inside Sort after ES returns. Elasticsearch itself no longer consumes this field, which keeps refresh semantics clear and preserves cache sharing.
 
 4. **Bloom Filter Deduplication**: Collect all `group_id` values from candidates. Batch check against last 7 days' bloom filters. Filter out items with seen `group_id`. Can be disabled in dev/test via `DISABLE_DEDUP_IN_TEST=true`.
 
@@ -99,7 +99,7 @@ sequenceDiagram
 
 ## Scoring Algorithm
 
-Elasticsearch relevance scoring is based on BM25 with custom boosts.
+Elasticsearch relevance scoring is based on BM25 with custom boosts, then multiplied by a mild freshness factor.
 
 ### Relevance Scoring Weights
 
@@ -111,7 +111,18 @@ Elasticsearch relevance scoring is based on BM25 with custom boosts.
 | `keywords.text` | Fuzzy (match) | 2.0 | Secondary priority for partial keyword match |
 | `geo` | Fuzzy (match) | 1.5 | Geographic relevance |
 
-**Sort Order**: `_score DESC` (relevance score), `updated_at DESC` (recency)
+### Freshness Multiplier
+
+The base relevance score is wrapped in a `function_score` query with Gaussian decay on `updated_at`:
+
+- `origin = now`
+- `offset = 12h`
+- `scale = 7d`
+- `decay = 0.8`
+
+This keeps the main ranking driven by profile relevance, while giving clearly newer matching items a visible advantage so repeated refreshes are less likely to keep exhausting the exact same keyword bucket.
+
+**Sort Order**: `_score DESC` (relevance × freshness), `updated_at DESC` (tie-break recency)
 
 ## Deduplication Mechanism
 
@@ -181,25 +192,9 @@ Elasticsearch relevance scoring is based on BM25 with custom boosts.
 - `updated_at`: date field for cursor pagination
 - `group_id`: long field for deduplication
 
-### Cursor Pagination
+### Timestamp Filter
 
-**Mechanism**: `updated_at` field (not offset-based)
-
-```go
-// Query with range filter
-{
-  "query": {
-    "bool": {
-      "must": [
-        {"range": {"updated_at": {"lt": "2026-03-16T10:00:00Z"}}}
-      ]
-    }
-  }
-}
-
-// Next cursor calculation
-nextCursor := items[len(items)-1].UpdatedAt.Unix()
-```
+`updated_at` remains available for post-search filtering and `next_cursor` calculation, but it is no longer sent into the ES DSL as a range condition.
 
 <!-- PLACEHOLDER_CONFIG -->
 

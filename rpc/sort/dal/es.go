@@ -63,11 +63,13 @@ func IndexItem(ctx context.Context, item *Item) error {
 
 // SearchItemsRequest represents the search request parameters
 type SearchItemsRequest struct {
-	Domains       []string  // Domain tags matching
-	Keywords      []string  // Keyword matching
-	Geo           string    // Geographic range fuzzy matching
-	LastUpdatedAt time.Time // Cursor pagination
-	Limit         int       // Number of results to return
+	Domains         []string // Domain tags matching
+	Keywords        []string // Keyword matching
+	Geo             string   // Geographic range fuzzy matching
+	Limit           int      // Number of results to return
+	FreshnessOffset string   // Gaussian decay offset (e.g. "12h")
+	FreshnessScale  string   // Gaussian decay scale (e.g. "7d")
+	FreshnessDecay  float64  // Gaussian decay factor (e.g. 0.8)
 }
 
 // SearchItemsResponse represents the search response
@@ -96,8 +98,8 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 		req.Limit = 20
 	}
 
-	log.Printf("[ES] Search request: domains=%v, keywords=%v, geo=%s, limit=%d, last_updated_at=%v",
-		req.Domains, req.Keywords, req.Geo, req.Limit, req.LastUpdatedAt)
+	log.Printf("[ES] Search request: domains=%v, keywords=%v, geo=%s, limit=%d",
+		req.Domains, req.Keywords, req.Geo, req.Limit)
 
 	// Build query
 	query := buildSearchQuery(req)
@@ -202,4 +204,3 @@ func CountItems(ctx context.Context) (int64, error) {
 	count := int64(result["count"].(float64))
 	return count, nil
 }
-

@@ -2,12 +2,39 @@ package dal
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
 )
+
+func refreshTestES(t *testing.T) {
+	t.Helper()
+
+	esPort := os.Getenv("ELASTICSEARCH_HTTP_PORT")
+	if esPort == "" {
+		esPort = "9200"
+	}
+
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://localhost:%s/items-*/_refresh", esPort), nil)
+	if err != nil {
+		t.Fatalf("Failed to create ES refresh request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to refresh ES indices: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		t.Fatalf("Unexpected ES refresh status: %s", resp.Status)
+	}
+}
 
 // TestESIntegration tests the Elasticsearch integration
 // Run with: go test -v ./rpc/sort/dal/ -run TestESIntegration
@@ -47,8 +74,8 @@ func TestESIntegration(t *testing.T) {
 		t.Log("Item indexed successfully")
 	})
 
-	// Wait for index refresh
-	time.Sleep(1 * time.Second)
+	// Force refresh so the indexed document is immediately searchable.
+	refreshTestES(t)
 
 	// Test search - by keywords
 	t.Run("SearchByKeywords", func(t *testing.T) {
@@ -135,7 +162,7 @@ func TestESIntegration(t *testing.T) {
 			t.Fatalf("Failed to index expired item: %v", err)
 		}
 
-		time.Sleep(1 * time.Second)
+		refreshTestES(t)
 
 		// Search, should not include expired item
 		req := &SearchItemsRequest{
@@ -156,51 +183,6 @@ func TestESIntegration(t *testing.T) {
 		}
 
 		t.Log("Expired items correctly filtered out")
-	})
-
-	// Test cursor pagination
-	t.Run("CursorPagination", func(t *testing.T) {
-		// First page
-		req1 := &SearchItemsRequest{
-			Domains: []string{"AI"},
-			Limit:   2,
-		}
-
-		resp1, err := SearchItems(ctx, req1)
-		if err != nil {
-			t.Fatalf("Failed to search page 1: %v", err)
-		}
-
-		if len(resp1.Items) == 0 {
-			t.Skip("Not enough items for pagination test")
-		}
-
-		t.Logf("Page 1: %d items, next cursor: %v", len(resp1.Items), resp1.NextCursor)
-
-		// Second page
-		if !resp1.NextCursor.IsZero() {
-			req2 := &SearchItemsRequest{
-				Domains:       []string{"AI"},
-				Limit:         2,
-				LastUpdatedAt: resp1.NextCursor,
-			}
-
-			resp2, err := SearchItems(ctx, req2)
-			if err != nil {
-				t.Fatalf("Failed to search page 2: %v", err)
-			}
-
-			t.Logf("Page 2: %d items", len(resp2.Items))
-
-			// Ensure second page items are not in first page
-			for _, item2 := range resp2.Items {
-				for _, item1 := range resp1.Items {
-					if item1.ID == item2.ID {
-						t.Error("Same item found in both pages")
-					}
-				}
-			}
-		}
 	})
 
 	// Clean up test data

@@ -482,6 +482,9 @@ System implements multi-level caching to optimize Elasticsearch load under high-
 | `SEARCH_CACHE_TTL` | `2` | Search cache TTL (seconds) |
 | `PROFILE_CACHE_TTL` | `60` | User profile cache TTL (seconds) |
 | `MILESTONE_RULE_CACHE_TTL` | `60` | Milestone rule cache TTL (seconds) |
+| `FRESHNESS_OFFSET` | `12h` | ES Gaussian decay offset, no decay within this duration |
+| `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale, time for score to decay to FRESHNESS_DECAY |
+| `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |
 
 ### Performance Impact
 

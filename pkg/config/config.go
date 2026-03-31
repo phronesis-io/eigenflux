@@ -64,6 +64,9 @@ type Config struct {
 	QualityThreshold        float64  // Quality score threshold for filtering items (default: 0.40)
 	ItemConsumerWorkers     int      // Number of concurrent workers for item consumer (default: 10)
 	FeedbackConsumerWorkers int      // Number of concurrent workers for item stats consumer (default: 5)
+	FreshnessOffset         string   // ES freshness decay offset, no decay within this duration (default: "12h")
+	FreshnessScale          string   // ES freshness decay scale, time for score to decay to FreshnessDecay (default: "7d")
+	FreshnessDecay          float64  // ES freshness decay factor at scale distance (default: 0.8)
 	MockOTPEmailSuffixes    []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
 	MockOTPIPWhitelist      []string // IP whitelist for mock OTP
 }
@@ -130,6 +133,9 @@ func Load() *Config {
 		QualityThreshold:        getEnvFloat("QUALITY_THRESHOLD", 0.0),
 		ItemConsumerWorkers:     getEnvInt("ITEM_CONSUMER_WORKERS", 10),
 		FeedbackConsumerWorkers: getEnvInt("FEEDBACK_CONSUMER_WORKERS", 5),
+		FreshnessOffset:         getEnv("FRESHNESS_OFFSET", "12h"),
+		FreshnessScale:          getEnv("FRESHNESS_SCALE", "7d"),
+		FreshnessDecay:          getEnvFloat("FRESHNESS_DECAY", 0.8),
 		MockOTPEmailSuffixes:    getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
 		MockOTPIPWhitelist:      getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
 	}

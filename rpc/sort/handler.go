@@ -23,6 +23,20 @@ type SortServiceESImpl struct{}
 // SingleFlight group for deduplicating concurrent requests
 var sfGroup singleflight.Group
 
+func filterSearchItemsByTimestamp(items []sortDal.Item, lastFetchTimeSec int64) []sortDal.Item {
+	if lastFetchTimeSec == 0 {
+		return items
+	}
+
+	filtered := make([]sortDal.Item, 0, len(items))
+	for _, item := range items {
+		if item.UpdatedAt.Unix() > lastFetchTimeSec {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
 func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.SortItemsResp, error) {
 	limit := int(req.GetLimit())
 	if limit <= 0 {
@@ -119,17 +133,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			log.Printf("[Sort] Search cache MISS, querying ES")
 			// Cache miss, query ES
 			searchReq := &sortDal.SearchItemsRequest{
-				Limit:    limit * 3, // Fetch more to account for dedup
-				Domains:  domains,
-				Keywords: keywords,
-				Geo:      geo,
-			}
-
-			// Set cursor pagination (align to seconds for ES cache)
-			if req.GetLastUpdatedAt() > 0 {
-				timestampSec := req.GetLastUpdatedAt() / 1000
-				searchReq.LastUpdatedAt = time.Unix(timestampSec, 0)
-			}
+   				Limit:           limit * 3, // Fetch more to account for dedup
+   				Domains:         domains,
+   				Keywords:        keywords,
+   				Geo:             geo,
+   				FreshnessOffset: cfg.FreshnessOffset,
+   				FreshnessScale:  cfg.FreshnessScale,
+   				FreshnessDecay:  cfg.FreshnessDecay,
+   			}
 
 			resp, esErr := sortDal.SearchItems(ctx, searchReq)
 			if esErr != nil {
@@ -174,15 +185,13 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		// No cache, query ES directly
 		log.Printf("[Sort] No search cache, querying ES directly")
 		searchReq := &sortDal.SearchItemsRequest{
-			Limit:    limit * 3, // Fetch more to account for dedup
-			Domains:  domains,
-			Keywords: keywords,
-			Geo:      geo,
-		}
-
-		if req.GetLastUpdatedAt() > 0 {
-			timestampSec := req.GetLastUpdatedAt() / 1000
-			searchReq.LastUpdatedAt = time.Unix(timestampSec, 0)
+			Limit:           limit * 3, // Fetch more to account for dedup
+			Domains:         domains,
+			Keywords:        keywords,
+			Geo:             geo,
+			FreshnessOffset: cfg.FreshnessOffset,
+			FreshnessScale:  cfg.FreshnessScale,
+			FreshnessDecay:  cfg.FreshnessDecay,
 		}
 
 		searchResp, err = sortDal.SearchItems(ctx, searchReq)
@@ -202,12 +211,22 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}, nil
 	}
 
-	// Filter by timestamp if using cache
+	// Apply timestamp filtering after ES retrieval so refresh semantics stay outside the ES DSL.
 	if searchCache != nil && len(cachedItems) > 0 {
 		lastFetchTime := req.GetLastUpdatedAt() / 1000
 		beforeFilter := len(cachedItems)
 		cachedItems = cache.FilterByTimestamp(cachedItems, lastFetchTime)
 		log.Printf("[Sort] Timestamp filter: before=%d, after=%d", beforeFilter, len(cachedItems))
+	} else if searchResp != nil && len(searchResp.Items) > 0 {
+		lastFetchTime := req.GetLastUpdatedAt() / 1000
+		beforeFilter := len(searchResp.Items)
+		searchResp.Items = filterSearchItemsByTimestamp(searchResp.Items, lastFetchTime)
+		log.Printf("[Sort] Timestamp filter (non-cache): before=%d, after=%d", beforeFilter, len(searchResp.Items))
+		if len(searchResp.Items) > 0 {
+			searchResp.NextCursor = searchResp.Items[len(searchResp.Items)-1].UpdatedAt
+		} else {
+			searchResp.NextCursor = time.Time{}
+		}
 	}
 
 	// Collect all group_ids for bloom filter dedup
