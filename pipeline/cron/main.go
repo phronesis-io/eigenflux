@@ -12,11 +12,19 @@ import (
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("pipeline/cron/.log")
+	logFlush := logger.Init("pipeline/cron/.log", "pipeline-cron", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	// Init PostgreSQL
 	db.Init(cfg.PgDSN)

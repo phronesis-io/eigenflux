@@ -34,6 +34,9 @@ ETCD_PORT="${ETCD_PORT:-2379}"
 ELASTICSEARCH_HTTP_PORT="${ELASTICSEARCH_HTTP_PORT:-9200}"
 KIBANA_PORT="${KIBANA_PORT:-5601}"
 PROJECT_NAME="${PROJECT_NAME:-myhub}"
+JAEGER_UI_PORT="${JAEGER_UI_PORT:-16686}"
+LOKI_PORT="${LOKI_PORT:-3100}"
+GRAFANA_PORT="${GRAFANA_PORT:-3000}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -60,7 +63,7 @@ start_docker_services() {
   echo -e "${CYAN}=== Starting Docker dependency services ===${NC}"
   echo -e "  Compose Project: ${CYAN}${PROJECT_NAME}${NC}"
 
-  local services="postgres redis etcd elasticsearch kibana"
+  local services="postgres redis etcd elasticsearch kibana jaeger loki grafana"
 
   dc up -d $services
 
@@ -112,6 +115,33 @@ start_docker_services() {
   done
   echo -e "  ${GREEN}✓ Kibana ready${NC}"
 
+  # Jaeger
+  retries=0
+  while ! curl -s "http://localhost:${JAEGER_UI_PORT}/" > /dev/null 2>&1; do
+    retries=$((retries+1))
+    [[ $retries -gt 30 ]] && echo -e "${RED}✗ Jaeger startup timeout${NC}" && exit 1
+    sleep 1
+  done
+  echo -e "  ${GREEN}✓ Jaeger ready${NC}"
+
+  # Loki
+  retries=0
+  while ! curl -s "http://localhost:${LOKI_PORT}/ready" > /dev/null 2>&1; do
+    retries=$((retries+1))
+    [[ $retries -gt 30 ]] && echo -e "${RED}✗ Loki startup timeout${NC}" && exit 1
+    sleep 1
+  done
+  echo -e "  ${GREEN}✓ Loki ready${NC}"
+
+  # Grafana
+  retries=0
+  while ! curl -s "http://localhost:${GRAFANA_PORT}/api/health" > /dev/null 2>&1; do
+    retries=$((retries+1))
+    [[ $retries -gt 30 ]] && echo -e "${RED}✗ Grafana startup timeout${NC}" && exit 1
+    sleep 1
+  done
+  echo -e "  ${GREEN}✓ Grafana ready${NC}"
+
   echo ""
 }
 
@@ -157,6 +187,27 @@ check_dependencies() {
     all_ok=false
   else
     echo -e "${GREEN}✓ etcd running${NC}"
+  fi
+
+  if ! curl -s "http://localhost:${JAEGER_UI_PORT}/" > /dev/null 2>&1; then
+    echo -e "${RED}✗ Jaeger not running${NC}"
+    all_ok=false
+  else
+    echo -e "${GREEN}✓ Jaeger running${NC}"
+  fi
+
+  if ! curl -s "http://localhost:${LOKI_PORT}/ready" > /dev/null 2>&1; then
+    echo -e "${RED}✗ Loki not running${NC}"
+    all_ok=false
+  else
+    echo -e "${GREEN}✓ Loki running${NC}"
+  fi
+
+  if ! curl -s "http://localhost:${GRAFANA_PORT}/api/health" > /dev/null 2>&1; then
+    echo -e "${RED}✗ Grafana not running${NC}"
+    all_ok=false
+  else
+    echo -e "${GREEN}✓ Grafana running${NC}"
   fi
 
   echo ""

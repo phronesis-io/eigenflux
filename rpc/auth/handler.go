@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"regexp"
 	"strings"
@@ -18,6 +18,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/email"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/auth/dal"
 )
@@ -78,7 +79,7 @@ func (s *AuthServiceImpl) isOTPMatched(code string, challenge *dal.AuthEmailChal
 	}
 	if s.isMockOTPEmail(challengeEmail) {
 		if !s.isMockOTPIPAllowed(challengeIP) {
-			log.Printf("[WARN] mock OTP email suffix matched (%s) but client IP (%s) not in whitelist", challengeEmail, challengeIP)
+			slog.Warn("mock OTP email suffix matched but client IP not in whitelist", "email", challengeEmail, "clientIP", challengeIP)
 			return false
 		}
 		return code == s.mockUniversalOTP
@@ -300,12 +301,12 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 	// Send email (skip for mock OTP targets).
 	if s.isMockOTPEmail(normalizedEmail) {
 		if !mockBypass {
-			log.Printf("[WARN] mock OTP email suffix matched (%s) but client IP (%s) not in whitelist, rejecting", normalizedEmail, clientIP)
+			logger.FromContext(ctx).Warn("mock OTP email suffix matched but client IP not in whitelist, rejecting", "email", normalizedEmail, "clientIP", clientIP)
 			return &auth.StartLoginResp{
 				BaseResp: &base.BaseResp{Code: 400, Msg: "invalid email format"},
 			}, nil
 		}
-		log.Printf("[INFO] mock OTP target: email=%s ip=%s, skipping email send", normalizedEmail, clientIP)
+		logger.FromContext(ctx).Info("mock OTP target, skipping email send", "email", normalizedEmail, "clientIP", clientIP)
 	} else {
 		sendCtx := context.WithValue(ctx, email.ChallengeIDKey, challengeID)
 		if err := s.emailSender.SendLoginVerifyMail(sendCtx, normalizedEmail, otpCode); err != nil {

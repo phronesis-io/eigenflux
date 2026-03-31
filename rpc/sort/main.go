@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"log"
+	"log/slog"
 	"net"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 var bf *bloomfilter.BloomFilter
@@ -25,7 +28,14 @@ var profileCache *cache.ProfileCache
 
 func main() {
 	cfg = config.Load()
-	logger.Init("rpc/sort/.log")
+	logFlush := logger.Init("rpc/sort/.log", "SortService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("SortService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	// Initialize PostgreSQL (for fetching user profiles)
 	db.Init(cfg.PgDSN)
@@ -47,7 +57,7 @@ func main() {
 			mq.RDB,
 			time.Duration(cfg.ProfileCacheTTL)*time.Second,
 		)
-		log.Printf("Cache enabled: search_ttl=%ds, profile_ttl=%ds", cfg.SearchCacheTTL, cfg.ProfileCacheTTL)
+		slog.Info("cache enabled", "searchTTL", cfg.SearchCacheTTL, "profileTTL", cfg.ProfileCacheTTL)
 	}
 
 	// Initialize Elasticsearch
@@ -67,7 +77,7 @@ func main() {
 		rpcx.ServerOptions(addr, r, "SortService")...,
 	)
 
-	log.Printf("Sort service (ES) started on %s", listenAddr)
+	slog.Info("sort service started", "addr", listenAddr)
 	if err := svr.Run(); err != nil {
 		log.Fatalf("sort service failed: %v", err)
 	}

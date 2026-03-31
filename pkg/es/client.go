@@ -3,7 +3,7 @@ package es
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -57,7 +57,7 @@ func InitES(expectedEmbeddingDims int) error {
 		return fmt.Errorf("ES returned error: %s", res.String())
 	}
 
-	log.Println("Connected to Elasticsearch successfully")
+	slog.Info("connected to Elasticsearch successfully")
 
 	// Setup ILM policy, index template, and bootstrap initial index if needed
 	if err := SetupILM(context.Background(), expectedEmbeddingDims); err != nil {

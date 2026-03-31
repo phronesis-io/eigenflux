@@ -69,6 +69,9 @@ type Config struct {
 	FreshnessDecay          float64  // ES freshness decay factor at scale distance (default: 0.8)
 	MockOTPEmailSuffixes    []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
 	MockOTPIPWhitelist      []string // IP whitelist for mock OTP
+	OtelEnabled             bool     // Enable OpenTelemetry tracing
+	OtelExporterEndpoint    string   // OTLP gRPC endpoint (default localhost:4317)
+	LokiURL                 string   // Loki push API URL (default http://localhost:3100)
 }
 
 func Load() *Config {
@@ -138,6 +141,9 @@ func Load() *Config {
 		FreshnessDecay:          getEnvFloat("FRESHNESS_DECAY", 0.8),
 		MockOTPEmailSuffixes:    getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
 		MockOTPIPWhitelist:      getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
+		OtelEnabled:             getEnvBool("OTEL_ENABLED", true),
+		OtelExporterEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3100"),
 	}
 }
 

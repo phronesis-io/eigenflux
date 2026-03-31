@@ -3,7 +3,7 @@ package dal
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 	"text/template"
 	"time"
@@ -200,6 +200,6 @@ func publishRuleInvalidations(ctx context.Context, metricKeys ...string) {
 		return
 	}
 	if err := milestone.PublishRuleInvalidations(ctx, db.RDB, metricKeys...); err != nil {
-		log.Printf("publish milestone rule invalidation failed for metrics %v: %v", metricKeys, err)
+		slog.Warn("publish milestone rule invalidation failed", "metrics", metricKeys, "err", err)
 	}
 }

@@ -14,11 +14,20 @@ import (
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("rpc/profile/.log")
+	logFlush := logger.Init("rpc/profile/.log", "ProfileService", cfg.LokiURL)
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("ProfileService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
+
 	db.Init(cfg.PgDSN)
 
 	etcdEndpoints := splitEtcdEndpoints(cfg.EtcdAddr)

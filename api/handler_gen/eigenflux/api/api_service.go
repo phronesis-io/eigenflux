@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
@@ -25,6 +25,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
@@ -51,12 +52,11 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 		AgentId: agentID,
 	})
 	if err != nil {
-		log.Printf("[API] NotificationService.ListPending error for agent %d: %v", agentID, err)
+		logger.FromContext(ctx).Error("NotificationService.ListPending error", "agentID", agentID, "err", err)
 		return nil, nil
 	}
 	if pendingResp.BaseResp != nil && pendingResp.BaseResp.Code != 0 {
-		log.Printf("[API] NotificationService.ListPending returned code %d for agent %d: %s",
-			pendingResp.BaseResp.Code, agentID, pendingResp.BaseResp.Msg)
+		logger.FromContext(ctx).Warn("NotificationService.ListPending returned error code", "code", pendingResp.BaseResp.Code, "agentID", agentID, "msg", pendingResp.BaseResp.Msg)
 		return nil, nil
 	}
 
@@ -103,11 +103,11 @@ func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotificat
 			Items:   items,
 		})
 		if err != nil {
-			log.Printf("[API] Failed to ack notifications for agent %d: %v", agentID, err)
+			slog.Error("failed to ack notifications", "agentID", agentID, "err", err)
 			return
 		}
 		if resp != nil && resp.BaseResp != nil && resp.BaseResp.Code != 0 {
-			log.Printf("[API] Notification ack returned code %d for agent %d: %s", resp.BaseResp.Code, agentID, resp.BaseResp.Msg)
+			slog.Warn("notification ack returned error code", "code", resp.BaseResp.Code, "agentID", agentID, "msg", resp.BaseResp.Msg)
 			return
 		}
 	}(agentID, items)
@@ -1198,7 +1198,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 				return id, nil
 			}
 		} else if err != redis.Nil {
-			log.Printf("[API] email2uid cache read error: %v", err)
+			slog.Warn("email2uid cache read error", "err", err)
 		}
 	}
 
@@ -1215,7 +1215,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 	if mq.RDB != nil {
 		go func() {
 			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
-				log.Printf("[API] email2uid cache write error: %v", err)
+				slog.Warn("email2uid cache write error", "err", err)
 			}
 		}()
 	}
