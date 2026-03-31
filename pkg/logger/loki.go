@@ -24,7 +24,8 @@ type LokiHandler struct {
 	done    chan struct{}
 	flushed chan struct{}
 	once    sync.Once
-	bufPool sync.Pool
+	bufPool *sync.Pool
+	attrs   []slog.Attr // accumulated from WithAttrs calls (e.g. traceId, spanId)
 }
 
 type lokiEntry struct {
@@ -59,7 +60,7 @@ func NewLokiHandler(inner slog.Handler, service string, lokiURL string) *LokiHan
 		ch:      make(chan lokiEntry, lokiChanSize),
 		done:    make(chan struct{}),
 		flushed: make(chan struct{}),
-		bufPool: sync.Pool{New: func() any { return new(bytes.Buffer) }},
+		bufPool: &sync.Pool{New: func() any { return new(bytes.Buffer) }},
 	}
 	go h.batchLoop()
 	return h
@@ -73,6 +74,14 @@ func (h *LokiHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Forward to the inner handler (file + stdout) first.
 	if err := h.inner.Handle(ctx, r); err != nil {
 		return err
+	}
+
+	// Add accumulated handler attrs (traceId, spanId, service, etc.) to the
+	// record so the Loki JSON line includes them. slog.Logger.Info() passes
+	// context.Background(), so we can't rely on the ctx for trace extraction.
+	// The record is a value copy, safe to mutate.
+	if len(h.attrs) > 0 {
+		r.AddAttrs(h.attrs...)
 	}
 
 	// Build the JSON line for Loki from the record.
@@ -98,6 +107,9 @@ func (h *LokiHandler) Handle(ctx context.Context, r slog.Record) error {
 }
 
 func (h *LokiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	accumulated := make([]slog.Attr, len(h.attrs)+len(attrs))
+	copy(accumulated, h.attrs)
+	copy(accumulated[len(h.attrs):], attrs)
 	return &LokiHandler{
 		inner:   h.inner.WithAttrs(attrs),
 		service: h.service,
@@ -105,6 +117,9 @@ func (h *LokiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		client:  h.client,
 		ch:      h.ch,
 		done:    h.done,
+		flushed: h.flushed,
+		bufPool: h.bufPool,
+		attrs:   accumulated,
 	}
 }
 
@@ -116,6 +131,9 @@ func (h *LokiHandler) WithGroup(name string) slog.Handler {
 		client:  h.client,
 		ch:      h.ch,
 		done:    h.done,
+		flushed: h.flushed,
+		bufPool: h.bufPool,
+		attrs:   h.attrs,
 	}
 }
 
