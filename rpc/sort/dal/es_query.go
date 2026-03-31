@@ -12,10 +12,30 @@ import (
 	"eigenflux_server/pkg/es"
 )
 
+const (
+	defaultFreshnessOffset = "12h"
+	defaultFreshnessScale  = "7d"
+	defaultFreshnessDecay  = 0.8
+)
+
 // buildSearchQuery builds the Elasticsearch query based on search parameters
 func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 	log.Printf("[ES Query] Building query: domains=%v, keywords=%v, geo=%s",
 		req.Domains, req.Keywords, req.Geo)
+
+	// Resolve freshness parameters with defaults
+	offset := req.FreshnessOffset
+	if offset == "" {
+		offset = defaultFreshnessOffset
+	}
+	scale := req.FreshnessScale
+	if scale == "" {
+		scale = defaultFreshnessScale
+	}
+	decay := req.FreshnessDecay
+	if decay == 0 {
+		decay = defaultFreshnessDecay
+	}
 
 	mustClauses := []interface{}{}
 
@@ -44,18 +64,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 		},
 	})
 
-	// 2. Cursor pagination: updated_at < lastUpdatedAt
-	if !req.LastUpdatedAt.IsZero() {
-		mustClauses = append(mustClauses, map[string]interface{}{
-			"range": map[string]interface{}{
-				"updated_at": map[string]interface{}{
-					"lt": req.LastUpdatedAt.Format(time.RFC3339),
-				},
-			},
-		})
-	}
-
-	// 3. domains, keywords, geo filtering (using query context for relevance scoring)
+	// 2. domains, keywords, geo filtering (using query context for relevance scoring)
 	shouldClauses := []interface{}{}
 
 	if len(req.Domains) > 0 {
@@ -134,7 +143,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 		log.Printf("[ES Query] Adding should clauses with relevance scoring: count=%d", len(shouldClauses))
 		mustClauses = append(mustClauses, map[string]interface{}{
 			"bool": map[string]interface{}{
-				"should":              shouldClauses,
+				"should":               shouldClauses,
 				"minimum_should_match": 1,
 			},
 		})
@@ -145,8 +154,26 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 	// Build final query
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
-			"bool": map[string]interface{}{
-				"must": mustClauses,
+			"function_score": map[string]interface{}{
+				"query": map[string]interface{}{
+					"bool": map[string]interface{}{
+						"must": mustClauses,
+					},
+				},
+				"functions": []interface{}{
+					map[string]interface{}{
+						"gauss": map[string]interface{}{
+							"updated_at": map[string]interface{}{
+								"origin": "now",
+								"offset": offset,
+								"scale":  scale,
+								"decay":  decay,
+							},
+						},
+					},
+				},
+				"score_mode": "multiply",
+				"boost_mode": "multiply",
 			},
 		},
 		"sort": []interface{}{
