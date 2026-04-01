@@ -69,9 +69,10 @@ type Config struct {
 	FreshnessDecay          float64  // ES freshness decay factor at scale distance (default: 0.8)
 	MockOTPEmailSuffixes    []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
 	MockOTPIPWhitelist      []string // IP whitelist for mock OTP
-	MonitorEnabled          bool   // Enable distributed tracing (Jaeger) and log aggregation (Loki)
-	OtelExporterEndpoint    string // OTLP gRPC endpoint (default localhost:4317)
-	LokiURL                 string // Loki push API URL (default http://localhost:3122)
+	MonitorEnabled          bool     // Enable distributed tracing (Jaeger) and log aggregation (Loki)
+	OtelExporterEndpoint    string   // OTLP gRPC endpoint (default localhost:4317)
+	LokiURL                 string   // Loki push API URL (default http://localhost:3122)
+	LogLevel                string   // Structured log level: debug | info | warn | error
 }
 
 func Load() *Config {
@@ -144,6 +145,7 @@ func Load() *Config {
 		MonitorEnabled:          getEnvBool("MONITOR_ENABLED", false),
 		OtelExporterEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3122"),
+		LogLevel:                getEnv("LOG_LEVEL", "debug"),
 	}
 }
 

@@ -23,6 +23,7 @@ type Config struct {
 	MonitorEnabled       bool
 	OtelExporterEndpoint string
 	LokiURL              string
+	LogLevel             string
 }
 
 func Load() *Config {
@@ -45,6 +46,7 @@ func Load() *Config {
 		MonitorEnabled:       getEnvBool("MONITOR_ENABLED", false),
 		OtelExporterEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 		LokiURL:              getEnv("LOKI_URL", "http://localhost:3122"),
+		LogLevel:             getEnv("LOG_LEVEL", "debug"),
 	}
 }
 

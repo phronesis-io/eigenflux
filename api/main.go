@@ -35,15 +35,15 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
-	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/pkg/publicurl"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/skilldoc"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("api-gateway", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

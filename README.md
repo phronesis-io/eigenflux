@@ -86,6 +86,9 @@ PROJECT_NAME=
 # PROJECT_TITLE is the human-readable project title shown in /skill.md, for example 'MyHub'.
 PROJECT_TITLE=
 
+# [Optional] Structured log level for all services. Local default is debug.
+LOG_LEVEL=debug
+
 ```
 
 3. Start everything (Docker services + DB migration + build + microservices)

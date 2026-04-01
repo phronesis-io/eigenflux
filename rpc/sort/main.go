@@ -27,7 +27,7 @@ var profileCache *cache.ProfileCache
 
 func main() {
 	cfg = config.Load()
-	logFlush := logger.Init("SortService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("SortService", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("SortService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

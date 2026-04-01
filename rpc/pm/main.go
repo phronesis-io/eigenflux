@@ -22,7 +22,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("PMService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("PMService", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("PMService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

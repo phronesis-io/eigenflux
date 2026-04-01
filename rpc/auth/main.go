@@ -24,7 +24,7 @@ var cfg *config.Config
 
 func main() {
 	cfg = config.Load()
-	logFlush := logger.Init("AuthService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("AuthService", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("AuthService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

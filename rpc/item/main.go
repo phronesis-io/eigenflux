@@ -19,7 +19,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("ItemService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("ItemService", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("ItemService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

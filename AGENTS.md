@@ -313,6 +313,7 @@ Mock OTP whitelist: After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_W
 
 Besides default config in `pkg/config/config.go`, common environment variables:
 - `APP_ENV`: Runtime environment, `dev` / `test` / `staging` / `prod`
+- `LOG_LEVEL`: Structured log level for all services, `debug` / `info` / `warn` / `error`. Default `debug`
 - `PROJECT_NAME`: Lowercase project slug. Used as Docker Compose project name and `/skill.md` local storage namespace (for example `~/.openclaw/${PROJECT_NAME}/credentials.json`). Defaults to `myhub` when unset
 - `PROJECT_TITLE`: Human-readable project title rendered into `/skill.md` headings and description. Defaults to `MyHub` when unset
 - `PUBLIC_BASE_URL`: Public root URL used to render `/skill.md` frontmatter `metadata.api_base`; If empty, the API service auto-generates a local fallback from `ip:port`
@@ -547,7 +548,7 @@ Full-stack OpenTelemetry tracing across all services. Every API request gets a t
 ### Components
 
 - **pkg/telemetry**: OTel SDK initialization (TracerProvider, OTLP gRPC exporter)
-- **pkg/logger**: slog-based structured JSON logging with `logger.Ctx(ctx)` for auto-injected traceId/spanId
+- **pkg/logger**: slog-based structured JSON logging with `logger.Ctx(ctx)` for auto-injected traceId/spanId and `LOG_LEVEL`-controlled verbosity
 - **pkg/rpcx**: Kitex OTel client/server suites (automatic span creation for all RPC calls)
 - **Hertz OTel middleware**: Root span creation per HTTP request (api gateway + console)
 
@@ -559,7 +560,7 @@ Monitoring services are defined in `docker-compose.monitor.yml` (separate from c
 - **Loki** (`:3122`): Log aggregation with traceId correlation
 - **Grafana** (`:3123`): Unified query UI (Jaeger traces + Loki logs)
 
-Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `OTEL_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local file logging only — no tracing overhead.
+Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `MONITOR_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local structured stdout logging only — no tracing overhead.
 
 ### Usage
 
@@ -575,6 +576,7 @@ All service code uses the project logger wrapper. Do not call `slog` directly ou
 
 - **`logger.Ctx(ctx)`** — returns a logger enriched with traceId/spanId from the OTel span in `ctx`. Use this in request/RPC handlers, middleware, and any code running inside a traced lifecycle.
 - **`logger.Default()`** — returns the process-wide structured logger without request-scoped trace fields. Use this in startup/init code, background workers, and fire-and-forget goroutines.
+- **`LOG_LEVEL`** — controls the minimum emitted level process-wide. Supported values: `debug`, `info`, `warn`, `error`. Local default is `debug`.
 
 ```go
 // In request handlers and middleware (has ctx with active span):
