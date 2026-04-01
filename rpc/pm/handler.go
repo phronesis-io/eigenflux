@@ -49,14 +49,6 @@ type PMServiceImpl struct {
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	logger.Ctx(ctx).Info("SendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", req.ItemId, "convID", req.ConvId)
-
-	// Block check - silent success if blocked
-	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ReceiverId, req.SenderId)
-	if blocked {
-		logger.Ctx(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", req.ReceiverId)
-		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
-	}
-
 	// Case 1: New conversation (item_id provided)
 	if req.ItemId != nil && *req.ItemId > 0 {
 		return s.handleNewConversation(ctx, req)
@@ -72,17 +64,29 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 	}
 
 	// Case 3: Friend-based PM (neither item_id nor conv_id)
+	if req.ReceiverId <= 0 {
+		return &pm.SendPMResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: "receiver_id is required for friend conversations"},
+		}, nil
+	}
 	return s.handleFriendPM(ctx, req)
 }
 
 func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	itemID := *req.ItemId
 
-	// Validate item ownership
-	if err := s.validator.ValidateItemOwnership(ctx, itemID, req.ReceiverId); err != nil {
+	receiverID, err := s.validator.GetItemOwner(ctx, itemID)
+	if err != nil {
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()},
 		}, nil
+	}
+
+	// Block check - silent success if blocked
+	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, receiverID, req.SenderId)
+	if blocked {
+		logger.Ctx(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", receiverID)
+		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
 	// Check no_reply
@@ -93,7 +97,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	}
 
 	// Compute participant pair
-	participantA, participantB := req.SenderId, req.ReceiverId
+	participantA, participantB := req.SenderId, receiverID
 	if participantA > participantB {
 		participantA, participantB = participantB, participantA
 	}
@@ -128,13 +132,13 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	}
 
 	// Lookup agent names
-	nameMap, _ := dal.BatchGetAgentNames(db.DB, []int64{req.SenderId, req.ReceiverId})
+	nameMap, _ := dal.BatchGetAgentNames(db.DB, []int64{req.SenderId, receiverID})
 	senderName := nameMap[req.SenderId]
-	receiverName := nameMap[req.ReceiverId]
+	receiverName := nameMap[receiverID]
 
 	// Map names to participant slots (A < B)
 	nameA, nameB := senderName, receiverName
-	if participantA == req.ReceiverId {
+	if participantA == receiverID {
 		nameA, nameB = receiverName, senderName
 	}
 
@@ -163,7 +167,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 			MsgID:        msgID,
 			ConvID:       convID,
 			SenderID:     req.SenderId,
-			ReceiverID:   req.ReceiverId,
+			ReceiverID:   receiverID,
 			Content:      req.Content,
 			IsRead:       false,
 			SenderName:   senderName,
@@ -181,9 +185,9 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	// Post-commit: cache mapping, ice break, invalidate fetch cache
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, itemID, convID)
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
-	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
+	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
 
-	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", itemID)
+	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID, "itemID", itemID)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -201,6 +205,13 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 403, Msg: err.Error()},
 		}, nil
+	}
+
+	// Block check - silent success if blocked
+	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, receiverID, req.SenderId)
+	if blocked {
+		logger.Ctx(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", receiverID)
+		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
 	// Ice break check (skipped for friend conversations)
@@ -277,6 +288,12 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 }
 
 func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
+	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ReceiverId, req.SenderId)
+	if blocked {
+		logger.Ctx(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", req.ReceiverId)
+		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	}
+
 	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, req.ReceiverId)
 	if !isFriend {
 		logger.Ctx(ctx).Info("FriendPM rejected (not friends)", "senderID", req.SenderId, "receiverID", req.ReceiverId)

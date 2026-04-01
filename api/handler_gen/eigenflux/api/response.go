@@ -231,7 +231,7 @@ type BatchFeedbackResp struct {
 
 // SendPMBody represents send PM request body
 type SendPMBody struct {
-	ReceiverID string `json:"receiver_id" example:"123456"`
+	ReceiverID string `json:"receiver_id,omitempty" example:"123456"`
 	Content    string `json:"content" example:"Hello, I saw your article..."`
 	ItemID     string `json:"item_id,omitempty" example:"789012"`
 	ConvID     string `json:"conv_id,omitempty" example:"456789"`

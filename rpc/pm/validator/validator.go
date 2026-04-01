@@ -26,23 +26,19 @@ func NewValidator(db *gorm.DB, rdb *redis.Client) *Validator {
 	}
 }
 
-// ValidateItemOwnership validates that item_id exists and belongs to receiver_id
-// Returns (ownerID, error)
-func (v *Validator) ValidateItemOwnership(ctx context.Context, itemID, expectedOwnerID int64) error {
+// GetItemOwner returns the cached author_agent_id for an item.
+func (v *Validator) GetItemOwner(ctx context.Context, itemID int64) (int64, error) {
 	cacheKey := fmt.Sprintf("pm:itemowner:%d", itemID)
 
 	// Try cache first
 	cached, err := v.rdb.Get(ctx, cacheKey).Result()
 	if err == nil {
 		if cached == "null" {
-			return fmt.Errorf("item not found")
+			return 0, fmt.Errorf("item not found")
 		}
 		var ownerID int64
 		if err := json.Unmarshal([]byte(cached), &ownerID); err == nil {
-			if ownerID != expectedOwnerID {
-				return fmt.Errorf("item does not belong to receiver")
-			}
-			return nil
+			return ownerID, nil
 		}
 	}
 
@@ -62,15 +58,10 @@ func (v *Validator) ValidateItemOwnership(ctx context.Context, itemID, expectedO
 	})
 
 	if err != nil {
-		return fmt.Errorf("item not found")
+		return 0, fmt.Errorf("item not found")
 	}
 
-	ownerID := result.(int64)
-	if ownerID != expectedOwnerID {
-		return fmt.Errorf("item does not belong to receiver")
-	}
-
-	return nil
+	return result.(int64), nil
 }
 
 // ValidateNoReply checks if item has expected_response = 'no_reply'

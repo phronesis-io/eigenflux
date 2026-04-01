@@ -12083,7 +12083,7 @@ func (p *LatestItemsResp) String() string {
 
 // ===== PM Structs =====
 type SendPMReq struct {
-	ReceiverID string  `thrift:"receiver_id,1,required" form:"receiver_id,required" json:"receiver_id,required"`
+	ReceiverID *string `thrift:"receiver_id,1,optional" form:"receiver_id" json:"receiver_id,omitempty"`
 	Content    string  `thrift:"content,2,required" form:"content,required" json:"content,required"`
 	ItemID     *string `thrift:"item_id,3,optional" form:"item_id" json:"item_id,omitempty"`
 	ConvID     *string `thrift:"conv_id,4,optional" form:"conv_id" json:"conv_id,omitempty"`
@@ -12096,8 +12096,13 @@ func NewSendPMReq() *SendPMReq {
 func (p *SendPMReq) InitDefault() {
 }
 
+var SendPMReq_ReceiverID_DEFAULT string
+
 func (p *SendPMReq) GetReceiverID() (v string) {
-	return p.ReceiverID
+	if !p.IsSetReceiverID() {
+		return SendPMReq_ReceiverID_DEFAULT
+	}
+	return *p.ReceiverID
 }
 
 func (p *SendPMReq) GetContent() (v string) {
@@ -12129,6 +12134,10 @@ var fieldIDToName_SendPMReq = map[int16]string{
 	4: "conv_id",
 }
 
+func (p *SendPMReq) IsSetReceiverID() bool {
+	return p.ReceiverID != nil
+}
+
 func (p *SendPMReq) IsSetItemID() bool {
 	return p.ItemID != nil
 }
@@ -12141,7 +12150,6 @@ func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
 
 	var fieldTypeId thrift.TType
 	var fieldId int16
-	var issetReceiverID bool = false
 	var issetContent bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
@@ -12163,7 +12171,6 @@ func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField1(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetReceiverID = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -12205,11 +12212,6 @@ func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
 		goto ReadStructEndError
 	}
 
-	if !issetReceiverID {
-		fieldId = 1
-		goto RequiredFieldNotSetError
-	}
-
 	if !issetContent {
 		fieldId = 2
 		goto RequiredFieldNotSetError
@@ -12234,11 +12236,11 @@ RequiredFieldNotSetError:
 
 func (p *SendPMReq) ReadField1(iprot thrift.TProtocol) error {
 
-	var _field string
+	var _field *string
 	if v, err := iprot.ReadString(); err != nil {
 		return err
 	} else {
-		_field = v
+		_field = &v
 	}
 	p.ReceiverID = _field
 	return nil
@@ -12318,14 +12320,16 @@ WriteStructEndError:
 }
 
 func (p *SendPMReq) writeField1(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("receiver_id", thrift.STRING, 1); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteString(p.ReceiverID); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
+	if p.IsSetReceiverID() {
+		if err = oprot.WriteFieldBegin("receiver_id", thrift.STRING, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ReceiverID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
 	}
 	return nil
 WriteFieldBeginError:

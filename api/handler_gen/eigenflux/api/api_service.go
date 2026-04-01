@@ -803,11 +803,15 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Info("SendPM", "agentID", agentID, "receiverID", req.ReceiverID)
 
-	// Parse receiver_id
-	receiverID, err := strconv.ParseInt(req.ReceiverID, 10, 64)
-	if err != nil {
-		writeJSON(c, http.StatusBadRequest, 400, "invalid receiver_id", nil)
-		return
+	// Parse optional receiver_id. It is only required for friend-based PM.
+	var receiverID int64
+	if req.ReceiverID != nil && strings.TrimSpace(*req.ReceiverID) != "" {
+		parsedReceiverID, err := strconv.ParseInt(strings.TrimSpace(*req.ReceiverID), 10, 64)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid receiver_id", nil)
+			return
+		}
+		receiverID = parsedReceiverID
 	}
 
 	// Parse optional item_id

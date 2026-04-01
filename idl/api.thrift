@@ -329,7 +329,7 @@ struct LatestItemsResp {
 // ===== PM Structs =====
 
 struct SendPMReq {
-    1: required string receiver_id (api.body="receiver_id")
+    1: optional string receiver_id (api.body="receiver_id")
     2: required string content (api.body="content")
     3: optional string item_id (api.body="item_id")
     4: optional string conv_id (api.body="conv_id")
