@@ -193,7 +193,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 }
 
 func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skipIceBreak bool) (*pm.SendPMResp, error) {
-	convID := *req.ConvId
+	convID := req.GetConvId()
 
 	// Validate conversation membership
 	receiverID, err := s.validator.ValidateConvMembership(ctx, convID, req.SenderId)
