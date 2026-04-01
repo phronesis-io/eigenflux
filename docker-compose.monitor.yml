@@ -1,0 +1,54 @@
+name: eigenflux-monitor
+
+# Shared monitoring stack (Jaeger + Loki + Grafana).
+# Not tied to any specific project — start once, use for all local dev projects.
+#
+# Usage:
+#   docker compose -f docker-compose.monitor.yml up -d
+#   docker compose -f docker-compose.monitor.yml down
+#
+# Then enable monitoring in your project .env:
+#   MONITOR_ENABLED=true
+
+services:
+  jaeger:
+    image: jaegertracing/jaeger:2.16.0
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${JAEGER_OTLP_PORT:-4317}:4317"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:16686/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  loki:
+    image: grafana/loki:3.4.2
+    ports:
+      - "${LOKI_PORT:-3122}:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3100/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports:
+      - "${GRAFANA_PORT:-3123}:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./configs/grafana/datasources.yml:/etc/grafana/provisioning/datasources/ds.yml
+    depends_on:
+      jaeger:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

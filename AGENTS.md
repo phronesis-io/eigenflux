@@ -8,6 +8,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 
 - Go 1.25+
 - Infrastructure: `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana)
+- Monitoring (optional): `docker compose -f docker-compose.monitor.yml up -d` (Jaeger, Loki, Grafana). Then set `MONITOR_ENABLED=true` in `.env`. Monitoring services are project-independent — start once, shared across all local projects
 - Default connection config in `pkg/config/config.go`, override via environment variables
 - For parallel multi-project development, must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`) for each repository. `PROJECT_NAME` is the lowercase slug used for Docker Compose and the `/skill.md` agent-side local storage namespace. `PROJECT_TITLE` is the human-readable title rendered into `/skill.md`.
 
@@ -259,8 +260,8 @@ All ports support `.env` override; default values when not configured:
 | Kibana (docker mapped) | `KIBANA_PORT` | 5601 |
 | Jaeger UI | `JAEGER_UI_PORT` | 16686 |
 | Jaeger OTLP gRPC | `JAEGER_OTLP_PORT` | 4317 |
-| Loki | `LOKI_PORT` | 3100 |
-| Grafana | `GRAFANA_PORT` | 3000 |
+| Loki | `LOKI_PORT` | 3122 |
+| Grafana | `GRAFANA_PORT` | 3123 |
 
 **When adding a new service**: Update `scripts/cloud/services.sh` (`ALL_MODULES` array and `module_port()` function) and `scripts/local/start_local.sh` (`SERVICE_MAP` array). `services.sh` is the single source of truth for cloud deployment scripts (`check_services.sh`, `restart.sh`, `restart_all_services.sh`, `logs.sh`). Console is excluded from cloud scripts as it is not deployed to production.
 
@@ -326,9 +327,9 @@ Besides default config in `pkg/config/config.go`, common environment variables:
 - `ID_WORKER_LEASE_TTL`: `worker_id` lease TTL (seconds, default 30)
 - `ID_INSTANCE_ID`: Instance identifier (optional, auto-generated `hostname-pid-timestamp` if not filled)
 - `DISABLE_DEDUP_IN_TEST`: Takes effect in `dev` or `test` environment; when `true`, disables feed deduplication (already-seen content can still be pulled). Forced ineffective in `prod` environment.
-- `OTEL_ENABLED`: Enable OpenTelemetry distributed tracing. Default `true`
+- `MONITOR_ENABLED`: Enable distributed tracing (Jaeger) and log aggregation (Loki). Default `false`. Set `true` after starting `docker-compose.monitor.yml`
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: OTLP gRPC endpoint for trace export. Default `localhost:4317`
-- `LOKI_URL`: Loki push API base URL for log aggregation. Default `http://localhost:3100`
+- `LOKI_URL`: Loki push API base URL for log aggregation. Default empty (disabled). Set `http://localhost:3122` to enable
 
 Startup constraints:
 - When `ENABLE_EMAIL_VERIFICATION=true`, `RESEND_API_KEY` and `RESEND_FROM_EMAIL` cannot be empty
@@ -552,15 +553,19 @@ Full-stack OpenTelemetry tracing across all services. Every API request gets a t
 
 ### Infrastructure
 
+Monitoring services are defined in `docker-compose.monitor.yml` (separate from core `docker-compose.yml`):
+
 - **Jaeger** (`:16686`): Trace storage and timeline visualization
-- **Loki** (`:3100`): Log aggregation with traceId correlation
-- **Grafana** (`:3000`): Unified query UI (Jaeger traces + Loki logs)
+- **Loki** (`:3122`): Log aggregation with traceId correlation
+- **Grafana** (`:3123`): Unified query UI (Jaeger traces + Loki logs)
+
+Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `OTEL_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local file logging only — no tracing overhead.
 
 ### Usage
 
 **View traces:** Open Jaeger UI at `http://localhost:16686`, select a service, search traces.
 
-**Search logs by traceId:** Open Grafana at `http://localhost:3000` → Explore → Loki → query `{service=~".+"} | json | traceId="<id>"`.
+**Search logs by traceId:** Open Grafana at `http://localhost:3123` → Explore → Loki → query `{service=~".+"} | json | traceId="<id>"`.
 
 **Trace-to-log correlation:** In Grafana, Jaeger traces link to Loki logs and vice versa.
 

@@ -33,6 +33,7 @@ func NewNotificationServiceImpl(db *gorm.DB, rdb *redis.Client) *NotificationSer
 }
 
 func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notificationrpc.ListPendingReq) (*notificationrpc.ListPendingResp, error) {
+	logger.FromContext(ctx).Debug("ListPending called", "agentID", req.GetAgentId())
 	if req == nil {
 		return &notificationrpc.ListPendingResp{
 			Notifications: []*notificationrpc.PendingNotification{},
@@ -123,6 +124,7 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 }
 
 func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *notificationrpc.AckNotificationsReq) (*notificationrpc.AckNotificationsResp, error) {
+	logger.FromContext(ctx).Debug("AckNotifications called", "agentID", req.GetAgentId(), "items", len(req.GetItems()))
 	if req == nil {
 		return &notificationrpc.AckNotificationsResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "nil request"},

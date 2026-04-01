@@ -24,10 +24,10 @@ var cfg *config.Config
 
 func main() {
 	cfg = config.Load()
-	logFlush := logger.Init("rpc/auth/.log", "AuthService", cfg.LokiURL)
+	logFlush := logger.Init("rpc/auth/.log", "AuthService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("AuthService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("AuthService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

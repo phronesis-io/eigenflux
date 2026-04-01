@@ -20,7 +20,7 @@ type Config struct {
 	IDSnowflakeEpoch     int64
 	IDWorkerLeaseTTL     int
 	IDInstanceID         string
-	OtelEnabled          bool
+	MonitorEnabled       bool
 	OtelExporterEndpoint string
 }
 
@@ -41,7 +41,7 @@ func Load() *Config {
 		IDSnowflakeEpoch:     getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000),
 		IDWorkerLeaseTTL:     getEnvInt("ID_WORKER_LEASE_TTL", 30),
 		IDInstanceID:         getEnv("ID_INSTANCE_ID", ""),
-		OtelEnabled:          getEnvBool("OTEL_ENABLED", true),
+		MonitorEnabled:       getEnvBool("MONITOR_ENABLED", false),
 		OtelExporterEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 	}
 }

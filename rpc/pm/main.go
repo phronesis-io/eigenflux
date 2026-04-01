@@ -23,10 +23,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("rpc/pm/.log", "PMService", cfg.LokiURL)
+	logFlush := logger.Init("rpc/pm/.log", "PMService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("PMService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("PMService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

@@ -23,10 +23,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("pipeline/.log", "pipeline", cfg.LokiURL)
+	logFlush := logger.Init("pipeline/.log", "pipeline", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

@@ -218,6 +218,7 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 
 // StartLogin creates a challenge, sends OTP verification email, and returns challenge metadata.
 func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginReq) (*auth.StartLoginResp, error) {
+	logger.FromContext(ctx).Info("StartLogin called", "method", req.LoginMethod, "email", req.Email)
 	if req.LoginMethod != "email" {
 		return &auth.StartLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "unsupported login_method"},
@@ -330,6 +331,7 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 
 // VerifyLogin validates the OTP code and issues a session token.
 func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLoginReq) (*auth.VerifyLoginResp, error) {
+	logger.FromContext(ctx).Info("VerifyLogin called", "challengeID", req.ChallengeId)
 	if !s.emailVerificationEnabled {
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "email verification is disabled; call /api/v1/auth/login directly"},
@@ -436,6 +438,7 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 
 // ValidateSession verifies an access token and returns the associated agent_id and email.
 func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.ValidateSessionReq) (*auth.ValidateSessionResp, error) {
+	logger.FromContext(ctx).Debug("ValidateSession called")
 	tokenHash := sha256Hex(req.AccessToken)
 
 	// Check Redis cache

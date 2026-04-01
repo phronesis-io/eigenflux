@@ -23,6 +23,7 @@ import (
 
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
+	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
@@ -42,10 +43,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("api/.log", "api-gateway", cfg.LokiURL)
+	logFlush := logger.Init("api/.log", "api-gateway", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("api-gateway", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("api-gateway", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
@@ -130,6 +131,7 @@ func main() {
 		tracer,
 	)
 	h.Use(hertztracing.ServerMiddleware(tracerCfg))
+	h.Use(middleware.TraceIDMiddleware())
 
 	// Skill document endpoints. All return text/markdown with version header.
 	serveSkillDoc := func(content []byte) app.HandlerFunc {

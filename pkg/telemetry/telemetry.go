@@ -25,7 +25,7 @@ func Init(serviceName string, endpoint string, enabled bool) (shutdown func(cont
 	))
 
 	if !enabled {
-		slog.Info("tracing disabled", "service", serviceName)
+		slog.Info("monitoring disabled, tracing off", "service", serviceName)
 		return func(context.Context) {}, nil
 	}
 

@@ -17,10 +17,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("pipeline/cron/.log", "pipeline-cron", cfg.LokiURL)
+	logFlush := logger.Init("pipeline/cron/.log", "pipeline-cron", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

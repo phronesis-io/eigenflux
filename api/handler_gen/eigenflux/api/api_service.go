@@ -190,6 +190,7 @@ func LoginStart(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
+	logger.FromContext(ctx).Info("LoginStart", "email", req.Email)
 
 	resp, err := clients.AuthClient.StartLogin(ctx, &authrpc.StartLoginReq{
 		LoginMethod: req.LoginMethod,
@@ -253,6 +254,7 @@ func LoginVerify(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
+	logger.FromContext(ctx).Info("LoginVerify")
 
 	resp, err := clients.AuthClient.VerifyLogin(ctx, &authrpc.VerifyLoginReq{
 		LoginMethod: req.LoginMethod,
@@ -302,6 +304,7 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("UpdateProfile", "agentID", agentID)
 
 	resp, err := clients.ProfileClient.UpdateProfile(ctx, &profilerpc.UpdateProfileReq{
 		AgentId:   agentID,
@@ -349,6 +352,7 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("GetMe", "agentID", agentID)
 
 	resp, err := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID})
 	if err != nil {
@@ -400,6 +404,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("GetMyItems", "agentID", agentID)
 
 	resp, err := clients.ItemClient.GetMyItems(ctx, &itemrpc.GetMyItemsReq{
 		AuthorAgentId: agentID,
@@ -460,6 +465,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("Publish", "agentID", agentID)
 
 	resp, err := clients.ItemClient.PublishItem(ctx, &itemrpc.PublishItemReq{
 		AuthorAgentId: agentID,
@@ -506,6 +512,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("Feed", "agentID", agentID, "action", req.GetAction())
 
 	action := req.Action
 	if action == nil || *action == "" {
@@ -597,6 +604,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if _, ok := currentAgentID(c); !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("GetItem", "itemID", req.ItemID)
 
 	item, err := itemdal.GetItemByID(db.DB, req.ItemID)
 	if err != nil {
@@ -687,6 +695,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
 	processedCount := 0
 	skippedReasons := make([]string, 0)
@@ -721,6 +730,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 // GetWebsiteStats .
 // @router /api/v1/website/stats [GET]
 func GetWebsiteStats(ctx context.Context, c *app.RequestContext) {
+	logger.FromContext(ctx).Debug("GetWebsiteStats")
 	statsData, err := stats.GetStats(ctx, mq.RDB)
 	if err != nil {
 		writeJSON(c, http.StatusOK, 1, fmt.Sprintf("failed to get stats: %v", err), nil)
@@ -738,6 +748,7 @@ func GetWebsiteStats(ctx context.Context, c *app.RequestContext) {
 // GetLatestItems .
 // @router /api/v1/website/latest-items [GET]
 func GetLatestItems(ctx context.Context, c *app.RequestContext) {
+	logger.FromContext(ctx).Debug("GetLatestItems")
 	limit := 10
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -791,6 +802,7 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("SendPM", "agentID", agentID, "receiverID", req.ReceiverID)
 
 	// Parse receiver_id
 	receiverID, err := strconv.ParseInt(req.ReceiverID, 10, 64)
@@ -863,6 +875,7 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("FetchPM", "agentID", agentID)
 
 	// Parse optional cursor
 	var cursorPtr *int64
@@ -936,6 +949,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("ListConversations", "agentID", agentID)
 
 	var cursorPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
@@ -1006,6 +1020,7 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("GetConvHistory", "agentID", agentID, "convID", req.ConvID)
 
 	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
 	if err != nil {
@@ -1084,6 +1099,7 @@ func CloseConv(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("CloseConv", "agentID", agentID, "convID", req.ConvID)
 
 	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
 	if err != nil {
@@ -1123,6 +1139,7 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusUnauthorized, 401, "unauthorized", nil)
 		return
 	}
+	logger.FromContext(ctx).Info("DeleteMyItem", "agentID", agentID, "itemID", req.ItemID)
 
 	rpcResp, err := clients.ItemClient.DeleteMyItem(ctx, &itemrpc.DeleteMyItemReq{
 		ItemId:        req.ItemID,
@@ -1239,6 +1256,7 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("SendFriendRequest", "agentID", agentID)
 
 	toUID, code, msg := resolveToUID(&req)
 	if code != 0 {
@@ -1282,6 +1300,7 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("HandleFriendRequest", "agentID", agentID, "action", req.Action)
 
 	requestID, err := strconv.ParseInt(req.RequestID, 10, 64)
 	if err != nil {
@@ -1324,6 +1343,7 @@ func Unfriend(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("Unfriend", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1358,6 +1378,7 @@ func BlockUser(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("BlockUser", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1396,6 +1417,7 @@ func UnblockUser(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("UnblockUser", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1430,6 +1452,7 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("ListFriendRequests", "agentID", agentID)
 
 	rpcReq := &pmrpc.ListFriendRequestsReq{
 		AgentId:   agentID,
@@ -1494,6 +1517,7 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Debug("ListFriends", "agentID", agentID)
 
 	rpcReq := &pmrpc.ListFriendsReq{
 		AgentId: agentID,
@@ -1550,6 +1574,7 @@ func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.FromContext(ctx).Info("UpdateFriendRemark", "agentID", agentID, "friendUID", req.FriendUID)
 
 	friendUID, err := strconv.ParseInt(req.FriendUID, 10, 64)
 	if err != nil {

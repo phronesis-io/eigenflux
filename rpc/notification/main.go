@@ -18,10 +18,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("rpc/notification/.log", "NotificationService", cfg.LokiURL)
+	logFlush := logger.Init("rpc/notification/.log", "NotificationService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("NotificationService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("NotificationService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

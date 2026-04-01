@@ -26,10 +26,10 @@ var (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("rpc/feed/.log", "FeedService", cfg.LokiURL)
+	logFlush := logger.Init("rpc/feed/.log", "FeedService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
-	shutdown, err := telemetry.Init("FeedService", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("FeedService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}

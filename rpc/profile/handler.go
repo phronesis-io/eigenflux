@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/logger"
 	itemdal "eigenflux_server/rpc/item/dal"
 	"eigenflux_server/rpc/profile/dal"
 )
@@ -18,6 +19,7 @@ type ProfileServiceImpl struct {
 }
 
 func (s *ProfileServiceImpl) RegisterAgent(ctx context.Context, req *profile.RegisterAgentReq) (*profile.RegisterAgentResp, error) {
+	logger.FromContext(ctx).Info("RegisterAgent called", "email", req.Email)
 	if s.agentIDGen == nil {
 		return &profile.RegisterAgentResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "agent id generator is not initialized"},
@@ -55,6 +57,7 @@ func (s *ProfileServiceImpl) RegisterAgent(ctx context.Context, req *profile.Reg
 }
 
 func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.UpdateProfileReq) (*profile.UpdateProfileResp, error) {
+	logger.FromContext(ctx).Info("UpdateProfile called", "agentID", req.AgentId)
 	// Build update map from provided fields
 	updates := make(map[string]interface{})
 	bioChanged := false
@@ -116,6 +119,7 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 }
 
 func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgentReq) (*profile.GetAgentResp, error) {
+	logger.FromContext(ctx).Debug("GetAgent called", "agentID", req.AgentId)
 	agent, err := dal.GetAgentByID(db.DB, req.AgentId)
 	if err != nil {
 		return &profile.GetAgentResp{
@@ -165,6 +169,7 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 }
 
 func (s *ProfileServiceImpl) MatchAgentsByKeywords(ctx context.Context, req *profile.MatchAgentsByKeywordsReq) (*profile.MatchAgentsByKeywordsResp, error) {
+	logger.FromContext(ctx).Debug("MatchAgentsByKeywords called", "keywords", req.Keywords)
 	if len(req.Keywords) == 0 {
 		return &profile.MatchAgentsByKeywordsResp{
 			AgentIds: []int64{},

@@ -14,6 +14,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudwego/hertz/pkg/app"
+
 	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	_ "console.eigenflux.ai/docs"
 	"console.eigenflux.ai/internal/config"
@@ -24,6 +26,7 @@ import (
 	"console.eigenflux.ai/internal/telemetry"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	swaggerFiles "github.com/swaggo/files"
@@ -33,7 +36,7 @@ func main() {
 	cfg := config.Load()
 	logger.Init("console/console_api/.log", "console-api")
 
-	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.OtelEnabled)
+	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
@@ -71,6 +74,7 @@ func main() {
 		tracer,
 	)
 	h.Use(hertztracing.ServerMiddleware(tracerCfg))
+	h.Use(traceIDMiddleware())
 
 	allowOrigins := parseAllowOrigins()
 	h.Use(cors.New(cors.Config{
@@ -86,6 +90,16 @@ func main() {
 
 	log.Printf("Console API gateway starting on %s", cfg.ListenAddr())
 	h.Spin()
+}
+
+func traceIDMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		c.Next(ctx)
+		sc := oteltrace.SpanFromContext(ctx).SpanContext()
+		if sc.HasTraceID() {
+			c.Header("X-Trace-Id", sc.TraceID().String())
+		}
+	}
 }
 
 func parseAllowOrigins() []string {
