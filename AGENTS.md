@@ -571,16 +571,23 @@ Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set
 
 ### Logging Convention
 
-All service code uses structured slog logging:
+All service code uses structured slog logging. The key distinction is whether trace context is available:
+
+- **`logger.FromContext(ctx)`** — extracts traceId/spanId from the OTel span in ctx, so the log line can be correlated with the full request trace in Loki/Jaeger. Use this in any code that runs within a request lifecycle (handlers, middleware, DAL calls with ctx).
+- **`slog.Info/Error/...`** — plain structured log without trace context. Use this in startup/init code (no request ctx) and in fire-and-forget goroutines where the original request span may already be closed.
 
 ```go
-// In handlers with context (auto-injects traceId):
-logger.FromContext(ctx).Info("operation completed", "key", value)
-logger.FromContext(ctx).Warn("unexpected state", "detail", detail)
+// In request handlers and middleware (has ctx with active span):
+logger.FromContext(ctx).Info("FetchFeed called", "agentID", req.AgentId)
 logger.FromContext(ctx).Error("operation failed", "err", err)
 
-// In startup/init code (no context):
+// In startup/init code (no request context):
 slog.Info("service initialized", "port", port)
+
+// In fire-and-forget goroutines (original span may be closed):
+go func() {
+    slog.Error("async ack failed", "err", err)
+}()
 ```
 
 
