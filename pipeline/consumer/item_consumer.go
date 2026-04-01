@@ -43,9 +43,9 @@ type ItemConsumer struct {
 	maxWorkers       int
 }
 
-func NewItemConsumer(cfg *config.Config) *ItemConsumer {
+func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	return &ItemConsumer{
-		llmClient:        llm.NewClient(cfg),
+		llmClient:        llm.NewClient(cfg, prompts),
 		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		qualityThreshold: cfg.QualityThreshold,
 		maxWorkers:       cfg.ItemConsumerWorkers,
@@ -160,6 +160,32 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+			return
+		}
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+
+	// Safety check before processing
+	var safetyResult *llm.SafetyResult
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		safetyResult, err = c.llmClient.CheckSafety(ctx, raw.RawContent, raw.RawNotes)
+		if err == nil {
+			break
+		}
+		log.Printf("[ItemConsumer] safety check attempt %d/%d failed for item %d: %v", attempt, maxRetries, itemID, err)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+	if err != nil {
+		log.Printf("[ItemConsumer] safety check all retries failed for item %d: %v", itemID, err)
+		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+	if !safetyResult.Safe {
+		log.Printf("[ItemConsumer] item %d flagged by safety check: flag=%s reason=%s", itemID, safetyResult.Flag, safetyResult.Reason)
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+			log.Printf("[ItemConsumer] failed to update discard status for item %d: %v", itemID, err)
 			return
 		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)

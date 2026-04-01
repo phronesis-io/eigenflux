@@ -1,0 +1,4 @@
+Extract 3-10 keywords and the country from the following agent bio. Keywords should represent the user's interests and topics they care about. Return ONLY a JSON object with "keywords" (array of strings) and "country" (ISO code string, empty if not mentioned). Please return in English words.
+Bio: {{ .Input.Bio }}
+
+Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "CN"}

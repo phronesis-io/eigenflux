@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -13,23 +12,24 @@ import (
 )
 
 type Client struct {
-	client openai.Client
-	model  string
+	client  openai.Client
+	model   string
+	prompts *PromptRegistry
 }
 
-func NewClient(cfg *config.Config) *Client {
+func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
 	opts := []option.RequestOption{
 		option.WithAPIKey(cfg.LLMApiKey),
 	}
 	opts = append(opts, option.WithBaseURL(normalizeBaseURL(cfg.LLMBaseURL)))
 	return &Client{
-		client: openai.NewClient(opts...),
-		model:  cfg.LLMModel,
+		client:  openai.NewClient(opts...),
+		model:   cfg.LLMModel,
+		prompts: prompts,
 	}
 }
 
 type ExtractResult struct {
-	// Original fields
 	Summary          string   `json:"summary"`
 	BroadcastType    string   `json:"broadcast_type"`
 	Domains          []string `json:"domains"`
@@ -40,7 +40,6 @@ type ExtractResult struct {
 	ExpectedResponse string   `json:"expected_response"`
 	GroupID          string   `json:"group_id"`
 
-	// New fields for quality filtering
 	Discard       bool    `json:"discard"`
 	DiscardReason string  `json:"discard_reason"`
 	Lang          string  `json:"lang"`
@@ -48,42 +47,30 @@ type ExtractResult struct {
 	Timeliness    string  `json:"timeliness"`
 }
 
+// SafetyResult holds the output of the safety check prompt.
+type SafetyResult struct {
+	Safe   bool   `json:"safe"`
+	Flag   string `json:"flag"`
+	Reason string `json:"reason"`
+}
+
+// CheckSafety runs content through the safety filter before processing.
+func (c *Client) CheckSafety(ctx context.Context, rawContent, rawNotes string) (*SafetyResult, error) {
+	return SafetyPrompt.Execute(ctx, c, SafetyInput{Content: rawContent, Notes: rawNotes})
+}
+
 // ExtractKeywords extracts 3-10 keywords and country from an agent's bio
 func (c *Client) ExtractKeywords(ctx context.Context, bio string) ([]string, string, error) {
-	prompt := fmt.Sprintf(`Extract 3-10 keywords and the country from the following agent bio. Keywords should represent the user's interests and topics they care about. Return ONLY a JSON object with "keywords" (array of strings) and "country" (ISO code string, empty if not mentioned). Please return in English words.
-Bio: %s
-
-Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "CN"}`, bio)
-
-	resp, err := c.call(ctx, prompt)
+	result, err := ExtractKeywordsPrompt.Execute(ctx, c, ExtractKeywordsInput{Bio: bio})
 	if err != nil {
-		return nil, "", fmt.Errorf("LLM call failed: %w", err)
-	}
-
-	var result struct {
-		Keywords []string `json:"keywords"`
-		Country  string   `json:"country"`
-	}
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		return nil, "", fmt.Errorf("failed to parse keywords JSON: %w, raw: %s", err, resp)
+		return nil, "", err
 	}
 	return result.Keywords, result.Country, nil
 }
 
 // ProcessItem generates structured information for a content item
 func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (*ExtractResult, error) {
-	prompt := fmt.Sprintf(ProcessItemPrompts, rawContent, rawNotes)
-
-	resp, err := c.call(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("LLM call failed: %w", err)
-	}
-
-	var result ExtractResult
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse result JSON: %w, raw: %s", err, resp)
-	}
-	return &result, nil
+	return ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
 }
 
 func (c *Client) call(ctx context.Context, prompt string) (string, error) {
@@ -124,7 +111,6 @@ func normalizeBaseURL(baseURL string) string {
 
 // extractJSON tries to extract JSON from text that might be wrapped in markdown code blocks
 func extractJSON(text string) string {
-	// Try to find JSON in code blocks
 	start := -1
 	for i := 0; i < len(text); i++ {
 		if text[i] == '[' || text[i] == '{' {
@@ -135,7 +121,6 @@ func extractJSON(text string) string {
 	if start == -1 {
 		return text
 	}
-	// Find matching end
 	end := -1
 	openChar := text[start]
 	closeChar := byte('}')

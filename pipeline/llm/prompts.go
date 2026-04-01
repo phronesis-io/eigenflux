@@ -1,108 +1,33 @@
 package llm
 
-const ProcessItemPrompts = `You are an information extraction assistant. Analyze the given article title and content.
-
-First decide whether to DISCARD the article. Set "discard": true if the content is:
-- Behind a paywall or subscription gate (login prompts, "subscribe to read", metered access)
-- A stub, placeholder, or error page with no real information
-- Purely navigational (homepage, category listing, tag page)
-- Duplicate boilerplate with no substantive body text
-
-If discarding, return ONLY:
-{"discard": true, "discard_reason": "<one short phrase>"}
-
-Otherwise set "discard": false and return the full object:
-{
-  "discard": false,
-  "discard_reason": "",
-  "summary": "A concise 2-4 sentence summary for a technical reader",
-  "keywords": ["keywords1", "keywords2", ...],        // 3-8 topic keywords in English
-  "domains": ["domains1", ...],         //  array of domain tags ( max 10, e.g., ["technology", "AI"])
-  "broadcast_type": "supply|demand|info|alert",  // broadcast type classification
-  "lang": "zh|en|ja|ko|other",         // Detected language of the original article
-  "quality": 0.85,                      // 0-1: AGENT UTILITY (see rubric below)
-  "timeliness": "timely",               // "breaking" | "timely" | "evergreen" (see below)
-  "geo": "global",                      // geographic scope (e.g., "global", "US", "San Francisco"), or empty string if not applicable
-  "source_type": "original",            // information source, one of: "original", "curated", "forwarded"
-  "expected_response": "reply",         // expected response information (e.g., "reply", "action", "none"), or empty string if not applicable
-  "expire_time": "2026-12-31T23:59:59Z", // expiration time in ISO 8601 format, or empty string if not applicable
-  "group_id": ""                        // similarity group ID for related items, or empty string if not applicable
+// ProcessItemInput is the input for the process_item prompt.
+type ProcessItemInput struct {
+	Content string
+	Notes   string
 }
 
-Quality score rubric (0-1):
-You are evaluating this article's quality for an AI agent information network.
-The score reflects how valuable this article is as a piece of information that an
-agent can cite, reason with, or act upon.
-Assess holistically based on these interacting dimensions — do NOT average them independently.
+// ProcessItemPrompt extracts structured information from raw content.
+var ProcessItemPrompt = NewPrompt[ProcessItemInput, ExtractResult]("process_item")
 
-1. DECISION IMPACT (most important dimension):
-   Could this trigger a concrete action by an agent or user?
-   - High: price crash, policy change, product launch with date, earnings report,
-     vulnerability disclosure, etc.
-   - Low: vague trend commentary ("AI will change the world"), motivational content,
-     marketing fluff.
-   An article that enables action is almost always high quality.
+// SafetyInput is the input for the safety prompt.
+type SafetyInput struct {
+	Content string
+	Notes   string
+}
 
-2. INFORMATION DENSITY:
-   How much specific, verifiable information per unit of text?
-   - High: data points, numbers, dates, named entities, causal chains, code, benchmarks.
-     Short but critical first-hand info (e.g. "YC Demo Day: April 1-2") is high density
-     despite brevity.
-   - Low: padding, rehashed talking points, newsletter briefs summarizing many topics
-     shallowly, opinion with no supporting evidence.
-   For video/YouTube content: assess density based on the transcript (if provided),
-   not just the title or description. A long-form in-depth interview or technical
-   walkthrough may have very high density even if its title/description is generic.
+// SafetyPrompt runs content through the safety filter.
+var SafetyPrompt = NewPrompt[SafetyInput, SafetyResult]("safety")
 
-3. SOURCE AUTHORITY:
-   How credible and close to the origin?
-   Primary > secondary > N-th hand.
-   Official announcement > reputable media original reporting > re-reporting > repost.
-   Authoritative sources are also implicitly more verifiable — factor this in rather
-   than treating verifiability separately.
+// ExtractKeywordsInput is the input for the extract_keywords prompt.
+type ExtractKeywordsInput struct {
+	Bio string
+}
 
-4. COMPLETENESS:
-   Can this stand alone and tell a coherent story?
-   High: covers what + why + so what. Self-contained, no prior context needed.
-   Low: missing key details (e.g. "Company X lays off staff" with no scale/timeline/reason),
-   or depends on prior context. Breaking news may sacrifice completeness for speed —
-   this is a legitimate trade-off, not necessarily a quality flaw if the core facts are there.
+// ExtractKeywordsResult holds the output of keyword extraction.
+type ExtractKeywordsResult struct {
+	Keywords []string `json:"keywords"`
+	Country  string   `json:"country"`
+}
 
-5. TIMELINESS DECAY:
-   For time-sensitive content, freshness directly affects quality.
-   a) First determine if this content is time-sensitive (breaking news, market moves,
-      event announcements, etc.) or evergreen (tutorials, deep analysis, reference material).
-   b) If time-sensitive: compare the content's event/publication time against the current date.
-      The larger the gap, the more quality should be penalized — the core facts are likely
-      already known, priced in, or acted upon.
-      - Within hours of the event: no penalty
-      - Days old: moderate penalty (e.g. -0.10 to -0.20)
-      - Weeks or older: heavy penalty (e.g. -0.20 to -0.50)
-      - Months or years old: very low quality score (~0.10-0.30)
-   c) If evergreen: no timeliness penalty applies.
-   Special case — republished old content: if the article has a current publication date
-   but the events described clearly happened months or years ago (e.g. an obituary for
-   someone who died in 2021 republished in 2026, or a product launch from last year),
-   quality should be ≤ 0.10. Archive republishes, recycled old stories, and stale news
-   dressed up with a current date are near-worthless.
-   Exception: retrospectives or anniversary pieces with NEW analysis may retain ~0.40-0.55.
-
-Video content: when a transcript is provided alongside video metadata, use the transcript
-as the primary basis for quality assessment. Titles and descriptions alone are often
-insufficient. Always prefer transcript evidence over metadata signals.
-
-Calibration: official event date announcement ~0.85+, deep analytical essay with data
-~0.80+, long-form expert interview with concrete insights ~0.75-0.85,
-Reuters breaking report with core facts ~0.70-0.80, breaking news published days/weeks
-ago with no new info ~0.40-0.60 (decayed), newsletter briefing summarizing 10 topics
-~0.30-0.45, pure opinion no evidence ~0.15-0.25, stale/recycled old news ≤ 0.10.
-
-Timeliness classification (classifies the content's temporal nature):
-- "breaking": value decays in hours. Breaking news, market moves, live events.
-- "timely": value decays in days/weeks. Product launches, policy changes, earnings.
-- "evergreen": value persists months+. Tutorials, deep analysis, reference material.
-
-INPUT:
-Content: %s
-Notes: %s
-`
+// ExtractKeywordsPrompt extracts keywords and country from an agent bio.
+var ExtractKeywordsPrompt = NewPrompt[ExtractKeywordsInput, ExtractKeywordsResult]("extract_keywords")
