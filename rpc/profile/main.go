@@ -19,7 +19,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("rpc/profile/.log", "ProfileService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("ProfileService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("ProfileService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

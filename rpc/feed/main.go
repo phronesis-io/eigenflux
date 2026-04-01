@@ -26,7 +26,7 @@ var (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("rpc/feed/.log", "FeedService", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("FeedService", cfg.EffectiveLokiURL())
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("FeedService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

@@ -2,37 +2,18 @@ package logger
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
 
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Init sets up the global slog logger with a JSON handler that writes to
-// both stdout and a timestamped log file. If lokiURL is non-empty, a Loki
-// push handler is added. serviceName is embedded in every log record.
+// stdout. If lokiURL is non-empty, a Loki push handler is layered on top.
 // Returns a flush function to drain the Loki buffer on shutdown.
-func Init(logDir string, serviceName string, lokiURL string) func() {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		log.Fatalf("failed to create log directory %s: %v", logDir, err)
-	}
-
-	filename := time.Now().Format("20060102_150405") + ".log"
-	path := filepath.Join(logDir, filename)
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Fatalf("failed to open log file %s: %v", path, err)
-	}
-
-	w := io.MultiWriter(os.Stdout, f)
-
-	jsonHandler := slog.NewJSONHandler(w, &slog.HandlerOptions{
+func Init(serviceName string, lokiURL string) func() {
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}).WithAttrs([]slog.Attr{
 		slog.String("service", serviceName),
@@ -54,8 +35,7 @@ func Init(logDir string, serviceName string, lokiURL string) func() {
 	log.SetOutput(slogWriter)
 	log.SetFlags(0) // slog handles timestamp/source
 
-	slog.Info("logging initialized", "dir", logDir, "file", path)
-	fmt.Println() // blank line for readability after init
+	slog.Info("logging initialized")
 	return flush
 }
 

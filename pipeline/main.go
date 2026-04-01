@@ -23,7 +23,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("pipeline/.log", "pipeline", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("pipeline", cfg.EffectiveLokiURL())
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

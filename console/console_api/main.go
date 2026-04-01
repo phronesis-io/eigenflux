@@ -34,7 +34,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logger.Init("console/console_api/.log", "console-api")
+	logger.Init("console-api")
 
 	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {

@@ -43,7 +43,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("api/.log", "api-gateway", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL())
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("api-gateway", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)

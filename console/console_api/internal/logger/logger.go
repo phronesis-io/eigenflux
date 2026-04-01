@@ -2,33 +2,16 @@ package logger
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
 
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Init sets up slog with JSON handler writing to stdout + log file.
-func Init(logDir string, serviceName string) {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		log.Fatalf("failed to create log directory %s: %v", logDir, err)
-	}
-
-	filename := time.Now().Format("20060102_150405") + ".log"
-	path := filepath.Join(logDir, filename)
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Fatalf("failed to open log file %s: %v", path, err)
-	}
-
-	w := io.MultiWriter(os.Stdout, f)
-	handler := slog.NewJSONHandler(w, &slog.HandlerOptions{
+// Init sets up slog with JSON handler writing to stdout.
+func Init(serviceName string) {
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}).WithAttrs([]slog.Attr{
 		slog.String("service", serviceName),
@@ -39,8 +22,7 @@ func Init(logDir string, serviceName string) {
 	log.SetOutput(&slogBridge{})
 	log.SetFlags(0)
 
-	slog.Info("logging initialized", "dir", logDir, "file", path)
-	fmt.Println()
+	slog.Info("logging initialized")
 }
 
 // FromContext returns a logger with traceId/spanId from OTel context.

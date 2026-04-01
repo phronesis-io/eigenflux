@@ -17,7 +17,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logFlush := logger.Init("pipeline/cron/.log", "pipeline-cron", cfg.EffectiveLokiURL())
+	logFlush := logger.Init("pipeline-cron", cfg.EffectiveLokiURL())
 	defer logFlush()
 
 	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
