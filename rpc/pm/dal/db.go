@@ -1,8 +1,8 @@
 package dal
 
 import (
+	"eigenflux_server/pkg/logger"
 	"errors"
-	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -184,7 +184,7 @@ func CloseConversation(db *gorm.DB, convID int64) error {
 	// 检查是否有行被更新
 	if result.RowsAffected == 0 {
 		// 可能是 convID 不存在，或者该会话的 origin_id 等于 0
-		slog.Warn("CloseConversation: no rows affected (not found or origin_id=0)", "convID", convID)
+		logger.Default().Warn("CloseConversation: no rows affected (not found or origin_id=0)", "convID", convID)
 		return errors.New("conversation not found or not item-originated")
 	}
 

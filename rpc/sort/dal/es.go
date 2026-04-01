@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"strconv"
 	"time"
 
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/logger"
 )
 
 // Item represents the item document in Elasticsearch
@@ -98,7 +98,7 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 		req.Limit = 20
 	}
 
-	slog.Debug("[ES] search request", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo, "limit", req.Limit)
+	logger.Default().Debug("[ES] search request", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo, "limit", req.Limit)
 
 	// Build query
 	query := buildSearchQuery(req)
@@ -121,7 +121,7 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 	defer res.Body.Close()
 
 	if res.IsError() {
-		slog.Error("ES search error", "response", res.String())
+		logger.Default().Error("ES search error", "response", res.String())
 		return nil, fmt.Errorf("ES search error: %s", res.String())
 	}
 
@@ -130,7 +130,7 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 		return nil, err
 	}
 
-	slog.Debug("ES search response", "hits", len(parsed.Hits.Hits), "total", parsed.Hits.Total.Value)
+	logger.Default().Debug("ES search response", "hits", len(parsed.Hits.Hits), "total", parsed.Hits.Total.Value)
 
 	items := make([]Item, 0, len(parsed.Hits.Hits))
 	var nextCursor time.Time
@@ -145,7 +145,7 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 
 		// Log first few items with scores for debugging
 		if i < 5 {
-			slog.Debug("ES item", "index", i, "id", item.ID, "score", hit.Score, "updatedAt", item.UpdatedAt, "domains", item.Domains, "keywords", item.Keywords)
+			logger.Default().Debug("ES item", "index", i, "id", item.ID, "score", hit.Score, "updatedAt", item.UpdatedAt, "domains", item.Domains, "keywords", item.Keywords)
 		}
 
 		items = append(items, item)

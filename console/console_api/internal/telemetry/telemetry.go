@@ -2,8 +2,8 @@ package telemetry
 
 import (
 	"context"
-	"log/slog"
 
+	"console.eigenflux.ai/internal/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
@@ -23,7 +23,7 @@ func Init(serviceName string, endpoint string, enabled bool) (shutdown func(cont
 	))
 
 	if !enabled {
-		slog.Info("tracing disabled", "service", serviceName)
+		logger.Default().Info("tracing disabled", "service", serviceName)
 		return func(context.Context) {}, nil
 	}
 
@@ -50,7 +50,7 @@ func Init(serviceName string, endpoint string, enabled bool) (shutdown func(cont
 	)
 	otel.SetTracerProvider(tp)
 
-	slog.Info("tracing enabled", "service", serviceName, "endpoint", endpoint)
+	logger.Default().Info("tracing enabled", "service", serviceName, "endpoint", endpoint)
 	return func(ctx context.Context) {
 		_ = tp.Shutdown(ctx)
 	}, nil

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 	"unicode"
@@ -49,12 +48,12 @@ type PMServiceImpl struct {
 }
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
-	logger.FromContext(ctx).Info("SendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", req.ItemId, "convID", req.ConvId)
+	logger.Ctx(ctx).Info("SendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", req.ItemId, "convID", req.ConvId)
 
 	// Block check - silent success if blocked
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ReceiverId, req.SenderId)
 	if blocked {
-		logger.FromContext(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", req.ReceiverId)
+		logger.Ctx(ctx).Info("SendPM blocked", "senderID", req.SenderId, "receiverID", req.ReceiverId)
 		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
@@ -184,7 +183,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
 
-	logger.FromContext(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", itemID)
+	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", itemID)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -216,7 +215,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		}
 
 		if iceStatus == icebreak.IceStatusFirstMsg && lastSenderID == req.SenderId {
-			logger.FromContext(ctx).Info("reply rejected (icebreak)", "convID", convID, "senderID", req.SenderId)
+			logger.Ctx(ctx).Info("reply rejected (icebreak)", "convID", convID, "senderID", req.SenderId)
 			return &pm.SendPMResp{
 				BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
 			}, nil
@@ -268,7 +267,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 	// Post-commit: invalidate fetch cache
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
 
-	logger.FromContext(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
+	logger.Ctx(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -280,10 +279,10 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, req.ReceiverId)
 	if !isFriend {
-		logger.FromContext(ctx).Info("FriendPM rejected (not friends)", "senderID", req.SenderId, "receiverID", req.ReceiverId)
+		logger.Ctx(ctx).Info("FriendPM rejected (not friends)", "senderID", req.SenderId, "receiverID", req.ReceiverId)
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 403, Msg: "not friends"}}, nil
 	}
-	logger.FromContext(ctx).Info("FriendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId)
+	logger.Ctx(ctx).Info("FriendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId)
 	participantA, participantB := req.SenderId, req.ReceiverId
 	if participantA > participantB {
 		participantA, participantB = participantB, participantA
@@ -320,7 +319,7 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
-	logger.FromContext(ctx).Info("FriendPM new conv", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId)
+	logger.Ctx(ctx).Info("FriendPM new conv", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId)
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -350,7 +349,7 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	// Fetch unread messages from DB
 	messages, err := dal.FetchUnreadMessages(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
-		logger.FromContext(ctx).Error("FetchPM failed", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("FetchPM failed", "agentID", req.AgentId, "err", err)
 		return &pm.FetchPMResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to fetch messages"},
 		}, nil
@@ -395,7 +394,7 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	}
 
 	nextCursor := messages[len(messages)-1].MsgID
-	logger.FromContext(ctx).Info("FetchPM", "agentID", req.AgentId, "count", len(messages))
+	logger.Ctx(ctx).Info("FetchPM", "agentID", req.AgentId, "count", len(messages))
 
 	return &pm.FetchPMResp{
 		Messages:   respMessages,
@@ -517,14 +516,14 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 	// Invalidate cached conv info so membership checks see the new status
 	s.validator.InvalidateConvCache(ctx, req.ConvId)
 
-	logger.FromContext(ctx).Info("CloseConv", "agentID", req.AgentId, "convID", req.ConvId)
+	logger.Ctx(ctx).Info("CloseConv", "agentID", req.AgentId, "convID", req.ConvId)
 	return &pm.CloseConvResp{
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
-	logger.FromContext(ctx).Info("SendFriendRequest", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("SendFriendRequest", "fromUID", req.FromUid, "toUID", req.ToUid)
 
 	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
 	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
@@ -533,7 +532,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 			db.RDB.Expire(ctx, rateLimitKey, time.Hour)
 		}
 		if count > 10 {
-			logger.FromContext(ctx).Warn("SendFriendRequest rate limited", "fromUID", req.FromUid, "count", count)
+			logger.Ctx(ctx).Warn("SendFriendRequest rate limited", "fromUID", req.FromUid, "count", count)
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 429, Msg: "too many requests, please try again later"}}, nil
 		}
 	}
@@ -550,18 +549,18 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if blocked {
-		logger.FromContext(ctx).Info("SendFriendRequest blocked (sender blocked target)", "fromUID", req.FromUid, "toUID", req.ToUid)
+		logger.Ctx(ctx).Info("SendFriendRequest blocked (sender blocked target)", "fromUID", req.FromUid, "toUID", req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 403, Msg: "cannot send request"}}, nil
 	}
 	blocked, _ = relations.IsBlockedCached(ctx, db.RDB, db.DB, req.ToUid, req.FromUid)
 	if blocked {
-		logger.FromContext(ctx).Info("SendFriendRequest blocked (target blocked sender)", "fromUID", req.FromUid, "toUID", req.ToUid)
+		logger.Ctx(ctx).Info("SendFriendRequest blocked (target blocked sender)", "fromUID", req.FromUid, "toUID", req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
 	isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.FromUid, req.ToUid)
 	if isFriend {
-		logger.FromContext(ctx).Info("SendFriendRequest rejected (already friends)", "fromUID", req.FromUid, "toUID", req.ToUid)
+		logger.Ctx(ctx).Info("SendFriendRequest rejected (already friends)", "fromUID", req.FromUid, "toUID", req.ToUid)
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "already friends"}}, nil
 	}
 
@@ -634,20 +633,20 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		case errors.Is(err, errFriendRequestAlreadyPending):
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
 		default:
-			logger.FromContext(ctx).Error("SendFriendRequest failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+			logger.Ctx(ctx).Error("SendFriendRequest failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create request"}}, nil
 		}
 	}
 
 	if notifyRecipient {
-		logger.FromContext(ctx).Info("SendFriendRequest created", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
+		logger.Ctx(ctx).Info("SendFriendRequest created", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 		go func() {
 			if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
-				slog.Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
+				logger.Default().Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
 			}
 		}()
 	} else {
-		logger.FromContext(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
+		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 	}
 	s.deletePendingFriendRequestNotifications(deletions)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
@@ -657,7 +656,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 }
 
 func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq) (*pm.HandleFriendRequestResp, error) {
-	logger.FromContext(ctx).Info("HandleFriendRequest", "requestID", req.RequestId, "agentID", req.AgentId, "action", req.Action)
+	logger.Ctx(ctx).Info("HandleFriendRequest", "requestID", req.RequestId, "agentID", req.AgentId, "action", req.Action)
 
 	reason := ""
 	if req.Reason != nil {
@@ -771,7 +770,7 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		case err.Error() == "invalid action":
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid action"}}, nil
 		default:
-			logger.FromContext(ctx).Error("HandleFriendRequest failed", "requestID", req.RequestId, "agentID", req.AgentId, "err", err)
+			logger.Ctx(ctx).Error("HandleFriendRequest failed", "requestID", req.RequestId, "agentID", req.AgentId, "err", err)
 			return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to handle request"}}, nil
 		}
 	}
@@ -784,28 +783,28 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 
 	switch responseNotifType {
 	case "friend_accepted":
-		logger.FromContext(ctx).Info("FriendRequest accepted", "requestID", req.RequestId, "fromUID", friendReq.FromUID, "toUID", friendReq.ToUID)
+		logger.Ctx(ctx).Info("FriendRequest accepted", "requestID", req.RequestId, "fromUID", friendReq.FromUID, "toUID", friendReq.ToUID)
 		go func() {
 			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
-				slog.Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
+				logger.Default().Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
 			}
 		}()
 	case "friend_rejected":
-		logger.FromContext(ctx).Info("FriendRequest rejected", "requestID", req.RequestId, "agentID", req.AgentId)
+		logger.Ctx(ctx).Info("FriendRequest rejected", "requestID", req.RequestId, "agentID", req.AgentId)
 		go func() {
 			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
-				slog.Error("failed to write friend rejected notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
+				logger.Default().Error("failed to write friend rejected notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
 			}
 		}()
 	default:
-		logger.FromContext(ctx).Info("FriendRequest cancelled", "requestID", req.RequestId, "agentID", req.AgentId)
+		logger.Ctx(ctx).Info("FriendRequest cancelled", "requestID", req.RequestId, "agentID", req.AgentId)
 	}
 
 	return &pm.HandleFriendRequestResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.UnfriendResp, error) {
-	logger.FromContext(ctx).Info("Unfriend", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("Unfriend", "fromUID", req.FromUid, "toUID", req.ToUid)
 
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := dal.DeleteFriendRelation(tx, req.FromUid, req.ToUid); err != nil {
@@ -821,12 +820,12 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 	}
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
-	logger.FromContext(ctx).Info("Unfriend done", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("Unfriend done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
-	logger.FromContext(ctx).Info("BlockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("BlockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
 
 	remark := ""
 	if req.Remark != nil {
@@ -879,12 +878,12 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
 	s.deletePendingFriendRequestNotifications(deletions)
-	logger.FromContext(ctx).Info("BlockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("BlockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq) (*pm.UnblockUserResp, error) {
-	logger.FromContext(ctx).Info("UnblockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("UnblockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
 
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := dal.DeleteBlockRelation(tx, req.FromUid, req.ToUid); err != nil {
@@ -898,7 +897,7 @@ func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq)
 		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
 	}
 	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
-	logger.FromContext(ctx).Info("UnblockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
+	logger.Ctx(ctx).Info("UnblockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -914,10 +913,10 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 
 	requests, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
 	if err != nil {
-		logger.FromContext(ctx).Error("ListFriendRequests failed", "agentID", req.AgentId, "direction", req.Direction, "err", err)
+		logger.Ctx(ctx).Error("ListFriendRequests failed", "agentID", req.AgentId, "direction", req.Direction, "err", err)
 		return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
 	}
-	logger.FromContext(ctx).Info("ListFriendRequests", "agentID", req.AgentId, "direction", req.Direction, "count", len(requests))
+	logger.Ctx(ctx).Info("ListFriendRequests", "agentID", req.AgentId, "direction", req.Direction, "count", len(requests))
 
 	var result []*pm.FriendRequestInfo
 	if len(requests) > 0 {
@@ -963,10 +962,10 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 
 	friends, err := dal.ListFriends(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
-		logger.FromContext(ctx).Error("ListFriends failed", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("ListFriends failed", "agentID", req.AgentId, "err", err)
 		return &pm.ListFriendsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
 	}
-	logger.FromContext(ctx).Info("ListFriends", "agentID", req.AgentId, "count", len(friends))
+	logger.Ctx(ctx).Info("ListFriends", "agentID", req.AgentId, "count", len(friends))
 
 	var result []*pm.FriendInfo
 	for _, f := range friends {
@@ -989,16 +988,16 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 }
 
 func (s *PMServiceImpl) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq) (*pm.UpdateFriendRemarkResp, error) {
-	logger.FromContext(ctx).Info("UpdateFriendRemark", "agentID", req.AgentId, "friendUID", req.FriendUid)
+	logger.Ctx(ctx).Info("UpdateFriendRemark", "agentID", req.AgentId, "friendUID", req.FriendUid)
 
 	remark := truncateByWeightedLength(req.Remark, 100)
 
 	if err := dal.UpdateFriendRemark(db.DB, req.AgentId, req.FriendUid, remark); err != nil {
-		logger.FromContext(ctx).Error("UpdateFriendRemark failed", "agentID", req.AgentId, "friendUID", req.FriendUid, "err", err)
+		logger.Ctx(ctx).Error("UpdateFriendRemark failed", "agentID", req.AgentId, "friendUID", req.FriendUid, "err", err)
 		return &pm.UpdateFriendRemarkResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
 	}
 
-	logger.FromContext(ctx).Info("UpdateFriendRemark done", "agentID", req.AgentId, "friendUID", req.FriendUid)
+	logger.Ctx(ctx).Info("UpdateFriendRemark done", "agentID", req.AgentId, "friendUID", req.FriendUid)
 	return &pm.UpdateFriendRemarkResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -1028,7 +1027,7 @@ func (s *PMServiceImpl) deletePendingFriendRequestNotifications(items []pendingN
 	go func() {
 		for _, item := range items {
 			if err := notifyutil.DeletePMNotifications(context.Background(), db.RDB, item.agentID, item.requestID); err != nil {
-				slog.Error("failed to delete friend request notification", "requestID", item.requestID, "agentID", item.agentID, "err", err)
+				logger.Default().Error("failed to delete friend request notification", "requestID", item.requestID, "agentID", item.agentID, "err", err)
 			}
 		}
 	}()

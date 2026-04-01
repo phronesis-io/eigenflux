@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"regexp"
 	"strings"
@@ -79,7 +78,7 @@ func (s *AuthServiceImpl) isOTPMatched(code string, challenge *dal.AuthEmailChal
 	}
 	if s.isMockOTPEmail(challengeEmail) {
 		if !s.isMockOTPIPAllowed(challengeIP) {
-			slog.Warn("mock OTP email suffix matched but client IP not in whitelist", "email", challengeEmail, "clientIP", challengeIP)
+			logger.Default().Warn("mock OTP email suffix matched but client IP not in whitelist", "emailMasked", logger.MaskEmail(challengeEmail), "clientIP", challengeIP)
 			return false
 		}
 		return code == s.mockUniversalOTP
@@ -218,7 +217,7 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 
 // StartLogin creates a challenge, sends OTP verification email, and returns challenge metadata.
 func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginReq) (*auth.StartLoginResp, error) {
-	logger.FromContext(ctx).Info("StartLogin called", "method", req.LoginMethod, "email", req.Email)
+	logger.Ctx(ctx).Info("StartLogin called", "method", req.LoginMethod, "emailMasked", logger.MaskEmail(req.Email))
 	if req.LoginMethod != "email" {
 		return &auth.StartLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "unsupported login_method"},
@@ -302,12 +301,12 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 	// Send email (skip for mock OTP targets).
 	if s.isMockOTPEmail(normalizedEmail) {
 		if !mockBypass {
-			logger.FromContext(ctx).Warn("mock OTP email suffix matched but client IP not in whitelist, rejecting", "email", normalizedEmail, "clientIP", clientIP)
+			logger.Ctx(ctx).Warn("mock OTP email suffix matched but client IP not in whitelist, rejecting", "emailMasked", logger.MaskEmail(normalizedEmail), "clientIP", clientIP)
 			return &auth.StartLoginResp{
 				BaseResp: &base.BaseResp{Code: 400, Msg: "invalid email format"},
 			}, nil
 		}
-		logger.FromContext(ctx).Info("mock OTP target, skipping email send", "email", normalizedEmail, "clientIP", clientIP)
+		logger.Ctx(ctx).Info("mock OTP target, skipping email send", "emailMasked", logger.MaskEmail(normalizedEmail), "clientIP", clientIP)
 	} else {
 		sendCtx := context.WithValue(ctx, email.ChallengeIDKey, challengeID)
 		if err := s.emailSender.SendLoginVerifyMail(sendCtx, normalizedEmail, otpCode); err != nil {
@@ -331,7 +330,7 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 
 // VerifyLogin validates the OTP code and issues a session token.
 func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLoginReq) (*auth.VerifyLoginResp, error) {
-	logger.FromContext(ctx).Info("VerifyLogin called", "challengeID", req.ChallengeId)
+	logger.Ctx(ctx).Info("VerifyLogin called", "challengeID", req.ChallengeId)
 	if !s.emailVerificationEnabled {
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "email verification is disabled; call /api/v1/auth/login directly"},
@@ -438,7 +437,7 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 
 // ValidateSession verifies an access token and returns the associated agent_id and email.
 func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.ValidateSessionReq) (*auth.ValidateSessionResp, error) {
-	logger.FromContext(ctx).Debug("ValidateSession called")
+	logger.Ctx(ctx).Debug("ValidateSession called")
 	tokenHash := sha256Hex(req.AccessToken)
 
 	// Check Redis cache

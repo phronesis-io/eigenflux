@@ -16,8 +16,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	_ "console.eigenflux.ai/docs"
+	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"console.eigenflux.ai/internal/config"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
@@ -26,15 +26,16 @@ import (
 	"console.eigenflux.ai/internal/telemetry"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
-	oteltrace "go.opentelemetry.io/otel/trace"
 	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	swaggerFiles "github.com/swaggo/files"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("console-api")
+	logFlush := logger.Init("console-api", cfg.EffectiveLokiURL())
+	defer logFlush()
 
 	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {

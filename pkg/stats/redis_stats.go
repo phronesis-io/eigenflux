@@ -2,15 +2,14 @@ package stats
 
 import (
 	"context"
+	"eigenflux_server/pkg/logger"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
-
 
 const (
 	// Redis keys for statistics
@@ -132,7 +131,7 @@ func GetStats(ctx context.Context, rdb *redis.Client) (*Stats, error) {
 // InitializeStats initializes statistics from database and Elasticsearch
 // This should be called on startup
 func InitializeStats(ctx context.Context, rdb *redis.Client, agentCount, itemCount, hqCount int64) error {
-	slog.Info("initializing stats", "agents", agentCount, "items", itemCount, "highQuality", hqCount)
+	logger.Default().Info("initializing stats", "agents", agentCount, "items", itemCount, "highQuality", hqCount)
 
 	if err := SetAgentCount(ctx, rdb, agentCount); err != nil {
 		return fmt.Errorf("failed to set agent count: %w", err)
@@ -146,6 +145,6 @@ func InitializeStats(ctx context.Context, rdb *redis.Client, agentCount, itemCou
 		return fmt.Errorf("failed to set high quality count: %w", err)
 	}
 
-	slog.Info("stats initialized successfully")
+	logger.Default().Info("stats initialized successfully")
 	return nil
 }

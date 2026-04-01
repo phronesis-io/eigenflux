@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -104,11 +103,11 @@ func runMilestoneRecovery(ctx context.Context, svc *milestone.Service) {
 		case <-ticker.C:
 			recovered, err := svc.RecoverPendingNotifications(ctx, 100)
 			if err != nil {
-				slog.Warn("milestone recover failed", "err", err)
+				logger.Default().Warn("milestone recover failed", "err", err)
 				continue
 			}
 			if recovered > 0 {
-				slog.Info("milestone recover restored pending notifications", "count", recovered)
+				logger.Default().Info("milestone recover restored pending notifications", "count", recovered)
 			}
 		}
 	}
@@ -118,14 +117,14 @@ func runMilestoneRuleInvalidationSubscriber(ctx context.Context, svc *milestone.
 	err := milestone.SubscribeRuleInvalidation(ctx, mq.RDB, func(metricKey string) {
 		if metricKey == "" {
 			svc.InvalidateAllRules()
-			slog.Info("milestone rule cache invalidated for all metrics")
+			logger.Default().Info("milestone rule cache invalidated for all metrics")
 			return
 		}
 		svc.InvalidateRules(metricKey)
-		slog.Info("milestone rule cache invalidated", "metric", metricKey)
+		logger.Default().Info("milestone rule cache invalidated", "metric", metricKey)
 	})
 	if err != nil && ctx.Err() == nil {
-		slog.Warn("milestone rule invalidation subscriber stopped", "err", err)
+		logger.Default().Warn("milestone rule invalidation subscriber stopped", "err", err)
 	}
 }
 

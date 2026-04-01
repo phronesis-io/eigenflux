@@ -9,33 +9,50 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Init sets up slog with JSON handler writing to stdout.
-func Init(serviceName string) {
+// Init sets up slog with JSON handler writing to stdout, optionally pushing
+// the same records to Loki when lokiURL is configured. It returns a flush
+// function that should be called on shutdown.
+func Init(serviceName string, lokiURL string) func() {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}).WithAttrs([]slog.Attr{
 		slog.String("service", serviceName),
 	})
-	slog.SetDefault(slog.New(handler))
+
+	var flush func()
+	if lokiURL != "" {
+		loki := NewLokiHandler(handler, serviceName, lokiURL)
+		slog.SetDefault(slog.New(loki))
+		flush = loki.Flush
+	} else {
+		slog.SetDefault(slog.New(handler))
+		flush = func() {}
+	}
 
 	// Bridge stdlib log.
 	log.SetOutput(&slogBridge{})
 	log.SetFlags(0)
 
 	slog.Info("logging initialized")
+	return flush
 }
 
-// FromContext returns a logger with traceId/spanId from OTel context.
-func FromContext(ctx context.Context) *slog.Logger {
+// Default returns the configured process-wide logger.
+func Default() *slog.Logger {
+	return slog.Default()
+}
+
+// Ctx returns a logger with traceId/spanId from OTel context.
+func Ctx(ctx context.Context) *slog.Logger {
 	span := trace.SpanFromContext(ctx)
 	sc := span.SpanContext()
 	if sc.HasTraceID() {
-		return slog.Default().With(
+		return Default().With(
 			"traceId", sc.TraceID().String(),
 			"spanId", sc.SpanID().String(),
 		)
 	}
-	return slog.Default()
+	return Default()
 }
 
 type slogBridge struct{}

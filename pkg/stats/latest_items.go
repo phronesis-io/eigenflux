@@ -2,9 +2,9 @@ package stats
 
 import (
 	"context"
+	"eigenflux_server/pkg/logger"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -43,7 +43,7 @@ func PushLatestItem(ctx context.Context, rdb *redis.Client, item *ItemSnapshot) 
 
 	// Trim list to max size (keep only the first MaxLatestItems)
 	if err := rdb.LTrim(ctx, KeyLatestItems, 0, MaxLatestItems-1).Err(); err != nil {
-		slog.Warn("failed to trim latest items list", "err", err)
+		logger.Default().Warn("failed to trim latest items list", "err", err)
 		// Don't return error, trimming is best-effort
 	}
 
@@ -70,7 +70,7 @@ func GetLatestItems(ctx context.Context, rdb *redis.Client, limit int) ([]*ItemS
 	for _, itemStr := range items {
 		var item ItemSnapshot
 		if err := json.Unmarshal([]byte(itemStr), &item); err != nil {
-			slog.Warn("failed to unmarshal item", "err", err)
+			logger.Default().Warn("failed to unmarshal item", "err", err)
 			continue
 		}
 		result = append(result, &item)

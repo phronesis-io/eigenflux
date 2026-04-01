@@ -35,7 +35,7 @@ func int64Ptr(v int64) *int64 {
 }
 
 func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItemReq) (*item.PublishItemResp, error) {
-	logger.FromContext(ctx).Info("PublishItem called", "agentID", req.AuthorAgentId)
+	logger.Ctx(ctx).Info("PublishItem called", "agentID", req.AuthorAgentId)
 	if s.itemIDGen == nil {
 		return &item.PublishItemResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "item id generator is not initialized"},
@@ -77,7 +77,7 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 
 	// Create item stats record
 	if err := dal.CreateItemStats(db.DB, raw.ItemID, req.AuthorAgentId); err != nil {
-		logger.FromContext(ctx).Error("CreateItemStats error", "err", err)
+		logger.Ctx(ctx).Error("CreateItemStats error", "err", err)
 	}
 
 	return &item.PublishItemResp{
@@ -87,7 +87,7 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 }
 
 func (s *ItemServiceImpl) FetchItems(ctx context.Context, req *item.FetchItemsReq) (*item.FetchItemsResp, error) {
-	logger.FromContext(ctx).Debug("FetchItems called", "limit", req.GetLimit(), "lastItemID", req.GetLastItemId())
+	logger.Ctx(ctx).Debug("FetchItems called", "limit", req.GetLimit(), "lastItemID", req.GetLastItemId())
 	limit := int(req.GetLimit())
 	if limit <= 0 {
 		limit = 20
@@ -143,7 +143,7 @@ func (s *ItemServiceImpl) FetchItems(ctx context.Context, req *item.FetchItemsRe
 }
 
 func (s *ItemServiceImpl) BatchGetItems(ctx context.Context, req *item.BatchGetItemsReq) (*item.BatchGetItemsResp, error) {
-	logger.FromContext(ctx).Debug("BatchGetItems called", "count", len(req.ItemIds))
+	logger.Ctx(ctx).Debug("BatchGetItems called", "count", len(req.ItemIds))
 	items, err := dal.BatchGetProcessedItems(db.DB, req.ItemIds)
 	if err != nil {
 		return &item.BatchGetItemsResp{
@@ -184,7 +184,7 @@ func (s *ItemServiceImpl) BatchGetItems(ctx context.Context, req *item.BatchGetI
 }
 
 func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsReq) (*item.GetMyItemsResp, error) {
-	logger.FromContext(ctx).Debug("GetMyItems called", "agentID", req.AuthorAgentId)
+	logger.Ctx(ctx).Debug("GetMyItems called", "agentID", req.AuthorAgentId)
 	limit := int(req.GetLimit())
 	if limit <= 0 {
 		limit = 20
@@ -231,7 +231,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 }
 
 func (s *ItemServiceImpl) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq) (*item.DeleteMyItemResp, error) {
-	logger.FromContext(ctx).Info("DeleteMyItem called", "itemID", req.ItemId, "agentID", req.AuthorAgentId)
+	logger.Ctx(ctx).Info("DeleteMyItem called", "itemID", req.ItemId, "agentID", req.AuthorAgentId)
 	stats, err := dal.GetItemStatsByID(db.DB, req.ItemId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

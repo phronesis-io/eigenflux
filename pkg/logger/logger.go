@@ -39,19 +39,29 @@ func Init(serviceName string, lokiURL string) func() {
 	return flush
 }
 
-// FromContext returns a slog.Logger with traceId and spanId fields
-// extracted from the OTel span in ctx. If no active span, returns the
-// default logger without trace fields.
-func FromContext(ctx context.Context) *slog.Logger {
+// Default returns the configured process-wide logger.
+func Default() *slog.Logger {
+	return slog.Default()
+}
+
+// DebugEnabled reports whether the configured logger will emit debug records.
+func DebugEnabled() bool {
+	return Default().Enabled(context.Background(), slog.LevelDebug)
+}
+
+// Ctx returns a slog.Logger with traceId and spanId fields extracted from the
+// OTel span in ctx. If no active span is present, it returns the default
+// process logger.
+func Ctx(ctx context.Context) *slog.Logger {
 	span := trace.SpanFromContext(ctx)
 	sc := span.SpanContext()
 	if sc.HasTraceID() {
-		return slog.Default().With(
+		return Default().With(
 			"traceId", sc.TraceID().String(),
 			"spanId", sc.SpanID().String(),
 		)
 	}
-	return slog.Default()
+	return Default()
 }
 
 // slogBridge adapts slog as an io.Writer for stdlib log.

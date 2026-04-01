@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"sort"
 	"strconv"
 	"time"
@@ -33,25 +32,25 @@ func NewNotificationServiceImpl(db *gorm.DB, rdb *redis.Client) *NotificationSer
 }
 
 func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notificationrpc.ListPendingReq) (*notificationrpc.ListPendingResp, error) {
-	logger.FromContext(ctx).Debug("ListPending called", "agentID", req.GetAgentId())
 	if req == nil {
 		return &notificationrpc.ListPendingResp{
 			Notifications: []*notificationrpc.PendingNotification{},
 			BaseResp:      &base.BaseResp{Code: 400, Msg: "nil request"},
 		}, nil
 	}
+	logger.Ctx(ctx).Debug("ListPending called", "agentID", req.GetAgentId())
 
 	var all []*notificationrpc.PendingNotification
 
 	// 1. Milestone notifications from Redis
 	milestoneNotifs, err := dal.ListMilestoneNotifications(ctx, s.rdb, req.AgentId)
 	if err != nil {
-		logger.FromContext(ctx).Error("failed to list milestone notifications", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("failed to list milestone notifications", "agentID", req.AgentId, "err", err)
 	} else {
 		for _, n := range milestoneNotifs {
 			eventID, err := strconv.ParseInt(n.NotificationID, 10, 64)
 			if err != nil {
-				logger.FromContext(ctx).Warn("invalid milestone notification id", "notificationID", n.NotificationID, "err", err)
+				logger.Ctx(ctx).Warn("invalid milestone notification id", "notificationID", n.NotificationID, "err", err)
 				continue
 			}
 			all = append(all, &notificationrpc.PendingNotification{
@@ -71,7 +70,7 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 	}
 	sysNotifs, err := s.listPendingSystemNotifications(ctx, req.AgentId, vars)
 	if err != nil {
-		logger.FromContext(ctx).Error("failed to list system notifications", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("failed to list system notifications", "agentID", req.AgentId, "err", err)
 	} else {
 		for _, n := range sysNotifs {
 			all = append(all, &notificationrpc.PendingNotification{
@@ -87,12 +86,12 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 	// 3. PM (friend request) notifications from Redis
 	pmNotifs, err := dal.ListPMNotifications(ctx, s.rdb, req.AgentId)
 	if err != nil {
-		logger.FromContext(ctx).Error("failed to list PM notifications", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("failed to list PM notifications", "agentID", req.AgentId, "err", err)
 	} else {
 		for _, n := range pmNotifs {
 			requestID, err := strconv.ParseInt(n.NotificationID, 10, 64)
 			if err != nil {
-				logger.FromContext(ctx).Warn("invalid PM notification id", "id", n.NotificationID, "err", err)
+				logger.Ctx(ctx).Warn("invalid PM notification id", "id", n.NotificationID, "err", err)
 				continue
 			}
 			all = append(all, &notificationrpc.PendingNotification{
@@ -124,12 +123,12 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 }
 
 func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *notificationrpc.AckNotificationsReq) (*notificationrpc.AckNotificationsResp, error) {
-	logger.FromContext(ctx).Debug("AckNotifications called", "agentID", req.GetAgentId(), "items", len(req.GetItems()))
 	if req == nil {
 		return &notificationrpc.AckNotificationsResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "nil request"},
 		}, nil
 	}
+	logger.Ctx(ctx).Debug("AckNotifications called", "agentID", req.GetAgentId(), "items", len(req.GetItems()))
 	if len(req.Items) == 0 {
 		return &notificationrpc.AckNotificationsResp{
 			BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
@@ -158,31 +157,31 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 		case dal.SourceTypeFriendRequest:
 			pmIDs = append(pmIDs, item.NotificationId)
 		default:
-			logger.FromContext(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
+			logger.Ctx(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
 		}
 	}
 
 	// Ack milestone: delete from Redis + mark notified in DB
 	if len(milestoneIDs) > 0 {
 		if err := dal.DeleteMilestoneNotifications(ctx, s.rdb, req.AgentId, milestoneIDs); err != nil {
-			logger.FromContext(ctx).Error("failed to delete milestone notifications from Redis", "agentID", req.AgentId, "err", err)
+			logger.Ctx(ctx).Error("failed to delete milestone notifications from Redis", "agentID", req.AgentId, "err", err)
 		}
 		if err := dal.MarkMilestoneEventsNotified(ctx, s.db, milestoneIDs, now); err != nil {
-			logger.FromContext(ctx).Error("failed to mark milestone events notified", "agentID", req.AgentId, "err", err)
+			logger.Ctx(ctx).Error("failed to mark milestone events notified", "agentID", req.AgentId, "err", err)
 		}
 	}
 
 	// Ack system: insert delivery records
 	if len(systemItems) > 0 {
 		if err := dal.RecordDeliveries(ctx, s.db, systemItems); err != nil {
-			logger.FromContext(ctx).Error("failed to record system notification deliveries", "agentID", req.AgentId, "err", err)
+			logger.Ctx(ctx).Error("failed to record system notification deliveries", "agentID", req.AgentId, "err", err)
 		}
 	}
 
 	// Ack friend request: delete from Redis
 	if len(pmIDs) > 0 {
 		if err := dal.DeletePMNotifications(ctx, s.rdb, req.AgentId, pmIDs); err != nil {
-			logger.FromContext(ctx).Error("failed to delete PM notifications from Redis", "agentID", req.AgentId, "err", err)
+			logger.Ctx(ctx).Error("failed to delete PM notifications from Redis", "agentID", req.AgentId, "err", err)
 		}
 	}
 
@@ -214,7 +213,7 @@ func (s *NotificationServiceImpl) listPendingSystemNotifications(ctx context.Con
 		if active[i].AudienceType == dal.AudienceTypeExpression && active[i].AudienceExpression != "" {
 			match, err := audience.Evaluate(active[i].AudienceExpression, contextVars)
 			if err != nil {
-				logger.FromContext(ctx).Warn("audience expression error", "notificationID", active[i].NotificationID, "err", err)
+				logger.Ctx(ctx).Warn("audience expression error", "notificationID", active[i].NotificationID, "err", err)
 				continue
 			}
 			if !match {
@@ -293,6 +292,6 @@ func (s *NotificationServiceImpl) RecoverActiveNotifications(ctx context.Context
 	if err != nil {
 		return err
 	}
-	slog.Info("recovered active system notifications to Redis", "count", len(notifications))
+	logger.Default().Info("recovered active system notifications to Redis", "count", len(notifications))
 	return s.activeStore.ReplaceAll(ctx, notifications)
 }

@@ -547,7 +547,7 @@ Full-stack OpenTelemetry tracing across all services. Every API request gets a t
 ### Components
 
 - **pkg/telemetry**: OTel SDK initialization (TracerProvider, OTLP gRPC exporter)
-- **pkg/logger**: slog-based structured JSON logging with `FromContext(ctx)` for auto-injected traceId/spanId
+- **pkg/logger**: slog-based structured JSON logging with `logger.Ctx(ctx)` for auto-injected traceId/spanId
 - **pkg/rpcx**: Kitex OTel client/server suites (automatic span creation for all RPC calls)
 - **Hertz OTel middleware**: Root span creation per HTTP request (api gateway + console)
 
@@ -571,22 +571,22 @@ Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set
 
 ### Logging Convention
 
-All service code uses structured slog logging. The key distinction is whether trace context is available:
+All service code uses the project logger wrapper. Do not call `slog` directly outside the `pkg/logger` or `console/.../internal/logger` packages.
 
-- **`logger.FromContext(ctx)`** — extracts traceId/spanId from the OTel span in ctx, so the log line can be correlated with the full request trace in Loki/Jaeger. Use this in any code that runs within a request lifecycle (handlers, middleware, DAL calls with ctx).
-- **`slog.Info/Error/...`** — plain structured log without trace context. Use this in startup/init code (no request ctx) and in fire-and-forget goroutines where the original request span may already be closed.
+- **`logger.Ctx(ctx)`** — returns a logger enriched with traceId/spanId from the OTel span in `ctx`. Use this in request/RPC handlers, middleware, and any code running inside a traced lifecycle.
+- **`logger.Default()`** — returns the process-wide structured logger without request-scoped trace fields. Use this in startup/init code, background workers, and fire-and-forget goroutines.
 
 ```go
 // In request handlers and middleware (has ctx with active span):
-logger.FromContext(ctx).Info("FetchFeed called", "agentID", req.AgentId)
-logger.FromContext(ctx).Error("operation failed", "err", err)
+logger.Ctx(ctx).Info("FetchFeed called", "agentID", req.AgentId)
+logger.Ctx(ctx).Error("operation failed", "err", err)
 
-// In startup/init code (no request context):
-slog.Info("service initialized", "port", port)
+// In startup/init code:
+logger.Default().Info("service initialized", "port", port)
 
-// In fire-and-forget goroutines (original span may be closed):
+// In background goroutines:
 go func() {
-    slog.Error("async ack failed", "err", err)
+    logger.Default().Error("async ack failed", "err", err)
 }()
 ```
 

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -44,7 +43,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		limit = 20
 	}
 
-	logger.FromContext(ctx).Info("sort request", "agentID", req.GetAgentId(), "limit", limit, "lastUpdatedAt", req.GetLastUpdatedAt())
+	logger.Ctx(ctx).Info("sort request", "agentID", req.GetAgentId(), "limit", limit, "lastUpdatedAt", req.GetLastUpdatedAt())
 
 	// Get user profile (with caching if enabled)
 	var keywords []string
@@ -59,10 +58,10 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			keywords = cachedProfile.Keywords
 			domains = cachedProfile.Domains
 			geo = cachedProfile.Geo
-			logger.FromContext(ctx).Debug("profile from cache", "keywords", keywords, "domains", domains, "geo", geo)
+			logger.Ctx(ctx).Debug("profile from cache", "keywords", keywords, "domains", domains, "geo", geo)
 		case cache.ErrCacheMiss:
 			// Cache miss, fetch from DB
-			logger.FromContext(ctx).Debug("profile cache miss, fetching from DB")
+			logger.Ctx(ctx).Debug("profile cache miss, fetching from DB")
 			ap, _ := profileDal.GetAgentProfile(db.DB, req.AgentId)
 			if ap != nil && ap.Keywords != "" && ap.Status == 3 {
 				kws := strings.Split(ap.Keywords, ",")
@@ -77,7 +76,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 				domains = cleanKeywords
 				geo = "" // TODO: extract from profile if available
 
-				logger.FromContext(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains, "geo", geo)
+				logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains, "geo", geo)
 
 				// Update cache
 				profileCache.Set(ctx, &cache.CachedProfile{
@@ -91,7 +90,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	} else {
 		// No cache, fetch directly from DB
-		logger.FromContext(ctx).Debug("no profile cache, fetching from DB")
+		logger.Ctx(ctx).Debug("no profile cache, fetching from DB")
 		ap, _ := profileDal.GetAgentProfile(db.DB, req.AgentId)
 		if ap != nil && ap.Keywords != "" && ap.Status == 3 {
 			kws := strings.Split(ap.Keywords, ",")
@@ -105,7 +104,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			keywords = cleanKeywords
 			domains = cleanKeywords
 		}
-		logger.FromContext(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains)
+		logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains)
 	}
 
 	// Build cache key for search results
@@ -117,18 +116,18 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	if searchCache != nil && len(domains) > 0 {
 		// Build cache key (excluding last_updated_at for better hit rate)
 		cacheKey = searchCache.BuildCacheKey(domains, keywords, geo)
-		logger.FromContext(ctx).Debug("search cache enabled", "key", cacheKey)
+		logger.Ctx(ctx).Debug("search cache enabled", "key", cacheKey)
 
 		// Use SingleFlight to deduplicate concurrent requests
 		result, sfErr, _ := sfGroup.Do(cacheKey, func() (interface{}, error) {
 			// Try cache first
 			items, cacheErr := searchCache.Get(ctx, cacheKey)
 			if cacheErr == nil {
-				logger.FromContext(ctx).Debug("search cache HIT", "items", len(items))
+				logger.Ctx(ctx).Debug("search cache HIT", "items", len(items))
 				return items, nil
 			}
 
-			logger.FromContext(ctx).Debug("search cache MISS, querying ES")
+			logger.Ctx(ctx).Debug("search cache MISS, querying ES")
 			// Cache miss, query ES
 			searchReq := &sortDal.SearchItemsRequest{
 				Limit:           limit * 3, // Fetch more to account for dedup
@@ -142,11 +141,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 			resp, esErr := sortDal.SearchItems(ctx, searchReq)
 			if esErr != nil {
-				logger.FromContext(ctx).Error("ES query failed", "err", esErr)
+				logger.Ctx(ctx).Error("ES query failed", "err", esErr)
 				return nil, esErr
 			}
 
-			logger.FromContext(ctx).Info("ES returned items", "count", len(resp.Items), "total", resp.Total)
+			logger.Ctx(ctx).Info("ES returned items", "count", len(resp.Items), "total", resp.Total)
 
 			// Convert to cached items
 			cachedItems := make([]cache.CachedItem, len(resp.Items))
@@ -167,7 +166,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			// Update cache (fire-and-forget)
 			go func() {
 				if setErr := searchCache.Set(context.Background(), cacheKey, cachedItems); setErr != nil {
-					slog.Warn("failed to update search cache", "err", setErr)
+					logger.Default().Warn("failed to update search cache", "err", setErr)
 				}
 			}()
 
@@ -181,7 +180,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	} else {
 		// No cache, query ES directly
-		logger.FromContext(ctx).Debug("no search cache, querying ES directly")
+		logger.Ctx(ctx).Debug("no search cache, querying ES directly")
 		searchReq := &sortDal.SearchItemsRequest{
 			Limit:           limit * 3, // Fetch more to account for dedup
 			Domains:         domains,
@@ -194,12 +193,12 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 		searchResp, err = sortDal.SearchItems(ctx, searchReq)
 		if err != nil {
-			logger.FromContext(ctx).Error("ES query failed", "err", err)
+			logger.Ctx(ctx).Error("ES query failed", "err", err)
 			return &sort.SortItemsResp{
 				BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
 			}, nil
 		}
-		logger.FromContext(ctx).Info("ES returned items", "count", len(searchResp.Items), "total", searchResp.Total)
+		logger.Ctx(ctx).Info("ES returned items", "count", len(searchResp.Items), "total", searchResp.Total)
 	}
 
 	// Handle error from cached path
@@ -214,12 +213,12 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		lastFetchTime := req.GetLastUpdatedAt() / 1000
 		beforeFilter := len(cachedItems)
 		cachedItems = cache.FilterByTimestamp(cachedItems, lastFetchTime)
-		logger.FromContext(ctx).Debug("timestamp filter", "before", beforeFilter, "after", len(cachedItems))
+		logger.Ctx(ctx).Debug("timestamp filter", "before", beforeFilter, "after", len(cachedItems))
 	} else if searchResp != nil && len(searchResp.Items) > 0 {
 		lastFetchTime := req.GetLastUpdatedAt() / 1000
 		beforeFilter := len(searchResp.Items)
 		searchResp.Items = filterSearchItemsByTimestamp(searchResp.Items, lastFetchTime)
-		logger.FromContext(ctx).Debug("timestamp filter", "before", beforeFilter, "after", len(searchResp.Items))
+		logger.Ctx(ctx).Debug("timestamp filter", "before", beforeFilter, "after", len(searchResp.Items))
 		if len(searchResp.Items) > 0 {
 			searchResp.NextCursor = searchResp.Items[len(searchResp.Items)-1].UpdatedAt
 		} else {
@@ -258,14 +257,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		if len(allGroupIDs) > 0 {
 			seenMap, bfErr := bf.CheckExists(ctx, req.AgentId, allGroupIDs)
 			if bfErr != nil {
-				logger.FromContext(ctx).Warn("bloom filter check failed", "err", bfErr)
+				logger.Ctx(ctx).Warn("bloom filter check failed", "err", bfErr)
 			} else {
 				seenGroupIDs = seenMap
-				logger.FromContext(ctx).Debug("bloom filter result", "seenGroups", len(seenGroupIDs), "totalGroups", len(allGroupIDs))
+				logger.Ctx(ctx).Debug("bloom filter result", "seenGroups", len(seenGroupIDs), "totalGroups", len(allGroupIDs))
 			}
 		}
 	} else if cfg.ShouldDisableDedup() {
-		logger.FromContext(ctx).Info("deduplication disabled", "env", cfg.AppEnv)
+		logger.Ctx(ctx).Info("deduplication disabled", "env", cfg.AppEnv)
 	}
 
 	// Filter and collect final item IDs
@@ -282,7 +281,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
-	logger.FromContext(ctx).Info("dedup result", "filtered", dedupedCount, "returned", len(itemIDs))
+	logger.Ctx(ctx).Info("dedup result", "filtered", dedupedCount, "returned", len(itemIDs))
 
 	// Calculate next cursor
 	var nextCursor int64

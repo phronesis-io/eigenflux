@@ -3,10 +3,10 @@ package es
 import (
 	"bytes"
 	"context"
+	"eigenflux_server/pkg/logger"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -147,7 +147,7 @@ func upsertILMPolicy(ctx context.Context) error {
 		return fmt.Errorf("ILM policy error: %s", res.String())
 	}
 
-	slog.Info("ILM policy upserted", "policy", ILMPolicyName)
+	logger.Default().Info("ILM policy upserted", "policy", ILMPolicyName)
 	return nil
 }
 
@@ -175,7 +175,7 @@ func upsertIndexTemplate(ctx context.Context, embeddingDims int) error {
 
 	// Log the configuration used
 	settings := template["template"].(map[string]interface{})["settings"].(map[string]interface{})
-	slog.Info("index template upserted", "template", IndexTemplateName, "shards", settings["number_of_shards"], "replicas", settings["number_of_replicas"])
+	logger.Default().Info("index template upserted", "template", IndexTemplateName, "shards", settings["number_of_shards"], "replicas", settings["number_of_replicas"])
 	return nil
 }
 
@@ -192,7 +192,7 @@ func bootstrapIfNeeded(ctx context.Context) error {
 	defer aliasRes.Body.Close()
 
 	if aliasRes.StatusCode == 200 {
-		slog.Info("write alias already exists, skipping bootstrap", "alias", IndexName)
+		logger.Default().Info("write alias already exists, skipping bootstrap", "alias", IndexName)
 		return nil
 	}
 
@@ -204,7 +204,7 @@ func bootstrapIfNeeded(ctx context.Context) error {
 	defer idxRes.Body.Close()
 
 	if idxRes.StatusCode == 200 {
-		slog.Warn("index exists as a regular index (not alias), skipping bootstrap to avoid data loss",
+		logger.Default().Warn("index exists as a regular index (not alias), skipping bootstrap to avoid data loss",
 			"index", IndexName, "action", fmt.Sprintf("DELETE /%s then restart", IndexName))
 		return nil
 	}
@@ -217,7 +217,7 @@ func bootstrapIfNeeded(ctx context.Context) error {
 	defer initialIdxRes.Body.Close()
 
 	if initialIdxRes.StatusCode == 200 {
-		slog.Info("initial index already exists but alias not bound, skipping bootstrap", "index", InitialIndexName)
+		logger.Default().Info("initial index already exists but alias not bound, skipping bootstrap", "index", InitialIndexName)
 		return nil
 	}
 
@@ -251,7 +251,7 @@ func bootstrapIfNeeded(ctx context.Context) error {
 			return fmt.Errorf("read create initial index error body: %w", readErr)
 		}
 		if isAlreadyExistsCreateError(createRes.StatusCode, raw) {
-			slog.Info("initial index already exists (likely concurrent bootstrap), continuing", "index", InitialIndexName)
+			logger.Default().Info("initial index already exists (likely concurrent bootstrap), continuing", "index", InitialIndexName)
 			return nil
 		}
 		msg := strings.TrimSpace(string(raw))
@@ -259,7 +259,7 @@ func bootstrapIfNeeded(ctx context.Context) error {
 			createRes.StatusCode, http.StatusText(createRes.StatusCode), msg)
 	}
 
-	slog.Info("ILM bootstrap: created initial index with write alias", "index", InitialIndexName, "alias", IndexName)
+	logger.Default().Info("ILM bootstrap: created initial index with write alias", "index", InitialIndexName, "alias", IndexName)
 	return nil
 }
 

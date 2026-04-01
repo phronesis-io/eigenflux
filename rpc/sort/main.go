@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"log/slog"
 	"net"
 	"time"
 
@@ -57,7 +56,7 @@ func main() {
 			mq.RDB,
 			time.Duration(cfg.ProfileCacheTTL)*time.Second,
 		)
-		slog.Info("cache enabled", "searchTTL", cfg.SearchCacheTTL, "profileTTL", cfg.ProfileCacheTTL)
+		logger.Default().Info("cache enabled", "searchTTL", cfg.SearchCacheTTL, "profileTTL", cfg.ProfileCacheTTL)
 	}
 
 	// Initialize Elasticsearch
@@ -77,7 +76,7 @@ func main() {
 		rpcx.ServerOptions(addr, r, "SortService")...,
 	)
 
-	slog.Info("sort service started", "addr", listenAddr)
+	logger.Default().Info("sort service started", "addr", listenAddr)
 	if err := svr.Run(); err != nil {
 		log.Fatalf("sort service failed: %v", err)
 	}

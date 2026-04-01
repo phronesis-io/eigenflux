@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"log/slog"
 	"net"
 	"strings"
 
@@ -110,7 +109,7 @@ func main() {
 		rpcx.ServerOptions(addr, registry, "PMService")...,
 	)
 
-	slog.Info("PM service started", "addr", listenAddr)
+	logger.Default().Info("PM service started", "addr", listenAddr)
 	if err := svr.Run(); err != nil {
 		log.Fatalf("pm service failed: %v", err)
 	}

@@ -3,7 +3,6 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
@@ -50,10 +50,10 @@ func NewItemStatsConsumer(cfg *config.Config, milestoneSvc *milestone.Service) *
 }
 
 func (c *ItemStatsConsumer) Start(ctx context.Context) {
-	slog.Info("ItemStatsConsumer starting", "workers", c.maxWorkers)
+	logger.Default().Info("ItemStatsConsumer starting", "workers", c.maxWorkers)
 
 	if err := mq.EnsureConsumerGroup(ctx, itemstats.StreamName, itemstats.GroupName); err != nil {
-		slog.Error("ItemStatsConsumer failed to create consumer group", "err", err)
+		logger.Default().Error("ItemStatsConsumer failed to create consumer group", "err", err)
 		os.Exit(1)
 	}
 
@@ -68,11 +68,11 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			slog.Info("ItemStatsConsumer worker started", "workerID", workerID)
+			logger.Default().Info("ItemStatsConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
 				c.processMessage(ctx, task.id, task.values)
 			}
-			slog.Info("ItemStatsConsumer worker stopped", "workerID", workerID)
+			logger.Default().Info("ItemStatsConsumer worker stopped", "workerID", workerID)
 		}(i)
 	}
 
@@ -80,7 +80,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				slog.Info("ItemStatsConsumer context cancelled, closing message channel")
+				logger.Default().Info("ItemStatsConsumer context cancelled, closing message channel")
 				close(msgChan)
 				return
 			default:
@@ -88,7 +88,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 
 			msgs, err := c.nextBatch(ctx)
 			if err != nil {
-				slog.Error("ItemStatsConsumer consume error", "err", err)
+				logger.Default().Error("ItemStatsConsumer consume error", "err", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -98,7 +98,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 				select {
 				case msgChan <- task:
 				case <-ctx.Done():
-					slog.Info("ItemStatsConsumer context cancelled while sending message")
+					logger.Default().Info("ItemStatsConsumer context cancelled while sending message")
 					close(msgChan)
 					return
 				}
@@ -107,9 +107,9 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 	}()
 
 	<-ctx.Done()
-	slog.Info("ItemStatsConsumer shutting down, waiting for workers to finish...")
+	logger.Default().Info("ItemStatsConsumer shutting down, waiting for workers to finish...")
 	wg.Wait()
-	slog.Info("ItemStatsConsumer all workers stopped")
+	logger.Default().Info("ItemStatsConsumer all workers stopped")
 }
 
 func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, error) {
@@ -121,7 +121,7 @@ func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage,
 		msgs := make([]mq.PendingMessage, 0, len(reclaimed))
 		for _, pending := range reclaimed {
 			if pending.RetryCount >= c.maxRetries {
-				slog.Warn("ItemStatsConsumer dropping message after failed attempts", "msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
+				logger.Default().Warn("ItemStatsConsumer dropping message after failed attempts", "msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
 				c.ackMessage(ctx, pending.Message.ID)
 				continue
 			}
@@ -160,24 +160,24 @@ func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage,
 func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
 	event, err := itemstats.ParseEvent(values)
 	if err != nil {
-		slog.Warn("ItemStatsConsumer invalid message", "err", err)
+		logger.Default().Warn("ItemStatsConsumer invalid message", "err", err)
 		c.ackMessage(ctx, msgID)
 		return
 	}
 
 	if err := c.handleEvent(ctx, event); err != nil {
-		slog.Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
+		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
 		return
 	}
 
-	slog.Info("ItemStatsConsumer processed event", "eventType", event.EventType, "itemID", event.ItemID)
+	logger.Default().Info("ItemStatsConsumer processed event", "eventType", event.EventType, "itemID", event.ItemID)
 	c.ackMessage(ctx, msgID)
 }
 
 func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemstats.Event) error {
 	switch event.EventType {
 	case itemstats.EventTypeConsumed:
-		slog.Debug("ItemStatsConsumer processing consumed event", "agentID", event.AgentID, "itemID", event.ItemID)
+		logger.Default().Debug("ItemStatsConsumer processing consumed event", "agentID", event.AgentID, "itemID", event.ItemID)
 		if err := itemdal.IncrementConsumedCount(db.DB, event.ItemID); err != nil {
 			return err
 		}
@@ -185,7 +185,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 			return stats.ConsumedCount
 		})
 	case itemstats.EventTypeFeedback:
-		slog.Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score)
+		logger.Default().Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score)
 		if err := itemdal.IncrementItemScore(db.DB, event.ItemID, event.Score); err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 			go func() {
 				bgCtx := context.Background()
 				if err := stats.IncrHighQualityCount(bgCtx, mq.RDB); err != nil {
-					slog.Warn("ItemStatsConsumer failed to increment high quality count", "err", err)
+					logger.Default().Warn("ItemStatsConsumer failed to increment high quality count", "err", err)
 				}
 			}()
 		}
@@ -219,7 +219,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 
 func (c *ItemStatsConsumer) ackMessage(ctx context.Context, msgID string) {
 	if err := mq.Ack(ctx, itemstats.StreamName, itemstats.GroupName, msgID); err != nil {
-		slog.Warn("ItemStatsConsumer failed to ack message", "msgID", msgID, "err", err)
+		logger.Default().Warn("ItemStatsConsumer failed to ack message", "msgID", msgID, "err", err)
 	}
 }
 

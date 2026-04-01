@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/dedup"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemDal "eigenflux_server/rpc/item/dal"
@@ -53,10 +53,10 @@ func NewItemConsumer(cfg *config.Config) *ItemConsumer {
 }
 
 func (c *ItemConsumer) Start(ctx context.Context) {
-	slog.Info("ItemConsumer starting", "workers", c.maxWorkers, "qualityThreshold", c.qualityThreshold)
+	logger.Default().Info("ItemConsumer starting", "workers", c.maxWorkers, "qualityThreshold", c.qualityThreshold)
 
 	if err := mq.EnsureConsumerGroup(ctx, itemStream, itemGroup); err != nil {
-		slog.Error("ItemConsumer failed to create consumer group", "err", err)
+		logger.Default().Error("ItemConsumer failed to create consumer group", "err", err)
 		os.Exit(1)
 	}
 
@@ -73,11 +73,11 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			slog.Info("ItemConsumer worker started", "workerID", workerID)
+			logger.Default().Info("ItemConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
 				c.processMessage(ctx, task.id, task.values)
 			}
-			slog.Info("ItemConsumer worker stopped", "workerID", workerID)
+			logger.Default().Info("ItemConsumer worker stopped", "workerID", workerID)
 		}(i)
 	}
 
@@ -86,7 +86,7 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				slog.Info("ItemConsumer context cancelled, closing message channel")
+				logger.Default().Info("ItemConsumer context cancelled, closing message channel")
 				close(msgChan)
 				return
 			default:
@@ -94,7 +94,7 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 
 			msgs, err := mq.Consume(ctx, itemStream, itemGroup, "item-worker-1", 10)
 			if err != nil {
-				slog.Error("ItemConsumer consume error", "err", err)
+				logger.Default().Error("ItemConsumer consume error", "err", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -108,7 +108,7 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 				case msgChan <- task:
 					// Message sent to worker
 				case <-ctx.Done():
-					slog.Info("ItemConsumer context cancelled while sending message")
+					logger.Default().Info("ItemConsumer context cancelled while sending message")
 					close(msgChan)
 					return
 				}
@@ -118,27 +118,27 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 
 	// Wait for shutdown signal
 	<-ctx.Done()
-	slog.Info("ItemConsumer shutting down, waiting for workers to finish...")
+	logger.Default().Info("ItemConsumer shutting down, waiting for workers to finish...")
 	wg.Wait()
-	slog.Info("ItemConsumer all workers stopped")
+	logger.Default().Info("ItemConsumer all workers stopped")
 }
 
 func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
 	itemIDStr, ok := values["item_id"].(string)
 	if !ok {
-		slog.Warn("ItemConsumer invalid message: missing item_id")
+		logger.Default().Warn("ItemConsumer invalid message: missing item_id")
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
 
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil {
-		slog.Warn("ItemConsumer invalid item_id", "itemID", itemIDStr)
+		logger.Default().Warn("ItemConsumer invalid item_id", "itemID", itemIDStr)
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
 
-	slog.Info("ItemConsumer processing item", "itemID", itemID)
+	logger.Default().Info("ItemConsumer processing item", "itemID", itemID)
 
 	// Preserve publisher's expected_response if set to "no_reply"
 	publisherExpResp, _ := itemDal.GetProcessedItemExpectedResponse(db.DB, itemID)
@@ -149,7 +149,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Get raw item
 	raw, err := itemDal.GetRawItemByID(db.DB, itemID)
 	if err != nil {
-		slog.Warn("raw item not found", "itemID", itemID, "err", err)
+		logger.Default().Warn("raw item not found", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
@@ -157,9 +157,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	// Check blacklist keywords before LLM processing
 	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
-		slog.Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
+		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
-			slog.Error("failed to update discard status", "itemID", itemID, "err", err)
+			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return
 		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
@@ -173,12 +173,12 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		if err == nil {
 			break
 		}
-		slog.Warn("ItemConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
+		logger.Default().Warn("ItemConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
 	if err != nil {
-		slog.Error("all retries failed", "itemID", itemID, "err", err)
+		logger.Default().Error("all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
@@ -186,9 +186,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	// Check discard flag (skip in non-dev environments for testing)
 	if result.Discard {
-		slog.Info("item discarded by LLM", "itemID", itemID, "reason", result.DiscardReason)
+		logger.Default().Info("item discarded by LLM", "itemID", itemID, "reason", result.DiscardReason)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
-			slog.Error("failed to update discard status", "itemID", itemID, "err", err)
+			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return
 		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
@@ -197,16 +197,16 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	// Check quality threshold
 	if result.Quality < c.qualityThreshold {
-		slog.Info("item quality below threshold, discarding", "itemID", itemID, "quality", result.Quality, "threshold", c.qualityThreshold)
+		logger.Default().Info("item quality below threshold, discarding", "itemID", itemID, "quality", result.Quality, "threshold", c.qualityThreshold)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
-			slog.Error("failed to update discard status", "itemID", itemID, "err", err)
+			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return
 		}
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
 
-	slog.Info("ItemConsumer item passed quality check", "itemID", itemID, "quality", result.Quality, "lang", result.Lang, "timeliness", result.Timeliness)
+	logger.Default().Info("ItemConsumer item passed quality check", "itemID", itemID, "quality", result.Quality, "lang", result.Lang, "timeliness", result.Timeliness)
 
 	// Join domains array to comma-separated string
 	domainsStr := ""
@@ -223,16 +223,16 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	skipEmbedding := false
 
 	contentHash := dedup.ComputeContentHash(raw.RawContent)
-	slog.Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
+	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
 	// Check if hash exists in Redis (best-effort, don't fail if Redis is down)
 	if hashExists, existingGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
 		// Exact duplicate found, reuse existing group_id
 		finalGroupID = existingGroupID
 		skipEmbedding = true
-		slog.Info("ItemConsumer exact duplicate (hash match)", "itemID", itemID, "groupID", finalGroupID)
+		logger.Default().Info("ItemConsumer exact duplicate (hash match)", "itemID", itemID, "groupID", finalGroupID)
 	} else if err != nil {
-		slog.Warn("ItemConsumer Redis hash check failed, falling back to vector search", "itemID", itemID, "err", err)
+		logger.Default().Warn("ItemConsumer Redis hash check failed, falling back to vector search", "itemID", itemID, "err", err)
 	}
 
 	// generate embedding
@@ -250,7 +250,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		if embErr == nil {
 			break
 		}
-		slog.Warn("ItemConsumer embedding attempt failed", "attempt", embAttempt, "maxRetries", maxRetries, "itemID", itemID, "err", embErr)
+		logger.Default().Warn("ItemConsumer embedding attempt failed", "attempt", embAttempt, "maxRetries", maxRetries, "itemID", itemID, "err", embErr)
 		if embAttempt < maxRetries {
 			time.Sleep(time.Duration(embAttempt) * time.Second)
 		}
@@ -259,28 +259,28 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Phase 2: Vector-based deduplication (for non-exact duplicates)
 	if !skipEmbedding {
 		if itemEmbedding == nil {
-			slog.Warn("ItemConsumer all embedding attempts failed, using item_id as group_id", "itemID", itemID)
+			logger.Default().Warn("ItemConsumer all embedding attempts failed, using item_id as group_id", "itemID", itemID)
 			finalGroupID = itemID
 		} else {
 			// Search for similar items
 			similarItems, err := sortDal.SearchSimilarItems(ctx, itemEmbedding, simThreshold, 5)
 			if err != nil {
-				slog.Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
+				logger.Default().Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
 				finalGroupID = itemID
 			} else if len(similarItems) > 0 {
 				// Found similar item, use its group_id
 				finalGroupID = similarItems[0].GroupID
-				slog.Info("ItemConsumer item matched to group", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
+				logger.Default().Info("ItemConsumer item matched to group", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
 			} else {
 				// No similar item found, use own item_id as group_id
 				finalGroupID = itemID
-				slog.Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
+				logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
 			}
 		}
 
 		// Save hash mapping for future deduplication (best-effort)
 		if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
-			slog.Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
+			logger.Default().Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
 		}
 	}
 
@@ -318,10 +318,10 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	}
 
 	if err := sortDal.IndexItem(ctx, esItem); err != nil {
-		slog.Error("ItemConsumer failed to index item to ES", "itemID", itemID, "err", err)
+		logger.Default().Error("ItemConsumer failed to index item to ES", "itemID", itemID, "err", err)
 		// Don't block the flow, continue to ACK
 	} else {
-		slog.Info("ItemConsumer item indexed to ES successfully", "itemID", itemID)
+		logger.Default().Info("ItemConsumer item indexed to ES successfully", "itemID", itemID)
 
 		// Update statistics counters (fire-and-forget)
 		go func() {
@@ -329,13 +329,13 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 			// Increment total item count
 			if err := stats.IncrItemTotal(bgCtx, mq.RDB); err != nil {
-				slog.Warn("ItemConsumer failed to increment item total", "err", err)
+				logger.Default().Warn("ItemConsumer failed to increment item total", "err", err)
 			}
 
 			// Get agent info for latest items list
 			agent, err := profileDal.GetAgentByID(db.DB, raw.AuthorAgentID)
 			if err != nil {
-				slog.Warn("ItemConsumer failed to get agent info", "itemID", itemID, "err", err)
+				logger.Default().Warn("ItemConsumer failed to get agent info", "itemID", itemID, "err", err)
 				return
 			}
 
@@ -372,9 +372,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 			}
 
 			if err := stats.PushLatestItem(bgCtx, mq.RDB, snapshot); err != nil {
-				slog.Warn("ItemConsumer failed to push item to latest items", "itemID", itemID, "err", err)
+				logger.Default().Warn("ItemConsumer failed to push item to latest items", "itemID", itemID, "err", err)
 			} else {
-				slog.Debug("ItemConsumer item pushed to latest items list", "itemID", itemID)
+				logger.Default().Debug("ItemConsumer item pushed to latest items list", "itemID", itemID)
 			}
 		}()
 	}
@@ -384,17 +384,17 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64) bool {
 	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, itemDal.StatusCompleted); err != nil {
-		slog.Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
+		logger.Default().Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
 		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {
-			slog.Error("failed to mark item as failed after persist error", "itemID", itemID, "err", statusErr)
+			logger.Default().Error("failed to mark item as failed after persist error", "itemID", itemID, "err", statusErr)
 		}
 
 		ackItemMessage(ctx, itemStream, itemGroup, msgID)
 		return false
 	}
 
-	slog.Info("ItemConsumer item processed", "itemID", itemID, "broadcastType", result.BroadcastType, "domains", result.Domains, "keywords", result.Keywords, "groupID", finalGroupID, "quality", result.Quality)
+	logger.Default().Info("ItemConsumer item processed", "itemID", itemID, "broadcastType", result.BroadcastType, "domains", result.Domains, "keywords", result.Keywords, "groupID", finalGroupID, "quality", result.Quality)
 	return true
 }
 

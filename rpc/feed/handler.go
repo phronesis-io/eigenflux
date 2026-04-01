@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/feed"
@@ -51,7 +50,7 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 		action = "refresh"
 	}
 
-	logger.FromContext(ctx).Info("FetchFeed called", "agentID", req.AgentId, "action", action, "limit", limit)
+	logger.Ctx(ctx).Info("FetchFeed called", "agentID", req.AgentId, "action", action, "limit", limit)
 
 	switch action {
 	case "refresh":
@@ -66,10 +65,10 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 }
 
 func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limit int32) (*feed.FetchFeedResp, error) {
-	logger.FromContext(ctx).Info("handleRefresh", "agentID", agentID, "limit", limit)
+	logger.Ctx(ctx).Info("handleRefresh", "agentID", agentID, "limit", limit)
 
 	if err := s.feedCache.Clear(ctx, agentID); err != nil {
-		logger.FromContext(ctx).Warn("failed to clear cache", "err", err)
+		logger.Ctx(ctx).Warn("failed to clear cache", "err", err)
 	}
 
 	fetchLimit := limit * 10
@@ -82,7 +81,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		Limit:   int32Ptr(fetchLimit),
 	})
 	if err != nil {
-		logger.FromContext(ctx).Error("SortService error", "err", err)
+		logger.Ctx(ctx).Error("SortService error", "err", err)
 		return &feed.FetchFeedResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "sort service error: " + err.Error()},
 		}, nil
@@ -91,7 +90,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		return &feed.FetchFeedResp{BaseResp: sortResp.BaseResp}, nil
 	}
 
-	logger.FromContext(ctx).Info("SortService returned items", "count", len(sortResp.ItemIds))
+	logger.Ctx(ctx).Info("SortService returned items", "count", len(sortResp.ItemIds))
 
 	if len(sortResp.ItemIds) == 0 {
 		return &feed.FetchFeedResp{
@@ -105,7 +104,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		ItemIds: sortResp.ItemIds,
 	})
 	if err != nil {
-		logger.FromContext(ctx).Error("ItemService error", "err", err)
+		logger.Ctx(ctx).Error("ItemService error", "err", err)
 		return &feed.FetchFeedResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
 		}, nil
@@ -114,7 +113,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		return &feed.FetchFeedResp{BaseResp: batchResp.BaseResp}, nil
 	}
 
-	logger.FromContext(ctx).Info("ItemService returned items", "count", len(batchResp.Items))
+	logger.Ctx(ctx).Info("ItemService returned items", "count", len(batchResp.Items))
 
 	piByItemID := make(map[int64]*item.ProcessedItem, len(batchResp.Items))
 	for _, pi := range batchResp.Items {
@@ -154,7 +153,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	if len(toCache) > 0 {
 		if err := s.feedCache.Push(ctx, agentID, toCache); err != nil {
-			logger.FromContext(ctx).Warn("failed to cache items", "err", err)
+			logger.Ctx(ctx).Warn("failed to cache items", "err", err)
 		}
 	}
 
@@ -163,7 +162,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	go s.recordImpressions(context.Background(), agentID, feedItems)
 
 	hasMore := len(toCache) > 0
-	logger.FromContext(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
+	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
 
 	return &feed.FetchFeedResp{
 		Items:    feedItems,
@@ -173,16 +172,16 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 }
 
 func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, limit int32) (*feed.FetchFeedResp, error) {
-	logger.FromContext(ctx).Info("handleLoadMore", "agentID", agentID, "limit", limit)
+	logger.Ctx(ctx).Info("handleLoadMore", "agentID", agentID, "limit", limit)
 
 	cachedGroupIDs, err := s.feedCache.Pop(ctx, agentID, int(limit))
 	if err != nil {
-		logger.FromContext(ctx).Warn("failed to pop from cache", "err", err)
+		logger.Ctx(ctx).Warn("failed to pop from cache", "err", err)
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
 	if len(cachedGroupIDs) == 0 {
-		logger.FromContext(ctx).Info("cache empty, falling back to refresh")
+		logger.Ctx(ctx).Info("cache empty, falling back to refresh")
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
@@ -190,14 +189,14 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 	for _, gid := range cachedGroupIDs {
 		items, err := itemDal.GetItemsByGroupID(db.DB, gid)
 		if err != nil || len(items) == 0 {
-			logger.FromContext(ctx).Warn("failed to get items for group", "groupID", gid, "err", err)
+			logger.Ctx(ctx).Warn("failed to get items for group", "groupID", gid, "err", err)
 			continue
 		}
 		itemIDs = append(itemIDs, items[0].ItemID)
 	}
 
 	if len(itemIDs) == 0 {
-		logger.FromContext(ctx).Info("no valid items found in cache, falling back to refresh")
+		logger.Ctx(ctx).Info("no valid items found in cache, falling back to refresh")
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
@@ -205,7 +204,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		ItemIds: itemIDs,
 	})
 	if err != nil {
-		logger.FromContext(ctx).Error("ItemService error", "err", err)
+		logger.Ctx(ctx).Error("ItemService error", "err", err)
 		return &feed.FetchFeedResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
 		}, nil
@@ -227,12 +226,12 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 
 	cacheLen, err := s.feedCache.Len(ctx, agentID)
 	if err != nil {
-		logger.FromContext(ctx).Warn("failed to get cache length", "err", err)
+		logger.Ctx(ctx).Warn("failed to get cache length", "err", err)
 		cacheLen = 0
 	}
 	hasMore := cacheLen > 0
 
-	logger.FromContext(ctx).Info("returning items from cache", "count", len(feedItems), "hasMore", hasMore)
+	logger.Ctx(ctx).Info("returning items from cache", "count", len(feedItems), "hasMore", hasMore)
 
 	return &feed.FetchFeedResp{
 		Items:    feedItems,
@@ -255,14 +254,14 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 	// Batch get author IDs
 	authorMap, err := itemDal.BatchGetRawItemAuthors(db.DB, itemIDs)
 	if err != nil {
-		slog.Warn("failed to batch get authors", "err", err)
+		logger.Default().Warn("failed to batch get authors", "err", err)
 		authorMap = make(map[int64]int64) // Continue with empty map
 	}
 
 	for _, gid := range groupIDs {
 		pi, ok := itemMap[gid]
 		if !ok {
-			slog.Warn("item for group not found in itemMap", "groupID", gid)
+			logger.Default().Warn("item for group not found in itemMap", "groupID", gid)
 			continue
 		}
 
@@ -304,7 +303,7 @@ func (s *FeedServiceImpl) recordImpressions(ctx context.Context, agentID int64, 
 
 	if len(bfGroupIDs) > 0 {
 		if err := s.bloomFilter.Add(ctx, agentID, bfGroupIDs); err != nil {
-			logger.FromContext(ctx).Warn("failed to add to bloom filter", "err", err)
+			logger.Ctx(ctx).Warn("failed to add to bloom filter", "err", err)
 		}
 	}
 
@@ -317,12 +316,12 @@ func (s *FeedServiceImpl) recordImpressions(ctx context.Context, agentID int64, 
 		imprItems = append(imprItems, ii)
 	}
 	if err := impr.RecordImpressions(ctx, db.RDB, agentID, imprItems); err != nil {
-		logger.FromContext(ctx).Warn("failed to record impressions", "err", err)
+		logger.Ctx(ctx).Warn("failed to record impressions", "err", err)
 	}
 
 	for _, fi := range feedItems {
 		if _, err := itemstats.PublishConsumed(ctx, agentID, fi.ItemId); err != nil {
-			logger.FromContext(ctx).Warn("failed to publish consumed stats event", "itemID", fi.ItemId, "err", err)
+			logger.Ctx(ctx).Warn("failed to publish consumed stats event", "itemID", fi.ItemId, "err", err)
 		}
 	}
 }

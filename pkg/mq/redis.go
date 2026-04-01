@@ -2,7 +2,7 @@ package mq
 
 import (
 	"context"
-	"log/slog"
+	"eigenflux_server/pkg/logger"
 	"os"
 	"time"
 
@@ -25,7 +25,7 @@ func Init(addr, password string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := RDB.Ping(ctx).Err(); err != nil {
-		slog.Error("failed to connect to redis", "err", err)
+		logger.Default().Error("failed to connect to redis", "err", err)
 		os.Exit(1)
 	}
 }
