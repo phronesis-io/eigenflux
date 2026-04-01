@@ -1,30 +1,34 @@
 package db
 
 import (
-	"log"
+	"os"
+
+	"eigenflux_server/pkg/logger"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
 
 func Init(dsn string) {
-	InitWithLogLevel(dsn, logger.Info)
+	InitWithLogLevel(dsn, gormlogger.Info)
 }
 
-func InitWithLogLevel(dsn string, level logger.LogLevel) {
+func InitWithLogLevel(dsn string, level gormlogger.LogLevel) {
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(level),
+		Logger: gormlogger.Default.LogMode(level),
 	})
 	if err != nil {
-		log.Fatalf("failed to connect to postgres: %v", err)
+		logger.Default().Error("failed to connect to postgres", "err", err)
+		os.Exit(1)
 	}
 	sqlDB, err := DB.DB()
 	if err != nil {
-		log.Fatalf("failed to get sql.DB: %v", err)
+		logger.Default().Error("failed to get sql.DB", "err", err)
+		os.Exit(1)
 	}
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetMaxIdleConns(10)

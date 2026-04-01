@@ -3,12 +3,12 @@ package dal
 import (
 	"context"
 	"errors"
-	"log"
 	"strings"
 	"text/template"
 	"time"
 
 	"console.eigenflux.ai/internal/db"
+	"console.eigenflux.ai/internal/logger"
 	"console.eigenflux.ai/internal/milestone"
 	"console.eigenflux.ai/internal/model"
 
@@ -200,6 +200,6 @@ func publishRuleInvalidations(ctx context.Context, metricKeys ...string) {
 		return
 	}
 	if err := milestone.PublishRuleInvalidations(ctx, db.RDB, metricKeys...); err != nil {
-		log.Printf("publish milestone rule invalidation failed for metrics %v: %v", metricKeys, err)
+		logger.Default().Warn("publish milestone rule invalidation failed", "metrics", metricKeys, "err", err)
 	}
 }

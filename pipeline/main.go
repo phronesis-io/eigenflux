@@ -17,11 +17,19 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("pipeline/.log")
+	logFlush := logger.Init("pipeline", cfg.EffectiveLokiURL())
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.Init(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
@@ -95,11 +103,11 @@ func runMilestoneRecovery(ctx context.Context, svc *milestone.Service) {
 		case <-ticker.C:
 			recovered, err := svc.RecoverPendingNotifications(ctx, 100)
 			if err != nil {
-				log.Printf("milestone recover failed: %v", err)
+				logger.Default().Warn("milestone recover failed", "err", err)
 				continue
 			}
 			if recovered > 0 {
-				log.Printf("milestone recover restored %d pending notifications", recovered)
+				logger.Default().Info("milestone recover restored pending notifications", "count", recovered)
 			}
 		}
 	}
@@ -109,14 +117,14 @@ func runMilestoneRuleInvalidationSubscriber(ctx context.Context, svc *milestone.
 	err := milestone.SubscribeRuleInvalidation(ctx, mq.RDB, func(metricKey string) {
 		if metricKey == "" {
 			svc.InvalidateAllRules()
-			log.Printf("milestone rule cache invalidated for all metrics")
+			logger.Default().Info("milestone rule cache invalidated for all metrics")
 			return
 		}
 		svc.InvalidateRules(metricKey)
-		log.Printf("milestone rule cache invalidated for metric=%s", metricKey)
+		logger.Default().Info("milestone rule cache invalidated", "metric", metricKey)
 	})
 	if err != nil && ctx.Err() == nil {
-		log.Printf("milestone rule invalidation subscriber stopped: %v", err)
+		logger.Default().Warn("milestone rule invalidation subscriber stopped", "err", err)
 	}
 }
 

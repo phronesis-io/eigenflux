@@ -69,6 +69,9 @@ type Config struct {
 	FreshnessDecay          float64  // ES freshness decay factor at scale distance (default: 0.8)
 	MockOTPEmailSuffixes    []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
 	MockOTPIPWhitelist      []string // IP whitelist for mock OTP
+	MonitorEnabled          bool   // Enable distributed tracing (Jaeger) and log aggregation (Loki)
+	OtelExporterEndpoint    string // OTLP gRPC endpoint (default localhost:4317)
+	LokiURL                 string // Loki push API URL (default http://localhost:3122)
 }
 
 func Load() *Config {
@@ -138,6 +141,9 @@ func Load() *Config {
 		FreshnessDecay:          getEnvFloat("FRESHNESS_DECAY", 0.8),
 		MockOTPEmailSuffixes:    getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
 		MockOTPIPWhitelist:      getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
+		MonitorEnabled:          getEnvBool("MONITOR_ENABLED", false),
+		OtelExporterEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3122"),
 	}
 }
 
@@ -203,6 +209,14 @@ func (c *Config) ShouldDisableDedup() bool {
 
 func (c *Config) ListenAddr(port int) string {
 	return fmt.Sprintf(":%d", port)
+}
+
+// EffectiveLokiURL returns LokiURL when monitoring is enabled, empty otherwise.
+func (c *Config) EffectiveLokiURL() string {
+	if !c.MonitorEnabled {
+		return ""
+	}
+	return c.LokiURL
 }
 
 func getEnv(key, fallback string) string {

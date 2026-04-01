@@ -2,7 +2,7 @@ package consumer
 
 import (
 	"context"
-	"log"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	"eigenflux_server/rpc/profile/dal"
@@ -34,10 +35,11 @@ func NewProfileConsumer(cfg *config.Config) *ProfileConsumer {
 }
 
 func (c *ProfileConsumer) Start(ctx context.Context) {
-	log.Printf("[ProfileConsumer] starting with %d workers", c.maxWorkers)
+	logger.Default().Info("ProfileConsumer starting", "workers", c.maxWorkers)
 
 	if err := mq.EnsureConsumerGroup(ctx, profileStream, profileGroup); err != nil {
-		log.Fatalf("[ProfileConsumer] failed to create consumer group: %v", err)
+		logger.Default().Error("ProfileConsumer failed to create consumer group", "err", err)
+		os.Exit(1)
 	}
 
 	// Create message channel for worker pool
@@ -53,11 +55,11 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			log.Printf("[ProfileConsumer] worker %d started", workerID)
+			logger.Default().Info("ProfileConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
 				c.processMessage(ctx, task.id, task.values)
 			}
-			log.Printf("[ProfileConsumer] worker %d stopped", workerID)
+			logger.Default().Info("ProfileConsumer worker stopped", "workerID", workerID)
 		}(i)
 	}
 
@@ -66,7 +68,7 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[ProfileConsumer] context cancelled, closing message channel")
+				logger.Default().Info("ProfileConsumer context cancelled, closing message channel")
 				close(msgChan)
 				return
 			default:
@@ -74,7 +76,7 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 
 			msgs, err := mq.Consume(ctx, profileStream, profileGroup, "profile-worker-1", 10)
 			if err != nil {
-				log.Printf("[ProfileConsumer] consume error: %v", err)
+				logger.Default().Error("ProfileConsumer consume error", "err", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -88,7 +90,7 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 				case msgChan <- task:
 					// Message sent to worker
 				case <-ctx.Done():
-					log.Println("[ProfileConsumer] context cancelled while sending message")
+					logger.Default().Info("ProfileConsumer context cancelled while sending message")
 					close(msgChan)
 					return
 				}
@@ -98,27 +100,27 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 
 	// Wait for shutdown signal
 	<-ctx.Done()
-	log.Println("[ProfileConsumer] shutting down, waiting for workers to finish...")
+	logger.Default().Info("ProfileConsumer shutting down, waiting for workers to finish...")
 	wg.Wait()
-	log.Println("[ProfileConsumer] all workers stopped")
+	logger.Default().Info("ProfileConsumer all workers stopped")
 }
 
 func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
 	agentIDStr, ok := values["agent_id"].(string)
 	if !ok {
-		log.Printf("[ProfileConsumer] invalid message: missing agent_id")
+		logger.Default().Warn("ProfileConsumer invalid message: missing agent_id")
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
 
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
-		log.Printf("[ProfileConsumer] invalid agent_id: %s", agentIDStr)
+		logger.Default().Warn("ProfileConsumer invalid agent_id", "agentID", agentIDStr)
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
 
-	log.Printf("[ProfileConsumer] processing agent_id=%d", agentID)
+	logger.Default().Info("ProfileConsumer processing agent", "agentID", agentID)
 
 	// Set status to processing (1)
 	dal.UpdateAgentProfileStatus(db.DB, agentID, 1)
@@ -126,14 +128,14 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	// Get agent bio
 	agent, err := dal.GetAgentByID(db.DB, agentID)
 	if err != nil {
-		log.Printf("[ProfileConsumer] agent not found: %d, err: %v", agentID, err)
+		logger.Default().Warn("ProfileConsumer agent not found", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
 
 	if agent.Bio == "" {
-		log.Printf("[ProfileConsumer] agent %d has empty bio, skipping", agentID)
+		logger.Default().Debug("ProfileConsumer agent has empty bio, skipping", "agentID", agentID)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 3) // done with no keywords
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
@@ -147,12 +149,12 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 		if err == nil {
 			break
 		}
-		log.Printf("[ProfileConsumer] LLM attempt %d/%d failed for agent %d: %v", attempt, maxRetries, agentID, err)
+		logger.Default().Warn("ProfileConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
 	if err != nil {
-		log.Printf("[ProfileConsumer] all retries failed for agent %d: %v", agentID, err)
+		logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
@@ -160,12 +162,12 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 
 	// Update keywords, country and status to done (3)
 	dal.UpdateAgentProfileKeywords(db.DB, agentID, keywords, country, 3)
-	log.Printf("[ProfileConsumer] agent %d keywords updated: %v, country: %s", agentID, keywords, country)
+	logger.Default().Info("ProfileConsumer agent keywords updated", "agentID", agentID, "keywords", keywords, "country", country)
 
 	// Incremental sync: add country to stats set
 	if country != "" {
 		if err := stats.AddAgentCountry(ctx, mq.RDB, country); err != nil {
-			log.Printf("[ProfileConsumer] failed to sync country to stats: %v", err)
+			logger.Default().Warn("ProfileConsumer failed to sync country to stats", "err", err)
 		}
 	}
 

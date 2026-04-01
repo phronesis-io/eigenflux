@@ -13,11 +13,19 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/rpcx"
+	"eigenflux_server/pkg/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("rpc/notification/.log")
+	logFlush := logger.Init("NotificationService", cfg.EffectiveLokiURL())
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("NotificationService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.Init(cfg.PgDSN)
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)

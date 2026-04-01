@@ -8,6 +8,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 
 - Go 1.25+
 - Infrastructure: `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana)
+- Monitoring (optional): `docker compose -f docker-compose.monitor.yml up -d` (Jaeger, Loki, Grafana). Then set `MONITOR_ENABLED=true` in `.env`. Monitoring services are project-independent — start once, shared across all local projects
 - Default connection config in `pkg/config/config.go`, override via environment variables
 - For parallel multi-project development, must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`) for each repository. `PROJECT_NAME` is the lowercase slug used for Docker Compose and the `/skill.md` agent-side local storage namespace. `PROJECT_TITLE` is the human-readable title rendered into `/skill.md`.
 
@@ -257,6 +258,10 @@ All ports support `.env` override; default values when not configured:
 | Elasticsearch HTTP (docker mapped) | `ELASTICSEARCH_HTTP_PORT` | 9200 |
 | Elasticsearch Transport (docker mapped) | `ELASTICSEARCH_TRANSPORT_PORT` | 9300 |
 | Kibana (docker mapped) | `KIBANA_PORT` | 5601 |
+| Jaeger UI | `JAEGER_UI_PORT` | 16686 |
+| Jaeger OTLP gRPC | `JAEGER_OTLP_PORT` | 4317 |
+| Loki | `LOKI_PORT` | 3122 |
+| Grafana | `GRAFANA_PORT` | 3123 |
 
 **When adding a new service**: Update `scripts/cloud/services.sh` (`ALL_MODULES` array and `module_port()` function) and `scripts/local/start_local.sh` (`SERVICE_MAP` array). `services.sh` is the single source of truth for cloud deployment scripts (`check_services.sh`, `restart.sh`, `restart_all_services.sh`, `logs.sh`). Console is excluded from cloud scripts as it is not deployed to production.
 
@@ -322,6 +327,9 @@ Besides default config in `pkg/config/config.go`, common environment variables:
 - `ID_WORKER_LEASE_TTL`: `worker_id` lease TTL (seconds, default 30)
 - `ID_INSTANCE_ID`: Instance identifier (optional, auto-generated `hostname-pid-timestamp` if not filled)
 - `DISABLE_DEDUP_IN_TEST`: Takes effect in `dev` or `test` environment; when `true`, disables feed deduplication (already-seen content can still be pulled). Forced ineffective in `prod` environment.
+- `MONITOR_ENABLED`: Enable distributed tracing (Jaeger) and log aggregation (Loki). Default `false`. Set `true` after starting `docker-compose.monitor.yml`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: OTLP gRPC endpoint for trace export. Default `localhost:4317`
+- `LOKI_URL`: Loki push API base URL for log aggregation. Default empty (disabled). Set `http://localhost:3122` to enable
 
 Startup constraints:
 - When `ENABLE_EMAIL_VERIFICATION=true`, `RESEND_API_KEY` and `RESEND_FROM_EMAIL` cannot be empty
@@ -531,6 +539,56 @@ go test -v ./tests/ -run TestCacheConcurrency
 - E2E tests: 10 scenarios (cache hit/miss, TTL expiration, concurrent requests, SingleFlight deduplication, etc.)
 - Performance tests: Measure cache hit rate and latency
 - Concurrency tests: 100 concurrent client stress test
+
+## Distributed Tracing
+
+Full-stack OpenTelemetry tracing across all services. Every API request gets a traceId at the gateway, propagated through all downstream RPC services.
+
+### Components
+
+- **pkg/telemetry**: OTel SDK initialization (TracerProvider, OTLP gRPC exporter)
+- **pkg/logger**: slog-based structured JSON logging with `logger.Ctx(ctx)` for auto-injected traceId/spanId
+- **pkg/rpcx**: Kitex OTel client/server suites (automatic span creation for all RPC calls)
+- **Hertz OTel middleware**: Root span creation per HTTP request (api gateway + console)
+
+### Infrastructure
+
+Monitoring services are defined in `docker-compose.monitor.yml` (separate from core `docker-compose.yml`):
+
+- **Jaeger** (`:16686`): Trace storage and timeline visualization
+- **Loki** (`:3122`): Log aggregation with traceId correlation
+- **Grafana** (`:3123`): Unified query UI (Jaeger traces + Loki logs)
+
+Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `OTEL_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local file logging only — no tracing overhead.
+
+### Usage
+
+**View traces:** Open Jaeger UI at `http://localhost:16686`, select a service, search traces.
+
+**Search logs by traceId:** Open Grafana at `http://localhost:3123` → Explore → Loki → query `{service=~".+"} | json | traceId="<id>"`.
+
+**Trace-to-log correlation:** In Grafana, Jaeger traces link to Loki logs and vice versa.
+
+### Logging Convention
+
+All service code uses the project logger wrapper. Do not call `slog` directly outside the `pkg/logger` or `console/.../internal/logger` packages.
+
+- **`logger.Ctx(ctx)`** — returns a logger enriched with traceId/spanId from the OTel span in `ctx`. Use this in request/RPC handlers, middleware, and any code running inside a traced lifecycle.
+- **`logger.Default()`** — returns the process-wide structured logger without request-scoped trace fields. Use this in startup/init code, background workers, and fire-and-forget goroutines.
+
+```go
+// In request handlers and middleware (has ctx with active span):
+logger.Ctx(ctx).Info("FetchFeed called", "agentID", req.AgentId)
+logger.Ctx(ctx).Error("operation failed", "err", err)
+
+// In startup/init code:
+logger.Default().Info("service initialized", "port", port)
+
+// In background goroutines:
+go func() {
+    logger.Default().Error("async ack failed", "err", err)
+}()
+```
 
 
 # IMPORTANT!!!

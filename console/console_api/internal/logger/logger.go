@@ -1,31 +1,67 @@
 package logger
 
 import (
-	"fmt"
-	"io"
+	"context"
 	"log"
+	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
-func Init(logDir string) {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		log.Fatalf("failed to create log directory %s: %v", logDir, err)
+// Init sets up slog with JSON handler writing to stdout, optionally pushing
+// the same records to Loki when lokiURL is configured. It returns a flush
+// function that should be called on shutdown.
+func Init(serviceName string, lokiURL string) func() {
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}).WithAttrs([]slog.Attr{
+		slog.String("service", serviceName),
+	})
+
+	var flush func()
+	if lokiURL != "" {
+		loki := NewLokiHandler(handler, serviceName, lokiURL)
+		slog.SetDefault(slog.New(loki))
+		flush = loki.Flush
+	} else {
+		slog.SetDefault(slog.New(handler))
+		flush = func() {}
 	}
 
-	filename := time.Now().Format("20060102_150405") + ".log"
-	path := filepath.Join(logDir, filename)
+	// Bridge stdlib log.
+	log.SetOutput(&slogBridge{})
+	log.SetFlags(0)
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Fatalf("failed to open log file %s: %v", path, err)
+	slog.Info("logging initialized")
+	return flush
+}
+
+// Default returns the configured process-wide logger.
+func Default() *slog.Logger {
+	return slog.Default()
+}
+
+// Ctx returns a logger with traceId/spanId from OTel context.
+func Ctx(ctx context.Context) *slog.Logger {
+	span := trace.SpanFromContext(ctx)
+	sc := span.SpanContext()
+	if sc.HasTraceID() {
+		return Default().With(
+			"traceId", sc.TraceID().String(),
+			"spanId", sc.SpanID().String(),
+		)
 	}
+	return Default()
+}
 
-	w := io.MultiWriter(os.Stdout, f)
-	log.SetOutput(w)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+type slogBridge struct{}
 
-	log.Printf("logging to %s", path)
-	fmt.Println()
+func (b *slogBridge) Write(p []byte) (n int, err error) {
+	msg := string(p)
+	if len(msg) > 0 && msg[len(msg)-1] == '\n' {
+		msg = msg[:len(msg)-1]
+	}
+	slog.Info(msg)
+	return len(p), nil
 }

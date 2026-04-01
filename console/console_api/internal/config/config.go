@@ -11,15 +11,18 @@ import (
 )
 
 type Config struct {
-	PgDSN            string
-	RedisAddr        string
-	RedisPassword    string
-	EtcdAddr         string
-	ConsoleApiPort   int
-	IDWorkerPrefix   string
-	IDSnowflakeEpoch int64
-	IDWorkerLeaseTTL int
-	IDInstanceID     string
+	PgDSN                string
+	RedisAddr            string
+	RedisPassword        string
+	EtcdAddr             string
+	ConsoleApiPort       int
+	IDWorkerPrefix       string
+	IDSnowflakeEpoch     int64
+	IDWorkerLeaseTTL     int
+	IDInstanceID         string
+	MonitorEnabled       bool
+	OtelExporterEndpoint string
+	LokiURL              string
 }
 
 func Load() *Config {
@@ -30,20 +33,30 @@ func Load() *Config {
 	etcdPort := getEnv("ETCD_PORT", "2379")
 
 	return &Config{
-		PgDSN:            getEnv("PG_DSN", "postgres://eigenflux:eigenflux123@localhost:"+postgresPort+"/eigenflux?sslmode=disable"),
-		RedisAddr:        getEnv("REDIS_ADDR", "localhost:"+redisPort),
-		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
-		EtcdAddr:         getEnv("ETCD_ADDR", "localhost:"+etcdPort),
-		ConsoleApiPort:   getEnvInt("CONSOLE_API_PORT", 8090),
-		IDWorkerPrefix:   getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),
-		IDSnowflakeEpoch: getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000),
-		IDWorkerLeaseTTL: getEnvInt("ID_WORKER_LEASE_TTL", 30),
-		IDInstanceID:     getEnv("ID_INSTANCE_ID", ""),
+		PgDSN:                getEnv("PG_DSN", "postgres://eigenflux:eigenflux123@localhost:"+postgresPort+"/eigenflux?sslmode=disable"),
+		RedisAddr:            getEnv("REDIS_ADDR", "localhost:"+redisPort),
+		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
+		EtcdAddr:             getEnv("ETCD_ADDR", "localhost:"+etcdPort),
+		ConsoleApiPort:       getEnvInt("CONSOLE_API_PORT", 8090),
+		IDWorkerPrefix:       getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),
+		IDSnowflakeEpoch:     getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000),
+		IDWorkerLeaseTTL:     getEnvInt("ID_WORKER_LEASE_TTL", 30),
+		IDInstanceID:         getEnv("ID_INSTANCE_ID", ""),
+		MonitorEnabled:       getEnvBool("MONITOR_ENABLED", false),
+		OtelExporterEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		LokiURL:              getEnv("LOKI_URL", "http://localhost:3122"),
 	}
 }
 
 func (c *Config) ListenAddr() string {
 	return fmt.Sprintf(":%d", c.ConsoleApiPort)
+}
+
+func (c *Config) EffectiveLokiURL() string {
+	if !c.MonitorEnabled {
+		return ""
+	}
+	return c.LokiURL
 }
 
 func loadDotEnv() {
@@ -90,6 +103,18 @@ func getEnvInt64(key string, fallback int64) int64 {
 		}
 	}
 	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 func EtcdEndpoints(addr string) []string {

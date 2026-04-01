@@ -1,34 +1,77 @@
 package logger
 
 import (
-	"fmt"
-	"io"
+	"context"
 	"log"
+	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
-// Init sets up the global logger to write to both stdout and a log file.
-// logDir is the directory where log files are stored (e.g., "api/.log").
-// The log file is named by the current timestamp: 20260227_122800.log
-func Init(logDir string) {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		log.Fatalf("failed to create log directory %s: %v", logDir, err)
+// Init sets up the global slog logger with a JSON handler that writes to
+// stdout. If lokiURL is non-empty, a Loki push handler is layered on top.
+// Returns a flush function to drain the Loki buffer on shutdown.
+func Init(serviceName string, lokiURL string) func() {
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}).WithAttrs([]slog.Attr{
+		slog.String("service", serviceName),
+	})
+
+	var flush func()
+	if lokiURL != "" {
+		loki := NewLokiHandler(jsonHandler, serviceName, lokiURL)
+		slog.SetDefault(slog.New(loki))
+		flush = loki.Flush
+	} else {
+		slog.SetDefault(slog.New(jsonHandler))
+		flush = func() {}
 	}
 
-	filename := time.Now().Format("20060102_150405") + ".log"
-	path := filepath.Join(logDir, filename)
+	// Bridge stdlib log to slog so any remaining log.Printf calls get
+	// captured as structured JSON too.
+	slogWriter := &slogBridge{}
+	log.SetOutput(slogWriter)
+	log.SetFlags(0) // slog handles timestamp/source
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Fatalf("failed to open log file %s: %v", path, err)
+	slog.Info("logging initialized")
+	return flush
+}
+
+// Default returns the configured process-wide logger.
+func Default() *slog.Logger {
+	return slog.Default()
+}
+
+// DebugEnabled reports whether the configured logger will emit debug records.
+func DebugEnabled() bool {
+	return Default().Enabled(context.Background(), slog.LevelDebug)
+}
+
+// Ctx returns a slog.Logger with traceId and spanId fields extracted from the
+// OTel span in ctx. If no active span is present, it returns the default
+// process logger.
+func Ctx(ctx context.Context) *slog.Logger {
+	span := trace.SpanFromContext(ctx)
+	sc := span.SpanContext()
+	if sc.HasTraceID() {
+		return Default().With(
+			"traceId", sc.TraceID().String(),
+			"spanId", sc.SpanID().String(),
+		)
 	}
+	return Default()
+}
 
-	w := io.MultiWriter(os.Stdout, f)
-	log.SetOutput(w)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+// slogBridge adapts slog as an io.Writer for stdlib log.
+type slogBridge struct{}
 
-	log.Printf("logging to %s", path)
-	fmt.Println() // blank line for readability after init
+func (b *slogBridge) Write(p []byte) (n int, err error) {
+	msg := string(p)
+	if len(msg) > 0 && msg[len(msg)-1] == '\n' {
+		msg = msg[:len(msg)-1]
+	}
+	slog.Info(msg)
+	return len(p), nil
 }

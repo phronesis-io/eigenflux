@@ -16,12 +16,14 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	etcd "github.com/kitex-contrib/registry-etcd"
 	swaggerFiles "github.com/swaggo/files"
 
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
+	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
@@ -33,6 +35,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/pkg/publicurl"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/skilldoc"
@@ -40,7 +43,14 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logger.Init("api/.log")
+	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL())
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("api-gateway", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	// Init PostgreSQL for handlers that query DB directly (e.g. feed URL enrichment).
 	db.Init(cfg.PgDSN)
@@ -115,7 +125,13 @@ func main() {
 
 	// Init Hertz
 	listenAddr := cfg.ListenAddr(cfg.ApiPort)
-	h := server.Default(server.WithHostPorts(listenAddr))
+	tracer, tracerCfg := hertztracing.NewServerTracer()
+	h := server.Default(
+		server.WithHostPorts(listenAddr),
+		tracer,
+	)
+	h.Use(hertztracing.ServerMiddleware(tracerCfg))
+	h.Use(middleware.TraceIDMiddleware())
 
 	// Skill document endpoints. All return text/markdown with version header.
 	serveSkillDoc := func(content []byte) app.HandlerFunc {

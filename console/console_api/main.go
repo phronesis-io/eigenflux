@@ -14,22 +14,34 @@ import (
 	"os"
 	"strings"
 
-	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
+	"github.com/cloudwego/hertz/pkg/app"
+
 	_ "console.eigenflux.ai/docs"
+	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"console.eigenflux.ai/internal/config"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
 	"console.eigenflux.ai/internal/logger"
 	"console.eigenflux.ai/internal/notification"
+	"console.eigenflux.ai/internal/telemetry"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
+	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	swaggerFiles "github.com/swaggo/files"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func main() {
 	cfg := config.Load()
-	logger.Init("console/console_api/.log")
+	logFlush := logger.Init("console-api", cfg.EffectiveLokiURL())
+	defer logFlush()
+
+	shutdown, err := telemetry.Init("console-api", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
 	db.InitPostgres(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
@@ -57,7 +69,13 @@ func main() {
 		log.Printf("[console] Warning: failed to recover active notifications: %v", recoverErr)
 	}
 
-	h := server.Default(server.WithHostPorts(cfg.ListenAddr()))
+	tracer, tracerCfg := hertztracing.NewServerTracer()
+	h := server.Default(
+		server.WithHostPorts(cfg.ListenAddr()),
+		tracer,
+	)
+	h.Use(hertztracing.ServerMiddleware(tracerCfg))
+	h.Use(traceIDMiddleware())
 
 	allowOrigins := parseAllowOrigins()
 	h.Use(cors.New(cors.Config{
@@ -73,6 +91,16 @@ func main() {
 
 	log.Printf("Console API gateway starting on %s", cfg.ListenAddr())
 	h.Spin()
+}
+
+func traceIDMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		c.Next(ctx)
+		sc := oteltrace.SpanFromContext(ctx).SpanContext()
+		if sc.HasTraceID() {
+			c.Header("X-Trace-Id", sc.TraceID().String())
+		}
+	}
 }
 
 func parseAllowOrigins() []string {

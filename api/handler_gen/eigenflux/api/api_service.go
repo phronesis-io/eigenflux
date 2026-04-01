@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -25,6 +24,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
@@ -51,12 +51,11 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 		AgentId: agentID,
 	})
 	if err != nil {
-		log.Printf("[API] NotificationService.ListPending error for agent %d: %v", agentID, err)
+		logger.Ctx(ctx).Error("NotificationService.ListPending error", "agentID", agentID, "err", err)
 		return nil, nil
 	}
 	if pendingResp.BaseResp != nil && pendingResp.BaseResp.Code != 0 {
-		log.Printf("[API] NotificationService.ListPending returned code %d for agent %d: %s",
-			pendingResp.BaseResp.Code, agentID, pendingResp.BaseResp.Msg)
+		logger.Ctx(ctx).Warn("NotificationService.ListPending returned error code", "code", pendingResp.BaseResp.Code, "agentID", agentID, "msg", pendingResp.BaseResp.Msg)
 		return nil, nil
 	}
 
@@ -103,11 +102,11 @@ func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotificat
 			Items:   items,
 		})
 		if err != nil {
-			log.Printf("[API] Failed to ack notifications for agent %d: %v", agentID, err)
+			logger.Default().Error("failed to ack notifications", "agentID", agentID, "err", err)
 			return
 		}
 		if resp != nil && resp.BaseResp != nil && resp.BaseResp.Code != 0 {
-			log.Printf("[API] Notification ack returned code %d for agent %d: %s", resp.BaseResp.Code, agentID, resp.BaseResp.Msg)
+			logger.Default().Warn("notification ack returned error code", "code", resp.BaseResp.Code, "agentID", agentID, "msg", resp.BaseResp.Msg)
 			return
 		}
 	}(agentID, items)
@@ -190,6 +189,7 @@ func LoginStart(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
+	logger.Ctx(ctx).Info("LoginStart", "emailMasked", logger.MaskEmail(req.Email))
 
 	resp, err := clients.AuthClient.StartLogin(ctx, &authrpc.StartLoginReq{
 		LoginMethod: req.LoginMethod,
@@ -253,6 +253,7 @@ func LoginVerify(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
+	logger.Ctx(ctx).Info("LoginVerify")
 
 	resp, err := clients.AuthClient.VerifyLogin(ctx, &authrpc.VerifyLoginReq{
 		LoginMethod: req.LoginMethod,
@@ -302,6 +303,7 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("UpdateProfile", "agentID", agentID)
 
 	resp, err := clients.ProfileClient.UpdateProfile(ctx, &profilerpc.UpdateProfileReq{
 		AgentId:   agentID,
@@ -349,6 +351,7 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("GetMe", "agentID", agentID)
 
 	resp, err := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID})
 	if err != nil {
@@ -400,6 +403,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("GetMyItems", "agentID", agentID)
 
 	resp, err := clients.ItemClient.GetMyItems(ctx, &itemrpc.GetMyItemsReq{
 		AuthorAgentId: agentID,
@@ -460,6 +464,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("Publish", "agentID", agentID)
 
 	resp, err := clients.ItemClient.PublishItem(ctx, &itemrpc.PublishItemReq{
 		AuthorAgentId: agentID,
@@ -506,6 +511,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("Feed", "agentID", agentID, "action", req.GetAction())
 
 	action := req.Action
 	if action == nil || *action == "" {
@@ -597,6 +603,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if _, ok := currentAgentID(c); !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("GetItem", "itemID", req.ItemID)
 
 	item, err := itemdal.GetItemByID(db.DB, req.ItemID)
 	if err != nil {
@@ -687,6 +694,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
 	processedCount := 0
 	skippedReasons := make([]string, 0)
@@ -721,6 +729,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 // GetWebsiteStats .
 // @router /api/v1/website/stats [GET]
 func GetWebsiteStats(ctx context.Context, c *app.RequestContext) {
+	logger.Ctx(ctx).Debug("GetWebsiteStats")
 	statsData, err := stats.GetStats(ctx, mq.RDB)
 	if err != nil {
 		writeJSON(c, http.StatusOK, 1, fmt.Sprintf("failed to get stats: %v", err), nil)
@@ -738,6 +747,7 @@ func GetWebsiteStats(ctx context.Context, c *app.RequestContext) {
 // GetLatestItems .
 // @router /api/v1/website/latest-items [GET]
 func GetLatestItems(ctx context.Context, c *app.RequestContext) {
+	logger.Ctx(ctx).Debug("GetLatestItems")
 	limit := 10
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -791,6 +801,7 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("SendPM", "agentID", agentID, "receiverID", req.ReceiverID)
 
 	// Parse receiver_id
 	receiverID, err := strconv.ParseInt(req.ReceiverID, 10, 64)
@@ -863,6 +874,7 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("FetchPM", "agentID", agentID)
 
 	// Parse optional cursor
 	var cursorPtr *int64
@@ -936,6 +948,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("ListConversations", "agentID", agentID)
 
 	var cursorPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
@@ -1006,6 +1019,7 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("GetConvHistory", "agentID", agentID, "convID", req.ConvID)
 
 	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
 	if err != nil {
@@ -1084,6 +1098,7 @@ func CloseConv(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("CloseConv", "agentID", agentID, "convID", req.ConvID)
 
 	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
 	if err != nil {
@@ -1123,6 +1138,7 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusUnauthorized, 401, "unauthorized", nil)
 		return
 	}
+	logger.Ctx(ctx).Info("DeleteMyItem", "agentID", agentID, "itemID", req.ItemID)
 
 	rpcResp, err := clients.ItemClient.DeleteMyItem(ctx, &itemrpc.DeleteMyItemReq{
 		ItemId:        req.ItemID,
@@ -1198,7 +1214,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 				return id, nil
 			}
 		} else if err != redis.Nil {
-			log.Printf("[API] email2uid cache read error: %v", err)
+			logger.Default().Warn("email2uid cache read error", "err", err)
 		}
 	}
 
@@ -1215,7 +1231,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 	if mq.RDB != nil {
 		go func() {
 			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
-				log.Printf("[API] email2uid cache write error: %v", err)
+				logger.Default().Warn("email2uid cache write error", "err", err)
 			}
 		}()
 	}
@@ -1239,6 +1255,7 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("SendFriendRequest", "agentID", agentID)
 
 	toUID, code, msg := resolveToUID(&req)
 	if code != 0 {
@@ -1282,6 +1299,7 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("HandleFriendRequest", "agentID", agentID, "action", req.Action)
 
 	requestID, err := strconv.ParseInt(req.RequestID, 10, 64)
 	if err != nil {
@@ -1324,6 +1342,7 @@ func Unfriend(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("Unfriend", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1358,6 +1377,7 @@ func BlockUser(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("BlockUser", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1396,6 +1416,7 @@ func UnblockUser(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("UnblockUser", "agentID", agentID, "toUID", req.ToUID)
 
 	toUID, err := strconv.ParseInt(req.ToUID, 10, 64)
 	if err != nil {
@@ -1430,6 +1451,7 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("ListFriendRequests", "agentID", agentID)
 
 	rpcReq := &pmrpc.ListFriendRequestsReq{
 		AgentId:   agentID,
@@ -1494,6 +1516,7 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Debug("ListFriends", "agentID", agentID)
 
 	rpcReq := &pmrpc.ListFriendsReq{
 		AgentId: agentID,
@@ -1550,6 +1573,7 @@ func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
+	logger.Ctx(ctx).Info("UpdateFriendRemark", "agentID", agentID, "friendUID", req.FriendUID)
 
 	friendUID, err := strconv.ParseInt(req.FriendUID, 10, 64)
 	if err != nil {

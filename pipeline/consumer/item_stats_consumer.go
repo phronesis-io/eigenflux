@@ -3,13 +3,14 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"log"
+	"os"
 	"sync"
 	"time"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
@@ -49,10 +50,11 @@ func NewItemStatsConsumer(cfg *config.Config, milestoneSvc *milestone.Service) *
 }
 
 func (c *ItemStatsConsumer) Start(ctx context.Context) {
-	log.Printf("[ItemStatsConsumer] starting with %d workers", c.maxWorkers)
+	logger.Default().Info("ItemStatsConsumer starting", "workers", c.maxWorkers)
 
 	if err := mq.EnsureConsumerGroup(ctx, itemstats.StreamName, itemstats.GroupName); err != nil {
-		log.Fatalf("[ItemStatsConsumer] failed to create consumer group: %v", err)
+		logger.Default().Error("ItemStatsConsumer failed to create consumer group", "err", err)
+		os.Exit(1)
 	}
 
 	type msgTask struct {
@@ -66,11 +68,11 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			log.Printf("[ItemStatsConsumer] worker %d started", workerID)
+			logger.Default().Info("ItemStatsConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
 				c.processMessage(ctx, task.id, task.values)
 			}
-			log.Printf("[ItemStatsConsumer] worker %d stopped", workerID)
+			logger.Default().Info("ItemStatsConsumer worker stopped", "workerID", workerID)
 		}(i)
 	}
 
@@ -78,7 +80,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[ItemStatsConsumer] context cancelled, closing message channel")
+				logger.Default().Info("ItemStatsConsumer context cancelled, closing message channel")
 				close(msgChan)
 				return
 			default:
@@ -86,7 +88,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 
 			msgs, err := c.nextBatch(ctx)
 			if err != nil {
-				log.Printf("[ItemStatsConsumer] consume error: %v", err)
+				logger.Default().Error("ItemStatsConsumer consume error", "err", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -96,7 +98,7 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 				select {
 				case msgChan <- task:
 				case <-ctx.Done():
-					log.Println("[ItemStatsConsumer] context cancelled while sending message")
+					logger.Default().Info("ItemStatsConsumer context cancelled while sending message")
 					close(msgChan)
 					return
 				}
@@ -105,9 +107,9 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 	}()
 
 	<-ctx.Done()
-	log.Println("[ItemStatsConsumer] shutting down, waiting for workers to finish...")
+	logger.Default().Info("ItemStatsConsumer shutting down, waiting for workers to finish...")
 	wg.Wait()
-	log.Println("[ItemStatsConsumer] all workers stopped")
+	logger.Default().Info("ItemStatsConsumer all workers stopped")
 }
 
 func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, error) {
@@ -119,7 +121,7 @@ func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage,
 		msgs := make([]mq.PendingMessage, 0, len(reclaimed))
 		for _, pending := range reclaimed {
 			if pending.RetryCount >= c.maxRetries {
-				log.Printf("[ItemStatsConsumer] dropping message %s after %d failed attempts (last consumer=%s)", pending.Message.ID, pending.RetryCount, pending.Consumer)
+				logger.Default().Warn("ItemStatsConsumer dropping message after failed attempts", "msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
 				c.ackMessage(ctx, pending.Message.ID)
 				continue
 			}
@@ -158,24 +160,24 @@ func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage,
 func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
 	event, err := itemstats.ParseEvent(values)
 	if err != nil {
-		log.Printf("[ItemStatsConsumer] invalid message: %v", err)
+		logger.Default().Warn("ItemStatsConsumer invalid message", "err", err)
 		c.ackMessage(ctx, msgID)
 		return
 	}
 
 	if err := c.handleEvent(ctx, event); err != nil {
-		log.Printf("[ItemStatsConsumer] failed to process %s event for item %d: %v", event.EventType, event.ItemID, err)
+		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
 		return
 	}
 
-	log.Printf("[ItemStatsConsumer] successfully processed %s event for item_id=%d", event.EventType, event.ItemID)
+	logger.Default().Info("ItemStatsConsumer processed event", "eventType", event.EventType, "itemID", event.ItemID)
 	c.ackMessage(ctx, msgID)
 }
 
 func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemstats.Event) error {
 	switch event.EventType {
 	case itemstats.EventTypeConsumed:
-		log.Printf("[ItemStatsConsumer] processing consumed event: agent_id=%d, item_id=%d", event.AgentID, event.ItemID)
+		logger.Default().Debug("ItemStatsConsumer processing consumed event", "agentID", event.AgentID, "itemID", event.ItemID)
 		if err := itemdal.IncrementConsumedCount(db.DB, event.ItemID); err != nil {
 			return err
 		}
@@ -183,7 +185,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 			return stats.ConsumedCount
 		})
 	case itemstats.EventTypeFeedback:
-		log.Printf("[ItemStatsConsumer] processing feedback event: agent_id=%d, item_id=%d, score=%d", event.AgentID, event.ItemID, event.Score)
+		logger.Default().Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score)
 		if err := itemdal.IncrementItemScore(db.DB, event.ItemID, event.Score); err != nil {
 			return err
 		}
@@ -193,7 +195,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 			go func() {
 				bgCtx := context.Background()
 				if err := stats.IncrHighQualityCount(bgCtx, mq.RDB); err != nil {
-					log.Printf("[ItemStatsConsumer] failed to increment high quality count: %v", err)
+					logger.Default().Warn("ItemStatsConsumer failed to increment high quality count", "err", err)
 				}
 			}()
 		}
@@ -217,7 +219,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 
 func (c *ItemStatsConsumer) ackMessage(ctx context.Context, msgID string) {
 	if err := mq.Ack(ctx, itemstats.StreamName, itemstats.GroupName, msgID); err != nil {
-		log.Printf("[ItemStatsConsumer] failed to ack message %s: %v", msgID, err)
+		logger.Default().Warn("ItemStatsConsumer failed to ack message", "msgID", msgID, "err", err)
 	}
 }
 

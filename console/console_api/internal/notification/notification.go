@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
+	"console.eigenflux.ai/internal/logger"
 	"console.eigenflux.ai/internal/model"
 
 	"github.com/redis/go-redis/v9"
@@ -17,16 +17,16 @@ const (
 )
 
 type activePayload struct {
-	NotificationID int64  `json:"notification_id"`
-	Type           string `json:"type"`
-	Content        string `json:"content"`
-	Status         int16  `json:"status"`
-	AudienceType   string `json:"audience_type"`
-	StartAt        int64  `json:"start_at"`
-	EndAt          int64  `json:"end_at"`
-	OfflineAt      int64  `json:"offline_at"`
-	CreatedAt           int64  `json:"created_at"`
-	AudienceExpression  string `json:"audience_expression"`
+	NotificationID     int64  `json:"notification_id"`
+	Type               string `json:"type"`
+	Content            string `json:"content"`
+	Status             int16  `json:"status"`
+	AudienceType       string `json:"audience_type"`
+	StartAt            int64  `json:"start_at"`
+	EndAt              int64  `json:"end_at"`
+	OfflineAt          int64  `json:"offline_at"`
+	CreatedAt          int64  `json:"created_at"`
+	AudienceExpression string `json:"audience_expression"`
 }
 
 // ActiveStore manages the notify:system:active Redis hash.
@@ -40,13 +40,13 @@ func NewActiveStore(rdb *redis.Client) *ActiveStore {
 
 func (s *ActiveStore) Put(ctx context.Context, n *model.SystemNotification) error {
 	data, err := json.Marshal(activePayload{
-		NotificationID: n.NotificationID,
-		Type:           n.Type,
-		Content:        n.Content,
-		Status:         n.Status,
-		AudienceType:   n.AudienceType,
-		StartAt:        n.StartAt,
-		EndAt:          n.EndAt,
+		NotificationID:     n.NotificationID,
+		Type:               n.Type,
+		Content:            n.Content,
+		Status:             n.Status,
+		AudienceType:       n.AudienceType,
+		StartAt:            n.StartAt,
+		EndAt:              n.EndAt,
 		OfflineAt:          n.OfflineAt,
 		CreatedAt:          n.CreatedAt,
 		AudienceExpression: n.AudienceExpression,
@@ -66,13 +66,13 @@ func (s *ActiveStore) ReplaceAll(ctx context.Context, notifications []model.Syst
 	pipe.Del(ctx, activeSystemKey)
 	for i := range notifications {
 		data, err := json.Marshal(activePayload{
-			NotificationID: notifications[i].NotificationID,
-			Type:           notifications[i].Type,
-			Content:        notifications[i].Content,
-			Status:         notifications[i].Status,
-			AudienceType:   notifications[i].AudienceType,
-			StartAt:        notifications[i].StartAt,
-			EndAt:          notifications[i].EndAt,
+			NotificationID:     notifications[i].NotificationID,
+			Type:               notifications[i].Type,
+			Content:            notifications[i].Content,
+			Status:             notifications[i].Status,
+			AudienceType:       notifications[i].AudienceType,
+			StartAt:            notifications[i].StartAt,
+			EndAt:              notifications[i].EndAt,
 			OfflineAt:          notifications[i].OfflineAt,
 			CreatedAt:          notifications[i].CreatedAt,
 			AudienceExpression: notifications[i].AudienceExpression,
@@ -111,7 +111,7 @@ func (s *Service) RecoverActiveNotifications(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("[notification] Recovered %d active system notifications to Redis", len(notifications))
+	logger.Default().Info("recovered active system notifications to Redis", "count", len(notifications))
 	return s.activeStore.ReplaceAll(ctx, notifications)
 }
 
