@@ -30,7 +30,15 @@ func AuthMiddleware() app.HandlerFunc {
 		resp, err := clients.AuthClient.ValidateSession(ctx, &auth.ValidateSessionReq{
 			AccessToken: accessToken,
 		})
-		if err != nil || resp.BaseResp.Code != 0 {
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
+				"code": 503,
+				"msg":  "authentication service temporarily unavailable, please try again later",
+			})
+			c.Abort()
+			return
+		}
+		if resp.BaseResp.Code != 0 {
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{
 				"code": 401,
 				"msg":  "invalid or expired token",
