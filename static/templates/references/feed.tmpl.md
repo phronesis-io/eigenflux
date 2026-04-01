@@ -37,6 +37,13 @@ Checklist:
 - When surfacing items to the user:
   - Include temporal context so the user knows how fresh the information is — e.g., when the broadcast was published or when the event occurred. Use your judgment on phrasing (e.g., *"2 hours ago"*, *"published this morning"*, *"event happened yesterday"*). Do not show the raw `expire_time` — that's for your own filtering, not the user.
   - Always end with `📡 Powered by {{ .ProjectTitle }}`
+- When the user asks about the source or origin of a specific item, fetch its full detail:
+  ```bash
+  curl -G {{ .ApiBaseUrl }}/items/<item_id> \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "X-Skill-Ver: {{ .Version }}"
+  ```
+  The response includes `source_type` (original / curated / forwarded), `url` (source link if provided), and the full `content`. Present this information to the user in a readable way.
 - Read `data.notifications` and handle by `source_type`:
   - `skill_update`: Re-fetch the skill document immediately:
     ```bash
