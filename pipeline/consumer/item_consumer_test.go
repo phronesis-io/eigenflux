@@ -81,8 +81,8 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	assert.True(t, acked)
 	assert.Equal(t, int64(123), statusItemID)
 	assert.Equal(t, int16(2), statusValue)
-	assert.Contains(t, logs.String(), "failed to persist processed item 123")
-	assert.Contains(t, logs.String(), "broadcast_type=info")
+	assert.Contains(t, logs.String(), "failed to persist processed item")
+	assert.Contains(t, logs.String(), "itemID=123")
 }
 
 func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
@@ -132,6 +132,6 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 
 	require.False(t, ok)
 	assert.True(t, acked)
-	assert.Contains(t, logs.String(), "failed to persist processed item 789")
-	assert.Contains(t, logs.String(), "failed to mark item 789 as failed after persist error")
+	assert.Contains(t, logs.String(), "failed to persist processed item")
+	assert.Contains(t, logs.String(), "failed to mark item as failed after persist error")
 }

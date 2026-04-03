@@ -73,6 +73,7 @@ type Config struct {
 	OtelExporterEndpoint    string   // OTLP gRPC endpoint (default localhost:4317)
 	LokiURL                 string   // Loki push API URL (default http://localhost:3122)
 	LogLevel                string   // Structured log level: debug | info | warn | error
+	EnableReplayLog         bool     // Enable replay log publishing in FeedService (default: true)
 }
 
 func Load() *Config {
@@ -146,6 +147,7 @@ func Load() *Config {
 		OtelExporterEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                getEnv("LOG_LEVEL", "debug"),
+		EnableReplayLog:         getEnvBool("ENABLE_REPLAY_LOG", true),
 	}
 }
 

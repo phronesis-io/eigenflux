@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/impr"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/replaylog"
 	itemDal "eigenflux_server/rpc/item/dal"
 )
 
@@ -92,6 +93,21 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	logger.Ctx(ctx).Info("SortService returned items", "count", len(sortResp.ItemIds))
 
+	// Build replay data lookup from sorted_items
+	replayLookup := make(map[int64]*replayData)
+	if sortResp.SortedItems != nil {
+		for _, si := range sortResp.SortedItems {
+			rd := &replayData{score: si.Score}
+			if si.AgentFeatures != nil {
+				rd.agentFeatures = *si.AgentFeatures
+			}
+			if si.ItemFeatures != nil {
+				rd.itemFeatures = *si.ItemFeatures
+			}
+			replayLookup[si.ItemId] = rd
+		}
+	}
+
 	if len(sortResp.ItemIds) == 0 {
 		return &feed.FetchFeedResp{
 			Items:    []*feed.FeedItem{},
@@ -159,7 +175,13 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	feedItems := s.buildFeedItems(toReturn, itemMap)
 
-	go s.recordImpressions(context.Background(), agentID, feedItems)
+	go func() {
+		bgCtx := context.Background()
+		s.recordImpressions(bgCtx, agentID, feedItems)
+		if s.config.EnableReplayLog && len(replayLookup) > 0 {
+			s.publishReplayLog(bgCtx, agentID, feedItems, replayLookup)
+		}
+	}()
 
 	hasMore := len(toCache) > 0
 	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
@@ -287,6 +309,41 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 		feedItems = append(feedItems, feedItem)
 	}
 	return feedItems
+}
+
+type replayData struct {
+	score         float64
+	agentFeatures string
+	itemFeatures  string
+}
+
+func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
+	if len(feedItems) == 0 {
+		return
+	}
+
+	var agentFeatures string
+	for _, rd := range lookup {
+		agentFeatures = rd.agentFeatures
+		break
+	}
+
+	served := make([]replaylog.ServedItem, 0, len(feedItems))
+	for i, fi := range feedItems {
+		si := replaylog.ServedItem{
+			ItemID:   fi.ItemId,
+			Position: i,
+		}
+		if rd, ok := lookup[fi.ItemId]; ok {
+			si.Score = rd.score
+			si.ItemFeatures = rd.itemFeatures
+		}
+		served = append(served, si)
+	}
+
+	if err := replaylog.Publish(ctx, agentID, agentFeatures, served); err != nil {
+		logger.Default().Warn("failed to publish replay log", "err", err)
+	}
 }
 
 func (s *FeedServiceImpl) recordImpressions(ctx context.Context, agentID int64, feedItems []*feed.FeedItem) {

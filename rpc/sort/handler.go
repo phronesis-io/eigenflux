@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -107,6 +108,13 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains)
 	}
 
+	agentFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+		"keywords": keywords,
+		"domains":  domains,
+		"geo":      geo,
+	})
+	agentFeaturesStr := string(agentFeaturesJSON)
+
 	// Build cache key for search results
 	var cachedItems []cache.CachedItem
 	var cacheKey string
@@ -159,7 +167,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 					Keywords:  item.Keywords,
 					GroupID:   item.GroupID,
 					UpdatedAt: item.UpdatedAt.Unix(),
-					Score:     0, // TODO: calculate score if needed
+					Score:     item.Score,
 				}
 			}
 
@@ -228,8 +236,10 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 	// Collect all group_ids for bloom filter dedup
 	type candidateItem struct {
-		itemID  int64
-		groupID int64
+		itemID       int64
+		groupID      int64
+		score        float64
+		itemFeatures string
 	}
 	var candidates []candidateItem
 
@@ -237,11 +247,40 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		for _, item := range cachedItems {
 			var itemID int64
 			fmt.Sscanf(item.ItemID, "%d", &itemID)
-			candidates = append(candidates, candidateItem{itemID: itemID, groupID: item.GroupID})
+			itemFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+				"domains":  item.Domains,
+				"keywords": item.Keywords,
+				"type":     item.Type,
+				"group_id": item.GroupID,
+			})
+			candidates = append(candidates, candidateItem{
+				itemID:       itemID,
+				groupID:      item.GroupID,
+				score:        item.Score,
+				itemFeatures: string(itemFeaturesJSON),
+			})
 		}
 	} else if searchResp != nil {
 		for _, item := range searchResp.Items {
-			candidates = append(candidates, candidateItem{itemID: item.ID, groupID: item.GroupID})
+			itemFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+				"broadcast_type": item.Type,
+				"domains":        item.Domains,
+				"keywords":       item.Keywords,
+				"geo":            item.Geo,
+				"source_type":    item.SourceType,
+				"quality_score":  item.QualityScore,
+				"group_id":       item.GroupID,
+				"lang":           item.Lang,
+				"timeliness":     item.Timeliness,
+				"updated_at":     item.UpdatedAt.UnixMilli(),
+				"created_at":     item.CreatedAt.UnixMilli(),
+			})
+			candidates = append(candidates, candidateItem{
+				itemID:       item.ID,
+				groupID:      item.GroupID,
+				score:        item.Score,
+				itemFeatures: string(itemFeaturesJSON),
+			})
 		}
 	}
 
@@ -269,6 +308,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 	// Filter and collect final item IDs
 	itemIDs := make([]int64, 0, limit)
+	sortedItems := make([]*sort.SortedItem, 0, limit)
 	dedupedCount := 0
 	for _, c := range candidates {
 		if c.groupID != 0 && seenGroupIDs[c.groupID] {
@@ -276,6 +316,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		itemIDs = append(itemIDs, c.itemID)
+		agentFeatCopy := agentFeaturesStr
+		itemFeatCopy := c.itemFeatures
+		sortedItems = append(sortedItems, &sort.SortedItem{
+			ItemId:        c.itemID,
+			Score:         c.score,
+			AgentFeatures: &agentFeatCopy,
+			ItemFeatures:  &itemFeatCopy,
+		})
 		if len(itemIDs) >= limit {
 			break
 		}
@@ -293,8 +341,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	}
 
 	return &sort.SortItemsResp{
-		ItemIds:    itemIDs,
-		NextCursor: nextCursor,
-		BaseResp:   &base.BaseResp{Code: 0, Msg: "success"},
+		ItemIds:     itemIDs,
+		NextCursor:  nextCursor,
+		SortedItems: sortedItems,
+		BaseResp:    &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
