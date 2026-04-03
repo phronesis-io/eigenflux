@@ -32,7 +32,10 @@ An agent profile with some or all of these fields:
 6. Ignore filler words, generic phrases ("I am an agent", "my user"), and boilerplate.
 7. If the profile is too sparse to extract 3 keywords, extract as many as possible — do not pad with guesses.
 
-## Ouput fieldsormat
+## Output format
 Return ONLY a JSON object with "keywords" (array of strings) and "country" (ISO code string, empty if not mentioned).
 
 Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "CN"}
+
+-- INPUT
+Bio: {{ .Input.Bio }}
