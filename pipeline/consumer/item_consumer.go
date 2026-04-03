@@ -43,9 +43,9 @@ type ItemConsumer struct {
 	maxWorkers       int
 }
 
-func NewItemConsumer(cfg *config.Config) *ItemConsumer {
+func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	return &ItemConsumer{
-		llmClient:        llm.NewClient(cfg),
+		llmClient:        llm.NewClient(cfg, prompts),
 		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		qualityThreshold: cfg.QualityThreshold,
 		maxWorkers:       cfg.ItemConsumerWorkers,
@@ -155,7 +155,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		return
 	}
 
-	// Check blacklist keywords before LLM processing
+	// Check blacklist keywords (cheap string match — run first)
 	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
 		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
@@ -166,7 +166,99 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		return
 	}
 
-	// Call LLM to process item with retries
+	// --- Dedup phase (cheap gates before expensive LLM calls) ---
+
+	// Phase 1: Hash-based deduplication (Redis lookup — exact duplicates are discarded)
+	contentHash := dedup.ComputeContentHash(raw.RawContent)
+	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
+
+	if hashExists, _, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
+		logger.Default().Info("ItemConsumer exact duplicate (hash match), discarding", "itemID", itemID)
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+			return
+		}
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	} else if err != nil {
+		logger.Default().Warn("ItemConsumer Redis hash check failed, continuing", "itemID", itemID, "err", err)
+	}
+
+	// Generate embedding (needed for both vector dedup and ES indexing)
+	var itemEmbedding []float32
+	var finalGroupID int64
+	embAttempt := 0
+	for embAttempt < maxRetries {
+		embAttempt++
+		var embErr error
+		itemEmbedding, embErr = c.embeddingClient.GetEmbedding(ctx, raw.RawContent)
+		if embErr == nil {
+			if expectedDims := c.embeddingClient.Dimensions(); expectedDims > 0 && len(itemEmbedding) != expectedDims {
+				embErr = fmt.Errorf("embedding dimension mismatch: got=%d want=%d", len(itemEmbedding), expectedDims)
+				itemEmbedding = nil
+			}
+		}
+		if embErr == nil {
+			break
+		}
+		logger.Default().Warn("ItemConsumer embedding attempt failed", "attempt", embAttempt, "maxRetries", maxRetries, "itemID", itemID, "err", embErr)
+		if embAttempt < maxRetries {
+			time.Sleep(time.Duration(embAttempt) * time.Second)
+		}
+	}
+
+	// Phase 2: Vector-based deduplication (assigns group_id, does not discard)
+	if itemEmbedding == nil {
+		logger.Default().Warn("ItemConsumer all embedding attempts failed, using item_id as group_id", "itemID", itemID)
+		finalGroupID = itemID
+	} else {
+		similarItems, err := sortDal.SearchSimilarItems(ctx, itemEmbedding, simThreshold, 5)
+		if err != nil {
+			logger.Default().Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
+			finalGroupID = itemID
+		} else if len(similarItems) > 0 {
+			finalGroupID = similarItems[0].GroupID
+			logger.Default().Info("ItemConsumer item matched to group", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
+		} else {
+			finalGroupID = itemID
+			logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
+		}
+	}
+
+	// Save hash for future exact-duplicate detection
+	if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
+		logger.Default().Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
+	}
+
+	// --- LLM phase (expensive calls, run after cheap filters) ---
+
+	// Safety check
+	var safetyResult *llm.SafetyResult
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		safetyResult, err = c.llmClient.CheckSafety(ctx, raw.RawContent, raw.RawNotes)
+		if err == nil {
+			break
+		}
+		logger.Default().Warn("ItemConsumer safety check attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+	if err != nil {
+		logger.Default().Error("ItemConsumer safety check all retries failed", "itemID", itemID, "err", err)
+		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+	if !safetyResult.Safe {
+		logger.Default().Info("item flagged by safety check", "itemID", itemID, "flag", safetyResult.Flag, "reason", safetyResult.Reason)
+		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+			return
+		}
+		mq.Ack(ctx, itemStream, itemGroup, msgID)
+		return
+	}
+
+	// LLM processing with retries
 	var result *llm.ExtractResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		result, err = c.llmClient.ProcessItem(ctx, raw.RawContent, raw.RawNotes)
@@ -176,7 +268,6 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		logger.Default().Warn("ItemConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
-
 	if err != nil {
 		logger.Default().Error("all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
@@ -184,7 +275,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		return
 	}
 
-	// Check discard flag (skip in non-dev environments for testing)
+	// Check discard flag
 	if result.Discard {
 		logger.Default().Info("item discarded by LLM", "itemID", itemID, "reason", result.DiscardReason)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
@@ -214,73 +305,6 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		domainsStr = result.Domains[0]
 		for i := 1; i < len(result.Domains); i++ {
 			domainsStr += "," + result.Domains[i]
-		}
-	}
-
-	// Phase 1: Hash-based deduplication (fast path for exact duplicates)
-	var itemEmbedding []float32
-	var finalGroupID int64
-	skipEmbedding := false
-
-	contentHash := dedup.ComputeContentHash(raw.RawContent)
-	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
-
-	// Check if hash exists in Redis (best-effort, don't fail if Redis is down)
-	if hashExists, existingGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
-		// Exact duplicate found, reuse existing group_id
-		finalGroupID = existingGroupID
-		skipEmbedding = true
-		logger.Default().Info("ItemConsumer exact duplicate (hash match)", "itemID", itemID, "groupID", finalGroupID)
-	} else if err != nil {
-		logger.Default().Warn("ItemConsumer Redis hash check failed, falling back to vector search", "itemID", itemID, "err", err)
-	}
-
-	// generate embedding
-	embAttempt := 0
-	for embAttempt < maxRetries {
-		embAttempt++
-		var embErr error
-		itemEmbedding, embErr = c.embeddingClient.GetEmbedding(ctx, raw.RawContent)
-		if embErr == nil {
-			if expectedDims := c.embeddingClient.Dimensions(); expectedDims > 0 && len(itemEmbedding) != expectedDims {
-				embErr = fmt.Errorf("embedding dimension mismatch: got=%d want=%d", len(itemEmbedding), expectedDims)
-				itemEmbedding = nil
-			}
-		}
-		if embErr == nil {
-			break
-		}
-		logger.Default().Warn("ItemConsumer embedding attempt failed", "attempt", embAttempt, "maxRetries", maxRetries, "itemID", itemID, "err", embErr)
-		if embAttempt < maxRetries {
-			time.Sleep(time.Duration(embAttempt) * time.Second)
-		}
-	}
-
-	// Phase 2: Vector-based deduplication (for non-exact duplicates)
-	if !skipEmbedding {
-		if itemEmbedding == nil {
-			logger.Default().Warn("ItemConsumer all embedding attempts failed, using item_id as group_id", "itemID", itemID)
-			finalGroupID = itemID
-		} else {
-			// Search for similar items
-			similarItems, err := sortDal.SearchSimilarItems(ctx, itemEmbedding, simThreshold, 5)
-			if err != nil {
-				logger.Default().Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
-				finalGroupID = itemID
-			} else if len(similarItems) > 0 {
-				// Found similar item, use its group_id
-				finalGroupID = similarItems[0].GroupID
-				logger.Default().Info("ItemConsumer item matched to group", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
-			} else {
-				// No similar item found, use own item_id as group_id
-				finalGroupID = itemID
-				logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
-			}
-		}
-
-		// Save hash mapping for future deduplication (best-effort)
-		if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
-			logger.Default().Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
 		}
 	}
 

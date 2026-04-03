@@ -456,6 +456,38 @@ func TestSendPM_FriendBased_RequiresFriendship(t *testing.T) {
 	t.Logf("Friend PM correctly rejected without friendship")
 }
 
+func TestSendPM_FriendBased_RequiresReceiverID(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"friendpm_reqrid_a@test.com", "friendpm_reqrid_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "friendpm_reqrid_a@test.com", "FriendPM Req A", "bio")
+	agentB := testutil.RegisterAgent(t, "friendpm_reqrid_b@test.com", "FriendPM Req B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "Missing receiver_id for friend PM",
+	}, agentA["token"].(string))
+
+	code := int(resp["code"].(float64))
+	if code != 400 {
+		t.Fatalf("expected code=400 when receiver_id is missing for friend PM, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Friend PM without receiver_id correctly rejected")
+}
+
 // Test 11: Blocked user PM silent success
 func TestSendPM_BlockedUser_SilentSuccess(t *testing.T) {
 	testutil.WaitForAPI(t)
@@ -1130,9 +1162,8 @@ func TestFriendPM_ReplyWithConvID_NoIceBreak(t *testing.T) {
 
 	// Replying with conv_id should still bypass icebreak for friend conversations.
 	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": agentB["agent_id"].(string),
-		"content":     "Second friend message via conv_id",
-		"conv_id":     convID,
+		"content": "Second friend message via conv_id",
+		"conv_id": convID,
 	}, agentA["token"].(string))
 	code = int(resp["code"].(float64))
 	if code != 0 {

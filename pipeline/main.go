@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"eigenflux_server/pipeline/consumer"
+	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -70,8 +71,17 @@ func main() {
 		log.Fatalf("failed to init milestone service: %v", err)
 	}
 
-	profileConsumer := consumer.NewProfileConsumer(cfg)
-	itemConsumer := consumer.NewItemConsumer(cfg)
+	prompts, err := llm.LoadDefaultPrompts()
+	if err != nil {
+		log.Fatalf("failed to load prompt templates: %v", err)
+	}
+	if err := llm.ValidateAllPrompts(prompts); err != nil {
+		log.Fatalf("prompt validation failed: %v", err)
+	}
+	log.Printf("Loaded and validated %d prompt templates: %v", len(prompts.Names()), prompts.Names())
+
+	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
+	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
 
 	go profileConsumer.Start(ctx)

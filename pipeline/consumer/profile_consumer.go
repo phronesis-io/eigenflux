@@ -27,9 +27,9 @@ type ProfileConsumer struct {
 	maxWorkers int
 }
 
-func NewProfileConsumer(cfg *config.Config) *ProfileConsumer {
+func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ProfileConsumer {
 	return &ProfileConsumer{
-		llmClient:  llm.NewClient(cfg),
+		llmClient:  llm.NewClient(cfg, prompts),
 		maxWorkers: 10, // Fixed concurrency level
 	}
 }

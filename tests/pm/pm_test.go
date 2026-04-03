@@ -111,9 +111,8 @@ func TestPMFullFlow(t *testing.T) {
 	// ============================================================
 	t.Run("SendPM_NewConversation", func(t *testing.T) {
 		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-			"receiver_id": strconv.FormatInt(authorID, 10),
-			"content":     "Hello, I saw your item!",
-			"item_id":     strconv.FormatInt(mockItemID, 10),
+			"content": "Hello, I saw your item!",
+			"item_id": strconv.FormatInt(mockItemID, 10),
 		}, userToken)
 
 		code := int(resp["code"].(float64))
@@ -136,9 +135,8 @@ func TestPMFullFlow(t *testing.T) {
 	// ============================================================
 	t.Run("SendPM_IceBreakBlocksSameSender", func(t *testing.T) {
 		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-			"receiver_id": strconv.FormatInt(authorID, 10),
-			"content":     "Another message before reply",
-			"item_id":     strconv.FormatInt(mockItemID, 10),
+			"content": "Another message before reply",
+			"item_id": strconv.FormatInt(mockItemID, 10),
 		}, userToken)
 
 		code := int(resp["code"].(float64))
@@ -155,9 +153,8 @@ func TestPMFullFlow(t *testing.T) {
 			t.Skip("skipped: no conv_id from previous steps")
 		}
 		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-			"receiver_id": strconv.FormatInt(authorID, 10),
-			"content":     "Trying to continue via conv_id before ice break",
-			"conv_id":     convID,
+			"content": "Trying to continue via conv_id before ice break",
+			"conv_id": convID,
 		}, userToken)
 
 		code := int(resp["code"].(float64))
@@ -200,9 +197,8 @@ func TestPMFullFlow(t *testing.T) {
 	// ============================================================
 	t.Run("SendPM_AuthorReplies", func(t *testing.T) {
 		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-			"receiver_id": strconv.FormatInt(userID, 10),
-			"content":     "Thanks for reaching out!",
-			"conv_id":     convID,
+			"content": "Thanks for reaching out!",
+			"conv_id": convID,
 		}, authorToken)
 
 		code := int(resp["code"].(float64))
@@ -216,9 +212,8 @@ func TestPMFullFlow(t *testing.T) {
 	// ============================================================
 	t.Run("SendPM_AfterIceBreakFreely", func(t *testing.T) {
 		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-			"receiver_id": strconv.FormatInt(authorID, 10),
-			"content":     "Great, let me share more details",
-			"conv_id":     convID,
+			"content": "Great, let me share more details",
+			"conv_id": convID,
 		}, userToken)
 
 		code := int(resp["code"].(float64))
@@ -414,9 +409,8 @@ func TestSendPM_NoReplyItem(t *testing.T) {
 	defer cleanPMData(t, authorID, userID)
 
 	resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(authorID, 10),
-		"content":     "Trying to message no_reply item",
-		"item_id":     strconv.FormatInt(mockItemID, 10),
+		"content": "Trying to message no_reply item",
+		"item_id": strconv.FormatInt(mockItemID, 10),
 	}, user["token"].(string))
 
 	code := int(resp["code"].(float64))
@@ -426,36 +420,52 @@ func TestSendPM_NoReplyItem(t *testing.T) {
 	t.Logf("SendPM no_reply correctly rejected")
 }
 
-func TestSendPM_InvalidItemOwner(t *testing.T) {
+func TestSendPM_ItemID_IgnoresReceiverIDValidation(t *testing.T) {
 	testutil.WaitForAPI(t)
 
-	emails := []string{"pm_owner_a@test.com", "pm_owner_b@test.com"}
+	emails := []string{"pm_owner_a@test.com", "pm_owner_b@test.com", "pm_owner_c@test.com"}
 	testutil.CleanupTestEmails(t, emails...)
 
 	agentA := testutil.RegisterAgent(t, "pm_owner_a@test.com", "Agent A", "bio")
 	agentB := testutil.RegisterAgent(t, "pm_owner_b@test.com", "Agent B", "bio")
+	agentC := testutil.RegisterAgent(t, "pm_owner_c@test.com", "Agent C", "bio")
 
 	agentAID, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
 	agentBID, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	agentCID, _ := strconv.ParseInt(agentC["agent_id"].(string), 10, 64)
 
 	// Mock item owned by A
 	mockItemID := int64(7770003)
 	mockItem(t, mockItemID, agentAID, "")
 	defer cleanMockItems(t, mockItemID)
-	defer cleanPMData(t, agentAID, agentBID)
+	defer cleanPMData(t, agentAID, agentBID, agentCID)
 
-	// B tries to send PM to A, but claims receiver is B (wrong owner)
+	// B replies by item_id while passing a mismatched receiver_id. The server should
+	// ignore the provided receiver_id and route the message to the item owner.
 	resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(agentBID, 10),
-		"content":     "Wrong receiver",
+		"receiver_id": strconv.FormatInt(agentCID, 10),
+		"content":     "Route to item owner instead",
 		"item_id":     strconv.FormatInt(mockItemID, 10),
-	}, agentA["token"].(string))
+	}, agentB["token"].(string))
 
 	code := int(resp["code"].(float64))
-	if code == 0 {
-		t.Fatalf("expected error for wrong item owner, got success")
+	if code != 0 {
+		t.Fatalf("expected success for item-based PM with mismatched receiver_id, got code=%d msg=%v", code, resp["msg"])
 	}
-	t.Logf("SendPM wrong owner correctly rejected: code=%d", code)
+
+	fetchResp := testutil.DoGet(t, "/api/v1/pm/fetch", agentA["token"].(string))
+	if int(fetchResp["code"].(float64)) != 0 {
+		t.Fatalf("FetchPM failed for item owner: %v", fetchResp["msg"])
+	}
+	messages := fetchResp["data"].(map[string]interface{})["messages"].([]interface{})
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message for item owner, got %d", len(messages))
+	}
+	msg := messages[0].(map[string]interface{})
+	if msg["receiver_id"].(string) != agentA["agent_id"].(string) {
+		t.Fatalf("expected receiver_id=%s, got %v", agentA["agent_id"], msg["receiver_id"])
+	}
+	t.Logf("Item-based PM ignored mismatched receiver_id and delivered to owner")
 }
 
 func TestSendPM_Unauthorized(t *testing.T) {
@@ -557,9 +567,8 @@ func TestSendPM_DifferentItemsIndependentConversations(t *testing.T) {
 
 	// Send PM to item 1
 	resp1 := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(authorID, 10),
-		"content":     "Message about item 1",
-		"item_id":     strconv.FormatInt(itemID1, 10),
+		"content": "Message about item 1",
+		"item_id": strconv.FormatInt(itemID1, 10),
 	}, user["token"].(string))
 	if int(resp1["code"].(float64)) != 0 {
 		t.Fatalf("SendPM to item1 failed: %v", resp1["msg"])
@@ -568,9 +577,8 @@ func TestSendPM_DifferentItemsIndependentConversations(t *testing.T) {
 
 	// Send PM to item 2 — should create a separate conversation, NOT be blocked by ice break
 	resp2 := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(authorID, 10),
-		"content":     "Message about item 2",
-		"item_id":     strconv.FormatInt(itemID2, 10),
+		"content": "Message about item 2",
+		"item_id": strconv.FormatInt(itemID2, 10),
 	}, user["token"].(string))
 	if int(resp2["code"].(float64)) != 0 {
 		t.Fatalf("SendPM to item2 failed (should not be blocked by item1 ice break): code=%v msg=%v", resp2["code"], resp2["msg"])
@@ -614,9 +622,8 @@ func TestFetchPM_CacheInvalidation(t *testing.T) {
 
 	// Step 2: Send a PM — this should invalidate the author's fetch cache
 	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(authorID, 10),
-		"content":     "Cache invalidation test",
-		"item_id":     strconv.FormatInt(mockItemID, 10),
+		"content": "Cache invalidation test",
+		"item_id": strconv.FormatInt(mockItemID, 10),
 	}, user["token"].(string))
 	if int(sendResp["code"].(float64)) != 0 {
 		t.Fatalf("SendPM failed: %v", sendResp["msg"])
@@ -672,9 +679,8 @@ func TestFetchPM_RedisCacheEvictionFallback(t *testing.T) {
 
 	// Send a PM
 	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
-		"receiver_id": strconv.FormatInt(authorID, 10),
-		"content":     "Redis eviction test",
-		"item_id":     strconv.FormatInt(mockItemID, 10),
+		"content": "Redis eviction test",
+		"item_id": strconv.FormatInt(mockItemID, 10),
 	}, user["token"].(string))
 	if int(sendResp["code"].(float64)) != 0 {
 		t.Fatalf("SendPM failed: %v", sendResp["msg"])
