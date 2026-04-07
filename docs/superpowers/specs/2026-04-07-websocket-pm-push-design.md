@@ -155,6 +155,18 @@ No changes to: IDL, database schema, existing HTTP API, docker-compose.
 | Redis subscription lost | Reconnect with exponential backoff |
 | Client pong timeout | Close connection, cleanup |
 
+## Testing
+
+Integration tests in `tests/` using `gorilla/websocket` client, requiring all services running (`go test -v ./tests/...`).
+
+| Test Case | Steps | Verification |
+|-----------|-------|-------------|
+| Auth failure | Connect with invalid token | Receive close code 4001 |
+| Initial push on connect | Send PMs via HTTP first, then connect WS with cursor=0 | WS client receives those messages immediately |
+| Real-time push | Connect WS, then send PM via `POST /api/v1/pm/send` | WS client receives push within a short window |
+| Cursor continuation | Send PMs, connect WS with cursor=last_msg_id | Only receive messages after cursor |
+| Connection replacement | Same agent opens second WS connection | First connection receives close code 4002 |
+
 ## Communication Direction
 
 - **Server to client only:** WS pushes new messages to client
