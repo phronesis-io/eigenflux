@@ -45,6 +45,7 @@ type CachedItem struct {
 	CreatedAtMs   int64    `json:"created_at_ms"`
 	UpdatedAt     int64    `json:"updated_at"`
 	UpdatedAtMs   int64    `json:"updated_at_ms"`
+	ExpireTimeMs  *int64   `json:"expire_time_ms,omitempty"`
 	Score         float64  `json:"score"`
 }
 

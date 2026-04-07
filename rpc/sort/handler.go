@@ -158,7 +158,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			// Convert to cached items
 			cachedItems := make([]cache.CachedItem, len(resp.Items))
 			for i, item := range resp.Items {
-				cachedItems[i] = cache.CachedItem{
+				ci := cache.CachedItem{
 					ItemID:        fmt.Sprintf("%d", item.ID),
 					Content:       item.Content,
 					Summary:       item.Summary,
@@ -176,6 +176,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 					UpdatedAtMs:   item.UpdatedAt.UnixMilli(),
 					Score:         item.Score,
 				}
+				if item.ExpireTime != nil {
+					ms := item.ExpireTime.UnixMilli()
+					ci.ExpireTimeMs = &ms
+				}
+				cachedItems[i] = ci
 			}
 
 			// Update cache (fire-and-forget)
@@ -254,7 +259,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		for _, item := range cachedItems {
 			var itemID int64
 			fmt.Sscanf(item.ItemID, "%d", &itemID)
-			itemFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+			feat := map[string]interface{}{
 				"broadcast_type": item.BroadcastType,
 				"domains":        item.Domains,
 				"keywords":       item.Keywords,
@@ -266,7 +271,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 				"timeliness":     item.Timeliness,
 				"updated_at":     item.UpdatedAtMs,
 				"created_at":     item.CreatedAtMs,
-			})
+			}
+			if item.ExpireTimeMs != nil {
+				feat["expire_time"] = *item.ExpireTimeMs
+			}
+			itemFeaturesJSON, _ := json.Marshal(feat)
 			candidates = append(candidates, candidateItem{
 				itemID:       itemID,
 				groupID:      item.GroupID,
@@ -276,7 +285,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	} else if searchResp != nil {
 		for _, item := range searchResp.Items {
-			itemFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+			feat := map[string]interface{}{
 				"broadcast_type": item.Type,
 				"domains":        item.Domains,
 				"keywords":       item.Keywords,
@@ -288,7 +297,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 				"timeliness":     item.Timeliness,
 				"updated_at":     item.UpdatedAt.UnixMilli(),
 				"created_at":     item.CreatedAt.UnixMilli(),
-			})
+			}
+			if item.ExpireTime != nil {
+				feat["expire_time"] = item.ExpireTime.UnixMilli()
+			}
+			itemFeaturesJSON, _ := json.Marshal(feat)
 			candidates = append(candidates, candidateItem{
 				itemID:       item.ID,
 				groupID:      item.GroupID,
