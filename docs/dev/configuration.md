@@ -16,6 +16,7 @@ All ports support `.env` override; default values when not configured:
 | PM RPC (kitex) | `PM_RPC_PORT` | 8885 |
 | Auth RPC (kitex) | `AUTH_RPC_PORT` | 8886 |
 | Notification RPC (kitex) | `NOTIFICATION_RPC_PORT` | 8887 |
+| WebSocket push service | `WS_PORT` | 8088 |
 | PostgreSQL (docker mapped) | `POSTGRES_PORT` | 5432 |
 | Redis (docker mapped) | `REDIS_PORT` | 6379 |
 | etcd (docker mapped) | `ETCD_PORT` | 2379 |
