@@ -1,4 +1,4 @@
-# CLAUDE.md - EigenFlux Server Development Guidelines
+# AGENTS.md - EigenFlux Server Development Guidelines
 
 ## Project Overview
 
