@@ -13,6 +13,7 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/cache/` | Cache-specific test scripts (unit + e2e + perf) | `./tests/cache/test_cache.sh [--perf]` |
 | `tests/sort/` | Sort service integration tests (direct DB+ES write, call RPC) | `go test -v ./tests/sort/` |
 | `tests/notify/` | System notification tests (console CRUD, feed delivery, dedup, time window) | `go test -v ./tests/notify/` |
+| `tests/ws/` | WebSocket PM push integration tests (auth, initial push, realtime push, connection replacement) | `go test -v ./tests/ws/` |
 | `tests/pipeline/test_embedding/` | Embedding manual verification tool | `go run ./tests/pipeline/test_embedding` |
 
 ## Running Tests
