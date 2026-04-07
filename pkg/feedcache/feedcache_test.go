@@ -34,16 +34,23 @@ func TestFeedCache_PushAndPop(t *testing.T) {
 	ctx := context.Background()
 
 	agentID := int64(1001)
-	groupIDs := []int64{100001, 100002, 100003, 100004, 100005}
+	entries := []Entry{
+		{GroupID: 100001, Score: 1.1, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100001}`},
+		{GroupID: 100002, Score: 2.2, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100002}`},
+		{GroupID: 100003, Score: 3.3, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100003}`},
+		{GroupID: 100004, Score: 4.4, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100004}`},
+		{GroupID: 100005, Score: 5.5, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100005}`},
+	}
 
 	// Push items
-	err := fc.Push(ctx, agentID, groupIDs)
+	err := fc.Push(ctx, agentID, entries)
 	assert.NoError(t, err)
 
 	// Pop 2 items
 	popped, err := fc.Pop(ctx, agentID, 2)
 	assert.NoError(t, err)
-	assert.Equal(t, []int64{100001, 100002}, popped)
+	require.Len(t, popped, 2)
+	assert.Equal(t, entries[:2], popped)
 
 	// Check remaining length
 	length, err := fc.Len(ctx, agentID)
@@ -53,7 +60,7 @@ func TestFeedCache_PushAndPop(t *testing.T) {
 	// Pop remaining items
 	popped, err = fc.Pop(ctx, agentID, 10)
 	assert.NoError(t, err)
-	assert.Equal(t, []int64{100003, 100004, 100005}, popped)
+	assert.Equal(t, entries[2:], popped)
 
 	// Cache should be empty now
 	length, err = fc.Len(ctx, agentID)
@@ -69,10 +76,14 @@ func TestFeedCache_Clear(t *testing.T) {
 	ctx := context.Background()
 
 	agentID := int64(1001)
-	groupIDs := []int64{100001, 100002, 100003}
+	entries := []Entry{
+		{GroupID: 100001},
+		{GroupID: 100002},
+		{GroupID: 100003},
+	}
 
 	// Push items
-	err := fc.Push(ctx, agentID, groupIDs)
+	err := fc.Push(ctx, agentID, entries)
 	require.NoError(t, err)
 
 	// Verify items exist
@@ -98,22 +109,22 @@ func TestFeedCache_MultipleAgents(t *testing.T) {
 	ctx := context.Background()
 
 	// Agent 1 cache
-	err := fc.Push(ctx, 1001, []int64{100001, 100002})
+	err := fc.Push(ctx, 1001, []Entry{{GroupID: 100001}, {GroupID: 100002}})
 	require.NoError(t, err)
 
 	// Agent 2 cache
-	err = fc.Push(ctx, 1002, []int64{100003, 100004})
+	err = fc.Push(ctx, 1002, []Entry{{GroupID: 100003}, {GroupID: 100004}})
 	require.NoError(t, err)
 
 	// Pop from agent 1
 	popped1, err := fc.Pop(ctx, 1001, 1)
 	assert.NoError(t, err)
-	assert.Equal(t, []int64{100001}, popped1)
+	assert.Equal(t, []Entry{{GroupID: 100001}}, popped1)
 
 	// Pop from agent 2
 	popped2, err := fc.Pop(ctx, 1002, 1)
 	assert.NoError(t, err)
-	assert.Equal(t, []int64{100003}, popped2)
+	assert.Equal(t, []Entry{{GroupID: 100003}}, popped2)
 
 	// Verify remaining lengths
 	len1, err := fc.Len(ctx, 1001)
@@ -150,7 +161,7 @@ func TestFeedCache_EmptyPush(t *testing.T) {
 	agentID := int64(1001)
 
 	// Push empty list
-	err := fc.Push(ctx, agentID, []int64{})
+	err := fc.Push(ctx, agentID, []Entry{})
 	assert.NoError(t, err)
 
 	// Verify cache is still empty
@@ -162,4 +173,18 @@ func TestFeedCache_EmptyPush(t *testing.T) {
 func TestFeedCache_KeyFormat(t *testing.T) {
 	key := GetKey(1001)
 	assert.Equal(t, "feed:cache:1001", key)
+}
+
+func TestFeedCache_PopLegacyGroupIDs(t *testing.T) {
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	key := GetKey(1001)
+	require.NoError(t, rdb.RPush(ctx, key, "100001", "100002").Err())
+
+	fc := NewFeedCache(rdb)
+	popped, err := fc.Pop(ctx, 1001, 10)
+	require.NoError(t, err)
+	assert.Equal(t, []Entry{{GroupID: 100001}, {GroupID: 100002}}, popped)
 }

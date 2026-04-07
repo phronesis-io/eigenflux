@@ -2,6 +2,7 @@ package feedcache
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -21,6 +22,15 @@ type FeedCache struct {
 	rdb *redis.Client
 }
 
+// Entry represents one cached feed item plus optional replay metadata
+// needed when the item is eventually served via load_more.
+type Entry struct {
+	GroupID       int64   `json:"group_id"`
+	Score         float64 `json:"score"`
+	AgentFeatures string  `json:"agent_features,omitempty"`
+	ItemFeatures  string  `json:"item_features,omitempty"`
+}
+
 // NewFeedCache creates a new FeedCache instance
 func NewFeedCache(rdb *redis.Client) *FeedCache {
 	return &FeedCache{rdb: rdb}
@@ -37,16 +47,20 @@ func (fc *FeedCache) Clear(ctx context.Context, agentID int64) error {
 	return fc.rdb.Del(ctx, key).Err()
 }
 
-// Push pushes group IDs to the end of the cache list
-func (fc *FeedCache) Push(ctx context.Context, agentID int64, groupIDs []int64) error {
-	if len(groupIDs) == 0 {
+// Push pushes cached entries to the end of the cache list.
+func (fc *FeedCache) Push(ctx context.Context, agentID int64, entries []Entry) error {
+	if len(entries) == 0 {
 		return nil
 	}
 
 	key := GetKey(agentID)
-	values := make([]interface{}, len(groupIDs))
-	for i, gid := range groupIDs {
-		values[i] = gid
+	values := make([]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		payload, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		values = append(values, string(payload))
 	}
 
 	pipe := fc.rdb.Pipeline()
@@ -56,8 +70,8 @@ func (fc *FeedCache) Push(ctx context.Context, agentID int64, groupIDs []int64) 
 	return err
 }
 
-// Pop pops up to limit group IDs from the front of the cache list
-func (fc *FeedCache) Pop(ctx context.Context, agentID int64, limit int) ([]int64, error) {
+// Pop pops up to limit cached entries from the front of the cache list.
+func (fc *FeedCache) Pop(ctx context.Context, agentID int64, limit int) ([]Entry, error) {
 	key := GetKey(agentID)
 
 	// Use LPOP with count (Redis 6.2+)
@@ -66,18 +80,31 @@ func (fc *FeedCache) Pop(ctx context.Context, agentID int64, limit int) ([]int64
 		return nil, err
 	}
 
-	groupIDs := make([]int64, 0, len(result))
+	entries := make([]Entry, 0, len(result))
 	for _, s := range result {
-		id, err := strconv.ParseInt(s, 10, 64)
-		if err == nil {
-			groupIDs = append(groupIDs, id)
+		entry, ok := parseEntry(s)
+		if ok {
+			entries = append(entries, entry)
 		}
 	}
-	return groupIDs, nil
+	return entries, nil
 }
 
 // Len returns the length of the cache list
 func (fc *FeedCache) Len(ctx context.Context, agentID int64) (int64, error) {
 	key := GetKey(agentID)
 	return fc.rdb.LLen(ctx, key).Result()
+}
+
+func parseEntry(raw string) (Entry, bool) {
+	var entry Entry
+	if err := json.Unmarshal([]byte(raw), &entry); err == nil && entry.GroupID != 0 {
+		return entry, true
+	}
+
+	groupID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || groupID == 0 {
+		return Entry{}, false
+	}
+	return Entry{GroupID: groupID}, true
 }

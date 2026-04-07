@@ -93,8 +93,8 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	logger.Ctx(ctx).Info("SortService returned items", "count", len(sortResp.ItemIds))
 
-	// Build replay data lookup from sorted_items
-	replayLookup := make(map[int64]*replayData)
+	// Build replay data lookup from sorted_items keyed by the ranked item_id first.
+	itemReplayLookup := make(map[int64]*replayData)
 	if sortResp.SortedItems != nil {
 		for _, si := range sortResp.SortedItems {
 			rd := &replayData{score: si.Score}
@@ -104,7 +104,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 			if si.ItemFeatures != nil {
 				rd.itemFeatures = *si.ItemFeatures
 			}
-			replayLookup[si.ItemId] = rd
+			itemReplayLookup[si.ItemId] = rd
 		}
 	}
 
@@ -138,6 +138,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	groupIDs := make([]int64, 0, len(sortResp.ItemIds))
 	itemMap := make(map[int64]*item.ProcessedItem)
+	groupReplayLookup := make(map[int64]*replayData)
 	for _, id := range sortResp.ItemIds {
 		pi, ok := piByItemID[id]
 		if !ok || pi.GroupId == nil || *pi.GroupId == 0 {
@@ -148,6 +149,9 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		}
 		groupIDs = append(groupIDs, *pi.GroupId)
 		itemMap[*pi.GroupId] = pi
+		if rd, ok := itemReplayLookup[id]; ok {
+			groupReplayLookup[*pi.GroupId] = rd
+		}
 	}
 
 	if len(groupIDs) == 0 {
@@ -168,7 +172,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	}
 
 	if len(toCache) > 0 {
-		if err := s.feedCache.Push(ctx, agentID, toCache); err != nil {
+		if err := s.feedCache.Push(ctx, agentID, s.buildFeedCacheEntries(toCache, groupReplayLookup)); err != nil {
 			logger.Ctx(ctx).Warn("failed to cache items", "err", err)
 		}
 	}
@@ -178,8 +182,8 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
-		if s.config.EnableReplayLog && len(replayLookup) > 0 {
-			s.publishReplayLog(bgCtx, agentID, feedItems, replayLookup)
+		if s.config.EnableReplayLog && len(groupReplayLookup) > 0 {
+			s.publishReplayLog(bgCtx, agentID, feedItems, groupReplayLookup)
 		}
 	}()
 
@@ -196,22 +200,24 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, limit int32) (*feed.FetchFeedResp, error) {
 	logger.Ctx(ctx).Info("handleLoadMore", "agentID", agentID, "limit", limit)
 
-	cachedGroupIDs, err := s.feedCache.Pop(ctx, agentID, int(limit))
+	cachedEntries, err := s.feedCache.Pop(ctx, agentID, int(limit))
 	if err != nil {
 		logger.Ctx(ctx).Warn("failed to pop from cache", "err", err)
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
-	if len(cachedGroupIDs) == 0 {
+	if len(cachedEntries) == 0 {
 		logger.Ctx(ctx).Info("cache empty, falling back to refresh")
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
+	cachedGroupIDs := make([]int64, 0, len(cachedEntries))
 	var itemIDs []int64
-	for _, gid := range cachedGroupIDs {
-		items, err := itemDal.GetItemsByGroupID(db.DB, gid)
+	for _, entry := range cachedEntries {
+		cachedGroupIDs = append(cachedGroupIDs, entry.GroupID)
+		items, err := itemDal.GetItemsByGroupID(db.DB, entry.GroupID)
 		if err != nil || len(items) == 0 {
-			logger.Ctx(ctx).Warn("failed to get items for group", "groupID", gid, "err", err)
+			logger.Ctx(ctx).Warn("failed to get items for group", "groupID", entry.GroupID, "err", err)
 			continue
 		}
 		itemIDs = append(itemIDs, items[0].ItemID)
@@ -244,7 +250,14 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 
 	feedItems := s.buildFeedItems(cachedGroupIDs, itemMap)
 
-	go s.recordImpressions(context.Background(), agentID, feedItems)
+	go func() {
+		bgCtx := context.Background()
+		s.recordImpressions(bgCtx, agentID, feedItems)
+		replayLookup := s.buildReplayLookupFromCacheEntries(cachedEntries)
+		if s.config.EnableReplayLog && len(replayLookup) > 0 {
+			s.publishReplayLog(bgCtx, agentID, feedItems, replayLookup)
+		}
+	}()
 
 	cacheLen, err := s.feedCache.Len(ctx, agentID)
 	if err != nil {
@@ -317,15 +330,52 @@ type replayData struct {
 	itemFeatures  string
 }
 
+func (s *FeedServiceImpl) buildFeedCacheEntries(groupIDs []int64, lookup map[int64]*replayData) []feedcache.Entry {
+	entries := make([]feedcache.Entry, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		entry := feedcache.Entry{GroupID: groupID}
+		if rd, ok := lookup[groupID]; ok {
+			entry.Score = rd.score
+			entry.AgentFeatures = rd.agentFeatures
+			entry.ItemFeatures = rd.itemFeatures
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func (s *FeedServiceImpl) buildReplayLookupFromCacheEntries(entries []feedcache.Entry) map[int64]*replayData {
+	lookup := make(map[int64]*replayData, len(entries))
+	for _, entry := range entries {
+		if entry.GroupID == 0 {
+			continue
+		}
+		if entry.AgentFeatures == "" && entry.ItemFeatures == "" && entry.Score == 0 {
+			continue
+		}
+		lookup[entry.GroupID] = &replayData{
+			score:         entry.Score,
+			agentFeatures: entry.AgentFeatures,
+			itemFeatures:  entry.ItemFeatures,
+		}
+	}
+	return lookup
+}
+
 func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
 	if len(feedItems) == 0 {
 		return
 	}
 
 	var agentFeatures string
-	for _, rd := range lookup {
-		agentFeatures = rd.agentFeatures
-		break
+	for _, fi := range feedItems {
+		if fi.GroupId == nil || *fi.GroupId == 0 {
+			continue
+		}
+		if rd, ok := lookup[*fi.GroupId]; ok && rd.agentFeatures != "" {
+			agentFeatures = rd.agentFeatures
+			break
+		}
 	}
 
 	served := make([]replaylog.ServedItem, 0, len(feedItems))
@@ -334,9 +384,14 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, f
 			ItemID:   fi.ItemId,
 			Position: i,
 		}
-		if rd, ok := lookup[fi.ItemId]; ok {
-			si.Score = rd.score
-			si.ItemFeatures = rd.itemFeatures
+		if fi.GroupId != nil {
+			if rd, ok := lookup[*fi.GroupId]; ok {
+				si.Score = rd.score
+				si.ItemFeatures = rd.itemFeatures
+			}
+		}
+		if si.ItemFeatures == "" {
+			si.ItemFeatures = "{}"
 		}
 		served = append(served, si)
 	}

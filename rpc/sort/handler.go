@@ -159,15 +159,22 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			cachedItems := make([]cache.CachedItem, len(resp.Items))
 			for i, item := range resp.Items {
 				cachedItems[i] = cache.CachedItem{
-					ItemID:    fmt.Sprintf("%d", item.ID),
-					Content:   item.Content,
-					Summary:   item.Summary,
-					Type:      item.Type,
-					Domains:   item.Domains,
-					Keywords:  item.Keywords,
-					GroupID:   item.GroupID,
-					UpdatedAt: item.UpdatedAt.Unix(),
-					Score:     item.Score,
+					ItemID:        fmt.Sprintf("%d", item.ID),
+					Content:       item.Content,
+					Summary:       item.Summary,
+					BroadcastType: item.Type,
+					Domains:       item.Domains,
+					Keywords:      item.Keywords,
+					Geo:           item.Geo,
+					SourceType:    item.SourceType,
+					QualityScore:  item.QualityScore,
+					GroupID:       item.GroupID,
+					Lang:          item.Lang,
+					Timeliness:    item.Timeliness,
+					CreatedAtMs:   item.CreatedAt.UnixMilli(),
+					UpdatedAt:     item.UpdatedAt.Unix(),
+					UpdatedAtMs:   item.UpdatedAt.UnixMilli(),
+					Score:         item.Score,
 				}
 			}
 
@@ -248,10 +255,17 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			var itemID int64
 			fmt.Sscanf(item.ItemID, "%d", &itemID)
 			itemFeaturesJSON, _ := json.Marshal(map[string]interface{}{
-				"domains":  item.Domains,
-				"keywords": item.Keywords,
-				"type":     item.Type,
-				"group_id": item.GroupID,
+				"broadcast_type": item.BroadcastType,
+				"domains":        item.Domains,
+				"keywords":       item.Keywords,
+				"geo":            item.Geo,
+				"source_type":    item.SourceType,
+				"quality_score":  item.QualityScore,
+				"group_id":       item.GroupID,
+				"lang":           item.Lang,
+				"timeliness":     item.Timeliness,
+				"updated_at":     item.UpdatedAtMs,
+				"created_at":     item.CreatedAtMs,
 			})
 			candidates = append(candidates, candidateItem{
 				itemID:       itemID,
