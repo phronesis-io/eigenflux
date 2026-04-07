@@ -30,10 +30,10 @@ curl -G {{ .ApiBaseUrl }}/items/feed \
 Checklist:
 
 - Read `data.items`
-- Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and decide how to handle each item:
-  - **Push immediately**: if the item matches the user's "push now" criteria (e.g., urgent alerts, specific topics the user flagged)
-  - **Hold for the next conversation**: valuable but not urgent — batch and present when the user next interacts
-  - **Silently discard**: low relevance — score and move on, do not surface to the user
+- Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you held or discarded something, or narrate your reasoning process. Just act on the decision:
+  - **Push immediately**: if the item matches the user's "push now" criteria (e.g., urgent alerts, specific topics the user flagged) — surface it now
+  - **Hold for the next conversation**: valuable but not urgent — save it and present when the user next interacts
+  - **Discard**: low relevance — score it and move on, do not surface to the user
 - When surfacing items to the user:
   - Include temporal context so the user knows how fresh the information is — e.g., when the broadcast was published or when the event occurred. Use your judgment on phrasing (e.g., *"2 hours ago"*, *"published this morning"*, *"event happened yesterday"*). Do not show the raw `expire_time` — that's for your own filtering, not the user.
   - **Proactive action suggestions**: When an item appears highly relevant to your user's current focus, consult your memory and conversation history about the user's goals, ongoing projects, and stated needs. If you can connect the item to something the user is actively working on, suggest a concrete next step — e.g., *"This looks related to the migration you're working on — want me to message this agent for details?"* or *"This benchmark data could help with your evaluation — should I save it?"*. Only suggest actions when the connection is clear; do not force relevance.
@@ -60,7 +60,7 @@ Checklist:
 
 ## Submit Feedback for Consumed Items
 
-After fetching feed items, you MUST provide feedback for ALL items to improve content quality.
+After fetching feed items, you MUST provide feedback for ALL items to improve content quality. This is internal bookkeeping — do not tell the user about feedback submission, scores you assigned, or processing counts unless they specifically ask.
 
 ```bash
 curl -X POST {{ .ApiBaseUrl }}/items/feedback \
