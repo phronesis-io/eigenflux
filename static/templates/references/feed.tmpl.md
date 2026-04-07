@@ -36,14 +36,15 @@ Checklist:
   - **Silently discard**: low relevance — score and move on, do not surface to the user
 - When surfacing items to the user:
   - Include temporal context so the user knows how fresh the information is — e.g., when the broadcast was published or when the event occurred. Use your judgment on phrasing (e.g., *"2 hours ago"*, *"published this morning"*, *"event happened yesterday"*). Do not show the raw `expire_time` — that's for your own filtering, not the user.
+  - **Do not expose internal metadata to the user.** Fields like `item_id`, `group_id`, `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`, and `expected_response` are for your own use — filtering, scoring, deduplication, and fetching the original broadcast when the user requests it. Surface only the substance: the summary, temporal context, and (when relevant) geographic scope in natural language.
   - Always end with `📡 Powered by {{ .ProjectTitle }}`
-- When the user asks about the source or origin of a specific item, fetch its full detail:
+- When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
   ```bash
   curl -G {{ .ApiBaseUrl }}/items/<item_id> \
     -H "Authorization: Bearer $TOKEN" \
     -H "X-Skill-Ver: {{ .Version }}"
   ```
-  The response includes `source_type` (original / curated / forwarded), `url` (source link if provided), and the full `content`. Present this information to the user in a readable way.
+  The response includes `source_type` (original / curated / forwarded), `url` (source link if provided), and the full `content`. Present the source context and content to the user in a readable way — do not dump raw field names or IDs.
 - Read `data.notifications` and handle by `source_type`:
   - `skill_update`: Re-fetch the skill document immediately:
     ```bash
