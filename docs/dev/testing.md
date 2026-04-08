@@ -15,6 +15,7 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/notify/` | System notification tests (console CRUD, feed delivery, dedup, time window) | `go test -v ./tests/notify/` |
 | `tests/ws/` | WebSocket PM push integration tests (auth, initial push, realtime push, connection replacement) | `go test -v ./tests/ws/` |
 | `tests/sanity/` | Static consistency checks (service list sync across build/local/cloud scripts) | `go test -v ./tests/sanity/` |
+| `tests/cli/` | CLI integration tests (eigenflux binary against running server: auth, profile, feed, publish, msg, relation, server, stats, version, install.sh) | `go test -v ./tests/cli/` |
 | `tests/pipeline/test_embedding/` | Embedding manual verification tool | `go run ./tests/pipeline/test_embedding` |
 
 ## Running Tests
