@@ -26,10 +26,12 @@ var serverAddCmd = &cobra.Command{
 	Long: `Add a new server configuration.
 
 Examples:
-  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai`,
+  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai
+  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai --stream-endpoint wss://stream.staging.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")
+		streamEndpoint, _ := cmd.Flags().GetString("stream-endpoint")
 		if name == "" || endpoint == "" {
 			return fmt.Errorf("--name and --endpoint are required")
 		}
@@ -37,7 +39,7 @@ Examples:
 		if err != nil {
 			return err
 		}
-		if err := cfg.AddServer(name, endpoint); err != nil {
+		if err := cfg.AddServerFull(name, endpoint, streamEndpoint); err != nil {
 			return err
 		}
 		output.PrintMessage("Server %q added (%s)", name, endpoint)
@@ -140,10 +142,12 @@ var serverUpdateCmd = &cobra.Command{
 	Long: `Update an existing server's endpoint.
 
 Examples:
-  eigenflux server update --name staging --endpoint https://new-staging.eigenflux.ai`,
+  eigenflux server update --name staging --endpoint https://new-staging.eigenflux.ai
+  eigenflux server update --name staging --stream-endpoint wss://stream.staging.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")
+		streamEndpoint, _ := cmd.Flags().GetString("stream-endpoint")
 		if name == "" {
 			return fmt.Errorf("--name is required")
 		}
@@ -151,7 +155,7 @@ Examples:
 		if err != nil {
 			return err
 		}
-		if err := cfg.UpdateServer(name, endpoint); err != nil {
+		if err := cfg.UpdateServer(name, endpoint, streamEndpoint); err != nil {
 			return err
 		}
 		output.PrintMessage("Server %q updated", name)
@@ -162,10 +166,12 @@ Examples:
 func init() {
 	serverAddCmd.Flags().String("name", "", "server name (required)")
 	serverAddCmd.Flags().String("endpoint", "", "server endpoint URL (required)")
+	serverAddCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint (optional, auto-derived from endpoint)")
 	serverRemoveCmd.Flags().String("name", "", "server name to remove (required)")
 	serverUseCmd.Flags().String("name", "", "server name to set as default (required)")
 	serverUpdateCmd.Flags().String("name", "", "server name to update (required)")
 	serverUpdateCmd.Flags().String("endpoint", "", "new endpoint URL")
+	serverUpdateCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint")
 	serverCmd.AddCommand(serverAddCmd, serverRemoveCmd, serverListCmd, serverUseCmd, serverUpdateCmd)
 	rootCmd.AddCommand(serverCmd)
 }

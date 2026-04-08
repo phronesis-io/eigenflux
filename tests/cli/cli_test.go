@@ -1,12 +1,14 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,9 +78,12 @@ func setup(t *testing.T) {
 
 	cfg := config.Load()
 	apiBaseURL = fmt.Sprintf("http://localhost:%d", cfg.ApiPort)
+	wsBaseURL := fmt.Sprintf("ws://localhost:%d", cfg.WSPort)
 
-	// Pre-add a server entry pointing at the running local API.
-	mustRunCLI(t, "server", "add", "--name", "local", "--endpoint", apiBaseURL)
+	// Pre-add a server entry pointing at the running local API + WS.
+	mustRunCLI(t, "server", "add", "--name", "local",
+		"--endpoint", apiBaseURL,
+		"--stream-endpoint", wsBaseURL)
 	mustRunCLI(t, "server", "use", "--name", "local")
 }
 
@@ -391,7 +396,168 @@ func TestRelationFriendsList(t *testing.T) {
 	t.Logf("relation list outgoing: %s", out)
 }
 
+func TestStreamReceivesPush(t *testing.T) {
+	testutil.WaitForAPI(t)
+	setup(t)
+
+	senderEmail := fmt.Sprintf("cli_stream_send_%d@test.com", time.Now().UnixNano())
+	receiverEmail := fmt.Sprintf("cli_stream_recv_%d@test.com", time.Now().UnixNano())
+	t.Cleanup(func() {
+		testutil.CleanupTestEmails(t, senderEmail, receiverEmail)
+	})
+
+	// Register sender via HTTP (simpler).
+	sender := testutil.RegisterAgent(t, senderEmail, "StreamSender", "sends messages")
+	senderToken := sender["token"].(string)
+
+	// Register receiver via HTTP and save token directly to CLI credentials.
+	receiver := testutil.RegisterAgent(t, receiverEmail, "StreamReceiver", "receives messages")
+	receiverToken := receiver["token"].(string)
+	senderID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+	receiverID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
+
+	// Write receiver credentials to CLI config directory so `eigenflux stream` can use them.
+	saveTestCredentials(t, receiverToken)
+
+	// Clean PM data for both agents.
+	cleanPMData(t, senderID, receiverID)
+	t.Cleanup(func() { cleanPMData(t, senderID, receiverID) })
+
+	// Create a mock item owned by receiver so sender can PM them.
+	itemID := int64(990099)
+	mockItem(t, itemID, receiverID)
+	t.Cleanup(func() { cleanMockItem(t, itemID) })
+
+	// Start `eigenflux stream` as a background process.
+	bin, _ := exec.LookPath("eigenflux")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, "stream", "--format", "json")
+	cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+testHome)
+	var outBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start stream: %v", err)
+	}
+	defer func() {
+		cmd.Process.Signal(os.Interrupt)
+		cmd.Wait()
+	}()
+
+	// Give the stream command time to connect.
+	time.Sleep(1 * time.Second)
+
+	// Sender sends a PM to receiver via API.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": receiver["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "hello from stream cli test",
+	}, senderToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// Wait for the stream to receive the message (up to 10s).
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(outBuf.String(), "hello from stream cli test") {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	output := outBuf.String()
+	if !strings.Contains(output, "hello from stream cli test") {
+		t.Fatalf("stream did not receive expected message, got: %s", output)
+	}
+
+	// Verify it's valid JSON.
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var msg map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue // stderr lines mixed in
+		}
+		if msg["type"] == "pm_push" {
+			t.Logf("stream received pm_push: %s", line)
+			return
+		}
+	}
+	t.Error("stream output did not contain a valid pm_push JSON message")
+
+	_ = receiverToken // used indirectly via saveTestCredentials
+}
+
+func TestStreamUnauthenticatedFails(t *testing.T) {
+	testutil.WaitForAPI(t)
+	setup(t)
+
+	// Without logging in, stream should fail.
+	_, stderr, err := runCLI(t, "stream")
+	if err == nil {
+		t.Error("expected stream to fail without auth")
+	}
+	t.Logf("unauthenticated stream stderr: %s", stderr)
+}
+
 // ---------- Helpers ----------
+
+// saveTestCredentials writes a token directly to the CLI credentials directory
+// for the "local" server, bypassing the login flow.
+func saveTestCredentials(t *testing.T, token string) {
+	t.Helper()
+	credsDir := fmt.Sprintf("%s/servers/local", testHome)
+	if err := os.MkdirAll(credsDir, 0700); err != nil {
+		t.Fatalf("failed to create creds dir: %v", err)
+	}
+	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","expires_at":%d}`,
+		token, time.Now().Add(24*time.Hour).UnixMilli())
+	if err := os.WriteFile(credsDir+"/credentials.json", []byte(creds), 0600); err != nil {
+		t.Fatalf("failed to write credentials: %v", err)
+	}
+}
+
+func cleanPMData(t *testing.T, agentIDs ...int64) {
+	t.Helper()
+	ctx := context.Background()
+	rdb := testutil.GetTestRedis()
+	for _, id := range agentIDs {
+		testutil.TestDB.Exec("DELETE FROM private_messages WHERE sender_id = $1 OR receiver_id = $1", id)
+		testutil.TestDB.Exec("DELETE FROM conversations WHERE participant_a = $1 OR participant_b = $1", id)
+		rdb.Del(ctx, fmt.Sprintf("pm:fetch:%d", id))
+	}
+}
+
+func mockItem(t *testing.T, itemID, authorAgentID int64) {
+	t.Helper()
+	now := time.Now().UnixMilli()
+	testutil.TestDB.Exec("DELETE FROM processed_items WHERE item_id = $1", itemID)
+	testutil.TestDB.Exec("DELETE FROM raw_items WHERE item_id = $1", itemID)
+	testutil.TestDB.Exec(
+		`INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES ($1, $2, $3, $4)`,
+		itemID, authorAgentID, "cli stream test item", now,
+	)
+	testutil.TestDB.Exec(
+		`INSERT INTO processed_items (item_id, status, broadcast_type, updated_at) VALUES ($1, 3, 'info', $2)`,
+		itemID, now,
+	)
+	rdb := testutil.GetTestRedis()
+	rdb.Del(context.Background(), fmt.Sprintf("pm:itemowner:%d", itemID))
+}
+
+func cleanMockItem(t *testing.T, itemID int64) {
+	t.Helper()
+	testutil.TestDB.Exec("DELETE FROM processed_items WHERE item_id = $1", itemID)
+	testutil.TestDB.Exec("DELETE FROM raw_items WHERE item_id = $1", itemID)
+	rdb := testutil.GetTestRedis()
+	rdb.Del(context.Background(), fmt.Sprintf("pm:itemowner:%d", itemID))
+}
 
 // loginAndAuth performs the full auth login+verify flow via CLI and ensures credentials are saved.
 func loginAndAuth(t *testing.T, email string) {

@@ -95,7 +95,7 @@ func TestUpdateServer(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)
 	cfg, _ := Load()
-	err := cfg.UpdateServer("default", "https://new.eigenflux.ai")
+	err := cfg.UpdateServer("default", "https://new.eigenflux.ai", "")
 	if err != nil {
 		t.Fatalf("UpdateServer error: %v", err)
 	}

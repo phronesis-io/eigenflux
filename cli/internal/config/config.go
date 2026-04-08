@@ -3,13 +3,16 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Server struct {
-	Name     string `json:"name"`
-	Endpoint string `json:"endpoint"`
+	Name           string `json:"name"`
+	Endpoint       string `json:"endpoint"`
+	StreamEndpoint string `json:"stream_endpoint,omitempty"`
 }
 
 type Config struct {
@@ -70,10 +73,14 @@ func (c *Config) Save() error {
 }
 
 func (c *Config) AddServer(name, endpoint string) error {
+	return c.AddServerFull(name, endpoint, "")
+}
+
+func (c *Config) AddServerFull(name, endpoint, streamEndpoint string) error {
 	if _, exists := c.Servers[name]; exists {
 		return fmt.Errorf("server %q already exists, use 'server update' to modify", name)
 	}
-	c.Servers[name] = Server{Name: name, Endpoint: endpoint}
+	c.Servers[name] = Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint}
 	return c.Save()
 }
 
@@ -110,7 +117,7 @@ func (c *Config) GetActive(override string) (*Server, error) {
 	return &srv, nil
 }
 
-func (c *Config) UpdateServer(name, endpoint string) error {
+func (c *Config) UpdateServer(name, endpoint, streamEndpoint string) error {
 	srv, ok := c.Servers[name]
 	if !ok {
 		return fmt.Errorf("server %q not found", name)
@@ -118,8 +125,47 @@ func (c *Config) UpdateServer(name, endpoint string) error {
 	if endpoint != "" {
 		srv.Endpoint = endpoint
 	}
+	if streamEndpoint != "" {
+		srv.StreamEndpoint = streamEndpoint
+	}
 	c.Servers[name] = srv
 	return c.Save()
+}
+
+// WSBaseURL returns the WebSocket base URL for this server.
+// If StreamEndpoint is set, use it directly. Otherwise, derive from Endpoint
+// by replacing http(s) with ws(s) and prepending "stream." to the host.
+func (s *Server) WSBaseURL() string {
+	if s.StreamEndpoint != "" {
+		return strings.TrimRight(s.StreamEndpoint, "/")
+	}
+	u, err := url.Parse(s.Endpoint)
+	if err != nil {
+		return ""
+	}
+	switch u.Scheme {
+	case "https":
+		u.Scheme = "wss"
+	default:
+		u.Scheme = "ws"
+	}
+	// For production hosts, prepend "stream.". For localhost/IP, keep as-is.
+	host := u.Hostname()
+	port := u.Port()
+	if !strings.HasPrefix(host, "stream.") && !isLocalhost(host) {
+		host = "stream." + host
+	}
+	if port != "" {
+		u.Host = host + ":" + port
+	} else {
+		u.Host = host
+	}
+	return strings.TrimRight(u.String(), "/")
+}
+
+func isLocalhost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+		strings.HasPrefix(host, "192.168.") || strings.HasPrefix(host, "10.")
 }
 
 func (c *Config) serverNames() []string {
