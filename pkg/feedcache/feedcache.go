@@ -26,6 +26,7 @@ type FeedCache struct {
 // needed when the item is eventually served via load_more.
 type Entry struct {
 	GroupID       int64   `json:"group_id"`
+	ItemID        int64   `json:"item_id,omitempty"`
 	Score         float64 `json:"score"`
 	AgentFeatures string  `json:"agent_features,omitempty"`
 	ItemFeatures  string  `json:"item_features,omitempty"`

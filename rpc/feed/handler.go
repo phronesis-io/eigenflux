@@ -136,9 +136,8 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		piByItemID[pi.ItemId] = pi
 	}
 
-	groupIDs := make([]int64, 0, len(sortResp.ItemIds))
+	rankedEntries := make([]feedcache.Entry, 0, len(sortResp.ItemIds))
 	itemMap := make(map[int64]*item.ProcessedItem)
-	groupReplayLookup := make(map[int64]*replayData)
 	for _, id := range sortResp.ItemIds {
 		pi, ok := piByItemID[id]
 		if !ok || pi.GroupId == nil || *pi.GroupId == 0 {
@@ -147,14 +146,20 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		if _, dup := itemMap[*pi.GroupId]; dup {
 			continue
 		}
-		groupIDs = append(groupIDs, *pi.GroupId)
 		itemMap[*pi.GroupId] = pi
-		if rd, ok := itemReplayLookup[id]; ok {
-			groupReplayLookup[*pi.GroupId] = rd
+		entry := feedcache.Entry{
+			GroupID: *pi.GroupId,
+			ItemID:  id,
 		}
+		if rd, ok := itemReplayLookup[id]; ok {
+			entry.Score = rd.score
+			entry.AgentFeatures = rd.agentFeatures
+			entry.ItemFeatures = rd.itemFeatures
+		}
+		rankedEntries = append(rankedEntries, entry)
 	}
 
-	if len(groupIDs) == 0 {
+	if len(rankedEntries) == 0 {
 		return &feed.FetchFeedResp{
 			Items:    []*feed.FeedItem{},
 			HasMore:  false,
@@ -162,28 +167,29 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		}, nil
 	}
 
-	var toReturn []int64
-	var toCache []int64
-	if len(groupIDs) <= int(limit) {
-		toReturn = groupIDs
+	var toReturn []feedcache.Entry
+	var toCache []feedcache.Entry
+	if len(rankedEntries) <= int(limit) {
+		toReturn = rankedEntries
 	} else {
-		toReturn = groupIDs[:limit]
-		toCache = groupIDs[limit:]
+		toReturn = rankedEntries[:limit]
+		toCache = rankedEntries[limit:]
 	}
 
 	if len(toCache) > 0 {
-		if err := s.feedCache.Push(ctx, agentID, s.buildFeedCacheEntries(toCache, groupReplayLookup)); err != nil {
+		if err := s.feedCache.Push(ctx, agentID, toCache); err != nil {
 			logger.Ctx(ctx).Warn("failed to cache items", "err", err)
 		}
 	}
 
-	feedItems := s.buildFeedItems(toReturn, itemMap)
+	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(toReturn), itemMap)
+	toReturnReplayLookup := s.buildReplayLookupFromCacheEntries(toReturn)
 
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
-		if s.config.EnableReplayLog && len(groupReplayLookup) > 0 {
-			s.publishReplayLog(bgCtx, agentID, feedItems, groupReplayLookup)
+		if s.config.EnableReplayLog && len(toReturnReplayLookup) > 0 {
+			s.publishReplayLog(bgCtx, agentID, feedItems, toReturnReplayLookup)
 		}
 	}()
 
@@ -211,18 +217,26 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		return s.handleRefresh(ctx, agentID, limit)
 	}
 
-	cachedGroupIDs := make([]int64, 0, len(cachedEntries))
-	var itemIDs []int64
+	resolvedEntries := make([]feedcache.Entry, 0, len(cachedEntries))
 	for _, entry := range cachedEntries {
-		cachedGroupIDs = append(cachedGroupIDs, entry.GroupID)
+		if entry.GroupID == 0 {
+			continue
+		}
+		if entry.ItemID != 0 {
+			resolvedEntries = append(resolvedEntries, entry)
+			continue
+		}
+
 		items, err := itemDal.GetItemsByGroupID(db.DB, entry.GroupID)
 		if err != nil || len(items) == 0 {
 			logger.Ctx(ctx).Warn("failed to get items for group", "groupID", entry.GroupID, "err", err)
 			continue
 		}
-		itemIDs = append(itemIDs, items[0].ItemID)
+		entry.ItemID = items[0].ItemID
+		resolvedEntries = append(resolvedEntries, entry)
 	}
 
+	itemIDs := itemIDsFromCacheEntries(resolvedEntries)
 	if len(itemIDs) == 0 {
 		logger.Ctx(ctx).Info("no valid items found in cache, falling back to refresh")
 		return s.handleRefresh(ctx, agentID, limit)
@@ -248,12 +262,12 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		}
 	}
 
-	feedItems := s.buildFeedItems(cachedGroupIDs, itemMap)
+	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(resolvedEntries), itemMap)
 
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
-		replayLookup := s.buildReplayLookupFromCacheEntries(cachedEntries)
+		replayLookup := s.buildReplayLookupFromCacheEntries(resolvedEntries)
 		if s.config.EnableReplayLog && len(replayLookup) > 0 {
 			s.publishReplayLog(bgCtx, agentID, feedItems, replayLookup)
 		}
@@ -330,20 +344,6 @@ type replayData struct {
 	itemFeatures  string
 }
 
-func (s *FeedServiceImpl) buildFeedCacheEntries(groupIDs []int64, lookup map[int64]*replayData) []feedcache.Entry {
-	entries := make([]feedcache.Entry, 0, len(groupIDs))
-	for _, groupID := range groupIDs {
-		entry := feedcache.Entry{GroupID: groupID}
-		if rd, ok := lookup[groupID]; ok {
-			entry.Score = rd.score
-			entry.AgentFeatures = rd.agentFeatures
-			entry.ItemFeatures = rd.itemFeatures
-		}
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
 func (s *FeedServiceImpl) buildReplayLookupFromCacheEntries(entries []feedcache.Entry) map[int64]*replayData {
 	lookup := make(map[int64]*replayData, len(entries))
 	for _, entry := range entries {
@@ -360,6 +360,26 @@ func (s *FeedServiceImpl) buildReplayLookupFromCacheEntries(entries []feedcache.
 		}
 	}
 	return lookup
+}
+
+func groupIDsFromCacheEntries(entries []feedcache.Entry) []int64 {
+	groupIDs := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		if entry.GroupID != 0 {
+			groupIDs = append(groupIDs, entry.GroupID)
+		}
+	}
+	return groupIDs
+}
+
+func itemIDsFromCacheEntries(entries []feedcache.Entry) []int64 {
+	itemIDs := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ItemID != 0 {
+			itemIDs = append(itemIDs, entry.ItemID)
+		}
+	}
+	return itemIDs
 }
 
 func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
