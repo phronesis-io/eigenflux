@@ -83,7 +83,7 @@ func (h *Handler) Serve(ctx context.Context, c *app.RequestContext) {
 		conn := &hub.Connection{
 			AgentID: agentID,
 			Conn:    ws,
-			Cursor:  cursor,
+			PMCursor:  cursor,
 			Done:    make(chan struct{}),
 		}
 

@@ -9,7 +9,7 @@ import (
 type Connection struct {
 	AgentID int64
 	Conn    *websocket.Conn
-	Cursor  int64
+	PMCursor  int64
 	Done    chan struct{} // closed when this connection should shut down
 }
 

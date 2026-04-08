@@ -82,7 +82,7 @@ func cleanWriteMu(conn *hub.Connection) {
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
 	resp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
 		AgentId: conn.AgentID,
-		Cursor:  &conn.Cursor,
+		Cursor:  &conn.PMCursor,
 	})
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: FetchPM failed", "agentID", conn.AgentID, "err", err)
@@ -138,8 +138,8 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 	}
 
 	// Advance cursor.
-	conn.Cursor = resp.NextCursor
-	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "count", len(resp.Messages), "cursor", conn.Cursor)
+	conn.PMCursor = resp.NextCursor
+	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "count", len(resp.Messages), "cursor", conn.PMCursor)
 }
 
 // CleanupConn removes the write mutex for a connection. Call on disconnect.
