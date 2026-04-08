@@ -105,10 +105,11 @@ func CleanTestData(t *testing.T, emails ...string) {
 		rdb.Del(ctx, fmt.Sprintf("milestone:notify:%d", agentID))
 	}
 
-	// Global keys by pattern: bloom filter, search cache, profile cache
+	// Global keys by pattern: bloom filter, search cache, profile cache, dedup hashes
 	cleanRedisKeysByPattern(ctx, rdb, "bf:global:*")
 	cleanRedisKeysByPattern(ctx, rdb, "cache:search:*")
 	cleanRedisKeysByPattern(ctx, rdb, "cache:profile:*")
+	cleanRedisKeysByPattern(ctx, rdb, "dedup:hash:*")
 	cleanRedisKeysByPattern(ctx, rdb, "milestone:notify:*")
 	cleanRedisKeysByPattern(ctx, rdb, "notify:system:*")
 	cleanRedisKeysByPattern(ctx, rdb, "notify:pending:*")
