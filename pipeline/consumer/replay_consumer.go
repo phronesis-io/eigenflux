@@ -3,6 +3,8 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -15,8 +17,7 @@ import (
 )
 
 const (
-	replayConsumerName      = "replay-worker-1"
-	replayBatchSize         = int64(10)
+	replayBatchSize         = int64(100)
 	replayMaxRetryCount     = int64(3)
 	replayRetryMinIdle      = time.Second
 	replayRetryPollInterval = 200 * time.Millisecond
@@ -25,11 +26,14 @@ const (
 )
 
 type ReplayConsumer struct {
-	idGen *idgen.ManagedGenerator
+	idGen        *idgen.ManagedGenerator
+	consumerName string
 }
 
 func NewReplayConsumer(idGen *idgen.ManagedGenerator) *ReplayConsumer {
-	return &ReplayConsumer{idGen: idGen}
+	hostname, _ := os.Hostname()
+	name := fmt.Sprintf("replay-worker-%s-%d", hostname, os.Getpid())
+	return &ReplayConsumer{idGen: idGen, consumerName: name}
 }
 
 func (c *ReplayConsumer) Start(ctx context.Context) {
@@ -92,7 +96,7 @@ func (c *ReplayConsumer) Start(ctx context.Context) {
 }
 
 func (c *ReplayConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, error) {
-	reclaimed, err := mq.ConsumePending(ctx, replaylog.StreamName, replaylog.GroupName, replayConsumerName, replayBatchSize, replayRetryMinIdle)
+	reclaimed, err := mq.ConsumePending(ctx, replaylog.StreamName, replaylog.GroupName, c.consumerName, replayBatchSize, replayRetryMinIdle)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (c *ReplayConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, er
 		}
 	}
 
-	messages, err := mq.ConsumeWithBlock(ctx, replaylog.StreamName, replaylog.GroupName, replayConsumerName, replayBatchSize, replayReadBlock)
+	messages, err := mq.ConsumeWithBlock(ctx, replaylog.StreamName, replaylog.GroupName, c.consumerName, replayBatchSize, replayReadBlock)
 	if err != nil {
 		return nil, err
 	}
