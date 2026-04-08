@@ -74,6 +74,7 @@ After each code change, remember to add or modify test cases. Run build and e2e 
 - Don't add degradation logic just to make tests pass, otherwise testing is meaningless. Let humans handle errors that can't be handled.
 - Build and tool scripts go in `scripts`
 - Build artifacts must go in `build/` directory, never in source directories. Always use `-o build/<name>` when running `go build` manually (e.g. `go build -o build/auth ./rpc/auth/`). Running bare `go build .` will dump a binary named after the module into the current directory — do not do this. Use `bash scripts/common/build.sh` for core services and `./console/console_api/scripts/build.sh` for console
+- **Run build, start services, and tests autonomously.** All local dev scripts (`scripts/common/build.sh`, `scripts/local/start_local.sh`, `go test -v ./tests/...`) are idempotent and safe. Execute them directly without asking. Never stop to ask the user to start services or run tests for you.
 
 ## Documentation Updates
 After each code change, remember to check if documentation needs updating, especially README.md and CLAUDE.md (including module docs under `docs/dev/`). These documents are important and must be updated promptly.
