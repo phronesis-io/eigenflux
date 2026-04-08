@@ -60,7 +60,7 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 **Push format:**
 ```json
 {
-    "type": "pm_fetch",
+    "type": "pm_push",
     "data": {
         "messages": [...],
         "next_cursor": "12345"

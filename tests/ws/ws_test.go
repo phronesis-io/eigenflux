@@ -169,8 +169,8 @@ func TestWSInitialPush(t *testing.T) {
 	defer ws.Close()
 
 	msg := readPush(t, ws, 10*time.Second)
-	if msg["type"] != "pm_fetch" {
-		t.Fatalf("expected type pm_fetch, got %v", msg["type"])
+	if msg["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", msg["type"])
 	}
 	data := msg["data"].(map[string]interface{})
 	messages := data["messages"].([]interface{})
@@ -224,8 +224,8 @@ func TestWSRealtimePush(t *testing.T) {
 	}
 
 	msg := readPush(t, ws, 10*time.Second)
-	if msg["type"] != "pm_fetch" {
-		t.Fatalf("expected type pm_fetch, got %v", msg["type"])
+	if msg["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", msg["type"])
 	}
 	data := msg["data"].(map[string]interface{})
 	messages := data["messages"].([]interface{})

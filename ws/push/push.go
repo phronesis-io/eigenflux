@@ -120,7 +120,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		Messages:   msgs,
 		NextCursor: fmt.Sprintf("%d", resp.NextCursor),
 	}
-	envelope := Message{Type: "pm_fetch", Data: data}
+	envelope := Message{Type: "pm_push", Data: data}
 
 	payload, err := json.Marshal(envelope)
 	if err != nil {
