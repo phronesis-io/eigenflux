@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/hertz-contrib/websocket"
 	"github.com/redis/go-redis/v9"
@@ -65,20 +64,6 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 	}
 }
 
-// writeMu protects concurrent writes to the same websocket conn.
-var (
-	writeMuMap sync.Map // *hub.Connection -> *sync.Mutex
-)
-
-func GetWriteMu(conn *hub.Connection) *sync.Mutex {
-	val, _ := writeMuMap.LoadOrStore(conn, &sync.Mutex{})
-	return val.(*sync.Mutex)
-}
-
-func cleanWriteMu(conn *hub.Connection) {
-	writeMuMap.Delete(conn)
-}
-
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
 	resp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
 		AgentId: conn.AgentID,
@@ -128,10 +113,9 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		return
 	}
 
-	mu := GetWriteMu(conn)
-	mu.Lock()
+	conn.WriteMu.Lock()
 	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-	mu.Unlock()
+	conn.WriteMu.Unlock()
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: write failed", "agentID", conn.AgentID, "err", err)
 		return
@@ -142,7 +126,3 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "count", len(resp.Messages), "cursor", conn.PMCursor)
 }
 
-// CleanupConn removes the write mutex for a connection. Call on disconnect.
-func CleanupConn(conn *hub.Connection) {
-	cleanWriteMu(conn)
-}

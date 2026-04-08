@@ -89,14 +89,15 @@ func (h *Handler) Serve(ctx context.Context, c *app.RequestContext) {
 
 		// Register in hub (evicts old connection if any).
 		if old := hub.Global.Register(conn); old != nil {
+			old.WriteMu.Lock()
 			old.Conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(CloseCodeReplaced, "new connection established"))
+			old.WriteMu.Unlock()
 			old.Conn.Close()
 		}
 
 		defer func() {
 			hub.Global.Unregister(agentID, conn)
-			push.CleanupConn(conn)
 			ws.Close()
 		}()
 
@@ -123,10 +124,9 @@ func (h *Handler) Serve(ctx context.Context, c *app.RequestContext) {
 				case <-conn.Done:
 					return
 				case <-ticker.C:
-					mu := push.GetWriteMu(conn)
-					mu.Lock()
+					conn.WriteMu.Lock()
 					err := ws.WriteMessage(websocket.PingMessage, nil)
-					mu.Unlock()
+					conn.WriteMu.Unlock()
 					if err != nil {
 						cancel()
 						return

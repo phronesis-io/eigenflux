@@ -7,10 +7,11 @@ import (
 )
 
 type Connection struct {
-	AgentID int64
-	Conn    *websocket.Conn
-	PMCursor  int64
-	Done    chan struct{} // closed when this connection should shut down
+	AgentID  int64
+	Conn     *websocket.Conn
+	PMCursor int64
+	Done     chan struct{} // closed when this connection should shut down
+	WriteMu  sync.Mutex   // protects concurrent writes to Conn
 }
 
 type Hub struct {
