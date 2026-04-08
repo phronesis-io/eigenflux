@@ -26,6 +26,7 @@ struct FetchFeedReq {
 struct FetchFeedResp {
     1: required list<FeedItem> items
     2: required bool has_more
+    3: required string impression_id
     255: required base.BaseResp base_resp
 }
 

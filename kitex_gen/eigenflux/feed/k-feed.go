@@ -921,6 +921,7 @@ func (p *FetchFeedResp) FastRead(buf []byte) (int, error) {
 	var fieldId int16
 	var issetItems bool = false
 	var issetHasMore bool = false
+	var issetImpressionId bool = false
 	var issetBaseResp bool = false
 	for {
 		fieldTypeId, fieldId, l, err = thrift.Binary.ReadFieldBegin(buf[offset:])
@@ -962,6 +963,21 @@ func (p *FetchFeedResp) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField3(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+				issetImpressionId = true
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		case 255:
 			if fieldTypeId == thrift.STRUCT {
 				l, err = p.FastReadField255(buf[offset:])
@@ -993,6 +1009,11 @@ func (p *FetchFeedResp) FastRead(buf []byte) (int, error) {
 
 	if !issetHasMore {
 		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetImpressionId {
+		fieldId = 3
 		goto RequiredFieldNotSetError
 	}
 
@@ -1050,6 +1071,20 @@ func (p *FetchFeedResp) FastReadField2(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *FetchFeedResp) FastReadField3(buf []byte) (int, error) {
+	offset := 0
+
+	var _field string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.ImpressionId = _field
+	return offset, nil
+}
+
 func (p *FetchFeedResp) FastReadField255(buf []byte) (int, error) {
 	offset := 0
 	_field := base.NewBaseResp()
@@ -1071,6 +1106,7 @@ func (p *FetchFeedResp) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 	if p != nil {
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField1(buf[offset:], w)
+		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField255(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
@@ -1082,6 +1118,7 @@ func (p *FetchFeedResp) BLength() int {
 	if p != nil {
 		l += p.field1Length()
 		l += p.field2Length()
+		l += p.field3Length()
 		l += p.field255Length()
 	}
 	l += thrift.Binary.FieldStopLength()
@@ -1109,6 +1146,13 @@ func (p *FetchFeedResp) fastWriteField2(buf []byte, w thrift.NocopyWriter) int {
 	return offset
 }
 
+func (p *FetchFeedResp) fastWriteField3(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 3)
+	offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, p.ImpressionId)
+	return offset
+}
+
 func (p *FetchFeedResp) fastWriteField255(buf []byte, w thrift.NocopyWriter) int {
 	offset := 0
 	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRUCT, 255)
@@ -1131,6 +1175,13 @@ func (p *FetchFeedResp) field2Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.BoolLength()
+	return l
+}
+
+func (p *FetchFeedResp) field3Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.StringLengthNocopy(p.ImpressionId)
 	return l
 }
 

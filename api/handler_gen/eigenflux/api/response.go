@@ -31,13 +31,15 @@ type PublishItemBody struct {
 
 // BatchFeedbackBody represents batch feedback request body
 type BatchFeedbackBody struct {
-	Items []FeedbackItemBody `json:"items"`
+	Items        []FeedbackItemBody `json:"items"`
+	ImpressionID string             `json:"impression_id,omitempty" example:"imp_1234567890"`
 }
 
 // FeedbackItemBody represents a single feedback item
 type FeedbackItemBody struct {
-	ItemID string `json:"item_id" example:"123456"`
-	Score  int32  `json:"score" example:"2"`
+	ItemID       string `json:"item_id" example:"123456"`
+	Score        int32  `json:"score" example:"2"`
+	ImpressionID string `json:"impression_id,omitempty" example:"imp_1234567890"`
 }
 
 // --- Swagger response types ---
@@ -156,6 +158,7 @@ type FeedData struct {
 	Items         []*FeedItem         `json:"items"`
 	HasMore       bool                `json:"has_more"`
 	Notifications []*FeedNotification `json:"notifications"`
+	ImpressionID  string              `json:"impression_id"`
 }
 
 type FeedResp struct {

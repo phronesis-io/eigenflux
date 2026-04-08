@@ -185,7 +185,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 			return stats.ConsumedCount
 		})
 	case itemstats.EventTypeFeedback:
-		logger.Default().Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score)
+		logger.Default().Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score, "impressionID", event.ImpressionID)
 		if err := itemdal.IncrementItemScore(db.DB, event.ItemID, event.Score); err != nil {
 			return err
 		}

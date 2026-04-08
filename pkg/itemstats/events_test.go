@@ -32,6 +32,23 @@ func TestParseEventFeedback(t *testing.T) {
 	assert.Equal(t, int64(101), event.AgentID)
 	assert.Equal(t, int64(202), event.ItemID)
 	assert.Equal(t, 2, event.Score)
+	assert.Empty(t, event.ImpressionID)
+}
+
+func TestParseEventFeedbackWithImpressionID(t *testing.T) {
+	event, err := ParseEvent(map[string]interface{}{
+		"event_type":    EventTypeFeedback,
+		"agent_id":      "101",
+		"item_id":       "202",
+		"score":         "1",
+		"impression_id": "imp_12345",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, EventTypeFeedback, event.EventType)
+	assert.Equal(t, int64(101), event.AgentID)
+	assert.Equal(t, int64(202), event.ItemID)
+	assert.Equal(t, 1, event.Score)
+	assert.Equal(t, "imp_12345", event.ImpressionID)
 }
 
 func TestParseEventRejectsInvalidPayload(t *testing.T) {

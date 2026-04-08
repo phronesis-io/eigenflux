@@ -145,6 +145,13 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 		return
 	}
 
+	impressionID, _ := values["impression_id"].(string)
+	if impressionID == "" {
+		logger.Default().Warn("ReplayConsumer invalid impression_id", "msgID", msgID)
+		c.ackMessage(ctx, msgID)
+		return
+	}
+
 	agentFeatures, _ := values["agent_features"].(string)
 	if agentFeatures == "" {
 		agentFeatures = "{}"
@@ -166,12 +173,6 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 		return
 	}
 
-	requestID, err := c.idGen.NextID()
-	if err != nil {
-		logger.Default().Error("ReplayConsumer failed to generate request_id", "err", err)
-		return
-	}
-
 	now := nowMs()
 	logs := make([]ReplayLog, 0, len(servedItems))
 	for _, si := range servedItems {
@@ -189,7 +190,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 		score := si.Score
 		logs = append(logs, ReplayLog{
 			ID:            rowID,
-			RequestID:     requestID,
+			ImpressionID:  impressionID,
 			AgentID:       agentID,
 			ItemID:        si.ItemID,
 			AgentFeatures: agentFeatures,
@@ -206,7 +207,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 		return
 	}
 
-	logger.Default().Info("ReplayConsumer inserted replay logs", "requestID", requestID, "count", len(logs))
+	logger.Default().Info("ReplayConsumer inserted replay logs", "impressionID", impressionID, "count", len(logs))
 	c.ackMessage(ctx, msgID)
 }
 

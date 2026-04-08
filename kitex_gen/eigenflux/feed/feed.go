@@ -283,9 +283,10 @@ var fieldIDToName_FetchFeedReq = map[int16]string{
 }
 
 type FetchFeedResp struct {
-	Items    []*FeedItem    `thrift:"items,1,required" frugal:"1,required,list<FeedItem>" json:"items"`
-	HasMore  bool           `thrift:"has_more,2,required" frugal:"2,required,bool" json:"has_more"`
-	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	Items        []*FeedItem    `thrift:"items,1,required" frugal:"1,required,list<FeedItem>" json:"items"`
+	HasMore      bool           `thrift:"has_more,2,required" frugal:"2,required,bool" json:"has_more"`
+	ImpressionId string         `thrift:"impression_id,3,required" frugal:"3,required,string" json:"impression_id"`
+	BaseResp     *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewFetchFeedResp() *FetchFeedResp {
@@ -303,6 +304,10 @@ func (p *FetchFeedResp) GetHasMore() (v bool) {
 	return p.HasMore
 }
 
+func (p *FetchFeedResp) GetImpressionId() (v string) {
+	return p.ImpressionId
+}
+
 var FetchFeedResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *FetchFeedResp) GetBaseResp() (v *base.BaseResp) {
@@ -316,6 +321,9 @@ func (p *FetchFeedResp) SetItems(val []*FeedItem) {
 }
 func (p *FetchFeedResp) SetHasMore(val bool) {
 	p.HasMore = val
+}
+func (p *FetchFeedResp) SetImpressionId(val string) {
+	p.ImpressionId = val
 }
 func (p *FetchFeedResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
@@ -335,6 +343,7 @@ func (p *FetchFeedResp) String() string {
 var fieldIDToName_FetchFeedResp = map[int16]string{
 	1:   "items",
 	2:   "has_more",
+	3:   "impression_id",
 	255: "base_resp",
 }
 

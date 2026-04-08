@@ -18,10 +18,11 @@ const (
 )
 
 type Event struct {
-	EventType string
-	AgentID   int64
-	ItemID    int64
-	Score     int
+	EventType    string
+	AgentID      int64
+	ItemID       int64
+	Score        int
+	ImpressionID string
 }
 
 var ErrNilPublisher = errors.New("item stats publisher is nil")
@@ -37,16 +38,20 @@ func PublishConsumed(ctx context.Context, agentID, itemID int64) (string, error)
 	})
 }
 
-func PublishFeedback(ctx context.Context, agentID, itemID int64, score int) (string, error) {
+func PublishFeedback(ctx context.Context, agentID, itemID int64, score int, impressionID string) (string, error) {
 	if mq.RDB == nil {
 		return "", ErrNilPublisher
 	}
-	return mq.Publish(ctx, StreamName, map[string]interface{}{
+	values := map[string]interface{}{
 		"event_type": EventTypeFeedback,
 		"agent_id":   strconv.FormatInt(agentID, 10),
 		"item_id":    strconv.FormatInt(itemID, 10),
 		"score":      strconv.Itoa(score),
-	})
+	}
+	if impressionID != "" {
+		values["impression_id"] = impressionID
+	}
+	return mq.Publish(ctx, StreamName, values)
 }
 
 func ParseEvent(values map[string]interface{}) (Event, error) {
@@ -92,6 +97,9 @@ func ParseEvent(values map[string]interface{}) (Event, error) {
 			return Event{}, fmt.Errorf("invalid score %q", scoreStr)
 		}
 		event.Score = score
+		if impressionID, ok := values["impression_id"].(string); ok && impressionID != "" {
+			event.ImpressionID = impressionID
+		}
 		return event, nil
 	default:
 		return Event{}, fmt.Errorf("unsupported event_type %q", eventType)

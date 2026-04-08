@@ -21,7 +21,7 @@ type ServedItem struct {
 	Position     int     `json:"position"`
 }
 
-func Publish(ctx context.Context, agentID int64, agentFeatures string, servedItems []ServedItem) error {
+func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatures string, servedItems []ServedItem) error {
 	if mq.RDB == nil || len(servedItems) == 0 {
 		return nil
 	}
@@ -32,6 +32,7 @@ func Publish(ctx context.Context, agentID int64, agentFeatures string, servedIte
 	}
 
 	_, err = mq.Publish(ctx, StreamName, map[string]interface{}{
+		"impression_id":  impressionID,
 		"agent_id":       strconv.FormatInt(agentID, 10),
 		"agent_features": agentFeatures,
 		"served_at":      strconv.FormatInt(time.Now().UnixMilli(), 10),

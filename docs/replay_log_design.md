@@ -6,12 +6,12 @@ Add an append-only replay log that captures the full ranking context at feed ser
 
 ## Data Model
 
-Single denormalized table. Each row = one (feed request, served item) pair.
+Single denormalized table. Each row = one (feed impression, served item) pair.
 
 ```sql
 CREATE TABLE replay_logs (
     id              BIGINT PRIMARY KEY,
-    request_id      BIGINT NOT NULL,
+    impression_id   VARCHAR(64) NOT NULL,
     agent_id        BIGINT NOT NULL,
     item_id         BIGINT NOT NULL,
     agent_features  JSONB NOT NULL,
@@ -23,12 +23,13 @@ CREATE TABLE replay_logs (
 );
 
 CREATE INDEX idx_replay_logs_agent_served ON replay_logs (agent_id, served_at);
-CREATE INDEX idx_replay_logs_request ON replay_logs (request_id);
+CREATE INDEX idx_replay_logs_impression ON replay_logs (impression_id);
 CREATE INDEX idx_replay_logs_item ON replay_logs (item_id, served_at);
+CREATE UNIQUE INDEX uq_replay_logs_impression_position ON replay_logs (impression_id, position);
 ```
 
 - `id`: Snowflake-generated primary key.
-- `request_id`: Snowflake ID grouping all items from the same feed request.
+- `impression_id`: Feed-generated impression ID (for example `imp_1234567890123`) grouping all items from the same feed impression lifecycle.
 - `agent_features`: JSONB snapshot of the user's profile at serve time: `{"keywords": [...], "domains": [...], "geo": "..."}`.
 - `item_features`: JSONB snapshot of the ES document fields: `{"broadcast_type", "domains", "keywords", "geo", "source_type", "quality_score", "group_id", "lang", "timeliness", "updated_at", "created_at"}`.
 - `item_score`: The `_score` from ES `function_score` query.
@@ -43,7 +44,7 @@ Manual cleanup. No automatic purge. Future migration to Hive/OSS for long-term s
 
 ### Feedback Joining
 
-Feedback is NOT stored in this table. Feedback arrives via `POST /api/v1/items/feedback` and is published to `stream:item:stats`. At training export time, replay logs and feedback events are joined by `(agent_id, item_id, timestamp proximity)`. This keeps the two write paths independent and allows the feedback API to evolve (new feedback types, general feedback API) without affecting the replay log schema.
+Feedback is NOT stored in this table. Feedback arrives via `POST /api/v1/items/feedback` and is published to `stream:item:stats`. At training export time, replay logs and feedback events are joined by `impression_id` first, with `(agent_id, item_id, timestamp proximity)` as fallback/validation dimensions. This keeps the two write paths independent and allows the feedback API to evolve (new feedback types, general feedback API) without affecting the replay log schema.
 
 ## Write Path
 
@@ -62,11 +63,11 @@ PostgreSQL: replay_logs
 
 ### Event Message Format
 
-One message per feed request, published to `stream:replay:log`:
+One message per feed impression, published to `stream:replay:log`:
 
 ```json
 {
-  "request_id": "1234567890",
+  "impression_id": "imp_1234567890",
   "agent_id": "9876543210",
   "agent_features": "{\"keywords\":[\"ai\"],\"domains\":[\"tech\"],\"geo\":\"US\"}",
   "served_at": "1743580800000",
@@ -104,6 +105,7 @@ struct SortItemsResp {
 - `item_features`: JSON string of ES document fields per item.
 - `score`: ES `_score` from the `function_score` query, extracted from search result hits.
 - FeedService reads `sorted_items` when present. `item_ids` remains for backward compatibility.
+- FeedService generates `impression_id` once per refresh flow and reuses the same ID for cached `load_more` pages from that refresh. `position` remains the absolute rank within that impression.
 
 ### SortService Handler Changes
 
@@ -126,8 +128,9 @@ In `rpc/sort/dal/es.go` / `es_query.go`:
 
 - Reads from `stream:replay:log` (consumer group `cg:replay:log`).
 - Deserializes message, explodes items array into individual rows.
+- Uses feed-generated `impression_id` from the stream payload.
 - Generates snowflake ID per row.
-- Batch INSERTs into `replay_logs`.
+- Batch INSERTs into `replay_logs` with `ON CONFLICT (impression_id, position) DO NOTHING`.
 - ACKs message on success.
 - Max 3 retries on failure, log and skip on persistent failure.
 - Follows same pattern as existing `item_consumer.go`.

@@ -27,6 +27,8 @@ type FeedCache struct {
 type Entry struct {
 	GroupID       int64   `json:"group_id"`
 	ItemID        int64   `json:"item_id,omitempty"`
+	Position      int     `json:"position,omitempty"`
+	ImpressionID  string  `json:"impression_id,omitempty"`
 	Score         float64 `json:"score"`
 	AgentFeatures string  `json:"agent_features,omitempty"`
 	ItemFeatures  string  `json:"item_features,omitempty"`

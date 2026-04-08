@@ -20,16 +20,22 @@ import (
 )
 
 type FeedServiceImpl struct {
-	bloomFilter *bloomfilter.BloomFilter
-	feedCache   *feedcache.FeedCache
-	config      *config.Config
+	bloomFilter     *bloomfilter.BloomFilter
+	feedCache       *feedcache.FeedCache
+	config          *config.Config
+	impressionIDGen interface {
+		NextID() (int64, error)
+	}
 }
 
-func NewFeedServiceImpl(cfg *config.Config) *FeedServiceImpl {
+func NewFeedServiceImpl(cfg *config.Config, impressionIDGen interface {
+	NextID() (int64, error)
+}) *FeedServiceImpl {
 	return &FeedServiceImpl{
-		bloomFilter: bloomfilter.NewBloomFilter(db.RDB),
-		feedCache:   feedcache.NewFeedCache(db.RDB),
-		config:      cfg,
+		bloomFilter:     bloomfilter.NewBloomFilter(db.RDB),
+		feedCache:       feedcache.NewFeedCache(db.RDB),
+		config:          cfg,
+		impressionIDGen: impressionIDGen,
 	}
 }
 
@@ -60,13 +66,27 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 		return s.handleLoadMore(ctx, req.AgentId, limit)
 	default:
 		return &feed.FetchFeedResp{
-			BaseResp: &base.BaseResp{Code: 400, Msg: fmt.Sprintf("invalid action: %s", action)},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     &base.BaseResp{Code: 400, Msg: fmt.Sprintf("invalid action: %s", action)},
 		}, nil
 	}
 }
 
 func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limit int32) (*feed.FetchFeedResp, error) {
 	logger.Ctx(ctx).Info("handleRefresh", "agentID", agentID, "limit", limit)
+
+	impressionID, err := s.newImpressionID()
+	if err != nil {
+		logger.Ctx(ctx).Error("failed to generate impression id", "err", err)
+		return &feed.FetchFeedResp{
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     &base.BaseResp{Code: 500, Msg: "failed to generate impression id"},
+		}, nil
+	}
 
 	if err := s.feedCache.Clear(ctx, agentID); err != nil {
 		logger.Ctx(ctx).Warn("failed to clear cache", "err", err)
@@ -84,11 +104,19 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	if err != nil {
 		logger.Ctx(ctx).Error("SortService error", "err", err)
 		return &feed.FetchFeedResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "sort service error: " + err.Error()},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     &base.BaseResp{Code: 500, Msg: "sort service error: " + err.Error()},
 		}, nil
 	}
 	if sortResp.BaseResp != nil && sortResp.BaseResp.Code != 0 {
-		return &feed.FetchFeedResp{BaseResp: sortResp.BaseResp}, nil
+		return &feed.FetchFeedResp{
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     sortResp.BaseResp,
+		}, nil
 	}
 
 	logger.Ctx(ctx).Info("SortService returned items", "count", len(sortResp.ItemIds))
@@ -110,9 +138,10 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	if len(sortResp.ItemIds) == 0 {
 		return &feed.FetchFeedResp{
-			Items:    []*feed.FeedItem{},
-			HasMore:  false,
-			BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: impressionID,
+			BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
 		}, nil
 	}
 
@@ -122,11 +151,19 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	if err != nil {
 		logger.Ctx(ctx).Error("ItemService error", "err", err)
 		return &feed.FetchFeedResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
 		}, nil
 	}
 	if batchResp.BaseResp != nil && batchResp.BaseResp.Code != 0 {
-		return &feed.FetchFeedResp{BaseResp: batchResp.BaseResp}, nil
+		return &feed.FetchFeedResp{
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     batchResp.BaseResp,
+		}, nil
 	}
 
 	logger.Ctx(ctx).Info("ItemService returned items", "count", len(batchResp.Items))
@@ -148,8 +185,10 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		}
 		itemMap[*pi.GroupId] = pi
 		entry := feedcache.Entry{
-			GroupID: *pi.GroupId,
-			ItemID:  id,
+			GroupID:      *pi.GroupId,
+			ItemID:       id,
+			Position:     len(rankedEntries),
+			ImpressionID: impressionID,
 		}
 		if rd, ok := itemReplayLookup[id]; ok {
 			entry.Score = rd.score
@@ -161,9 +200,10 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	if len(rankedEntries) == 0 {
 		return &feed.FetchFeedResp{
-			Items:    []*feed.FeedItem{},
-			HasMore:  false,
-			BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: impressionID,
+			BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
 		}, nil
 	}
 
@@ -189,7 +229,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		if s.config.EnableReplayLog && len(toReturnReplayLookup) > 0 {
-			s.publishReplayLog(bgCtx, agentID, feedItems, toReturnReplayLookup)
+			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, toReturnReplayLookup)
 		}
 	}()
 
@@ -197,9 +237,10 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
 
 	return &feed.FetchFeedResp{
-		Items:    feedItems,
-		HasMore:  hasMore,
-		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+		Items:        feedItems,
+		HasMore:      hasMore,
+		ImpressionId: impressionID,
+		BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 
@@ -236,6 +277,12 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		resolvedEntries = append(resolvedEntries, entry)
 	}
 
+	impressionID := impressionIDFromCacheEntries(resolvedEntries)
+	if impressionID == "" {
+		logger.Ctx(ctx).Info("cached entries missing impression id, falling back to refresh")
+		return s.handleRefresh(ctx, agentID, limit)
+	}
+
 	itemIDs := itemIDsFromCacheEntries(resolvedEntries)
 	if len(itemIDs) == 0 {
 		logger.Ctx(ctx).Info("no valid items found in cache, falling back to refresh")
@@ -248,11 +295,19 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 	if err != nil {
 		logger.Ctx(ctx).Error("ItemService error", "err", err)
 		return &feed.FetchFeedResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     &base.BaseResp{Code: 500, Msg: "item service error: " + err.Error()},
 		}, nil
 	}
 	if batchResp.BaseResp != nil && batchResp.BaseResp.Code != 0 {
-		return &feed.FetchFeedResp{BaseResp: batchResp.BaseResp}, nil
+		return &feed.FetchFeedResp{
+			Items:        []*feed.FeedItem{},
+			HasMore:      false,
+			ImpressionId: "",
+			BaseResp:     batchResp.BaseResp,
+		}, nil
 	}
 
 	itemMap := make(map[int64]*item.ProcessedItem)
@@ -269,7 +324,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		replayLookup := s.buildReplayLookupFromCacheEntries(resolvedEntries)
 		if s.config.EnableReplayLog && len(replayLookup) > 0 {
-			s.publishReplayLog(bgCtx, agentID, feedItems, replayLookup)
+			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, replayLookup)
 		}
 	}()
 
@@ -283,9 +338,10 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 	logger.Ctx(ctx).Info("returning items from cache", "count", len(feedItems), "hasMore", hasMore)
 
 	return &feed.FetchFeedResp{
-		Items:    feedItems,
-		HasMore:  hasMore,
-		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+		Items:        feedItems,
+		HasMore:      hasMore,
+		ImpressionId: impressionID,
+		BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 
@@ -339,7 +395,9 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 }
 
 type replayData struct {
+	position      int
 	score         float64
+	impressionID  string
 	agentFeatures string
 	itemFeatures  string
 }
@@ -354,7 +412,9 @@ func (s *FeedServiceImpl) buildReplayLookupFromCacheEntries(entries []feedcache.
 			continue
 		}
 		lookup[entry.GroupID] = &replayData{
+			position:      entry.Position,
 			score:         entry.Score,
+			impressionID:  entry.ImpressionID,
 			agentFeatures: entry.AgentFeatures,
 			itemFeatures:  entry.ItemFeatures,
 		}
@@ -382,7 +442,16 @@ func itemIDsFromCacheEntries(entries []feedcache.Entry) []int64 {
 	return itemIDs
 }
 
-func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
+func impressionIDFromCacheEntries(entries []feedcache.Entry) string {
+	for _, entry := range entries {
+		if entry.ImpressionID != "" {
+			return entry.ImpressionID
+		}
+	}
+	return ""
+}
+
+func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID string, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
 	if len(feedItems) == 0 {
 		return
 	}
@@ -399,13 +468,13 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, f
 	}
 
 	served := make([]replaylog.ServedItem, 0, len(feedItems))
-	for i, fi := range feedItems {
+	for _, fi := range feedItems {
 		si := replaylog.ServedItem{
-			ItemID:   fi.ItemId,
-			Position: i,
+			ItemID: fi.ItemId,
 		}
 		if fi.GroupId != nil {
 			if rd, ok := lookup[*fi.GroupId]; ok {
+				si.Position = rd.position
 				si.Score = rd.score
 				si.ItemFeatures = rd.itemFeatures
 			}
@@ -416,9 +485,20 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, agentID int64, f
 		served = append(served, si)
 	}
 
-	if err := replaylog.Publish(ctx, agentID, agentFeatures, served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
 		logger.Default().Warn("failed to publish replay log", "err", err)
 	}
+}
+
+func (s *FeedServiceImpl) newImpressionID() (string, error) {
+	if s.impressionIDGen == nil {
+		return "", fmt.Errorf("impression id generator is not initialized")
+	}
+	id, err := s.impressionIDGen.NextID()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("imp_%d", id), nil
 }
 
 func (s *FeedServiceImpl) recordImpressions(ctx context.Context, agentID int64, feedItems []*feed.FeedItem) {

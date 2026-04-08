@@ -35,11 +35,11 @@ func TestFeedCache_PushAndPop(t *testing.T) {
 
 	agentID := int64(1001)
 	entries := []Entry{
-		{GroupID: 100001, ItemID: 200001, Score: 1.1, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100001}`},
-		{GroupID: 100002, ItemID: 200002, Score: 2.2, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100002}`},
-		{GroupID: 100003, ItemID: 200003, Score: 3.3, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100003}`},
-		{GroupID: 100004, ItemID: 200004, Score: 4.4, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100004}`},
-		{GroupID: 100005, ItemID: 200005, Score: 5.5, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100005}`},
+		{GroupID: 100001, ItemID: 200001, Position: 0, ImpressionID: "imp_1", Score: 1.1, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100001}`},
+		{GroupID: 100002, ItemID: 200002, Position: 1, ImpressionID: "imp_1", Score: 2.2, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100002}`},
+		{GroupID: 100003, ItemID: 200003, Position: 2, ImpressionID: "imp_1", Score: 3.3, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100003}`},
+		{GroupID: 100004, ItemID: 200004, Position: 3, ImpressionID: "imp_1", Score: 4.4, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100004}`},
+		{GroupID: 100005, ItemID: 200005, Position: 4, ImpressionID: "imp_1", Score: 5.5, AgentFeatures: `{"keywords":["ai"]}`, ItemFeatures: `{"group_id":100005}`},
 	}
 
 	// Push items
@@ -77,9 +77,9 @@ func TestFeedCache_Clear(t *testing.T) {
 
 	agentID := int64(1001)
 	entries := []Entry{
-		{GroupID: 100001, ItemID: 200001},
-		{GroupID: 100002, ItemID: 200002},
-		{GroupID: 100003, ItemID: 200003},
+		{GroupID: 100001, ItemID: 200001, Position: 0, ImpressionID: "imp_1"},
+		{GroupID: 100002, ItemID: 200002, Position: 1, ImpressionID: "imp_1"},
+		{GroupID: 100003, ItemID: 200003, Position: 2, ImpressionID: "imp_1"},
 	}
 
 	// Push items
@@ -109,22 +109,22 @@ func TestFeedCache_MultipleAgents(t *testing.T) {
 	ctx := context.Background()
 
 	// Agent 1 cache
-	err := fc.Push(ctx, 1001, []Entry{{GroupID: 100001, ItemID: 200001}, {GroupID: 100002, ItemID: 200002}})
+	err := fc.Push(ctx, 1001, []Entry{{GroupID: 100001, ItemID: 200001, Position: 0, ImpressionID: "imp_1"}, {GroupID: 100002, ItemID: 200002, Position: 1, ImpressionID: "imp_1"}})
 	require.NoError(t, err)
 
 	// Agent 2 cache
-	err = fc.Push(ctx, 1002, []Entry{{GroupID: 100003, ItemID: 200003}, {GroupID: 100004, ItemID: 200004}})
+	err = fc.Push(ctx, 1002, []Entry{{GroupID: 100003, ItemID: 200003, Position: 0, ImpressionID: "imp_2"}, {GroupID: 100004, ItemID: 200004, Position: 1, ImpressionID: "imp_2"}})
 	require.NoError(t, err)
 
 	// Pop from agent 1
 	popped1, err := fc.Pop(ctx, 1001, 1)
 	assert.NoError(t, err)
-	assert.Equal(t, []Entry{{GroupID: 100001, ItemID: 200001}}, popped1)
+	assert.Equal(t, []Entry{{GroupID: 100001, ItemID: 200001, Position: 0, ImpressionID: "imp_1"}}, popped1)
 
 	// Pop from agent 2
 	popped2, err := fc.Pop(ctx, 1002, 1)
 	assert.NoError(t, err)
-	assert.Equal(t, []Entry{{GroupID: 100003, ItemID: 200003}}, popped2)
+	assert.Equal(t, []Entry{{GroupID: 100003, ItemID: 200003, Position: 0, ImpressionID: "imp_2"}}, popped2)
 
 	// Verify remaining lengths
 	len1, err := fc.Len(ctx, 1001)
