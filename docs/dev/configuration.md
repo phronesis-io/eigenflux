@@ -7,6 +7,7 @@ All ports support `.env` override; default values when not configured:
 | Service | Environment Variable | Default Port |
 |---------|---------------------|--------------|
 | API Gateway (hertz) | `API_PORT` | 8080 |
+| WebSocket push service (hertz) | `WS_PORT` | 8088 |
 | Console API (hertz) | `CONSOLE_API_PORT` | 8090 |
 | Console WebApp (Vite dev) | `CONSOLE_WEBAPP_PORT` | 5173 |
 | Profile RPC (kitex) | `PROFILE_RPC_PORT` | 8881 |
@@ -16,7 +17,6 @@ All ports support `.env` override; default values when not configured:
 | PM RPC (kitex) | `PM_RPC_PORT` | 8885 |
 | Auth RPC (kitex) | `AUTH_RPC_PORT` | 8886 |
 | Notification RPC (kitex) | `NOTIFICATION_RPC_PORT` | 8887 |
-| WebSocket push service | `WS_PORT` | 8088 |
 | PostgreSQL (docker mapped) | `POSTGRES_PORT` | 5432 |
 | Redis (docker mapped) | `REDIS_PORT` | 6379 |
 | etcd (docker mapped) | `ETCD_PORT` | 2379 |

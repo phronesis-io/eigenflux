@@ -33,6 +33,7 @@ type Config struct {
 	IDInstanceID            string // optional stable instance id for worker registration
 	AppEnv                  string // "dev" | "test" | "staging" | "prod"
 	ApiPort                 int
+	WSPort                  int
 	ConsoleApiPort          int
 	ConsoleWebappPort       int
 	ProfileRPCPort          int
@@ -42,7 +43,6 @@ type Config struct {
 	AuthRPCPort             int
 	PMRPCPort               int
 	NotificationRPCPort     int
-	WSPort                  int
 	LLMApiKey               string
 	LLMBaseURL              string
 	LLMModel                string
@@ -107,6 +107,7 @@ func Load() *Config {
 		IDInstanceID:            getEnv("ID_INSTANCE_ID", ""),
 		AppEnv:                  getEnv("APP_ENV", "dev"),
 		ApiPort:                 getEnvInt("API_PORT", 8080),
+		WSPort:                  getEnvInt("WS_PORT", 8088),
 		ConsoleApiPort:          getEnvInt("CONSOLE_API_PORT", 8090),
 		ConsoleWebappPort:       getEnvInt("CONSOLE_WEBAPP_PORT", 5173),
 		ProfileRPCPort:          getEnvInt("PROFILE_RPC_PORT", 8881),
@@ -116,7 +117,6 @@ func Load() *Config {
 		PMRPCPort:               getEnvInt("PM_RPC_PORT", 8885),
 		AuthRPCPort:             getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:     getEnvInt("NOTIFICATION_RPC_PORT", 8887),
-		WSPort:                  getEnvInt("WS_PORT", 8088),
 		LLMApiKey:               getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:              getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                getEnv("LLM_MODEL", "gpt-4o-mini"),
