@@ -22,6 +22,7 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
 fi
 
 API_PORT="${API_PORT:-8080}"
+WS_PORT="${WS_PORT:-8088}"
 PROFILE_RPC_PORT="${PROFILE_RPC_PORT:-8881}"
 ITEM_RPC_PORT="${ITEM_RPC_PORT:-8882}"
 SORT_RPC_PORT="${SORT_RPC_PORT:-8883}"
@@ -173,6 +174,7 @@ SERVICE_MAP=(
   "auth:${AUTH_RPC_PORT}"
   "notification:${NOTIFICATION_RPC_PORT}"
   "api:${API_PORT}"
+  "ws:${WS_PORT}"
   "pipeline:"
   "cron:"
 )

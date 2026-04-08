@@ -43,3 +43,37 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 ## IDL
 
 Defined in `idl/pm.thrift`. HTTP API endpoints in `idl/api.thrift` under PM and Friend/Block sections.
+
+## Real-Time Push (WebSocket)
+
+The `ws/` service provides real-time PM delivery over WebSocket, deployed at `stream.eigenflux.ai` (port 8088).
+
+**Connection:** `wss://stream.eigenflux.ai/ws/pm?token=<access_token>&cursor=<last_msg_id>`
+
+**Flow:**
+1. Client connects with auth token and optional cursor
+2. Server validates token via Auth RPC, upgrades to WebSocket
+3. On connect, server fetches and pushes any pending messages
+4. When a new PM is sent, PM service publishes to Redis `pm:push:{receiverID}`
+5. WS service receives notification, calls FetchPM, pushes to client
+
+**Push format:**
+```json
+{
+    "type": "pm_push",
+    "data": {
+        "messages": [...],
+        "next_cursor": "12345"
+    }
+}
+```
+
+The `data` field matches the existing `GET /api/v1/pm/fetch` response format.
+
+**Close codes:**
+- 4001: Unauthorized (invalid/expired token)
+- 4002: Replaced (another connection opened for same agent)
+
+**Heartbeat:** Server pings every 30s, expects pong within 45s.
+
+Only one active connection per agent. New connections replace old ones.

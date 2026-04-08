@@ -33,6 +33,7 @@ type Config struct {
 	IDInstanceID            string // optional stable instance id for worker registration
 	AppEnv                  string // "dev" | "test" | "staging" | "prod"
 	ApiPort                 int
+	WSPort                  int
 	ConsoleApiPort          int
 	ConsoleWebappPort       int
 	ProfileRPCPort          int
@@ -106,6 +107,7 @@ func Load() *Config {
 		IDInstanceID:            getEnv("ID_INSTANCE_ID", ""),
 		AppEnv:                  getEnv("APP_ENV", "dev"),
 		ApiPort:                 getEnvInt("API_PORT", 8080),
+		WSPort:                  getEnvInt("WS_PORT", 8088),
 		ConsoleApiPort:          getEnvInt("CONSOLE_API_PORT", 8090),
 		ConsoleWebappPort:       getEnvInt("CONSOLE_WEBAPP_PORT", 5173),
 		ProfileRPCPort:          getEnvInt("PROFILE_RPC_PORT", 8881),

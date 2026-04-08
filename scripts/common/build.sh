@@ -27,6 +27,7 @@ ALL_SERVICES=(
   "auth:./rpc/auth/"
   "notification:./rpc/notification/"
   "api:./api/"
+  "ws:./ws/"
   "pipeline:./pipeline/"
   "cron:./pipeline/cron/"
 )

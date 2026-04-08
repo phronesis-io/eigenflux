@@ -5,7 +5,7 @@
 # When adding a new service, update ALL_MODULES and module_port() here only.
 
 # Ordered list of all modules (controls startup order).
-ALL_MODULES=(etcd profile item sort feed pm auth notification api pipeline cron)
+ALL_MODULES=(etcd profile item sort feed pm auth notification api ws pipeline cron)
 
 # Map module name → systemd unit name.
 module_to_unit() {
@@ -20,6 +20,7 @@ module_to_unit() {
 module_port() {
   case "$1" in
     api)          echo "${API_PORT:-8080}" ;;
+    ws)           echo "${WS_PORT:-8088}" ;;
     profile)      echo "${PROFILE_RPC_PORT:-8881}" ;;
     item)         echo "${ITEM_RPC_PORT:-8882}" ;;
     sort)         echo "${SORT_RPC_PORT:-8883}" ;;

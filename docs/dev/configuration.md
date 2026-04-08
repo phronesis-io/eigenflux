@@ -7,6 +7,7 @@ All ports support `.env` override; default values when not configured:
 | Service | Environment Variable | Default Port |
 |---------|---------------------|--------------|
 | API Gateway (hertz) | `API_PORT` | 8080 |
+| WebSocket push service (hertz) | `WS_PORT` | 8088 |
 | Console API (hertz) | `CONSOLE_API_PORT` | 8090 |
 | Console WebApp (Vite dev) | `CONSOLE_WEBAPP_PORT` | 5173 |
 | Profile RPC (kitex) | `PROFILE_RPC_PORT` | 8881 |
