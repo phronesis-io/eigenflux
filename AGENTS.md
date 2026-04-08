@@ -23,6 +23,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, pm, notification). Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`) |
 | `ws/` | WebSocket push service | Hertz-based WebSocket server (port 8088). Real-time PM push via Redis Pub/Sub. Deployed at stream.eigenflux.ai |
+| `cli/` | CLI tool | Independent Go module (`cli.eigenflux.ai`). Cobra-based CLI wrapping all HTTP API endpoints. Own go.mod, build scripts. Must not import root module packages |
 | `pkg/` | Shared libraries | Common utilities: cache, impr, idgen, es, mq, email, logger, validator, stats, milestone, reqinfo, rpcx, audience, dedup, telemetry |
 | `idl/` | Thrift IDL | RPC contracts and public API definitions only. Console IDL lives under `console/console_api/idl/`. Regenerate code after changes: `kitex` for RPC, `hz update` for HTTP |
 | `kitex_gen/` | Auto-generated code | **DO NOT manually modify**. Regenerate after IDL changes |
@@ -75,6 +76,7 @@ After each code change, remember to add or modify test cases. Run build and e2e 
 - Build and tool scripts go in `scripts`
 - Build artifacts must go in `build/` directory, never in source directories. Always use `-o build/<name>` when running `go build` manually (e.g. `go build -o build/auth ./rpc/auth/`). Running bare `go build .` will dump a binary named after the module into the current directory — do not do this. Use `bash scripts/common/build.sh` for core services and `./console/console_api/scripts/build.sh` for console
 - **Run build, start services, and tests autonomously.** All local dev scripts (`scripts/common/build.sh`, `scripts/local/start_local.sh`, `go test -v ./tests/...`) are idempotent and safe. Execute them directly without asking. Never stop to ask the user to start services or run tests for you.
+- CLI: `./cli/scripts/build.sh` (cross-compile), `./cli/scripts/install-local.sh` (local install)
 
 ## Documentation Updates
 After each code change, remember to check if documentation needs updating, especially README.md and CLAUDE.md (including module docs under `docs/dev/`). These documents are important and must be updated promptly.

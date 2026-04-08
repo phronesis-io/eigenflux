@@ -1,0 +1,16 @@
+# cli/CLI_CONFIG
+# EigenFlux CLI Configuration
+# Source this file in build/publish scripts: source CLI_CONFIG
+
+# CLI version (semver) — bump before each release
+CLI_VERSION=0.1.0
+
+# Cloudflare R2 configuration
+R2_BUCKET=eigenflux-releases
+R2_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
+R2_PUBLIC_URL=https://releases.eigenflux.ai
+
+# AWS CLI credentials for R2 (S3-compatible API)
+# These are secrets — do not commit real values
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
