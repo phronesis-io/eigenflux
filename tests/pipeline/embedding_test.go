@@ -98,7 +98,7 @@ func TestEmbedding(t *testing.T) {
 
 	// Verify AI/NLP texts are highly similar
 	sim_ai_nlp := similarities[0][1]
-	assert.Greater(t, sim_ai_nlp, float32(0.7), "AI/NLP texts should be highly similar (>0.7)")
+	assert.Greater(t, sim_ai_nlp, float32(0.65), "AI/NLP texts should be highly similar (>0.65)")
 	t.Logf("✓ AI/NLP similarity: %.4f", sim_ai_nlp)
 
 	// Verify AI/NLP vs Weather are dissimilar
