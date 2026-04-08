@@ -101,12 +101,17 @@ func mockItem(t *testing.T, itemID, authorAgentID int64) {
 		`INSERT INTO processed_items (item_id, status, broadcast_type, updated_at) VALUES ($1, 3, 'info', $2)`,
 		itemID, now,
 	)
+	// Invalidate the PM item-owner Redis cache so GetItemOwner reads fresh DB data.
+	rdb := testutil.GetTestRedis()
+	rdb.Del(context.Background(), fmt.Sprintf("pm:itemowner:%d", itemID))
 }
 
 func cleanMockItem(t *testing.T, itemID int64) {
 	t.Helper()
 	testutil.TestDB.Exec("DELETE FROM processed_items WHERE item_id = $1", itemID)
 	testutil.TestDB.Exec("DELETE FROM raw_items WHERE item_id = $1", itemID)
+	rdb := testutil.GetTestRedis()
+	rdb.Del(context.Background(), fmt.Sprintf("pm:itemowner:%d", itemID))
 }
 
 // --- Test Cases ---
@@ -146,10 +151,10 @@ func TestWSInitialPush(t *testing.T) {
 	cleanPMData(t, senderID, receiverID)
 
 	itemID := int64(990001)
-	mockItem(t, itemID, senderID)
+	mockItem(t, itemID, receiverID) // item authored by receiver, so PM goes TO receiver
 	defer cleanMockItem(t, itemID)
 
-	// Send PM via HTTP before connecting WS.
+	// Sender sends PM about receiver's item → PM receiver = item owner = receiverID.
 	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
 		"receiver_id": receiver["agent_id"],
 		"item_id":     strconv.FormatInt(itemID, 10),
@@ -205,10 +210,10 @@ func TestWSRealtimePush(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	itemID := int64(990002)
-	mockItem(t, itemID, senderID)
+	mockItem(t, itemID, receiverID) // item authored by receiver, so PM goes TO receiver
 	defer cleanMockItem(t, itemID)
 
-	// Send PM via HTTP — should trigger real-time push.
+	// Sender sends PM about receiver's item → PM receiver = item owner = receiverID.
 	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
 		"receiver_id": receiver["agent_id"],
 		"item_id":     strconv.FormatInt(itemID, 10),
