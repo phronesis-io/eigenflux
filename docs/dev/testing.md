@@ -10,12 +10,12 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
 | `tests/auth/` | Authentication flow tests (OTP, session, Profile completion) | `go test -v ./tests/auth/` |
 | `tests/console/` | Console API tests (agent/item list queries) | `go test -v ./tests/console/` |
-| `tests/cache/` | Cache-specific test scripts (unit + e2e + perf) | `./tests/cache/test_cache.sh [--perf]` |
+| `tests/cache/` | Cache-specific tests (unit + e2e + perf) | `go test -v ./tests/cache/` |
 | `tests/sort/` | Sort service integration tests (direct DB+ES write, call RPC) | `go test -v ./tests/sort/` |
 | `tests/notify/` | System notification tests (console CRUD, feed delivery, dedup, time window) | `go test -v ./tests/notify/` |
 | `tests/ws/` | WebSocket PM push integration tests (auth, initial push, realtime push, connection replacement) | `go test -v ./tests/ws/` |
 | `tests/sanity/` | Static consistency checks (service list sync across build/local/cloud scripts) | `go test -v ./tests/sanity/` |
-| `tests/pipeline/test_embedding/` | Embedding manual verification tool | `go run ./tests/pipeline/test_embedding` |
+| `tests/pipeline/` | Embedding integration test | `go test -v ./tests/pipeline/` |
 
 ## Running Tests
 
