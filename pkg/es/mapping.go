@@ -45,6 +45,9 @@ func BuildIndexMapping(embeddingDims int) map[string]interface{} {
 					},
 				},
 			},
+			"geo_country": map[string]interface{}{
+				"type": "keyword",
+			},
 			"source_type": map[string]interface{}{
 				"type": "keyword",
 			},

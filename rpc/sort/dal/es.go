@@ -24,6 +24,7 @@ type Item struct {
 	Domains          []string               `json:"domains"`
 	ExpireTime       *time.Time             `json:"expire_time,omitempty"`
 	Geo              string                 `json:"geo,omitempty"`
+	GeoCountry       string                 `json:"geo_country,omitempty"`
 	SourceType       string                 `json:"source_type"` // original, curated, forwarded
 	ExpectedResponse string                 `json:"expected_response,omitempty"`
 	Keywords         []string               `json:"keywords,omitempty"`
