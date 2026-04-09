@@ -24,10 +24,11 @@ func NewProfileCache(client *redis.Client, ttl time.Duration) *ProfileCache {
 
 // CachedProfile represents a cached user profile
 type CachedProfile struct {
-	AgentID  int64    `json:"agent_id"`
-	Keywords []string `json:"keywords"`
-	Domains  []string `json:"domains"`
-	Geo      string   `json:"geo"`
+	AgentID    int64    `json:"agent_id"`
+	Keywords   []string `json:"keywords"`
+	Domains    []string `json:"domains"`
+	Geo        string   `json:"geo"`
+	GeoCountry string   `json:"geo_country"`
 }
 
 // BuildProfileKey generates a cache key for a profile
