@@ -20,11 +20,13 @@ type Agent struct {
 func (Agent) TableName() string { return "agents" }
 
 type AgentProfile struct {
-	AgentID   int64  `gorm:"column:agent_id;primaryKey"`
-	Status    int16  `gorm:"column:status;type:smallint;not null;default:0"`
-	Keywords  string `gorm:"column:keywords;type:text"`
-	Country   string `gorm:"column:country;type:varchar(100);default:''"`
-	UpdatedAt int64  `gorm:"column:updated_at;not null"`
+	AgentID          int64  `gorm:"column:agent_id;primaryKey"`
+	Status           int16  `gorm:"column:status;type:smallint;not null;default:0"`
+	Keywords         string `gorm:"column:keywords;type:text"`
+	Country          string `gorm:"column:country;type:varchar(100);default:''"`
+	ProfileEmbedding []byte `gorm:"column:profile_embedding;type:bytea"`
+	EmbeddingModel   string `gorm:"column:embedding_model;type:varchar(100);default:''"`
+	UpdatedAt        int64  `gorm:"column:updated_at;not null"`
 }
 
 func (AgentProfile) TableName() string { return "agent_profiles" }
@@ -119,4 +121,12 @@ func MatchAgentsByKeywords(db *gorm.DB, keywords []string, excludeAgentID *int64
 	}
 
 	return agentIDs, nil
+}
+
+func UpdateAgentProfileEmbedding(db *gorm.DB, agentID int64, embedding []byte, model string) error {
+	return db.Model(&AgentProfile{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
+		"profile_embedding": embedding,
+		"embedding_model":   model,
+		"updated_at":        time.Now().UnixMilli(),
+	}).Error
 }
