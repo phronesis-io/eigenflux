@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +53,10 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		if srv := activeServerName(); srv != "" {
+			cache.SaveFeedResponse(srv, resp.Data)
+			cache.Cleanup(srv, "broadcasts")
+		}
 		return nil
 	},
 }

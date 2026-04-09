@@ -48,6 +48,11 @@ func SaveCredentials(serverName string, creds *Credentials) error {
 	return os.WriteFile(path, data, 0600)
 }
 
+// DeleteCredentials removes the credentials file for the given server.
+func DeleteCredentials(serverName string) error {
+	return os.Remove(credentialsPath(serverName))
+}
+
 func (c *Credentials) IsExpired() bool {
 	if c.ExpiresAt == 0 {
 		return false

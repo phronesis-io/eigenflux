@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +38,7 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		cacheProfile(resp.Data)
 		return nil
 	},
 }
@@ -73,6 +75,13 @@ Examples:
 		}
 		output.PrintMessage("Profile updated")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+
+		// Refresh cached profile after update.
+		if rc := newClient(); rc != nil {
+			if meResp, err := rc.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
+				cacheProfile(meResp.Data)
+			}
+		}
 		return nil
 	},
 }
@@ -106,6 +115,28 @@ Examples:
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		return nil
 	},
+}
+
+// cacheProfile saves profile data from an API response to local cache (best-effort).
+func cacheProfile(data json.RawMessage) {
+	srv := activeServerName()
+	if srv == "" {
+		return
+	}
+	var p struct {
+		Email     string `json:"email"`
+		AgentName string `json:"agent_name"`
+		AgentID   string `json:"agent_id"`
+		Bio       string `json:"bio"`
+	}
+	if json.Unmarshal(data, &p) == nil {
+		cache.SaveProfile(srv, &cache.Profile{
+			Email:     p.Email,
+			AgentName: p.AgentName,
+			AgentID:   p.AgentID,
+			Bio:       p.Bio,
+		})
+	}
 }
 
 func init() {

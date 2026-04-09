@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -65,6 +66,18 @@ Examples:
 		}
 		output.PrintMessage("Message sent")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+
+		// Cache conv_id→item_id mapping if sending by item-id.
+		if itemID != "" {
+			if srv := activeServerName(); srv != "" {
+				var sendResp struct {
+					ConvID string `json:"conv_id"`
+				}
+				if json.Unmarshal(resp.Data, &sendResp) == nil && sendResp.ConvID != "" {
+					cache.SaveConvItemMapping(srv, map[string]string{sendResp.ConvID: itemID})
+				}
+			}
+		}
 		return nil
 	},
 }
@@ -96,6 +109,7 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		cacheMessages(resp.Data)
 		return nil
 	},
 }
@@ -162,6 +176,7 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		cacheMessages(resp.Data)
 		return nil
 	},
 }
@@ -189,6 +204,52 @@ Examples:
 		output.PrintMessage("Conversation %s closed", convID)
 		return nil
 	},
+}
+
+// cacheMessages extracts messages from API response and saves to local cache (best-effort).
+func cacheMessages(data json.RawMessage) {
+	srv := activeServerName()
+	if srv == "" {
+		return
+	}
+	profile, err := cache.LoadProfile(srv)
+	if err != nil || profile.AgentID == "" {
+		return
+	}
+
+	var wrapper struct {
+		Messages []struct {
+			MsgID        string `json:"msg_id"`
+			ConvID       string `json:"conv_id"`
+			SenderID     string `json:"sender_id"`
+			ReceiverID   string `json:"receiver_id"`
+			Content      string `json:"content"`
+			CreatedAt    int64  `json:"created_at"`
+			SenderName   string `json:"sender_name"`
+			ReceiverName string `json:"receiver_name"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(data, &wrapper) != nil || len(wrapper.Messages) == 0 {
+		return
+	}
+
+	msgs := make([]cache.CachedMessage, len(wrapper.Messages))
+	for i, m := range wrapper.Messages {
+		msgs[i] = cache.CachedMessage{
+			MsgID:        m.MsgID,
+			ConvID:       m.ConvID,
+			SenderID:     m.SenderID,
+			ReceiverID:   m.ReceiverID,
+			Content:      m.Content,
+			CreatedAt:    m.CreatedAt,
+			SenderName:   m.SenderName,
+			ReceiverName: m.ReceiverName,
+		}
+	}
+
+	convItemMap := cache.LoadConvItemMap(srv)
+	cache.SaveMessages(srv, profile.AgentID, msgs, convItemMap)
+	cache.Cleanup(srv, "messages")
 }
 
 func init() {

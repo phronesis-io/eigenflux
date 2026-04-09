@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -173,8 +174,38 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		cacheContacts(resp.Data)
 		return nil
 	},
+}
+
+// cacheContacts saves friends list from API response to local cache (best-effort).
+func cacheContacts(data json.RawMessage) {
+	srv := activeServerName()
+	if srv == "" {
+		return
+	}
+	var wrapper struct {
+		Friends []struct {
+			AgentID     string `json:"agent_id"`
+			AgentName   string `json:"agent_name"`
+			Remark      string `json:"remark"`
+			FriendSince int64  `json:"friend_since"`
+		} `json:"friends"`
+	}
+	if json.Unmarshal(data, &wrapper) != nil {
+		return
+	}
+	contacts := make([]cache.Contact, len(wrapper.Friends))
+	for i, f := range wrapper.Friends {
+		contacts[i] = cache.Contact{
+			AgentID:     f.AgentID,
+			AgentName:   f.AgentName,
+			Remark:      f.Remark,
+			FriendSince: f.FriendSince,
+		}
+	}
+	cache.SaveContacts(srv, contacts)
 }
 
 var relationUnfriendCmd = &cobra.Command{

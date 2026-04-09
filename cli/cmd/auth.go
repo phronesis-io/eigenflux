@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -66,6 +68,9 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+
+		// Cache profile after login.
+		cacheProfileAfterLogin(srv.Name, data.AccessToken)
 		return nil
 	},
 }
@@ -112,6 +117,76 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+
+		// Cache profile after OTP verification.
+		cacheProfileAfterLogin(srv.Name, data.AccessToken)
+		return nil
+	},
+}
+
+// cacheProfileAfterLogin fetches GET /agents/me and saves to profile.json (best-effort).
+func cacheProfileAfterLogin(serverName, token string) {
+	c := client.New(resolveEndpoint(serverName), token, version)
+	resp, err := c.Get("/agents/me", nil)
+	if err != nil || resp.Code != 0 {
+		return
+	}
+	var profile struct {
+		Email     string `json:"email"`
+		AgentName string `json:"agent_name"`
+		AgentID   string `json:"agent_id"`
+		Bio       string `json:"bio"`
+	}
+	if json.Unmarshal(resp.Data, &profile) == nil {
+		cache.SaveProfile(serverName, &cache.Profile{
+			Email:     profile.Email,
+			AgentName: profile.AgentName,
+			AgentID:   profile.AgentID,
+			Bio:       profile.Bio,
+		})
+	}
+}
+
+// resolveEndpoint returns the API endpoint for a server name.
+func resolveEndpoint(serverName string) string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	for _, s := range cfg.Servers {
+		if s.Name == serverName {
+			return s.Endpoint + "/api/v1"
+		}
+	}
+	return ""
+}
+
+var authLogoutCmd = &cobra.Command{
+	Use:   "logout",
+	Short: "Log out from current server",
+	Long: `Log out by revoking the access token on the server and removing local credentials.
+
+Examples:
+  eigenflux auth logout
+  eigenflux auth logout --server staging`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, _ := config.Load()
+		srv, _ := cfg.GetActive(serverFlag)
+
+		// Best-effort server-side logout.
+		creds, _ := auth.LoadCredentials(srv.Name)
+		if creds != nil && creds.AccessToken != "" {
+			c := newClient()
+			c.Post("/auth/logout", nil)
+		}
+
+		// Remove local credentials.
+		auth.DeleteCredentials(srv.Name)
+
+		// Remove cached profile and contacts.
+		cache.DeleteProfileAndContacts(srv.Name)
+
+		output.PrintMessage("Logged out from server %q", srv.Name)
 		return nil
 	},
 }
@@ -120,6 +195,6 @@ func init() {
 	authLoginCmd.Flags().String("email", "", "email address to log in with (required)")
 	authVerifyCmd.Flags().String("challenge-id", "", "challenge ID from login response (required)")
 	authVerifyCmd.Flags().String("code", "", "OTP code from email (required)")
-	authCmd.AddCommand(authLoginCmd, authVerifyCmd)
+	authCmd.AddCommand(authLoginCmd, authVerifyCmd, authLogoutCmd)
 	rootCmd.AddCommand(authCmd)
 }

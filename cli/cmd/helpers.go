@@ -38,6 +38,18 @@ func newClientOptionalAuth(requireAuth bool) *client.Client {
 	return client.New(srv.Endpoint+"/api/v1", token, version)
 }
 
+func activeServerName() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	srv, err := cfg.GetActive(serverFlag)
+	if err != nil {
+		return ""
+	}
+	return srv.Name
+}
+
 func resolveFormat() string {
 	return output.ResolveFormat(formatFlag)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -45,6 +46,11 @@ Examples:
 		}
 		output.PrintMessage("Broadcast published")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		if srv := activeServerName(); srv != "" {
+			reqData, _ := json.Marshal(body)
+			cache.SavePublishRecord(srv, json.RawMessage(reqData), resp.Data)
+			cache.Cleanup(srv, "broadcasts")
+		}
 		return nil
 	},
 }
