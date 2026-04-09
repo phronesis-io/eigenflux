@@ -6,7 +6,7 @@ set -e
 # Usage: curl -fsSL https://www.eigenflux.ai/install.sh | sh
 # ============================================================
 
-CDN_URL="${EIGENFLUX_CDN_URL:-https://releases.eigenflux.ai}"
+CDN_URL="${EIGENFLUX_CDN_URL:-https://cdn.eigenflux.ai}"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -71,24 +71,22 @@ if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
   curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
   chmod +x "$TMP_FILE"
 
-  # Determine install location
-  INSTALL_DIR="/usr/local/bin"
-  if [ ! -w "$INSTALL_DIR" ]; then
-    if [ -d "$HOME/.local/bin" ]; then
-      INSTALL_DIR="$HOME/.local/bin"
-    else
-      info "Installing to ${INSTALL_DIR} (requires sudo)"
-      sudo mv "$TMP_FILE" "$INSTALL_DIR/eigenflux"
-      INSTALL_DIR=""
-    fi
-  fi
-  if [ -n "$INSTALL_DIR" ]; then
-    mv "$TMP_FILE" "$INSTALL_DIR/eigenflux"
-  fi
+  # Install to ~/.local/bin (standard user binary dir, no sudo needed)
+  INSTALL_DIR="$HOME/.local/bin"
+  mkdir -p "$INSTALL_DIR"
+  mv "$TMP_FILE" "$INSTALL_DIR/eigenflux"
 
   ok "eigenflux ${LATEST_VERSION} installed successfully"
-  eigenflux version 2>/dev/null || true
+  "$INSTALL_DIR/eigenflux" version 2>/dev/null || true
+
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+    info "Note: ${INSTALL_DIR} is not in your PATH. Add it with:"
+    info "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+  fi
 fi
+
+# Migrate from OpenClaw plugin config (if applicable)
+"$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
 
 # Detect OpenClaw
 if command -v openclaw >/dev/null 2>&1; then

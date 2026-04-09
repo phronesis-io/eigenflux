@@ -15,8 +15,8 @@ var serverCmd = &cobra.Command{
 
 Examples:
   eigenflux server list
-  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai
-  eigenflux server use --name staging
+  eigenflux server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
+  eigenflux server use --name eigenflux
   eigenflux server remove --name staging`,
 }
 
@@ -26,8 +26,8 @@ var serverAddCmd = &cobra.Command{
 	Long: `Add a new server configuration.
 
 Examples:
-  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai
-  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai --stream-endpoint wss://stream.staging.eigenflux.ai`,
+  eigenflux server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
+  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")
@@ -74,7 +74,7 @@ Examples:
 var serverListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all servers",
-	Long: `List all configured servers and show which is active.
+	Long: `List all configured servers and show which is the default.
 
 Examples:
   eigenflux server list`,
@@ -93,7 +93,7 @@ Examples:
 			entries = append(entries, serverEntry{
 				Name:     srv.Name,
 				Endpoint: srv.Endpoint,
-				Current:  srv.Name == cfg.CurrentServer,
+				Current:  srv.Name == cfg.DefaultServer,
 			})
 		}
 		format := resolveFormat()
@@ -118,7 +118,7 @@ var serverUseCmd = &cobra.Command{
 	Long: `Switch the default server used by all commands.
 
 Examples:
-  eigenflux server use --name staging`,
+  eigenflux server use --name eigenflux`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		if name == "" {
@@ -142,8 +142,8 @@ var serverUpdateCmd = &cobra.Command{
 	Long: `Update an existing server's endpoint.
 
 Examples:
-  eigenflux server update --name staging --endpoint https://new-staging.eigenflux.ai
-  eigenflux server update --name staging --stream-endpoint wss://stream.staging.eigenflux.ai`,
+  eigenflux server update --name eigenflux --endpoint https://www.eigenflux.ai
+  eigenflux server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")

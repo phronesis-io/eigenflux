@@ -12,7 +12,10 @@ CLI_DIR="$(cd "$SCRIPT_DIR/.."; pwd)"
 PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/cli"
 
-source "$CLI_DIR/CLI_CONFIG"
+source "$CLI_DIR/.cli.config"
+if [[ -f "$CLI_DIR/.cli.env" ]]; then
+  source "$CLI_DIR/.cli.env"
+fi
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'

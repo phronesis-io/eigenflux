@@ -16,8 +16,8 @@ type Server struct {
 }
 
 type Config struct {
-	CurrentServer string            `json:"current_server"`
-	Servers       map[string]Server `json:"servers"`
+	DefaultServer string   `json:"default_server"`
+	Servers       []Server `json:"servers"`
 }
 
 func HomeDir() string {
@@ -38,11 +38,12 @@ func Load() (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			cfg := &Config{
-				CurrentServer: "default",
-				Servers: map[string]Server{
-					"default": {
-						Name:     "default",
-						Endpoint: "https://www.eigenflux.ai",
+				DefaultServer: "eigenflux",
+				Servers: []Server{
+					{
+						Name:           "eigenflux",
+						Endpoint:       "https://www.eigenflux.ai",
+						StreamEndpoint: "wss://stream.eigenflux.ai",
 					},
 				},
 			}
@@ -72,63 +73,72 @@ func (c *Config) Save() error {
 	return os.WriteFile(path, data, 0600)
 }
 
+func (c *Config) findServer(name string) int {
+	for i, s := range c.Servers {
+		if s.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 func (c *Config) AddServer(name, endpoint string) error {
 	return c.AddServerFull(name, endpoint, "")
 }
 
 func (c *Config) AddServerFull(name, endpoint, streamEndpoint string) error {
-	if _, exists := c.Servers[name]; exists {
+	if c.findServer(name) >= 0 {
 		return fmt.Errorf("server %q already exists, use 'server update' to modify", name)
 	}
-	c.Servers[name] = Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint}
+	c.Servers = append(c.Servers, Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint})
 	return c.Save()
 }
 
 func (c *Config) RemoveServer(name string) error {
-	if name == c.CurrentServer {
-		return fmt.Errorf("cannot remove the current server %q, switch to another server first", name)
+	if name == c.DefaultServer {
+		return fmt.Errorf("cannot remove the default server %q, switch to another server first", name)
 	}
-	if _, exists := c.Servers[name]; !exists {
+	i := c.findServer(name)
+	if i < 0 {
 		return fmt.Errorf("server %q not found", name)
 	}
-	delete(c.Servers, name)
+	c.Servers = append(c.Servers[:i], c.Servers[i+1:]...)
 	credsDir := filepath.Join(HomeDir(), "servers", name)
 	os.RemoveAll(credsDir)
 	return c.Save()
 }
 
 func (c *Config) SetCurrent(name string) error {
-	if _, exists := c.Servers[name]; !exists {
+	if c.findServer(name) < 0 {
 		return fmt.Errorf("server %q not found", name)
 	}
-	c.CurrentServer = name
+	c.DefaultServer = name
 	return c.Save()
 }
 
 func (c *Config) GetActive(override string) (*Server, error) {
-	name := c.CurrentServer
+	name := c.DefaultServer
 	if override != "" {
 		name = override
 	}
-	srv, ok := c.Servers[name]
-	if !ok {
+	i := c.findServer(name)
+	if i < 0 {
 		return nil, fmt.Errorf("server %q not found, available: %v", name, c.serverNames())
 	}
-	return &srv, nil
+	return &c.Servers[i], nil
 }
 
 func (c *Config) UpdateServer(name, endpoint, streamEndpoint string) error {
-	srv, ok := c.Servers[name]
-	if !ok {
+	i := c.findServer(name)
+	if i < 0 {
 		return fmt.Errorf("server %q not found", name)
 	}
 	if endpoint != "" {
-		srv.Endpoint = endpoint
+		c.Servers[i].Endpoint = endpoint
 	}
 	if streamEndpoint != "" {
-		srv.StreamEndpoint = streamEndpoint
+		c.Servers[i].StreamEndpoint = streamEndpoint
 	}
-	c.Servers[name] = srv
 	return c.Save()
 }
 
@@ -170,8 +180,8 @@ func isLocalhost(host string) bool {
 
 func (c *Config) serverNames() []string {
 	names := make([]string, 0, len(c.Servers))
-	for n := range c.Servers {
-		names = append(names, n)
+	for _, s := range c.Servers {
+		names = append(names, s.Name)
 	}
 	return names
 }

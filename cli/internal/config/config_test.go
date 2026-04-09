@@ -13,14 +13,18 @@ func TestLoadCreatesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.CurrentServer != "default" {
-		t.Errorf("CurrentServer = %q, want %q", cfg.CurrentServer, "default")
+	if cfg.DefaultServer != "eigenflux" {
+		t.Errorf("DefaultServer = %q, want %q", cfg.DefaultServer, "eigenflux")
 	}
-	if _, ok := cfg.Servers["default"]; !ok {
-		t.Error("expected default server to exist")
+	i := cfg.findServer("eigenflux")
+	if i < 0 {
+		t.Fatal("expected eigenflux server to exist")
 	}
-	if cfg.Servers["default"].Endpoint != "https://www.eigenflux.ai" {
-		t.Errorf("default endpoint = %q, want %q", cfg.Servers["default"].Endpoint, "https://www.eigenflux.ai")
+	if cfg.Servers[i].Endpoint != "https://www.eigenflux.ai" {
+		t.Errorf("default endpoint = %q, want %q", cfg.Servers[i].Endpoint, "https://www.eigenflux.ai")
+	}
+	if cfg.Servers[i].StreamEndpoint != "wss://stream.eigenflux.ai" {
+		t.Errorf("default stream endpoint = %q, want %q", cfg.Servers[i].StreamEndpoint, "wss://stream.eigenflux.ai")
 	}
 }
 
@@ -32,7 +36,7 @@ func TestAddAndRemoveServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddServer error: %v", err)
 	}
-	if _, ok := cfg.Servers["staging"]; !ok {
+	if cfg.findServer("staging") < 0 {
 		t.Error("expected staging server")
 	}
 	err = cfg.AddServer("staging", "https://other.eigenflux.ai")
@@ -43,12 +47,12 @@ func TestAddAndRemoveServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveServer error: %v", err)
 	}
-	if _, ok := cfg.Servers["staging"]; ok {
+	if cfg.findServer("staging") >= 0 {
 		t.Error("staging should be removed")
 	}
-	err = cfg.RemoveServer("default")
+	err = cfg.RemoveServer("eigenflux")
 	if err == nil {
-		t.Error("expected error removing current server")
+		t.Error("expected error removing default server")
 	}
 }
 
@@ -61,8 +65,8 @@ func TestSetCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetCurrent error: %v", err)
 	}
-	if cfg.CurrentServer != "staging" {
-		t.Errorf("CurrentServer = %q, want %q", cfg.CurrentServer, "staging")
+	if cfg.DefaultServer != "staging" {
+		t.Errorf("DefaultServer = %q, want %q", cfg.DefaultServer, "staging")
 	}
 	err = cfg.SetCurrent("nonexistent")
 	if err == nil {
@@ -79,8 +83,8 @@ func TestGetActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetActive error: %v", err)
 	}
-	if srv.Name != "default" {
-		t.Errorf("active = %q, want %q", srv.Name, "default")
+	if srv.Name != "eigenflux" {
+		t.Errorf("active = %q, want %q", srv.Name, "eigenflux")
 	}
 	srv, err = cfg.GetActive("staging")
 	if err != nil {
@@ -95,12 +99,13 @@ func TestUpdateServer(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)
 	cfg, _ := Load()
-	err := cfg.UpdateServer("default", "https://new.eigenflux.ai", "")
+	err := cfg.UpdateServer("eigenflux", "https://new.eigenflux.ai", "")
 	if err != nil {
 		t.Fatalf("UpdateServer error: %v", err)
 	}
-	if cfg.Servers["default"].Endpoint != "https://new.eigenflux.ai" {
-		t.Errorf("endpoint = %q, want %q", cfg.Servers["default"].Endpoint, "https://new.eigenflux.ai")
+	i := cfg.findServer("eigenflux")
+	if cfg.Servers[i].Endpoint != "https://new.eigenflux.ai" {
+		t.Errorf("endpoint = %q, want %q", cfg.Servers[i].Endpoint, "https://new.eigenflux.ai")
 	}
 }
 
@@ -114,7 +119,7 @@ func TestSaveAndReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload error: %v", err)
 	}
-	if _, ok := cfg2.Servers["staging"]; !ok {
+	if cfg2.findServer("staging") < 0 {
 		t.Error("staging server should persist after save/reload")
 	}
 }

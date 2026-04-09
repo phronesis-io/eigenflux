@@ -302,6 +302,9 @@ func TestProfileItems(t *testing.T) {
 
 func TestInstallShRoute(t *testing.T) {
 	testutil.WaitForAPI(t)
+	if apiBaseURL == "" {
+		apiBaseURL = fmt.Sprintf("http://localhost:%d", config.Load().ApiPort)
+	}
 
 	// The install.sh should be served at /install.sh
 	resp, err := http.Get(apiBaseURL + "/install.sh")
@@ -323,6 +326,33 @@ func TestInstallShRoute(t *testing.T) {
 		t.Error("expected install.sh to mention eigenflux")
 	}
 	t.Logf("install.sh: %d bytes, OK", len(body))
+}
+
+func TestInstallPs1Route(t *testing.T) {
+	testutil.WaitForAPI(t)
+	if apiBaseURL == "" {
+		apiBaseURL = fmt.Sprintf("http://localhost:%d", config.Load().ApiPort)
+	}
+
+	resp, err := http.Get(apiBaseURL + "/install.ps1")
+	if err != nil {
+		t.Fatalf("failed to fetch /install.ps1: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for /install.ps1, got %d", resp.StatusCode)
+	}
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "eigenflux") {
+		t.Error("expected install.ps1 to mention eigenflux")
+	}
+	if !strings.Contains(bodyStr, "Invoke-") {
+		t.Error("expected install.ps1 to contain PowerShell cmdlets")
+	}
+	t.Logf("install.ps1: %d bytes, OK", len(body))
 }
 
 func TestUnauthenticatedCommandFails(t *testing.T) {

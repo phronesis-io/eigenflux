@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")"; pwd)"
 CLI_DIR="$(cd "$SCRIPT_DIR/.."; pwd)"
 PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 
-source "$CLI_DIR/CLI_CONFIG"
+source "$CLI_DIR/.cli.config"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -29,12 +29,17 @@ fi
 
 "${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION}" -o "$PROJECT_ROOT/build/eigenflux" .
 
-INSTALL_DIR="/usr/local/bin"
-if [[ -w "$INSTALL_DIR" ]]; then
-  cp "$PROJECT_ROOT/build/eigenflux" "$INSTALL_DIR/eigenflux"
-else
-  echo -e "${CYAN}Installing to $INSTALL_DIR (requires sudo)...${NC}"
-  sudo cp "$PROJECT_ROOT/build/eigenflux" "$INSTALL_DIR/eigenflux"
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+cp "$PROJECT_ROOT/build/eigenflux" "$INSTALL_DIR/eigenflux"
+
+# Ensure PATH includes install dir
+if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+  echo -e "${CYAN}Adding ${INSTALL_DIR} to PATH...${NC}"
+  export PATH="$INSTALL_DIR:$PATH"
 fi
 
-echo -e "${GREEN}Installed: $(eigenflux version --short)${NC}"
+echo -e "${GREEN}Installed: $("$INSTALL_DIR/eigenflux" version --short)${NC}"
+
+# Migrate from OpenClaw if applicable
+"$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
