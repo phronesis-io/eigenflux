@@ -30,7 +30,8 @@ func New(cfg *RankerConfig) *Ranker {
 	return &Ranker{config: cfg}
 }
 
-// Rank scores candidates and returns top-limit items using MMR diversity selection.
+// Rank scores candidates and returns top-limit items sorted by relevance score.
+// MMR diversity selection is implemented (see rankMMR) but disabled for now.
 func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int) []RankedItem {
 	if len(candidates) == 0 {
 		return nil
@@ -38,13 +39,55 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 
 	now := time.Now()
 
-	// Phase 1: compute raw relevance scores
+	// Compute relevance scores
+	type scored struct {
+		idx   int
+		score float64
+	}
+	items := make([]scored, len(candidates))
+	for i, item := range candidates {
+		items[i] = scored{idx: i, score: r.scoreItem(item, profile, now)}
+	}
+
+	// Sort by score descending (selection sort, N is small after ES recall)
+	for i := 0; i < len(items) && i < limit; i++ {
+		best := i
+		for j := i + 1; j < len(items); j++ {
+			if items[j].score > items[best].score {
+				best = j
+			}
+		}
+		items[i], items[best] = items[best], items[i]
+	}
+
+	if len(items) > limit {
+		items = items[:limit]
+	}
+
+	selected := make([]RankedItem, len(items))
+	for i, s := range items {
+		selected[i] = RankedItem{
+			ItemID: candidates[s.idx].ID,
+			Score:  s.score,
+		}
+	}
+	return selected
+}
+
+// rankMMR selects top-limit items using Maximal Marginal Relevance for diversity.
+// Currently unused — kept for future activation.
+func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit int) []RankedItem {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+
 	relevanceScores := make([]float64, len(candidates))
 	for i, item := range candidates {
 		relevanceScores[i] = r.scoreItem(item, profile, now)
 	}
 
-	// Phase 2: MMR iterative selection
 	selected := make([]RankedItem, 0, limit)
 	used := make([]bool, len(candidates))
 
