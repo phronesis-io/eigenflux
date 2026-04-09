@@ -366,6 +366,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"timeliness":     item.Timeliness,
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
+			"rank_scores":    ri.Scores,
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()

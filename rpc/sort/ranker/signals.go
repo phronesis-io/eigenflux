@@ -75,7 +75,8 @@ func urgencyAwareFreshness(cfg *RankerConfig, updatedAt time.Time, expireTime ti
 	if urgencyRatio < 0 {
 		urgencyRatio = 0
 	}
-	return base * (1.0 + cfg.UrgencyBoost*urgencyRatio)
+	// Scale so that max output is 1.0: divide by (1 + UrgencyBoost) to normalize
+	return base * (1.0 + cfg.UrgencyBoost*urgencyRatio) / (1.0 + cfg.UrgencyBoost)
 }
 
 // gaussianDecay implements ES-style Gaussian decay.

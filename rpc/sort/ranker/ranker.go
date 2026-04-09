@@ -15,10 +15,20 @@ type UserProfile struct {
 	Embedding []float32
 }
 
+// ScoreBreakdown holds per-signal scores for replay log analysis.
+type ScoreBreakdown struct {
+	Semantic  float64 `json:"semantic"`
+	Keyword   float64 `json:"keyword"`
+	Freshness float64 `json:"freshness"`
+	Total     float64 `json:"total"`
+	IsDraft   bool    `json:"is_draft"`
+}
+
 // RankedItem is a scored item returned by the Ranker.
 type RankedItem struct {
 	ItemID int64
 	Score  float64
+	Scores ScoreBreakdown
 }
 
 // Ranker scores and re-ranks ES candidates.
@@ -41,12 +51,14 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 
 	// Compute relevance scores
 	type scored struct {
-		idx   int
-		score float64
+		idx    int
+		score  float64
+		scores ScoreBreakdown
 	}
 	items := make([]scored, len(candidates))
 	for i, item := range candidates {
-		items[i] = scored{idx: i, score: r.scoreItem(item, profile, now)}
+		bd := r.scoreItem(item, profile, now)
+		items[i] = scored{idx: i, score: bd.Total, scores: bd}
 	}
 
 	// Sort by score descending (selection sort, N is small after ES recall)
@@ -69,6 +81,7 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 		selected[i] = RankedItem{
 			ItemID: candidates[s.idx].ID,
 			Score:  s.score,
+			Scores: s.scores,
 		}
 	}
 	return selected
@@ -83,9 +96,9 @@ func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit 
 
 	now := time.Now()
 
-	relevanceScores := make([]float64, len(candidates))
+	breakdowns := make([]ScoreBreakdown, len(candidates))
 	for i, item := range candidates {
-		relevanceScores[i] = r.scoreItem(item, profile, now)
+		breakdowns[i] = r.scoreItem(item, profile, now)
 	}
 
 	selected := make([]RankedItem, 0, limit)
@@ -101,7 +114,7 @@ func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit 
 			}
 
 			maxSim := r.maxSimToSelected(candidates, i, selected)
-			mmr := r.config.MMRLambda*relevanceScores[i] - (1-r.config.MMRLambda)*maxSim
+			mmr := r.config.MMRLambda*breakdowns[i].Total - (1-r.config.MMRLambda)*maxSim
 
 			if mmr > bestMMR {
 				bestMMR = mmr
@@ -116,7 +129,8 @@ func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit 
 		used[bestIdx] = true
 		selected = append(selected, RankedItem{
 			ItemID: candidates[bestIdx].ID,
-			Score:  relevanceScores[bestIdx],
+			Score:  breakdowns[bestIdx].Total,
+			Scores: breakdowns[bestIdx],
 		})
 	}
 
@@ -144,19 +158,25 @@ func (r *Ranker) maxSimToSelected(candidates []sortDal.Item, candidateIdx int, s
 	return maxSim
 }
 
-// scoreItem computes raw relevance score for a single item.
-func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, now time.Time) float64 {
+// scoreItem computes raw relevance score for a single item and returns the full breakdown.
+func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, now time.Time) ScoreBreakdown {
 	isDraft := len(item.Keywords) == 0 && item.Type == ""
 
 	semSim := semanticSimilarity(profile.Embedding, item.Embedding)
 	kwOvlp := keywordOverlap(profile.Keywords, profile.Domains, item.Keywords, item.Domains)
 	fresh := freshnessScore(r.config, item.Type, item.UpdatedAt, item.ExpireTime, now)
 
-	score := r.config.Alpha*semSim + r.config.Beta*kwOvlp + r.config.Gamma*fresh
+	total := r.config.Alpha*semSim + r.config.Beta*kwOvlp + r.config.Gamma*fresh
 
 	if isDraft {
-		score *= r.config.DraftDampening
+		total *= r.config.DraftDampening
 	}
 
-	return score
+	return ScoreBreakdown{
+		Semantic:  semSim,
+		Keyword:   kwOvlp,
+		Freshness: fresh,
+		Total:     total,
+		IsDraft:   isDraft,
+	}
 }

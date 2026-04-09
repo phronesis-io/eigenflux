@@ -83,11 +83,33 @@ func TestRanker_MMRDiversity(t *testing.T) {
 		Embedding: []float32{1, 0, 0},
 	}
 
-	ranked := r.Rank(candidates, profile, 3)
+	// rankMMR selects diverse items; Rank() uses score-based sorting (MMR disabled)
+	ranked := r.rankMMR(candidates, profile, 3)
 	require.Len(t, ranked, 3)
 	assert.Equal(t, int64(1), ranked[0].ItemID)
 	// Item 3 (diverse) should be selected before item 2 (similar to item 1)
 	assert.Equal(t, int64(3), ranked[1].ItemID, "diverse item should be preferred via MMR")
+}
+
+func TestRanker_ScoreBreakdown(t *testing.T) {
+	r := New(defaultTestConfig())
+	now := time.Now()
+
+	candidates := []sortDal.Item{
+		{ID: 1, Type: "info", Keywords: []string{"AI"}, Domains: []string{"tech"},
+			Embedding: []float32{1, 0, 0}, UpdatedAt: now, CreatedAt: now},
+	}
+
+	profile := &UserProfile{Keywords: []string{"AI"}, Domains: []string{"tech"}, Embedding: []float32{1, 0, 0}}
+	ranked := r.Rank(candidates, profile, 1)
+	require.Len(t, ranked, 1)
+
+	bd := ranked[0].Scores
+	assert.Greater(t, bd.Semantic, 0.0, "semantic should be positive for matching embedding")
+	assert.Greater(t, bd.Keyword, 0.0, "keyword should be positive for matching keywords")
+	assert.Greater(t, bd.Freshness, 0.0, "freshness should be positive for recent item")
+	assert.InDelta(t, ranked[0].Score, bd.Total, 1e-9, "Score should equal breakdown total")
+	assert.False(t, bd.IsDraft, "item with keywords and type should not be draft")
 }
 
 func TestRanker_EmptyProfile(t *testing.T) {

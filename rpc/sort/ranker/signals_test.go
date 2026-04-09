@@ -66,7 +66,8 @@ func TestFreshnessScore_DemandUrgency(t *testing.T) {
 		UrgencyWindow: 24 * time.Hour,
 	}
 	now := time.Now()
-	updatedAt := now.Add(-1 * time.Hour)
+	// Use updatedAt beyond the offset so base < 1.0, making urgency boost visible before clamp
+	updatedAt := now.Add(-2 * 24 * time.Hour)
 
 	// Demand expiring in 2 hours → high urgency
 	soonExpire := now.Add(2 * time.Hour)
@@ -77,6 +78,7 @@ func TestFreshnessScore_DemandUrgency(t *testing.T) {
 	normalScore := freshnessScore(cfg, "demand", updatedAt, &laterExpire, now)
 
 	assert.Greater(t, urgentScore, normalScore, "soon-expiring demand should score higher")
+	assert.LessOrEqual(t, urgentScore, 1.0, "urgency-boosted score must be scaled to [0,1]")
 
 	// Expired → 0
 	expired := now.Add(-1 * time.Hour)
