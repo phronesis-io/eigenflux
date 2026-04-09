@@ -18,12 +18,16 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
+	"eigenflux_server/rpc/sort/ranker"
 )
 
 var bf *bloomfilter.BloomFilter
 var cfg *config.Config
 var searchCache *cache.SearchCache
 var profileCache *cache.ProfileCache
+var rankerInstance *ranker.Ranker
+var rankerCfg *ranker.RankerConfig
+var embeddingCache *cache.EmbeddingCache
 
 func main() {
 	cfg = config.Load()
@@ -58,6 +62,13 @@ func main() {
 		)
 		logger.Default().Info("cache enabled", "searchTTL", cfg.SearchCacheTTL, "profileTTL", cfg.ProfileCacheTTL)
 	}
+
+	// Initialize ranker
+	rankerCfg = ranker.NewRankerConfig(cfg)
+	rankerInstance = ranker.New(rankerCfg)
+
+	// Initialize embedding cache
+	embeddingCache = cache.NewEmbeddingCache(mq.RDB, 24*time.Hour)
 
 	// Initialize Elasticsearch
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {

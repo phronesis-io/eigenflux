@@ -13,9 +13,11 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/db"
+	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
 	profileDal "eigenflux_server/rpc/profile/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
+	"eigenflux_server/rpc/sort/ranker"
 )
 
 // SortServiceESImpl implements SortService using Elasticsearch
@@ -36,6 +38,37 @@ func filterSearchItemsByTimestamp(items []sortDal.Item, lastFetchTimeSec int64) 
 		}
 	}
 	return filtered
+}
+
+func cachedItemsToItems(cached []cache.CachedItem) []sortDal.Item {
+	items := make([]sortDal.Item, 0, len(cached))
+	for _, ci := range cached {
+		var itemID int64
+		fmt.Sscanf(ci.ItemID, "%d", &itemID)
+		item := sortDal.Item{
+			ID:           itemID,
+			Content:      ci.Content,
+			Summary:      ci.Summary,
+			Type:         ci.BroadcastType,
+			Domains:      ci.Domains,
+			Keywords:     ci.Keywords,
+			Geo:          ci.Geo,
+			SourceType:   ci.SourceType,
+			QualityScore: ci.QualityScore,
+			GroupID:      ci.GroupID,
+			Lang:         ci.Lang,
+			Timeliness:   ci.Timeliness,
+			Score:        ci.Score,
+			CreatedAt:    time.UnixMilli(ci.CreatedAtMs),
+			UpdatedAt:    time.UnixMilli(ci.UpdatedAtMs),
+		}
+		if ci.ExpireTimeMs != nil {
+			t := time.UnixMilli(*ci.ExpireTimeMs)
+			item.ExpireTime = &t
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.SortItemsResp, error) {
@@ -108,6 +141,23 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains)
 	}
 
+	// Fetch profile embedding for semantic scoring
+	var profileEmbedding []float32
+	if embeddingCache != nil {
+		raw, err := embeddingCache.Get(ctx, req.AgentId)
+		if err == nil && len(raw) > 0 {
+			profileEmbedding = embcodec.Decode(raw)
+		} else {
+			// Cache miss — try DB
+			ap2, _ := profileDal.GetAgentProfile(db.DB, req.AgentId)
+			if ap2 != nil && len(ap2.ProfileEmbedding) > 0 {
+				profileEmbedding = embcodec.Decode(ap2.ProfileEmbedding)
+				// Warm cache
+				go embeddingCache.Set(context.Background(), req.AgentId, ap2.ProfileEmbedding)
+			}
+		}
+	}
+
 	agentFeaturesJSON, _ := json.Marshal(map[string]interface{}{
 		"keywords": keywords,
 		"domains":  domains,
@@ -138,7 +188,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			logger.Ctx(ctx).Debug("search cache MISS, querying ES")
 			// Cache miss, query ES
 			searchReq := &sortDal.SearchItemsRequest{
-				Limit:           limit * 3, // Fetch more to account for dedup
+				Limit:           limit * 5, // Fetch more to account for dedup
 				Domains:         domains,
 				Keywords:        keywords,
 				Geo:             geo,
@@ -202,7 +252,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		// No cache, query ES directly
 		logger.Ctx(ctx).Debug("no search cache, querying ES directly")
 		searchReq := &sortDal.SearchItemsRequest{
-			Limit:           limit * 3, // Fetch more to account for dedup
+			Limit:           limit * 5, // Fetch more to account for dedup
 			Domains:         domains,
 			Keywords:        keywords,
 			Geo:             geo,
@@ -246,6 +296,50 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
+	// Build user profile for ranker
+	userProfile := &ranker.UserProfile{
+		Keywords:  keywords,
+		Domains:   domains,
+		Geo:       geo,
+		Embedding: profileEmbedding,
+	}
+
+	// Convert to unified sortDal.Item list for ranker
+	var esItems []sortDal.Item
+	if searchCache != nil && len(cachedItems) > 0 {
+		esItems = cachedItemsToItems(cachedItems)
+	} else if searchResp != nil {
+		esItems = searchResp.Items
+	}
+
+	// Run ranker: scores + MMR diversity selection
+	// Over-fetch to account for dedup
+	rankLimit := limit * 3
+	if rankLimit > len(esItems) {
+		rankLimit = len(esItems)
+	}
+	ranked := rankerInstance.Rank(esItems, userProfile, rankLimit)
+
+	// Build set of ranked IDs for exploration exclusion
+	rankedIDs := make(map[int64]bool, len(ranked))
+	for _, ri := range ranked {
+		rankedIDs[ri.ItemID] = true
+	}
+
+	// Add exploration slots from remaining candidates
+	if rankerCfg.ExplorationSlots > 0 {
+		explorationItems := ranker.PickExplorationItems(esItems, rankedIDs, rankerCfg.ExplorationSlots, 48*time.Hour, 0.5)
+		for _, ei := range explorationItems {
+			ranked = append(ranked, ranker.RankedItem{ItemID: ei.ID, Score: 0.0})
+		}
+	}
+
+	// Build ranked item lookup for features
+	esItemMap := make(map[int64]sortDal.Item, len(esItems))
+	for _, item := range esItems {
+		esItemMap[item.ID] = item
+	}
+
 	// Collect all group_ids for bloom filter dedup
 	type candidateItem struct {
 		itemID       int64
@@ -255,60 +349,34 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	}
 	var candidates []candidateItem
 
-	if searchCache != nil && len(cachedItems) > 0 {
-		for _, item := range cachedItems {
-			var itemID int64
-			fmt.Sscanf(item.ItemID, "%d", &itemID)
-			feat := map[string]interface{}{
-				"broadcast_type": item.BroadcastType,
-				"domains":        item.Domains,
-				"keywords":       item.Keywords,
-				"geo":            item.Geo,
-				"source_type":    item.SourceType,
-				"quality_score":  item.QualityScore,
-				"group_id":       item.GroupID,
-				"lang":           item.Lang,
-				"timeliness":     item.Timeliness,
-				"updated_at":     item.UpdatedAtMs,
-				"created_at":     item.CreatedAtMs,
-			}
-			if item.ExpireTimeMs != nil {
-				feat["expire_time"] = *item.ExpireTimeMs
-			}
-			itemFeaturesJSON, _ := json.Marshal(feat)
-			candidates = append(candidates, candidateItem{
-				itemID:       itemID,
-				groupID:      item.GroupID,
-				score:        item.Score,
-				itemFeatures: string(itemFeaturesJSON),
-			})
+	for _, ri := range ranked {
+		item, ok := esItemMap[ri.ItemID]
+		if !ok {
+			continue
 		}
-	} else if searchResp != nil {
-		for _, item := range searchResp.Items {
-			feat := map[string]interface{}{
-				"broadcast_type": item.Type,
-				"domains":        item.Domains,
-				"keywords":       item.Keywords,
-				"geo":            item.Geo,
-				"source_type":    item.SourceType,
-				"quality_score":  item.QualityScore,
-				"group_id":       item.GroupID,
-				"lang":           item.Lang,
-				"timeliness":     item.Timeliness,
-				"updated_at":     item.UpdatedAt.UnixMilli(),
-				"created_at":     item.CreatedAt.UnixMilli(),
-			}
-			if item.ExpireTime != nil {
-				feat["expire_time"] = item.ExpireTime.UnixMilli()
-			}
-			itemFeaturesJSON, _ := json.Marshal(feat)
-			candidates = append(candidates, candidateItem{
-				itemID:       item.ID,
-				groupID:      item.GroupID,
-				score:        item.Score,
-				itemFeatures: string(itemFeaturesJSON),
-			})
+		feat := map[string]interface{}{
+			"broadcast_type": item.Type,
+			"domains":        item.Domains,
+			"keywords":       item.Keywords,
+			"geo":            item.Geo,
+			"source_type":    item.SourceType,
+			"quality_score":  item.QualityScore,
+			"group_id":       item.GroupID,
+			"lang":           item.Lang,
+			"timeliness":     item.Timeliness,
+			"updated_at":     item.UpdatedAt.UnixMilli(),
+			"created_at":     item.CreatedAt.UnixMilli(),
 		}
+		if item.ExpireTime != nil {
+			feat["expire_time"] = item.ExpireTime.UnixMilli()
+		}
+		itemFeaturesJSON, _ := json.Marshal(feat)
+		candidates = append(candidates, candidateItem{
+			itemID:       ri.ItemID,
+			groupID:      item.GroupID,
+			score:        ri.Score,
+			itemFeatures: string(itemFeaturesJSON),
+		})
 	}
 
 	// Bloom filter dedup by group_id (unless disabled in dev/test)
@@ -362,7 +430,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	var nextCursor int64
 	if searchResp != nil && !searchResp.NextCursor.IsZero() {
 		nextCursor = searchResp.NextCursor.Unix()
-	} else if len(cachedItems) > 0 && len(cachedItems) == limit*3 {
+	} else if len(cachedItems) > 0 && len(cachedItems) == limit*5 {
 		// If cache is full, use last item's timestamp as cursor
 		nextCursor = cachedItems[len(cachedItems)-1].UpdatedAt
 	}
