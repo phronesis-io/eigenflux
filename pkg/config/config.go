@@ -75,6 +75,24 @@ type Config struct {
 	LokiURL                 string   // Loki push API URL (default http://localhost:3122)
 	LogLevel                string   // Structured log level: debug | info | warn | error
 	EnableReplayLog         bool     // Enable replay log publishing in FeedService (default: true)
+
+	// Score layer weights
+	ScoreWeightSemantic  float64
+	ScoreWeightKeyword   float64
+	ScoreWeightFreshness float64
+	ScoreWeightDiversity float64
+	UrgencyBoost         float64
+	UrgencyWindow        string
+	MMRLambda            float64
+	ExplorationSlots     int
+
+	// Per-type freshness decay
+	FreshnessAlertOffset  string
+	FreshnessAlertScale   string
+	FreshnessAlertDecay   float64
+	FreshnessSupplyOffset string
+	FreshnessSupplyScale  string
+	FreshnessSupplyDecay  float64
 }
 
 func Load() *Config {
@@ -150,6 +168,20 @@ func Load() *Config {
 		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                getEnv("LOG_LEVEL", "debug"),
 		EnableReplayLog:         getEnvBool("ENABLE_REPLAY_LOG", true),
+		ScoreWeightSemantic:     getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
+		ScoreWeightKeyword:      getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
+		ScoreWeightFreshness:    getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
+		ScoreWeightDiversity:    getEnvFloat("SCORE_WEIGHT_DIVERSITY", 0.1),
+		UrgencyBoost:            getEnvFloat("URGENCY_BOOST", 0.5),
+		UrgencyWindow:           getEnv("URGENCY_WINDOW", "24h"),
+		MMRLambda:               getEnvFloat("MMR_LAMBDA", 0.7),
+		ExplorationSlots:        getEnvInt("EXPLORATION_SLOTS", 1),
+		FreshnessAlertOffset:    getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
+		FreshnessAlertScale:     getEnv("FRESHNESS_ALERT_SCALE", "12h"),
+		FreshnessAlertDecay:     getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),
+		FreshnessSupplyOffset:   getEnv("FRESHNESS_SUPPLY_OFFSET", "48h"),
+		FreshnessSupplyScale:    getEnv("FRESHNESS_SUPPLY_SCALE", "30d"),
+		FreshnessSupplyDecay:    getEnvFloat("FRESHNESS_SUPPLY_DECAY", 0.9),
 	}
 }
 
