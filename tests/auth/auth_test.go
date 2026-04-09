@@ -716,6 +716,41 @@ func TestAuthVerifyTokenRejected(t *testing.T) {
 	t.Log("verify_token correctly rejected in OTP-only mode")
 }
 
+func TestAuthLogout(t *testing.T) {
+	testutil.WaitForAPI(t)
+	email := "auth_logout@test.com"
+	testutil.CleanupTestEmails(t, email)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+	token, _, _ := testutil.LoginAndGetToken(t, email)
+
+	// Verify token works before logout.
+	agentData := testutil.GetAgent(t, token)
+	profile := agentData["profile"].(map[string]interface{})
+	if profile["email"].(string) != email {
+		t.Fatalf("expected email=%s, got %s", email, profile["email"])
+	}
+
+	// Logout.
+	logoutResp := testutil.DoPost(t, "/api/v1/auth/logout", nil, token)
+	if int(logoutResp["code"].(float64)) != 0 {
+		t.Fatalf("logout failed: %v", logoutResp["msg"])
+	}
+
+	// Verify the token is now revoked: any authenticated endpoint should return 401.
+	req, _ := http.NewRequest("GET", testutil.BaseURL+"/api/v1/agents/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 after logout, got %d", resp.StatusCode)
+	}
+	t.Log("Token correctly revoked after logout")
+}
+
 func TestAuthSQLInjection(t *testing.T) {
 	testutil.WaitForAPI(t)
 

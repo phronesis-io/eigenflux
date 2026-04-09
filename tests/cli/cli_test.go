@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -225,6 +226,38 @@ func TestAuthLoginAndVerify(t *testing.T) {
 		t.Errorf("expected email in profile show output after auth, got: %v", showResult)
 	}
 	t.Logf("profile show after login: %v", showResult)
+}
+
+func TestAuthLogout(t *testing.T) {
+	testutil.WaitForAPI(t)
+	setup(t)
+
+	email := fmt.Sprintf("cli_logout_%d@test.com", time.Now().UnixNano())
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+	loginAndAuth(t, email)
+
+	// Verify profile.json exists in the server directory.
+	profilePath := filepath.Join(testHome, "servers", "local", "profile.json")
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Fatalf("expected profile.json to exist after login: %v", err)
+	}
+
+	// Logout.
+	mustRunCLI(t, "auth", "logout")
+
+	// Verify credentials file is gone.
+	credsPath := filepath.Join(testHome, "servers", "local", "credentials.json")
+	if _, err := os.Stat(credsPath); !os.IsNotExist(err) {
+		t.Fatalf("expected credentials.json to be removed after logout, err=%v", err)
+	}
+
+	// Verify subsequent authenticated CLI command returns auth error.
+	_, _, err := runCLI(t, "profile", "show")
+	if err == nil {
+		t.Error("expected profile show to fail after logout")
+	}
+	t.Log("CLI logout correctly removes credentials and subsequent commands fail")
 }
 
 func TestProfileUpdateAndShow(t *testing.T) {
