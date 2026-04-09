@@ -266,7 +266,8 @@ func SaveConvItemMapping(serverName string, mapping map[string]string) {
 	}
 }
 
-// LoadConvItemMap scans message date directories and loads the most recent conv_item_map.json found.
+// LoadConvItemMap scans all message date directories and aggregates conv_item_map.json entries.
+// Newer entries (from later dates) take precedence over older ones.
 // Returns an empty map if none exists.
 func LoadConvItemMap(serverName string) map[string]string {
 	msgDir := filepath.Join(ServerDataDir(serverName), "messages")
@@ -275,11 +276,12 @@ func LoadConvItemMap(serverName string) map[string]string {
 		return make(map[string]string)
 	}
 
-	// Sort date directories descending to find the most recent first.
+	// Sort date directories ascending so newer entries overwrite older ones.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() > entries[j].Name()
+		return entries[i].Name() < entries[j].Name()
 	})
 
+	result := make(map[string]string)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -294,9 +296,11 @@ func LoadConvItemMap(serverName string) map[string]string {
 			log.Printf("cache: parse %s: %v", path, err)
 			continue
 		}
-		return m
+		for k, v := range m {
+			result[k] = v
+		}
 	}
-	return make(map[string]string)
+	return result
 }
 
 // Cleanup deletes date directories older than the retention period.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -206,14 +207,25 @@ Examples:
 	},
 }
 
+// resolveAgentID returns the current agent's ID from profile cache or credentials.
+func resolveAgentID(serverName string) string {
+	if p, err := cache.LoadProfile(serverName); err == nil && p.AgentID != "" {
+		return p.AgentID
+	}
+	if creds, err := auth.LoadCredentials(serverName); err == nil && creds.AgentID != "" {
+		return creds.AgentID
+	}
+	return ""
+}
+
 // cacheMessages extracts messages from API response and saves to local cache (best-effort).
 func cacheMessages(data json.RawMessage) {
 	srv := activeServerName()
 	if srv == "" {
 		return
 	}
-	profile, err := cache.LoadProfile(srv)
-	if err != nil || profile.AgentID == "" {
+	myAgentID := resolveAgentID(srv)
+	if myAgentID == "" {
 		return
 	}
 
@@ -248,7 +260,7 @@ func cacheMessages(data json.RawMessage) {
 	}
 
 	convItemMap := cache.LoadConvItemMap(srv)
-	cache.SaveMessages(srv, profile.AgentID, msgs, convItemMap)
+	cache.SaveMessages(srv, myAgentID, msgs, convItemMap)
 	cache.Cleanup(srv, "messages")
 }
 

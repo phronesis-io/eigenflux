@@ -306,8 +306,8 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 
 	myID := "me"
 	convItemMap := map[string]string{
-		"c1": "item-100",
-		"c2": "item-200",
+		"c1": "100",
+		"c2": "200",
 	}
 	msgs := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "about item 100", CreatedAt: 1000},
@@ -319,16 +319,16 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 	today := time.Now().Format(dateFormat)
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", today)
 
-	item100Path := filepath.Join(msgDir, "item-item-100.json")
-	item200Path := filepath.Join(msgDir, "item-item-200.json")
+	item100Path := filepath.Join(msgDir, "item-100.json")
+	item200Path := filepath.Join(msgDir, "item-200.json")
 
 	item100Data, err := os.ReadFile(item100Path)
 	if err != nil {
-		t.Fatalf("expected item-item-100.json: %v", err)
+		t.Fatalf("expected item-100.json: %v", err)
 	}
 	item200Data, err := os.ReadFile(item200Path)
 	if err != nil {
-		t.Fatalf("expected item-item-200.json: %v", err)
+		t.Fatalf("expected item-200.json: %v", err)
 	}
 
 	var item100Msgs, item200Msgs []CachedMessage
@@ -406,6 +406,39 @@ func TestSaveConvItemMapping_Empty(t *testing.T) {
 	loaded := LoadConvItemMap("testserver")
 	if len(loaded) != 0 {
 		t.Fatalf("expected empty map, got %d entries", len(loaded))
+	}
+}
+
+func TestLoadConvItemMap_AcrossDays(t *testing.T) {
+	dir := t.TempDir()
+	setHomeDir(t, dir)
+
+	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages")
+
+	// Day 1 mapping.
+	day1Dir := filepath.Join(msgDir, "20260401")
+	os.MkdirAll(day1Dir, 0700)
+	day1Data, _ := json.Marshal(map[string]string{"c1": "i1", "c2": "i2_old"})
+	os.WriteFile(filepath.Join(day1Dir, "conv_item_map.json"), day1Data, 0600)
+
+	// Day 2 mapping — overrides c2, adds c3.
+	day2Dir := filepath.Join(msgDir, "20260402")
+	os.MkdirAll(day2Dir, 0700)
+	day2Data, _ := json.Marshal(map[string]string{"c2": "i2_new", "c3": "i3"})
+	os.WriteFile(filepath.Join(day2Dir, "conv_item_map.json"), day2Data, 0600)
+
+	loaded := LoadConvItemMap("testserver")
+	if len(loaded) != 3 {
+		t.Fatalf("expected 3 entries aggregated across days, got %d", len(loaded))
+	}
+	if loaded["c1"] != "i1" {
+		t.Errorf("c1: got %q, want %q", loaded["c1"], "i1")
+	}
+	if loaded["c2"] != "i2_new" {
+		t.Errorf("c2: got %q, want %q (newer day should win)", loaded["c2"], "i2_new")
+	}
+	if loaded["c3"] != "i3" {
+		t.Errorf("c3: got %q, want %q", loaded["c3"], "i3")
 	}
 }
 

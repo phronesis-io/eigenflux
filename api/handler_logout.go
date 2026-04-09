@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strings"
 
@@ -28,12 +29,16 @@ func logoutHandler(ctx context.Context, c *app.RequestContext) {
 	tokenHash := hex.EncodeToString(h[:])
 
 	// Revoke session in database (status 2 = logged out).
-	db.DB.Table("agent_sessions").
+	if result := db.DB.Table("agent_sessions").
 		Where("token_hash = ? AND status = 0", tokenHash).
-		Update("status", 2)
+		Update("status", 2); result.Error != nil {
+		log.Printf("logout: db update failed: %v", result.Error)
+	}
 
 	// Remove cached session from Redis.
-	mq.RDB.Del(ctx, "auth:session:"+tokenHash)
+	if err := mq.RDB.Del(ctx, "auth:session:"+tokenHash).Err(); err != nil {
+		log.Printf("logout: redis del failed: %v", err)
+	}
 
 	c.JSON(http.StatusOK, map[string]interface{}{
 		"code": 0,

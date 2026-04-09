@@ -77,10 +77,8 @@ Examples:
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 
 		// Refresh cached profile after update.
-		if rc := newClient(); rc != nil {
-			if meResp, err := rc.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
-				cacheProfile(meResp.Data)
-			}
+		if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
+			cacheProfile(meResp.Data)
 		}
 		return nil
 	},

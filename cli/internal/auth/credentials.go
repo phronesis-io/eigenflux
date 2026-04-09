@@ -11,6 +11,7 @@ import (
 type Credentials struct {
 	AccessToken string `json:"access_token"`
 	Email       string `json:"email,omitempty"`
+	AgentID     string `json:"agent_id,omitempty"`
 	ExpiresAt   int64  `json:"expires_at,omitempty"`
 }
 

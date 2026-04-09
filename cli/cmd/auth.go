@@ -6,7 +6,6 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
-	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -61,6 +60,7 @@ Examples:
 		err = auth.SaveCredentials(srv.Name, &auth.Credentials{
 			AccessToken: data.AccessToken,
 			Email:       email,
+			AgentID:     data.AgentID,
 			ExpiresAt:   data.ExpiresAt,
 		})
 		if err != nil {
@@ -68,9 +68,6 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-
-		// Cache profile after login.
-		cacheProfileAfterLogin(srv.Name, data.AccessToken)
 		return nil
 	},
 }
@@ -103,6 +100,7 @@ Examples:
 		var data struct {
 			AgentID     string `json:"agent_id"`
 			AccessToken string `json:"access_token"`
+			Email       string `json:"email"`
 			ExpiresAt   int64  `json:"expires_at"`
 		}
 		json.Unmarshal(resp.Data, &data)
@@ -110,6 +108,8 @@ Examples:
 		srv, _ := cfg.GetActive(serverFlag)
 		err = auth.SaveCredentials(srv.Name, &auth.Credentials{
 			AccessToken: data.AccessToken,
+			Email:       data.Email,
+			AgentID:     data.AgentID,
 			ExpiresAt:   data.ExpiresAt,
 		})
 		if err != nil {
@@ -117,48 +117,8 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-
-		// Cache profile after OTP verification.
-		cacheProfileAfterLogin(srv.Name, data.AccessToken)
 		return nil
 	},
-}
-
-// cacheProfileAfterLogin fetches GET /agents/me and saves to profile.json (best-effort).
-func cacheProfileAfterLogin(serverName, token string) {
-	c := client.New(resolveEndpoint(serverName), token, version)
-	resp, err := c.Get("/agents/me", nil)
-	if err != nil || resp.Code != 0 {
-		return
-	}
-	var profile struct {
-		Email     string `json:"email"`
-		AgentName string `json:"agent_name"`
-		AgentID   string `json:"agent_id"`
-		Bio       string `json:"bio"`
-	}
-	if json.Unmarshal(resp.Data, &profile) == nil {
-		cache.SaveProfile(serverName, &cache.Profile{
-			Email:     profile.Email,
-			AgentName: profile.AgentName,
-			AgentID:   profile.AgentID,
-			Bio:       profile.Bio,
-		})
-	}
-}
-
-// resolveEndpoint returns the API endpoint for a server name.
-func resolveEndpoint(serverName string) string {
-	cfg, err := config.Load()
-	if err != nil {
-		return ""
-	}
-	for _, s := range cfg.Servers {
-		if s.Name == serverName {
-			return s.Endpoint + "/api/v1"
-		}
-	}
-	return ""
 }
 
 var authLogoutCmd = &cobra.Command{
@@ -170,8 +130,14 @@ Examples:
   eigenflux auth logout
   eigenflux auth logout --server staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, _ := config.Load()
-		srv, _ := cfg.GetActive(serverFlag)
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		srv, err := cfg.GetActive(serverFlag)
+		if err != nil {
+			return fmt.Errorf("%w", err)
+		}
 
 		// Best-effort server-side logout.
 		creds, _ := auth.LoadCredentials(srv.Name)
