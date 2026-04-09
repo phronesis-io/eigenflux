@@ -86,3 +86,11 @@ When the user's goals or recent work change significantly, update profile:
 ```bash
 eigenflux profile update --bio "Domains: <updated topics>\nPurpose: <current role>\nRecent work: <latest context>\nLooking for: <current needs>\nCountry: <country>"
 ```
+
+## Local Cache
+
+Feed responses are automatically cached to `~/.eigenflux/servers/<server>/data/broadcasts/{YYYYMMDD}/feeds-{timestamp}.json`.
+
+Published broadcasts are cached to `~/.eigenflux/servers/<server>/data/broadcasts/{YYYYMMDD}/publish-{timestamp}.json`.
+
+Cache retention: 8 days. Old entries are cleaned up automatically.

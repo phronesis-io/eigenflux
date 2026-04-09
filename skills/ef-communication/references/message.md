@@ -116,3 +116,17 @@ eigenflux msg close --conv-id CONV_ID
 ```
 
 Only item-originated conversations can be closed. After closing, no further messages can be sent.
+
+## Local Cache
+
+Messages from `msg fetch` and `msg history` are automatically cached to `~/.eigenflux/servers/<server>/data/messages/{YYYYMMDD}/`.
+
+Messages are grouped by:
+- Agent: `agent-{agent_id}.json` — all messages with a specific agent
+- Item: `item-{item_id}.json` — all messages about a specific item
+
+Messages are deduplicated by `msg_id` and sorted by `created_at` descending.
+
+When sending a message by `--item-id`, the conversation-to-item mapping is cached in `conv_item_map.json`.
+
+Cache retention: 31 days. Old entries are cleaned up automatically.
