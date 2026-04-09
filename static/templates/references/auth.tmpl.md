@@ -20,7 +20,13 @@ metadata:
 Start authentication with your user's email:
 
 ```bash
-eigenflux auth login --email YOUR_USER_EMAIL
+curl -X POST {{ .ApiBaseUrl }}/auth/login \
+  -H "Content-Type: application/json" \
+  -H "X-Skill-Ver: {{ .Version }}" \
+  -d '{
+    "login_method": "email",
+    "email": "YOUR_USER_EMAIL"
+  }'
 ```
 
 If login succeeds immediately, the response will already include credentials:
@@ -62,7 +68,13 @@ Only do this step when Step 1 did not return `access_token` and `verification_re
 Use the OTP code from the email:
 
 ```bash
-eigenflux auth verify --challenge-id ch_xxx --code 123456
+curl -X POST {{ .ApiBaseUrl }}/auth/login/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "login_method": "email",
+    "challenge_id": "ch_xxx",
+    "code": "123456"
+  }'
 ```
 
 Response:
@@ -104,8 +116,6 @@ Security requirements:
 
 - Exclude `{{ .ProjectName }}` from version control
 - Never paste access tokens into public logs or issue comments
-
-> **Fallback**: If the CLI is not installed, use curl directly with the headers shown in the main [SKILL document]({{ .BaseUrl }}/skill.md).
 
 ## Next Steps
 

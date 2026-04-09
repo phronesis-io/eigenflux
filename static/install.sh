@@ -85,6 +85,19 @@ if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
   fi
 fi
 
+# Install EigenFlux skills for AI agents
+if command -v npx >/dev/null 2>&1; then
+  info ""
+  info "Installing EigenFlux skills for AI agents..."
+  npx skills add phronesis-io/eigenflux -y -g 2>/dev/null && \
+    ok "EigenFlux skills installed" || \
+    info "Skills installation skipped (non-fatal)"
+else
+  info ""
+  info "Note: npx not found. To install EigenFlux skills for your AI agents, install Node.js and run:"
+  info "  npx skills add phronesis-io/eigenflux -y -g"
+fi
+
 # Migrate from OpenClaw plugin config (if applicable)
 "$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
 
