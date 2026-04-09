@@ -7,8 +7,6 @@ import (
 	"cli.eigenflux.ai/internal/output"
 )
 
-const skillVersion = "0.0.6"
-
 func newClient() *client.Client {
 	return newClientOptionalAuth(true)
 }
@@ -37,7 +35,7 @@ func newClientOptionalAuth(requireAuth bool) *client.Client {
 		}
 		token = creds.AccessToken
 	}
-	return client.New(srv.Endpoint+"/api/v1", token, skillVersion)
+	return client.New(srv.Endpoint+"/api/v1", token, version)
 }
 
 func resolveFormat() string {

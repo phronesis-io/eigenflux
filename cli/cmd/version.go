@@ -11,7 +11,7 @@ import (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show CLI version",
-	Long: `Display the CLI version, skill version, and build information.
+	Long: `Display the CLI version and build information.
 
 Examples:
   eigenflux version
@@ -23,18 +23,16 @@ Examples:
 			return nil
 		}
 		info := map[string]string{
-			"cli_version":   version,
-			"skill_version": skillVersion,
-			"go_version":    runtime.Version(),
-			"os":            runtime.GOOS,
-			"arch":          runtime.GOARCH,
+			"cli_version": version,
+			"go_version":  runtime.Version(),
+			"os":          runtime.GOOS,
+			"arch":        runtime.GOARCH,
 		}
 		format := resolveFormat()
 		if format == "table" {
 			fmt.Printf("eigenflux CLI %s\n", version)
-			fmt.Printf("  Skill version: %s\n", skillVersion)
-			fmt.Printf("  Go:            %s\n", runtime.Version())
-			fmt.Printf("  OS/Arch:       %s/%s\n", runtime.GOOS, runtime.GOARCH)
+			fmt.Printf("  Go:      %s\n", runtime.Version())
+			fmt.Printf("  OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 			return nil
 		}
 		output.PrintData(info, format)

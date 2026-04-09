@@ -31,6 +31,8 @@ fi
 
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"
+# Remove old binary first to avoid corrupting running processes (new inode).
+rm -f "$INSTALL_DIR/eigenflux"
 cp "$PROJECT_ROOT/build/eigenflux" "$INSTALL_DIR/eigenflux"
 
 # Ensure PATH includes install dir

@@ -32,15 +32,15 @@ func (e *APIError) Error() string {
 type Client struct {
 	BaseURL    string
 	Token      string
-	SkillVer   string
+	CLIVersion string
 	HTTPClient *http.Client
 }
 
-func New(baseURL, token, skillVer string) *Client {
+func New(baseURL, token, cliVersion string) *Client {
 	return &Client{
-		BaseURL:  baseURL,
-		Token:    token,
-		SkillVer: skillVer,
+		BaseURL:    baseURL,
+		Token:      token,
+		CLIVersion: cliVersion,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -66,8 +66,8 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	if c.SkillVer != "" {
-		req.Header.Set("X-Skill-Ver", c.SkillVer)
+	if c.CLIVersion != "" {
+		req.Header.Set("X-CLI-Ver", c.CLIVersion)
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
