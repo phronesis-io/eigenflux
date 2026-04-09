@@ -63,7 +63,32 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 		},
 	})
 
-	// 2. domains, keywords, geo filtering (using query context for relevance scoring)
+	// 2. Geo country hard filter: exclude geo-incompatible items
+	if req.GeoCountry != "" {
+		mustClauses = append(mustClauses, map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []interface{}{
+					// Item has no geo_country → pass (global content)
+					map[string]interface{}{
+						"bool": map[string]interface{}{
+							"must_not": map[string]interface{}{
+								"exists": map[string]interface{}{"field": "geo_country"},
+							},
+						},
+					},
+					// Item has geo_country and matches → pass
+					map[string]interface{}{
+						"term": map[string]interface{}{
+							"geo_country.keyword": req.GeoCountry,
+						},
+					},
+				},
+				"minimum_should_match": 1,
+			},
+		})
+	}
+
+	// 3. domains, keywords, geo filtering (using query context for relevance scoring)
 	shouldClauses := []interface{}{}
 
 	if len(req.Domains) > 0 {
@@ -72,21 +97,19 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 			shouldClauses = append(shouldClauses, map[string]interface{}{
 				"bool": map[string]interface{}{
 					"should": []interface{}{
-						// Exact match (highest weight)
 						map[string]interface{}{
 							"term": map[string]interface{}{
 								"domains": map[string]interface{}{
 									"value": lowercaseDomain,
-									"boost": 3.0,
+									"boost": 1.0,
 								},
 							},
 						},
-						// Fuzzy match (second highest weight)
 						map[string]interface{}{
 							"match": map[string]interface{}{
 								"domains.text": map[string]interface{}{
 									"query": lowercaseDomain,
-									"boost": 2.0,
+									"boost": 1.0,
 								},
 							},
 						},
@@ -107,7 +130,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"term": map[string]interface{}{
 								"keywords": map[string]interface{}{
 									"value": lowercaseKeyword,
-									"boost": 3.0,
+									"boost": 1.0,
 								},
 							},
 						},
@@ -115,7 +138,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"match": map[string]interface{}{
 								"keywords.text": map[string]interface{}{
 									"query": lowercaseKeyword,
-									"boost": 2.0,
+									"boost": 1.0,
 								},
 							},
 						},
@@ -131,19 +154,19 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 			"match": map[string]interface{}{
 				"geo": map[string]interface{}{
 					"query": req.Geo,
-					"boost": 1.5,
+					"boost": 1.0,
 				},
 			},
 		})
 	}
 
-	// If there are should conditions, add them to bool query (OR relationship)
+	// If there are should conditions, add them to bool query (OR relationship, min 0 = pure should)
 	if len(shouldClauses) > 0 {
 		logger.Default().Debug("adding should clauses with relevance scoring", "count", len(shouldClauses))
 		mustClauses = append(mustClauses, map[string]interface{}{
 			"bool": map[string]interface{}{
 				"should":               shouldClauses,
-				"minimum_should_match": 1,
+				"minimum_should_match": 0,
 			},
 		})
 	} else {
