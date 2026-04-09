@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"errors"
 	"fmt"
 	"strings"

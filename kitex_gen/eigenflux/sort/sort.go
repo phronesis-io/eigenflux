@@ -3,8 +3,8 @@
 package sort
 
 import (
-	"eigenflux_server/kitex_gen/eigenflux/base"
 	"context"
+	"eigenflux_server/kitex_gen/eigenflux/base"
 	"fmt"
 )
 
@@ -73,10 +73,85 @@ var fieldIDToName_SortItemsReq = map[int16]string{
 	3: "limit",
 }
 
+type SortedItem struct {
+	ItemId        int64   `thrift:"item_id,1,required" frugal:"1,required,i64" json:"item_id"`
+	Score         float64 `thrift:"score,2,required" frugal:"2,required,double" json:"score"`
+	AgentFeatures *string `thrift:"agent_features,3,optional" frugal:"3,optional,string" json:"agent_features,omitempty"`
+	ItemFeatures  *string `thrift:"item_features,4,optional" frugal:"4,optional,string" json:"item_features,omitempty"`
+}
+
+func NewSortedItem() *SortedItem {
+	return &SortedItem{}
+}
+
+func (p *SortedItem) InitDefault() {
+}
+
+func (p *SortedItem) GetItemId() (v int64) {
+	return p.ItemId
+}
+
+func (p *SortedItem) GetScore() (v float64) {
+	return p.Score
+}
+
+var SortedItem_AgentFeatures_DEFAULT string
+
+func (p *SortedItem) GetAgentFeatures() (v string) {
+	if !p.IsSetAgentFeatures() {
+		return SortedItem_AgentFeatures_DEFAULT
+	}
+	return *p.AgentFeatures
+}
+
+var SortedItem_ItemFeatures_DEFAULT string
+
+func (p *SortedItem) GetItemFeatures() (v string) {
+	if !p.IsSetItemFeatures() {
+		return SortedItem_ItemFeatures_DEFAULT
+	}
+	return *p.ItemFeatures
+}
+func (p *SortedItem) SetItemId(val int64) {
+	p.ItemId = val
+}
+func (p *SortedItem) SetScore(val float64) {
+	p.Score = val
+}
+func (p *SortedItem) SetAgentFeatures(val *string) {
+	p.AgentFeatures = val
+}
+func (p *SortedItem) SetItemFeatures(val *string) {
+	p.ItemFeatures = val
+}
+
+func (p *SortedItem) IsSetAgentFeatures() bool {
+	return p.AgentFeatures != nil
+}
+
+func (p *SortedItem) IsSetItemFeatures() bool {
+	return p.ItemFeatures != nil
+}
+
+func (p *SortedItem) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortedItem(%+v)", *p)
+}
+
+var fieldIDToName_SortedItem = map[int16]string{
+	1: "item_id",
+	2: "score",
+	3: "agent_features",
+	4: "item_features",
+}
+
 type SortItemsResp struct {
-	ItemIds    []int64        `thrift:"item_ids,1,required" frugal:"1,required,list<i64>" json:"item_ids"`
-	NextCursor int64          `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
-	BaseResp   *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	ItemIds     []int64        `thrift:"item_ids,1,required" frugal:"1,required,list<i64>" json:"item_ids"`
+	NextCursor  int64          `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	SortedItems []*SortedItem  `thrift:"sorted_items,3,optional" frugal:"3,optional,list<SortedItem>" json:"sorted_items,omitempty"`
+	BaseResp    *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewSortItemsResp() *SortItemsResp {
@@ -94,6 +169,15 @@ func (p *SortItemsResp) GetNextCursor() (v int64) {
 	return p.NextCursor
 }
 
+var SortItemsResp_SortedItems_DEFAULT []*SortedItem
+
+func (p *SortItemsResp) GetSortedItems() (v []*SortedItem) {
+	if !p.IsSetSortedItems() {
+		return SortItemsResp_SortedItems_DEFAULT
+	}
+	return p.SortedItems
+}
+
 var SortItemsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *SortItemsResp) GetBaseResp() (v *base.BaseResp) {
@@ -108,8 +192,15 @@ func (p *SortItemsResp) SetItemIds(val []int64) {
 func (p *SortItemsResp) SetNextCursor(val int64) {
 	p.NextCursor = val
 }
+func (p *SortItemsResp) SetSortedItems(val []*SortedItem) {
+	p.SortedItems = val
+}
 func (p *SortItemsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *SortItemsResp) IsSetSortedItems() bool {
+	return p.SortedItems != nil
 }
 
 func (p *SortItemsResp) IsSetBaseResp() bool {
@@ -126,6 +217,7 @@ func (p *SortItemsResp) String() string {
 var fieldIDToName_SortItemsResp = map[int16]string{
 	1:   "item_ids",
 	2:   "next_cursor",
+	3:   "sorted_items",
 	255: "base_resp",
 }
 

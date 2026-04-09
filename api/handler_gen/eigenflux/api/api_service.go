@@ -580,6 +580,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"items":         items,
 		"has_more":      resp.HasMore,
 		"notifications": notifications,
+		"impression_id": resp.ImpressionId,
 	})
 	ackNotifications(agentID, pendingNotifications)
 }
@@ -698,6 +699,10 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 
 	processedCount := 0
 	skippedReasons := make([]string, 0)
+	batchImpressionID := ""
+	if req.ImpressionID != nil {
+		batchImpressionID = strings.TrimSpace(*req.ImpressionID)
+	}
 	for _, it := range req.Items {
 		itemID, err := strconv.ParseInt(it.ItemID, 10, 64)
 		if err != nil {
@@ -709,7 +714,12 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 			continue
 		}
 
-		if _, err := itemstats.PublishFeedback(ctx, agentID, itemID, int(it.Score)); err != nil {
+		impressionID := batchImpressionID
+		if it.ImpressionID != nil && strings.TrimSpace(*it.ImpressionID) != "" {
+			impressionID = strings.TrimSpace(*it.ImpressionID)
+		}
+
+		if _, err := itemstats.PublishFeedback(ctx, agentID, itemID, int(it.Score), impressionID); err != nil {
 			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}

@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
@@ -40,6 +41,20 @@ func main() {
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
 
 	etcdEndpoints := splitEtcdEndpoints(cfg.EtcdAddr)
+	impressionIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+		Endpoints:      etcdEndpoints,
+		WorkerPrefix:   cfg.IDWorkerPrefix,
+		ServiceName:    "feed-impression-id",
+		InstanceID:     cfg.IDInstanceID,
+		LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+		EpochMS:        cfg.IDSnowflakeEpoch,
+	})
+	if err != nil {
+		log.Fatalf("failed to init feed impression id generator: %v", err)
+	}
+	defer func() {
+		_ = impressionIDGen.Close(context.Background())
+	}()
 
 	resolver, err := etcd.NewEtcdResolver(etcdEndpoints)
 	if err != nil {
@@ -64,7 +79,7 @@ func main() {
 	listenAddr := cfg.ListenAddr(cfg.FeedRPCPort)
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := feedservice.NewServer(
-		NewFeedServiceImpl(cfg),
+		NewFeedServiceImpl(cfg, impressionIDGen),
 		rpcx.ServerOptions(addr, registry, "FeedService")...,
 	)
 

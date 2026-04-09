@@ -3,7 +3,7 @@ package logger
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"log/slog"
 	"net/http"

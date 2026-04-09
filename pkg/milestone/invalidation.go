@@ -2,7 +2,7 @@ package milestone
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"errors"
 
 	"github.com/redis/go-redis/v9"

@@ -2,7 +2,7 @@ package notifyutil
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"strconv"
 	"time"

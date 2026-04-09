@@ -2,8 +2,8 @@ package stats
 
 import (
 	"context"
+	"eigenflux_server/pkg/json"
 	"eigenflux_server/pkg/logger"
-	"encoding/json"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"

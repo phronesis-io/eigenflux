@@ -5704,6 +5704,7 @@ type FeedData struct {
 	Items         []*FeedItem         `thrift:"items,1,required,list<FeedItem>" form:"items,required" json:"items,required" query:"items,required"`
 	HasMore       bool                `thrift:"has_more,2,required" form:"has_more,required" json:"has_more,required" query:"has_more,required"`
 	Notifications []*FeedNotification `thrift:"notifications,3,required,list<FeedNotification>" form:"notifications,required" json:"notifications,required" query:"notifications,required"`
+	ImpressionID  string              `thrift:"impression_id,4,required" form:"impression_id,required" json:"impression_id,required" query:"impression_id,required"`
 }
 
 func NewFeedData() *FeedData {
@@ -5725,10 +5726,15 @@ func (p *FeedData) GetNotifications() (v []*FeedNotification) {
 	return p.Notifications
 }
 
+func (p *FeedData) GetImpressionID() (v string) {
+	return p.ImpressionID
+}
+
 var fieldIDToName_FeedData = map[int16]string{
 	1: "items",
 	2: "has_more",
 	3: "notifications",
+	4: "impression_id",
 }
 
 func (p *FeedData) Read(iprot thrift.TProtocol) (err error) {
@@ -5738,6 +5744,7 @@ func (p *FeedData) Read(iprot thrift.TProtocol) (err error) {
 	var issetItems bool = false
 	var issetHasMore bool = false
 	var issetNotifications bool = false
+	var issetImpressionID bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -5780,6 +5787,15 @@ func (p *FeedData) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetImpressionID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -5805,6 +5821,11 @@ func (p *FeedData) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetNotifications {
 		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetImpressionID {
+		fieldId = 4
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -5882,6 +5903,17 @@ func (p *FeedData) ReadField3(iprot thrift.TProtocol) error {
 	p.Notifications = _field
 	return nil
 }
+func (p *FeedData) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ImpressionID = _field
+	return nil
+}
 
 func (p *FeedData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -5899,6 +5931,10 @@ func (p *FeedData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -5984,6 +6020,23 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *FeedData) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("impression_id", thrift.STRING, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ImpressionID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *FeedData) String() string {
@@ -7681,8 +7734,9 @@ func (p *GetItemResp) String() string {
 }
 
 type FeedbackItem struct {
-	ItemID string `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required"`
-	Score  int32  `thrift:"score,2,required" form:"score,required" json:"score,required"`
+	ItemID       string  `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required"`
+	Score        int32   `thrift:"score,2,required" form:"score,required" json:"score,required"`
+	ImpressionID *string `thrift:"impression_id,3,optional" form:"impression_id" json:"impression_id,omitempty"`
 }
 
 func NewFeedbackItem() *FeedbackItem {
@@ -7700,9 +7754,23 @@ func (p *FeedbackItem) GetScore() (v int32) {
 	return p.Score
 }
 
+var FeedbackItem_ImpressionID_DEFAULT string
+
+func (p *FeedbackItem) GetImpressionID() (v string) {
+	if !p.IsSetImpressionID() {
+		return FeedbackItem_ImpressionID_DEFAULT
+	}
+	return *p.ImpressionID
+}
+
 var fieldIDToName_FeedbackItem = map[int16]string{
 	1: "item_id",
 	2: "score",
+	3: "impression_id",
+}
+
+func (p *FeedbackItem) IsSetImpressionID() bool {
+	return p.ImpressionID != nil
 }
 
 func (p *FeedbackItem) Read(iprot thrift.TProtocol) (err error) {
@@ -7741,6 +7809,14 @@ func (p *FeedbackItem) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetScore = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -7806,6 +7882,17 @@ func (p *FeedbackItem) ReadField2(iprot thrift.TProtocol) error {
 	p.Score = _field
 	return nil
 }
+func (p *FeedbackItem) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ImpressionID = _field
+	return nil
+}
 
 func (p *FeedbackItem) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -7819,6 +7906,10 @@ func (p *FeedbackItem) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField2(oprot); err != nil {
 			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -7873,6 +7964,25 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
+func (p *FeedbackItem) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetImpressionID() {
+		if err = oprot.WriteFieldBegin("impression_id", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ImpressionID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
 func (p *FeedbackItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -7882,7 +7992,8 @@ func (p *FeedbackItem) String() string {
 }
 
 type BatchFeedbackReq struct {
-	Items []*FeedbackItem `thrift:"items,1,required,list<FeedbackItem>" form:"items,required" json:"items,required"`
+	Items        []*FeedbackItem `thrift:"items,1,required,list<FeedbackItem>" form:"items,required" json:"items,required"`
+	ImpressionID *string         `thrift:"impression_id,2,optional" form:"impression_id" json:"impression_id,omitempty"`
 }
 
 func NewBatchFeedbackReq() *BatchFeedbackReq {
@@ -7896,8 +8007,22 @@ func (p *BatchFeedbackReq) GetItems() (v []*FeedbackItem) {
 	return p.Items
 }
 
+var BatchFeedbackReq_ImpressionID_DEFAULT string
+
+func (p *BatchFeedbackReq) GetImpressionID() (v string) {
+	if !p.IsSetImpressionID() {
+		return BatchFeedbackReq_ImpressionID_DEFAULT
+	}
+	return *p.ImpressionID
+}
+
 var fieldIDToName_BatchFeedbackReq = map[int16]string{
 	1: "items",
+	2: "impression_id",
+}
+
+func (p *BatchFeedbackReq) IsSetImpressionID() bool {
+	return p.ImpressionID != nil
 }
 
 func (p *BatchFeedbackReq) Read(iprot thrift.TProtocol) (err error) {
@@ -7926,6 +8051,14 @@ func (p *BatchFeedbackReq) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetItems = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -7987,6 +8120,17 @@ func (p *BatchFeedbackReq) ReadField1(iprot thrift.TProtocol) error {
 	p.Items = _field
 	return nil
 }
+func (p *BatchFeedbackReq) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ImpressionID = _field
+	return nil
+}
 
 func (p *BatchFeedbackReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -7996,6 +8140,10 @@ func (p *BatchFeedbackReq) Write(oprot thrift.TProtocol) (err error) {
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
 			goto WriteFieldError
 		}
 	}
@@ -8039,6 +8187,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *BatchFeedbackReq) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetImpressionID() {
+		if err = oprot.WriteFieldBegin("impression_id", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ImpressionID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
 func (p *BatchFeedbackReq) String() string {

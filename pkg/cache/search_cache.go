@@ -30,15 +30,23 @@ func NewSearchCache(client *redis.Client, bucketSize, ttl time.Duration) *Search
 
 // CachedItem represents a cached search result item
 type CachedItem struct {
-	ItemID    string   `json:"item_id"`
-	Content   string   `json:"content"`
-	Summary   string   `json:"summary"`
-	Type      string   `json:"type"`
-	Domains   []string `json:"domains"`
-	Keywords  []string `json:"keywords"`
-	GroupID   int64    `json:"group_id"`
-	UpdatedAt int64    `json:"updated_at"`
-	Score     float64  `json:"score"`
+	ItemID        string   `json:"item_id"`
+	Content       string   `json:"content"`
+	Summary       string   `json:"summary"`
+	BroadcastType string   `json:"broadcast_type"`
+	Domains       []string `json:"domains"`
+	Keywords      []string `json:"keywords"`
+	Geo           string   `json:"geo"`
+	SourceType    string   `json:"source_type"`
+	QualityScore  float64  `json:"quality_score"`
+	GroupID       int64    `json:"group_id"`
+	Lang          string   `json:"lang"`
+	Timeliness    string   `json:"timeliness"`
+	CreatedAtMs   int64    `json:"created_at_ms"`
+	UpdatedAt     int64    `json:"updated_at"`
+	UpdatedAtMs   int64    `json:"updated_at_ms"`
+	ExpireTimeMs  *int64   `json:"expire_time_ms,omitempty"`
+	Score         float64  `json:"score"`
 }
 
 // BuildCacheKey generates a cache key from search parameters

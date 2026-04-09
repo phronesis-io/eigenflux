@@ -2,7 +2,7 @@ package es
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"io"
 	"sort"

@@ -3,7 +3,7 @@ package dal
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -34,6 +34,7 @@ type Item struct {
 	Embedding        []float32              `json:"embedding,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
 	UpdatedAt        time.Time              `json:"updated_at"`
+	Score            float64                `json:"-"` // ES _score, not part of the document
 }
 
 // IndexItem indexes an item document in Elasticsearch
@@ -142,6 +143,7 @@ func SearchItems(ctx context.Context, req *SearchItemsRequest) (*SearchItemsResp
 				item.ID = id
 			}
 		}
+		item.Score = hit.Score
 
 		// Log first few items with scores for debugging
 		if i < 5 {

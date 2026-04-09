@@ -2,8 +2,8 @@ package logger
 
 import (
 	"bytes"
+	"console.eigenflux.ai/internal/json"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"

@@ -84,11 +84,33 @@ func main() {
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
 
+	var replayConsumer *consumer.ReplayConsumer
+	if cfg.EnableReplayLog {
+		replayIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+			Endpoints:      etcdEndpoints,
+			WorkerPrefix:   cfg.IDWorkerPrefix,
+			ServiceName:    "replay-log-id",
+			InstanceID:     cfg.IDInstanceID,
+			LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+			EpochMS:        cfg.IDSnowflakeEpoch,
+		})
+		if err != nil {
+			log.Fatalf("failed to init replay log id generator: %v", err)
+		}
+		defer func() {
+			_ = replayIDGen.Close(context.Background())
+		}()
+		replayConsumer = consumer.NewReplayConsumer(replayIDGen)
+	}
+
 	go profileConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)
 	go runMilestoneRuleInvalidationSubscriber(ctx, milestoneSvc)
+	if replayConsumer != nil {
+		go replayConsumer.Start(ctx)
+	}
 
 	log.Println("Pipeline started, waiting for messages...")
 

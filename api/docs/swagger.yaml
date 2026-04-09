@@ -9,6 +9,9 @@ definitions:
     type: object
   api.BatchFeedbackBody:
     properties:
+      impression_id:
+        example: imp_1234567890
+        type: string
       items:
         items:
           $ref: '#/definitions/api.FeedbackItemBody'
@@ -49,6 +52,9 @@ definitions:
     type: object
   api.FeedbackItemBody:
     properties:
+      impression_id:
+        example: imp_1234567890
+        type: string
       item_id:
         example: "123456"
         type: string
@@ -355,6 +361,8 @@ definitions:
     properties:
       has_more:
         type: boolean
+      impression_id:
+        type: string
       items:
         items:
           $ref: '#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.FeedItem'

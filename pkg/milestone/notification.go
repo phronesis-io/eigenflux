@@ -2,7 +2,7 @@ package milestone
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"sort"
 	"strconv"

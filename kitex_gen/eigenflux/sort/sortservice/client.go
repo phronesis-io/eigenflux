@@ -3,8 +3,8 @@
 package sortservice
 
 import (
-	sort "eigenflux_server/kitex_gen/eigenflux/sort"
 	"context"
+	sort "eigenflux_server/kitex_gen/eigenflux/sort"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
 )

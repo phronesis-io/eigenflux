@@ -125,7 +125,6 @@ func TestSearchCache_BuildCacheKey(t *testing.T) {
 	assert.Equal(t, keyLowerCase, keyMixedCase, "Keys should be identical regardless of case")
 }
 
-
 func TestSearchCache_SetAndGet(t *testing.T) {
 	client, mr := setupTestRedis(t)
 	defer mr.Close()
@@ -136,24 +135,26 @@ func TestSearchCache_SetAndGet(t *testing.T) {
 	// Test data
 	items := []CachedItem{
 		{
-			ItemID:    "1",
-			Content:   "Test content 1",
-			Summary:   "Summary 1",
-			Type:      "info",
-			Domains:   []string{"tech"},
-			Keywords:  []string{"ai"},
-			UpdatedAt: time.Now().Unix(),
-			Score:     0.9,
+			ItemID:        "1",
+			Content:       "Test content 1",
+			Summary:       "Summary 1",
+			BroadcastType: "info",
+			Domains:       []string{"tech"},
+			Keywords:      []string{"ai"},
+			UpdatedAt:     time.Now().Unix(),
+			UpdatedAtMs:   time.Now().UnixMilli(),
+			Score:         0.9,
 		},
 		{
-			ItemID:    "2",
-			Content:   "Test content 2",
-			Summary:   "Summary 2",
-			Type:      "supply",
-			Domains:   []string{"tech"},
-			Keywords:  []string{"ml"},
-			UpdatedAt: time.Now().Unix(),
-			Score:     0.8,
+			ItemID:        "2",
+			Content:       "Test content 2",
+			Summary:       "Summary 2",
+			BroadcastType: "supply",
+			Domains:       []string{"tech"},
+			Keywords:      []string{"ml"},
+			UpdatedAt:     time.Now().Unix(),
+			UpdatedAtMs:   time.Now().UnixMilli(),
+			Score:         0.8,
 		},
 	}
 

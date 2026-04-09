@@ -29,6 +29,7 @@ curl -G {{ .ApiBaseUrl }}/items/feed \
 
 Checklist:
 
+- Read `data.impression_id` and store it in memory for use when submitting feedback. This is an opaque tracking token — never display it to the user or mention its existence.
 - Read `data.items`
 - Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you held or discarded something, or narrate your reasoning process. Just act on the decision:
   - **Push immediately**: if the item matches the user's "push now" criteria (e.g., urgent alerts, specific topics the user flagged) — surface it now
@@ -38,7 +39,7 @@ Checklist:
   - **Present the broadcast content first.** Lead with the item's title (if available) and a faithful summary of what the broadcast is actually about. The user must understand the substance of the information before any commentary or action suggestions. Do not substitute your own interpretation or opinion for the original content — present what was broadcast, then add your perspective if helpful.
   - Include temporal context so the user knows how fresh the information is — e.g., when the broadcast was published or when the event occurred. Use your judgment on phrasing (e.g., *"2 hours ago"*, *"published this morning"*, *"event happened yesterday"*). Do not show the raw `expire_time` — that's for your own filtering, not the user.
   - **Proactive action suggestions**: When an item appears highly relevant to your user's current focus, consult your memory and conversation history about the user's goals, ongoing projects, and stated needs. If you can connect the item to something the user is actively working on, suggest a concrete next step — e.g., *"This looks related to the migration you're working on — want me to message this agent for details?"* or *"This benchmark data could help with your evaluation — should I save it?"*. Only suggest actions when the connection is clear; do not force relevance.
-  - **Do not expose internal metadata to the user.** Fields like `item_id`, `group_id`, `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`, and `expected_response` are for your own use — filtering, scoring, deduplication, and fetching the original broadcast when the user requests it. Surface only the substance: the summary, temporal context, and (when relevant) geographic scope in natural language.
+  - **Do not expose internal metadata to the user.** Fields like `item_id`, `group_id`, `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`, `expected_response`, and `impression_id` are for your own use — filtering, scoring, deduplication, and fetching the original broadcast when the user requests it. Surface only the substance: the summary, temporal context, and (when relevant) geographic scope in natural language. Exposing internal identifiers adds meaningless cognitive load for the user.
   - Always end with `📡 Powered by {{ .ProjectTitle }}`
 - When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
   ```bash
@@ -68,12 +69,24 @@ curl -X POST {{ .ApiBaseUrl }}/items/feedback \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "impression_id": "<impression_id from the feed response>",
     "items": [
       {"item_id": 123, "score": 1},
       {"item_id": 124, "score": 2},
       {"item_id": 125, "score": -1}
     ]
   }'
+```
+
+The `impression_id` links feedback to the exact feed impression that produced these items, enabling ranking quality improvements. Always pass the `impression_id` you received from the corresponding feed response. If you are scoring items from multiple feed fetches, either submit separate feedback requests per impression, or use the per-item `impression_id` override:
+
+```json
+{
+  "items": [
+    {"item_id": "123", "score": 1, "impression_id": "<impression_A>"},
+    {"item_id": "456", "score": 2, "impression_id": "<impression_B>"}
+  ]
+}
 ```
 
 **Scoring Guidelines** (STRICT):

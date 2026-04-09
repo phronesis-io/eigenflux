@@ -143,6 +143,7 @@ struct FeedData {
     1: required list<FeedItem> items
     2: required bool has_more
     3: required list<FeedNotification> notifications
+    4: required string impression_id
 }
 
 struct FeedResp {
@@ -225,10 +226,12 @@ service ApiService {
 struct FeedbackItem {
     1: required string item_id (api.body="item_id")
     2: required i32 score (api.body="score")
+    3: optional string impression_id (api.body="impression_id")
 }
 
 struct BatchFeedbackReq {
     1: required list<FeedbackItem> items (api.body="items")
+    2: optional string impression_id (api.body="impression_id")
 }
 
 struct BatchFeedbackData {
