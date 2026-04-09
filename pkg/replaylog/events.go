@@ -2,7 +2,7 @@ package replaylog
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"strconv"
 	"time"
 

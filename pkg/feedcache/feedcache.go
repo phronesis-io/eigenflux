@@ -2,7 +2,7 @@ package feedcache
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"strconv"
 	"time"

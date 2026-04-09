@@ -2,7 +2,7 @@ package dal
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -20,27 +20,27 @@ func NewActiveStore(rdb *redis.Client) *ActiveStore {
 }
 
 type activePayload struct {
-	NotificationID int64  `json:"notification_id"`
-	Type           string `json:"type"`
-	Content        string `json:"content"`
-	Status         int16  `json:"status"`
-	AudienceType   string `json:"audience_type"`
-	StartAt        int64  `json:"start_at"`
-	EndAt          int64  `json:"end_at"`
-	OfflineAt      int64  `json:"offline_at"`
+	NotificationID     int64  `json:"notification_id"`
+	Type               string `json:"type"`
+	Content            string `json:"content"`
+	Status             int16  `json:"status"`
+	AudienceType       string `json:"audience_type"`
+	StartAt            int64  `json:"start_at"`
+	EndAt              int64  `json:"end_at"`
+	OfflineAt          int64  `json:"offline_at"`
 	CreatedAt          int64  `json:"created_at"`
 	AudienceExpression string `json:"audience_expression"`
 }
 
 func payloadFromNotification(n *SystemNotification) activePayload {
 	return activePayload{
-		NotificationID: n.NotificationID,
-		Type:           n.Type,
-		Content:        n.Content,
-		Status:         n.Status,
-		AudienceType:   n.AudienceType,
-		StartAt:        n.StartAt,
-		EndAt:          n.EndAt,
+		NotificationID:     n.NotificationID,
+		Type:               n.Type,
+		Content:            n.Content,
+		Status:             n.Status,
+		AudienceType:       n.AudienceType,
+		StartAt:            n.StartAt,
+		EndAt:              n.EndAt,
 		OfflineAt:          n.OfflineAt,
 		CreatedAt:          n.CreatedAt,
 		AudienceExpression: n.AudienceExpression,
@@ -60,13 +60,13 @@ func (s *ActiveStore) List(ctx context.Context) ([]SystemNotification, error) {
 			continue
 		}
 		result = append(result, SystemNotification{
-			NotificationID: p.NotificationID,
-			Type:           p.Type,
-			Content:        p.Content,
-			Status:         p.Status,
-			AudienceType:   p.AudienceType,
-			StartAt:        p.StartAt,
-			EndAt:          p.EndAt,
+			NotificationID:     p.NotificationID,
+			Type:               p.Type,
+			Content:            p.Content,
+			Status:             p.Status,
+			AudienceType:       p.AudienceType,
+			StartAt:            p.StartAt,
+			EndAt:              p.EndAt,
 			OfflineAt:          p.OfflineAt,
 			CreatedAt:          p.CreatedAt,
 			AudienceExpression: p.AudienceExpression,

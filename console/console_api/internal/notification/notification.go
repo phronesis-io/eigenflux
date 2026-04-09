@@ -1,8 +1,8 @@
 package notification
 
 import (
+	"console.eigenflux.ai/internal/json"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"console.eigenflux.ai/internal/logger"

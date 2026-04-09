@@ -2,7 +2,7 @@ package consumer
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"log"
 	"time"
 

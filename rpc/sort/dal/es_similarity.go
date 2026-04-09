@@ -3,7 +3,7 @@ package dal
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 
 	"eigenflux_server/pkg/es"

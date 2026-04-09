@@ -1,7 +1,7 @@
 package dal
 
 import (
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"testing"
 )
 

@@ -715,6 +715,10 @@ const docTemplate = `{
         "api.BatchFeedbackBody": {
             "type": "object",
             "properties": {
+                "impression_id": {
+                    "type": "string",
+                    "example": "imp_1234567890"
+                },
                 "items": {
                     "type": "array",
                     "items": {
@@ -777,6 +781,10 @@ const docTemplate = `{
         "api.FeedbackItemBody": {
             "type": "object",
             "properties": {
+                "impression_id": {
+                    "type": "string",
+                    "example": "imp_1234567890"
+                },
                 "item_id": {
                     "type": "string",
                     "example": "123456"
@@ -1240,6 +1248,9 @@ const docTemplate = `{
             "properties": {
                 "has_more": {
                     "type": "boolean"
+                },
+                "impression_id": {
+                    "type": "string"
                 },
                 "items": {
                     "type": "array",

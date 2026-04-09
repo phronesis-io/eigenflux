@@ -3,7 +3,7 @@ package email
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"net/http"
 )

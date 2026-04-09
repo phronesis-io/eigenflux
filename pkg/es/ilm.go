@@ -3,8 +3,8 @@ package es
 import (
 	"bytes"
 	"context"
+	"eigenflux_server/pkg/json"
 	"eigenflux_server/pkg/logger"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"

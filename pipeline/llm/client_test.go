@@ -2,7 +2,7 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"net/http"
 	"net/http/httptest"
 	"os"

@@ -3,7 +3,7 @@ package embedding
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"eigenflux_server/pkg/json"
 	"fmt"
 	"io"
 	"net/http"
