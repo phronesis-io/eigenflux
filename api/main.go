@@ -148,6 +148,8 @@ func main() {
 		h.GET("/references/"+name+".md", serveSkillDoc(content))
 	}
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
+	h.StaticFile("/install.sh", "static/install.sh")
+	h.StaticFile("/install.ps1", "static/install.ps1")
 
 	// Swagger UI
 	h.GET("/swagger/*any", hertzSwagger.WrapHandler(swaggerFiles.Handler))
