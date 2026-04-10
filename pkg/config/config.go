@@ -86,6 +86,12 @@ type Config struct {
 	MMRLambda            float64
 	ExplorationSlots     int
 
+	// Recall
+	KeywordRecallSize    int  // number of keyword recall candidates from ES (default 100)
+	EnableKNNRecall      bool
+	KNNRecallK           int
+	KNNRecallCandidates  int
+
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
 	FreshnessAlertScale   string
@@ -176,6 +182,10 @@ func Load() *Config {
 		UrgencyWindow:           getEnv("URGENCY_WINDOW", "24h"),
 		MMRLambda:               getEnvFloat("MMR_LAMBDA", 0.7),
 		ExplorationSlots:        getEnvInt("EXPLORATION_SLOTS", 1),
+		KeywordRecallSize:       getEnvInt("KEYWORD_RECALL_SIZE", 200),
+		EnableKNNRecall:         getEnvBool("ENABLE_KNN_RECALL", true),
+		KNNRecallK:              getEnvInt("KNN_RECALL_K", 80),
+		KNNRecallCandidates:     getEnvInt("KNN_RECALL_CANDIDATES", 300),
 		FreshnessAlertOffset:    getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
 		FreshnessAlertScale:     getEnv("FRESHNESS_ALERT_SCALE", "12h"),
 		FreshnessAlertDecay:     getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),

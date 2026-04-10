@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -165,6 +166,22 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	})
 	agentFeaturesStr := string(agentFeaturesJSON)
 
+	// Launch kNN recall in parallel with keyword recall
+	var knnItems []sortDal.Item
+	var knnErr error
+	var wg sync.WaitGroup
+	if rankerCfg.EnableKNNRecall && len(profileEmbedding) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			filters := sortDal.BuildRecallFilters("")
+			knnItems, knnErr = sortDal.SearchByEmbedding(ctx, profileEmbedding, filters, rankerCfg.KNNRecallK, rankerCfg.KNNRecallCandidates)
+			if knnErr != nil {
+				logger.Ctx(ctx).Warn("kNN recall failed, continuing with keyword only", "err", knnErr)
+			}
+		}()
+	}
+
 	// Build cache key for search results
 	var cachedItems []cache.CachedItem
 	var cacheKey string
@@ -188,7 +205,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			logger.Ctx(ctx).Debug("search cache MISS, querying ES")
 			// Cache miss, query ES
 			searchReq := &sortDal.SearchItemsRequest{
-				Limit:           limit * 5, // Fetch more to account for dedup
+				Limit:           cfg.KeywordRecallSize,
 				Domains:         domains,
 				Keywords:        keywords,
 				Geo:             geo,
@@ -252,7 +269,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		// No cache, query ES directly
 		logger.Ctx(ctx).Debug("no search cache, querying ES directly")
 		searchReq := &sortDal.SearchItemsRequest{
-			Limit:           limit * 5, // Fetch more to account for dedup
+			Limit:           cfg.KeywordRecallSize,
 			Domains:         domains,
 			Keywords:        keywords,
 			Geo:             geo,
@@ -312,13 +329,26 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		esItems = searchResp.Items
 	}
 
-	// Run ranker: scores + MMR diversity selection
-	// Over-fetch to account for dedup
-	rankLimit := limit * 3
-	if rankLimit > len(esItems) {
-		rankLimit = len(esItems)
+	// Wait for kNN recall and merge results
+	wg.Wait()
+	if knnErr == nil && len(knnItems) > 0 {
+		seen := make(map[int64]bool, len(esItems))
+		for _, item := range esItems {
+			seen[item.ID] = true
+		}
+		added := 0
+		for _, item := range knnItems {
+			if !seen[item.ID] {
+				esItems = append(esItems, item)
+				seen[item.ID] = true
+				added++
+			}
+		}
+		logger.Ctx(ctx).Info("kNN merge", "knnTotal", len(knnItems), "newItems", added, "mergedTotal", len(esItems))
 	}
-	ranked := rankerInstance.Rank(esItems, userProfile, rankLimit)
+
+	// Rank all recall candidates — no pre-truncation so dedup draws from the full pool
+	ranked := rankerInstance.Rank(esItems, userProfile, len(esItems))
 
 	// Build set of ranked IDs for exploration exclusion
 	rankedIDs := make(map[int64]bool, len(ranked))

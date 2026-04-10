@@ -18,28 +18,10 @@ const (
 	defaultFreshnessDecay  = 0.8
 )
 
-// buildSearchQuery builds the Elasticsearch query based on search parameters
-func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
-	logger.Default().Debug("building ES query", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo)
-
-	// Resolve freshness parameters with defaults
-	offset := req.FreshnessOffset
-	if offset == "" {
-		offset = defaultFreshnessOffset
-	}
-	scale := req.FreshnessScale
-	if scale == "" {
-		scale = defaultFreshnessScale
-	}
-	decay := req.FreshnessDecay
-	if decay == 0 {
-		decay = defaultFreshnessDecay
-	}
-
-	mustClauses := []interface{}{}
-
-	// 1. Expire time filter: expire_time is null or greater than current time
-	mustClauses = append(mustClauses, map[string]interface{}{
+// buildExpireTimeFilter returns a bool clause that passes items with no expire_time
+// or expire_time in the future.
+func buildExpireTimeFilter() map[string]interface{} {
+	return map[string]interface{}{
 		"bool": map[string]interface{}{
 			"should": []interface{}{
 				map[string]interface{}{
@@ -61,31 +43,69 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 			},
 			"minimum_should_match": 1,
 		},
-	})
+	}
+}
 
-	// 2. Geo country hard filter: exclude geo-incompatible items
-	if req.GeoCountry != "" {
-		mustClauses = append(mustClauses, map[string]interface{}{
-			"bool": map[string]interface{}{
-				"should": []interface{}{
-					// Item has no geo_country → pass (global content)
-					map[string]interface{}{
-						"bool": map[string]interface{}{
-							"must_not": map[string]interface{}{
-								"exists": map[string]interface{}{"field": "geo_country"},
-							},
-						},
-					},
-					// Item has geo_country and matches → pass
-					map[string]interface{}{
-						"term": map[string]interface{}{
-							"geo_country.keyword": req.GeoCountry,
+// buildGeoCountryFilter returns a bool clause that passes items with no geo_country
+// or geo_country matching the given country code.
+func buildGeoCountryFilter(geoCountry string) map[string]interface{} {
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				map[string]interface{}{
+					"bool": map[string]interface{}{
+						"must_not": map[string]interface{}{
+							"exists": map[string]interface{}{"field": "geo_country"},
 						},
 					},
 				},
-				"minimum_should_match": 1,
+				map[string]interface{}{
+					"term": map[string]interface{}{
+						"geo_country.keyword": geoCountry,
+					},
+				},
 			},
-		})
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+// BuildRecallFilters returns the mandatory filter clauses (expire_time + geo_country)
+// for use in kNN recall queries.
+func BuildRecallFilters(geoCountry string) []interface{} {
+	filters := []interface{}{buildExpireTimeFilter()}
+	if geoCountry != "" {
+		filters = append(filters, buildGeoCountryFilter(geoCountry))
+	}
+	return filters
+}
+
+// buildSearchQuery builds the Elasticsearch query based on search parameters
+func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
+	logger.Default().Debug("building ES query", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo)
+
+	// Resolve freshness parameters with defaults
+	offset := req.FreshnessOffset
+	if offset == "" {
+		offset = defaultFreshnessOffset
+	}
+	scale := req.FreshnessScale
+	if scale == "" {
+		scale = defaultFreshnessScale
+	}
+	decay := req.FreshnessDecay
+	if decay == 0 {
+		decay = defaultFreshnessDecay
+	}
+
+	mustClauses := []interface{}{}
+
+	// 1. Expire time filter
+	mustClauses = append(mustClauses, buildExpireTimeFilter())
+
+	// 2. Geo country hard filter
+	if req.GeoCountry != "" {
+		mustClauses = append(mustClauses, buildGeoCountryFilter(req.GeoCountry))
 	}
 
 	// 3. domains, keywords, geo filtering (using query context for relevance scoring)

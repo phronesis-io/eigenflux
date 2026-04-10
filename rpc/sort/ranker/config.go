@@ -21,8 +21,11 @@ type RankerConfig struct {
 	UrgencyWindow    time.Duration
 	MMRLambda        float64
 	ExplorationSlots int
-	DraftDampening   float64 // applied to draft items (default 0.8)
-	Freshness        map[string]FreshnessParams // keyed by broadcast_type
+	DraftDampening      float64 // applied to draft items (default 0.8)
+	EnableKNNRecall     bool
+	KNNRecallK          int
+	KNNRecallCandidates int
+	Freshness           map[string]FreshnessParams // keyed by broadcast_type
 }
 
 func NewRankerConfig(cfg *config.Config) *RankerConfig {
@@ -35,7 +38,10 @@ func NewRankerConfig(cfg *config.Config) *RankerConfig {
 		UrgencyWindow:    parseDuration(cfg.UrgencyWindow, 24*time.Hour),
 		MMRLambda:        cfg.MMRLambda,
 		ExplorationSlots: cfg.ExplorationSlots,
-		DraftDampening:   0.8,
+		DraftDampening:      0.8,
+		EnableKNNRecall:     cfg.EnableKNNRecall,
+		KNNRecallK:          cfg.KNNRecallK,
+		KNNRecallCandidates: cfg.KNNRecallCandidates,
 		Freshness: map[string]FreshnessParams{
 			"alert": {
 				Offset: parseDuration(cfg.FreshnessAlertOffset, 2*time.Hour),

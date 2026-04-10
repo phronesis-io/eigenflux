@@ -171,6 +171,82 @@ func parseSearchResponse(r io.Reader) (*esSearchResponse, error) {
 	return &parsed, nil
 }
 
+// SearchByEmbedding performs a kNN recall query using a profile embedding vector.
+// It returns full items (with _source) for merging with keyword recall results.
+func SearchByEmbedding(ctx context.Context, embedding []float32, filters []interface{}, k, numCandidates int) ([]Item, error) {
+	if k <= 0 {
+		k = 50
+	}
+	if numCandidates <= 0 {
+		numCandidates = 200
+	}
+	if expectedDims := es.EmbeddingDimensions(); expectedDims > 0 && len(embedding) != expectedDims {
+		return nil, fmt.Errorf("embedding dimension mismatch: query vector=%d, index=%d", len(embedding), expectedDims)
+	}
+
+	knnClause := map[string]interface{}{
+		"field":          "embedding",
+		"query_vector":   embedding,
+		"k":              k,
+		"num_candidates": numCandidates,
+	}
+	if len(filters) > 0 {
+		if len(filters) == 1 {
+			knnClause["filter"] = filters[0]
+		} else {
+			knnClause["filter"] = map[string]interface{}{
+				"bool": map[string]interface{}{
+					"must": filters,
+				},
+			}
+		}
+	}
+
+	query := map[string]interface{}{
+		"knn": knnClause,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("encode kNN query: %w", err)
+	}
+
+	res, err := es.Client.Search(
+		es.Client.Search.WithContext(ctx),
+		es.Client.Search.WithIndex(es.ReadIndexPattern),
+		es.Client.Search.WithBody(&buf),
+		es.Client.Search.WithTrackTotalHits(true),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("execute kNN search: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("ES kNN search error: %s", res.String())
+	}
+
+	parsed, err := parseSearchResponse(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]Item, 0, len(parsed.Hits.Hits))
+	for _, hit := range parsed.Hits.Hits {
+		item := hit.Source
+		if hit.ID != "" {
+			if id, parseErr := strconv.ParseInt(hit.ID, 10, 64); parseErr == nil {
+				item.ID = id
+			}
+		}
+		item.Score = hit.Score
+		items = append(items, item)
+	}
+
+	logger.Ctx(ctx).Debug("kNN recall", "k", k, "numCandidates", numCandidates, "returned", len(items))
+	return items, nil
+}
+
 // CountItems returns the total number of items in Elasticsearch
 func CountItems(ctx context.Context) (int64, error) {
 	query := map[string]interface{}{
