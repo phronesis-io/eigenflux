@@ -47,6 +47,7 @@ func main() {
 	// Start cron jobs
 	go StartAgentCountUpdater(ctx, cfg, mq.RDB)
 	go StartStatsCalibrator(ctx, cfg, mq.RDB)
+	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 
 	log.Println("Cron service started")
 
