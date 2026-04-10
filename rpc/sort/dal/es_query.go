@@ -61,7 +61,7 @@ func buildGeoCountryFilter(geoCountry string) map[string]interface{} {
 				},
 				map[string]interface{}{
 					"term": map[string]interface{}{
-						"geo_country.keyword": geoCountry,
+						"geo_country": geoCountry,
 					},
 				},
 			},

@@ -347,8 +347,16 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Info("kNN merge", "knnTotal", len(knnItems), "newItems", added, "mergedTotal", len(esItems))
 	}
 
-	// Rank all recall candidates — no pre-truncation so dedup draws from the full pool
-	ranked := rankerInstance.Rank(esItems, userProfile, len(esItems))
+	// Rank all recall candidates — no pre-truncation so dedup draws from the full pool.
+	// Then drop low-relevance items so they don't fill the feed with irrelevant content.
+	allRanked := rankerInstance.Rank(esItems, userProfile, len(esItems))
+	ranked := make([]ranker.RankedItem, 0, len(allRanked))
+	for _, ri := range allRanked {
+		if ri.Score >= rankerCfg.MinRelevanceScore {
+			ranked = append(ranked, ri)
+		}
+	}
+	logger.Ctx(ctx).Debug("relevance filter", "before", len(allRanked), "after", len(ranked), "threshold", rankerCfg.MinRelevanceScore)
 
 	// Build set of ranked IDs for exploration exclusion
 	rankedIDs := make(map[int64]bool, len(ranked))

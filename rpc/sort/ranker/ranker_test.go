@@ -83,12 +83,15 @@ func TestRanker_MMRDiversity(t *testing.T) {
 		Embedding: []float32{1, 0, 0},
 	}
 
-	// rankMMR selects diverse items; Rank() uses score-based sorting (MMR disabled)
+	// rankMMR selects diverse items; Rank() uses score-based sorting (MMR disabled).
+	// With multiplicative freshness and weight normalization, item 3 (no keyword
+	// match) has relevance=0 and total=0, so MMR picks item 2 before item 3.
+	// The diversity signal only reorders among items with nonzero relevance.
 	ranked := r.rankMMR(candidates, profile, 3)
 	require.Len(t, ranked, 3)
 	assert.Equal(t, int64(1), ranked[0].ItemID)
-	// Item 3 (diverse) should be selected before item 2 (similar to item 1)
-	assert.Equal(t, int64(3), ranked[1].ItemID, "diverse item should be preferred via MMR")
+	assert.Equal(t, int64(2), ranked[1].ItemID, "item 2 has nonzero relevance, selected before zero-relevance item 3")
+	assert.Equal(t, int64(3), ranked[2].ItemID)
 }
 
 func TestRanker_ScoreBreakdown(t *testing.T) {
@@ -121,10 +124,12 @@ func TestRanker_EmptyProfile(t *testing.T) {
 			Embedding: []float32{1, 0, 0}, UpdatedAt: now, CreatedAt: now},
 	}
 
+	// Empty profile: no embedding, no keywords → keyword overlap = 0, semantic = 0
+	// With multiplicative freshness, relevance=0 → total=0
 	profile := &UserProfile{}
 	ranked := r.Rank(candidates, profile, 1)
 	require.Len(t, ranked, 1)
-	assert.Greater(t, ranked[0].Score, 0.0)
+	assert.Equal(t, 0.0, ranked[0].Score, "empty profile should produce zero score")
 }
 
 func TestRanker_EmptyCandidates(t *testing.T) {

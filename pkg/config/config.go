@@ -86,8 +86,9 @@ type Config struct {
 	MMRLambda            float64
 	ExplorationSlots     int
 
-	// Recall
-	KeywordRecallSize    int  // number of keyword recall candidates from ES (default 100)
+	// Recall & ranking
+	MinRelevanceScore    float64 // items below this total score are dropped from feed (default 0.1)
+	KeywordRecallSize    int     // number of keyword recall candidates from ES (default 200)
 	EnableKNNRecall      bool
 	KNNRecallK           int
 	KNNRecallCandidates  int
@@ -182,6 +183,7 @@ func Load() *Config {
 		UrgencyWindow:           getEnv("URGENCY_WINDOW", "24h"),
 		MMRLambda:               getEnvFloat("MMR_LAMBDA", 0.7),
 		ExplorationSlots:        getEnvInt("EXPLORATION_SLOTS", 1),
+		MinRelevanceScore:       getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
 		KeywordRecallSize:       getEnvInt("KEYWORD_RECALL_SIZE", 200),
 		EnableKNNRecall:         getEnvBool("ENABLE_KNN_RECALL", true),
 		KNNRecallK:              getEnvInt("KNN_RECALL_K", 80),

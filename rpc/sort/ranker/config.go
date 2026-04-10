@@ -22,6 +22,7 @@ type RankerConfig struct {
 	MMRLambda        float64
 	ExplorationSlots int
 	DraftDampening      float64 // applied to draft items (default 0.8)
+	MinRelevanceScore   float64 // items below this total score are dropped (default 0.1)
 	EnableKNNRecall     bool
 	KNNRecallK          int
 	KNNRecallCandidates int
@@ -39,6 +40,7 @@ func NewRankerConfig(cfg *config.Config) *RankerConfig {
 		MMRLambda:        cfg.MMRLambda,
 		ExplorationSlots: cfg.ExplorationSlots,
 		DraftDampening:      0.8,
+		MinRelevanceScore:   cfg.MinRelevanceScore,
 		EnableKNNRecall:     cfg.EnableKNNRecall,
 		KNNRecallK:          cfg.KNNRecallK,
 		KNNRecallCandidates: cfg.KNNRecallCandidates,

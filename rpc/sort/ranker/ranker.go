@@ -158,7 +158,20 @@ func (r *Ranker) maxSimToSelected(candidates []sortDal.Item, candidateIdx int, s
 	return maxSim
 }
 
-// scoreItem computes raw relevance score for a single item and returns the full breakdown.
+// scoreItem computes relevance score with dynamic weight normalization and
+// multiplicative freshness.
+//
+// Formula:
+//
+//	relevance = Σ(w_i * signal_i) / Σ(w_i)   (only active signals)
+//	total     = relevance * freshnessMultiplier
+//
+// Active signals: semantic (α) when both profile and item have embeddings,
+// keyword (β) always. δ (diversity) is handled by MMR selection, not here.
+// Inactive weights are automatically redistributed by the normalization.
+//
+// Freshness multiplier: (1 − γ) + γ × rawFreshness.  γ controls strength:
+// γ=0 → freshness has no effect; γ=1 → old items can decay to 0.
 func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, now time.Time) ScoreBreakdown {
 	isDraft := len(item.Keywords) == 0 && item.Type == ""
 
@@ -166,7 +179,22 @@ func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, now time.Tim
 	kwOvlp := keywordOverlap(profile.Keywords, profile.Domains, item.Keywords, item.Domains)
 	fresh := freshnessScore(r.config, item.Type, item.UpdatedAt, item.ExpireTime, now)
 
-	total := r.config.Alpha*semSim + r.config.Beta*kwOvlp + r.config.Gamma*fresh
+	// Weighted relevance with dynamic normalization
+	var weightSum, relevance float64
+	hasSemantic := len(profile.Embedding) > 0 && len(item.Embedding) > 0
+	if hasSemantic {
+		weightSum += r.config.Alpha
+		relevance += r.config.Alpha * semSim
+	}
+	weightSum += r.config.Beta
+	relevance += r.config.Beta * kwOvlp
+	if weightSum > 0 {
+		relevance /= weightSum
+	}
+
+	// Freshness as multiplier: floor at (1−γ), ceiling at 1.0
+	freshMul := (1 - r.config.Gamma) + r.config.Gamma*fresh
+	total := relevance * freshMul
 
 	if isDraft {
 		total *= r.config.DraftDampening
