@@ -552,6 +552,46 @@ func TestAuthSessionValidation(t *testing.T) {
 	})
 }
 
+func TestAuthSlidingExpiration(t *testing.T) {
+	testutil.WaitForAPI(t)
+	email := "auth_sliding@test.com"
+	testutil.CleanupTestEmails(t, email)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+	token, _, _ := testutil.LoginAndGetToken(t, email)
+	tokenHash := testutil.Sha256Hex(token)
+
+	// Record initial expire_at
+	var initialExpireAt int64
+	err := testutil.TestDB.QueryRow(
+		"SELECT expire_at FROM agent_sessions WHERE token_hash = $1 AND status = 0", tokenHash,
+	).Scan(&initialExpireAt)
+	if err != nil {
+		t.Fatalf("failed to get initial expire_at: %v", err)
+	}
+
+	// Evict Redis cache to force DB path (which triggers sliding expiration)
+	rdb := testutil.GetTestRedis()
+	rdb.Del(context.Background(), "auth:session:"+tokenHash)
+
+	// Make an authenticated request
+	testutil.GetAgent(t, token)
+
+	// Check that expire_at was extended
+	var updatedExpireAt int64
+	err = testutil.TestDB.QueryRow(
+		"SELECT expire_at FROM agent_sessions WHERE token_hash = $1 AND status = 0", tokenHash,
+	).Scan(&updatedExpireAt)
+	if err != nil {
+		t.Fatalf("failed to get updated expire_at: %v", err)
+	}
+
+	if updatedExpireAt <= initialExpireAt {
+		t.Fatalf("expire_at was not extended: initial=%d, updated=%d", initialExpireAt, updatedExpireAt)
+	}
+	t.Logf("Sliding expiration works: expire_at extended by %dms", updatedExpireAt-initialExpireAt)
+}
+
 func TestAuthProfileCompletion(t *testing.T) {
 	testutil.WaitForAPI(t)
 	email := "auth_profile@test.com"
