@@ -15,8 +15,8 @@ func TestClientGet(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer at_test" {
 			t.Errorf("Authorization = %q, want %q", got, "Bearer at_test")
 		}
-		if got := r.Header.Get("X-Skill-Ver"); got != "0.0.6" {
-			t.Errorf("X-Skill-Ver = %q, want %q", got, "0.0.6")
+		if got := r.Header.Get("X-CLI-Ver"); got != "0.0.6" {
+			t.Errorf("X-CLI-Ver = %q, want %q", got, "0.0.6")
 		}
 		if r.URL.Query().Get("limit") != "10" {
 			t.Errorf("limit param = %q, want %q", r.URL.Query().Get("limit"), "10")
