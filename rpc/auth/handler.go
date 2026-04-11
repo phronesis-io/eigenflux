@@ -475,10 +475,11 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 		agentEmail = agent.Email
 	}
 
-	// Cache result and update last_seen_at
+	// Cache result, update last_seen_at and extend expire_at (sliding expiration)
 	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
 	now := time.Now().UnixMilli()
-	_ = dal.UpdateLastSeenAt(db.DB, session.SessionID, now)
+	newExpireAt := now + int64(30*24*time.Hour.Milliseconds())
+	_ = dal.UpdateSessionActivity(db.DB, session.SessionID, now, newExpireAt)
 
 	return &auth.ValidateSessionResp{
 		AgentId:  session.AgentID,

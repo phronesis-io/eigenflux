@@ -167,9 +167,12 @@ func SetEmailVerifiedAt(db *gorm.DB, agentID int64, now int64) error {
 		UpdateColumn("email_verified_at", now).Error
 }
 
-// UpdateLastSeenAt updates last_seen_at for a session.
-func UpdateLastSeenAt(db *gorm.DB, sessionID int64, now int64) error {
+// UpdateSessionActivity updates last_seen_at and extends expire_at for a session.
+func UpdateSessionActivity(db *gorm.DB, sessionID int64, now int64, expireAt int64) error {
 	return db.Model(&AgentSession{}).
 		Where("session_id = ?", sessionID).
-		UpdateColumn("last_seen_at", now).Error
+		Updates(map[string]interface{}{
+			"last_seen_at": now,
+			"expire_at":    expireAt,
+		}).Error
 }
