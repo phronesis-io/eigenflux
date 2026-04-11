@@ -24,6 +24,8 @@ import (
 
 var emailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
+const sessionDurationMs = int64(30 * 24 * time.Hour / time.Millisecond)
+
 // AuthServiceImpl implements the kitex-generated AuthService interface.
 type AuthServiceImpl struct {
 	emailSender              email.Sender
@@ -172,7 +174,7 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 
 	accessToken := "at_" + uuid.New().String()
 	tokenHash := sha256Hex(accessToken)
-	expireAt := now + int64(30*24*time.Hour.Milliseconds())
+	expireAt := now + sessionDurationMs
 
 	session := &dal.AgentSession{
 		AgentID:   agent.AgentID,
@@ -478,8 +480,10 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 	// Cache result, update last_seen_at and extend expire_at (sliding expiration)
 	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
 	now := time.Now().UnixMilli()
-	newExpireAt := now + int64(30*24*time.Hour.Milliseconds())
-	_ = dal.UpdateSessionActivity(db.DB, session.SessionID, now, newExpireAt)
+	newExpireAt := now + sessionDurationMs
+	if err := dal.UpdateSessionActivity(db.DB, session.SessionID, now, newExpireAt); err != nil {
+		logger.Ctx(ctx).Error("failed to update session activity", "err", err, "sessionID", session.SessionID)
+	}
 
 	return &auth.ValidateSessionResp{
 		AgentId:  session.AgentID,
