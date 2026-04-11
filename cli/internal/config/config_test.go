@@ -139,3 +139,28 @@ func TestHomeDir(t *testing.T) {
 		t.Errorf("HomeDir = %q, want %q", home, expected)
 	}
 }
+
+func TestSetHomeDir_OverridesEnv(t *testing.T) {
+	envDir := t.TempDir()
+	flagDir := t.TempDir()
+
+	t.Setenv("EIGENFLUX_HOME", envDir)
+	SetHomeDir(flagDir)
+	t.Cleanup(func() { SetHomeDir("") })
+
+	got := HomeDir()
+	if got != flagDir {
+		t.Errorf("HomeDir = %q, want %q (--homedir should override env)", got, flagDir)
+	}
+}
+
+func TestSetHomeDir_Empty_FallsBackToEnv(t *testing.T) {
+	envDir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", envDir)
+	SetHomeDir("")
+
+	got := HomeDir()
+	if got != envDir {
+		t.Errorf("HomeDir = %q, want %q (empty override should fall back to env)", got, envDir)
+	}
+}

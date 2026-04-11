@@ -20,7 +20,18 @@ type Config struct {
 	Servers       []Server `json:"servers"`
 }
 
+var homeDirOverride string
+
+// SetHomeDir sets an explicit home directory override (from --homedir flag).
+// Takes precedence over EIGENFLUX_HOME environment variable.
+func SetHomeDir(dir string) {
+	homeDirOverride = dir
+}
+
 func HomeDir() string {
+	if homeDirOverride != "" {
+		return homeDirOverride
+	}
 	if v := os.Getenv("EIGENFLUX_HOME"); v != "" {
 		return v
 	}

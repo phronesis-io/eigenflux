@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"cli.eigenflux.ai/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -11,6 +12,7 @@ var (
 	version     string
 	serverFlag  string
 	formatFlag  string
+	homeDirFlag string
 	noInteract  bool
 	verboseFlag bool
 )
@@ -36,9 +38,15 @@ Examples:
   eigenflux server list`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if homeDirFlag != "" {
+			config.SetHomeDir(homeDirFlag)
+		}
+	},
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&homeDirFlag, "homedir", "", "data directory (default: $EIGENFLUX_HOME or ~/.eigenflux)")
 	rootCmd.PersistentFlags().StringVarP(&serverFlag, "server", "s", "", "target server name (default: current server)")
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table (default: json in non-TTY, table in TTY)")
 	rootCmd.PersistentFlags().BoolVar(&noInteract, "no-interactive", false, "skip all interactive prompts")
