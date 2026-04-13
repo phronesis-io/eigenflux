@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -340,6 +341,160 @@ func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
 	assertListContainsAgent(fmt.Sprintf("/console/api/v1/agents?page=1&page_size=20&agent_id=%s", agentIDStr))
 	assertListContainsAgent("/console/api/v1/agents?page=1&page_size=20&profile_status=3")
 	assertListContainsAgent(fmt.Sprintf("/console/api/v1/agents?page=1&page_size=20&profile_keywords=%s", profileKeyword))
+}
+
+func TestConsoleListAgentsEscapesLikeWildcards(t *testing.T) {
+	seed := time.Now().UnixNano() % 1_000_000_000
+	targetAgentID := int64(9007201000000000 + seed)
+	distractorAgentID := targetAgentID + 1
+	targetEmailTerm := fmt.Sprintf("literal%%_%d", seed)
+	targetNameTerm := fmt.Sprintf("name%%_%d", seed)
+	targetKeywordTerm := fmt.Sprintf("keyword%%_%d", seed)
+	targetEmail := targetEmailTerm + "@test.com"
+	distractorEmail := fmt.Sprintf("literalAB%d@test.com", seed)
+	targetName := targetNameTerm
+	distractorName := fmt.Sprintf("nameAB%d", seed)
+	targetKeywords := targetKeywordTerm + ",shared"
+	distractorKeywords := fmt.Sprintf("keywordAB%d,shared", seed)
+	targetCleanupEmail := targetEmail
+	distractorCleanupEmail := distractorEmail
+	now := time.Now().UnixMilli()
+
+	testutil.CleanTestData(t, targetCleanupEmail, distractorCleanupEmail)
+	t.Cleanup(func() {
+		testutil.CleanTestData(t, targetCleanupEmail, distractorCleanupEmail)
+	})
+
+	for _, row := range []struct {
+		agentID  int64
+		email    string
+		name     string
+		keywords string
+	}{
+		{agentID: targetAgentID, email: targetEmail, name: targetName, keywords: targetKeywords},
+		{agentID: distractorAgentID, email: distractorEmail, name: distractorName, keywords: distractorKeywords},
+	} {
+		if _, err := testutil.TestDB.Exec(
+			"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
+			row.agentID, row.email, row.name, "like escape test agent", now,
+		); err != nil {
+			t.Fatalf("insert agent failed: %v", err)
+		}
+		if _, err := testutil.TestDB.Exec(
+			"INSERT INTO agent_profiles (agent_id, status, keywords, updated_at) VALUES ($1, $2, $3, $4)",
+			row.agentID, 3, row.keywords, now,
+		); err != nil {
+			t.Fatalf("insert agent profile failed: %v", err)
+		}
+	}
+
+	assertOnlyAgent := func(path string, wantAgentID int64) {
+		t.Helper()
+		payload := testutil.DoConsoleRequest(t, http.MethodGet, path, nil)
+		var listed ListAgentsResp
+		testutil.MustDecodeResp(t, payload, &listed)
+		if listed.Code != 0 {
+			t.Fatalf("list agents failed: code=%d msg=%s", listed.Code, listed.Msg)
+		}
+		if len(listed.Data.Agents) != 1 {
+			t.Fatalf("expected exactly 1 agent for %s, got %d: %+v", path, len(listed.Data.Agents), listed.Data.Agents)
+		}
+		gotID := testutil.MustID(t, listed.Data.Agents[0]["agent_id"], "agent_id")
+		if gotID != wantAgentID {
+			t.Fatalf("expected agent_id=%d for %s, got %d", wantAgentID, path, gotID)
+		}
+	}
+
+	assertOnlyAgent("/console/api/v1/agents?page=1&page_size=20&email="+url.QueryEscape(targetEmailTerm), targetAgentID)
+	assertOnlyAgent("/console/api/v1/agents?page=1&page_size=20&name="+url.QueryEscape(targetNameTerm), targetAgentID)
+	assertOnlyAgent("/console/api/v1/agents?page=1&page_size=20&profile_keywords="+url.QueryEscape(targetKeywordTerm), targetAgentID)
+}
+
+func TestConsoleListItemsEscapesLikeWildcards(t *testing.T) {
+	seed := time.Now().UnixNano() % 1_000_000_000
+	targetAgentID := int64(9007202000000000 + seed)
+	distractorAgentID := targetAgentID + 1
+	targetItemID := targetAgentID + 100
+	distractorItemID := targetItemID + 1
+	targetEmail := fmt.Sprintf("item-like-%d@test%%_suffix.com", seed)
+	distractorEmail := fmt.Sprintf("item-like-%d@testABsuffix.com", seed)
+	targetKeywordTerm := fmt.Sprintf("keyword%%_%d", seed)
+	targetTitleTerm := fmt.Sprintf("title%%_%d", seed)
+	distractorKeyword := fmt.Sprintf("keywordAB%d", seed)
+	distractorTitle := fmt.Sprintf("titleAB%d", seed)
+	now := time.Now().UnixMilli()
+
+	testutil.CleanTestData(t, targetEmail, distractorEmail)
+	t.Cleanup(func() {
+		testutil.CleanTestData(t, targetEmail, distractorEmail)
+	})
+
+	for _, row := range []struct {
+		agentID    int64
+		itemID     int64
+		email      string
+		rawContent string
+		summary    string
+		keywords   string
+	}{
+		{
+			agentID:    targetAgentID,
+			itemID:     targetItemID,
+			email:      targetEmail,
+			rawContent: targetTitleTerm,
+			summary:    targetTitleTerm + " summary",
+			keywords:   targetKeywordTerm,
+		},
+		{
+			agentID:    distractorAgentID,
+			itemID:     distractorItemID,
+			email:      distractorEmail,
+			rawContent: distractorTitle,
+			summary:    distractorTitle + " summary",
+			keywords:   distractorKeyword,
+		},
+	} {
+		if _, err := testutil.TestDB.Exec(
+			"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
+			row.agentID, row.email, fmt.Sprintf("item-like-%d", row.agentID), "item like test agent", now,
+		); err != nil {
+			t.Fatalf("insert item test agent failed: %v", err)
+		}
+		if _, err := testutil.TestDB.Exec(
+			"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_notes, raw_url, created_at) VALUES ($1, $2, $3, '', '', $4)",
+			row.itemID, row.agentID, row.rawContent, now,
+		); err != nil {
+			t.Fatalf("insert raw item failed: %v", err)
+		}
+		if _, err := testutil.TestDB.Exec(
+			"INSERT INTO processed_items (item_id, status, summary, broadcast_type, keywords, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
+			row.itemID, 3, row.summary, "info", row.keywords, now,
+		); err != nil {
+			t.Fatalf("insert processed item failed: %v", err)
+		}
+	}
+
+	assertOnlyItem := func(path string, wantItemID int64) {
+		t.Helper()
+		payload := testutil.DoConsoleRequest(t, http.MethodGet, path, nil)
+		var listed ListItemsResp
+		testutil.MustDecodeResp(t, payload, &listed)
+		if listed.Code != 0 {
+			t.Fatalf("list items failed: code=%d msg=%s", listed.Code, listed.Msg)
+		}
+		if len(listed.Data.Items) != 1 {
+			t.Fatalf("expected exactly 1 item for %s, got %d: %+v", path, len(listed.Data.Items), listed.Data.Items)
+		}
+		gotID := testutil.MustID(t, listed.Data.Items[0]["item_id"], "item_id")
+		if gotID != wantItemID {
+			t.Fatalf("expected item_id=%d for %s, got %d", wantItemID, path, gotID)
+		}
+	}
+
+	assertOnlyItem("/console/api/v1/items?page=1&page_size=20&keyword="+url.QueryEscape(targetKeywordTerm), targetItemID)
+	assertOnlyItem("/console/api/v1/items?page=1&page_size=20&title="+url.QueryEscape(targetTitleTerm), targetItemID)
+	assertOnlyItem("/console/api/v1/items?page=1&page_size=20&include_email_suffixes="+url.QueryEscape("@test%_suffix.com"), targetItemID)
+	assertOnlyItem("/console/api/v1/items?page=1&page_size=20&exclude_email_suffixes="+url.QueryEscape("@testABsuffix.com")+"&item_id="+fmt.Sprintf("%d", targetItemID), targetItemID)
 }
 
 func TestConsoleGetAgent(t *testing.T) {

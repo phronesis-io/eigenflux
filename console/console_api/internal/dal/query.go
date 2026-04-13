@@ -13,6 +13,24 @@ import (
 var ErrAgentNotFound = errors.New("agent not found")
 var ErrItemNotFound = errors.New("item not found")
 
+var likePatternEscaper = strings.NewReplacer(
+	"\\", "\\\\",
+	"%", "\\%",
+	"_", "\\_",
+)
+
+func escapeLikePattern(input string) string {
+	return likePatternEscaper.Replace(input)
+}
+
+func ilikeContainsPattern(input string) string {
+	return "%" + escapeLikePattern(input) + "%"
+}
+
+func ilikeSuffixPattern(input string) string {
+	return "%" + escapeLikePattern(input)
+}
+
 type AgentWithProfile struct {
 	model.Agent
 	ProfileStatus   *int16
@@ -38,10 +56,10 @@ func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64
 		Joins("LEFT JOIN agent_profiles ON agents.agent_id = agent_profiles.agent_id")
 
 	if params.Email != nil && *params.Email != "" {
-		query = query.Where("agents.email ILIKE ?", "%"+*params.Email+"%")
+		query = query.Where("agents.email ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.Email))
 	}
 	if params.AgentName != nil && *params.AgentName != "" {
-		query = query.Where("agents.agent_name ILIKE ?", "%"+*params.AgentName+"%")
+		query = query.Where("agents.agent_name ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.AgentName))
 	}
 	if params.AgentID != nil {
 		query = query.Where("agents.agent_id = ?", *params.AgentID)
@@ -50,7 +68,7 @@ func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64
 		query = query.Where("agent_profiles.status = ?", *params.ProfileStatus)
 	}
 	if params.ProfileKeywords != nil && *params.ProfileKeywords != "" {
-		query = query.Where("agent_profiles.keywords ILIKE ?", "%"+*params.ProfileKeywords+"%")
+		query = query.Where("agent_profiles.keywords ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.ProfileKeywords))
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -165,19 +183,20 @@ func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64,
 		query = query.Where("processed_items.status = ?", *params.Status)
 	}
 	if params.Keyword != nil && *params.Keyword != "" {
-		query = query.Where("processed_items.keywords ILIKE ?", "%"+*params.Keyword+"%")
+		query = query.Where("processed_items.keywords ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.Keyword))
 	}
 	if params.Title != nil && *params.Title != "" {
-		query = query.Where("(raw_items.raw_content ILIKE ? OR processed_items.summary ILIKE ?)",
-			"%"+*params.Title+"%", "%"+*params.Title+"%")
+		titlePattern := ilikeContainsPattern(*params.Title)
+		query = query.Where("(raw_items.raw_content ILIKE ? ESCAPE '\\' OR processed_items.summary ILIKE ? ESCAPE '\\')",
+			titlePattern, titlePattern)
 	}
 	if len(params.ExcludeEmailSuffixes) > 0 {
 		subQuery := db.Table("agents").Select("agent_id")
 		conditions := make([]string, 0, len(params.ExcludeEmailSuffixes))
 		args := make([]interface{}, 0, len(params.ExcludeEmailSuffixes))
 		for _, suffix := range params.ExcludeEmailSuffixes {
-			conditions = append(conditions, "agents.email ILIKE ?")
-			args = append(args, "%"+suffix)
+			conditions = append(conditions, "agents.email ILIKE ? ESCAPE '\\'")
+			args = append(args, ilikeSuffixPattern(suffix))
 		}
 		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
 		query = query.Where("raw_items.author_agent_id NOT IN (?)", subQuery)
@@ -187,8 +206,8 @@ func ListItems(db *gorm.DB, params ListItemsParams) ([]ItemWithProcessed, int64,
 		conditions := make([]string, 0, len(params.IncludeEmailSuffixes))
 		args := make([]interface{}, 0, len(params.IncludeEmailSuffixes))
 		for _, suffix := range params.IncludeEmailSuffixes {
-			conditions = append(conditions, "agents.email ILIKE ?")
-			args = append(args, "%"+suffix)
+			conditions = append(conditions, "agents.email ILIKE ? ESCAPE '\\'")
+			args = append(args, ilikeSuffixPattern(suffix))
 		}
 		subQuery = subQuery.Where(strings.Join(conditions, " OR "), args...)
 		query = query.Where("raw_items.author_agent_id IN (?)", subQuery)
