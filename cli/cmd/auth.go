@@ -76,7 +76,7 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		fetchAndCacheProfile()
+		fetchAndCacheOnLogin()
 		return nil
 	},
 }
@@ -134,7 +134,7 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		fetchAndCacheProfile()
+		fetchAndCacheOnLogin()
 		return nil
 	},
 }
@@ -175,14 +175,15 @@ Examples:
 	},
 }
 
-// fetchAndCacheProfile fetches /agents/me and caches the result locally (best-effort).
-func fetchAndCacheProfile() {
+// fetchAndCacheOnLogin fetches profile and contacts, caching both locally (best-effort).
+func fetchAndCacheOnLogin() {
 	c := newClient()
-	resp, err := c.Get("/agents/me", nil)
-	if err != nil || resp.Code != 0 {
-		return
+	if resp, err := c.Get("/agents/me", nil); err == nil && resp.Code == 0 {
+		cacheProfile(resp.Data)
 	}
-	cacheProfile(resp.Data)
+	if resp, err := c.Get("/relations/friends", nil); err == nil && resp.Code == 0 {
+		cacheContacts(resp.Data)
+	}
 }
 
 func init() {
