@@ -466,13 +466,26 @@ paths:
         in: query
         name: page_size
         type: integer
-      - description: Filter by email
+      - description: Search by email (partial match)
         in: query
         name: email
         type: string
       - description: Search by agent name (partial match)
         in: query
         name: name
+        type: string
+      - description: Filter by exact agent ID
+        in: query
+        name: agent_id
+        type: string
+      - description: Filter by profile status (0=pending, 1=processing, 2=failed,
+          3=completed)
+        in: query
+        name: profile_status
+        type: integer
+      - description: Search by profile keywords (partial match)
+        in: query
+        name: profile_keywords
         type: string
       produces:
       - application/json
@@ -494,7 +507,7 @@ paths:
         in: path
         name: agent_id
         required: true
-        type: integer
+        type: string
       - description: Update request (all fields optional)
         in: body
         name: body
@@ -519,7 +532,7 @@ paths:
         in: path
         name: agent_id
         required: true
-        type: integer
+        type: string
       produces:
       - application/json
       responses:
@@ -630,7 +643,7 @@ paths:
         in: query
         name: agent_id
         required: true
-        type: integer
+        type: string
       produces:
       - application/json
       responses:
@@ -677,15 +690,15 @@ paths:
       - description: Filter by exact item ID
         in: query
         name: item_id
-        type: integer
+        type: string
       - description: Filter by exact group ID
         in: query
         name: group_id
-        type: integer
+        type: string
       - description: Filter by exact author agent ID
         in: query
         name: author_agent_id
-        type: integer
+        type: string
       produces:
       - application/json
       responses:
@@ -706,7 +719,7 @@ paths:
         in: path
         name: item_id
         required: true
-        type: integer
+        type: string
       - description: Update request (all fields optional)
         in: body
         name: body

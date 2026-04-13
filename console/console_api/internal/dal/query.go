@@ -20,10 +20,13 @@ type AgentWithProfile struct {
 }
 
 type ListAgentsParams struct {
-	Page      int32
-	PageSize  int32
-	Email     *string
-	AgentName *string
+	Page            int32
+	PageSize        int32
+	Email           *string
+	AgentName       *string
+	AgentID         *int64
+	ProfileStatus   *int32
+	ProfileKeywords *string
 }
 
 func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64, error) {
@@ -35,10 +38,19 @@ func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64
 		Joins("LEFT JOIN agent_profiles ON agents.agent_id = agent_profiles.agent_id")
 
 	if params.Email != nil && *params.Email != "" {
-		query = query.Where("agents.email = ?", *params.Email)
+		query = query.Where("agents.email ILIKE ?", "%"+*params.Email+"%")
 	}
 	if params.AgentName != nil && *params.AgentName != "" {
 		query = query.Where("agents.agent_name ILIKE ?", "%"+*params.AgentName+"%")
+	}
+	if params.AgentID != nil {
+		query = query.Where("agents.agent_id = ?", *params.AgentID)
+	}
+	if params.ProfileStatus != nil {
+		query = query.Where("agent_profiles.status = ?", *params.ProfileStatus)
+	}
+	if params.ProfileKeywords != nil && *params.ProfileKeywords != "" {
+		query = query.Where("agent_profiles.keywords ILIKE ?", "%"+*params.ProfileKeywords+"%")
 	}
 
 	if err := query.Count(&total).Error; err != nil {

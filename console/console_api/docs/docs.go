@@ -40,7 +40,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by email",
+                        "description": "Search by email (partial match)",
                         "name": "email",
                         "in": "query"
                     },
@@ -48,6 +48,24 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Search by agent name (partial match)",
                         "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by exact agent ID",
+                        "name": "agent_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by profile status (0=pending, 1=processing, 2=failed, 3=completed)",
+                        "name": "profile_status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search by profile keywords (partial match)",
+                        "name": "profile_keywords",
                         "in": "query"
                     }
                 ],
@@ -76,7 +94,7 @@ const docTemplate = `{
                 "summary": "Update agent",
                 "parameters": [
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Agent ID",
                         "name": "agent_id",
                         "in": "path",
@@ -114,7 +132,7 @@ const docTemplate = `{
                 "summary": "Get agent by ID",
                 "parameters": [
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Agent ID",
                         "name": "agent_id",
                         "in": "path",
@@ -283,7 +301,7 @@ const docTemplate = `{
                 "summary": "List agent impression records",
                 "parameters": [
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Agent ID",
                         "name": "agent_id",
                         "in": "query",
@@ -354,19 +372,19 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Filter by exact item ID",
                         "name": "item_id",
                         "in": "query"
                     },
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Filter by exact group ID",
                         "name": "group_id",
                         "in": "query"
                     },
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Filter by exact author agent ID",
                         "name": "author_agent_id",
                         "in": "query"
@@ -397,7 +415,7 @@ const docTemplate = `{
                 "summary": "Update item",
                 "parameters": [
                     {
-                        "type": "integer",
+                        "type": "string",
                         "description": "Item ID",
                         "name": "item_id",
                         "in": "path",
