@@ -100,9 +100,6 @@ func TestVersion(t *testing.T) {
 	if _, ok := v["cli_version"]; !ok {
 		t.Error("expected cli_version in version output")
 	}
-	if _, ok := v["skill_version"]; !ok {
-		t.Error("expected skill_version in version output")
-	}
 	if v["os"] == nil || v["arch"] == nil {
 		t.Error("expected os and arch in version output")
 	}

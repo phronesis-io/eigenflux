@@ -25,17 +25,16 @@ Examples:
 		}
 		homeDir, source := config.HomeDirInfo()
 		info := map[string]string{
-			"cli_version":   version,
-			"skill_version": skillVersion,
-			"go_version":    runtime.Version(),
-			"os":            runtime.GOOS,
-			"arch":          runtime.GOARCH,
-			"home":          homeDir,
-			"home_source":   string(source),
+			"cli_version": version,
+			"go_version":  runtime.Version(),
+			"os":          runtime.GOOS,
+			"arch":        runtime.GOARCH,
+			"home":        homeDir,
+			"home_source": string(source),
 		}
 		format := resolveFormat()
 		if format == "table" {
-			fmt.Printf("eigenflux CLI %s (skill %s)\n", version, skillVersion)
+			fmt.Printf("eigenflux CLI %s\n", version)
 			fmt.Printf("  Go:      %s\n", runtime.Version())
 			fmt.Printf("  OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 			fmt.Printf("  Home:    %s (%s)\n", homeDir, source)

@@ -9,21 +9,16 @@ import (
 )
 
 var (
-	version      string
-	skillVersion string
-	serverFlag   string
-	formatFlag   string
-	homeDirFlag  string
-	noInteract   bool
-	verboseFlag  bool
+	version     string
+	serverFlag  string
+	formatFlag  string
+	homeDirFlag string
+	noInteract  bool
+	verboseFlag bool
 )
 
 func SetVersion(v string) {
 	version = v
-}
-
-func SetSkillVersion(v string) {
-	skillVersion = v
 }
 
 var rootCmd = &cobra.Command{

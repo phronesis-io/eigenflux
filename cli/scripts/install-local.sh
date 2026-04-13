@@ -27,7 +27,7 @@ else
   GO_CMD=(go)
 fi
 
-"${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION} -X main.SkillVersion=${SKILL_VERSION}" -o "$PROJECT_ROOT/build/eigenflux" .
+"${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION}" -o "$PROJECT_ROOT/build/eigenflux" .
 
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"

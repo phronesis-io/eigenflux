@@ -5,10 +5,8 @@ import (
 )
 
 var Version = "dev"
-var SkillVersion = "dev"
 
 func main() {
 	cmd.SetVersion(Version)
-	cmd.SetSkillVersion(SkillVersion)
 	cmd.Execute()
 }
