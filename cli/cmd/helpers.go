@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -35,7 +37,8 @@ func newClientOptionalAuth(requireAuth bool) *client.Client {
 		}
 		token = creds.AccessToken
 	}
-	return client.New(srv.Endpoint+"/api/v1", token, version)
+	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+	return client.New(baseURL, token, version)
 }
 
 func activeServerName() string {

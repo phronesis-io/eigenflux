@@ -122,6 +122,7 @@ Examples:
 
 			done := make(chan struct{})
 			shouldReconnect := true
+			format := resolveFormat()
 
 			go func() {
 				defer close(done)
@@ -151,8 +152,6 @@ Examples:
 						lastCursor = envelope.Data.NextCursor
 						mu.Unlock()
 					}
-
-					format := resolveFormat()
 					if format == "json" {
 						fmt.Fprintln(os.Stdout, string(msg))
 					} else {
