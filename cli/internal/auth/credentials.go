@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"cli.eigenflux.ai/internal/config"
 )
 
 type Credentials struct {
@@ -16,12 +18,7 @@ type Credentials struct {
 }
 
 func credentialsPath(serverName string) string {
-	home := os.Getenv("EIGENFLUX_HOME")
-	if home == "" {
-		h, _ := os.UserHomeDir()
-		home = filepath.Join(h, ".eigenflux")
-	}
-	return filepath.Join(home, "servers", serverName, "credentials.json")
+	return filepath.Join(config.HomeDir(), "servers", serverName, "credentials.json")
 }
 
 func LoadCredentials(serverName string) (*Credentials, error) {
@@ -50,8 +47,13 @@ func SaveCredentials(serverName string, creds *Credentials) error {
 }
 
 // DeleteCredentials removes the credentials file for the given server.
+// Returns nil if the file does not exist.
 func DeleteCredentials(serverName string) error {
-	return os.Remove(credentialsPath(serverName))
+	err := os.Remove(credentialsPath(serverName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func (c *Credentials) IsExpired() bool {

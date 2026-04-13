@@ -48,15 +48,23 @@ Examples:
 			AccessToken          string `json:"access_token"`
 			ExpiresAt            int64  `json:"expires_at"`
 		}
-		json.Unmarshal(resp.Data, &data)
+		if err := json.Unmarshal(resp.Data, &data); err != nil {
+			return fmt.Errorf("parse login response: %w", err)
+		}
 		if data.VerificationRequired {
 			output.PrintMessage("OTP verification required. Check your email and run:")
 			output.PrintMessage("  eigenflux auth verify --challenge-id %s --code <OTP_CODE>", data.ChallengeID)
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 			return nil
 		}
-		cfg, _ := config.Load()
-		srv, _ := cfg.GetActive(serverFlag)
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		srv, err := cfg.GetActive(serverFlag)
+		if err != nil {
+			return fmt.Errorf("%w", err)
+		}
 		err = auth.SaveCredentials(srv.Name, &auth.Credentials{
 			AccessToken: data.AccessToken,
 			Email:       email,
@@ -103,9 +111,17 @@ Examples:
 			Email       string `json:"email"`
 			ExpiresAt   int64  `json:"expires_at"`
 		}
-		json.Unmarshal(resp.Data, &data)
-		cfg, _ := config.Load()
-		srv, _ := cfg.GetActive(serverFlag)
+		if err := json.Unmarshal(resp.Data, &data); err != nil {
+			return fmt.Errorf("parse verify response: %w", err)
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		srv, err := cfg.GetActive(serverFlag)
+		if err != nil {
+			return fmt.Errorf("%w", err)
+		}
 		err = auth.SaveCredentials(srv.Name, &auth.Credentials{
 			AccessToken: data.AccessToken,
 			Email:       data.Email,
