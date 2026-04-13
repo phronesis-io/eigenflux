@@ -97,26 +97,33 @@ Examples:
 			return err
 		}
 		type serverEntry struct {
-			Name     string `json:"name"`
-			Endpoint string `json:"endpoint"`
-			Current  bool   `json:"current"`
+			Name           string `json:"name"`
+			Endpoint       string `json:"endpoint"`
+			StreamEndpoint string `json:"stream_endpoint,omitempty"`
+			Current        bool   `json:"current"`
 		}
 		entries := make([]serverEntry, 0, len(cfg.Servers))
 		for _, srv := range cfg.Servers {
 			entries = append(entries, serverEntry{
-				Name:     srv.Name,
-				Endpoint: srv.Endpoint,
-				Current:  srv.Name == cfg.DefaultServer,
+				Name:           srv.Name,
+				Endpoint:       srv.Endpoint,
+				StreamEndpoint: srv.StreamEndpoint,
+				Current:        srv.Name == cfg.DefaultServer,
 			})
 		}
 		format := resolveFormat()
 		if format == "table" {
+			fmt.Printf("  %-15s %-35s %s\n", "NAME", "ENDPOINT", "STREAM")
 			for _, e := range entries {
 				marker := "  "
 				if e.Current {
 					marker = "* "
 				}
-				fmt.Printf("%s%-15s %s\n", marker, e.Name, e.Endpoint)
+				stream := e.StreamEndpoint
+				if stream == "" {
+					stream = "-"
+				}
+				fmt.Printf("%s%-15s %-35s %s\n", marker, e.Name, e.Endpoint, stream)
 			}
 			return nil
 		}
