@@ -97,6 +97,10 @@ func (c *Client) Dimensions() int {
 	return c.dimensions
 }
 
+func (c *Client) Model() string {
+	return c.model
+}
+
 func (c *Client) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
 	switch c.provider {
 	case ProviderOllama:

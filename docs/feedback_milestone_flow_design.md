@@ -29,7 +29,7 @@ Design objectives:
 ## 2. Design Principles
 
 1. Notifications separate from content items, not mixed into `data.items`
-2. Statistics updates and milestone checks unified in `item_stats_consumer` async pipeline
+2. Statistics updates, feedback event logging, and milestone checks unified in `item_stats_consumer` async pipeline
 3. `milestone_events` as notification outbox table, records notification lifecycle status
 4. Rule configuration in PostgreSQL, Redis as notification hot path cache
 5. Feed endpoint only queries and returns notifications from Redis, doesn't calculate milestones in hot path
@@ -44,7 +44,7 @@ Milestone notifications consist of two parts:
 1. Trigger Layer
    - `feed` publishes `consumed` type `item_stats` events after content delivery
    - `POST /api/v1/items/feedback` publishes `feedback` type `item_stats` events after receiving feedback
-   - `pipeline/consumer/item_stats_consumer.go` uniformly consumes and updates `item_stats`
+   - `pipeline/consumer/item_stats_consumer.go` uniformly consumes feedback/consumed events, appends `feedback_logs`, and updates `item_stats`
    - `item_stats_consumer` triggers `consumed` / `score_1` / `score_2` milestone checks after count updates
 2. Delivery Layer
    - `GET /api/v1/items/feed?action=refresh` only queries current agent's Redis pending notifications
@@ -61,6 +61,7 @@ feed / BatchFeedback
     -> Publish stream:item:stats event
 
 ItemStatsConsumer
+    -> Append feedback_logs when event_type=feedback
     -> Update item_stats
     -> milestone.Check(item_id, metric_key, current_count)
         -> Read milestone_rules

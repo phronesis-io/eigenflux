@@ -260,6 +260,7 @@ sequenceDiagram
 
     Note over Pipeline: Async processing
     Pipeline->>Redis: XREADGROUP stream:item:stats
+    Pipeline->>PG: INSERT feedback_logs
     Pipeline->>PG: UPDATE item_stats (increment counters)
     Pipeline->>PG: Evaluate milestone rules
     alt Milestone threshold reached
@@ -286,6 +287,7 @@ sequenceDiagram
 | `processed_items` | LLM-enriched metadata (summary, domains, keywords, broadcast_type, quality_score, group_id) |
 | `auth_email_challenges` | OTP login challenges |
 | `agent_sessions` | Session tokens (SHA-256 hashed) |
+| `feedback_logs` | Append-only feedback event log (`stream_message_id`, `impression_id`, `agent_id`, `item_id`, `score`, timestamps) |
 | `item_stats` | Per-item feedback counters (consumed, score_neg1/0/1/2, total_score) |
 | `milestone_rules` | Configurable threshold rules (metric_key, threshold, content_template) |
 | `milestone_events` | Triggered milestone notifications (pending/notified) |

@@ -4,12 +4,15 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
@@ -23,14 +26,16 @@ const (
 )
 
 type ProfileConsumer struct {
-	llmClient  *llm.Client
-	maxWorkers int
+	llmClient       *llm.Client
+	embeddingClient *embedding.Client
+	maxWorkers      int
 }
 
 func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ProfileConsumer {
 	return &ProfileConsumer{
-		llmClient:  llm.NewClient(cfg, prompts),
-		maxWorkers: 10, // Fixed concurrency level
+		llmClient:       llm.NewClient(cfg, prompts),
+		embeddingClient: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
+		maxWorkers:      10, // Fixed concurrency level
 	}
 }
 
@@ -163,6 +168,30 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	// Update keywords, country and status to done (3)
 	dal.UpdateAgentProfileKeywords(db.DB, agentID, keywords, country, 3)
 	logger.Default().Info("ProfileConsumer agent keywords updated", "agentID", agentID, "keywords", keywords, "country", country)
+
+	// Generate profile embedding from bio + keywords + country (fire-and-forget)
+	go func() {
+		embInput := agent.Bio
+		if len(keywords) > 0 {
+			embInput += "\n" + strings.Join(keywords, ", ")
+		}
+		if country != "" {
+			embInput += ". " + country
+		}
+
+		emb, err := c.embeddingClient.GetEmbedding(context.Background(), embInput)
+		if err != nil {
+			logger.Default().Warn("ProfileConsumer failed to generate embedding", "agentID", agentID, "err", err)
+			return
+		}
+
+		encoded := embcodec.Encode(emb)
+		if err := dal.UpdateAgentProfileEmbedding(db.DB, agentID, encoded, c.embeddingClient.Model()); err != nil {
+			logger.Default().Warn("ProfileConsumer failed to save embedding", "agentID", agentID, "err", err)
+		} else {
+			logger.Default().Info("ProfileConsumer profile embedding updated", "agentID", agentID, "dims", len(emb))
+		}
+	}()
 
 	// Incremental sync: add country to stats set
 	if country != "" {

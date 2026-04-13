@@ -258,6 +258,22 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		return
 	}
 
+	// --- Draft Indexing: make item discoverable immediately after safety check ---
+	draftItem := &sortDal.Item{
+		ID:        itemID,
+		Content:   raw.RawContent,
+		RawURL:    raw.RawURL,
+		GroupID:   finalGroupID,
+		Embedding: itemEmbedding,
+		CreatedAt: time.Unix(raw.CreatedAt/1000, 0),
+		UpdatedAt: time.Now(),
+	}
+	if err := sortDal.IndexItem(ctx, draftItem); err != nil {
+		logger.Default().Warn("ItemConsumer failed to index draft item", "itemID", itemID, "err", err)
+	} else {
+		logger.Default().Info("ItemConsumer draft item indexed to ES", "itemID", itemID)
+	}
+
 	// LLM processing with retries
 	var result *llm.ExtractResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -278,6 +294,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check discard flag
 	if result.Discard {
 		logger.Default().Info("item discarded by LLM", "itemID", itemID, "reason", result.DiscardReason)
+		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
+			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
+		}
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return
@@ -289,6 +308,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Check quality threshold
 	if result.Quality < c.qualityThreshold {
 		logger.Default().Info("item quality below threshold, discarding", "itemID", itemID, "quality", result.Quality, "threshold", c.qualityThreshold)
+		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
+			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
+		}
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return
@@ -346,6 +368,19 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		// Don't block the flow, continue to ACK
 	} else {
 		logger.Default().Info("ItemConsumer item indexed to ES successfully", "itemID", itemID)
+
+		// Cache invalidation for alert items
+		if result.BroadcastType == "alert" {
+			go func() {
+				payload := map[string]interface{}{
+					"domains":  strings.Join(result.Domains, ","),
+					"keywords": strings.Join(result.Keywords, ","),
+				}
+				if _, err := mq.Publish(context.Background(), "stream:cache:invalidate", payload); err != nil {
+					logger.Default().Warn("ItemConsumer failed to publish cache invalidation", "itemID", itemID, "err", err)
+				}
+			}()
+		}
 
 		// Update statistics counters (fire-and-forget)
 		go func() {

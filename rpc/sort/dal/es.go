@@ -24,6 +24,7 @@ type Item struct {
 	Domains          []string               `json:"domains"`
 	ExpireTime       *time.Time             `json:"expire_time,omitempty"`
 	Geo              string                 `json:"geo,omitempty"`
+	GeoCountry       string                 `json:"geo_country,omitempty"`
 	SourceType       string                 `json:"source_type"` // original, curated, forwarded
 	ExpectedResponse string                 `json:"expected_response,omitempty"`
 	Keywords         []string               `json:"keywords,omitempty"`
@@ -67,6 +68,7 @@ type SearchItemsRequest struct {
 	Domains         []string // Domain tags matching
 	Keywords        []string // Keyword matching
 	Geo             string   // Geographic range fuzzy matching
+	GeoCountry      string   // ISO 3166-1 alpha-2 for hard filtering
 	Limit           int      // Number of results to return
 	FreshnessOffset string   // Gaussian decay offset (e.g. "12h")
 	FreshnessScale  string   // Gaussian decay scale (e.g. "7d")
@@ -167,6 +169,82 @@ func parseSearchResponse(r io.Reader) (*esSearchResponse, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return &parsed, nil
+}
+
+// SearchByEmbedding performs a kNN recall query using a profile embedding vector.
+// It returns full items (with _source) for merging with keyword recall results.
+func SearchByEmbedding(ctx context.Context, embedding []float32, filters []interface{}, k, numCandidates int) ([]Item, error) {
+	if k <= 0 {
+		k = 50
+	}
+	if numCandidates <= 0 {
+		numCandidates = 200
+	}
+	if expectedDims := es.EmbeddingDimensions(); expectedDims > 0 && len(embedding) != expectedDims {
+		return nil, fmt.Errorf("embedding dimension mismatch: query vector=%d, index=%d", len(embedding), expectedDims)
+	}
+
+	knnClause := map[string]interface{}{
+		"field":          "embedding",
+		"query_vector":   embedding,
+		"k":              k,
+		"num_candidates": numCandidates,
+	}
+	if len(filters) > 0 {
+		if len(filters) == 1 {
+			knnClause["filter"] = filters[0]
+		} else {
+			knnClause["filter"] = map[string]interface{}{
+				"bool": map[string]interface{}{
+					"must": filters,
+				},
+			}
+		}
+	}
+
+	query := map[string]interface{}{
+		"knn": knnClause,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("encode kNN query: %w", err)
+	}
+
+	res, err := es.Client.Search(
+		es.Client.Search.WithContext(ctx),
+		es.Client.Search.WithIndex(es.ReadIndexPattern),
+		es.Client.Search.WithBody(&buf),
+		es.Client.Search.WithTrackTotalHits(true),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("execute kNN search: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("ES kNN search error: %s", res.String())
+	}
+
+	parsed, err := parseSearchResponse(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]Item, 0, len(parsed.Hits.Hits))
+	for _, hit := range parsed.Hits.Hits {
+		item := hit.Source
+		if hit.ID != "" {
+			if id, parseErr := strconv.ParseInt(hit.ID, 10, 64); parseErr == nil {
+				item.ID = id
+			}
+		}
+		item.Score = hit.Score
+		items = append(items, item)
+	}
+
+	logger.Ctx(ctx).Debug("kNN recall", "k", k, "numCandidates", numCandidates, "returned", len(items))
+	return items, nil
 }
 
 // CountItems returns the total number of items in Elasticsearch

@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
+	"gorm.io/gorm"
 )
 
 const (
@@ -33,7 +34,7 @@ type ItemStatsConsumer struct {
 	maxRetries   int64
 	retryMinIdle time.Duration
 	readBlock    time.Duration
-	handleEvent  func(context.Context, itemstats.Event) error
+	handleEvent  func(context.Context, string, itemstats.Event) error
 }
 
 func NewItemStatsConsumer(cfg *config.Config, milestoneSvc *milestone.Service) *ItemStatsConsumer {
@@ -165,7 +166,7 @@ func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, va
 		return
 	}
 
-	if err := c.handleEvent(ctx, event); err != nil {
+	if err := c.handleEvent(ctx, msgID, event); err != nil {
 		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
 		return
 	}
@@ -174,7 +175,7 @@ func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, va
 	c.ackMessage(ctx, msgID)
 }
 
-func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemstats.Event) error {
+func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, msgID string, event itemstats.Event) error {
 	switch event.EventType {
 	case itemstats.EventTypeConsumed:
 		logger.Default().Debug("ItemStatsConsumer processing consumed event", "agentID", event.AgentID, "itemID", event.ItemID)
@@ -186,8 +187,13 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 		})
 	case itemstats.EventTypeFeedback:
 		logger.Default().Debug("ItemStatsConsumer processing feedback event", "agentID", event.AgentID, "itemID", event.ItemID, "score", event.Score, "impressionID", event.ImpressionID)
-		if err := itemdal.IncrementItemScore(db.DB, event.ItemID, event.Score); err != nil {
+		inserted, err := c.persistFeedbackEvent(msgID, event)
+		if err != nil {
 			return err
+		}
+		if !inserted {
+			logger.Default().Info("ItemStatsConsumer deduplicated feedback log", "msgID", msgID, "itemID", event.ItemID)
+			return nil
 		}
 
 		// Increment high-quality count for positive feedback (score 1 or 2)
@@ -215,6 +221,33 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, event itemst
 	default:
 		return fmt.Errorf("unsupported event type %q", event.EventType)
 	}
+}
+
+func (c *ItemStatsConsumer) persistFeedbackEvent(msgID string, event itemstats.Event) (bool, error) {
+	now := nowFeedbackLogMs()
+	entry := newFeedbackLog(msgID, feedbackEvent{
+		agentID:      event.AgentID,
+		itemID:       event.ItemID,
+		score:        event.Score,
+		impressionID: event.ImpressionID,
+	}, now)
+
+	inserted := false
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var insertErr error
+		inserted, insertErr = insertFeedbackLog(tx, entry)
+		if insertErr != nil {
+			return insertErr
+		}
+		if !inserted {
+			return nil
+		}
+		return itemdal.IncrementItemScore(tx, event.ItemID, event.Score)
+	})
+	if err != nil {
+		return false, err
+	}
+	return inserted, nil
 }
 
 func (c *ItemStatsConsumer) ackMessage(ctx context.Context, msgID string) {

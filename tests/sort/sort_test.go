@@ -183,6 +183,56 @@ func TestSortService(t *testing.T) {
 	})
 }
 
+func TestSortService_SemanticRanking(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping in short mode")
+	}
+
+	cfg := config.Load()
+	db.Init(cfg.PgDSN)
+	require.NoError(t, es.InitES(cfg.EmbeddingDimensions))
+	ctx := context.Background()
+	testutil.CleanTestData(t)
+
+	// Create agent with profile
+	email := fmt.Sprintf("sort_semantic_%d@test.com", time.Now().UnixNano())
+	agent := createTestAgent(t, email, "Semantic User", "Expert in machine learning and neural networks")
+	createTestProfile(t, agent.AgentID, []string{"machine learning", "neural networks", "AI"})
+
+	// Create items — one matching profile keywords, one not
+	now := time.Now()
+	createTestItem(t, ctx, now.UnixNano(), agent.AgentID, "Deep learning advances in computer vision", []string{"AI", "deep learning", "machine learning"}, []string{"tech", "AI"})
+	createTestItem(t, ctx, now.UnixNano(), agent.AgentID, "Cooking recipes for beginners", []string{"cooking", "recipes"}, []string{"food", "lifestyle"})
+
+	testutil.RefreshES(t)
+
+	// Call sort service
+	results := callSortService(t, cfg, agent.AgentID)
+	require.NotEmpty(t, results)
+	t.Logf("Semantic ranking returned %d items", len(results))
+
+	// Verify that the ML-related item ranks higher
+	items, err := itemDal.BatchGetProcessedItems(db.DB, results)
+	require.NoError(t, err)
+	require.NotEmpty(t, items)
+
+	// The first item should be the ML-related one (keyword overlap scoring)
+	firstKws := strings.Split(items[0].Keywords, ",")
+	hasMLMatch := false
+	for _, kw := range firstKws {
+		kw = strings.TrimSpace(kw)
+		if kw == "AI" || kw == "deep learning" || kw == "machine learning" {
+			hasMLMatch = true
+			break
+		}
+	}
+	assert.True(t, hasMLMatch, "First item should be ML-related due to keyword overlap with profile")
+
+	t.Cleanup(func() {
+		testutil.CleanupTestEmails(t, email)
+	})
+}
+
 func createTestAgent(t *testing.T, email, name, bio string) *profileDal.Agent {
 	t.Helper()
 

@@ -60,10 +60,15 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `EMBEDDING_BASE_URL` | -- | Base URL for embedding endpoint |
 | `EMBEDDING_MODEL` | (per provider) | Embedding model name |
 | `EMBEDDING_DIMENSIONS` | (per model) | Override embedding vector dimensions |
+| `EMBEDDING_BACKFILL_BATCH_SIZE` | `200` | Number of profiles processed per embedding backfill run |
+| `EMBEDDING_BACKFILL_INTERVAL` | `5m` | Interval between embedding backfill runs in cron |
+| `EMBEDDING_BACKFILL_WORKERS` | `4` | Concurrent workers used by embedding backfill |
+| `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
 | `SEARCH_CACHE_TTL` | `2` | Search cache TTL (seconds) |
 | `PROFILE_CACHE_TTL` | `60` | User profile cache TTL (seconds) |
 | `MILESTONE_RULE_CACHE_TTL` | `60` | Milestone rule cache TTL (seconds) |
+| `MIN_RELEVANCE_SCORE` | `0` | Score-layer threshold applied after ranking; `0` keeps all ranked groups unless overridden |
 | `FRESHNESS_OFFSET` | `12h` | ES Gaussian decay offset |
 | `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale |
 | `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Add an append-only replay log that captures the full ranking context at feed serve time — user features, item features, ES scores, and positions. This data enables offline training of ranking models by reconstructing what the system "saw" when it made each ranking decision. Feedback is recorded separately and joined at export/training time.
+Add an append-only replay log that captures the full ranking context at feed serve time — user features, item features, ES scores, and positions. This data enables offline training of ranking models by reconstructing what the system "saw" when it made each ranking decision. Feedback is recorded separately in `feedback_logs` and joined at export/training time.
 
 ## Data Model
 
@@ -44,7 +44,7 @@ Manual cleanup. No automatic purge. Future migration to Hive/OSS for long-term s
 
 ### Feedback Joining
 
-Feedback is NOT stored in this table. Feedback arrives via `POST /api/v1/items/feedback` and is published to `stream:item:stats`. At training export time, replay logs and feedback events are joined by `impression_id` first, with `(agent_id, item_id, timestamp proximity)` as fallback/validation dimensions. This keeps the two write paths independent and allows the feedback API to evolve (new feedback types, general feedback API) without affecting the replay log schema.
+Feedback is NOT stored in this table. Feedback arrives via `POST /api/v1/items/feedback`, is published to `stream:item:stats`, and is persisted by `ItemStatsConsumer` into `feedback_logs`. At training export time, replay logs and feedback logs are joined by `impression_id` first, with `(agent_id, item_id)` as validation dimensions. This keeps the two write paths independent and allows the feedback API to evolve without affecting the replay log schema.
 
 ## Write Path
 
