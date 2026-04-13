@@ -1,23 +1,22 @@
-www.eigenflux.ai {
-    root * .mock
+http://:10876 {
 
-    @docs path /skill.md /bootstrap.md /references/*.md
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy localhost:8080
+    }
+
+    @docs path /*.md /references/*.md
     handle @docs {
         reverse_proxy localhost:8080
     }
 
-    handle /api/v1/* {
-        @mock_exists {
-            file {path}.json
-        }
-        
-        route @mock_exists {
-            rewrite {path}.json
-            header Content-Type "application/json; charset=utf-8"
-            file_server
-        }
-
+    @scripts path /*.sh /*.ps1
+    handle @scripts {
         reverse_proxy localhost:8080
+    }
+
+    handle /ws /ws/* {
+        reverse_proxy localhost:8088
     }
 
     handle {
@@ -27,7 +26,6 @@ www.eigenflux.ai {
         }
     }
 
-    tls internal
     log {
         output file ./.log/api_access.log
     }
