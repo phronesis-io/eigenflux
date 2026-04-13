@@ -8,16 +8,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var serverCmd = &cobra.Command{
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Manage configuration",
+	Long: `Manage server connections and user settings.
+
+Examples:
+  eigenflux config server list
+  eigenflux config set --key recurring_publish --value true
+  eigenflux config show`,
+}
+
+// ===== Server subcommands =====
+
+var configServerCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Manage servers",
 	Long: `Add, remove, and switch between EigenFlux server configurations.
 
 Examples:
-  eigenflux server list
-  eigenflux server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
-  eigenflux server use --name eigenflux
-  eigenflux server remove --name staging`,
+  eigenflux config server list
+  eigenflux config server add --name eigenflux --endpoint https://www.eigenflux.ai
+  eigenflux config server use --name eigenflux
+  eigenflux config server remove --name staging`,
 }
 
 var serverAddCmd = &cobra.Command{
@@ -26,8 +39,8 @@ var serverAddCmd = &cobra.Command{
 	Long: `Add a new server configuration.
 
 Examples:
-  eigenflux server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
-  eigenflux server add --name staging --endpoint https://staging.eigenflux.ai`,
+  eigenflux config server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
+  eigenflux config server add --name staging --endpoint https://staging.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")
@@ -53,7 +66,7 @@ var serverRemoveCmd = &cobra.Command{
 	Long: `Remove a server configuration and its credentials.
 
 Examples:
-  eigenflux server remove --name staging`,
+  eigenflux config server remove --name staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		if name == "" {
@@ -77,7 +90,7 @@ var serverListCmd = &cobra.Command{
 	Long: `List all configured servers and show which is the default.
 
 Examples:
-  eigenflux server list`,
+  eigenflux config server list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -118,7 +131,7 @@ var serverUseCmd = &cobra.Command{
 	Long: `Switch the default server used by all commands.
 
 Examples:
-  eigenflux server use --name eigenflux`,
+  eigenflux config server use --name eigenflux`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		if name == "" {
@@ -142,8 +155,8 @@ var serverUpdateCmd = &cobra.Command{
 	Long: `Update an existing server's endpoint.
 
 Examples:
-  eigenflux server update --name eigenflux --endpoint https://www.eigenflux.ai
-  eigenflux server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai`,
+  eigenflux config server update --name eigenflux --endpoint https://www.eigenflux.ai
+  eigenflux config server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		endpoint, _ := cmd.Flags().GetString("endpoint")
@@ -163,7 +176,105 @@ Examples:
 	},
 }
 
+// ===== Settings subcommands =====
+
+var configSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Set a user setting",
+	Long: `Set a per-server user setting.
+
+Valid keys: recurring_publish (true/false), feed_delivery_preference (text)
+
+Examples:
+  eigenflux config set --key recurring_publish --value true
+  eigenflux config set --key feed_delivery_preference --value "Push urgent signals immediately"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key, _ := cmd.Flags().GetString("key")
+		value, _ := cmd.Flags().GetString("value")
+		if key == "" {
+			return fmt.Errorf("--key is required")
+		}
+		srv := activeServerName()
+		if srv == "" {
+			return fmt.Errorf("no active server configured")
+		}
+		settings, err := config.LoadUserSettings(srv)
+		if err != nil {
+			return err
+		}
+		if err := settings.Set(key, value); err != nil {
+			return err
+		}
+		if err := config.SaveUserSettings(srv, settings); err != nil {
+			return err
+		}
+		output.PrintMessage("%s = %s", key, value)
+		return nil
+	},
+}
+
+var configGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get a user setting",
+	Long: `Get the current value of a per-server user setting.
+
+Valid keys: recurring_publish, feed_delivery_preference
+
+Examples:
+  eigenflux config get --key recurring_publish`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key, _ := cmd.Flags().GetString("key")
+		if key == "" {
+			return fmt.Errorf("--key is required")
+		}
+		srv := activeServerName()
+		if srv == "" {
+			return fmt.Errorf("no active server configured")
+		}
+		settings, err := config.LoadUserSettings(srv)
+		if err != nil {
+			return err
+		}
+		val, err := settings.Get(key)
+		if err != nil {
+			return err
+		}
+		fmt.Println(val)
+		return nil
+	},
+}
+
+var configShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show all user settings",
+	Long: `Display all per-server user settings.
+
+Examples:
+  eigenflux config show`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		srv := activeServerName()
+		if srv == "" {
+			return fmt.Errorf("no active server configured")
+		}
+		settings, err := config.LoadUserSettings(srv)
+		if err != nil {
+			return err
+		}
+		format := resolveFormat()
+		if format == "table" {
+			rp, _ := settings.Get("recurring_publish")
+			fdp, _ := settings.Get("feed_delivery_preference")
+			fmt.Printf("%-30s %s\n", "recurring_publish", rp)
+			fmt.Printf("%-30s %s\n", "feed_delivery_preference", fdp)
+			return nil
+		}
+		output.PrintData(settings, format)
+		return nil
+	},
+}
+
 func init() {
+	// Server flags
 	serverAddCmd.Flags().String("name", "", "server name (required)")
 	serverAddCmd.Flags().String("endpoint", "", "server endpoint URL (required)")
 	serverAddCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint (optional, auto-derived from endpoint)")
@@ -172,6 +283,13 @@ func init() {
 	serverUpdateCmd.Flags().String("name", "", "server name to update (required)")
 	serverUpdateCmd.Flags().String("endpoint", "", "new endpoint URL")
 	serverUpdateCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint")
-	serverCmd.AddCommand(serverAddCmd, serverRemoveCmd, serverListCmd, serverUseCmd, serverUpdateCmd)
-	rootCmd.AddCommand(serverCmd)
+	configServerCmd.AddCommand(serverAddCmd, serverRemoveCmd, serverListCmd, serverUseCmd, serverUpdateCmd)
+
+	// Settings flags
+	configSetCmd.Flags().String("key", "", "setting key (required)")
+	configSetCmd.Flags().String("value", "", "setting value")
+	configGetCmd.Flags().String("key", "", "setting key (required)")
+
+	configCmd.AddCommand(configServerCmd, configSetCmd, configGetCmd, configShowCmd)
+	rootCmd.AddCommand(configCmd)
 }

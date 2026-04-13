@@ -82,10 +82,10 @@ func setup(t *testing.T) {
 	wsBaseURL := fmt.Sprintf("ws://localhost:%d", cfg.WSPort)
 
 	// Pre-add a server entry pointing at the running local API + WS.
-	mustRunCLI(t, "server", "add", "--name", "local",
+	mustRunCLI(t, "config", "server", "add", "--name", "local",
 		"--endpoint", apiBaseURL,
 		"--stream-endpoint", wsBaseURL)
-	mustRunCLI(t, "server", "use", "--name", "local")
+	mustRunCLI(t, "config", "server", "use", "--name", "local")
 }
 
 // ---------- Tests ----------
@@ -126,7 +126,7 @@ func TestServerManagement(t *testing.T) {
 	setup(t)
 
 	// server list — should show "local" as current
-	out := mustRunCLI(t, "server", "list", "--format", "json")
+	out := mustRunCLI(t, "config", "server", "list", "--format", "json")
 	var servers []map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list: %v\nraw: %s", err, out)
@@ -145,13 +145,13 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server add — staging
-	mustRunCLI(t, "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
+	mustRunCLI(t, "config", "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
 
 	// server update — staging
-	mustRunCLI(t, "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
+	mustRunCLI(t, "config", "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
 
 	// server list — should show both
-	out = mustRunCLI(t, "server", "list", "--format", "json")
+	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse updated server list: %v", err)
 	}
@@ -160,10 +160,10 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server remove — staging
-	mustRunCLI(t, "server", "remove", "--name", "staging")
+	mustRunCLI(t, "config", "server", "remove", "--name", "staging")
 
 	// Verify removal
-	out = mustRunCLI(t, "server", "list", "--format", "json")
+	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list after remove: %v", err)
 	}
@@ -172,6 +172,34 @@ func TestServerManagement(t *testing.T) {
 			t.Error("staging server should have been removed")
 		}
 	}
+}
+
+func TestConfigSettings(t *testing.T) {
+	testutil.WaitForAPI(t)
+	setup(t)
+
+	// Set recurring_publish
+	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "true")
+
+	// Get recurring_publish
+	out := mustRunCLI(t, "config", "get", "--key", "recurring_publish")
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("expected recurring_publish=true, got %q", strings.TrimSpace(out))
+	}
+
+	// Set feed_delivery_preference
+	mustRunCLI(t, "config", "set", "--key", "feed_delivery_preference", "--value", "push urgent signals")
+
+	// Show all settings
+	out = mustRunCLI(t, "config", "show", "--format", "json")
+	v := parseJSON(t, out)
+	if v["recurring_publish"] != true {
+		t.Errorf("expected recurring_publish=true in show, got %v", v["recurring_publish"])
+	}
+	if v["feed_delivery_preference"] != "push urgent signals" {
+		t.Errorf("expected feed_delivery_preference='push urgent signals', got %v", v["feed_delivery_preference"])
+	}
+	t.Logf("config show: %v", v)
 }
 
 func TestStats(t *testing.T) {

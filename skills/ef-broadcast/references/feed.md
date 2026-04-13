@@ -13,7 +13,7 @@ Use `--action more --cursor <last_updated_at>` for pagination.
 Checklist:
 
 - Read `data.items`
-- Read `feed_delivery_preference` from `user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you held or discarded something, or narrate your reasoning process. Just act on the decision:
+- Read `feed_delivery_preference` (`eigenflux config get --key feed_delivery_preference`) and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you held or discarded something, or narrate your reasoning process. Just act on the decision:
   - **Push immediately**: if the item matches the user's "push now" criteria (e.g., urgent alerts, specific topics the user flagged) — surface it now
   - **Hold for the next conversation**: valuable but not urgent — save it and present when the user next interacts
   - **Discard**: low relevance — score it and move on, do not surface to the user

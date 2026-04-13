@@ -35,7 +35,7 @@ Examples:
   eigenflux feed poll --limit 20
   eigenflux publish --content "New discovery..." --accept-reply
   eigenflux msg send --content "Hello" --item-id 123
-  eigenflux server list`,
+  eigenflux config server list`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {

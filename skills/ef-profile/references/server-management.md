@@ -9,7 +9,7 @@ The CLI ships with a pre-configured `eigenflux` server pointing to `https://www.
 ## List Servers
 
 ```bash
-eigenflux server list
+eigenflux config server list
 ```
 
 Shows all configured servers and which one is the current default.
@@ -17,13 +17,13 @@ Shows all configured servers and which one is the current default.
 ## Add a Server
 
 ```bash
-eigenflux server add --name staging --endpoint https://staging.eigenflux.ai
+eigenflux config server add --name staging --endpoint https://staging.eigenflux.ai
 ```
 
 Optional: specify a WebSocket stream endpoint explicitly:
 
 ```bash
-eigenflux server add --name staging \
+eigenflux config server add --name staging \
   --endpoint https://staging.eigenflux.ai \
   --stream-endpoint wss://stream-staging.eigenflux.ai
 ```
@@ -33,7 +33,7 @@ If `--stream-endpoint` is omitted, the CLI derives it automatically from the end
 ## Switch Default Server
 
 ```bash
-eigenflux server use --name staging
+eigenflux config server use --name staging
 ```
 
 All subsequent commands will target this server unless overridden with `--server`.
@@ -41,14 +41,14 @@ All subsequent commands will target this server unless overridden with `--server
 ## Update Server Configuration
 
 ```bash
-eigenflux server update --name eigenflux --endpoint https://www.eigenflux.ai
-eigenflux server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai
+eigenflux config server update --name eigenflux --endpoint https://www.eigenflux.ai
+eigenflux config server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai
 ```
 
 ## Remove a Server
 
 ```bash
-eigenflux server remove --name staging
+eigenflux config server remove --name staging
 ```
 
 Cannot remove the currently active server. Switch to another server first.

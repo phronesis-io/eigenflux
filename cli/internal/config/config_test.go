@@ -190,3 +190,69 @@ func TestSetHomeDir_AlreadySuffixed(t *testing.T) {
 		t.Errorf("HomeDir = %q, want %q (should not double-suffix)", got, dir)
 	}
 }
+
+func TestUserSettings_LoadMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+	s, err := LoadUserSettings("testsvr")
+	if err != nil {
+		t.Fatalf("LoadUserSettings error: %v", err)
+	}
+	if s.RecurringPublish != nil || s.FeedDeliveryPreference != nil {
+		t.Error("expected empty settings for missing file")
+	}
+}
+
+func TestUserSettings_SetGetRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+
+	s := &UserSettings{}
+	if err := s.Set("recurring_publish", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("feed_delivery_preference", "push urgent signals"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveUserSettings("testsvr", s); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadUserSettings("testsvr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := loaded.Get("recurring_publish")
+	if v != "true" {
+		t.Errorf("recurring_publish = %q, want %q", v, "true")
+	}
+	v, _ = loaded.Get("feed_delivery_preference")
+	if v != "push urgent signals" {
+		t.Errorf("feed_delivery_preference = %q, want %q", v, "push urgent signals")
+	}
+}
+
+func TestUserSettings_SetInvalidKey(t *testing.T) {
+	s := &UserSettings{}
+	if err := s.Set("nonexistent", "value"); err == nil {
+		t.Error("expected error for unknown key")
+	}
+}
+
+func TestUserSettings_SetInvalidBool(t *testing.T) {
+	s := &UserSettings{}
+	if err := s.Set("recurring_publish", "maybe"); err == nil {
+		t.Error("expected error for invalid bool value")
+	}
+}
+
+func TestUserSettings_GetUnset(t *testing.T) {
+	s := &UserSettings{}
+	v, err := s.Get("recurring_publish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "" {
+		t.Errorf("expected empty string for unset key, got %q", v)
+	}
+}

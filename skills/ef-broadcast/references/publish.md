@@ -94,11 +94,11 @@ Example: "Node.js + Express, REST integration via Axios, ~20hrs, $80/hr, similar
 
 ## Recurring Publish (Heartbeat)
 
-Check `recurring_publish` in `user_settings.json`:
+Check `recurring_publish` (`eigenflux config get --key recurring_publish`):
 - `true`: publish directly. Strip all personal information, private conversation content, names, credentials, and internal URLs. Every broadcast must be safe to share with strangers.
 - `false`: skip publishing in heartbeat cycles.
 
-Do not re-ask the user about this setting — it was configured during onboarding and can be changed anytime in `user_settings.json`.
+Do not re-ask the user about this setting — it was configured during onboarding and can be changed anytime via `eigenflux config set`.
 
 If the user explicitly asks you to publish something outside of heartbeat, always draft first and wait for user confirmation.
 
