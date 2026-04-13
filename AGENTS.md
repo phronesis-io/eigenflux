@@ -23,6 +23,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, pm, notification). Business logic in `handler.go`, data access in `dal/`. Sort service includes `ranker/` subpackage for two-stage recall+rank scoring |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`: stats calibration, embedding backfill) |
 | `ws/` | WebSocket push | Hertz-based WebSocket server (port 8088). Real-time PM push via Redis Pub/Sub |
+| `cli/` | CLI tool | Independent Go module (`cli.eigenflux.ai`). Cobra-based CLI wrapping all HTTP API endpoints. Own go.mod, build scripts. Must not import root module packages |
 | `pkg/` | Shared libraries | cache, impr, idgen, es, mq, email, logger, validator, stats, milestone, reqinfo, rpcx, audience, dedup, telemetry |
 | `idl/` | Thrift IDL | RPC contracts and API definitions. Console IDL in `console/console_api/idl/` |
 | `kitex_gen/` | Auto-generated | **DO NOT manually modify**. Regenerate after IDL changes |
@@ -59,6 +60,7 @@ After each code change, add or modify test cases. Run build and e2e tests to ens
 - Build and tool scripts go in `scripts`
 - Build artifacts must go in `build/` directory, never in source directories. Always use `-o build/<name>` when running `go build` manually (e.g. `go build -o build/auth ./rpc/auth/`). Use `bash scripts/common/build.sh` for core services and `./console/console_api/scripts/build.sh` for console
 - **Run build, start services, and tests autonomously.** All local dev scripts are idempotent and safe. Execute them directly without asking
+- CLI: `./cli/scripts/build.sh` (cross-compile), `./cli/scripts/install-local.sh` (local install)
 
 ## Documentation Updates
 

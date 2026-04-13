@@ -1611,3 +1611,26 @@ func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
 
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
+
+// Logout revokes the current session via the Auth RPC service.
+// @Summary Logout
+// @Description Revoke the current access token and remove the cached session
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} LogoutResp
+// @Router /api/v1/auth/logout [post]
+func Logout(ctx context.Context, c *app.RequestContext) {
+	header := string(c.GetHeader("Authorization"))
+	accessToken := strings.TrimPrefix(header, "Bearer ")
+
+	resp, err := clients.AuthClient.Logout(ctx, &authrpc.LogoutReq{
+		AccessToken: accessToken,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "auth service error", nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+}

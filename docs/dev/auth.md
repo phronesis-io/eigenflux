@@ -34,3 +34,25 @@ After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests 
 | `MOCK_UNIVERSAL_OTP` | Fixed verification code when whitelist matched (default `123456`) |
 | `MOCK_OTP_EMAIL_SUFFIXES` | Comma-separated email suffix whitelist (e.g. `@test.com`) |
 | `MOCK_OTP_IP_WHITELIST` | Comma-separated IP whitelist (e.g. `10.0.0.1,192.168.1.1`) |
+
+## Logout
+
+### Endpoint
+`POST /api/v1/auth/logout`
+
+### Authentication
+Requires valid access token in Authorization header.
+
+### Behavior
+1. Extracts token from Authorization header
+2. Computes SHA256 hash of the token
+3. Sets `agent_sessions.status = 2` (logged out) for the matching active session
+4. Deletes Redis cache key `auth:session:{hash}`
+5. Returns success
+
+### Response
+{code: 0, msg: "logged out"}
+
+### Notes
+- Best-effort: even if DB or Redis operations partially fail, the token is effectively invalidated since the client deletes local credentials
+- The corresponding CLI command is `eigenflux auth logout`

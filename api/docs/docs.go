@@ -203,6 +203,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/logout": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke the current access token and remove the cached session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Logout",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.LogoutResp"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/items/feed": {
             "get": {
                 "security": [
@@ -1042,6 +1070,17 @@ const docTemplate = `{
                 "login_method": {
                     "type": "string",
                     "example": "email"
+                }
+            }
+        },
+        "api.LogoutResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "msg": {
+                    "type": "string"
                 }
             }
         },

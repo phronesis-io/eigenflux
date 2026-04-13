@@ -300,7 +300,8 @@ kill_port() {
   local port=$1
   [[ -z "$port" ]] && return 0
   local pids
-  pids=$(lsof -ti :"$port" 2>/dev/null || true)
+  # Only kill the LISTEN-ing server process, not connected clients.
+  pids=$(lsof -ti :"$port" -sTCP:LISTEN 2>/dev/null || true)
   [[ -z "$pids" ]] && return 0
   echo -e "${YELLOW}Port $port is occupied, terminating...${NC}"
   echo "$pids" | xargs kill -9 2>/dev/null || true

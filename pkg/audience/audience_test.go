@@ -86,7 +86,7 @@ func TestEvaluate_InvalidExpression(t *testing.T) {
 }
 
 func TestValidate_Valid(t *testing.T) {
-	for _, expr := range []string{"", "skill_ver_num < 3", `skill_ver == "0.0.3"`, "agent_id == 123"} {
+	for _, expr := range []string{"", "skill_ver_num < 3", `skill_ver == "0.0.3"`, "agent_id == 123", "cli_ver_num < 100", `cli_ver == "0.1.0"`} {
 		if err := Validate(expr); err != nil {
 			t.Fatalf("Validate(%q) unexpected error: %v", expr, err)
 		}
@@ -102,6 +102,51 @@ func TestValidate_UnknownVariable(t *testing.T) {
 func TestValidate_InvalidSyntax(t *testing.T) {
 	if err := Validate("skill_ver_num <><> 3"); err == nil {
 		t.Fatal("expected error for invalid syntax")
+	}
+}
+
+func TestEvaluate_CLIVerNum(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		vars map[string]string
+		want bool
+	}{
+		{"less than match", "cli_ver_num < 100", map[string]string{"cli_ver_num": "1"}, true},
+		{"less than no match", "cli_ver_num < 100", map[string]string{"cli_ver_num": "100"}, false},
+		{"no header defaults 0", "cli_ver_num < 100", map[string]string{}, true},
+		{"gte match", "cli_ver_num >= 100", map[string]string{"cli_ver_num": "200"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Evaluate(tt.expr, tt.vars)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("Evaluate(%q) = %v, want %v", tt.expr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvaluate_CLIVerString(t *testing.T) {
+	ok, err := Evaluate(`cli_ver == "0.1.0"`, map[string]string{"cli_ver": "0.1.0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected true")
+	}
+}
+
+func TestEvaluate_CompoundSkillAndCLI(t *testing.T) {
+	ok, err := Evaluate(`skill_ver_num >= 3 || cli_ver_num >= 100`, map[string]string{"cli_ver_num": "100"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected true when cli_ver matches")
 	}
 }
 

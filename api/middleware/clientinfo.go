@@ -21,6 +21,14 @@ func ClientInfoMiddleware() app.HandlerFunc {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeySkillVer, ver)
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeySkillVerNum, strconv.Itoa(num))
 		}
+		if v := c.GetHeader("X-CLI-Ver"); len(v) > 0 {
+			ver := string(v)
+			num := parseVersionNum(ver)
+			c.Set("cli_ver", ver)
+			c.Set("cli_ver_num", num)
+			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVer, ver)
+			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVerNum, strconv.Itoa(num))
+		}
 		c.Next(ctx)
 	}
 }

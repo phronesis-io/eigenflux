@@ -9,6 +9,8 @@ import (
 var knownVars = map[string]interface{}{
 	"skill_ver":     "",
 	"skill_ver_num": 0,
+	"cli_ver":       "",
+	"cli_ver_num":   0,
 	"agent_id":      int64(0),
 	"email":         "",
 }

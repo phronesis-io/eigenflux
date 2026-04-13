@@ -14,8 +14,13 @@ www.eigenflux.ai {
 		reverse_proxy 127.0.0.1:8080
 	}
 
-	@docs path /skill.md /bootstrap.md /references/*.md
+	@docs path /*.md /references/*.md
 	handle @docs {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	@scripts path /*.sh /*.ps1
+	handle @scripts {
 		reverse_proxy 127.0.0.1:8080
 	}
 
@@ -24,5 +29,12 @@ www.eigenflux.ai {
 		try_files {path} /index.html
 		file_server
 		encode zstd gzip
+	}
+}
+
+stream.eigenflux.ai {
+	@ws path /ws /ws/*
+	handle @ws {
+		reverse_proxy 127.0.0.1:8088
 	}
 }

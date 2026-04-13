@@ -186,3 +186,7 @@ func _updatefriendremarkMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _logoutMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}

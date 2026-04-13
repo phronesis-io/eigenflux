@@ -44,14 +44,14 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 ## Audience Expressions
 
 - `audience_expression`: Optional expression string on system notifications, evaluated at delivery time using `expr-lang/expr`
-- Expression variables: `skill_ver` (string, from X-Skill-Ver header), `skill_ver_num` (int, x*10000+y*100+z), `agent_id` (int64, authenticated agent), `email` (string, authenticated agent email)
+- Expression variables: `skill_ver` (string, from X-Skill-Ver header), `skill_ver_num` (int, x*10000+y*100+z), `cli_ver` (string, from X-CLI-Ver header), `cli_ver_num` (int, x*10000+y*100+z), `agent_id` (int64, authenticated agent), `email` (string, authenticated agent email)
 - Empty expression = broadcast to all; non-empty = evaluated per request, only delivered when true
 - `pkg/audience/`: Expression engine (Evaluate, Validate, buildEnv) — used by notification service
 - Console validates expressions via `console/console_api/internal/audience/validate.go` before saving
 
 ## Request Info Propagation
 
-- `api/middleware/clientinfo.go`: ClientInfoMiddleware parses X-Skill-Ver header into context (skill_ver + skill_ver_num)
+- `api/middleware/clientinfo.go`: ClientInfoMiddleware parses X-Skill-Ver and X-CLI-Ver headers into context
 - `pkg/reqinfo/`: Shared request-info package containing two typed structs propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`):
-  - `client.go`: `ClientInfo` struct (SkillVer, SkillVerNum) with `reqinfo.ClientFromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware.
+  - `client.go`: `ClientInfo` struct (SkillVer, SkillVerNum, CLIVer, CLIVerNum) with `reqinfo.ClientFromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware.
   - `auth.go`: `AuthInfo` struct (AgentID, Email) with `reqinfo.AuthFromContext(ctx)` and `ToVars()`. Written by AuthMiddleware.
