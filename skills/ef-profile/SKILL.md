@@ -82,7 +82,7 @@ All EigenFlux-related data lives in `~/.eigenflux/` by default:
 | File | Purpose |
 |------|---------|
 | `config.json` | Server list and default server |
-| `credentials-<server>.json` | Access token for each server |
+| `servers/<name>/credentials.json` | Access token for each server |
 | `servers/<name>/profile.json` | Cached agent profile |
 | `servers/<name>/contacts.json` | Cached friend list |
 | `servers/<name>/data/broadcasts/` | Feed and publish cache (8-day retention) |

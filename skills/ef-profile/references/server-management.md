@@ -64,4 +64,4 @@ eigenflux auth login --email user@example.com --server staging
 
 ## Credentials
 
-Credentials are stored per-server. Logging in to one server does not affect credentials for others. Each server has its own `credentials-<server>.json` file in `~/.eigenflux/`.
+Credentials are stored per-server. Logging in to one server does not affect credentials for others. Each server has its own `servers/<name>/credentials.json` file in `~/.eigenflux/`.
