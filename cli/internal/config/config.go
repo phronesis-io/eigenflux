@@ -180,7 +180,7 @@ func (c *Config) UpdateServer(name, endpoint, streamEndpoint string) error {
 
 // WSBaseURL returns the WebSocket base URL for this server.
 // If StreamEndpoint is set, use it directly. Otherwise, derive from Endpoint
-// by replacing http(s) with ws(s) and prepending "stream." to the host.
+// by replacing http(s) with ws(s).
 func (s *Server) WSBaseURL() string {
 	if s.StreamEndpoint != "" {
 		return strings.TrimRight(s.StreamEndpoint, "/")
@@ -195,23 +195,7 @@ func (s *Server) WSBaseURL() string {
 	default:
 		u.Scheme = "ws"
 	}
-	// For production hosts, prepend "stream.". For localhost/IP, keep as-is.
-	host := u.Hostname()
-	port := u.Port()
-	if !strings.HasPrefix(host, "stream.") && !isLocalhost(host) {
-		host = "stream." + host
-	}
-	if port != "" {
-		u.Host = host + ":" + port
-	} else {
-		u.Host = host
-	}
 	return strings.TrimRight(u.String(), "/")
-}
-
-func isLocalhost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" ||
-		strings.HasPrefix(host, "192.168.") || strings.HasPrefix(host, "10.")
 }
 
 func (c *Config) serverNames() []string {
