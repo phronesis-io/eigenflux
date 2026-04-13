@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -22,17 +23,21 @@ Examples:
 			fmt.Println(version)
 			return nil
 		}
+		homeDir, source := config.HomeDirInfo()
 		info := map[string]string{
 			"cli_version": version,
 			"go_version":  runtime.Version(),
 			"os":          runtime.GOOS,
 			"arch":        runtime.GOARCH,
+			"home":        homeDir,
+			"home_source": string(source),
 		}
 		format := resolveFormat()
 		if format == "table" {
 			fmt.Printf("eigenflux CLI %s\n", version)
 			fmt.Printf("  Go:      %s\n", runtime.Version())
 			fmt.Printf("  OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+			fmt.Printf("  Home:    %s (%s)\n", homeDir, source)
 			return nil
 		}
 		output.PrintData(info, format)

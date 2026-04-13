@@ -51,6 +51,17 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table (default: json in non-TTY, table in TTY)")
 	rootCmd.PersistentFlags().BoolVar(&noInteract, "no-interactive", false, "skip all interactive prompts")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose stderr logging")
+
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		// Apply --homedir before resolving, since help runs before PersistentPreRun.
+		if homeDirFlag != "" {
+			config.SetHomeDir(homeDirFlag)
+		}
+		defaultHelp(cmd, args)
+		homeDir, source := config.HomeDirInfo()
+		fmt.Fprintf(cmd.OutOrStdout(), "\nHome: %s (%s)\n", homeDir, source)
+	})
 }
 
 func Execute() {

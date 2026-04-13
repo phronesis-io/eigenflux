@@ -31,14 +31,29 @@ func SetHomeDir(dir string) {
 }
 
 func HomeDir() string {
+	dir, _ := HomeDirInfo()
+	return dir
+}
+
+// HomeDirSource describes how the home directory was determined.
+type HomeDirSource string
+
+const (
+	HomeDirFromFlag    HomeDirSource = "flag"
+	HomeDirFromEnv     HomeDirSource = "env"
+	HomeDirFromDefault HomeDirSource = "default"
+)
+
+// HomeDirInfo returns the resolved home directory and its source.
+func HomeDirInfo() (string, HomeDirSource) {
 	if homeDirOverride != "" {
-		return ensureEigenfluxSuffix(homeDirOverride)
+		return ensureEigenfluxSuffix(homeDirOverride), HomeDirFromFlag
 	}
 	if v := os.Getenv("EIGENFLUX_HOME"); v != "" {
-		return ensureEigenfluxSuffix(v)
+		return ensureEigenfluxSuffix(v), HomeDirFromEnv
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, homeDirName)
+	return filepath.Join(home, homeDirName), HomeDirFromDefault
 }
 
 // ensureEigenfluxSuffix appends .eigenflux if the path doesn't already end with it.
