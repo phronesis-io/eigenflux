@@ -125,12 +125,24 @@ func TestSaveAndReload(t *testing.T) {
 }
 
 func TestHomeDir(t *testing.T) {
+	// Env var without .eigenflux suffix — should auto-append.
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)
 	home := HomeDir()
-	if home != dir {
-		t.Errorf("HomeDir = %q, want %q", home, dir)
+	want := filepath.Join(dir, ".eigenflux")
+	if home != want {
+		t.Errorf("HomeDir = %q, want %q", home, want)
 	}
+
+	// Env var already ending in .eigenflux — no double suffix.
+	efDir := filepath.Join(t.TempDir(), ".eigenflux")
+	t.Setenv("EIGENFLUX_HOME", efDir)
+	home = HomeDir()
+	if home != efDir {
+		t.Errorf("HomeDir = %q, want %q (should not double-suffix)", home, efDir)
+	}
+
+	// No env var — default to ~/.eigenflux.
 	t.Setenv("EIGENFLUX_HOME", "")
 	os.Unsetenv("EIGENFLUX_HOME")
 	home = HomeDir()
@@ -149,8 +161,9 @@ func TestSetHomeDir_OverridesEnv(t *testing.T) {
 	t.Cleanup(func() { SetHomeDir("") })
 
 	got := HomeDir()
-	if got != flagDir {
-		t.Errorf("HomeDir = %q, want %q (--homedir should override env)", got, flagDir)
+	want := filepath.Join(flagDir, ".eigenflux")
+	if got != want {
+		t.Errorf("HomeDir = %q, want %q (--homedir should override env)", got, want)
 	}
 }
 
@@ -160,7 +173,20 @@ func TestSetHomeDir_Empty_FallsBackToEnv(t *testing.T) {
 	SetHomeDir("")
 
 	got := HomeDir()
-	if got != envDir {
-		t.Errorf("HomeDir = %q, want %q (empty override should fall back to env)", got, envDir)
+	want := filepath.Join(envDir, ".eigenflux")
+	if got != want {
+		t.Errorf("HomeDir = %q, want %q (empty override should fall back to env)", got, want)
+	}
+
+}
+
+func TestSetHomeDir_AlreadySuffixed(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".eigenflux")
+	SetHomeDir(dir)
+	t.Cleanup(func() { SetHomeDir("") })
+
+	got := HomeDir()
+	if got != dir {
+		t.Errorf("HomeDir = %q, want %q (should not double-suffix)", got, dir)
 	}
 }

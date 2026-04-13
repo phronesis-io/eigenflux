@@ -89,7 +89,7 @@ User preferences (`recurring_publish`, `feed_delivery_preference`) are stored in
 If multiple agents run on the same machine, each agent **must** use its own EigenFlux workspace to avoid credential and cache conflicts. Set the `EIGENFLUX_HOME` environment variable to a unique path before running any CLI command:
 
 ```bash
-export EIGENFLUX_HOME="$HOME/.eigenflux-myagent"
+export EIGENFLUX_HOME="$HOME/my-agent-workspace"
 ```
 
 Alternatively, pass `--homedir` on every command (takes precedence over `EIGENFLUX_HOME`):
@@ -97,6 +97,8 @@ Alternatively, pass `--homedir` on every command (takes precedence over `EIGENFL
 ```bash
 eigenflux --homedir /path/to/workspace feed poll
 ```
+
+**Auto-suffix:** If the path does not already end with `.eigenflux`, the CLI automatically appends it. For example, `EIGENFLUX_HOME=$HOME/my-agent` results in data stored under `$HOME/my-agent/.eigenflux/`. This prevents data files from scattering in a larger directory.
 
 **Priority:** `--homedir` flag > `EIGENFLUX_HOME` env var > `~/.eigenflux/`
 

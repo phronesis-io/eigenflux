@@ -8,11 +8,14 @@ import (
 	"time"
 )
 
-// setHomeDir sets EIGENFLUX_HOME to dir and returns a cleanup function.
-func setHomeDir(t *testing.T, dir string) {
+// setHomeDir sets EIGENFLUX_HOME to dir/.eigenflux so HomeDir() returns it as-is
+// (the suffix check sees ".eigenflux" and skips appending another layer).
+// The caller's dir variable is updated to point to the actual home directory.
+func setHomeDir(t *testing.T, dir string) string {
 	t.Helper()
+	efDir := filepath.Join(dir, ".eigenflux")
 	old := os.Getenv("EIGENFLUX_HOME")
-	os.Setenv("EIGENFLUX_HOME", dir)
+	os.Setenv("EIGENFLUX_HOME", efDir)
 	t.Cleanup(func() {
 		if old == "" {
 			os.Unsetenv("EIGENFLUX_HOME")
@@ -20,11 +23,12 @@ func setHomeDir(t *testing.T, dir string) {
 			os.Setenv("EIGENFLUX_HOME", old)
 		}
 	})
+	return efDir
 }
 
 func TestSaveFeedResponse(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	rawData := json.RawMessage(`{"items":[{"id":"1","title":"test"}]}`)
 	SaveFeedResponse("testserver", rawData)
@@ -53,7 +57,7 @@ func TestSaveFeedResponse(t *testing.T) {
 
 func TestSavePublishRecord(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	request := json.RawMessage(`{"content":"hello"}`)
 	response := json.RawMessage(`{"item_id":"42"}`)
@@ -105,7 +109,7 @@ func TestSavePublishRecord(t *testing.T) {
 
 func TestSaveLoadProfile_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	p := &Profile{
 		Email:     "test@example.com",
@@ -135,7 +139,7 @@ func TestSaveLoadProfile_RoundTrip(t *testing.T) {
 
 func TestLoadProfile_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	_, err := LoadProfile("nonexistent")
 	if err == nil {
@@ -145,7 +149,7 @@ func TestLoadProfile_NotFound(t *testing.T) {
 
 func TestSaveContacts(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	contacts := []Contact{
 		{AgentID: "100", AgentName: "Alice", Remark: "friend", FriendSince: 1000},
@@ -172,7 +176,7 @@ func TestSaveContacts(t *testing.T) {
 
 func TestDeleteProfileAndContacts(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	SaveProfile("testserver", &Profile{Email: "a@b.com", AgentName: "A", AgentID: "1"})
 	SaveContacts("testserver", []Contact{{AgentID: "2", AgentName: "B"}})
@@ -199,7 +203,7 @@ func TestDeleteProfileAndContacts(t *testing.T) {
 
 func TestSaveMessages_Dedup(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	myID := "me"
 	msgs := []CachedMessage{
@@ -230,7 +234,7 @@ func TestSaveMessages_Dedup(t *testing.T) {
 
 func TestSaveMessages_Dedup_AcrossCalls(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	myID := "me"
 	msgs1 := []CachedMessage{
@@ -262,7 +266,7 @@ func TestSaveMessages_Dedup_AcrossCalls(t *testing.T) {
 
 func TestSaveMessages_GroupByAgent(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	myID := "me"
 	msgs := []CachedMessage{
@@ -302,7 +306,7 @@ func TestSaveMessages_GroupByAgent(t *testing.T) {
 
 func TestSaveMessages_GroupByItem(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	myID := "me"
 	convItemMap := map[string]string{
@@ -345,7 +349,7 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 
 func TestSaveMessages_Empty(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	// Saving empty messages should be a no-op.
 	SaveMessages("testserver", "me", nil, nil)
@@ -359,7 +363,7 @@ func TestSaveMessages_Empty(t *testing.T) {
 
 func TestSaveLoadConvItemMap_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	mapping := map[string]string{
 		"conv_1": "item_10",
@@ -381,7 +385,7 @@ func TestSaveLoadConvItemMap_RoundTrip(t *testing.T) {
 
 func TestSaveConvItemMapping_Merge(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	SaveConvItemMapping("testserver", map[string]string{"c1": "i1"})
 	SaveConvItemMapping("testserver", map[string]string{"c2": "i2"})
@@ -397,7 +401,7 @@ func TestSaveConvItemMapping_Merge(t *testing.T) {
 
 func TestSaveConvItemMapping_Empty(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	// Empty mapping should be a no-op.
 	SaveConvItemMapping("testserver", nil)
@@ -411,7 +415,7 @@ func TestSaveConvItemMapping_Empty(t *testing.T) {
 
 func TestLoadConvItemMap_AcrossDays(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages")
 
@@ -444,7 +448,7 @@ func TestLoadConvItemMap_AcrossDays(t *testing.T) {
 
 func TestLoadConvItemMap_NoData(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	loaded := LoadConvItemMap("testserver")
 	if len(loaded) != 0 {
@@ -454,7 +458,7 @@ func TestLoadConvItemMap_NoData(t *testing.T) {
 
 func TestCleanup_Broadcasts(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	broadcastDir := filepath.Join(dir, "servers", "testserver", "data", "broadcasts")
 
@@ -486,7 +490,7 @@ func TestCleanup_Broadcasts(t *testing.T) {
 
 func TestCleanup_Messages(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages")
 
@@ -518,7 +522,7 @@ func TestCleanup_Messages(t *testing.T) {
 
 func TestCleanup_InvalidCategory(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	// Should not panic on invalid category.
 	Cleanup("testserver", "invalid")
@@ -526,7 +530,7 @@ func TestCleanup_InvalidCategory(t *testing.T) {
 
 func TestCleanup_NoDir(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	// Should not panic when directory does not exist.
 	Cleanup("testserver", "broadcasts")
@@ -535,7 +539,7 @@ func TestCleanup_NoDir(t *testing.T) {
 
 func TestServerDir(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	got := ServerDir("myserver")
 	want := filepath.Join(dir, "servers", "myserver")
@@ -546,7 +550,7 @@ func TestServerDir(t *testing.T) {
 
 func TestServerDataDir(t *testing.T) {
 	dir := t.TempDir()
-	setHomeDir(t, dir)
+	dir = setHomeDir(t, dir)
 
 	got := ServerDataDir("myserver")
 	want := filepath.Join(dir, "servers", "myserver", "data")

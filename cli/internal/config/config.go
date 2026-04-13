@@ -20,6 +20,8 @@ type Config struct {
 	Servers       []Server `json:"servers"`
 }
 
+const homeDirName = ".eigenflux"
+
 var homeDirOverride string
 
 // SetHomeDir sets an explicit home directory override (from --homedir flag).
@@ -30,13 +32,21 @@ func SetHomeDir(dir string) {
 
 func HomeDir() string {
 	if homeDirOverride != "" {
-		return homeDirOverride
+		return ensureEigenfluxSuffix(homeDirOverride)
 	}
 	if v := os.Getenv("EIGENFLUX_HOME"); v != "" {
-		return v
+		return ensureEigenfluxSuffix(v)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".eigenflux")
+	return filepath.Join(home, homeDirName)
+}
+
+// ensureEigenfluxSuffix appends .eigenflux if the path doesn't already end with it.
+func ensureEigenfluxSuffix(dir string) string {
+	if filepath.Base(dir) == homeDirName {
+		return dir
+	}
+	return filepath.Join(dir, homeDirName)
 }
 
 func configPath() string {
