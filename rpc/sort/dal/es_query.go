@@ -121,7 +121,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"term": map[string]interface{}{
 								"domains": map[string]interface{}{
 									"value": lowercaseDomain,
-									"boost": 1.0,
+									"boost": 3.0,
 								},
 							},
 						},
@@ -129,7 +129,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"match": map[string]interface{}{
 								"domains.text": map[string]interface{}{
 									"query": lowercaseDomain,
-									"boost": 1.0,
+									"boost": 2.0,
 								},
 							},
 						},
@@ -150,7 +150,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"term": map[string]interface{}{
 								"keywords": map[string]interface{}{
 									"value": lowercaseKeyword,
-									"boost": 1.0,
+									"boost": 3.0,
 								},
 							},
 						},
@@ -158,7 +158,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 							"match": map[string]interface{}{
 								"keywords.text": map[string]interface{}{
 									"query": lowercaseKeyword,
-									"boost": 1.0,
+									"boost": 2.0,
 								},
 							},
 						},

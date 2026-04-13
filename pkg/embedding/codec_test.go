@@ -30,8 +30,9 @@ func TestDecodeEmpty(t *testing.T) {
 }
 
 func TestDecodeInvalidLength(t *testing.T) {
+	// Non-multiple-of-4 input returns nil to prevent silent truncation
 	result := Decode([]byte{1, 2, 3, 4, 5})
-	assert.Equal(t, 1, len(result))
+	assert.Nil(t, result)
 }
 
 func TestCosineSimilarity(t *testing.T) {

@@ -172,3 +172,51 @@ func TestLoadLLMDefaults(t *testing.T) {
 		t.Fatalf("LLMModel=%q, want %q", cfg.LLMModel, "gpt-4o-mini")
 	}
 }
+
+func TestLoadEmbeddingBackfillDefaults(t *testing.T) {
+	t.Setenv("EMBEDDING_BACKFILL_BATCH_SIZE", "")
+	t.Setenv("EMBEDDING_BACKFILL_INTERVAL", "")
+	t.Setenv("EMBEDDING_BACKFILL_WORKERS", "")
+	t.Setenv("EMBEDDING_BACKFILL_PAUSE_MS", "")
+	t.Setenv("POSTGRES_PORT", "")
+	t.Setenv("REDIS_PORT", "")
+	t.Setenv("ETCD_PORT", "")
+
+	cfg := Load()
+	if cfg.EmbeddingBackfillBatchSize != 200 {
+		t.Fatalf("EmbeddingBackfillBatchSize=%d, want 200", cfg.EmbeddingBackfillBatchSize)
+	}
+	if cfg.EmbeddingBackfillInterval != "5m" {
+		t.Fatalf("EmbeddingBackfillInterval=%q, want %q", cfg.EmbeddingBackfillInterval, "5m")
+	}
+	if cfg.EmbeddingBackfillWorkers != 4 {
+		t.Fatalf("EmbeddingBackfillWorkers=%d, want 4", cfg.EmbeddingBackfillWorkers)
+	}
+	if cfg.EmbeddingBackfillPauseMs != 100 {
+		t.Fatalf("EmbeddingBackfillPauseMs=%d, want 100", cfg.EmbeddingBackfillPauseMs)
+	}
+}
+
+func TestLoadEmbeddingBackfillOverrides(t *testing.T) {
+	t.Setenv("EMBEDDING_BACKFILL_BATCH_SIZE", "300")
+	t.Setenv("EMBEDDING_BACKFILL_INTERVAL", "3m")
+	t.Setenv("EMBEDDING_BACKFILL_WORKERS", "5")
+	t.Setenv("EMBEDDING_BACKFILL_PAUSE_MS", "50")
+	t.Setenv("POSTGRES_PORT", "")
+	t.Setenv("REDIS_PORT", "")
+	t.Setenv("ETCD_PORT", "")
+
+	cfg := Load()
+	if cfg.EmbeddingBackfillBatchSize != 300 {
+		t.Fatalf("EmbeddingBackfillBatchSize=%d, want 300", cfg.EmbeddingBackfillBatchSize)
+	}
+	if cfg.EmbeddingBackfillInterval != "3m" {
+		t.Fatalf("EmbeddingBackfillInterval=%q, want %q", cfg.EmbeddingBackfillInterval, "3m")
+	}
+	if cfg.EmbeddingBackfillWorkers != 5 {
+		t.Fatalf("EmbeddingBackfillWorkers=%d, want 5", cfg.EmbeddingBackfillWorkers)
+	}
+	if cfg.EmbeddingBackfillPauseMs != 50 {
+		t.Fatalf("EmbeddingBackfillPauseMs=%d, want 50", cfg.EmbeddingBackfillPauseMs)
+	}
+}

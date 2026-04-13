@@ -7,8 +7,9 @@ import (
 )
 
 // PickExplorationItems selects items for the exploration slot.
-// Criteria: recent (within maxAge), complete (has Type), quality >= minQuality, not seen.
-func PickExplorationItems(candidates []sortDal.Item, seenIDs map[int64]bool, count int, maxAge time.Duration, minQuality float64) []sortDal.Item {
+// Criteria: recent (within maxAge), complete (has Type), quality >= minQuality,
+// not already selected by item_id, and not already selected by group_id.
+func PickExplorationItems(candidates []sortDal.Item, seenIDs, seenGroupIDs map[int64]bool, count int, maxAge time.Duration, minQuality float64) []sortDal.Item {
 	if count <= 0 || len(candidates) == 0 {
 		return nil
 	}
@@ -30,6 +31,9 @@ func PickExplorationItems(candidates []sortDal.Item, seenIDs map[int64]bool, cou
 		if seenIDs[item.ID] {
 			continue
 		}
+		if item.GroupID != 0 && seenGroupIDs[item.GroupID] {
+			continue
+		}
 		eligible = append(eligible, item)
 	}
 
@@ -44,8 +48,24 @@ func PickExplorationItems(candidates []sortDal.Item, seenIDs map[int64]bool, cou
 		eligible[i], eligible[best] = eligible[best], eligible[i]
 	}
 
-	if len(eligible) > count {
-		eligible = eligible[:count]
+	result := make([]sortDal.Item, 0, count)
+	selectedGroupIDs := make(map[int64]bool, len(seenGroupIDs)+count)
+	for groupID, seen := range seenGroupIDs {
+		if seen {
+			selectedGroupIDs[groupID] = true
+		}
 	}
-	return eligible
+	for _, item := range eligible {
+		if item.GroupID != 0 && selectedGroupIDs[item.GroupID] {
+			continue
+		}
+		if item.GroupID != 0 {
+			selectedGroupIDs[item.GroupID] = true
+		}
+		result = append(result, item)
+		if len(result) >= count {
+			break
+		}
+	}
+	return result
 }

@@ -91,9 +91,11 @@ sequenceDiagram
 
 3. **Timestamp Filtering**: If `last_updated_at` is provided by an upstream caller, apply `item.updated_at > last_updated_at` filtering inside Sort after ES returns. Elasticsearch itself no longer consumes this field, which keeps refresh semantics clear and preserves cache sharing.
 
-4. **Bloom Filter Deduplication**: Collect all `group_id` values from candidates. Batch check against last 7 days' bloom filters. Filter out items with seen `group_id`. Can be disabled in dev/test via `DISABLE_DEDUP_IN_TEST=true`.
+4. **Intra-Response Group Collapse**: After rank scoring, keep only the highest-ranked candidate per `group_id` before thresholding. This prevents one semantic cluster from consuming most of a low-count feed page.
 
-5. **Response Construction**: Return up to `limit` item IDs. Calculate `next_cursor` from last item's `updated_at`.
+5. **Bloom Filter Deduplication**: Collect the surviving `group_id` values and batch check against last 7 days' bloom filters. Filter out groups the agent has already seen. Can be disabled in dev/test via `DISABLE_DEDUP_IN_TEST=true`.
+
+6. **Response Construction**: Return up to `limit` item IDs. Calculate `next_cursor` from last item's `updated_at`.
 
 <!-- PLACEHOLDER_SCORING -->
 

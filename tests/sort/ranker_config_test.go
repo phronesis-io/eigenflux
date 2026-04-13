@@ -12,7 +12,7 @@ func TestScoringConfigDefaults(t *testing.T) {
 	for _, key := range []string{
 		"SCORE_WEIGHT_SEMANTIC", "SCORE_WEIGHT_KEYWORD", "SCORE_WEIGHT_FRESHNESS",
 		"SCORE_WEIGHT_DIVERSITY", "URGENCY_BOOST", "URGENCY_WINDOW",
-		"MMR_LAMBDA", "EXPLORATION_SLOTS",
+		"MMR_LAMBDA", "EXPLORATION_SLOTS", "MIN_RELEVANCE_SCORE",
 		"FRESHNESS_ALERT_OFFSET", "FRESHNESS_ALERT_SCALE", "FRESHNESS_ALERT_DECAY",
 		"FRESHNESS_SUPPLY_OFFSET", "FRESHNESS_SUPPLY_SCALE", "FRESHNESS_SUPPLY_DECAY",
 	} {
@@ -29,6 +29,7 @@ func TestScoringConfigDefaults(t *testing.T) {
 	assert.Equal(t, "24h", cfg.UrgencyWindow)
 	assert.InDelta(t, 0.7, cfg.MMRLambda, 0.001)
 	assert.Equal(t, 1, cfg.ExplorationSlots)
+	assert.InDelta(t, 0.0, cfg.MinRelevanceScore, 0.001)
 
 	assert.Equal(t, "2h", cfg.FreshnessAlertOffset)
 	assert.Equal(t, "12h", cfg.FreshnessAlertScale)
@@ -42,10 +43,12 @@ func TestScoringConfigOverrides(t *testing.T) {
 	os.Setenv("SCORE_WEIGHT_SEMANTIC", "0.5")
 	os.Setenv("EXPLORATION_SLOTS", "0")
 	os.Setenv("FRESHNESS_ALERT_OFFSET", "1h")
+	os.Setenv("MIN_RELEVANCE_SCORE", "0.25")
 	defer func() {
 		os.Unsetenv("SCORE_WEIGHT_SEMANTIC")
 		os.Unsetenv("EXPLORATION_SLOTS")
 		os.Unsetenv("FRESHNESS_ALERT_OFFSET")
+		os.Unsetenv("MIN_RELEVANCE_SCORE")
 	}()
 
 	cfg := config.Load()
@@ -53,4 +56,5 @@ func TestScoringConfigOverrides(t *testing.T) {
 	assert.InDelta(t, 0.5, cfg.ScoreWeightSemantic, 0.001)
 	assert.Equal(t, 0, cfg.ExplorationSlots)
 	assert.Equal(t, "1h", cfg.FreshnessAlertOffset)
+	assert.InDelta(t, 0.25, cfg.MinRelevanceScore, 0.001)
 }

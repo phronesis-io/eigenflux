@@ -18,63 +18,67 @@ const (
 )
 
 type Config struct {
-	EtcdAddr                string
-	PgDSN                   string
-	RedisAddr               string
-	RedisPassword           string
-	ProjectName             string
-	ProjectTitle            string
-	PublicBaseURL           string
-	ESUsername              string
-	ESPassword              string
-	IDWorkerPrefix          string // etcd prefix for snowflake worker allocation
-	IDSnowflakeEpoch        int64  // custom epoch (milliseconds)
-	IDWorkerLeaseTTL        int    // etcd lease TTL for worker id
-	IDInstanceID            string // optional stable instance id for worker registration
-	AppEnv                  string // "dev" | "test" | "staging" | "prod"
-	ApiPort                 int
-	WSPort                  int
-	ConsoleApiPort          int
-	ConsoleWebappPort       int
-	ProfileRPCPort          int
-	ItemRPCPort             int
-	SortRPCPort             int
-	FeedRPCPort             int
-	AuthRPCPort             int
-	PMRPCPort               int
-	NotificationRPCPort     int
-	LLMApiKey               string
-	LLMBaseURL              string
-	LLMModel                string
-	EmbeddingProvider       string // "openai" or "ollama"
-	EmbeddingApiKey         string
-	EmbeddingBaseURL        string
-	EmbeddingModel          string
-	EmbeddingDimensions     int
-	ResendApiKey            string
-	ResendFromEmail         string
-	EnableEmailVerification bool     // Whether login requires OTP email verification
-	MockUniversalOTP        string   // fixed OTP for whitelist-matched requests
-	ESReplicas              int      // Elasticsearch number_of_replicas
-	ESShards                int      // Elasticsearch number_of_shards
-	EnableSearchCache       bool     // Enable search result caching
-	SearchCacheTTL          int      // Search cache TTL in seconds (default: 2)
-	ProfileCacheTTL         int      // Profile cache TTL in seconds (default: 60)
-	MilestoneRuleCacheTTL   int      // Milestone rule cache TTL in seconds (default: 60)
-	DisableDedupInTest      bool     // Disable deduplication in dev/test environments
-	QualityThreshold        float64  // Quality score threshold for filtering items (default: 0.40)
-	ItemConsumerWorkers     int      // Number of concurrent workers for item consumer (default: 10)
-	FeedbackConsumerWorkers int      // Number of concurrent workers for item stats consumer (default: 5)
-	FreshnessOffset         string   // ES freshness decay offset, no decay within this duration (default: "12h")
-	FreshnessScale          string   // ES freshness decay scale, time for score to decay to FreshnessDecay (default: "7d")
-	FreshnessDecay          float64  // ES freshness decay factor at scale distance (default: 0.8)
-	MockOTPEmailSuffixes    []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
-	MockOTPIPWhitelist      []string // IP whitelist for mock OTP
-	MonitorEnabled          bool     // Enable distributed tracing (Jaeger) and log aggregation (Loki)
-	OtelExporterEndpoint    string   // OTLP gRPC endpoint (default localhost:4317)
-	LokiURL                 string   // Loki push API URL (default http://localhost:3122)
-	LogLevel                string   // Structured log level: debug | info | warn | error
-	EnableReplayLog         bool     // Enable replay log publishing in FeedService (default: true)
+	EtcdAddr                   string
+	PgDSN                      string
+	RedisAddr                  string
+	RedisPassword              string
+	ProjectName                string
+	ProjectTitle               string
+	PublicBaseURL              string
+	ESUsername                 string
+	ESPassword                 string
+	IDWorkerPrefix             string // etcd prefix for snowflake worker allocation
+	IDSnowflakeEpoch           int64  // custom epoch (milliseconds)
+	IDWorkerLeaseTTL           int    // etcd lease TTL for worker id
+	IDInstanceID               string // optional stable instance id for worker registration
+	AppEnv                     string // "dev" | "test" | "staging" | "prod"
+	ApiPort                    int
+	WSPort                     int
+	ConsoleApiPort             int
+	ConsoleWebappPort          int
+	ProfileRPCPort             int
+	ItemRPCPort                int
+	SortRPCPort                int
+	FeedRPCPort                int
+	AuthRPCPort                int
+	PMRPCPort                  int
+	NotificationRPCPort        int
+	LLMApiKey                  string
+	LLMBaseURL                 string
+	LLMModel                   string
+	EmbeddingProvider          string // "openai" or "ollama"
+	EmbeddingApiKey            string
+	EmbeddingBaseURL           string
+	EmbeddingModel             string
+	EmbeddingDimensions        int
+	ResendApiKey               string
+	ResendFromEmail            string
+	EnableEmailVerification    bool     // Whether login requires OTP email verification
+	MockUniversalOTP           string   // fixed OTP for whitelist-matched requests
+	ESReplicas                 int      // Elasticsearch number_of_replicas
+	ESShards                   int      // Elasticsearch number_of_shards
+	EnableSearchCache          bool     // Enable search result caching
+	SearchCacheTTL             int      // Search cache TTL in seconds (default: 2)
+	ProfileCacheTTL            int      // Profile cache TTL in seconds (default: 60)
+	MilestoneRuleCacheTTL      int      // Milestone rule cache TTL in seconds (default: 60)
+	DisableDedupInTest         bool     // Disable deduplication in dev/test environments
+	QualityThreshold           float64  // Quality score threshold for filtering items (default: 0.40)
+	ItemConsumerWorkers        int      // Number of concurrent workers for item consumer (default: 10)
+	FeedbackConsumerWorkers    int      // Number of concurrent workers for item stats consumer (default: 5)
+	EmbeddingBackfillBatchSize int      // Number of profiles per embedding backfill run (default: 200)
+	EmbeddingBackfillInterval  string   // Embedding backfill cron interval (default: "5m")
+	EmbeddingBackfillWorkers   int      // Concurrent workers for embedding backfill (default: 4)
+	EmbeddingBackfillPauseMs   int      // Per-worker pause between embedding requests in milliseconds (default: 100)
+	FreshnessOffset            string   // ES freshness decay offset, no decay within this duration (default: "12h")
+	FreshnessScale             string   // ES freshness decay scale, time for score to decay to FreshnessDecay (default: "7d")
+	FreshnessDecay             float64  // ES freshness decay factor at scale distance (default: 0.8)
+	MockOTPEmailSuffixes       []string // Email suffixes that use mock OTP (e.g. ["@test.com"])
+	MockOTPIPWhitelist         []string // IP whitelist for mock OTP
+	MonitorEnabled             bool     // Enable distributed tracing (Jaeger) and log aggregation (Loki)
+	OtelExporterEndpoint       string   // OTLP gRPC endpoint (default localhost:4317)
+	LokiURL                    string   // Loki push API URL (default http://localhost:3122)
+	LogLevel                   string   // Structured log level: debug | info | warn | error
+	EnableReplayLog            bool     // Enable replay log publishing in FeedService (default: true)
 
 	// Score layer weights
 	ScoreWeightSemantic  float64
@@ -87,11 +91,11 @@ type Config struct {
 	ExplorationSlots     int
 
 	// Recall & ranking
-	MinRelevanceScore    float64 // items below this total score are dropped from feed (default 0.1)
-	KeywordRecallSize    int     // number of keyword recall candidates from ES (default 200)
-	EnableKNNRecall      bool
-	KNNRecallK           int
-	KNNRecallCandidates  int
+	MinRelevanceScore   float64 // items below this total score are dropped from feed (default 0)
+	KeywordRecallSize   int     // number of keyword recall candidates from ES (default 200)
+	EnableKNNRecall     bool
+	KNNRecallK          int
+	KNNRecallCandidates int
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -118,82 +122,86 @@ func Load() *Config {
 	)
 
 	return &Config{
-		EtcdAddr:                getEnv("ETCD_ADDR", "localhost:"+etcdPort),
-		PgDSN:                   getEnv("PG_DSN", "postgres://eigenflux:eigenflux123@localhost:"+postgresPort+"/eigenflux?sslmode=disable"),
-		RedisAddr:               getEnv("REDIS_ADDR", "localhost:"+redisPort),
-		RedisPassword:           getEnv("REDIS_PASSWORD", ""),
-		ProjectName:             getEnv("PROJECT_NAME", defaultProjectName),
-		ProjectTitle:            getEnv("PROJECT_TITLE", defaultProjectTitle),
-		PublicBaseURL:           getEnv("PUBLIC_BASE_URL", ""),
-		ESUsername:              getEnv("ES_USERNAME", ""),
-		ESPassword:              getEnv("ES_PASSWORD", ""),
-		IDWorkerPrefix:          getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),
-		IDSnowflakeEpoch:        getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000), // 2024-01-01 00:00:00 UTC
-		IDWorkerLeaseTTL:        getEnvInt("ID_WORKER_LEASE_TTL", 30),
-		IDInstanceID:            getEnv("ID_INSTANCE_ID", ""),
-		AppEnv:                  getEnv("APP_ENV", "dev"),
-		ApiPort:                 getEnvInt("API_PORT", 8080),
-		WSPort:                  getEnvInt("WS_PORT", 8088),
-		ConsoleApiPort:          getEnvInt("CONSOLE_API_PORT", 8090),
-		ConsoleWebappPort:       getEnvInt("CONSOLE_WEBAPP_PORT", 5173),
-		ProfileRPCPort:          getEnvInt("PROFILE_RPC_PORT", 8881),
-		ItemRPCPort:             getEnvInt("ITEM_RPC_PORT", 8882),
-		SortRPCPort:             getEnvInt("SORT_RPC_PORT", 8883),
-		FeedRPCPort:             getEnvInt("FEED_RPC_PORT", 8884),
-		PMRPCPort:               getEnvInt("PM_RPC_PORT", 8885),
-		AuthRPCPort:             getEnvInt("AUTH_RPC_PORT", 8886),
-		NotificationRPCPort:     getEnvInt("NOTIFICATION_RPC_PORT", 8887),
-		LLMApiKey:               getEnv("LLM_API_KEY", ""),
-		LLMBaseURL:              getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
-		LLMModel:                getEnv("LLM_MODEL", "gpt-4o-mini"),
-		EmbeddingProvider:       embeddingProvider,
-		EmbeddingApiKey:         getEnv("EMBEDDING_API_KEY", ""),
-		EmbeddingBaseURL:        getEnv("EMBEDDING_BASE_URL", ""),
-		EmbeddingModel:          embeddingModel,
-		EmbeddingDimensions:     embeddingDimensions,
-		ResendApiKey:            getEnv("RESEND_API_KEY", ""),
-		ResendFromEmail:         getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
-		EnableEmailVerification: getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
-		MockUniversalOTP:        getEnv("MOCK_UNIVERSAL_OTP", "123456"),
-		ESReplicas:              getEnvInt("ES_REPLICAS", 0),
-		ESShards:                getEnvInt("ES_SHARDS", 1),
-		EnableSearchCache:       getEnvBool("ENABLE_SEARCH_CACHE", true),
-		SearchCacheTTL:          getEnvInt("SEARCH_CACHE_TTL", 2),
-		ProfileCacheTTL:         getEnvInt("PROFILE_CACHE_TTL", 60),
-		MilestoneRuleCacheTTL:   getEnvInt("MILESTONE_RULE_CACHE_TTL", 60),
-		DisableDedupInTest:      getEnvBool("DISABLE_DEDUP_IN_TEST", false),
-		QualityThreshold:        getEnvFloat("QUALITY_THRESHOLD", 0.0),
-		ItemConsumerWorkers:     getEnvInt("ITEM_CONSUMER_WORKERS", 10),
-		FeedbackConsumerWorkers: getEnvInt("FEEDBACK_CONSUMER_WORKERS", 5),
-		FreshnessOffset:         getEnv("FRESHNESS_OFFSET", "12h"),
-		FreshnessScale:          getEnv("FRESHNESS_SCALE", "7d"),
-		FreshnessDecay:          getEnvFloat("FRESHNESS_DECAY", 0.8),
-		MockOTPEmailSuffixes:    getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
-		MockOTPIPWhitelist:      getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
-		MonitorEnabled:          getEnvBool("MONITOR_ENABLED", false),
-		OtelExporterEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
-		LokiURL:                 getEnv("LOKI_URL", "http://localhost:3122"),
-		LogLevel:                getEnv("LOG_LEVEL", "debug"),
-		EnableReplayLog:         getEnvBool("ENABLE_REPLAY_LOG", true),
-		ScoreWeightSemantic:     getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
-		ScoreWeightKeyword:      getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
-		ScoreWeightFreshness:    getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
-		ScoreWeightDiversity:    getEnvFloat("SCORE_WEIGHT_DIVERSITY", 0.1),
-		UrgencyBoost:            getEnvFloat("URGENCY_BOOST", 0.5),
-		UrgencyWindow:           getEnv("URGENCY_WINDOW", "24h"),
-		MMRLambda:               getEnvFloat("MMR_LAMBDA", 0.7),
-		ExplorationSlots:        getEnvInt("EXPLORATION_SLOTS", 1),
-		MinRelevanceScore:       getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
-		KeywordRecallSize:       getEnvInt("KEYWORD_RECALL_SIZE", 200),
-		EnableKNNRecall:         getEnvBool("ENABLE_KNN_RECALL", true),
-		KNNRecallK:              getEnvInt("KNN_RECALL_K", 80),
-		KNNRecallCandidates:     getEnvInt("KNN_RECALL_CANDIDATES", 300),
-		FreshnessAlertOffset:    getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
-		FreshnessAlertScale:     getEnv("FRESHNESS_ALERT_SCALE", "12h"),
-		FreshnessAlertDecay:     getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),
-		FreshnessSupplyOffset:   getEnv("FRESHNESS_SUPPLY_OFFSET", "48h"),
-		FreshnessSupplyScale:    getEnv("FRESHNESS_SUPPLY_SCALE", "30d"),
-		FreshnessSupplyDecay:    getEnvFloat("FRESHNESS_SUPPLY_DECAY", 0.9),
+		EtcdAddr:                   getEnv("ETCD_ADDR", "localhost:"+etcdPort),
+		PgDSN:                      getEnv("PG_DSN", "postgres://eigenflux:eigenflux123@localhost:"+postgresPort+"/eigenflux?sslmode=disable"),
+		RedisAddr:                  getEnv("REDIS_ADDR", "localhost:"+redisPort),
+		RedisPassword:              getEnv("REDIS_PASSWORD", ""),
+		ProjectName:                getEnv("PROJECT_NAME", defaultProjectName),
+		ProjectTitle:               getEnv("PROJECT_TITLE", defaultProjectTitle),
+		PublicBaseURL:              getEnv("PUBLIC_BASE_URL", ""),
+		ESUsername:                 getEnv("ES_USERNAME", ""),
+		ESPassword:                 getEnv("ES_PASSWORD", ""),
+		IDWorkerPrefix:             getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),
+		IDSnowflakeEpoch:           getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000), // 2024-01-01 00:00:00 UTC
+		IDWorkerLeaseTTL:           getEnvInt("ID_WORKER_LEASE_TTL", 30),
+		IDInstanceID:               getEnv("ID_INSTANCE_ID", ""),
+		AppEnv:                     getEnv("APP_ENV", "dev"),
+		ApiPort:                    getEnvInt("API_PORT", 8080),
+		WSPort:                     getEnvInt("WS_PORT", 8088),
+		ConsoleApiPort:             getEnvInt("CONSOLE_API_PORT", 8090),
+		ConsoleWebappPort:          getEnvInt("CONSOLE_WEBAPP_PORT", 5173),
+		ProfileRPCPort:             getEnvInt("PROFILE_RPC_PORT", 8881),
+		ItemRPCPort:                getEnvInt("ITEM_RPC_PORT", 8882),
+		SortRPCPort:                getEnvInt("SORT_RPC_PORT", 8883),
+		FeedRPCPort:                getEnvInt("FEED_RPC_PORT", 8884),
+		PMRPCPort:                  getEnvInt("PM_RPC_PORT", 8885),
+		AuthRPCPort:                getEnvInt("AUTH_RPC_PORT", 8886),
+		NotificationRPCPort:        getEnvInt("NOTIFICATION_RPC_PORT", 8887),
+		LLMApiKey:                  getEnv("LLM_API_KEY", ""),
+		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
+		LLMModel:                   getEnv("LLM_MODEL", "gpt-4o-mini"),
+		EmbeddingProvider:          embeddingProvider,
+		EmbeddingApiKey:            getEnv("EMBEDDING_API_KEY", ""),
+		EmbeddingBaseURL:           getEnv("EMBEDDING_BASE_URL", ""),
+		EmbeddingModel:             embeddingModel,
+		EmbeddingDimensions:        embeddingDimensions,
+		ResendApiKey:               getEnv("RESEND_API_KEY", ""),
+		ResendFromEmail:            getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
+		EnableEmailVerification:    getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
+		MockUniversalOTP:           getEnv("MOCK_UNIVERSAL_OTP", "123456"),
+		ESReplicas:                 getEnvInt("ES_REPLICAS", 0),
+		ESShards:                   getEnvInt("ES_SHARDS", 1),
+		EnableSearchCache:          getEnvBool("ENABLE_SEARCH_CACHE", true),
+		SearchCacheTTL:             getEnvInt("SEARCH_CACHE_TTL", 2),
+		ProfileCacheTTL:            getEnvInt("PROFILE_CACHE_TTL", 60),
+		MilestoneRuleCacheTTL:      getEnvInt("MILESTONE_RULE_CACHE_TTL", 60),
+		DisableDedupInTest:         getEnvBool("DISABLE_DEDUP_IN_TEST", false),
+		QualityThreshold:           getEnvFloat("QUALITY_THRESHOLD", 0.0),
+		ItemConsumerWorkers:        getEnvInt("ITEM_CONSUMER_WORKERS", 10),
+		FeedbackConsumerWorkers:    getEnvInt("FEEDBACK_CONSUMER_WORKERS", 5),
+		EmbeddingBackfillBatchSize: getEnvInt("EMBEDDING_BACKFILL_BATCH_SIZE", 200),
+		EmbeddingBackfillInterval:  getEnv("EMBEDDING_BACKFILL_INTERVAL", "5m"),
+		EmbeddingBackfillWorkers:   getEnvInt("EMBEDDING_BACKFILL_WORKERS", 4),
+		EmbeddingBackfillPauseMs:   getEnvInt("EMBEDDING_BACKFILL_PAUSE_MS", 100),
+		FreshnessOffset:            getEnv("FRESHNESS_OFFSET", "12h"),
+		FreshnessScale:             getEnv("FRESHNESS_SCALE", "7d"),
+		FreshnessDecay:             getEnvFloat("FRESHNESS_DECAY", 0.8),
+		MockOTPEmailSuffixes:       getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
+		MockOTPIPWhitelist:         getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
+		MonitorEnabled:             getEnvBool("MONITOR_ENABLED", false),
+		OtelExporterEndpoint:       getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		LokiURL:                    getEnv("LOKI_URL", "http://localhost:3122"),
+		LogLevel:                   getEnv("LOG_LEVEL", "debug"),
+		EnableReplayLog:            getEnvBool("ENABLE_REPLAY_LOG", true),
+		ScoreWeightSemantic:        getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
+		ScoreWeightKeyword:         getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
+		ScoreWeightFreshness:       getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
+		ScoreWeightDiversity:       getEnvFloat("SCORE_WEIGHT_DIVERSITY", 0.1),
+		UrgencyBoost:               getEnvFloat("URGENCY_BOOST", 0.5),
+		UrgencyWindow:              getEnv("URGENCY_WINDOW", "24h"),
+		MMRLambda:                  getEnvFloat("MMR_LAMBDA", 0.7),
+		ExplorationSlots:           getEnvInt("EXPLORATION_SLOTS", 0),
+		MinRelevanceScore:          getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
+		KeywordRecallSize:          getEnvInt("KEYWORD_RECALL_SIZE", 200),
+		EnableKNNRecall:            getEnvBool("ENABLE_KNN_RECALL", true),
+		KNNRecallK:                 getEnvInt("KNN_RECALL_K", 80),
+		KNNRecallCandidates:        getEnvInt("KNN_RECALL_CANDIDATES", 300),
+		FreshnessAlertOffset:       getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
+		FreshnessAlertScale:        getEnv("FRESHNESS_ALERT_SCALE", "12h"),
+		FreshnessAlertDecay:        getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),
+		FreshnessSupplyOffset:      getEnv("FRESHNESS_SUPPLY_OFFSET", "48h"),
+		FreshnessSupplyScale:       getEnv("FRESHNESS_SUPPLY_SCALE", "30d"),
+		FreshnessSupplyDecay:       getEnvFloat("FRESHNESS_SUPPLY_DECAY", 0.9),
 	}
 }
 

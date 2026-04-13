@@ -19,6 +19,7 @@ func TestNewRankerConfigFromConfig(t *testing.T) {
 		UrgencyWindow:         "24h",
 		MMRLambda:             0.7,
 		ExplorationSlots:      1,
+		MinRelevanceScore:     0.0,
 		FreshnessOffset:       "12h",
 		FreshnessScale:        "7d",
 		FreshnessDecay:        0.8,
@@ -39,6 +40,7 @@ func TestNewRankerConfigFromConfig(t *testing.T) {
 	assert.Equal(t, 24*time.Hour, rc.UrgencyWindow)
 	assert.InDelta(t, 0.7, rc.MMRLambda, 0.001)
 	assert.Equal(t, 1, rc.ExplorationSlots)
+	assert.InDelta(t, 0.0, rc.MinRelevanceScore, 0.001)
 
 	assert.Equal(t, 2*time.Hour, rc.Freshness["alert"].Offset)
 	assert.Equal(t, 12*time.Hour, rc.Freshness["alert"].Scale)
@@ -60,6 +62,6 @@ func TestParseDuration(t *testing.T) {
 	assert.Equal(t, 7*24*time.Hour, parseDuration("7d", 0))
 	assert.Equal(t, 12*time.Hour, parseDuration("12h", 0))
 	assert.Equal(t, 5*time.Minute, parseDuration("5m", 0))
-	assert.Equal(t, time.Hour, parseDuration("", time.Hour))     // fallback
+	assert.Equal(t, time.Hour, parseDuration("", time.Hour))        // fallback
 	assert.Equal(t, time.Hour, parseDuration("invalid", time.Hour)) // fallback
 }

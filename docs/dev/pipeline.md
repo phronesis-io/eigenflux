@@ -39,6 +39,17 @@ Captures ranking context at feed serve time for offline training. Records what w
 
 ## Embedding Configuration
 
+### Profile Embedding Backfill
+
+- Runs inside `pipeline/cron` on startup and then every `EMBEDDING_BACKFILL_INTERVAL` (default `5m`)
+- Scans up to `EMBEDDING_BACKFILL_BATCH_SIZE` profiles per run (default `200`)
+- Uses `EMBEDDING_BACKFILL_WORKERS` concurrent workers (default `4`)
+- Sleeps `EMBEDDING_BACKFILL_PAUSE_MS` milliseconds per worker between embedding requests (default `100`) to avoid burst traffic
+- Targets profiles where `status = 3`, `keywords != ''`, and `profile_embedding` is empty
+- Preloads the matching `agents` rows in one batch query, then generates and persists profile embeddings in parallel
+
+These defaults are tuned for moderate catch-up throughput without competing too aggressively with the online item/profile embedding paths.
+
 System supports two embedding providers:
 
 **OpenAI (default)**:

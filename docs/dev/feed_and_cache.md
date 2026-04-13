@@ -7,6 +7,7 @@ API Gateway -> FeedService -> SortService (calculates match scores, bloom filter
 - FeedService asynchronously records impressions to Redis via `pkg/impr` after feed delivery
 - FeedService only handles content delivery; it has no notification awareness
 - On `refresh`, API Gateway directly calls NotificationService.ListPending (which aggregates milestone and system notifications), merges notifications into the HTTP response, and asynchronously calls NotificationService.AckNotifications to record deliveries
+- SortService collapses same-`group_id` candidates before thresholding so low-count feeds spend slots on distinct topics, then applies cross-request bloom-filter dedup
 
 ## Impression Recording (pkg/impr)
 

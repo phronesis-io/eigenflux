@@ -28,6 +28,43 @@ type SortServiceESImpl struct{}
 // SingleFlight group for deduplicating concurrent requests
 var sfGroup singleflight.Group
 
+func collapseRankedByGroup(ranked []ranker.RankedItem, itemMap map[int64]sortDal.Item) ([]ranker.RankedItem, int) {
+	if len(ranked) == 0 {
+		return nil, 0
+	}
+
+	collapsed := make([]ranker.RankedItem, 0, len(ranked))
+	seenGroupIDs := make(map[int64]bool, len(ranked))
+	seenItemIDs := make(map[int64]bool, len(ranked))
+	filtered := 0
+
+	for _, ri := range ranked {
+		if seenItemIDs[ri.ItemID] {
+			filtered++
+			continue
+		}
+
+		item, ok := itemMap[ri.ItemID]
+		if !ok {
+			collapsed = append(collapsed, ri)
+			seenItemIDs[ri.ItemID] = true
+			continue
+		}
+		if item.GroupID != 0 {
+			if seenGroupIDs[item.GroupID] {
+				filtered++
+				continue
+			}
+			seenGroupIDs[item.GroupID] = true
+		}
+
+		seenItemIDs[ri.ItemID] = true
+		collapsed = append(collapsed, ri)
+	}
+
+	return collapsed, filtered
+}
+
 func filterSearchItemsByTimestamp(items []sortDal.Item, lastFetchTimeSec int64) []sortDal.Item {
 	if lastFetchTimeSec == 0 {
 		return items
@@ -347,9 +384,19 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Info("kNN merge", "knnTotal", len(knnItems), "newItems", added, "mergedTotal", len(esItems))
 	}
 
+	esItemMap := make(map[int64]sortDal.Item, len(esItems))
+	for _, item := range esItems {
+		esItemMap[item.ID] = item
+	}
+
 	// Rank all recall candidates — no pre-truncation so dedup draws from the full pool.
-	// Then drop low-relevance items so they don't fill the feed with irrelevant content.
+	// Collapse same-group candidates first so thresholding and final selection operate
+	// on distinct groups instead of repeated near-duplicates.
 	allRanked := rankerInstance.Rank(esItems, userProfile, len(esItems))
+	allRanked, collapsedCount := collapseRankedByGroup(allRanked, esItemMap)
+	logger.Ctx(ctx).Debug("group collapse", "before", len(esItems), "after", len(allRanked), "filtered", collapsedCount)
+
+	// Then drop low-relevance items so they don't fill the feed with irrelevant content.
 	ranked := make([]ranker.RankedItem, 0, len(allRanked))
 	for _, ri := range allRanked {
 		if ri.Score >= rankerCfg.MinRelevanceScore {
@@ -360,22 +407,20 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 	// Build set of ranked IDs for exploration exclusion
 	rankedIDs := make(map[int64]bool, len(ranked))
+	rankedGroupIDs := make(map[int64]bool, len(ranked))
 	for _, ri := range ranked {
 		rankedIDs[ri.ItemID] = true
+		if item, ok := esItemMap[ri.ItemID]; ok && item.GroupID != 0 {
+			rankedGroupIDs[item.GroupID] = true
+		}
 	}
 
 	// Add exploration slots from remaining candidates
 	if rankerCfg.ExplorationSlots > 0 {
-		explorationItems := ranker.PickExplorationItems(esItems, rankedIDs, rankerCfg.ExplorationSlots, 48*time.Hour, 0.5)
+		explorationItems := ranker.PickExplorationItems(esItems, rankedIDs, rankedGroupIDs, rankerCfg.ExplorationSlots, 48*time.Hour, 0.5)
 		for _, ei := range explorationItems {
 			ranked = append(ranked, ranker.RankedItem{ItemID: ei.ID, Score: 0.0})
 		}
-	}
-
-	// Build ranked item lookup for features
-	esItemMap := make(map[int64]sortDal.Item, len(esItems))
-	for _, item := range esItems {
-		esItemMap[item.ID] = item
 	}
 
 	// Collect all group_ids for bloom filter dedup

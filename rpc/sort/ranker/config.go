@@ -13,16 +13,16 @@ type FreshnessParams struct {
 }
 
 type RankerConfig struct {
-	Alpha            float64 // semantic similarity weight
-	Beta             float64 // keyword overlap weight
-	Gamma            float64 // freshness/urgency weight
-	Delta            float64 // diversity penalty weight
-	UrgencyBoost     float64
-	UrgencyWindow    time.Duration
-	MMRLambda        float64
-	ExplorationSlots int
+	Alpha               float64 // semantic similarity weight
+	Beta                float64 // keyword overlap weight
+	Gamma               float64 // freshness/urgency weight
+	Delta               float64 // diversity penalty weight
+	UrgencyBoost        float64
+	UrgencyWindow       time.Duration
+	MMRLambda           float64
+	ExplorationSlots    int
 	DraftDampening      float64 // applied to draft items (default 0.8)
-	MinRelevanceScore   float64 // items below this total score are dropped (default 0.1)
+	MinRelevanceScore   float64 // items below this total score are dropped (default 0)
 	EnableKNNRecall     bool
 	KNNRecallK          int
 	KNNRecallCandidates int
@@ -31,14 +31,14 @@ type RankerConfig struct {
 
 func NewRankerConfig(cfg *config.Config) *RankerConfig {
 	return &RankerConfig{
-		Alpha:            cfg.ScoreWeightSemantic,
-		Beta:             cfg.ScoreWeightKeyword,
-		Gamma:            cfg.ScoreWeightFreshness,
-		Delta:            cfg.ScoreWeightDiversity,
-		UrgencyBoost:     cfg.UrgencyBoost,
-		UrgencyWindow:    parseDuration(cfg.UrgencyWindow, 24*time.Hour),
-		MMRLambda:        cfg.MMRLambda,
-		ExplorationSlots: cfg.ExplorationSlots,
+		Alpha:               cfg.ScoreWeightSemantic,
+		Beta:                cfg.ScoreWeightKeyword,
+		Gamma:               cfg.ScoreWeightFreshness,
+		Delta:               cfg.ScoreWeightDiversity,
+		UrgencyBoost:        cfg.UrgencyBoost,
+		UrgencyWindow:       parseDuration(cfg.UrgencyWindow, 24*time.Hour),
+		MMRLambda:           cfg.MMRLambda,
+		ExplorationSlots:    cfg.ExplorationSlots,
 		DraftDampening:      0.8,
 		MinRelevanceScore:   cfg.MinRelevanceScore,
 		EnableKNNRecall:     cfg.EnableKNNRecall,
