@@ -55,10 +55,21 @@ struct ValidateSessionResp {
     255: required base.BaseResp base_resp
 }
 
+// ===== Logout =====
+
+struct LogoutReq {
+    1: required string access_token
+}
+
+struct LogoutResp {
+    255: required base.BaseResp base_resp
+}
+
 // ===== Service =====
 
 service AuthService {
     StartLoginResp StartLogin(1: StartLoginReq req)
     VerifyLoginResp VerifyLogin(1: VerifyLoginReq req)
     ValidateSessionResp ValidateSession(1: ValidateSessionReq req)
+    LogoutResp Logout(1: LogoutReq req)
 }

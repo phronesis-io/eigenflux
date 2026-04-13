@@ -14,6 +14,7 @@ type Client interface {
 	StartLogin(ctx context.Context, req *auth.StartLoginReq, callOptions ...callopt.Option) (r *auth.StartLoginResp, err error)
 	VerifyLogin(ctx context.Context, req *auth.VerifyLoginReq, callOptions ...callopt.Option) (r *auth.VerifyLoginResp, err error)
 	ValidateSession(ctx context.Context, req *auth.ValidateSessionReq, callOptions ...callopt.Option) (r *auth.ValidateSessionResp, err error)
+	Logout(ctx context.Context, req *auth.LogoutReq, callOptions ...callopt.Option) (r *auth.LogoutResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +59,9 @@ func (p *kAuthServiceClient) VerifyLogin(ctx context.Context, req *auth.VerifyLo
 func (p *kAuthServiceClient) ValidateSession(ctx context.Context, req *auth.ValidateSessionReq, callOptions ...callopt.Option) (r *auth.ValidateSessionResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ValidateSession(ctx, req)
+}
+
+func (p *kAuthServiceClient) Logout(ctx context.Context, req *auth.LogoutReq, callOptions ...callopt.Option) (r *auth.LogoutResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.Logout(ctx, req)
 }

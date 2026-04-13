@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -120,11 +118,6 @@ func bindOrBadRequest(c *app.RequestContext, req interface{}) bool {
 		return false
 	}
 	return true
-}
-
-func sha256Sum(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:])
 }
 
 func strPtr(s string) *string {
@@ -1619,8 +1612,7 @@ func UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 
-// Logout revokes the current session (DB + Redis) and returns success.
-// AuthMiddleware has already validated the token, so we extract it from the header directly.
+// Logout revokes the current session via the Auth RPC service.
 // @Summary Logout
 // @Description Revoke the current access token and remove the cached session
 // @Tags Auth
@@ -1633,19 +1625,12 @@ func Logout(ctx context.Context, c *app.RequestContext) {
 	header := string(c.GetHeader("Authorization"))
 	accessToken := strings.TrimPrefix(header, "Bearer ")
 
-	h := sha256Sum(accessToken)
-
-	// Revoke session in database (status 2 = logged out).
-	if result := db.DB.Table("agent_sessions").
-		Where("token_hash = ? AND status = 0", h).
-		Update("status", 2); result.Error != nil {
-		logger.Ctx(ctx).Error("logout: db update failed", "err", result.Error)
+	resp, err := clients.AuthClient.Logout(ctx, &authrpc.LogoutReq{
+		AccessToken: accessToken,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "auth service error", nil)
+		return
 	}
-
-	// Remove cached session from Redis.
-	if err := mq.RDB.Del(ctx, "auth:session:"+h).Err(); err != nil {
-		logger.Ctx(ctx).Error("logout: redis del failed", "err", err)
-	}
-
-	writeJSON(c, http.StatusOK, 0, "logged out", nil)
+	writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 }

@@ -112,6 +112,13 @@ func GetSessionByTokenHash(db *gorm.DB, tokenHash string) (*AgentSession, error)
 	return &s, err
 }
 
+// RevokeSession marks an active session as logged out (status=2).
+func RevokeSession(db *gorm.DB, tokenHash string) error {
+	return db.Model(&AgentSession{}).
+		Where("token_hash = ? AND status = 0", tokenHash).
+		Update("status", 2).Error
+}
+
 // GetAgentByEmail looks up an agent by email, returns nil if not found.
 func GetAgentByEmail(db *gorm.DB, email string) (*Agent, error) {
 	var agent Agent

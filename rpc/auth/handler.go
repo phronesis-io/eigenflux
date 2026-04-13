@@ -486,3 +486,20 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
+
+// Logout revokes the session associated with the given access token.
+func (s *AuthServiceImpl) Logout(ctx context.Context, req *auth.LogoutReq) (*auth.LogoutResp, error) {
+	tokenHash := sha256Hex(req.AccessToken)
+
+	if err := dal.RevokeSession(db.DB, tokenHash); err != nil {
+		logger.Ctx(ctx).Error("logout: db revoke failed", "err", err)
+	}
+
+	if err := mq.RDB.Del(ctx, "auth:session:"+tokenHash).Err(); err != nil {
+		logger.Ctx(ctx).Error("logout: redis del failed", "err", err)
+	}
+
+	return &auth.LogoutResp{
+		BaseResp: &base.BaseResp{Code: 0, Msg: "logged out"},
+	}, nil
+}
