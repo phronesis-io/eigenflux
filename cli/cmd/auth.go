@@ -76,6 +76,7 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		fetchAndCacheProfile()
 		return nil
 	},
 }
@@ -133,6 +134,7 @@ Examples:
 		}
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		fetchAndCacheProfile()
 		return nil
 	},
 }
@@ -171,6 +173,16 @@ Examples:
 		output.PrintMessage("Logged out from server %q", srv.Name)
 		return nil
 	},
+}
+
+// fetchAndCacheProfile fetches /agents/me and caches the result locally (best-effort).
+func fetchAndCacheProfile() {
+	c := newClient()
+	resp, err := c.Get("/agents/me", nil)
+	if err != nil || resp.Code != 0 {
+		return
+	}
+	cacheProfile(resp.Data)
 }
 
 func init() {

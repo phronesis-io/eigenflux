@@ -52,7 +52,7 @@ for platform in "${PLATFORMS[@]}"; do
 
   echo -ne "${CYAN}Compiling ${os}/${arch} ...${NC} "
   if GOOS="$os" GOARCH="$arch" "${GO_CMD[@]}" build \
-    -ldflags "-X main.Version=${CLI_VERSION}" \
+    -ldflags "-X main.Version=${CLI_VERSION} -X main.SkillVersion=${SKILL_VERSION}" \
     -o "$BUILD_DIR/$bin_name" . 2>&1; then
     echo -e "${GREEN}OK${NC}"
   else

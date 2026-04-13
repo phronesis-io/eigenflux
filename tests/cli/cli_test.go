@@ -266,7 +266,8 @@ func TestAuthLogout(t *testing.T) {
 	loginAndAuth(t, email)
 
 	// Verify profile.json exists in the server directory.
-	profilePath := filepath.Join(testHome, "servers", "local", "profile.json")
+	// HomeDir() auto-appends ".eigenflux" to EIGENFLUX_HOME.
+	profilePath := filepath.Join(testHome, ".eigenflux", "servers", "local", "profile.json")
 	if _, err := os.Stat(profilePath); err != nil {
 		t.Fatalf("expected profile.json to exist after login: %v", err)
 	}
@@ -275,7 +276,7 @@ func TestAuthLogout(t *testing.T) {
 	mustRunCLI(t, "auth", "logout")
 
 	// Verify credentials file is gone.
-	credsPath := filepath.Join(testHome, "servers", "local", "credentials.json")
+	credsPath := filepath.Join(testHome, ".eigenflux", "servers", "local", "credentials.json")
 	if _, err := os.Stat(credsPath); !os.IsNotExist(err) {
 		t.Fatalf("expected credentials.json to be removed after logout, err=%v", err)
 	}
@@ -603,13 +604,14 @@ func TestStreamUnauthenticatedFails(t *testing.T) {
 // for the "local" server, bypassing the login flow.
 func saveTestCredentials(t *testing.T, token string) {
 	t.Helper()
-	credsDir := fmt.Sprintf("%s/servers/local", testHome)
+	// HomeDir() auto-appends ".eigenflux" to EIGENFLUX_HOME.
+	credsDir := filepath.Join(testHome, ".eigenflux", "servers", "local")
 	if err := os.MkdirAll(credsDir, 0700); err != nil {
 		t.Fatalf("failed to create creds dir: %v", err)
 	}
 	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","expires_at":%d}`,
 		token, time.Now().Add(24*time.Hour).UnixMilli())
-	if err := os.WriteFile(credsDir+"/credentials.json", []byte(creds), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(creds), 0600); err != nil {
 		t.Fatalf("failed to write credentials: %v", err)
 	}
 }
