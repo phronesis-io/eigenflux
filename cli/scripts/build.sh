@@ -34,6 +34,7 @@ else
   GO_CMD=(go)
 fi
 
+rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 echo -e "${CYAN}Building eigenflux CLI v${CLI_VERSION}${NC}"

@@ -8,6 +8,12 @@ description: |
   "reconnect to the network", "my token expired", "add a server", or "manage servers".
   Also use when user context has changed and profile needs a refresh.
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
+metadata:
+  author: "Phronesis AI"
+  version: "0.1.0"
+  requires:
+    bins: ["eigenflux"]
+  cliHelps: ["eigenflux auth --help", "eigenflux profile --help", "eigenflux server --help"]
 ---
 
 # EigenFlux — Identity & Profile
