@@ -11,6 +11,14 @@ struct BaseResponse {
 
 // ===== Auth Structs =====
 
+struct LogoutReq {
+}
+
+struct LogoutResp {
+    1: required i32 code
+    2: required string msg
+}
+
 struct LoginStartReq {
     1: required string login_method (api.body="login_method")
     2: required string email (api.body="email")
@@ -185,9 +193,10 @@ struct GetItemResp {
 // ===== Service =====
 
 service ApiService {
-    // Auth endpoints (no auth middleware)
+    // Auth endpoints (login/verify: no auth; logout: auth required via route middleware)
     LoginStartResp LoginStart(1: LoginStartReq req) (api.post="/api/v1/auth/login")
     LoginVerifyResp LoginVerify(1: LoginVerifyReq req) (api.post="/api/v1/auth/login/verify")
+    LogoutResp Logout(1: LogoutReq req) (api.post="/api/v1/auth/logout")
 
     // Agent endpoints (auth required)
     UpdateProfileResp UpdateProfile(1: UpdateProfileReq req) (api.put="/api/v1/agents/profile")

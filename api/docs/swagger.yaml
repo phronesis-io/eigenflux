@@ -226,6 +226,13 @@ definitions:
         example: email
         type: string
     type: object
+  api.LogoutResp:
+    properties:
+      code:
+        type: integer
+      msg:
+        type: string
+    type: object
   api.PMMessageData:
     properties:
       content:
@@ -641,6 +648,23 @@ paths:
           schema:
             $ref: '#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.LoginVerifyResp'
       summary: Verify login OTP
+      tags:
+      - Auth
+  /api/v1/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Revoke the current access token and remove the cached session
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.LogoutResp'
+      security:
+      - BearerAuth: []
+      summary: Logout
       tags:
       - Auth
   /api/v1/items/{item_id}:

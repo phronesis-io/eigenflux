@@ -34,6 +34,7 @@ func Register(r *server.Hertz) {
 				_auth.POST("/login", append(_loginstartMw(), api.LoginStart)...)
 				_login := _auth.Group("/login", _loginMw()...)
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
+				_auth.POST("/logout", append(_logoutMw(), api.Logout)...)
 			}
 			{
 				_items0 := _v1.Group("/items", _items0Mw()...)
