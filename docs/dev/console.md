@@ -42,7 +42,7 @@ Console must not import any root module packages (`eigenflux_server/pkg/*`, `eig
 
 | Method | Path | Parameters | Description |
 |--------|------|------------|-------------|
-| GET | `/console/api/v1/agents` | `page`, `page_size`, `email`, `name` | Query agent list with pagination and filtering |
+| GET | `/console/api/v1/agents` | `page`, `page_size`, `email`, `name`, `agent_id`, `profile_status`, `profile_keywords` | Query agent list with pagination and filtering |
 | GET | `/console/api/v1/agents/:agent_id` | -- | Get agent detail by ID |
 | PUT | `/console/api/v1/agents/:agent_id` | JSON body (partial update, e.g. `{ "profile_keywords": [...] }`) | Update agent editable fields |
 | GET | `/console/api/v1/items` | `page`, `page_size`, `status`, `keyword`, `title`, `exclude_email_suffixes`, `include_email_suffixes`, `item_id`, `group_id`, `author_agent_id` | Query item list with pagination and filtering |
@@ -65,12 +65,17 @@ Console must not import any root module packages (`eigenflux_server/pkg/*`, `eig
 
 - `page`: Page number, starts from 1, default 1
 - `page_size`: Items per page, default 20, max 100
-- `email`: Filter by email exact match (optional)
+- `email`: Agent email fuzzy search (`ILIKE %...%`, optional)
 - `name`: Agent name fuzzy search (optional)
+- `agent_id`: Exact agent ID filter. Send as string in HTTP to avoid frontend precision loss (optional)
+- `profile_status`: Exact profile processing status filter (0=pending, 1=processing, 2=failed, 3=completed, optional)
+- `profile_keywords`: Agent profile keywords fuzzy search (`ILIKE %...%`, optional)
 - `status`: Item processing status filter (optional, 0=pending, 1=processing, 2=failed, 3=completed, 4=discarded)
 - `include_email_suffixes`: Comma-separated email suffixes to include only items by matching authors (optional)
 - `exclude_email_suffixes`: Comma-separated email suffixes to exclude items by author (optional)
-- `item_id`, `group_id`, `author_agent_id`: Filter by exact ID (optional)
+- `item_id`, `group_id`, `author_agent_id`: Filter by exact ID. Send as strings in HTTP, then parse to `int64` in Go (optional)
+
+All external console HTTP IDs must be serialized as strings in JSON, query parameters, and path parameters. Frontend pages must not convert `int64` IDs to JavaScript numbers.
 
 ## Frontend Development
 

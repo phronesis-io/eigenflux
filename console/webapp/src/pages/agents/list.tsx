@@ -1,9 +1,10 @@
 import { useList } from "@refinedev/core";
 import { List } from "@refinedev/antd";
-import { Button, Form, Input, Modal, Table, Tag, Typography, message } from "antd";
+import { Button, Form, Input, Modal, Select, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import axios from "axios";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
 
@@ -43,7 +44,12 @@ const formatTimestamp = (ts: number) => {
 };
 
 export const AgentList = () => {
+  const navigate = useNavigate();
+  const [agentIdFilter, setAgentIdFilter] = useState<string>("");
+  const [emailFilter, setEmailFilter] = useState<string>("");
   const [nameFilter, setNameFilter] = useState<string>("");
+  const [profileStatusFilter, setProfileStatusFilter] = useState<number | undefined>();
+  const [profileKeywordsFilter, setProfileKeywordsFilter] = useState<string>("");
   const [current, setCurrent] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
   const [messageApi, contextHolder] = message.useMessage();
@@ -60,7 +66,17 @@ export const AgentList = () => {
       pageSize,
       mode: "server",
     },
-    filters: [...(nameFilter ? [{ field: "name", operator: "contains" as const, value: nameFilter }] : [])],
+    filters: [
+      ...(agentIdFilter ? [{ field: "agent_id", operator: "eq" as const, value: agentIdFilter }] : []),
+      ...(emailFilter ? [{ field: "email", operator: "contains" as const, value: emailFilter }] : []),
+      ...(nameFilter ? [{ field: "name", operator: "contains" as const, value: nameFilter }] : []),
+      ...(profileStatusFilter !== undefined
+        ? [{ field: "profile_status", operator: "eq" as const, value: profileStatusFilter }]
+        : []),
+      ...(profileKeywordsFilter
+        ? [{ field: "profile_keywords", operator: "contains" as const, value: profileKeywordsFilter }]
+        : []),
+    ],
   });
 
   const refetch = async () => {
@@ -187,12 +203,20 @@ export const AgentList = () => {
     {
       title: "Actions",
       key: "actions",
-      width: 100,
+      width: 160,
       fixed: "right",
       render: (_, record) => (
-        <Button size="small" onClick={() => openEditModal(record)}>
-          Edit
-        </Button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button size="small" onClick={() => openEditModal(record)}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            onClick={() => navigate(`/impr?agent_id=${encodeURIComponent(record.agent_id)}`)}
+          >
+            Impr
+          </Button>
+        </div>
       ),
     },
   ];
@@ -202,17 +226,61 @@ export const AgentList = () => {
       {contextHolder}
       <List
         headerButtons={
-          <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Input.Search
+              placeholder="Agent ID"
+              allowClear
+              inputMode="numeric"
+              onSearch={(value) => {
+                setAgentIdFilter(value.trim());
+                setCurrent(1);
+              }}
+              style={{ width: 160 }}
+            />
+            <Input.Search
+              placeholder="Email contains"
+              allowClear
+              onSearch={(value) => {
+                setEmailFilter(value.trim());
+                setCurrent(1);
+              }}
+              style={{ width: 220 }}
+            />
             <Input.Search
               placeholder="Search by name"
               allowClear
               onSearch={(value) => {
-                setNameFilter(value);
+                setNameFilter(value.trim());
                 setCurrent(1);
               }}
-              style={{ width: 200, marginRight: 8 }}
+              style={{ width: 200 }}
             />
-          </>
+            <Input.Search
+              placeholder="Profile keywords"
+              allowClear
+              onSearch={(value) => {
+                setProfileKeywordsFilter(value.trim());
+                setCurrent(1);
+              }}
+              style={{ width: 220 }}
+            />
+            <Select
+              placeholder="Profile status"
+              allowClear
+              value={profileStatusFilter}
+              onChange={(value) => {
+                setProfileStatusFilter(value);
+                setCurrent(1);
+              }}
+              style={{ width: 180 }}
+              options={[
+                { label: "Pending", value: 0 },
+                { label: "Processing", value: 1 },
+                { label: "Failed", value: 2 },
+                { label: "Completed", value: 3 },
+              ]}
+            />
+          </div>
         }
       >
         <Table
@@ -220,7 +288,7 @@ export const AgentList = () => {
           columns={columns}
           rowKey="agent_id"
           loading={query.isLoading}
-          scroll={{ x: 1520 }}
+          scroll={{ x: 1580 }}
           pagination={{
             current,
             pageSize,

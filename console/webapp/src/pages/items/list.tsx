@@ -330,18 +330,21 @@ export const ItemList = () => {
             <Input.Search
               placeholder="Item ID"
               allowClear
+              inputMode="numeric"
               onSearch={(value) => { setItemIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />
             <Input.Search
               placeholder="Group ID"
               allowClear
+              inputMode="numeric"
               onSearch={(value) => { setGroupIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />
             <Input.Search
               placeholder="Agent ID"
               allowClear
+              inputMode="numeric"
               onSearch={(value) => { setAuthorAgentIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />

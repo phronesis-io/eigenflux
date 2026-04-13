@@ -61,6 +61,16 @@ type GetAgentResp struct {
 	Data *GetAgentData `json:"data"`
 }
 
+type UpdateAgentData struct {
+	Agent map[string]interface{} `json:"agent"`
+}
+
+type UpdateAgentResp struct {
+	Code int32            `json:"code"`
+	Msg  string           `json:"msg"`
+	Data *UpdateAgentData `json:"data"`
+}
+
 type UpdateItemData struct {
 	Item map[string]interface{} `json:"item"`
 }
@@ -142,6 +152,10 @@ type ReplaceMilestoneRuleResp struct {
 	Code int32                     `json:"code"`
 	Msg  string                    `json:"msg"`
 	Data *ReplaceMilestoneRuleData `json:"data"`
+}
+
+func TestMain(m *testing.M) {
+	testutil.RunTestMain(m)
 }
 
 func TestConsoleListAgents(t *testing.T) {
@@ -269,6 +283,65 @@ func TestConsoleListAgentsWithFilters(t *testing.T) {
 	t.Logf("Filtered agents by name 'test': %d results", len(result.Data.Agents))
 }
 
+func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
+	seed := time.Now().UnixNano() % 1_000_000_000
+	agentID := int64(9007199254740993 + seed)
+	email := fmt.Sprintf("console-search-%d@test.com", seed)
+	name := fmt.Sprintf("console-search-%d", seed)
+	profileKeyword := fmt.Sprintf("console-keyword-%d", seed)
+	now := time.Now().UnixMilli()
+
+	testutil.CleanTestData(t, email)
+	t.Cleanup(func() {
+		testutil.CleanTestData(t, email)
+	})
+
+	if _, err := testutil.TestDB.Exec(
+		"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
+		agentID, email, name, "console search test agent", now,
+	); err != nil {
+		t.Fatalf("insert agent failed: %v", err)
+	}
+	if _, err := testutil.TestDB.Exec(
+		"INSERT INTO agent_profiles (agent_id, status, updated_at) VALUES ($1, $2, $3)",
+		agentID, 3, now,
+	); err != nil {
+		t.Fatalf("insert agent profile failed: %v", err)
+	}
+	agentIDStr := fmt.Sprintf("%d", agentID)
+
+	updatePayload := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/agents/"+agentIDStr, map[string]interface{}{
+		"profile_keywords": []string{profileKeyword, "shared-keyword"},
+	})
+	var updated UpdateAgentResp
+	testutil.MustDecodeResp(t, updatePayload, &updated)
+	if updated.Code != 0 || updated.Data == nil {
+		t.Fatalf("update agent failed: code=%d msg=%s", updated.Code, updated.Msg)
+	}
+
+	assertListContainsAgent := func(path string) {
+		t.Helper()
+		payload := testutil.DoConsoleRequest(t, http.MethodGet, path, nil)
+		var listed ListAgentsResp
+		testutil.MustDecodeResp(t, payload, &listed)
+		if listed.Code != 0 {
+			t.Fatalf("list agents failed: code=%d msg=%s", listed.Code, listed.Msg)
+		}
+		for _, agent := range listed.Data.Agents {
+			gotID, _ := agent["agent_id"].(string)
+			if gotID == agentIDStr {
+				return
+			}
+		}
+		t.Fatalf("expected agent %s in response for %s, got %+v", agentIDStr, path, listed.Data.Agents)
+	}
+
+	assertListContainsAgent(fmt.Sprintf("/console/api/v1/agents?page=1&page_size=20&email=search-%d", seed))
+	assertListContainsAgent(fmt.Sprintf("/console/api/v1/agents?page=1&page_size=20&agent_id=%s", agentIDStr))
+	assertListContainsAgent("/console/api/v1/agents?page=1&page_size=20&profile_status=3")
+	assertListContainsAgent(fmt.Sprintf("/console/api/v1/agents?page=1&page_size=20&profile_keywords=%s", profileKeyword))
+}
+
 func TestConsoleGetAgent(t *testing.T) {
 	// First, get an agent_id from the list endpoint
 	listResp, err := http.Get(fmt.Sprintf("%s/console/api/v1/agents?page=1&page_size=1", testutil.ConsoleBaseURL))
@@ -385,6 +458,35 @@ func TestConsoleListAgentImprItems(t *testing.T) {
 	}
 	if result.Data.AgentID != "999999999" {
 		t.Fatalf("Expected agent_id=999999999, got %s", result.Data.AgentID)
+	}
+}
+
+func TestConsoleListAgentImprItemsLargeID(t *testing.T) {
+	const largeAgentID = "9007199254740993"
+
+	resp, err := http.Get(fmt.Sprintf("%s/console/api/v1/impr/items?agent_id=%s", testutil.ConsoleBaseURL, largeAgentID))
+	if err != nil {
+		t.Skipf("Console API not running: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		t.Skip("console api is running old binary without /console/api/v1/impr/items route")
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var result ListAgentImprItemsResp
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if result.Code != 0 {
+		t.Fatalf("Expected code 0, got %d: %s", result.Code, result.Msg)
+	}
+	if result.Data.AgentID != largeAgentID {
+		t.Fatalf("Expected agent_id=%s, got %s", largeAgentID, result.Data.AgentID)
 	}
 }
 

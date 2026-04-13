@@ -1,8 +1,9 @@
 import { List } from "@refinedev/antd";
-import { Alert, Button, InputNumber, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Input, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import axios from "axios";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
 
@@ -59,14 +60,18 @@ const LongText = ({ text, maxWidth = 240 }: { text: string | null; maxWidth?: nu
 };
 
 export const ImprRecordList = () => {
-  const [inputAgentID, setInputAgentID] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  const [inputAgentID, setInputAgentID] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [data, setData] = useState<ImprData | null>(null);
+  const autoQueriedAgentIDRef = useRef<string>("");
 
-  const query = async () => {
-    if (!inputAgentID || inputAgentID <= 0) {
+  const query = async (agentIDInput?: string) => {
+    const agentID = (agentIDInput ?? inputAgentID).trim();
+    if (!/^[1-9]\d*$/.test(agentID)) {
       setErrorMsg("Please enter a valid agent_id");
+      setData(null);
       return;
     }
 
@@ -75,7 +80,7 @@ export const ImprRecordList = () => {
 
     try {
       const resp = await axios.get<ImprResp>(`${consoleApiUrl}/impr/items`, {
-        params: { agent_id: inputAgentID },
+        params: { agent_id: agentID },
       });
 
       if (resp.data.code !== 0 || !resp.data.data) {
@@ -96,6 +101,16 @@ export const ImprRecordList = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const agentID = searchParams.get("agent_id")?.trim() ?? "";
+    if (!agentID || agentID === autoQueriedAgentIDRef.current) {
+      return;
+    }
+    autoQueriedAgentIDRef.current = agentID;
+    setInputAgentID(agentID);
+    void query(agentID);
+  }, [searchParams]);
 
   const columns: ColumnsType<Item> = [
     {
@@ -152,15 +167,15 @@ export const ImprRecordList = () => {
     <List
       headerButtons={(
         <Space>
-          <InputNumber
-            min={1}
-            precision={0}
+          <Input
             placeholder="Agent ID"
             value={inputAgentID}
-            onChange={(value) => setInputAgentID(value)}
+            inputMode="numeric"
+            onChange={(event) => setInputAgentID(event.target.value)}
+            onPressEnter={() => void query()}
             style={{ width: 180 }}
           />
-          <Button type="primary" loading={loading} onClick={query}>
+          <Button type="primary" loading={loading} onClick={() => void query()}>
             Search
           </Button>
         </Space>

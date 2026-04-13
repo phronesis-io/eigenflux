@@ -243,20 +243,48 @@ type updateSystemNotificationReq struct {
 // @Produce      json
 // @Param        page       query  integer  false  "Page number (default: 1)"
 // @Param        page_size  query  integer  false  "Items per page (default: 20, max: 100)"
-// @Param        email      query  string   false  "Filter by email"
-// @Param        name       query  string   false  "Search by agent name (partial match)"
+// @Param        email             query  string  false  "Search by email (partial match)"
+// @Param        name              query  string  false  "Search by agent name (partial match)"
+// @Param        agent_id          query  string  false  "Filter by exact agent ID"
+// @Param        profile_status    query  integer  false  "Filter by profile status (0=pending, 1=processing, 2=failed, 3=completed)"
+// @Param        profile_keywords  query  string  false  "Search by profile keywords (partial match)"
 // @Success      200  {object}  ListAgentsDocResp
 // @Router /console/api/v1/agents [GET]
 func ListAgents(ctx context.Context, c *app.RequestContext) {
 	page, pageSize := parsePagination(c)
 	email := strPtr(strings.TrimSpace(c.Query("email")))
 	name := strPtr(strings.TrimSpace(c.Query("name")))
+	profileKeywords := strPtr(strings.TrimSpace(c.Query("profile_keywords")))
+
+	var agentID *int64
+	if raw := strings.TrimSpace(c.Query("agent_id")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			writeConsoleError(c, "invalid agent_id")
+			return
+		}
+		agentID = &parsed
+	}
+
+	var profileStatus *int32
+	if raw := strings.TrimSpace(c.Query("profile_status")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || parsed < 0 {
+			writeConsoleError(c, "invalid profile_status")
+			return
+		}
+		value := int32(parsed)
+		profileStatus = &value
+	}
 
 	agents, total, err := dal.ListAgents(db.DB, dal.ListAgentsParams{
-		Page:      page,
-		PageSize:  pageSize,
-		Email:     email,
-		AgentName: name,
+		Page:            page,
+		PageSize:        pageSize,
+		Email:           email,
+		AgentName:       name,
+		AgentID:         agentID,
+		ProfileStatus:   profileStatus,
+		ProfileKeywords: profileKeywords,
 	})
 	if err != nil {
 		writeConsoleError(c, "database query failed: "+err.Error())
@@ -286,7 +314,7 @@ func ListAgents(ctx context.Context, c *app.RequestContext) {
 // @Tags         console
 // @Accept       json
 // @Produce      json
-// @Param        agent_id  path  integer  true  "Agent ID"
+// @Param        agent_id  path  string  true  "Agent ID"
 // @Param        body      body  updateAgentReq  true  "Update request (all fields optional)"
 // @Success      200  {object}  UpdateAgentResp
 // @Router /console/api/v1/agents/:agent_id [PUT]
@@ -353,9 +381,9 @@ func UpdateAgent(ctx context.Context, c *app.RequestContext) {
 // @Param        title                    query  string   false  "Search by title or content"
 // @Param        exclude_email_suffixes   query  string   false  "Comma-separated email suffixes to exclude (e.g. @test.com,@bot.ai)"
 // @Param        include_email_suffixes   query  string   false  "Comma-separated email suffixes to include only (e.g. @company.com,@partner.ai)"
-// @Param        item_id                  query  integer  false  "Filter by exact item ID"
-// @Param        group_id                 query  integer  false  "Filter by exact group ID"
-// @Param        author_agent_id          query  integer  false  "Filter by exact author agent ID"
+// @Param        item_id                  query  string   false  "Filter by exact item ID"
+// @Param        group_id                 query  string   false  "Filter by exact group ID"
+// @Param        author_agent_id          query  string   false  "Filter by exact author agent ID"
 // @Success      200  {object}  ListItemsDocResp
 // @Router /console/api/v1/items [GET]
 func ListItems(ctx context.Context, c *app.RequestContext) {
@@ -450,7 +478,7 @@ func ListItems(ctx context.Context, c *app.RequestContext) {
 // @Description  Returns Redis impr record and matched item details by agent_id
 // @Tags         console
 // @Produce      json
-// @Param        agent_id  query  integer  true  "Agent ID"
+// @Param        agent_id  query  string  true  "Agent ID"
 // @Success      200  {object}  ListAgentImprItemsResp
 // @Router /console/api/v1/impr/items [GET]
 func ListAgentImprItems(ctx context.Context, c *app.RequestContext) {
@@ -1072,7 +1100,7 @@ func invalidateBlacklistCache() {
 // @Description  Returns a single agent with profile data
 // @Tags         console
 // @Produce      json
-// @Param        agent_id  path  integer  true  "Agent ID"
+// @Param        agent_id  path  string  true  "Agent ID"
 // @Success      200  {object}  GetAgentResp
 // @Router /console/api/v1/agents/{agent_id} [GET]
 func GetAgent(ctx context.Context, c *app.RequestContext) {
@@ -1104,7 +1132,7 @@ func GetAgent(ctx context.Context, c *app.RequestContext) {
 // @Tags         console
 // @Accept       json
 // @Produce      json
-// @Param        item_id  path  integer  true  "Item ID"
+// @Param        item_id  path  string  true  "Item ID"
 // @Param        body     body  updateItemReq  true  "Update request (all fields optional)"
 // @Success      200  {object}  UpdateItemResp
 // @Router /console/api/v1/items/{item_id} [PUT]
