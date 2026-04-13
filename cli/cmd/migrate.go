@@ -107,6 +107,16 @@ Examples:
 					migrated++
 				}
 			}
+
+			// Migrate user settings
+			ocSettingsPath := filepath.Join(ocHome, srv.Name, "user_settings.json")
+			settingsData, err := os.ReadFile(ocSettingsPath)
+			if err == nil {
+				var us config.UserSettings
+				if json.Unmarshal(settingsData, &us) == nil {
+					config.SaveUserSettings(srv.Name, &us)
+				}
+			}
 		}
 
 		if len(cfg.Servers) == 0 {
