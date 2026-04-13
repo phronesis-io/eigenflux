@@ -13,18 +13,39 @@ func semanticSimilarity(profileEmb, itemEmb []float32) float64 {
 	return embedding.CosineSimilarity(profileEmb, itemEmb)
 }
 
+// profileSets holds pre-computed lowercase sets for a user profile,
+// avoiding repeated map allocation per item.
+type profileSets struct {
+	keywords map[string]bool
+	domains  map[string]bool
+}
+
+func buildProfileSets(profile *UserProfile) *profileSets {
+	ps := &profileSets{
+		keywords: make(map[string]bool, len(profile.Keywords)),
+		domains:  make(map[string]bool, len(profile.Domains)),
+	}
+	for _, k := range profile.Keywords {
+		ps.keywords[strings.ToLower(k)] = true
+	}
+	for _, d := range profile.Domains {
+		ps.domains[strings.ToLower(d)] = true
+	}
+	return ps
+}
+
 // keywordOverlap computes normalized overlap between user and item keywords+domains.
-func keywordOverlap(userKeywords, userDomains, itemKeywords, itemDomains []string) float64 {
-	kwOverlap := setOverlap(userKeywords, itemKeywords)
-	domOverlap := setOverlap(userDomains, itemDomains)
+func keywordOverlap(ps *profileSets, itemKeywords, itemDomains []string) float64 {
+	kwOverlap := setOverlapPrecomputed(ps.keywords, itemKeywords)
+	domOverlap := setOverlapPrecomputed(ps.domains, itemDomains)
 
 	count := 0
 	sum := 0.0
-	if len(userKeywords) > 0 && len(itemKeywords) > 0 {
+	if len(ps.keywords) > 0 && len(itemKeywords) > 0 {
 		sum += kwOverlap
 		count++
 	}
-	if len(userDomains) > 0 && len(itemDomains) > 0 {
+	if len(ps.domains) > 0 && len(itemDomains) > 0 {
 		sum += domOverlap
 		count++
 	}
@@ -34,14 +55,10 @@ func keywordOverlap(userKeywords, userDomains, itemKeywords, itemDomains []strin
 	return sum / float64(count)
 }
 
-// setOverlap returns |A ∩ B| / |B| (fraction of item set matched by user set).
-func setOverlap(user, item []string) float64 {
-	if len(user) == 0 || len(item) == 0 {
+// setOverlapPrecomputed returns |A ∩ B| / |B| using a pre-computed user set.
+func setOverlapPrecomputed(userSet map[string]bool, item []string) float64 {
+	if len(userSet) == 0 || len(item) == 0 {
 		return 0.0
-	}
-	userSet := make(map[string]bool, len(user))
-	for _, u := range user {
-		userSet[strings.ToLower(u)] = true
 	}
 	matched := 0
 	for _, it := range item {

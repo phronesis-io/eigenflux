@@ -87,23 +87,26 @@ func TestFreshnessScore_DemandUrgency(t *testing.T) {
 }
 
 func TestKeywordOverlap(t *testing.T) {
-	score := keywordOverlap(
-		[]string{"AI", "blockchain"}, []string{"tech", "AI"},
-		[]string{"AI", "NLP", "blockchain"}, []string{"tech", "AI", "finance"},
-	)
+	ps := buildProfileSets(&UserProfile{
+		Keywords: []string{"AI", "blockchain"},
+		Domains:  []string{"tech", "AI"},
+	})
+	score := keywordOverlap(ps, []string{"AI", "NLP", "blockchain"}, []string{"tech", "AI", "finance"})
 	assert.Greater(t, score, 0.5)
 	assert.LessOrEqual(t, score, 1.0)
 }
 
 func TestKeywordOverlap_NoOverlap(t *testing.T) {
-	score := keywordOverlap(
-		[]string{"AI"}, []string{"tech"},
-		[]string{"cooking"}, []string{"food"},
-	)
+	ps := buildProfileSets(&UserProfile{
+		Keywords: []string{"AI"},
+		Domains:  []string{"tech"},
+	})
+	score := keywordOverlap(ps, []string{"cooking"}, []string{"food"})
 	assert.InDelta(t, 0.0, score, 0.001)
 }
 
 func TestKeywordOverlap_Empty(t *testing.T) {
-	score := keywordOverlap(nil, nil, []string{"AI"}, []string{"tech"})
+	ps := buildProfileSets(&UserProfile{})
+	score := keywordOverlap(ps, []string{"AI"}, []string{"tech"})
 	assert.InDelta(t, 0.0, score, 0.001)
 }

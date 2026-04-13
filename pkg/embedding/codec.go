@@ -17,7 +17,7 @@ func Encode(v []float32) []byte {
 }
 
 func Decode(b []byte) []float32 {
-	if len(b) == 0 {
+	if len(b) == 0 || len(b)%4 != 0 {
 		return nil
 	}
 	n := len(b) / 4

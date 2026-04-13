@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,8 +45,7 @@ func filterSearchItemsByTimestamp(items []sortDal.Item, lastFetchTimeSec int64) 
 func cachedItemsToItems(cached []cache.CachedItem) []sortDal.Item {
 	items := make([]sortDal.Item, 0, len(cached))
 	for _, ci := range cached {
-		var itemID int64
-		fmt.Sscanf(ci.ItemID, "%d", &itemID)
+		itemID, _ := strconv.ParseInt(ci.ItemID, 10, 64)
 		item := sortDal.Item{
 			ID:           itemID,
 			Content:      ci.Content,
@@ -469,7 +469,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	var nextCursor int64
 	if searchResp != nil && !searchResp.NextCursor.IsZero() {
 		nextCursor = searchResp.NextCursor.Unix()
-	} else if len(cachedItems) > 0 && len(cachedItems) == limit*5 {
+	} else if len(cachedItems) > 0 && len(cachedItems) >= cfg.KeywordRecallSize {
 		// If cache is full, use last item's timestamp as cursor
 		nextCursor = cachedItems[len(cachedItems)-1].UpdatedAt
 	}

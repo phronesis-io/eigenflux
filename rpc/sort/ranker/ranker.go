@@ -48,6 +48,7 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 	}
 
 	now := time.Now()
+	ps := buildProfileSets(profile)
 
 	// Compute relevance scores
 	type scored struct {
@@ -57,7 +58,7 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 	}
 	items := make([]scored, len(candidates))
 	for i, item := range candidates {
-		bd := r.scoreItem(item, profile, now)
+		bd := r.scoreItem(item, profile, ps, now)
 		items[i] = scored{idx: i, score: bd.Total, scores: bd}
 	}
 
@@ -95,10 +96,11 @@ func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit 
 	}
 
 	now := time.Now()
+	ps := buildProfileSets(profile)
 
 	breakdowns := make([]ScoreBreakdown, len(candidates))
 	for i, item := range candidates {
-		breakdowns[i] = r.scoreItem(item, profile, now)
+		breakdowns[i] = r.scoreItem(item, profile, ps, now)
 	}
 
 	selected := make([]RankedItem, 0, limit)
@@ -172,11 +174,11 @@ func (r *Ranker) maxSimToSelected(candidates []sortDal.Item, candidateIdx int, s
 //
 // Freshness multiplier: (1 − γ) + γ × rawFreshness.  γ controls strength:
 // γ=0 → freshness has no effect; γ=1 → old items can decay to 0.
-func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, now time.Time) ScoreBreakdown {
+func (r *Ranker) scoreItem(item sortDal.Item, profile *UserProfile, ps *profileSets, now time.Time) ScoreBreakdown {
 	isDraft := len(item.Keywords) == 0 && item.Type == ""
 
 	semSim := semanticSimilarity(profile.Embedding, item.Embedding)
-	kwOvlp := keywordOverlap(profile.Keywords, profile.Domains, item.Keywords, item.Domains)
+	kwOvlp := keywordOverlap(ps, item.Keywords, item.Domains)
 	fresh := freshnessScore(r.config, item.Type, item.UpdatedAt, item.ExpireTime, now)
 
 	// Weighted relevance with dynamic normalization
