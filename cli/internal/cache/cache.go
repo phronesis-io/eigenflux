@@ -59,7 +59,7 @@ func ServerDataDir(serverName string) string {
 	return filepath.Join(ServerDir(serverName), "data")
 }
 
-// SaveFeedResponse saves a feed API response to data/broadcasts/{YYYYMMDD}/feeds-{unix_ms}.json.
+// SaveFeedResponse saves a feed API response to data/broadcasts/{YYYYMMDD}/feeds-{YYYYMMDD-HHmmss}.json.
 func SaveFeedResponse(serverName string, rawData json.RawMessage) {
 	now := time.Now()
 	dir := filepath.Join(ServerDataDir(serverName), "broadcasts", now.Format(dateFormat))
@@ -67,7 +67,7 @@ func SaveFeedResponse(serverName string, rawData json.RawMessage) {
 		log.Printf("cache: mkdir %s: %v", dir, err)
 		return
 	}
-	path := filepath.Join(dir, fmt.Sprintf("feeds-%d.json", now.UnixMilli()))
+	path := filepath.Join(dir, fmt.Sprintf("feeds-%s.json", now.Format("20060102-150405")))
 	if err := os.WriteFile(path, rawData, filePerm); err != nil {
 		log.Printf("cache: write %s: %v", path, err)
 	}
