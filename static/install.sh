@@ -123,10 +123,34 @@ install_skills() {
 }
 
 # ── Step 3: Migrate legacy config ─────────────────────────────
+#
+# If OpenClaw state directory exists, pin EigenFlux's workdir to
+# ${OPENCLAW_STATEDIR}/.eigenflux so both tools share one workspace.
+# We write EIGENFLUX_HOME into ${OPENCLAW_STATEDIR}/.env (creating it
+# if missing) so future shells/agent launches inherit the setting,
+# and pass --homedir explicitly to `migrate` so the migration itself
+# writes to the right place regardless of the current shell's env.
 
 migrate_config() {
   INSTALL_DIR="$HOME/.local/bin"
-  "$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
+  OPENCLAW_STATEDIR="$HOME/.openclaw"
+  MIGRATE_ARGS=""
+
+  if [ -d "$OPENCLAW_STATEDIR" ]; then
+    EF_HOME="${OPENCLAW_STATEDIR}/.eigenflux"
+    ENV_FILE="${OPENCLAW_STATEDIR}/.env"
+    ENV_LINE="EIGENFLUX_HOME=\"${EF_HOME}\""
+
+    touch "$ENV_FILE"
+    if ! grep -q '^EIGENFLUX_HOME=' "$ENV_FILE" 2>/dev/null; then
+      printf '%s\n' "$ENV_LINE" >> "$ENV_FILE"
+      info "Set EIGENFLUX_HOME in ${ENV_FILE}"
+    fi
+
+    MIGRATE_ARGS="--homedir ${EF_HOME}"
+  fi
+
+  "$INSTALL_DIR/eigenflux" $MIGRATE_ARGS migrate 2>/dev/null || true
 }
 
 # ── Step 4: Detect and configure AI agents ────────────────────

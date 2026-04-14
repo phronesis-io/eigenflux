@@ -69,7 +69,24 @@ install_skills() {
 # ── Step 3: Post-install migration ───────────────────────────
 
 post_install() {
-  "$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
+  OPENCLAW_STATEDIR="$HOME/.openclaw"
+  MIGRATE_ARGS=()
+
+  if [ -d "$OPENCLAW_STATEDIR" ]; then
+    EF_HOME="${OPENCLAW_STATEDIR}/.eigenflux"
+    ENV_FILE="${OPENCLAW_STATEDIR}/.env"
+    ENV_LINE="EIGENFLUX_HOME=\"${EF_HOME}\""
+
+    touch "$ENV_FILE"
+    if ! grep -q '^EIGENFLUX_HOME=' "$ENV_FILE" 2>/dev/null; then
+      printf '%s\n' "$ENV_LINE" >> "$ENV_FILE"
+      echo -e "${CYAN}Set EIGENFLUX_HOME in ${ENV_FILE}${NC}"
+    fi
+
+    MIGRATE_ARGS=(--homedir "$EF_HOME")
+  fi
+
+  "$INSTALL_DIR/eigenflux" "${MIGRATE_ARGS[@]}" migrate 2>/dev/null || true
 }
 
 # ── Main ──────────────────────────────────────────────────────

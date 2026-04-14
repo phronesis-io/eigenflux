@@ -10,209 +10,56 @@ import (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage configuration",
-	Long: `Manage server connections and user settings.
+	Short: "Manage key-value configuration",
+	Long: `Manage free-form key-value configuration stored in config.json.
+
+Keys and values are arbitrary strings. There are two scopes:
+  - Global (no --server):     stored under the top-level "kv".
+  - Per-server (--server X):  stored under servers[X].kv.
+
+On get, a per-server read (--server) falls back to the global "kv" if
+the key is not set on that server. Setting a key to an empty value
+deletes it. Use 'eigenflux server ...' to manage server configurations.
 
 Examples:
-  eigenflux config server list
   eigenflux config set --key recurring_publish --value true
+  eigenflux config set --key feed_delivery_preference --value "Push urgent signals immediately"
+  eigenflux config set --key plugin_version --value 1.2.0 --server staging
+  eigenflux config get --key plugin_version --server staging
   eigenflux config show`,
 }
 
-// ===== Server subcommands =====
-
-var configServerCmd = &cobra.Command{
-	Use:   "server",
-	Short: "Manage servers",
-	Long: `Add, remove, and switch between EigenFlux server configurations.
-
-Examples:
-  eigenflux config server list
-  eigenflux config server add --name eigenflux --endpoint https://www.eigenflux.ai
-  eigenflux config server use --name eigenflux
-  eigenflux config server remove --name staging`,
-}
-
-var serverAddCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add a new server",
-	Long: `Add a new server configuration.
-
-Examples:
-  eigenflux config server add --name eigenflux --endpoint https://www.eigenflux.ai --stream-endpoint wss://stream.eigenflux.ai
-  eigenflux config server add --name staging --endpoint https://staging.eigenflux.ai`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name, _ := cmd.Flags().GetString("name")
-		endpoint, _ := cmd.Flags().GetString("endpoint")
-		streamEndpoint, _ := cmd.Flags().GetString("stream-endpoint")
-		if name == "" || endpoint == "" {
-			return fmt.Errorf("--name and --endpoint are required")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if err := cfg.AddServerFull(name, endpoint, streamEndpoint); err != nil {
-			return err
-		}
-		output.PrintMessage("Server %q added (%s)", name, endpoint)
-		return nil
-	},
-}
-
-var serverRemoveCmd = &cobra.Command{
-	Use:   "remove",
-	Short: "Remove a server",
-	Long: `Remove a server configuration and its credentials.
-
-Examples:
-  eigenflux config server remove --name staging`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name, _ := cmd.Flags().GetString("name")
-		if name == "" {
-			return fmt.Errorf("--name is required")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if err := cfg.RemoveServer(name); err != nil {
-			return err
-		}
-		output.PrintMessage("Server %q removed", name)
-		return nil
-	},
-}
-
-var serverListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all servers",
-	Long: `List all configured servers and show which is the default.
-
-Examples:
-  eigenflux config server list`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		type serverEntry struct {
-			Name           string `json:"name"`
-			Endpoint       string `json:"endpoint"`
-			StreamEndpoint string `json:"stream_endpoint,omitempty"`
-			Current        bool   `json:"current"`
-		}
-		entries := make([]serverEntry, 0, len(cfg.Servers))
-		for _, srv := range cfg.Servers {
-			entries = append(entries, serverEntry{
-				Name:           srv.Name,
-				Endpoint:       srv.Endpoint,
-				StreamEndpoint: srv.StreamEndpoint,
-				Current:        srv.Name == cfg.DefaultServer,
-			})
-		}
-		format := resolveFormat()
-		if format == "table" {
-			fmt.Printf("  %-15s %-35s %s\n", "NAME", "ENDPOINT", "STREAM")
-			for _, e := range entries {
-				marker := "  "
-				if e.Current {
-					marker = "* "
-				}
-				stream := e.StreamEndpoint
-				if stream == "" {
-					stream = "-"
-				}
-				fmt.Printf("%s%-15s %-35s %s\n", marker, e.Name, e.Endpoint, stream)
-			}
-			return nil
-		}
-		output.PrintData(entries, format)
-		return nil
-	},
-}
-
-var serverUseCmd = &cobra.Command{
-	Use:   "use",
-	Short: "Set default server",
-	Long: `Switch the default server used by all commands.
-
-Examples:
-  eigenflux config server use --name eigenflux`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name, _ := cmd.Flags().GetString("name")
-		if name == "" {
-			return fmt.Errorf("--name is required")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if err := cfg.SetCurrent(name); err != nil {
-			return err
-		}
-		output.PrintMessage("Switched to server %q", name)
-		return nil
-	},
-}
-
-var serverUpdateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update server configuration",
-	Long: `Update an existing server's endpoint.
-
-Examples:
-  eigenflux config server update --name eigenflux --endpoint https://www.eigenflux.ai
-  eigenflux config server update --name eigenflux --stream-endpoint wss://stream.eigenflux.ai`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name, _ := cmd.Flags().GetString("name")
-		endpoint, _ := cmd.Flags().GetString("endpoint")
-		streamEndpoint, _ := cmd.Flags().GetString("stream-endpoint")
-		if name == "" {
-			return fmt.Errorf("--name is required")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if err := cfg.UpdateServer(name, endpoint, streamEndpoint); err != nil {
-			return err
-		}
-		output.PrintMessage("Server %q updated", name)
-		return nil
-	},
-}
-
-// ===== Settings subcommands =====
-
 var configSetCmd = &cobra.Command{
 	Use:   "set",
-	Short: "Set a user setting",
-	Long: `Set a per-server user setting.
+	Short: "Set a config key",
+	Long: `Set a free-form key-value entry in config.json.
 
-Valid keys: recurring_publish (true/false), feed_delivery_preference (text)
+  - no --server: stored globally.
+  - --server NAME: stored under that server.
+An empty value deletes the entry.
 
 Examples:
   eigenflux config set --key recurring_publish --value true
-  eigenflux config set --key feed_delivery_preference --value "Push urgent signals immediately"`,
+  eigenflux config set --key plugin_version --value 1.2.0
+  eigenflux config set --key plugin_version --value 1.3.0 --server staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, _ := cmd.Flags().GetString("key")
 		value, _ := cmd.Flags().GetString("value")
 		if key == "" {
 			return fmt.Errorf("--key is required")
 		}
-		srv := activeServerName()
-		if srv == "" {
-			return fmt.Errorf("no active server configured")
-		}
-		settings, err := config.LoadUserSettings(srv)
+		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		if err := settings.Set(key, value); err != nil {
-			return err
+		if serverFlag != "" {
+			if err := cfg.SetServerKV(serverFlag, key, value); err != nil {
+				return err
+			}
+			output.PrintMessage("%s = %s (server %q)", key, value, serverFlag)
+			return nil
 		}
-		if err := config.SaveUserSettings(srv, settings); err != nil {
+		if err := cfg.SetKV(key, value); err != nil {
 			return err
 		}
 		output.PrintMessage("%s = %s", key, value)
@@ -222,81 +69,84 @@ Examples:
 
 var configGetCmd = &cobra.Command{
 	Use:   "get",
-	Short: "Get a user setting",
-	Long: `Get the current value of a per-server user setting.
+	Short: "Get a config value",
+	Long: `Read a free-form key-value entry from config.json.
 
-Valid keys: recurring_publish, feed_delivery_preference
+  - no --server: reads the global "kv".
+  - --server NAME: reads that server's "kv", falling back to the
+    global "kv" if the key is not set on the server.
 
 Examples:
-  eigenflux config get --key recurring_publish`,
+  eigenflux config get --key recurring_publish
+  eigenflux config get --key plugin_version --server staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, _ := cmd.Flags().GetString("key")
 		if key == "" {
 			return fmt.Errorf("--key is required")
 		}
-		srv := activeServerName()
-		if srv == "" {
-			return fmt.Errorf("no active server configured")
-		}
-		settings, err := config.LoadUserSettings(srv)
+		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		val, err := settings.Get(key)
-		if err != nil {
-			return err
+		if serverFlag != "" {
+			val, _, err := cfg.GetServerKV(serverFlag, key)
+			if err != nil {
+				return err
+			}
+			fmt.Println(val)
+			return nil
 		}
-		fmt.Println(val)
+		fmt.Println(cfg.GetKV(key))
 		return nil
 	},
 }
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "Show all user settings",
-	Long: `Display all per-server user settings.
+	Short: "Show all key-value entries",
+	Long: `Display both the global "kv" and the active (or --server-selected)
+server's "kv" map from config.json.
 
 Examples:
-  eigenflux config show`,
+  eigenflux config show
+  eigenflux config show --server staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		srv := activeServerName()
-		if srv == "" {
-			return fmt.Errorf("no active server configured")
-		}
-		settings, err := config.LoadUserSettings(srv)
+		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
+		activeSrv, _ := cfg.GetActive(serverFlag)
+		var serverName string
+		var serverKV map[string]string
+		if activeSrv != nil {
+			serverName = activeSrv.Name
+			serverKV = activeSrv.KV
+		}
 		format := resolveFormat()
 		if format == "table" {
-			rp, _ := settings.Get("recurring_publish")
-			fdp, _ := settings.Get("feed_delivery_preference")
-			fmt.Printf("%-30s %s\n", "recurring_publish", rp)
-			fmt.Printf("%-30s %s\n", "feed_delivery_preference", fdp)
+			for k, v := range serverKV {
+				fmt.Printf("%-30s %s  (server %q)\n", k, v, serverName)
+			}
+			for k, v := range cfg.KV {
+				fmt.Printf("%-30s %s  (global)\n", k, v)
+			}
 			return nil
 		}
-		output.PrintData(settings, format)
+		out := struct {
+			Server   string            `json:"server,omitempty"`
+			ServerKV map[string]string `json:"server_kv,omitempty"`
+			KV       map[string]string `json:"kv,omitempty"`
+		}{serverName, serverKV, cfg.KV}
+		output.PrintData(out, format)
 		return nil
 	},
 }
 
 func init() {
-	// Server flags
-	serverAddCmd.Flags().String("name", "", "server name (required)")
-	serverAddCmd.Flags().String("endpoint", "", "server endpoint URL (required)")
-	serverAddCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint (optional, auto-derived from endpoint)")
-	serverRemoveCmd.Flags().String("name", "", "server name to remove (required)")
-	serverUseCmd.Flags().String("name", "", "server name to set as default (required)")
-	serverUpdateCmd.Flags().String("name", "", "server name to update (required)")
-	serverUpdateCmd.Flags().String("endpoint", "", "new endpoint URL")
-	serverUpdateCmd.Flags().String("stream-endpoint", "", "WebSocket stream endpoint")
-	configServerCmd.AddCommand(serverAddCmd, serverRemoveCmd, serverListCmd, serverUseCmd, serverUpdateCmd)
+	configSetCmd.Flags().String("key", "", "config key (required)")
+	configSetCmd.Flags().String("value", "", "config value (empty deletes)")
+	configGetCmd.Flags().String("key", "", "config key (required)")
 
-	// Settings flags
-	configSetCmd.Flags().String("key", "", "setting key (required)")
-	configSetCmd.Flags().String("value", "", "setting value")
-	configGetCmd.Flags().String("key", "", "setting key (required)")
-
-	configCmd.AddCommand(configServerCmd, configSetCmd, configGetCmd, configShowCmd)
+	configCmd.AddCommand(configSetCmd, configGetCmd, configShowCmd)
 	rootCmd.AddCommand(configCmd)
 }

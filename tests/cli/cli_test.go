@@ -82,10 +82,10 @@ func setup(t *testing.T) {
 	wsBaseURL := fmt.Sprintf("ws://localhost:%d", cfg.WSPort)
 
 	// Pre-add a server entry pointing at the running local API + WS.
-	mustRunCLI(t, "config", "server", "add", "--name", "local",
+	mustRunCLI(t, "server", "add", "--name", "local",
 		"--endpoint", apiBaseURL,
 		"--stream-endpoint", wsBaseURL)
-	mustRunCLI(t, "config", "server", "use", "--name", "local")
+	mustRunCLI(t, "server", "use", "--name", "local")
 }
 
 // ---------- Tests ----------
@@ -123,7 +123,7 @@ func TestServerManagement(t *testing.T) {
 	setup(t)
 
 	// server list — should show "local" as current
-	out := mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out := mustRunCLI(t, "server", "list", "--format", "json")
 	var servers []map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list: %v\nraw: %s", err, out)
@@ -142,13 +142,13 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server add — staging
-	mustRunCLI(t, "config", "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
+	mustRunCLI(t, "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
 
 	// server update — staging
-	mustRunCLI(t, "config", "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
+	mustRunCLI(t, "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
 
 	// server list — should show both
-	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out = mustRunCLI(t, "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse updated server list: %v", err)
 	}
@@ -157,10 +157,10 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server remove — staging
-	mustRunCLI(t, "config", "server", "remove", "--name", "staging")
+	mustRunCLI(t, "server", "remove", "--name", "staging")
 
 	// Verify removal
-	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out = mustRunCLI(t, "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list after remove: %v", err)
 	}
@@ -171,30 +171,47 @@ func TestServerManagement(t *testing.T) {
 	}
 }
 
-func TestConfigSettings(t *testing.T) {
+func TestConfigKV(t *testing.T) {
 	testutil.WaitForAPI(t)
 	setup(t)
 
-	// Set recurring_publish
+	// Global set/get — values are free-form strings.
 	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "true")
-
-	// Get recurring_publish
 	out := mustRunCLI(t, "config", "get", "--key", "recurring_publish")
 	if strings.TrimSpace(out) != "true" {
-		t.Errorf("expected recurring_publish=true, got %q", strings.TrimSpace(out))
+		t.Errorf("expected recurring_publish=\"true\", got %q", strings.TrimSpace(out))
 	}
 
-	// Set feed_delivery_preference
 	mustRunCLI(t, "config", "set", "--key", "feed_delivery_preference", "--value", "push urgent signals")
 
-	// Show all settings
+	// Per-server set overrides global on reads with --server; reads without
+	// --server still see the global value.
+	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "false", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
+	if strings.TrimSpace(out) != "false" {
+		t.Errorf("per-server recurring_publish = %q, want \"false\"", strings.TrimSpace(out))
+	}
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish")
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("global recurring_publish = %q, want \"true\"", strings.TrimSpace(out))
+	}
+
+	// Unset a per-server key → reads with --server fall back to global.
+	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("after per-server unset, fallback = %q, want \"true\"", strings.TrimSpace(out))
+	}
+
+	// show returns {server, server_kv, kv}.
 	out = mustRunCLI(t, "config", "show", "--format", "json")
 	v := parseJSON(t, out)
-	if v["recurring_publish"] != true {
-		t.Errorf("expected recurring_publish=true in show, got %v", v["recurring_publish"])
+	kv, _ := v["kv"].(map[string]interface{})
+	if kv["recurring_publish"] != "true" {
+		t.Errorf("show.kv.recurring_publish = %v, want \"true\"", kv["recurring_publish"])
 	}
-	if v["feed_delivery_preference"] != "push urgent signals" {
-		t.Errorf("expected feed_delivery_preference='push urgent signals', got %v", v["feed_delivery_preference"])
+	if kv["feed_delivery_preference"] != "push urgent signals" {
+		t.Errorf("show.kv.feed_delivery_preference = %v, want \"push urgent signals\"", kv["feed_delivery_preference"])
 	}
 	t.Logf("config show: %v", v)
 }
