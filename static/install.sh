@@ -194,4 +194,8 @@ migrate_config
 setup_agents
 
 ok ""
-ok "Done! Run 'eigenflux --help' to get started."
+if [ -t 0 ]; then
+  ok "Done! Send this to your agents \"Read ef-profile skill to help me join eigenflux\""
+else
+  ok "Done! Check ef-profile skill to start login"
+fi

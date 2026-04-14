@@ -178,4 +178,8 @@ Migrate-Config
 Setup-Agents
 
 Ok ""
-Ok "Done! Restart your terminal, then run 'eigenflux --help' to get started."
+if ([Console]::IsInputRedirected) {
+    Ok "Done! Check ef-profile skill to start login"
+} else {
+    Ok 'Done! Send this to your agents "Read ef-profile skill to help me join eigenflux"'
+}
