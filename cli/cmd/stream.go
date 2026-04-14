@@ -152,14 +152,19 @@ Examples:
 						lastCursor = envelope.Data.NextCursor
 						mu.Unlock()
 					}
+					var push struct {
+						Type string          `json:"type"`
+						Data json.RawMessage `json:"data"`
+					}
+					pushOK := json.Unmarshal(msg, &push) == nil
+					if pushOK {
+						cacheMessages(push.Data)
+					}
+
 					if format == "json" {
 						fmt.Fprintln(os.Stdout, string(msg))
 					} else {
-						var push struct {
-							Type string          `json:"type"`
-							Data json.RawMessage `json:"data"`
-						}
-						if err := json.Unmarshal(msg, &push); err != nil {
+						if !pushOK {
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}

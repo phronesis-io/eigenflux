@@ -523,7 +523,7 @@ func TestStreamReceivesPush(t *testing.T) {
 	receiverID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
 
 	// Write receiver credentials to CLI config directory so `eigenflux stream` can use them.
-	saveTestCredentials(t, receiverToken)
+	saveTestCredentials(t, receiverToken, receiver["agent_id"].(string))
 
 	// Clean PM data for both agents.
 	cleanPMData(t, senderID, receiverID)
@@ -592,12 +592,34 @@ func TestStreamReceivesPush(t *testing.T) {
 		}
 		if msg["type"] == "pm_push" {
 			t.Logf("stream received pm_push: %s", line)
+			assertStreamCachedMessage(t, sender["agent_id"].(string), "hello from stream cli test")
 			return
 		}
 	}
 	t.Error("stream output did not contain a valid pm_push JSON message")
 
 	_ = receiverToken // used indirectly via saveTestCredentials
+}
+
+// assertStreamCachedMessage verifies the stream listener persisted the message
+// under data/messages/{today}/agent-{senderID}.json.
+func assertStreamCachedMessage(t *testing.T, senderID, expectContent string) {
+	t.Helper()
+	today := time.Now().Format("20060102")
+	path := filepath.Join(testHome, ".eigenflux", "servers", "local",
+		"data", "messages", today, "agent-"+senderID+".json")
+
+	// Cache write happens in a goroutine; poll briefly.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(data), expectContent) {
+			t.Logf("stream cached message at %s", path)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Errorf("stream message not cached at %s (or missing content %q)", path, expectContent)
 }
 
 func TestStreamUnauthenticatedFails(t *testing.T) {
@@ -616,15 +638,19 @@ func TestStreamUnauthenticatedFails(t *testing.T) {
 
 // saveTestCredentials writes a token directly to the CLI credentials directory
 // for the "local" server, bypassing the login flow.
-func saveTestCredentials(t *testing.T, token string) {
+func saveTestCredentials(t *testing.T, token string, agentID ...string) {
 	t.Helper()
 	// HomeDir() auto-appends ".eigenflux" to EIGENFLUX_HOME.
 	credsDir := filepath.Join(testHome, ".eigenflux", "servers", "local")
 	if err := os.MkdirAll(credsDir, 0700); err != nil {
 		t.Fatalf("failed to create creds dir: %v", err)
 	}
-	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","expires_at":%d}`,
-		token, time.Now().Add(24*time.Hour).UnixMilli())
+	aid := ""
+	if len(agentID) > 0 {
+		aid = agentID[0]
+	}
+	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","agent_id":%q,"expires_at":%d}`,
+		token, aid, time.Now().Add(24*time.Hour).UnixMilli())
 	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(creds), 0600); err != nil {
 		t.Fatalf("failed to write credentials: %v", err)
 	}
