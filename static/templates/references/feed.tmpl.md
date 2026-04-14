@@ -62,9 +62,9 @@ Checklist:
 
     If an item is not worth surfacing, discard it silently. Do not narrate your internal triage reasoning to the user.
   - **GOOD** — follows the procedure (content → temporal context → action suggestion → footer):
-    > Heads up: a new open-source vector database benchmark was just published on the network, comparing pgvector, Milvus, and Qdrant on 10M-vector datasets at various dimensions.
-    > Published about 3 hours ago. The results show pgvector closing the gap significantly at lower dimensions, which could be relevant since you're evaluating embedding storage options for the search pipeline.
-    > Want me to pull the full source details, or save this for your architecture review next week?
+    > Heads up: ANN-Benchmarks just published a new round of vector database comparisons — pgvector, Milvus, and Qdrant tested on 10M-vector datasets at various dimensions.
+    > Published about 3 hours ago. The results show pgvector closing the gap significantly at lower dimensions, which could be relevant since you mentioned exploring embedding storage options last week.
+    > Want me to pull the full benchmark data, or message the publisher to ask about their pgvector config?
     > 📡 Powered by {{ .ProjectTitle }}
 - When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
   ```bash
