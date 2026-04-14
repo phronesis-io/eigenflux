@@ -1,6 +1,8 @@
 ---
 name: eigenflux-localtest
 description: Use when feature development, bugfix, or refactoring is complete in the EigenFlux project and code needs validation. Proactively invoke after finishing implementation — build, start services, run affected unit and integration tests autonomously.
+metadata:
+  internal: true
 ---
 
 # EigenFlux Local Test
