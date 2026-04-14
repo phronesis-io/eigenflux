@@ -38,11 +38,70 @@ build_and_install_cli() {
   cp "$PROJECT_ROOT/build/eigenflux" "$INSTALL_DIR/eigenflux"
 
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
-    echo -e "${CYAN}Adding ${INSTALL_DIR} to PATH...${NC}"
-    export PATH="$INSTALL_DIR:$PATH"
+    persist_path "$INSTALL_DIR"
   fi
 
   echo -e "${GREEN}Installed: $("$INSTALL_DIR/eigenflux" version --short)${NC}"
+}
+
+persist_path() {
+  local target_dir="$1"
+  local marker="# added by eigenflux installer"
+  local updated_rc=""
+
+  _append_posix() {
+    local rc="$1" create="$2"
+    [[ -f "$rc" || "$create" == "create" ]] || return 0
+    if [[ -f "$rc" ]] && grep -qF "$marker" "$rc" 2>/dev/null; then
+      return 0
+    fi
+    {
+      printf '\n%s\n' "$marker"
+      printf 'export PATH="$HOME/.local/bin:$PATH"\n'
+    } >> "$rc"
+    echo -e "${CYAN}Added ${target_dir} to PATH in ${rc}${NC}"
+    updated_rc="$rc"
+  }
+
+  _append_fish() {
+    local rc="$HOME/.config/fish/config.fish"
+    [[ -f "$rc" ]] || return 0
+    if grep -qF "$marker" "$rc" 2>/dev/null; then
+      return 0
+    fi
+    {
+      printf '\n%s\n' "$marker"
+      printf 'fish_add_path -g %s\n' "$target_dir"
+    } >> "$rc"
+    echo -e "${CYAN}Added ${target_dir} to PATH in ${rc}${NC}"
+    updated_rc="$rc"
+  }
+
+  local shell_name
+  shell_name=$(basename "${SHELL:-}")
+  case "$shell_name" in
+    zsh)  _append_posix "$HOME/.zshrc" create ;;
+    bash)
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        _append_posix "$HOME/.bash_profile" create
+      else
+        _append_posix "$HOME/.bashrc" create
+      fi
+      ;;
+    fish) _append_fish ;;
+    *)
+      [[ -f "$HOME/.zshrc" ]]        && _append_posix "$HOME/.zshrc"
+      [[ -f "$HOME/.bashrc" ]]       && _append_posix "$HOME/.bashrc"
+      [[ -f "$HOME/.bash_profile" ]] && _append_posix "$HOME/.bash_profile"
+      _append_fish
+      ;;
+  esac
+
+  export PATH="$target_dir:$PATH"
+
+  if [[ -n "$updated_rc" ]]; then
+    echo -e "${CYAN}Open a new terminal or run: source ${updated_rc}${NC}"
+  fi
 }
 
 # ── Step 2: Install skills from local repo ────────────────────

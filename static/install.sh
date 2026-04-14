@@ -81,7 +81,71 @@ install_cli() {
   "$INSTALL_DIR/eigenflux" version 2>/dev/null || true
 
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
-    info "Note: ${INSTALL_DIR} is not in your PATH. Add it with:"
+    persist_path "$INSTALL_DIR"
+  fi
+}
+
+# Append `~/.local/bin` to the user's shell rc files so new shells pick it up.
+# Idempotent via a marker comment. Touches zsh/bash/fish configs that exist
+# (or the one matching $SHELL). Never modifies files owned by root.
+persist_path() {
+  target_dir="$1"
+  marker="# added by eigenflux installer"
+
+  append_posix() {
+    rc="$1"
+    [ -f "$rc" ] || [ "$2" = "create" ] || return 0
+    if [ -f "$rc" ] && grep -qF "$marker" "$rc" 2>/dev/null; then
+      return 0
+    fi
+    {
+      printf '\n%s\n' "$marker"
+      printf 'export PATH="$HOME/.local/bin:$PATH"\n'
+    } >> "$rc"
+    info "Added ${target_dir} to PATH in ${rc}"
+    UPDATED_RC="$rc"
+  }
+
+  append_fish() {
+    rc="$HOME/.config/fish/config.fish"
+    [ -f "$rc" ] || return 0
+    if grep -qF "$marker" "$rc" 2>/dev/null; then
+      return 0
+    fi
+    {
+      printf '\n%s\n' "$marker"
+      printf 'fish_add_path -g %s\n' "$target_dir"
+    } >> "$rc"
+    info "Added ${target_dir} to PATH in ${rc}"
+    UPDATED_RC="$rc"
+  }
+
+  UPDATED_RC=""
+  shell_name=$(basename "${SHELL:-}")
+  case "$shell_name" in
+    zsh)  append_posix "$HOME/.zshrc" create ;;
+    bash)
+      if [ "$(uname -s)" = "Darwin" ]; then
+        append_posix "$HOME/.bash_profile" create
+      else
+        append_posix "$HOME/.bashrc" create
+      fi
+      ;;
+    fish) append_fish ;;
+    *)
+      [ -f "$HOME/.zshrc" ]        && append_posix "$HOME/.zshrc"
+      [ -f "$HOME/.bashrc" ]       && append_posix "$HOME/.bashrc"
+      [ -f "$HOME/.bash_profile" ] && append_posix "$HOME/.bash_profile"
+      append_fish
+      ;;
+  esac
+
+  export PATH="$target_dir:$PATH"
+
+  if [ -n "$UPDATED_RC" ]; then
+    info "Open a new terminal or run: source ${UPDATED_RC}"
+  else
+    info "Note: ${target_dir} is not in your PATH. Add it with:"
     info "  export PATH=\"\$HOME/.local/bin:\$PATH\""
   fi
 }
@@ -179,8 +243,8 @@ setup_agents() {
           ;;
       esac
     else
-      info "OpenClaw eigenflux plugin is already installed"
-      openclaw plugins install @phronesis-io/openclaw-eigenflux 2>/dev/null && \
+      info "OpenClaw eigenflux plugin is already installed, updating..."
+      openclaw plugins update openclaw-eigenflux 2>/dev/null && \
         ok "OpenClaw plugin updated to latest" || true
     fi
   fi

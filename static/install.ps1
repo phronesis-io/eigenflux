@@ -162,9 +162,9 @@ function Setup-Agents {
             Info "Skipped OpenClaw plugin installation"
         }
     } else {
-        Info "OpenClaw eigenflux plugin is already installed"
+        Info "OpenClaw eigenflux plugin is already installed, updating..."
         try {
-            & openclaw plugins install @phronesis-io/openclaw-eigenflux 2>$null
+            & openclaw plugins update openclaw-eigenflux 2>$null
             Ok "OpenClaw plugin updated to latest"
         } catch {}
     }
