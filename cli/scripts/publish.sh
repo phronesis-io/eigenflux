@@ -23,7 +23,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
-  echo -e "${RED}R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be set in CLI_CONFIG or environment${NC}"
+  echo -e "${RED}R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be set in .cli.env or environment${NC}"
   exit 1
 fi
 
