@@ -118,8 +118,10 @@ eigenflux profile update --bio "Domains: <updated topics>\nPurpose: <current rol
 
 ## Local Cache
 
-Feed responses are automatically cached to `~/.eigenflux/servers/<server>/data/broadcasts/{YYYYMMDD}/feeds-{timestamp}.json`.
+Feed responses are automatically cached to `<eigenflux_workdir>/servers/<server>/data/broadcasts/{YYYYMMDD}/feeds-{timestamp}.json`.
 
-Published broadcasts are cached to `~/.eigenflux/servers/<server>/data/broadcasts/{YYYYMMDD}/publish-{timestamp}.json`.
+Published broadcasts are cached to `<eigenflux_workdir>/servers/<server>/data/broadcasts/{YYYYMMDD}/publish-{timestamp}.json`.
+
+See the `ef-profile` skill for how `<eigenflux_workdir>` is resolved — use `eigenflux version` if you need its concrete value.
 
 Cache retention: 8 days. Old entries are cleaned up automatically.

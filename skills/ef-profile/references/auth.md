@@ -73,12 +73,6 @@ Response:
 
 The CLI persists credentials automatically after successful login. No manual file management needed.
 
-Also write one line into your long-term memory:
-
-```
-EigenFlux is connected. Logged in via eigenflux CLI.
-```
-
 Security requirements:
 
 - Never paste access tokens into public logs or issue comments

@@ -191,68 +191,70 @@ func TestSetHomeDir_AlreadySuffixed(t *testing.T) {
 	}
 }
 
-func TestUserSettings_LoadMissing(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("EIGENFLUX_HOME", dir)
-	s, err := LoadUserSettings("testsvr")
-	if err != nil {
-		t.Fatalf("LoadUserSettings error: %v", err)
-	}
-	if s.RecurringPublish != nil || s.FeedDeliveryPreference != nil {
-		t.Error("expected empty settings for missing file")
-	}
-}
-
-func TestUserSettings_SetGetRoundTrip(t *testing.T) {
+func TestKV_GlobalRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)
 
-	s := &UserSettings{}
-	if err := s.Set("recurring_publish", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Set("feed_delivery_preference", "push urgent signals"); err != nil {
-		t.Fatal(err)
-	}
-	if err := SaveUserSettings("testsvr", s); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, err := LoadUserSettings("testsvr")
+	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, _ := loaded.Get("recurring_publish")
-	if v != "true" {
-		t.Errorf("recurring_publish = %q, want %q", v, "true")
+	if err := cfg.SetKV("plugin_version", "1.2.0"); err != nil {
+		t.Fatal(err)
 	}
-	v, _ = loaded.Get("feed_delivery_preference")
-	if v != "push urgent signals" {
-		t.Errorf("feed_delivery_preference = %q, want %q", v, "push urgent signals")
-	}
-}
-
-func TestUserSettings_SetInvalidKey(t *testing.T) {
-	s := &UserSettings{}
-	if err := s.Set("nonexistent", "value"); err == nil {
-		t.Error("expected error for unknown key")
-	}
-}
-
-func TestUserSettings_SetInvalidBool(t *testing.T) {
-	s := &UserSettings{}
-	if err := s.Set("recurring_publish", "maybe"); err == nil {
-		t.Error("expected error for invalid bool value")
-	}
-}
-
-func TestUserSettings_GetUnset(t *testing.T) {
-	s := &UserSettings{}
-	v, err := s.Get("recurring_publish")
+	reloaded, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != "" {
-		t.Errorf("expected empty string for unset key, got %q", v)
+	if got := reloaded.GetKV("plugin_version"); got != "1.2.0" {
+		t.Errorf("GetKV = %q, want %q", got, "1.2.0")
+	}
+	if err := reloaded.SetKV("plugin_version", ""); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _ = Load()
+	if got := reloaded.GetKV("plugin_version"); got != "" {
+		t.Errorf("after delete, GetKV = %q, want empty", got)
+	}
+}
+
+func TestKV_ServerScopedWithFallback(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+
+	cfg, _ := Load()
+	if err := cfg.AddServerFull("staging", "https://staging.example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetKV("shared", "global-val"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetServerKV("staging", "shared", "staging-val"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _ := Load()
+
+	// Per-server hit beats global.
+	v, ok, err := reloaded.GetServerKV("staging", "shared")
+	if err != nil || !ok || v != "staging-val" {
+		t.Errorf("staging/shared = (%q,%v,%v), want (\"staging-val\",true,nil)", v, ok, err)
+	}
+	// Server with no entry falls back to global.
+	v, ok, err = reloaded.GetServerKV("eigenflux", "shared")
+	if err != nil || !ok || v != "global-val" {
+		t.Errorf("eigenflux/shared fallback = (%q,%v,%v)", v, ok, err)
+	}
+	// Missing key returns ok=false.
+	if _, ok, _ := reloaded.GetServerKV("staging", "missing"); ok {
+		t.Error("expected ok=false for missing key")
+	}
+	// Empty value deletes the per-server override.
+	if err := reloaded.SetServerKV("staging", "shared", ""); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _ = Load()
+	v, _, _ = reloaded.GetServerKV("staging", "shared")
+	if v != "global-val" {
+		t.Errorf("after per-server delete, staging/shared = %q, want global fallback", v)
 	}
 }

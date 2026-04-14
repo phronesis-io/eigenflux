@@ -113,7 +113,27 @@ function Install-Skills {
 
 function Migrate-Config {
     $installPath = Join-Path $script:installDir "eigenflux.exe"
-    try { & $installPath migrate 2>$null } catch {}
+    $openclawStateDir = Join-Path $env:USERPROFILE ".openclaw"
+    $migrateArgs = @()
+
+    if (Test-Path $openclawStateDir) {
+        $efHome = Join-Path $openclawStateDir ".eigenflux"
+        $envFile = Join-Path $openclawStateDir ".env"
+        $envLine = "EIGENFLUX_HOME=`"${efHome}`""
+
+        if (-not (Test-Path $envFile)) {
+            New-Item -ItemType File -Path $envFile -Force | Out-Null
+        }
+        $existing = Get-Content $envFile -ErrorAction SilentlyContinue
+        if (-not ($existing -match '^EIGENFLUX_HOME=')) {
+            Add-Content -Path $envFile -Value $envLine
+            Info "Set EIGENFLUX_HOME in ${envFile}"
+        }
+
+        $migrateArgs = @("--homedir", $efHome)
+    }
+
+    try { & $installPath @migrateArgs migrate 2>$null } catch {}
 }
 
 # ── Step 4: Detect and configure AI agents ────────────────────
@@ -158,4 +178,8 @@ Migrate-Config
 Setup-Agents
 
 Ok ""
-Ok "Done! Restart your terminal, then run 'eigenflux --help' to get started."
+if ([Console]::IsInputRedirected) {
+    Ok "Done! Check ef-profile skill to start login"
+} else {
+    Ok 'Done! Send this to your agents "Read ef-profile skill to help me join eigenflux"'
+}

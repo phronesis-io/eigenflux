@@ -10,14 +10,16 @@ import (
 )
 
 type Server struct {
-	Name           string `json:"name"`
-	Endpoint       string `json:"endpoint"`
-	StreamEndpoint string `json:"stream_endpoint,omitempty"`
+	Name           string            `json:"name"`
+	Endpoint       string            `json:"endpoint"`
+	StreamEndpoint string            `json:"stream_endpoint,omitempty"`
+	KV             map[string]string `json:"kv,omitempty"`
 }
 
 type Config struct {
-	DefaultServer string   `json:"default_server"`
-	Servers       []Server `json:"servers"`
+	DefaultServer string            `json:"default_server"`
+	Servers       []Server          `json:"servers"`
+	KV            map[string]string `json:"kv,omitempty"`
 }
 
 const homeDirName = ".eigenflux"
@@ -124,7 +126,7 @@ func (c *Config) AddServer(name, endpoint string) error {
 
 func (c *Config) AddServerFull(name, endpoint, streamEndpoint string) error {
 	if c.findServer(name) >= 0 {
-		return fmt.Errorf("server %q already exists, use 'config server update' to modify", name)
+		return fmt.Errorf("server %q already exists, use 'eigenflux server update' to modify", name)
 	}
 	c.Servers = append(c.Servers, Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint})
 	return c.Save()
@@ -206,88 +208,62 @@ func (c *Config) serverNames() []string {
 	return names
 }
 
-// ===== User Settings =====
+// ===== KV store =====
+//
+// `eigenflux config set/get` is a free-form string key-value store backed
+// by config.json. Global entries live in Config.KV; per-server entries
+// live in Servers[i].KV. Reads with --server check the server map first,
+// then fall back to global. Empty value on set deletes the entry.
 
-// UserSettings holds per-server agent preferences.
-type UserSettings struct {
-	RecurringPublish       *bool   `json:"recurring_publish,omitempty"`
-	FeedDeliveryPreference *string `json:"feed_delivery_preference,omitempty"`
+// GetKV returns the value stored under key in Config.KV (global), or "" if absent.
+func (c *Config) GetKV(key string) string {
+	return c.KV[key]
 }
 
-func settingsPath(serverName string) string {
-	return filepath.Join(HomeDir(), "servers", serverName, "settings.json")
+// SetKV stores value under key in Config.KV (global) and persists the config.
+// Passing an empty value deletes the entry.
+func (c *Config) SetKV(key, value string) error {
+	if value == "" {
+		delete(c.KV, key)
+	} else {
+		if c.KV == nil {
+			c.KV = map[string]string{}
+		}
+		c.KV[key] = value
+	}
+	return c.Save()
 }
 
-// LoadUserSettings reads settings for the given server. Returns empty settings if file is missing.
-func LoadUserSettings(serverName string) (*UserSettings, error) {
-	data, err := os.ReadFile(settingsPath(serverName))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &UserSettings{}, nil
-		}
-		return nil, err
+// GetServerKV looks up key first in the named server's KV map, then falls
+// back to Config.KV. The boolean reports whether the key was found.
+func (c *Config) GetServerKV(serverName, key string) (string, bool, error) {
+	i := c.findServer(serverName)
+	if i < 0 {
+		return "", false, fmt.Errorf("server %q not found", serverName)
 	}
-	var s UserSettings
-	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse settings: %w", err)
+	if v, ok := c.Servers[i].KV[key]; ok {
+		return v, true, nil
 	}
-	return &s, nil
+	if v, ok := c.KV[key]; ok {
+		return v, true, nil
+	}
+	return "", false, nil
 }
 
-// SaveUserSettings writes settings for the given server.
-func SaveUserSettings(serverName string, s *UserSettings) error {
-	path := settingsPath(serverName)
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
+// SetServerKV stores value under key in the named server's KV map and persists.
+// Passing an empty value deletes the entry.
+func (c *Config) SetServerKV(serverName, key, value string) error {
+	i := c.findServer(serverName)
+	if i < 0 {
+		return fmt.Errorf("server %q not found", serverName)
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
+	if value == "" {
+		delete(c.Servers[i].KV, key)
+	} else {
+		if c.Servers[i].KV == nil {
+			c.Servers[i].KV = map[string]string{}
+		}
+		c.Servers[i].KV[key] = value
 	}
-	return os.WriteFile(path, data, 0600)
-}
-
-var validSettingsKeys = []string{"recurring_publish", "feed_delivery_preference"}
-
-// Get returns the string representation of a setting.
-func (s *UserSettings) Get(key string) (string, error) {
-	switch key {
-	case "recurring_publish":
-		if s.RecurringPublish == nil {
-			return "", nil
-		}
-		if *s.RecurringPublish {
-			return "true", nil
-		}
-		return "false", nil
-	case "feed_delivery_preference":
-		if s.FeedDeliveryPreference == nil {
-			return "", nil
-		}
-		return *s.FeedDeliveryPreference, nil
-	default:
-		return "", fmt.Errorf("unknown setting %q, valid keys: %v", key, validSettingsKeys)
-	}
-}
-
-// Set parses and sets a setting value.
-func (s *UserSettings) Set(key, value string) error {
-	switch key {
-	case "recurring_publish":
-		switch strings.ToLower(value) {
-		case "true", "1", "yes":
-			b := true
-			s.RecurringPublish = &b
-		case "false", "0", "no":
-			b := false
-			s.RecurringPublish = &b
-		default:
-			return fmt.Errorf("invalid value %q for recurring_publish, use true/false", value)
-		}
-	case "feed_delivery_preference":
-		s.FeedDeliveryPreference = &value
-	default:
-		return fmt.Errorf("unknown setting %q, valid keys: %v", key, validSettingsKeys)
-	}
-	return nil
+	return c.Save()
 }

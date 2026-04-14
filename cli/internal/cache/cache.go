@@ -60,7 +60,16 @@ func ServerDataDir(serverName string) string {
 }
 
 // SaveFeedResponse saves a feed API response to data/broadcasts/{YYYYMMDD}/feeds-{YYYYMMDD-HHmmss}.json.
+// Skips writing when both items and notifications are empty.
 func SaveFeedResponse(serverName string, rawData json.RawMessage) {
+	var check struct {
+		Items         []json.RawMessage `json:"items"`
+		Notifications []json.RawMessage `json:"notifications"`
+	}
+	if json.Unmarshal(rawData, &check) == nil &&
+		len(check.Items) == 0 && len(check.Notifications) == 0 {
+		return
+	}
 	now := time.Now()
 	dir := filepath.Join(ServerDataDir(serverName), "broadcasts", now.Format(dateFormat))
 	if err := os.MkdirAll(dir, dirPerm); err != nil {

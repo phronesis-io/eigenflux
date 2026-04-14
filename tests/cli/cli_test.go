@@ -82,10 +82,10 @@ func setup(t *testing.T) {
 	wsBaseURL := fmt.Sprintf("ws://localhost:%d", cfg.WSPort)
 
 	// Pre-add a server entry pointing at the running local API + WS.
-	mustRunCLI(t, "config", "server", "add", "--name", "local",
+	mustRunCLI(t, "server", "add", "--name", "local",
 		"--endpoint", apiBaseURL,
 		"--stream-endpoint", wsBaseURL)
-	mustRunCLI(t, "config", "server", "use", "--name", "local")
+	mustRunCLI(t, "server", "use", "--name", "local")
 }
 
 // ---------- Tests ----------
@@ -123,7 +123,7 @@ func TestServerManagement(t *testing.T) {
 	setup(t)
 
 	// server list — should show "local" as current
-	out := mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out := mustRunCLI(t, "server", "list", "--format", "json")
 	var servers []map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list: %v\nraw: %s", err, out)
@@ -142,13 +142,13 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server add — staging
-	mustRunCLI(t, "config", "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
+	mustRunCLI(t, "server", "add", "--name", "staging", "--endpoint", "https://staging.example.com")
 
 	// server update — staging
-	mustRunCLI(t, "config", "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
+	mustRunCLI(t, "server", "update", "--name", "staging", "--endpoint", "https://staging2.example.com")
 
 	// server list — should show both
-	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out = mustRunCLI(t, "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse updated server list: %v", err)
 	}
@@ -157,10 +157,10 @@ func TestServerManagement(t *testing.T) {
 	}
 
 	// server remove — staging
-	mustRunCLI(t, "config", "server", "remove", "--name", "staging")
+	mustRunCLI(t, "server", "remove", "--name", "staging")
 
 	// Verify removal
-	out = mustRunCLI(t, "config", "server", "list", "--format", "json")
+	out = mustRunCLI(t, "server", "list", "--format", "json")
 	if err := json.Unmarshal([]byte(out), &servers); err != nil {
 		t.Fatalf("failed to parse server list after remove: %v", err)
 	}
@@ -171,30 +171,47 @@ func TestServerManagement(t *testing.T) {
 	}
 }
 
-func TestConfigSettings(t *testing.T) {
+func TestConfigKV(t *testing.T) {
 	testutil.WaitForAPI(t)
 	setup(t)
 
-	// Set recurring_publish
+	// Global set/get — values are free-form strings.
 	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "true")
-
-	// Get recurring_publish
 	out := mustRunCLI(t, "config", "get", "--key", "recurring_publish")
 	if strings.TrimSpace(out) != "true" {
-		t.Errorf("expected recurring_publish=true, got %q", strings.TrimSpace(out))
+		t.Errorf("expected recurring_publish=\"true\", got %q", strings.TrimSpace(out))
 	}
 
-	// Set feed_delivery_preference
 	mustRunCLI(t, "config", "set", "--key", "feed_delivery_preference", "--value", "push urgent signals")
 
-	// Show all settings
+	// Per-server set overrides global on reads with --server; reads without
+	// --server still see the global value.
+	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "false", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
+	if strings.TrimSpace(out) != "false" {
+		t.Errorf("per-server recurring_publish = %q, want \"false\"", strings.TrimSpace(out))
+	}
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish")
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("global recurring_publish = %q, want \"true\"", strings.TrimSpace(out))
+	}
+
+	// Unset a per-server key → reads with --server fall back to global.
+	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("after per-server unset, fallback = %q, want \"true\"", strings.TrimSpace(out))
+	}
+
+	// show returns {server, server_kv, kv}.
 	out = mustRunCLI(t, "config", "show", "--format", "json")
 	v := parseJSON(t, out)
-	if v["recurring_publish"] != true {
-		t.Errorf("expected recurring_publish=true in show, got %v", v["recurring_publish"])
+	kv, _ := v["kv"].(map[string]interface{})
+	if kv["recurring_publish"] != "true" {
+		t.Errorf("show.kv.recurring_publish = %v, want \"true\"", kv["recurring_publish"])
 	}
-	if v["feed_delivery_preference"] != "push urgent signals" {
-		t.Errorf("expected feed_delivery_preference='push urgent signals', got %v", v["feed_delivery_preference"])
+	if kv["feed_delivery_preference"] != "push urgent signals" {
+		t.Errorf("show.kv.feed_delivery_preference = %v, want \"push urgent signals\"", kv["feed_delivery_preference"])
 	}
 	t.Logf("config show: %v", v)
 }
@@ -506,7 +523,7 @@ func TestStreamReceivesPush(t *testing.T) {
 	receiverID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
 
 	// Write receiver credentials to CLI config directory so `eigenflux stream` can use them.
-	saveTestCredentials(t, receiverToken)
+	saveTestCredentials(t, receiverToken, receiver["agent_id"].(string))
 
 	// Clean PM data for both agents.
 	cleanPMData(t, senderID, receiverID)
@@ -575,12 +592,34 @@ func TestStreamReceivesPush(t *testing.T) {
 		}
 		if msg["type"] == "pm_push" {
 			t.Logf("stream received pm_push: %s", line)
+			assertStreamCachedMessage(t, sender["agent_id"].(string), "hello from stream cli test")
 			return
 		}
 	}
 	t.Error("stream output did not contain a valid pm_push JSON message")
 
 	_ = receiverToken // used indirectly via saveTestCredentials
+}
+
+// assertStreamCachedMessage verifies the stream listener persisted the message
+// under data/messages/{today}/agent-{senderID}.json.
+func assertStreamCachedMessage(t *testing.T, senderID, expectContent string) {
+	t.Helper()
+	today := time.Now().Format("20060102")
+	path := filepath.Join(testHome, ".eigenflux", "servers", "local",
+		"data", "messages", today, "agent-"+senderID+".json")
+
+	// Cache write happens in a goroutine; poll briefly.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(data), expectContent) {
+			t.Logf("stream cached message at %s", path)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Errorf("stream message not cached at %s (or missing content %q)", path, expectContent)
 }
 
 func TestStreamUnauthenticatedFails(t *testing.T) {
@@ -599,15 +638,19 @@ func TestStreamUnauthenticatedFails(t *testing.T) {
 
 // saveTestCredentials writes a token directly to the CLI credentials directory
 // for the "local" server, bypassing the login flow.
-func saveTestCredentials(t *testing.T, token string) {
+func saveTestCredentials(t *testing.T, token string, agentID ...string) {
 	t.Helper()
 	// HomeDir() auto-appends ".eigenflux" to EIGENFLUX_HOME.
 	credsDir := filepath.Join(testHome, ".eigenflux", "servers", "local")
 	if err := os.MkdirAll(credsDir, 0700); err != nil {
 		t.Fatalf("failed to create creds dir: %v", err)
 	}
-	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","expires_at":%d}`,
-		token, time.Now().Add(24*time.Hour).UnixMilli())
+	aid := ""
+	if len(agentID) > 0 {
+		aid = agentID[0]
+	}
+	creds := fmt.Sprintf(`{"access_token":%q,"email":"test@test.com","agent_id":%q,"expires_at":%d}`,
+		token, aid, time.Now().Add(24*time.Hour).UnixMilli())
 	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(creds), 0600); err != nil {
 		t.Fatalf("failed to write credentials: %v", err)
 	}

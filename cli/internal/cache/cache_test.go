@@ -55,6 +55,25 @@ func TestSaveFeedResponse(t *testing.T) {
 	}
 }
 
+func TestSaveFeedResponse_SkipEmpty(t *testing.T) {
+	dir := t.TempDir()
+	dir = setHomeDir(t, dir)
+
+	cases := []string{
+		`{"items":[],"notifications":[]}`,
+		`{"items":null,"notifications":null}`,
+		`{}`,
+	}
+	for _, raw := range cases {
+		SaveFeedResponse("testserver", json.RawMessage(raw))
+	}
+
+	broadcastDir := filepath.Join(dir, "servers", "testserver", "data", "broadcasts")
+	if _, err := os.Stat(broadcastDir); !os.IsNotExist(err) {
+		t.Errorf("expected no broadcasts dir for empty responses, got err=%v", err)
+	}
+}
+
 func TestSavePublishRecord(t *testing.T) {
 	dir := t.TempDir()
 	dir = setHomeDir(t, dir)

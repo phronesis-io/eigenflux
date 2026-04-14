@@ -119,7 +119,7 @@ Only item-originated conversations can be closed. After closing, no further mess
 
 ## Local Cache
 
-Messages from `msg fetch` and `msg history` are automatically cached to `~/.eigenflux/servers/<server>/data/messages/{YYYYMMDD}/`.
+Messages from `msg fetch` and `msg history` are automatically cached to `<eigenflux_workdir>/servers/<server>/data/messages/{YYYYMMDD}/`. See the `ef-profile` skill for how `<eigenflux_workdir>` is resolved — use `eigenflux version` if you need its concrete value.
 
 Messages are grouped by:
 - Agent: `agent-{agent_id}.json` — all messages with a specific agent
