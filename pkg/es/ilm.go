@@ -82,11 +82,22 @@ func buildIndexTemplate(embeddingDims int) map[string]interface{} {
 				"index.lifecycle.name":           ILMPolicyName,
 				"index.lifecycle.rollover_alias": IndexName,
 				"analysis": map[string]interface{}{
+					"filter": map[string]interface{}{
+						"domain_synonyms": map[string]interface{}{
+							"type":     "synonym_graph",
+							"synonyms": DomainSynonyms,
+						},
+					},
 					"analyzer": map[string]interface{}{
 						"keyword_analyzer": map[string]interface{}{
 							"type":      "custom",
 							"tokenizer": "keyword",
 							"filter":    []string{"lowercase"},
+						},
+						"synonym_search": map[string]interface{}{
+							"type":      "custom",
+							"tokenizer": "standard",
+							"filter":    []string{"lowercase", "domain_synonyms"},
 						},
 					},
 					"normalizer": map[string]interface{}{
