@@ -110,6 +110,10 @@ func _imprMw() []app.HandlerFunc {
 	return nil
 }
 
+func _deleteagentimpritemsMw() []app.HandlerFunc {
+	return nil
+}
+
 func _getagentMw() []app.HandlerFunc {
 	// your code...
 	return nil

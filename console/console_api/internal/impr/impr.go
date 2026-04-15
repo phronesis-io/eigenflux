@@ -66,3 +66,12 @@ func GetSeenItems(ctx context.Context, rdb *redis.Client, agentID int64) (*SeenI
 		URLs:     urls,
 	}, nil
 }
+
+func ClearImpressions(ctx context.Context, rdb *redis.Client, agentID int64) error {
+	keys := []string{
+		fmt.Sprintf(KeyItemIDs, agentID),
+		fmt.Sprintf(KeyGroupIDs, agentID),
+		fmt.Sprintf(KeyURLs, agentID),
+	}
+	return rdb.Del(ctx, keys...).Err()
+}

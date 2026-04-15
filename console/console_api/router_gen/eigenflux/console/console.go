@@ -56,6 +56,7 @@ func Register(r *server.Hertz) {
 				{
 					_impr := _v1.Group("/impr", _imprMw()...)
 					_impr.GET("/items", append(_listagentimpritemsMw(), console.ListAgentImprItems)...)
+					_impr.DELETE("/items", append(_deleteagentimpritemsMw(), console.DeleteAgentImprItems)...)
 				}
 			}
 		}

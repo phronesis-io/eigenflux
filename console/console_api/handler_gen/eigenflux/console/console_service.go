@@ -519,6 +519,30 @@ func ListAgentImprItems(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+// DeleteAgentImprItems godoc
+// @Summary      Delete agent impression records
+// @Description  Clears all Redis impression records (items, groups, urls) for a given agent
+// @Tags         console
+// @Produce      json
+// @Param        agent_id  query  string  true  "Agent ID"
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/impr/items [DELETE]
+func DeleteAgentImprItems(ctx context.Context, c *app.RequestContext) {
+	agentIDStr := strings.TrimSpace(c.Query("agent_id"))
+	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
+	if err != nil || agentID <= 0 {
+		writeConsoleError(c, "invalid agent_id")
+		return
+	}
+
+	if err := dal.ClearAgentImprRecord(ctx, agentID); err != nil {
+		writeConsoleError(c, "clear impr records failed: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{"code": 0, "msg": "success"})
+}
+
 // ===========================================================================
 // Handlers: Milestone Rules
 // ===========================================================================

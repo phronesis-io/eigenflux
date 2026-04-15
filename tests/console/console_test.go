@@ -1055,3 +1055,39 @@ func TestConsoleGetConvMessagesInvalidID(t *testing.T) {
 		t.Fatalf("expected error code for invalid conv_id, got code=0")
 	}
 }
+
+func TestConsoleDeleteAgentImprItems(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodDelete, "/console/api/v1/impr/items?agent_id=999999999", nil)
+	var resp struct {
+		Code int32  `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code != 0 {
+		t.Fatalf("Expected code 0, got %d: %s", resp.Code, resp.Msg)
+	}
+}
+
+func TestConsoleDeleteAgentImprItemsInvalidID(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodDelete, "/console/api/v1/impr/items?agent_id=abc", nil)
+	var resp struct {
+		Code int32  `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code == 0 {
+		t.Fatalf("expected error code for invalid agent_id, got code=0")
+	}
+}
+
+func TestConsoleDeleteAgentImprItemsMissingID(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodDelete, "/console/api/v1/impr/items", nil)
+	var resp struct {
+		Code int32  `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code == 0 {
+		t.Fatalf("expected error code for missing agent_id, got code=0")
+	}
+}

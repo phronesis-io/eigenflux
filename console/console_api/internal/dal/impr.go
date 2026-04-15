@@ -42,3 +42,10 @@ func GetAgentImprRecord(ctx context.Context, agentID int64) (*AgentImprRecord, e
 		Items:    items,
 	}, nil
 }
+
+func ClearAgentImprRecord(ctx context.Context, agentID int64) error {
+	if db.RDB == nil {
+		return errors.New("redis not initialized")
+	}
+	return impr.ClearImpressions(ctx, db.RDB, agentID)
+}

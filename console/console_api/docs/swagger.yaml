@@ -765,6 +765,26 @@ paths:
       tags:
       - console
   /console/api/v1/impr/items:
+    delete:
+      description: Clears all Redis impression records (items, groups, urls) for a
+        given agent
+      parameters:
+      - description: Agent ID
+        in: query
+        name: agent_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete agent impression records
+      tags:
+      - console
     get:
       description: Returns Redis impr record and matched item details by agent_id
       parameters:

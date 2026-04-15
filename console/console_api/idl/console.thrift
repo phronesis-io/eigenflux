@@ -143,6 +143,15 @@ struct ListAgentImprItemsResp {
     3: ListAgentImprItemsData data
 }
 
+struct DeleteAgentImprItemsReq {
+    1: required i64 agent_id (api.query="agent_id")
+}
+
+struct DeleteAgentImprItemsResp {
+    1: i32 code
+    2: string msg
+}
+
 // ===== Console Milestone Rule Structs =====
 
 struct ListMilestoneRulesReq {
@@ -407,6 +416,7 @@ service ConsoleService {
     ListItemsResp ListItems(1: ListItemsReq req) (api.get="/console/api/v1/items")
     UpdateItemResp UpdateItem(1: UpdateItemReq req) (api.put="/console/api/v1/items/:item_id")
     ListAgentImprItemsResp ListAgentImprItems(1: ListAgentImprItemsReq req) (api.get="/console/api/v1/impr/items")
+    DeleteAgentImprItemsResp DeleteAgentImprItems(1: DeleteAgentImprItemsReq req) (api.delete="/console/api/v1/impr/items")
     ListMilestoneRulesResp ListMilestoneRules(1: ListMilestoneRulesReq req) (api.get="/console/api/v1/milestone-rules")
     MilestoneRuleResp CreateMilestoneRule(1: CreateMilestoneRuleReq req) (api.post="/console/api/v1/milestone-rules")
     MilestoneRuleResp UpdateMilestoneRule(1: UpdateMilestoneRuleReq req) (api.put="/console/api/v1/milestone-rules/:rule_id")
