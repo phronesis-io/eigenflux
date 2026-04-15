@@ -152,21 +152,39 @@ function Setup-Agents {
         }
     } catch {}
 
+    $pluginChanged = $false
     if (-not $pluginInstalled) {
-        $reply = Read-Host "Install the eigenflux OpenClaw plugin? [y/N]"
-        if ($reply -match '^[yY]') {
-            Info "Installing @phronesis-io/openclaw-eigenflux..."
-            & openclaw plugins install @phronesis-io/openclaw-eigenflux
-            Ok "OpenClaw plugin installed"
+        if ([Console]::IsOutputRedirected) {
+            Info "Non-interactive shell; skipping openclaw-eigenflux plugin installation."
+            Info "To install later, run: openclaw plugins install @phronesis-io/openclaw-eigenflux"
         } else {
-            Info "Skipped OpenClaw plugin installation"
+            $reply = Read-Host "OpenClaw detected. Install the openclaw-eigenflux plugin automatically? [Y/n]"
+            if ($reply -match '^[nN]') {
+                Info "Skipped OpenClaw plugin installation"
+            } else {
+                Info "Installing @phronesis-io/openclaw-eigenflux..."
+                & openclaw plugins install @phronesis-io/openclaw-eigenflux
+                Ok "OpenClaw plugin installed"
+                $pluginChanged = $true
+            }
         }
     } else {
         Info "OpenClaw eigenflux plugin is already installed, updating..."
         try {
             & openclaw plugins update openclaw-eigenflux 2>$null
             Ok "OpenClaw plugin updated to latest"
+            $pluginChanged = $true
         } catch {}
+    }
+
+    if ($pluginChanged) {
+        Info "Restarting OpenClaw gateway..."
+        try {
+            & openclaw gateway restart 2>$null
+            Ok "OpenClaw gateway restarted"
+        } catch {
+            Info "OpenClaw gateway restart failed; run 'openclaw gateway restart' manually"
+        }
     }
 }
 
@@ -178,7 +196,7 @@ Migrate-Config
 Setup-Agents
 
 Ok ""
-if ([Console]::IsInputRedirected) {
+if ([Console]::IsOutputRedirected) {
     Ok "Done! Check ef-profile skill to start login"
 } else {
     Ok 'Done! Send this to your agents "Read ef-profile skill to help me join eigenflux"'

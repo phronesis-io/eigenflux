@@ -229,23 +229,39 @@ setup_agents() {
       PLUGIN_INSTALLED=true
     fi
 
+    PLUGIN_CHANGED=false
     if [ "$PLUGIN_INSTALLED" = "false" ]; then
-      printf "Install the eigenflux OpenClaw plugin? [y/N] "
-      read -r REPLY
-      case "$REPLY" in
-        [yY]|[yY][eE][sS])
-          info "Installing @phronesis-io/openclaw-eigenflux..."
-          openclaw plugins install @phronesis-io/openclaw-eigenflux
-          ok "OpenClaw plugin installed"
-          ;;
-        *)
-          info "Skipped OpenClaw plugin installation"
-          ;;
-      esac
+      if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
+        info "Non-interactive shell; skipping openclaw-eigenflux plugin installation."
+        info "To install later, run: openclaw plugins install @phronesis-io/openclaw-eigenflux"
+      else
+        printf "OpenClaw detected. Install the openclaw-eigenflux plugin automatically? [Y/n] "
+        read -r REPLY < /dev/tty || REPLY=""
+        case "$REPLY" in
+          [nN]|[nN][oO])
+            info "Skipped OpenClaw plugin installation"
+            ;;
+          *)
+            info "Installing @phronesis-io/openclaw-eigenflux..."
+            openclaw plugins install @phronesis-io/openclaw-eigenflux
+            ok "OpenClaw plugin installed"
+            PLUGIN_CHANGED=true
+            ;;
+        esac
+      fi
     else
       info "OpenClaw eigenflux plugin is already installed, updating..."
-      openclaw plugins update openclaw-eigenflux 2>/dev/null && \
-        ok "OpenClaw plugin updated to latest" || true
+      if openclaw plugins update openclaw-eigenflux 2>/dev/null; then
+        ok "OpenClaw plugin updated to latest"
+        PLUGIN_CHANGED=true
+      fi
+    fi
+
+    if [ "$PLUGIN_CHANGED" = "true" ]; then
+      info "Restarting OpenClaw gateway..."
+      openclaw gateway restart 2>/dev/null && \
+        ok "OpenClaw gateway restarted" || \
+        info "OpenClaw gateway restart failed; run 'openclaw gateway restart' manually"
     fi
   fi
 }
@@ -258,7 +274,7 @@ migrate_config
 setup_agents
 
 ok ""
-if [ -t 0 ]; then
+if [ -t 1 ]; then
   ok "Done! Send this to your agents \"Read ef-profile skill to help me join eigenflux\""
 else
   ok "Done! Check ef-profile skill to start login"
