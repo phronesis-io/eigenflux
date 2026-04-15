@@ -114,10 +114,13 @@ func SaveMessages(serverName string, messages []CachedMessage, convItemMap map[s
 	if len(messages) == 0 {
 		return
 	}
-	myAgentID := ""
-	if p, err := LoadProfile(serverName); err == nil {
-		myAgentID = p.AgentID
+	// Skip when our own agent_id is unknown — without it, outbound messages
+	// (sender == us) would misfile under our own ID instead of the receiver's.
+	p, err := LoadProfile(serverName)
+	if err != nil || p.AgentID == "" {
+		return
 	}
+	myAgentID := p.AgentID
 	today := time.Now().Format(dateFormat)
 	dir := filepath.Join(ServerDataDir(serverName), "messages", today)
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
