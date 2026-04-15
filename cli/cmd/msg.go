@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -207,15 +206,18 @@ Examples:
 	},
 }
 
-// resolveAgentID returns the current agent's ID from profile cache or credentials.
-func resolveAgentID(serverName string) string {
+// ensureProfileCached makes a best-effort one-shot /agents/me fetch when the
+// local profile.json lacks agent_id. Needed so SaveMessages can identify
+// which side of each message is the counterpart (for filename grouping).
+func ensureProfileCached(serverName string) {
 	if p, err := cache.LoadProfile(serverName); err == nil && p.AgentID != "" {
-		return p.AgentID
+		return
 	}
-	if creds, err := auth.LoadCredentials(serverName); err == nil && creds.AgentID != "" {
-		return creds.AgentID
+	resp, err := newClient().Get("/agents/me", nil)
+	if err != nil || resp.Code != 0 {
+		return
 	}
-	return ""
+	cacheProfile(resp.Data)
 }
 
 // cacheMessages extracts messages from API response and saves to local cache (best-effort).
@@ -224,10 +226,7 @@ func cacheMessages(data json.RawMessage) {
 	if srv == "" {
 		return
 	}
-	myAgentID := resolveAgentID(srv)
-	if myAgentID == "" {
-		return
-	}
+	ensureProfileCached(srv)
 
 	var wrapper struct {
 		Messages []struct {
@@ -260,7 +259,7 @@ func cacheMessages(data json.RawMessage) {
 	}
 
 	convItemMap := cache.LoadConvItemMap(srv)
-	cache.SaveMessages(srv, myAgentID, msgs, convItemMap)
+	cache.SaveMessages(srv, msgs, convItemMap)
 	cache.Cleanup(srv, "messages")
 }
 

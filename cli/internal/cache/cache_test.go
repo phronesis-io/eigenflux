@@ -225,12 +225,13 @@ func TestSaveMessages_Dedup(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	myID := "me"
+	SaveProfile("testserver", &Profile{AgentID: myID})
 	msgs := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello", CreatedAt: 1000},
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello dup", CreatedAt: 1000},
 		{MsgID: "m2", ConvID: "c1", SenderID: myID, ReceiverID: "other", Content: "reply", CreatedAt: 2000},
 	}
-	SaveMessages("testserver", myID, msgs, nil)
+	SaveMessages("testserver", msgs, nil)
 
 	today := time.Now().Format(dateFormat)
 	path := filepath.Join(dir, "servers", "testserver", "data", "messages", today, "agent-other.json")
@@ -256,17 +257,18 @@ func TestSaveMessages_Dedup_AcrossCalls(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	myID := "me"
+	SaveProfile("testserver", &Profile{AgentID: myID})
 	msgs1 := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello", CreatedAt: 1000},
 	}
-	SaveMessages("testserver", myID, msgs1, nil)
+	SaveMessages("testserver", msgs1, nil)
 
 	// Second call with same msg_id should not create duplicates.
 	msgs2 := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello", CreatedAt: 1000},
 		{MsgID: "m2", ConvID: "c1", SenderID: myID, ReceiverID: "other", Content: "reply", CreatedAt: 2000},
 	}
-	SaveMessages("testserver", myID, msgs2, nil)
+	SaveMessages("testserver", msgs2, nil)
 
 	today := time.Now().Format(dateFormat)
 	path := filepath.Join(dir, "servers", "testserver", "data", "messages", today, "agent-other.json")
@@ -288,12 +290,13 @@ func TestSaveMessages_GroupByAgent(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	myID := "me"
+	SaveProfile("testserver", &Profile{AgentID: myID})
 	msgs := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "alice", ReceiverID: myID, Content: "from alice", CreatedAt: 1000},
 		{MsgID: "m2", ConvID: "c2", SenderID: "bob", ReceiverID: myID, Content: "from bob", CreatedAt: 2000},
 		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "alice", Content: "to alice", CreatedAt: 3000},
 	}
-	SaveMessages("testserver", myID, msgs, nil)
+	SaveMessages("testserver", msgs, nil)
 
 	today := time.Now().Format(dateFormat)
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", today)
@@ -328,6 +331,7 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	myID := "me"
+	SaveProfile("testserver", &Profile{AgentID: myID})
 	convItemMap := map[string]string{
 		"c1": "100",
 		"c2": "200",
@@ -337,7 +341,7 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 		{MsgID: "m2", ConvID: "c2", SenderID: "other2", ReceiverID: myID, Content: "about item 200", CreatedAt: 2000},
 		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "other", Content: "reply about item 100", CreatedAt: 3000},
 	}
-	SaveMessages("testserver", myID, msgs, convItemMap)
+	SaveMessages("testserver", msgs, convItemMap)
 
 	today := time.Now().Format(dateFormat)
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", today)
@@ -371,8 +375,8 @@ func TestSaveMessages_Empty(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	// Saving empty messages should be a no-op.
-	SaveMessages("testserver", "me", nil, nil)
-	SaveMessages("testserver", "me", []CachedMessage{}, nil)
+	SaveMessages("testserver", nil, nil)
+	SaveMessages("testserver", []CachedMessage{}, nil)
 
 	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages")
 	if _, err := os.Stat(msgDir); !os.IsNotExist(err) {

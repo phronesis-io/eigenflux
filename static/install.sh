@@ -232,8 +232,10 @@ setup_agents() {
     PLUGIN_CHANGED=false
     if [ "$PLUGIN_INSTALLED" = "false" ]; then
       if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
-        info "Non-interactive shell; skipping openclaw-eigenflux plugin installation."
-        info "To install later, run: openclaw plugins install @phronesis-io/openclaw-eigenflux"
+        info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
+        openclaw plugins install @phronesis-io/openclaw-eigenflux
+        ok "OpenClaw plugin installed"
+        PLUGIN_CHANGED=true
       else
         printf "OpenClaw detected. Install the openclaw-eigenflux plugin automatically? [Y/n] "
         read -r REPLY < /dev/tty || REPLY=""

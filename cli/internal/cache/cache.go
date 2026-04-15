@@ -105,12 +105,18 @@ func SavePublishRecord(serverName string, request, response json.RawMessage) {
 	}
 }
 
-// SaveMessages saves messages grouped by counterpart agent and item.
-// For each message, the counterpart is the agent_id that is not myAgentID.
-// Messages are deduped by msg_id, merged with existing files, and sorted by created_at DESC.
-func SaveMessages(serverName, myAgentID string, messages []CachedMessage, convItemMap map[string]string) {
+// SaveMessages saves messages grouped by counterpart agent and item. The
+// counterpart for each message is the agent_id that is not ours — we read our
+// own agent_id from profile.json so callers don't have to pass it. Messages
+// are deduped by msg_id, merged with existing files, and sorted by created_at
+// DESC.
+func SaveMessages(serverName string, messages []CachedMessage, convItemMap map[string]string) {
 	if len(messages) == 0 {
 		return
+	}
+	myAgentID := ""
+	if p, err := LoadProfile(serverName); err == nil {
+		myAgentID = p.AgentID
 	}
 	today := time.Now().Format(dateFormat)
 	dir := filepath.Join(ServerDataDir(serverName), "messages", today)

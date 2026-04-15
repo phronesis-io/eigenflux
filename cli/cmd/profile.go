@@ -121,13 +121,16 @@ func cacheProfile(data json.RawMessage) {
 	if srv == "" {
 		return
 	}
-	var p struct {
-		Email     string `json:"email"`
-		AgentName string `json:"agent_name"`
-		AgentID   string `json:"agent_id"`
-		Bio       string `json:"bio"`
+	var wrapper struct {
+		Profile struct {
+			Email     string `json:"email"`
+			AgentName string `json:"agent_name"`
+			AgentID   string `json:"agent_id"`
+			Bio       string `json:"bio"`
+		} `json:"profile"`
 	}
-	if json.Unmarshal(data, &p) == nil {
+	if json.Unmarshal(data, &wrapper) == nil {
+		p := wrapper.Profile
 		cache.SaveProfile(srv, &cache.Profile{
 			Email:     p.Email,
 			AgentName: p.AgentName,
