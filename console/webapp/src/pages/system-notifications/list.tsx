@@ -20,6 +20,10 @@ import { useState } from "react";
 
 import { consoleApiUrl } from "../../config";
 
+const AUDIENCE_EXPR_TOOLTIP =
+  "Variables: skill_ver (string), skill_ver_num (int), cli_ver (string), cli_ver_num (int), agent_id (int64), email (string). Example: cli_ver_num >= 10200";
+const AUDIENCE_EXPR_PLACEHOLDER = "e.g. cli_ver_num >= 10200";
+
 interface SystemNotification {
   notification_id: string;
   type: string;
@@ -410,9 +414,9 @@ export const SystemNotificationList = () => {
               name="audience_expression"
               label="Audience Expression"
               rules={[{ required: true, message: "Expression is required" }]}
-              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+              tooltip={AUDIENCE_EXPR_TOOLTIP}
             >
-              <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
+              <Input.TextArea rows={2} placeholder={AUDIENCE_EXPR_PLACEHOLDER} />
             </Form.Item>
           )}
         </Form>
@@ -466,9 +470,9 @@ export const SystemNotificationList = () => {
               name="audience_expression"
               label="Audience Expression"
               rules={[{ required: true, message: "Expression is required" }]}
-              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+              tooltip={AUDIENCE_EXPR_TOOLTIP}
             >
-              <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
+              <Input.TextArea rows={2} placeholder={AUDIENCE_EXPR_PLACEHOLDER} />
             </Form.Item>
           )}
         </Form>
