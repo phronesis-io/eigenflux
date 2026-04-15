@@ -271,9 +271,12 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		if sep := strings.IndexByte(val, ':'); sep > 0 {
 			cachedID := val[:sep]
 			cachedOTP := val[sep+1:]
+			// 1-minute safety buffer: if the existing challenge is about to
+			// expire, issue a fresh one so the user has enough time to enter
+			// the OTP after receiving the email.
 			if existing, cerr := dal.GetChallenge(db.DB, cachedID); cerr == nil &&
 				existing != nil && existing.Status == 0 &&
-				existing.ExpireAt > time.Now().UnixMilli() {
+				existing.ExpireAt > time.Now().Add(time.Minute).UnixMilli() {
 				challengeID = cachedID
 				otpCode = cachedOTP
 				expireAt = existing.ExpireAt

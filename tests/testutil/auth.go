@@ -80,7 +80,7 @@ func LoginAndGetToken(t *testing.T, email string) (token string, agentID int64, 
 		data["is_new_agent"].(bool)
 }
 
-// CleanupTestEmails cleans up all DB records and Redis rate-limit/cooldown keys
+// CleanupTestEmails cleans up all DB records and Redis rate-limit keys
 // for the given emails.
 func CleanupTestEmails(t *testing.T, emails ...string) {
 	t.Helper()
@@ -101,7 +101,7 @@ func CleanupTestEmails(t *testing.T, emails ...string) {
 
 		h := sha256.Sum256([]byte(email))
 		emailHash := hex.EncodeToString(h[:])
-		rdb.Del(ctx, "auth:login:email:cooldown:"+emailHash)
+		rdb.Del(ctx, "auth:login:email:active:"+emailHash)
 	}
 
 	for _, ip := range []string{"127.0.0.1", "::1", "[::1]"} {
