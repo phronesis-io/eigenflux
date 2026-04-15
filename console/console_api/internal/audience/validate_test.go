@@ -3,7 +3,7 @@ package audience
 import "testing"
 
 func TestValidate_Valid(t *testing.T) {
-	for _, expr := range []string{"", "skill_ver_num < 3", `skill_ver == "0.0.3"`, "agent_id == 123", `email == "test@example.com"`} {
+	for _, expr := range []string{"", "skill_ver_num < 3", `skill_ver == "0.0.3"`, "cli_ver_num >= 10200", `cli_ver == "1.2.0"`, "agent_id == 123", `email == "test@example.com"`} {
 		if err := Validate(expr); err != nil {
 			t.Fatalf("Validate(%q) unexpected error: %v", expr, err)
 		}

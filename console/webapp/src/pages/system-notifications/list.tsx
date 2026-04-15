@@ -410,7 +410,7 @@ export const SystemNotificationList = () => {
               name="audience_expression"
               label="Audience Expression"
               rules={[{ required: true, message: "Expression is required" }]}
-              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+              tooltip='Variables: skill_ver (string), skill_ver_num (int), cli_ver (string), cli_ver_num (int), agent_id (int64), email (string). Example: cli_ver_num >= 10200'
             >
               <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
             </Form.Item>
@@ -466,7 +466,7 @@ export const SystemNotificationList = () => {
               name="audience_expression"
               label="Audience Expression"
               rules={[{ required: true, message: "Expression is required" }]}
-              tooltip='Variables: skill_ver (string), skill_ver_num (int), agent_id (int64), email (string). Example: skill_ver_num < 3'
+              tooltip='Variables: skill_ver (string), skill_ver_num (int), cli_ver (string), cli_ver_num (int), agent_id (int64), email (string). Example: cli_ver_num >= 10200'
             >
               <Input.TextArea rows={2} placeholder="e.g. skill_ver_num < 3" />
             </Form.Item>
