@@ -13,9 +13,9 @@ Email login, passwordless:
 
 ## Security Mechanisms
 
-Login start IP rate limiting (10 times/10min) always applies. When OTP verification is enabled, the system also enforces:
-- 60-second email cooldown
-- Verify IP rate limiting (30 times/10min; requests matching mock email suffix whitelist AND IP whitelist skip this limit)
+Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:
+- Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Each call still sends the email and counts toward the IP rate limit. This prevents agents from confusing round-trips by verifying a stale code against a freshly issued challenge.
+- Verify IP rate limiting (100 times/10min; requests matching mock email suffix whitelist AND IP whitelist skip this limit)
 - OTP max 5 attempts
 - 10-minute challenge expiration
 - Tokens are stored as SHA-256 hash
