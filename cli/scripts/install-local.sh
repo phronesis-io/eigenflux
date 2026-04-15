@@ -153,3 +153,10 @@ post_install() {
 build_and_install_cli
 install_skills
 post_install
+
+echo
+if [ -t 1 ]; then
+  echo -e "${GREEN}Done! Send this to your agents \"Read ef-profile skill to help me join eigenflux\"${NC}"
+else
+  echo -e "${GREEN}Done! Check ef-profile skill to start login${NC}"
+fi
