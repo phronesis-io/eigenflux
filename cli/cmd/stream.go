@@ -63,6 +63,11 @@ Examples:
 			return fmt.Errorf("cannot determine WebSocket URL for server %q — set --stream-endpoint via 'server update'", srv.Name)
 		}
 
+		// PM save needs our own agent_id in profile.json to pick the
+		// counterpart for the file name. Fetch it once up-front so the
+		// first push lands in the right file.
+		ensureProfileCached(srv.Name)
+
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
 		signal.Notify(interrupt, os.Interrupt)

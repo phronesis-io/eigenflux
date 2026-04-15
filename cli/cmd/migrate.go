@@ -16,6 +16,7 @@ import (
 const (
 	defaultEndpoint       = "https://www.eigenflux.ai"
 	defaultStreamEndpoint = "wss://stream.eigenflux.ai"
+	defaultServerName     = "eigenflux"
 )
 
 var migrateCmd = &cobra.Command{
@@ -69,9 +70,26 @@ Examples:
 		}
 
 		plugin, ok := ocConfig.Plugins.Entries["openclaw-eigenflux"]
-		if !ok || len(plugin.Config.Servers) == 0 {
+		if !ok {
 			output.PrintMessage("No eigenflux plugin config found in OpenClaw")
 			return nil
+		}
+
+		// The OpenClaw plugin always treated "eigenflux" as the implicit first
+		// server even when not listed in servers[]. Mirror that here so the
+		// default server (and its credentials) are not lost on migration.
+		hasDefault := false
+		for _, srv := range plugin.Config.Servers {
+			if srv.Name == defaultServerName {
+				hasDefault = true
+				break
+			}
+		}
+		if !hasDefault {
+			plugin.Config.Servers = append([]struct {
+				Name     string `json:"name"`
+				Endpoint string `json:"endpoint,omitempty"`
+			}{{Name: defaultServerName, Endpoint: defaultEndpoint}}, plugin.Config.Servers...)
 		}
 
 		// Build CLI config
@@ -155,6 +173,10 @@ Examples:
 			output.PrintMessage("%s%s (%s)", marker, s.Name, s.Endpoint)
 		}
 		output.PrintMessage("Migrated %d server(s), %d credential(s)", len(cfg.Servers), migrated)
+
+		if migrated > 0 {
+			ensureProfileCached(cfg.DefaultServer)
+		}
 
 		if err := clearOpenClawPluginConfig(ocConfigPath); err != nil {
 			output.PrintMessage("Warning: failed to clear OpenClaw plugin config: %v", err)

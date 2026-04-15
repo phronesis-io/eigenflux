@@ -10,6 +10,7 @@ import (
 
 var (
 	version     string
+	commit      string
 	serverFlag  string
 	formatFlag  string
 	homeDirFlag string
@@ -19,6 +20,10 @@ var (
 
 func SetVersion(v string) {
 	version = v
+}
+
+func SetCommit(c string) {
+	commit = c
 }
 
 var rootCmd = &cobra.Command{

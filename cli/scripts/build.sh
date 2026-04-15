@@ -13,6 +13,8 @@ BUILD_DIR="$PROJECT_ROOT/build/cli"
 
 source "$CLI_DIR/.cli.config"
 
+CLI_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
@@ -37,7 +39,7 @@ fi
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-echo -e "${CYAN}Building eigenflux CLI v${CLI_VERSION}${NC}"
+echo -e "${CYAN}Building eigenflux CLI v${CLI_VERSION} (commit ${CLI_COMMIT})${NC}"
 echo ""
 
 failed=0
@@ -52,7 +54,7 @@ for platform in "${PLATFORMS[@]}"; do
 
   echo -ne "${CYAN}Compiling ${os}/${arch} ...${NC} "
   if GOOS="$os" GOARCH="$arch" "${GO_CMD[@]}" build \
-    -ldflags "-X main.Version=${CLI_VERSION}" \
+    -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT}" \
     -o "$BUILD_DIR/$bin_name" . 2>&1; then
     echo -e "${GREEN}OK${NC}"
   else

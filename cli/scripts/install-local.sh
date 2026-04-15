@@ -12,6 +12,8 @@ PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 
 source "$CLI_DIR/.cli.config"
 
+CLI_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
+
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 NC='\033[0m'
@@ -31,7 +33,7 @@ build_and_install_cli() {
     GO_CMD=(go)
   fi
 
-  "${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION}" -o "$PROJECT_ROOT/build/eigenflux" .
+  "${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT}" -o "$PROJECT_ROOT/build/eigenflux" .
 
   mkdir -p "$INSTALL_DIR"
   rm -f "$INSTALL_DIR/eigenflux"
