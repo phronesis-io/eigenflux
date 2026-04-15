@@ -173,8 +173,8 @@ function Setup-Agents {
         try {
             & openclaw plugins update openclaw-eigenflux 2>$null
             Ok "OpenClaw plugin updated to latest"
+            $pluginChanged = $true
         } catch {}
-        $pluginChanged = $true
     }
 
     if ($pluginChanged) {

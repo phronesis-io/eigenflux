@@ -253,8 +253,8 @@ setup_agents() {
       info "OpenClaw eigenflux plugin is already installed, updating..."
       if openclaw plugins update openclaw-eigenflux 2>/dev/null; then
         ok "OpenClaw plugin updated to latest"
+        PLUGIN_CHANGED=true
       fi
-      PLUGIN_CHANGED=true
     fi
 
     if [ "$PLUGIN_CHANGED" = "true" ]; then
