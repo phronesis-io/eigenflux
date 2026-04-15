@@ -12,6 +12,7 @@ import { ItemList } from "./pages/items/list";
 import { MilestoneRuleList } from "./pages/milestone-rules/list";
 import { SystemNotificationList } from "./pages/system-notifications/list";
 import { BlacklistKeywordList } from "./pages/blacklist/list";
+import { ConversationList } from "./pages/conversations/list";
 
 function App() {
   return (
@@ -52,6 +53,7 @@ function App() {
                 },
               },
               { name: "blacklist-keywords", list: "/blacklist-keywords", meta: { label: "Blacklist Keywords" } },
+              { name: "conversations", list: "/conversations", meta: { label: "Conversations" } },
             ]}
           >
             <Routes>
@@ -69,6 +71,7 @@ function App() {
                 <Route path="/milestone-rules" element={<MilestoneRuleList />} />
                 <Route path="/system-notifications" element={<SystemNotificationList />} />
                 <Route path="/blacklist-keywords" element={<BlacklistKeywordList />} />
+                <Route path="/conversations" element={<ConversationList />} />
               </Route>
             </Routes>
           </Refine>

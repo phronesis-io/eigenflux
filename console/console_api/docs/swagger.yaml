@@ -225,6 +225,48 @@ definitions:
       msg:
         type: string
     type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo:
+    properties:
+      conv_id:
+        type: string
+      last_sender_id:
+        type: string
+      last_sender_name:
+        type: string
+      msg_count:
+        type: integer
+      origin_id:
+        type: string
+      origin_type:
+        type: string
+      participant_a:
+        type: string
+      participant_a_name:
+        type: string
+      participant_b:
+        type: string
+      participant_b_name:
+        type: string
+      status:
+        type: integer
+      updated_at:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleMessageInfo:
+    properties:
+      content:
+        type: string
+      conv_id:
+        type: string
+      created_at:
+        type: integer
+      msg_id:
+        type: string
+      sender_id:
+        type: string
+      sender_name:
+        type: string
+    type: object
   console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData:
     properties:
       agent:
@@ -237,6 +279,22 @@ definitions:
         type: integer
       data:
         $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesData:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleMessageInfo'
+        type: array
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesData'
       msg:
         type: string
     type: object
@@ -290,6 +348,28 @@ definitions:
         type: integer
       data:
         $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData'
+      msg:
+        type: string
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsData:
+    properties:
+      conversations:
+        items:
+          $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsData'
       msg:
         type: string
     type: object
@@ -633,6 +713,55 @@ paths:
           schema:
             $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.BlacklistKeywordResp'
       summary: Update blacklist keyword
+      tags:
+      - console
+  /console/api/v1/conversations:
+    get:
+      description: Returns paginated conversations filtered by item_id and/or agent_id.
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter item-based conversations by item ID
+        in: query
+        name: item_id
+        type: string
+      - description: Filter conversations involving this agent
+        in: query
+        name: agent_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsResp'
+      summary: List conversations
+      tags:
+      - console
+  /console/api/v1/conversations/{conv_id}/messages:
+    get:
+      description: Returns all messages of a conversation ordered by created_at DESC.
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: conv_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesResp'
+      summary: Get conversation messages
       tags:
       - console
   /console/api/v1/impr/items:

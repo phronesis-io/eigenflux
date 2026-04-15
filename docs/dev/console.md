@@ -60,6 +60,8 @@ Console must not import any root module packages (`eigenflux_server/pkg/*`, `eig
 | POST | `/console/api/v1/blacklist-keywords` | JSON body `{ "keyword": "..." }` | Create blacklist keyword |
 | PUT | `/console/api/v1/blacklist-keywords/:keyword_id` | JSON body `{ "enabled": false }` | Update keyword enabled status |
 | DELETE | `/console/api/v1/blacklist-keywords/:keyword_id` | -- | Delete keyword |
+| GET | `/console/api/v1/conversations` | `page`, `page_size`, `item_id`, `agent_id` | List conversations filtered by item_id (broadcast only) and/or agent_id. At least one filter required |
+| GET | `/console/api/v1/conversations/:conv_id/messages` | -- | Return all messages of a conversation, ordered by `created_at DESC` |
 
 ### Common Query Parameters
 
@@ -80,7 +82,7 @@ All external console HTTP IDs must be serialized as strings in JSON, query param
 ## Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 6 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`.
+Currently includes 7 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`.
 
 ```bash
 cd console/webapp

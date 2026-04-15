@@ -203,7 +203,7 @@ export const AgentList = () => {
     {
       title: "Actions",
       key: "actions",
-      width: 160,
+      width: 240,
       fixed: "right",
       render: (_, record) => (
         <div style={{ display: "flex", gap: 8 }}>
@@ -215,6 +215,14 @@ export const AgentList = () => {
             onClick={() => navigate(`/impr?agent_id=${encodeURIComponent(record.agent_id)}`)}
           >
             Impr
+          </Button>
+          <Button
+            size="small"
+            onClick={() =>
+              navigate(`/conversations?agent_id=${encodeURIComponent(record.agent_id)}`)
+            }
+          >
+            Conversations
           </Button>
         </div>
       ),
@@ -288,7 +296,7 @@ export const AgentList = () => {
           columns={columns}
           rowKey="agent_id"
           loading={query.isLoading}
-          scroll={{ x: 1580 }}
+          scroll={{ x: 1660 }}
           pagination={{
             current,
             pageSize,
