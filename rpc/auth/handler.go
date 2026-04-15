@@ -248,59 +248,82 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		return s.buildStartLoginDirectResp(loginResp), nil
 	}
 
-	// Check email cooldown (60 s)
-	cooldownKey := "auth:login:email:cooldown:" + emailHash
-	ttl, err := mq.RDB.TTL(ctx, cooldownKey).Result()
-	if err == nil && ttl > 0 {
-		return &auth.StartLoginResp{
-			BaseResp: &base.BaseResp{Code: 429, Msg: "too many requests, please wait before retrying"},
-		}, nil
-	}
-
-	// IP rate limit: 10 per 10 min
+	// IP rate limit: 30 per 10 min. Each StartLogin call counts toward this
+	// quota — even if the challenge/OTP is reused for the same email — so a
+	// client cannot fan out email sends without bound.
 	if clientIP != "" && !mockBypass {
 		ipKey := "auth:login:start:email:ip:" + clientIP
-		if resp := checkIPRateLimit(ctx, ipKey, 10, 10*time.Minute, "too many requests from this IP"); resp != nil {
+		if resp := checkIPRateLimit(ctx, ipKey, 30, 10*time.Minute, "too many requests from this IP"); resp != nil {
 			return &auth.StartLoginResp{BaseResp: resp}, nil
 		}
 	}
 
-	// Generate challenge_id and OTP
-	challengeID := "ch_" + uuid.New().String()
-	otpCode, err := generateOTP()
-	if err != nil {
-		return &auth.StartLoginResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate OTP"},
-		}, nil
+	// Within the 10-minute challenge validity window, repeated StartLogin for
+	// the same email must return the same challenge_id and the same OTP. This
+	// prevents agents from mixing up round-trips (verifying a stale code
+	// against a freshly issued challenge).
+	activeKey := "auth:login:email:active:" + emailHash
+	var challengeID string
+	var otpCode string
+	var expireAt int64
+
+	if val, gerr := mq.RDB.Get(ctx, activeKey).Result(); gerr == nil && val != "" {
+		if sep := strings.IndexByte(val, ':'); sep > 0 {
+			cachedID := val[:sep]
+			cachedOTP := val[sep+1:]
+			if existing, cerr := dal.GetChallenge(db.DB, cachedID); cerr == nil &&
+				existing != nil && existing.Status == 0 &&
+				existing.ExpireAt > time.Now().UnixMilli() {
+				challengeID = cachedID
+				otpCode = cachedOTP
+				expireAt = existing.ExpireAt
+			}
+		}
 	}
 
-	codeHash := sha256Hex(otpCode)
+	if challengeID == "" {
+		newID := "ch_" + uuid.New().String()
+		newOTP, gerr := generateOTP()
+		if gerr != nil {
+			return &auth.StartLoginResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate OTP"},
+			}, nil
+		}
 
-	now := time.Now().UnixMilli()
-	expireAt := now + 600_000 // 10 minutes in ms
+		now := time.Now().UnixMilli()
+		newExpireAt := now + 600_000 // 10 minutes in ms
 
-	emailVal := normalizedEmail
-	challenge := &dal.AuthEmailChallenge{
-		ChallengeID:  challengeID,
-		LoginMethod:  req.LoginMethod,
-		Email:        &emailVal,
-		CodeHash:     codeHash,
-		Status:       0,
-		AttemptCount: 0,
-		MaxAttempts:  5,
-		ExpireAt:     expireAt,
-		CreatedAt:    now,
-		ClientIP:     req.ClientIp,
-		UserAgent:    req.UserAgent,
+		emailVal := normalizedEmail
+		challenge := &dal.AuthEmailChallenge{
+			ChallengeID:  newID,
+			LoginMethod:  req.LoginMethod,
+			Email:        &emailVal,
+			CodeHash:     sha256Hex(newOTP),
+			Status:       0,
+			AttemptCount: 0,
+			MaxAttempts:  5,
+			ExpireAt:     newExpireAt,
+			CreatedAt:    now,
+			ClientIP:     req.ClientIp,
+			UserAgent:    req.UserAgent,
+		}
+
+		if cerr := dal.CreateChallenge(db.DB, challenge); cerr != nil {
+			return &auth.StartLoginResp{
+				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create challenge: " + cerr.Error()},
+			}, nil
+		}
+
+		mq.RDB.Set(ctx, activeKey, newID+":"+newOTP, 10*time.Minute)
+
+		challengeID = newID
+		otpCode = newOTP
+		expireAt = newExpireAt
 	}
 
-	if err := dal.CreateChallenge(db.DB, challenge); err != nil {
-		return &auth.StartLoginResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create challenge: " + err.Error()},
-		}, nil
-	}
-
-	// Send email (skip for mock OTP targets).
+	// Send email on every call (skip for mock OTP targets). Reuse of the
+	// challenge does not suppress the email — the IP rate limit is the
+	// throttle.
 	if s.isMockOTPEmail(normalizedEmail) {
 		if !mockBypass {
 			logger.Ctx(ctx).Warn("mock OTP email suffix matched but client IP not in whitelist, rejecting", "emailMasked", logger.MaskEmail(normalizedEmail), "clientIP", clientIP)
@@ -318,13 +341,16 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		}
 	}
 
-	// Set email cooldown
-	mq.RDB.Set(ctx, cooldownKey, "1", 60*time.Second)
+	expiresInSec := int32((expireAt - time.Now().UnixMilli()) / 1000)
+	if expiresInSec < 0 {
+		expiresInSec = 0
+	}
+	resendAfterSec := int32(0)
 
 	return &auth.StartLoginResp{
 		ChallengeId:          &challengeID,
-		ExpiresInSec:         func() *int32 { v := int32(600); return &v }(),
-		ResendAfterSec:       func() *int32 { v := int32(60); return &v }(),
+		ExpiresInSec:         &expiresInSec,
+		ResendAfterSec:       &resendAfterSec,
 		VerificationRequired: boolPtr(true),
 		BaseResp:             &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
@@ -355,7 +381,7 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 	if err != nil {
 		if req.ClientIp != nil && *req.ClientIp != "" {
 			ipKey := "auth:login:verify:email:ip:" + *req.ClientIp
-			if resp := checkIPRateLimit(ctx, ipKey, 30, 10*time.Minute, "too many verify attempts from this IP"); resp != nil {
+			if resp := checkIPRateLimit(ctx, ipKey, 100, 10*time.Minute, "too many verify attempts from this IP"); resp != nil {
 				return &auth.VerifyLoginResp{BaseResp: resp}, nil
 			}
 		}
@@ -373,10 +399,10 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 		challengeEmail = *challenge.Email
 	}
 
-	// IP rate limit: 30 per 10 min, unless the request is using mock email+IP allowlist.
+	// IP rate limit: 100 per 10 min, unless the request is using mock email+IP allowlist.
 	if clientIP != "" && !s.isMockOTPBypass(challengeEmail, clientIP) {
 		ipKey := "auth:login:verify:email:ip:" + clientIP
-		if resp := checkIPRateLimit(ctx, ipKey, 30, 10*time.Minute, "too many verify attempts from this IP"); resp != nil {
+		if resp := checkIPRateLimit(ctx, ipKey, 100, 10*time.Minute, "too many verify attempts from this IP"); resp != nil {
 			return &auth.VerifyLoginResp{BaseResp: resp}, nil
 		}
 	}

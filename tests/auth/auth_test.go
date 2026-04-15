@@ -72,8 +72,8 @@ func TestAuthLoginFlow(t *testing.T) {
 		"auth_new@test.com", "auth_existing@test.com",
 		"auth_wrongotp@test.com", "auth_maxattempts@test.com",
 		"auth_replay@test.com", "auth_expired@test.com",
-		"auth_case_identity@test.com", "auth_case_cooldown@test.com",
-		"auth_cooldown_ip_limit@test.com",
+		"auth_case_identity@test.com", "auth_case_reuse@test.com",
+		"auth_reuse_ip_limit@test.com",
 		"auth_mock_start_bypass@test.com", "auth_mock_verify_bypass@test.com",
 	}
 	testutil.CleanupTestEmails(t, allEmails...)
@@ -94,8 +94,8 @@ func TestAuthLoginFlow(t *testing.T) {
 			if expiresIn <= 0 {
 				t.Fatalf("expected positive expires_in_sec, got %d", expiresIn)
 			}
-			if resendAfter <= 0 {
-				t.Fatalf("expected positive resend_after_sec, got %d", resendAfter)
+			if resendAfter < 0 {
+				t.Fatalf("expected non-negative resend_after_sec, got %d", resendAfter)
 			}
 			if startData["verification_required"] != true {
 				t.Fatalf("expected verification_required=true, got %v", startData["verification_required"])
@@ -153,10 +153,6 @@ func TestAuthLoginFlow(t *testing.T) {
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 		testutil.LoginAndGetToken(t, email)
-		if emailVerificationEnabled {
-			h := sha256.Sum256([]byte(email))
-			testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
-		}
 
 		token, _, isNew := testutil.LoginAndGetToken(t, email)
 		if isNew {
@@ -191,11 +187,6 @@ func TestAuthLoginFlow(t *testing.T) {
 			t.Fatal("expected first login to create new agent")
 		}
 
-		if emailVerificationEnabled {
-			h := sha256.Sum256([]byte(emailLower))
-			testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
-		}
-
 		startB := testutil.LoginStart(t, emailLower)
 		dataB := startB
 		if _, ok := startB["access_token"].(string); !ok || startB["access_token"].(string) == "" {
@@ -215,9 +206,9 @@ func TestAuthLoginFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("EmailNormalization_CooldownCaseInsensitive", func(t *testing.T) {
-		emailLower := "auth_case_cooldown@test.com"
-		emailUpper := "AUTH_CASE_COOLDOWN@TEST.COM"
+	t.Run("EmailNormalization_ReuseCaseInsensitive", func(t *testing.T) {
+		emailLower := "auth_case_reuse@test.com"
+		emailUpper := "AUTH_CASE_REUSE@TEST.COM"
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, emailLower, emailUpper) })
 
 		resp1 := testutil.LoginStartRaw(t, map[string]string{
@@ -232,30 +223,36 @@ func TestAuthLoginFlow(t *testing.T) {
 			"login_method": "email",
 			"email":        emailLower,
 		})
-		if emailVerificationEnabled {
-			if int(resp2["code"].(float64)) != 429 {
-				t.Fatalf("expected case-insensitive cooldown hit (429), got code=%v msg=%v", resp2["code"], resp2["msg"])
-			}
-		} else {
-			if int(resp2["code"].(float64)) != 0 {
-				t.Fatalf("expected second direct login to succeed, got code=%v msg=%v", resp2["code"], resp2["msg"])
-			}
+		if int(resp2["code"].(float64)) != 0 {
+			t.Fatalf("second login start failed: %v", resp2["msg"])
+		}
+		if !emailVerificationEnabled {
+			return
+		}
+		data1 := resp1["data"].(map[string]interface{})
+		data2 := resp2["data"].(map[string]interface{})
+		id1, _ := data1["challenge_id"].(string)
+		id2, _ := data2["challenge_id"].(string)
+		if id1 == "" || id2 == "" {
+			t.Fatalf("expected challenge_id in both responses, got %v / %v", data1["challenge_id"], data2["challenge_id"])
+		}
+		if id1 != id2 {
+			t.Fatalf("expected same challenge_id across case-insensitive retries, got %s vs %s", id1, id2)
 		}
 	})
 
 	if emailVerificationEnabled {
-		t.Run("CooldownRetries_DoNotConsumeStartIPQuota", func(t *testing.T) {
-			email := "auth_cooldown_ip_limit@test.com"
-			ip := "203.0.113.20"
+		t.Run("RepeatedStartLogin_ReusesChallengeAndOTP", func(t *testing.T) {
+			email := "auth_reuse_ip_limit@test.com"
+			ip := mockWhitelistedIP(t)
 			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 			ctx := context.Background()
 			rdb := testutil.GetTestRedis()
 			emailHash := sha256.Sum256([]byte(email))
-			cooldownKey := "auth:login:email:cooldown:" + hex.EncodeToString(emailHash[:])
-			ipKey := "auth:login:start:email:ip:" + ip
-			if err := rdb.Del(ctx, cooldownKey, ipKey).Err(); err != nil {
-				t.Fatalf("failed to reset cooldown/rate-limit keys: %v", err)
+			activeKey := "auth:login:email:active:" + hex.EncodeToString(emailHash[:])
+			if err := rdb.Del(ctx, activeKey).Err(); err != nil {
+				t.Fatalf("failed to reset active-challenge key: %v", err)
 			}
 
 			first := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
@@ -265,26 +262,43 @@ func TestAuthLoginFlow(t *testing.T) {
 			if int(first["code"].(float64)) != 0 {
 				t.Fatalf("first login start failed: %v", first["msg"])
 			}
+			firstData := first["data"].(map[string]interface{})
+			firstChallenge := firstData["challenge_id"].(string)
 
-			for i := 0; i < 10; i++ {
+			// Redis active-challenge key persists the plaintext OTP so repeated
+			// calls can return the same code.
+			cached, err := rdb.Get(ctx, activeKey).Result()
+			if err != nil {
+				t.Fatalf("expected active-challenge redis key after first start: %v", err)
+			}
+			if !strings.HasPrefix(cached, firstChallenge+":") {
+				t.Fatalf("expected cached value to start with %s:, got %s", firstChallenge, cached)
+			}
+			firstOTP := strings.TrimPrefix(cached, firstChallenge+":")
+			if len(firstOTP) != 6 {
+				t.Fatalf("expected 6-digit cached OTP, got %q", firstOTP)
+			}
+
+			// Repeat StartLogin: same challenge_id and same cached OTP.
+			for i := 0; i < 4; i++ {
 				resp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
 					"login_method": "email",
 					"email":        email,
 				}, ip)
-				if int(resp["code"].(float64)) != 429 {
-					t.Fatalf("expected cooldown response on retry %d, got code=%v msg=%v", i+1, resp["code"], resp["msg"])
+				if int(resp["code"].(float64)) != 0 {
+					t.Fatalf("expected reused challenge on retry %d, got code=%v msg=%v", i+1, resp["code"], resp["msg"])
 				}
-				if msg := fmt.Sprint(resp["msg"]); msg != "too many requests, please wait before retrying" {
-					t.Fatalf("expected cooldown response on retry %d, got msg=%v", i+1, resp["msg"])
+				data := resp["data"].(map[string]interface{})
+				if id := data["challenge_id"].(string); id != firstChallenge {
+					t.Fatalf("expected reused challenge_id %s on retry %d, got %s", firstChallenge, i+1, id)
 				}
-			}
-
-			counter, err := rdb.Get(ctx, ipKey).Result()
-			if err != nil {
-				t.Fatalf("failed to read start rate limit key: %v", err)
-			}
-			if counter != "1" {
-				t.Fatalf("expected cooldown retries to leave start rate limit key at 1, got %s", counter)
+				again, gerr := rdb.Get(ctx, activeKey).Result()
+				if gerr != nil {
+					t.Fatalf("active-challenge key lost after retry %d: %v", i+1, gerr)
+				}
+				if again != cached {
+					t.Fatalf("cached (challenge_id:otp) changed between retries: before=%s after=%s", cached, again)
+				}
 			}
 		})
 
@@ -296,7 +310,7 @@ func TestAuthLoginFlow(t *testing.T) {
 			ctx := context.Background()
 			rdb := testutil.GetTestRedis()
 			key := "auth:login:start:email:ip:" + ip
-			if err := rdb.Set(ctx, key, "10", 10*time.Minute).Err(); err != nil {
+			if err := rdb.Set(ctx, key, "30", 10*time.Minute).Err(); err != nil {
 				t.Fatalf("failed to seed start rate limit key: %v", err)
 			}
 
@@ -312,8 +326,8 @@ func TestAuthLoginFlow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read start rate limit key: %v", err)
 			}
-			if counter != "10" {
-				t.Fatalf("expected start rate limit key to remain 10, got %s", counter)
+			if counter != "30" {
+				t.Fatalf("expected start rate limit key to remain 30, got %s", counter)
 			}
 		})
 
@@ -372,7 +386,7 @@ func TestAuthLoginFlow(t *testing.T) {
 			ctx := context.Background()
 			rdb := testutil.GetTestRedis()
 			key := "auth:login:verify:email:ip:" + ip
-			if err := rdb.Set(ctx, key, "30", 10*time.Minute).Err(); err != nil {
+			if err := rdb.Set(ctx, key, "100", 10*time.Minute).Err(); err != nil {
 				t.Fatalf("failed to seed verify rate limit key: %v", err)
 			}
 
@@ -389,8 +403,8 @@ func TestAuthLoginFlow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read verify rate limit key: %v", err)
 			}
-			if counter != "30" {
-				t.Fatalf("expected verify rate limit key to remain 30, got %s", counter)
+			if counter != "100" {
+				t.Fatalf("expected verify rate limit key to remain 100, got %s", counter)
 			}
 		})
 
@@ -687,10 +701,6 @@ func verifyProfileCompletedAtAfterRelogin(t *testing.T, email string) (interface
 
 func reloginAndVerify(t *testing.T, email string) map[string]interface{} {
 	t.Helper()
-	if config.Load().EnableEmailVerification {
-		h := sha256.Sum256([]byte(email))
-		testutil.GetTestRedis().Del(context.Background(), "auth:login:email:cooldown:"+hex.EncodeToString(h[:]))
-	}
 	startData := testutil.LoginStart(t, email)
 	if token, ok := startData["access_token"].(string); ok && token != "" {
 		return startData
