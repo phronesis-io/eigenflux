@@ -1,14 +1,12 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(*)",
       "Edit(*)"
     ],
-    "deny": [
-      "Bash(git push *)"
-    ],
     "ask": [
-      "Bash(git commit *)"
+      "Bash(git push *)"
     ]
   }
 }
