@@ -155,6 +155,53 @@ type ReplaceMilestoneRuleResp struct {
 	Data *ReplaceMilestoneRuleData `json:"data"`
 }
 
+type ConsoleConversationInfo struct {
+	ConvID           string `json:"conv_id"`
+	ParticipantA     string `json:"participant_a"`
+	ParticipantB     string `json:"participant_b"`
+	ParticipantAName string `json:"participant_a_name"`
+	ParticipantBName string `json:"participant_b_name"`
+	OriginType       string `json:"origin_type"`
+	OriginID         string `json:"origin_id,omitempty"`
+	LastSenderID     string `json:"last_sender_id"`
+	LastSenderName   string `json:"last_sender_name"`
+	MsgCount         int32  `json:"msg_count"`
+	Status           int16  `json:"status"`
+	UpdatedAt        int64  `json:"updated_at"`
+}
+
+type ListConversationsData struct {
+	Conversations []ConsoleConversationInfo `json:"conversations"`
+	Total         int64                     `json:"total"`
+	Page          int32                     `json:"page"`
+	PageSize      int32                     `json:"page_size"`
+}
+
+type ListConversationsResp struct {
+	Code int32                  `json:"code"`
+	Msg  string                 `json:"msg"`
+	Data *ListConversationsData `json:"data"`
+}
+
+type ConsoleMessageInfo struct {
+	MsgID      string `json:"msg_id"`
+	ConvID     string `json:"conv_id"`
+	SenderID   string `json:"sender_id"`
+	SenderName string `json:"sender_name"`
+	Content    string `json:"content"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
+type GetConvMessagesData struct {
+	Messages []ConsoleMessageInfo `json:"messages"`
+}
+
+type GetConvMessagesResp struct {
+	Code int32                `json:"code"`
+	Msg  string               `json:"msg"`
+	Data *GetConvMessagesData `json:"data"`
+}
+
 func TestMain(m *testing.M) {
 	testutil.RunTestMain(m)
 }
@@ -943,5 +990,68 @@ func TestConsoleBlacklistKeywordsFlow(t *testing.T) {
 	code2, _ := delNonExist["code"].(float64)
 	if int(code2) == 0 {
 		t.Fatalf("expected delete of non-existent keyword to fail, but got code=0")
+	}
+}
+
+func TestConsoleListConversationsRequiresFilter(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/conversations?page=1&page_size=10", nil)
+	var resp ListConversationsResp
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code == 0 {
+		t.Fatalf("expected error code when no filter is given, got code=0, msg=%s", resp.Msg)
+	}
+}
+
+func TestConsoleListConversationsInvalidID(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/conversations?page=1&page_size=10&item_id=abc", nil)
+	var resp ListConversationsResp
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code == 0 {
+		t.Fatalf("expected error code for invalid item_id, got code=0")
+	}
+}
+
+func TestConsoleListConversationsWithAgentIDEmptyResult(t *testing.T) {
+	// Use a sentinel agent ID that is extremely unlikely to have any conversations.
+	query := "/console/api/v1/conversations?" + url.Values{
+		"page":      {"1"},
+		"page_size": {"10"},
+		"agent_id":  {"999999999999"},
+	}.Encode()
+	body := testutil.DoConsoleRequest(t, http.MethodGet, query, nil)
+	var resp ListConversationsResp
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code != 0 {
+		t.Fatalf("expected code=0 for valid request, got code=%d msg=%s", resp.Code, resp.Msg)
+	}
+	if resp.Data == nil {
+		t.Fatalf("expected non-nil data")
+	}
+	if resp.Data.Conversations == nil {
+		t.Fatalf("expected conversations array (may be empty), got nil")
+	}
+}
+
+func TestConsoleGetConvMessagesNonExistent(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/conversations/999999999999/messages", nil)
+	var resp GetConvMessagesResp
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code != 0 {
+		t.Fatalf("expected code=0 for missing conv_id (returns empty list), got code=%d msg=%s", resp.Code, resp.Msg)
+	}
+	if resp.Data == nil {
+		t.Fatalf("expected non-nil data")
+	}
+	if len(resp.Data.Messages) != 0 {
+		t.Fatalf("expected 0 messages for non-existent conv_id, got %d", len(resp.Data.Messages))
+	}
+}
+
+func TestConsoleGetConvMessagesInvalidID(t *testing.T) {
+	body := testutil.DoConsoleRequest(t, http.MethodGet, "/console/api/v1/conversations/abc/messages", nil)
+	var resp GetConvMessagesResp
+	testutil.MustDecodeResp(t, body, &resp)
+	if resp.Code == 0 {
+		t.Fatalf("expected error code for invalid conv_id, got code=0")
 	}
 }

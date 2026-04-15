@@ -1349,3 +1349,180 @@ func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 	invalidateBlacklistCache()
 	c.JSON(consts.StatusOK, BlacklistKeywordResp{Msg: "success"})
 }
+
+type ConsoleConversationInfo struct {
+	ConvID             string `json:"conv_id"`
+	ParticipantA       string `json:"participant_a"`
+	ParticipantB       string `json:"participant_b"`
+	ParticipantAName   string `json:"participant_a_name"`
+	ParticipantBName   string `json:"participant_b_name"`
+	OriginType         string `json:"origin_type"`
+	OriginID           string `json:"origin_id,omitempty"`
+	LastSenderID       string `json:"last_sender_id"`
+	LastSenderName     string `json:"last_sender_name"`
+	MsgCount           int32  `json:"msg_count"`
+	Status             int16  `json:"status"`
+	UpdatedAt          int64  `json:"updated_at"`
+}
+
+type ListConversationsData struct {
+	Conversations []ConsoleConversationInfo `json:"conversations"`
+	Total         int64                     `json:"total"`
+	Page          int32                     `json:"page"`
+	PageSize      int32                     `json:"page_size"`
+}
+
+type ListConversationsResp struct {
+	Code int32                  `json:"code"`
+	Msg  string                 `json:"msg"`
+	Data *ListConversationsData `json:"data,omitempty"`
+}
+
+type ConsoleMessageInfo struct {
+	MsgID      string `json:"msg_id"`
+	ConvID     string `json:"conv_id"`
+	SenderID   string `json:"sender_id"`
+	SenderName string `json:"sender_name"`
+	Content    string `json:"content"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
+type GetConvMessagesData struct {
+	Messages []ConsoleMessageInfo `json:"messages"`
+}
+
+type GetConvMessagesResp struct {
+	Code int32                `json:"code"`
+	Msg  string               `json:"msg"`
+	Data *GetConvMessagesData `json:"data,omitempty"`
+}
+
+func toConsoleConversationInfo(c dal.Conversation) ConsoleConversationInfo {
+	info := ConsoleConversationInfo{
+		ConvID:           strconv.FormatInt(c.ConvID, 10),
+		ParticipantA:     strconv.FormatInt(c.ParticipantA, 10),
+		ParticipantB:     strconv.FormatInt(c.ParticipantB, 10),
+		ParticipantAName: c.ParticipantAName,
+		ParticipantBName: c.ParticipantBName,
+		OriginType:       c.OriginType,
+		LastSenderID:     strconv.FormatInt(c.LastSenderID, 10),
+		MsgCount:         c.MsgCount,
+		Status:           c.Status,
+		UpdatedAt:        c.UpdatedAt,
+	}
+	if c.OriginType == "broadcast" && c.OriginID > 0 {
+		info.OriginID = strconv.FormatInt(c.OriginID, 10)
+	}
+	switch c.LastSenderID {
+	case c.ParticipantA:
+		info.LastSenderName = c.ParticipantAName
+	case c.ParticipantB:
+		info.LastSenderName = c.ParticipantBName
+	}
+	return info
+}
+
+// ListConversations godoc
+// @Summary      List conversations
+// @Description  Returns paginated conversations filtered by item_id and/or agent_id.
+// @Tags         console
+// @Produce      json
+// @Param        page       query  integer  false  "Page number (default: 1)"
+// @Param        page_size  query  integer  false  "Items per page (default: 20, max: 100)"
+// @Param        item_id    query  string   false  "Filter item-based conversations by item ID"
+// @Param        agent_id   query  string   false  "Filter conversations involving this agent"
+// @Success      200  {object}  ListConversationsResp
+// @Router /console/api/v1/conversations [GET]
+func ListConversations(ctx context.Context, c *app.RequestContext) {
+	page, pageSize := parsePagination(c)
+
+	var itemID *int64
+	if raw := strings.TrimSpace(c.Query("item_id")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			writeConsoleError(c, "invalid item_id")
+			return
+		}
+		itemID = &parsed
+	}
+
+	var agentID *int64
+	if raw := strings.TrimSpace(c.Query("agent_id")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			writeConsoleError(c, "invalid agent_id")
+			return
+		}
+		agentID = &parsed
+	}
+
+	if itemID == nil && agentID == nil {
+		writeConsoleError(c, "item_id or agent_id is required")
+		return
+	}
+
+	rows, total, err := dal.ListConversations(db.DB, dal.ListConversationsParams{
+		Page:     page,
+		PageSize: pageSize,
+		ItemID:   itemID,
+		AgentID:  agentID,
+	})
+	if err != nil {
+		writeConsoleError(c, err.Error())
+		return
+	}
+
+	infos := make([]ConsoleConversationInfo, 0, len(rows))
+	for _, r := range rows {
+		infos = append(infos, toConsoleConversationInfo(r))
+	}
+
+	c.JSON(consts.StatusOK, ListConversationsResp{
+		Code: 0, Msg: "success",
+		Data: &ListConversationsData{
+			Conversations: infos,
+			Total:         total,
+			Page:          page,
+			PageSize:      pageSize,
+		},
+	})
+}
+
+// GetConvMessages godoc
+// @Summary      Get conversation messages
+// @Description  Returns all messages of a conversation ordered by created_at DESC.
+// @Tags         console
+// @Produce      json
+// @Param        conv_id  path  string  true  "Conversation ID"
+// @Success      200  {object}  GetConvMessagesResp
+// @Router /console/api/v1/conversations/{conv_id}/messages [GET]
+func GetConvMessages(ctx context.Context, c *app.RequestContext) {
+	convID, err := strconv.ParseInt(strings.TrimSpace(c.Param("conv_id")), 10, 64)
+	if err != nil || convID <= 0 {
+		writeConsoleError(c, "invalid conv_id")
+		return
+	}
+
+	rows, err := dal.GetConvMessages(db.DB, convID)
+	if err != nil {
+		writeConsoleError(c, err.Error())
+		return
+	}
+
+	msgs := make([]ConsoleMessageInfo, 0, len(rows))
+	for _, r := range rows {
+		msgs = append(msgs, ConsoleMessageInfo{
+			MsgID:      strconv.FormatInt(r.MsgID, 10),
+			ConvID:     strconv.FormatInt(r.ConvID, 10),
+			SenderID:   strconv.FormatInt(r.SenderID, 10),
+			SenderName: r.SenderName,
+			Content:    r.Content,
+			CreatedAt:  r.CreatedAt,
+		})
+	}
+
+	c.JSON(consts.StatusOK, GetConvMessagesResp{
+		Code: 0, Msg: "success",
+		Data: &GetConvMessagesData{Messages: msgs},
+	})
+}

@@ -339,6 +339,65 @@ struct BlacklistKeywordResp {
     3: BlacklistKeywordData data
 }
 
+// ===== Console Conversation Structs =====
+
+struct ListConversationsReq {
+    1: i32 page (api.query="page")
+    2: i32 page_size (api.query="page_size")
+    3: optional string item_id (api.query="item_id")
+    4: optional string agent_id (api.query="agent_id")
+}
+
+struct ConsoleConversationInfo {
+    1: string conv_id
+    2: string participant_a
+    3: string participant_b
+    4: string participant_a_name
+    5: string participant_b_name
+    6: string origin_type
+    7: optional string origin_id
+    8: string last_sender_id
+    9: i32 msg_count
+    10: i16 status
+    11: i64 updated_at
+}
+
+struct ListConversationsData {
+    1: list<ConsoleConversationInfo> conversations
+    2: i64 total
+    3: i32 page
+    4: i32 page_size
+}
+
+struct ListConversationsResp {
+    1: i32 code
+    2: string msg
+    3: ListConversationsData data
+}
+
+struct GetConvMessagesReq {
+    1: required i64 conv_id (api.path="conv_id")
+}
+
+struct ConsoleMessageInfo {
+    1: string msg_id
+    2: string conv_id
+    3: string sender_id
+    4: string sender_name
+    5: string content
+    6: i64 created_at
+}
+
+struct GetConvMessagesData {
+    1: list<ConsoleMessageInfo> messages
+}
+
+struct GetConvMessagesResp {
+    1: i32 code
+    2: string msg
+    3: GetConvMessagesData data
+}
+
 // ===== Service =====
 
 service ConsoleService {
@@ -360,4 +419,6 @@ service ConsoleService {
     BlacklistKeywordResp CreateBlacklistKeyword(1: CreateBlacklistKeywordReq req) (api.post="/console/api/v1/blacklist-keywords")
     BlacklistKeywordResp UpdateBlacklistKeyword(1: UpdateBlacklistKeywordReq req) (api.put="/console/api/v1/blacklist-keywords/:keyword_id")
     BlacklistKeywordResp DeleteBlacklistKeyword(1: DeleteBlacklistKeywordReq req) (api.delete="/console/api/v1/blacklist-keywords/:keyword_id")
+    ListConversationsResp ListConversations(1: ListConversationsReq req) (api.get="/console/api/v1/conversations")
+    GetConvMessagesResp GetConvMessages(1: GetConvMessagesReq req) (api.get="/console/api/v1/conversations/:conv_id/messages")
 }

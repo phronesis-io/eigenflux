@@ -149,3 +149,23 @@ func _createblacklistkeywordMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _conversationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listconversationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _conv_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getconvmessagesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

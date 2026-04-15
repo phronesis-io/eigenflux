@@ -283,6 +283,81 @@
                 }
             }
         },
+        "/console/api/v1/conversations": {
+            "get": {
+                "description": "Returns paginated conversations filtered by item_id and/or agent_id.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "List conversations",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default: 20, max: 100)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter item-based conversations by item ID",
+                        "name": "item_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter conversations involving this agent",
+                        "name": "agent_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsResp"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/api/v1/conversations/{conv_id}/messages": {
+            "get": {
+                "description": "Returns all messages of a conversation ordered by created_at DESC.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Get conversation messages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Conversation ID",
+                        "name": "conv_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesResp"
+                        }
+                    }
+                }
+            }
+        },
         "/console/api/v1/impr/items": {
             "get": {
                 "description": "Returns Redis impr record and matched item details by agent_id",
@@ -1078,6 +1153,70 @@
                 }
             }
         },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo": {
+            "type": "object",
+            "properties": {
+                "conv_id": {
+                    "type": "string"
+                },
+                "last_sender_id": {
+                    "type": "string"
+                },
+                "last_sender_name": {
+                    "type": "string"
+                },
+                "msg_count": {
+                    "type": "integer"
+                },
+                "origin_id": {
+                    "type": "string"
+                },
+                "origin_type": {
+                    "type": "string"
+                },
+                "participant_a": {
+                    "type": "string"
+                },
+                "participant_a_name": {
+                    "type": "string"
+                },
+                "participant_b": {
+                    "type": "string"
+                },
+                "participant_b_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleMessageInfo": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "conv_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "msg_id": {
+                    "type": "string"
+                },
+                "sender_id": {
+                    "type": "string"
+                },
+                "sender_name": {
+                    "type": "string"
+                }
+            }
+        },
         "console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData": {
             "type": "object",
             "properties": {
@@ -1095,6 +1234,31 @@
                 },
                 "data": {
                     "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetAgentData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesData": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleMessageInfo"
+                    }
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.GetConvMessagesData"
                 },
                 "msg": {
                     "type": "string"
@@ -1176,6 +1340,40 @@
                 },
                 "data": {
                     "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListBlacklistKeywordsData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsData": {
+            "type": "object",
+            "properties": {
+                "conversations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/console_eigenflux_ai_handler_gen_eigenflux_console.ListConversationsData"
                 },
                 "msg": {
                     "type": "string"

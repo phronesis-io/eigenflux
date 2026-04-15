@@ -1,9 +1,10 @@
 import { useList } from "@refinedev/core";
 import { List } from "@refinedev/antd";
-import { Descriptions, Modal, Select, Table, Input, Tag, Tooltip, Typography, message } from "antd";
+import { Button, Descriptions, Modal, Select, Table, Input, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import axios from "axios";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
 import { itemStatusMap } from "../../constants";
@@ -60,6 +61,7 @@ const LongText = ({ text, maxWidth = 200 }: { text: string | null; maxWidth?: nu
 };
 
 export const ItemList = () => {
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<number | undefined>();
   const [keywordFilter, setKeywordFilter] = useState<string>("");
   const [current, setCurrent] = useState<number>(1);
@@ -319,6 +321,22 @@ export const ItemList = () => {
       width: 180,
       render: (ts: number) => formatTimestamp(ts),
     },
+    {
+      title: "Actions",
+      key: "actions",
+      width: 150,
+      fixed: "right",
+      render: (_: unknown, record: Item) => (
+        <Button
+          size="small"
+          onClick={() =>
+            navigate(`/conversations?item_id=${encodeURIComponent(record.item_id)}`)
+          }
+        >
+          Conversations
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -392,7 +410,7 @@ export const ItemList = () => {
           columns={columns}
           rowKey="item_id"
           loading={query.isLoading}
-          scroll={{ x: 2800 }}
+          scroll={{ x: 2950 }}
           pagination={{
             current,
             pageSize,

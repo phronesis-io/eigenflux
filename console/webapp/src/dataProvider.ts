@@ -45,6 +45,8 @@ export const consoleDataProvider = (
       resourceData = data.data.notifications ?? [];
     } else if (resource === "blacklist-keywords") {
       resourceData = data.data.keywords ?? [];
+    } else if (resource === "conversations") {
+      resourceData = data.data.conversations ?? [];
     }
 
     return {

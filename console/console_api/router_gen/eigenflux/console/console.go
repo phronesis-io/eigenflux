@@ -32,6 +32,12 @@ func Register(r *server.Hertz) {
 				_blacklist_keywords.DELETE("/:keyword_id", append(_deleteblacklistkeywordMw(), console.DeleteBlacklistKeyword)...)
 				_blacklist_keywords.PUT("/:keyword_id", append(_updateblacklistkeywordMw(), console.UpdateBlacklistKeyword)...)
 				_v1.POST("/blacklist-keywords", append(_createblacklistkeywordMw(), console.CreateBlacklistKeyword)...)
+				_v1.GET("/conversations", append(_listconversationsMw(), console.ListConversations)...)
+				_conversations := _v1.Group("/conversations", _conversationsMw()...)
+				{
+					_conv_id := _conversations.Group("/:conv_id", _conv_idMw()...)
+					_conv_id.GET("/messages", append(_getconvmessagesMw(), console.GetConvMessages)...)
+				}
 				_v1.GET("/items", append(_listitemsMw(), console.ListItems)...)
 				_items := _v1.Group("/items", _itemsMw()...)
 				_items.PUT("/:item_id", append(_updateitemMw(), console.UpdateItem)...)
