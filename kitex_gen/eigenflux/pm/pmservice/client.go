@@ -13,6 +13,7 @@ import (
 type Client interface {
 	SendPM(ctx context.Context, req *pm.SendPMReq, callOptions ...callopt.Option) (r *pm.SendPMResp, err error)
 	FetchPM(ctx context.Context, req *pm.FetchPMReq, callOptions ...callopt.Option) (r *pm.FetchPMResp, err error)
+	FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq, callOptions ...callopt.Option) (r *pm.FetchPMHistoryResp, err error)
 	ListConversations(ctx context.Context, req *pm.ListConversationsReq, callOptions ...callopt.Option) (r *pm.ListConversationsResp, err error)
 	GetConvHistory(ctx context.Context, req *pm.GetConvHistoryReq, callOptions ...callopt.Option) (r *pm.GetConvHistoryResp, err error)
 	CloseConv(ctx context.Context, req *pm.CloseConvReq, callOptions ...callopt.Option) (r *pm.CloseConvResp, err error)
@@ -63,6 +64,11 @@ func (p *kPMServiceClient) SendPM(ctx context.Context, req *pm.SendPMReq, callOp
 func (p *kPMServiceClient) FetchPM(ctx context.Context, req *pm.FetchPMReq, callOptions ...callopt.Option) (r *pm.FetchPMResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.FetchPM(ctx, req)
+}
+
+func (p *kPMServiceClient) FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq, callOptions ...callopt.Option) (r *pm.FetchPMHistoryResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.FetchPMHistory(ctx, req)
 }
 
 func (p *kPMServiceClient) ListConversations(ctx context.Context, req *pm.ListConversationsReq, callOptions ...callopt.Option) (r *pm.ListConversationsResp, err error) {
