@@ -376,6 +376,7 @@ struct PMMessageData {
 struct FetchPMData {
     1: required list<PMMessageData> messages
     2: required string next_cursor
+    3: optional list<PMMessageData> history_messages
 }
 
 struct FetchPMResp {

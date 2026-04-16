@@ -13988,8 +13988,9 @@ func (p *PMMessageData) String() string {
 }
 
 type FetchPMData struct {
-	Messages   []*PMMessageData `thrift:"messages,1,required,list<PMMessageData>" form:"messages,required" json:"messages,required" query:"messages,required"`
-	NextCursor string           `thrift:"next_cursor,2,required" form:"next_cursor,required" json:"next_cursor,required" query:"next_cursor,required"`
+	Messages        []*PMMessageData `thrift:"messages,1,required,list<PMMessageData>" form:"messages,required" json:"messages,required" query:"messages,required"`
+	NextCursor      string           `thrift:"next_cursor,2,required" form:"next_cursor,required" json:"next_cursor,required" query:"next_cursor,required"`
+	HistoryMessages []*PMMessageData `thrift:"history_messages,3,optional,list<PMMessageData>" form:"history_messages" json:"history_messages,omitempty" query:"history_messages"`
 }
 
 func NewFetchPMData() *FetchPMData {
@@ -14007,9 +14008,23 @@ func (p *FetchPMData) GetNextCursor() (v string) {
 	return p.NextCursor
 }
 
+var FetchPMData_HistoryMessages_DEFAULT []*PMMessageData
+
+func (p *FetchPMData) GetHistoryMessages() (v []*PMMessageData) {
+	if !p.IsSetHistoryMessages() {
+		return FetchPMData_HistoryMessages_DEFAULT
+	}
+	return p.HistoryMessages
+}
+
 var fieldIDToName_FetchPMData = map[int16]string{
 	1: "messages",
 	2: "next_cursor",
+	3: "history_messages",
+}
+
+func (p *FetchPMData) IsSetHistoryMessages() bool {
+	return p.HistoryMessages != nil
 }
 
 func (p *FetchPMData) Read(iprot thrift.TProtocol) (err error) {
@@ -14048,6 +14063,14 @@ func (p *FetchPMData) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetNextCursor = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -14125,6 +14148,29 @@ func (p *FetchPMData) ReadField2(iprot thrift.TProtocol) error {
 	p.NextCursor = _field
 	return nil
 }
+func (p *FetchPMData) ReadField3(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*PMMessageData, 0, size)
+	values := make([]PMMessageData, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.HistoryMessages = _field
+	return nil
+}
 
 func (p *FetchPMData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -14138,6 +14184,10 @@ func (p *FetchPMData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField2(oprot); err != nil {
 			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -14198,6 +14248,33 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *FetchPMData) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetHistoryMessages() {
+		if err = oprot.WriteFieldBegin("history_messages", thrift.LIST, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRUCT, len(p.HistoryMessages)); err != nil {
+			return err
+		}
+		for _, v := range p.HistoryMessages {
+			if err := v.Write(oprot); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
 }
 
 func (p *FetchPMData) String() string {
