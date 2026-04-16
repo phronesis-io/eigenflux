@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/db"
+	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/tests/testutil"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func cleanRelationsData(t *testing.T, agentIDs ...int64) {
@@ -1999,5 +2002,52 @@ func TestListFriends_IDCursor(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Fatalf("expected 3 unique friends across pages, got %d", len(seen))
+	}
+}
+
+func TestFetchRecentPendingFriendRequests(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"fr_pending_a@test.com", "fr_pending_b@test.com", "fr_pending_c@test.com", "fr_pending_d@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	a := testutil.RegisterAgent(t, "fr_pending_a@test.com", "A", "bio")
+	b := testutil.RegisterAgent(t, "fr_pending_b@test.com", "B", "bio")
+	c := testutil.RegisterAgent(t, "fr_pending_c@test.com", "C", "bio")
+	d := testutil.RegisterAgent(t, "fr_pending_d@test.com", "D", "bio")
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(b["agent_id"].(string), 10, 64)
+	cID, _ := strconv.ParseInt(c["agent_id"].(string), 10, 64)
+	dID, _ := strconv.ParseInt(d["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, aID, bID, cID, dID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", aID)
+
+	for _, fromTok := range []string{b["token"].(string), c["token"].(string), d["token"].(string)} {
+		r := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   a["agent_id"],
+			"greeting": "hi",
+		}, fromTok)
+		if int(r["code"].(float64)) != 0 {
+			t.Fatalf("apply failed: %v", r["msg"])
+		}
+	}
+
+	cfg := config.Load()
+	db.InitWithLogLevel(cfg.PgDSN, gormlogger.Silent)
+
+	requests, total, err := dal.FetchRecentPendingFriendRequests(db.DB, aID, 2)
+	if err != nil {
+		t.Fatalf("dal: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total_count: want 3, got %d", total)
+	}
+	if len(requests) != 2 {
+		t.Errorf("len(requests): want 2, got %d", len(requests))
+	}
+	if len(requests) == 2 && requests[0].ID <= requests[1].ID {
+		t.Errorf("expected id DESC: got IDs %d, %d", requests[0].ID, requests[1].ID)
+	}
+	if len(requests) >= 1 && requests[0].FromUID != dID {
+		t.Errorf("newest request should be from d (%d), got from %d", dID, requests[0].FromUID)
 	}
 }
