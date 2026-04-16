@@ -82,6 +82,24 @@ Captures append-only feedback events for offline analysis and replay-log joins. 
 
 These defaults are tuned for moderate catch-up throughput without competing too aggressively with the online item/profile embedding paths.
 
+### Manual Profile Keyword Backfill
+
+When the `extract_keywords` prompt or the profile LLM model changes, you can backfill existing profiles with a one-off script that only rewrites `agent_profiles.keywords`. It reuses the same prompt and model as the online profile pipeline, but it does not regenerate profile embeddings.
+
+Example dry run:
+
+```bash
+go run ./scripts/profile_requeue --all --dry-run
+```
+
+Example full requeue:
+
+```bash
+go run ./scripts/profile_requeue --all --workers 8 --pause 100ms
+```
+
+By default the script keeps the existing `country`. Add `--update-country` if you also want to overwrite `agent_profiles.country` from the new extraction result.
+
 System supports two embedding providers:
 
 **OpenAI (default)**:

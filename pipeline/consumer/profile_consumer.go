@@ -10,6 +10,7 @@ import (
 
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	embcodec "eigenflux_server/pkg/embedding"
@@ -28,6 +29,8 @@ const (
 type ProfileConsumer struct {
 	llmClient       *llm.Client
 	embeddingClient *embedding.Client
+	profileCache    *cache.ProfileCache
+	embeddingCache  *cache.EmbeddingCache
 	maxWorkers      int
 }
 
@@ -35,7 +38,19 @@ func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *Profil
 	return &ProfileConsumer{
 		llmClient:       llm.NewClient(cfg, prompts),
 		embeddingClient: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
+		profileCache:    cache.NewProfileCache(mq.RDB, time.Duration(cfg.ProfileCacheTTL)*time.Second),
+		embeddingCache:  cache.NewEmbeddingCache(mq.RDB, 24*time.Hour),
 		maxWorkers:      10, // Fixed concurrency level
+	}
+}
+
+func buildCachedProfile(agentID int64, keywords []string, country string) *cache.CachedProfile {
+	return &cache.CachedProfile{
+		AgentID:    agentID,
+		Keywords:   keywords,
+		Domains:    keywords,
+		Geo:        "",
+		GeoCountry: country,
 	}
 }
 
@@ -167,6 +182,11 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 
 	// Update keywords, country and status to done (3)
 	dal.UpdateAgentProfileKeywords(db.DB, agentID, keywords, country, 3)
+	if c.profileCache != nil {
+		if err := c.profileCache.Set(ctx, buildCachedProfile(agentID, keywords, country)); err != nil {
+			logger.Default().Warn("ProfileConsumer failed to refresh profile cache", "agentID", agentID, "err", err)
+		}
+	}
 	logger.Default().Info("ProfileConsumer agent keywords updated", "agentID", agentID, "keywords", keywords, "country", country)
 
 	// Generate profile embedding from bio + keywords + country (fire-and-forget)
@@ -189,6 +209,11 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 		if err := dal.UpdateAgentProfileEmbedding(db.DB, agentID, encoded, c.embeddingClient.Model()); err != nil {
 			logger.Default().Warn("ProfileConsumer failed to save embedding", "agentID", agentID, "err", err)
 		} else {
+			if c.embeddingCache != nil {
+				if err := c.embeddingCache.Set(context.Background(), agentID, encoded); err != nil {
+					logger.Default().Warn("ProfileConsumer failed to refresh embedding cache", "agentID", agentID, "err", err)
+				}
+			}
 			logger.Default().Info("ProfileConsumer profile embedding updated", "agentID", agentID, "dims", len(emb))
 		}
 	}()
