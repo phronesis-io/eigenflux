@@ -7,10 +7,12 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 
@@ -67,6 +69,11 @@ Examples:
 		// counterpart for the file name. Fetch it once up-front so the
 		// first push lands in the right file.
 		ensureProfileCached(srv.Name)
+		myProfile, _ := cache.LoadProfile(srv.Name)
+		myAgentID := ""
+		if myProfile != nil {
+			myAgentID = myProfile.AgentID
+		}
 
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
@@ -131,6 +138,7 @@ Examples:
 
 			go func() {
 				defer close(done)
+				firstPacket := true
 				for {
 					_, msg, err := conn.ReadMessage()
 					if err != nil {
@@ -174,25 +182,37 @@ Examples:
 							continue
 						}
 						var data struct {
-							Messages []struct {
-								MsgID      string `json:"msg_id"`
-								ConvID     string `json:"conv_id"`
-								SenderName string `json:"sender_name"`
-								Content    string `json:"content"`
-								CreatedAt  int64  `json:"created_at"`
-							} `json:"messages"`
+							Messages []streamMsg `json:"messages"`
+							History  []streamMsg `json:"history_messages"`
 						}
 						if err := json.Unmarshal(push.Data, &data); err != nil {
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}
-						for _, m := range data.Messages {
-							ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
-							sender := m.SenderName
-							if sender == "" {
-								sender = m.MsgID
+
+						if firstPacket {
+							if len(data.History) > 0 {
+								fmt.Fprintf(os.Stdout, "--- recent history (%d messages) ---\n", len(data.History))
+								sorted := make([]streamMsg, len(data.History))
+								copy(sorted, data.History)
+								sort.Slice(sorted, func(i, j int) bool {
+									return sorted[i].CreatedAt < sorted[j].CreatedAt
+								})
+								for _, m := range sorted {
+									printHistoryLine(m, myAgentID)
+								}
 							}
-							fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, sender, m.Content)
+							if len(data.Messages) > 0 {
+								fmt.Fprintln(os.Stdout, "--- new messages ---")
+								for _, m := range data.Messages {
+									printNewLine(m)
+								}
+							}
+							firstPacket = false
+						} else {
+							for _, m := range data.Messages {
+								printNewLine(m)
+							}
 						}
 					}
 				}
@@ -232,4 +252,41 @@ Examples:
 func init() {
 	streamCmd.Flags().String("cursor", "", "resume from message cursor (msg_id)")
 	rootCmd.AddCommand(streamCmd)
+}
+
+type streamMsg struct {
+	MsgID        string `json:"msg_id"`
+	ConvID       string `json:"conv_id"`
+	SenderID     string `json:"sender_id"`
+	ReceiverID   string `json:"receiver_id"`
+	SenderName   string `json:"sender_name"`
+	ReceiverName string `json:"receiver_name"`
+	Content      string `json:"content"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+func printHistoryLine(m streamMsg, myAgentID string) {
+	ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
+	if m.SenderID == myAgentID {
+		peer := m.ReceiverName
+		if peer == "" {
+			peer = m.ReceiverID
+		}
+		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, peer, m.Content)
+	} else {
+		peer := m.SenderName
+		if peer == "" {
+			peer = m.SenderID
+		}
+		fmt.Fprintf(os.Stdout, "[%s] ← %s: %s\n", ts, peer, m.Content)
+	}
+}
+
+func printNewLine(m streamMsg) {
+	ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
+	sender := m.SenderName
+	if sender == "" {
+		sender = m.SenderID
+	}
+	fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, sender, m.Content)
 }
