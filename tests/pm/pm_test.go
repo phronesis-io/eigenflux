@@ -858,24 +858,3 @@ func TestFetchPMHistory_Empty(t *testing.T) {
 		t.Errorf("expected 0 messages for new agent, got %d", len(r.Messages))
 	}
 }
-
-// convIDFromFetchResp extracts the conv_id from the first message in a
-// pm/fetch response. Avoids relying on ListConversations, which requires
-// msg_count >= 2 (ice-broken) before a conversation appears.
-func convIDFromFetchResp(t *testing.T, resp map[string]interface{}) string {
-	t.Helper()
-	data, ok := resp["data"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("convIDFromFetchResp: data not a map")
-	}
-	msgs, ok := data["messages"].([]interface{})
-	if !ok || len(msgs) == 0 {
-		t.Fatalf("convIDFromFetchResp: no messages in fetch response")
-	}
-	msg, _ := msgs[0].(map[string]interface{})
-	id, _ := msg["conv_id"].(string)
-	if id == "" {
-		t.Fatalf("convIDFromFetchResp: conv_id empty in message: %v", msg)
-	}
-	return id
-}
