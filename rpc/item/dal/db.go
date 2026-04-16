@@ -33,6 +33,7 @@ type ProcessedItem struct {
 	QualityScore     float64 `gorm:"column:quality_score;type:real;default:null"`
 	Lang             string  `gorm:"column:lang;type:varchar(10);default:null"`
 	Timeliness       string  `gorm:"column:timeliness;type:varchar(20);default:null"`
+	Suggestion       string  `gorm:"column:suggestion;type:text;default:null"`
 	UpdatedAt        int64   `gorm:"column:updated_at;not null"`
 }
 
@@ -99,7 +100,7 @@ func CreateProcessedItem(db *gorm.DB, pi *ProcessedItem) error {
 	return db.Create(pi).Error
 }
 
-func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness string, status int16) error {
+func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, status int16) error {
 	kw := strings.Join(keywords, ",")
 
 	// Prepare updates map
@@ -116,6 +117,7 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 		"quality_score":     qualityScore,
 		"lang":              lang,
 		"timeliness":        timeliness,
+		"suggestion":        suggestion,
 		"updated_at":        time.Now().UnixMilli(),
 	}
 
@@ -128,6 +130,15 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 
 	// Skip update if item is already deleted (terminal)
 	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != ?", itemID, StatusDeleted).Updates(updates).Error
+}
+
+func UpdateSuggestion(db *gorm.DB, itemID int64, suggestion string) error {
+	return db.Model(&ProcessedItem{}).
+		Where("item_id = ?", itemID).
+		Updates(map[string]interface{}{
+			"suggestion": suggestion,
+			"updated_at": time.Now().UnixMilli(),
+		}).Error
 }
 
 func GetProcessedItemExpectedResponse(db *gorm.DB, itemID int64) (string, error) {
