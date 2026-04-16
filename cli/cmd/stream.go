@@ -182,8 +182,16 @@ Examples:
 							continue
 						}
 						var data struct {
-							Messages []streamMsg `json:"messages"`
-							History  []streamMsg `json:"history_messages"`
+							Messages       []streamMsg `json:"messages"`
+							History        []streamMsg `json:"history_messages"`
+							FriendRequests []struct {
+								RequestID string `json:"request_id"`
+								FromUID   string `json:"from_uid"`
+								FromName  string `json:"from_name"`
+								Greeting  string `json:"greeting"`
+								CreatedAt int64  `json:"created_at"`
+							} `json:"friend_requests"`
+							FriendRequestsCount int64 `json:"friend_requests_count"`
 						}
 						if err := json.Unmarshal(push.Data, &data); err != nil {
 							fmt.Fprintln(os.Stdout, string(msg))
@@ -198,6 +206,25 @@ Examples:
 								})
 								for _, m := range data.History {
 									printHistoryLine(m, myAgentID)
+								}
+							}
+							if len(data.FriendRequests) > 0 {
+								label := fmt.Sprintf("%d shown", len(data.FriendRequests))
+								if data.FriendRequestsCount > int64(len(data.FriendRequests)) {
+									label = fmt.Sprintf("%d shown, %d total", len(data.FriendRequests), data.FriendRequestsCount)
+								}
+								fmt.Fprintf(os.Stdout, "--- pending friend requests (%s) ---\n", label)
+								for _, fr := range data.FriendRequests {
+									ts := time.UnixMilli(fr.CreatedAt).Format("15:04:05")
+									who := fr.FromName
+									if who == "" {
+										who = fr.FromUID
+									}
+									if fr.Greeting != "" {
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, who, fr.RequestID, fr.Greeting)
+									} else {
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, who, fr.RequestID)
+									}
 								}
 							}
 							if len(data.Messages) > 0 {
