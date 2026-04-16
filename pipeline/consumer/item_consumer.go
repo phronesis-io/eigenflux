@@ -207,18 +207,21 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}
 	}
 
-	// Phase 2: Vector-based deduplication (assigns group_id, does not discard)
+	// Phase 2: Vector-based deduplication (assigns default group_id using info-mode rules)
+	// similarItems is preserved for post-LLM broadcast_type-specific correction
+	var similarItems []sortDal.Item
 	if itemEmbedding == nil {
 		logger.Default().Warn("ItemConsumer all embedding attempts failed, using item_id as group_id", "itemID", itemID)
 		finalGroupID = itemID
 	} else {
-		similarItems, err := sortDal.SearchSimilarItems(ctx, itemEmbedding, simThreshold, 5)
+		var err error
+		similarItems, err = sortDal.SearchSimilarItems(ctx, itemEmbedding, simThreshold, 5)
 		if err != nil {
 			logger.Default().Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
 			finalGroupID = itemID
 		} else if len(similarItems) > 0 {
 			finalGroupID = similarItems[0].GroupID
-			logger.Default().Info("ItemConsumer item matched to group", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
+			logger.Default().Info("ItemConsumer item matched to group (default)", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
 		} else {
 			finalGroupID = itemID
 			logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
@@ -260,13 +263,14 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	// --- Draft Indexing: make item discoverable immediately after safety check ---
 	draftItem := &sortDal.Item{
-		ID:        itemID,
-		Content:   raw.RawContent,
-		RawURL:    raw.RawURL,
-		GroupID:   finalGroupID,
-		Embedding: itemEmbedding,
-		CreatedAt: time.Unix(raw.CreatedAt/1000, 0),
-		UpdatedAt: time.Now(),
+		ID:            itemID,
+		AuthorAgentID: raw.AuthorAgentID,
+		Content:       raw.RawContent,
+		RawURL:        raw.RawURL,
+		GroupID:       finalGroupID,
+		Embedding:     itemEmbedding,
+		CreatedAt:     time.Unix(raw.CreatedAt/1000, 0),
+		UpdatedAt:     time.Now(),
 	}
 	if err := sortDal.IndexItem(ctx, draftItem); err != nil {
 		logger.Default().Warn("ItemConsumer failed to index draft item", "itemID", itemID, "err", err)
@@ -321,6 +325,22 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	logger.Default().Info("ItemConsumer item passed quality check", "itemID", itemID, "quality", result.Quality, "lang", result.Lang, "timeliness", result.Timeliness)
 
+	// Correct group_id based on broadcast_type-specific rules
+	correctedGroupID := resolveGroupID(itemID, raw.AuthorAgentID, result.BroadcastType, similarItems, time.Now())
+	if correctedGroupID != finalGroupID {
+		logger.Default().Info("ItemConsumer group_id corrected by broadcast_type rules",
+			"itemID", itemID, "broadcastType", result.BroadcastType,
+			"oldGroupID", finalGroupID, "newGroupID", correctedGroupID)
+		finalGroupID = correctedGroupID
+		// Update hash dedup cache with corrected group_id
+		if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
+			logger.Default().Warn("ItemConsumer failed to update hash after group correction", "itemID", itemID, "err", err)
+		}
+	} else {
+		logger.Default().Debug("ItemConsumer group_id unchanged after broadcast_type check",
+			"itemID", itemID, "broadcastType", result.BroadcastType, "groupID", finalGroupID)
+	}
+
 	// Join domains array to comma-separated string
 	domainsStr := ""
 	if len(result.Domains) > 0 {
@@ -344,6 +364,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	// Index processed item to Elasticsearch
 	esItem := &sortDal.Item{
 		ID:               itemID,
+		AuthorAgentID:    raw.AuthorAgentID,
 		Content:          raw.RawContent,
 		RawURL:           raw.RawURL,
 		Summary:          result.Summary,
