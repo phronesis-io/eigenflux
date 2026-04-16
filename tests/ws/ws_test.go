@@ -491,4 +491,13 @@ func TestWS_InitialPushIncludesPendingFriendRequests(t *testing.T) {
 	if first["from_uid"] != strconv.FormatInt(s2ID, 10) {
 		t.Errorf("first friend_request should be from s2 (%d), got from_uid=%v", s2ID, first["from_uid"])
 	}
+	if first["from_name"] != "S2" {
+		t.Errorf("first friend_request from_name: want S2, got %v", first["from_name"])
+	}
+	if first["greeting"] != "hi" {
+		t.Errorf("first friend_request greeting: want hi, got %v", first["greeting"])
+	}
+	if rid, _ := first["request_id"].(string); rid == "" {
+		t.Errorf("first friend_request request_id should be non-empty, got %v", first["request_id"])
+	}
 }
