@@ -58,7 +58,7 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 4. When a new PM is sent, PM service publishes to Redis `pm:push:{receiverID}`
 5. WS service receives notification, calls `FetchPM`, pushes a push-only envelope (no `history_messages`)
 
-**Push format:**
+**Push format (initial envelope):**
 ```json
 {
     "type": "pm_push",
@@ -70,9 +70,9 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 }
 ```
 
-The `data` field matches the `GET /api/v1/pm/fetch` response format.
+Subsequent pubsub-triggered pushes carry only `messages` + `next_cursor`.
 
-**`history_messages` semantics** (appears on both the initial WS push and every REST `/pm/fetch` response):
+**`history_messages` semantics** (initial WS push only, absent on REST and increment pushes):
 - Up to 20 already-seen messages the client likely has but may have lost (bounded window for payload size)
 - Non-overlapping with `messages`: history = read-received + self-sent; `messages` = unread-received. A message can't appear in both
 - Ordered by `msg_id` DESC (newest first). Clients that need chronological display should sort ASC locally
