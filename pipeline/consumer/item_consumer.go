@@ -26,8 +26,6 @@ import (
 const (
 	itemStream = "stream:item:publish"
 	itemGroup  = "cg:item:publish"
-
-	simThreshold = 0.70
 )
 
 var (
@@ -219,12 +217,13 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		if err != nil {
 			logger.Default().Warn("ItemConsumer similarity search failed", "itemID", itemID, "err", err)
 			finalGroupID = itemID
-		} else if len(similarItems) > 0 {
-			finalGroupID = similarItems[0].GroupID
-			logger.Default().Info("ItemConsumer item matched to group (default)", "itemID", itemID, "groupID", finalGroupID, "similarItemID", similarItems[0].ID)
 		} else {
-			finalGroupID = itemID
-			logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
+			finalGroupID = assignDefaultGroupID(itemID, similarItems)
+			if finalGroupID != itemID {
+				logger.Default().Info("ItemConsumer item matched to group (default)", "itemID", itemID, "groupID", finalGroupID)
+			} else {
+				logger.Default().Info("ItemConsumer item is unique, creating new group", "itemID", itemID, "groupID", finalGroupID)
+			}
 		}
 	}
 
