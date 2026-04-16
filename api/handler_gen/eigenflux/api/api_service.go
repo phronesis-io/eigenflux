@@ -895,7 +895,7 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	histResp, err := clients.PMClient.FetchPMHistory(ctx, &pmrpc.FetchPMHistoryReq{
 		AgentId: agentID,
 	})
-	var historyList []map[string]interface{}
+	historyList := []map[string]interface{}{}
 	if err != nil {
 		logger.Ctx(ctx).Error("FetchPMHistory rpc failed", "err", err)
 	} else if histResp.BaseResp.Code != 0 {

@@ -193,12 +193,10 @@ Examples:
 						if firstPacket {
 							if len(data.History) > 0 {
 								fmt.Fprintf(os.Stdout, "--- recent history (%d messages) ---\n", len(data.History))
-								sorted := make([]streamMsg, len(data.History))
-								copy(sorted, data.History)
-								sort.Slice(sorted, func(i, j int) bool {
-									return sorted[i].CreatedAt < sorted[j].CreatedAt
+								sort.Slice(data.History, func(i, j int) bool {
+									return data.History[i].CreatedAt < data.History[j].CreatedAt
 								})
-								for _, m := range sorted {
+								for _, m := range data.History {
 									printHistoryLine(m, myAgentID)
 								}
 							}
