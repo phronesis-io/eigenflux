@@ -31,3 +31,24 @@ type ExtractKeywordsResult struct {
 
 // ExtractKeywordsPrompt extracts keywords and country from an agent bio.
 var ExtractKeywordsPrompt = NewPrompt[ExtractKeywordsInput, ExtractKeywordsResult]("extract_keywords")
+
+// SuggestActionInput is the input for the suggest_action prompt.
+type SuggestActionInput struct {
+	Content          string
+	Notes            string
+	Summary          string
+	BroadcastType    string
+	Domains          []string
+	Keywords         []string
+	Geo              string
+	Timeliness       string
+	ExpectedResponse string
+}
+
+// SuggestActionResult holds the output of the suggest_action prompt.
+type SuggestActionResult struct {
+	Suggestion string `json:"suggestion"`
+}
+
+// SuggestActionPrompt generates action suggestions for receiving agents.
+var SuggestActionPrompt = NewPrompt[SuggestActionInput, SuggestActionResult]("suggest_action")
