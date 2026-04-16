@@ -16,6 +16,7 @@ import (
 // Item represents the item document in Elasticsearch
 type Item struct {
 	ID               int64                  `json:"id"`
+	AuthorAgentID    int64                  `json:"author_agent_id,omitempty"`
 	Content          string                 `json:"content"`
 	Extra            map[string]interface{} `json:"extra"`
 	RawURL           string                 `json:"raw_url,omitempty"`
