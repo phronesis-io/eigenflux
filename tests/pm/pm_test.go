@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -932,5 +933,121 @@ func TestFetchPendingFriendRequests_Empty(t *testing.T) {
 	}
 	if len(out.Requests) != 0 {
 		t.Errorf("len(Requests): want 0, got %d", len(out.Requests))
+	}
+}
+
+func TestFetchPendingFriendRequests_ValidatesAgentId(t *testing.T) {
+	testutil.WaitForAPI(t)
+	c := getPMClient(t)
+	out, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: 0})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out == nil || out.BaseResp == nil {
+		t.Fatalf("expected non-nil resp/BaseResp")
+	}
+	if out.BaseResp.Code != 400 {
+		t.Errorf("BaseResp.Code: want 400, got %d (msg=%s)", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if !strings.Contains(out.BaseResp.Msg, "agent_id") {
+		t.Errorf("BaseResp.Msg: want containing 'agent_id', got %q", out.BaseResp.Msg)
+	}
+	if len(out.Requests) != 0 {
+		t.Errorf("Requests: want empty on validation failure, got %d", len(out.Requests))
+	}
+}
+
+// seedPendingFriendRequests inserts n pending rows into friend_requests for toUID,
+// each from a synthetic sender uid (no agents rows needed; FK is not enforced and
+// BatchGetAgentNames tolerates missing agents).
+func seedPendingFriendRequests(t *testing.T, toUID int64, n int) {
+	t.Helper()
+	base := time.Now().UnixNano()
+	nowMs := time.Now().UnixMilli()
+	for i := 0; i < n; i++ {
+		id := base + int64(i)
+		fromUID := base + int64(1_000_000) + int64(i)
+		_, err := testutil.TestDB.Exec(
+			"INSERT INTO friend_requests (id, from_uid, to_uid, status, greeting, remark, created_at, updated_at) VALUES ($1,$2,$3,0,'','', $4, $4)",
+			id, fromUID, toUID, nowMs,
+		)
+		if err != nil {
+			t.Fatalf("seed friend_requests (%d/%d): %v", i, n, err)
+		}
+	}
+}
+
+func TestFetchPendingFriendRequests_DefaultLimit(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pfrq_default@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+	a := testutil.RegisterAgent(t, "pfrq_default@test.com", "D", "bio")
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, aID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", aID)
+
+	seedPendingFriendRequests(t, aID, 7)
+
+	c := getPMClient(t)
+	out, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: aID}) // Limit nil -> default 5
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if out.TotalCount != 7 {
+		t.Errorf("TotalCount: want 7, got %d", out.TotalCount)
+	}
+	if len(out.Requests) != 5 {
+		t.Errorf("len(Requests): want 5 (default limit), got %d", len(out.Requests))
+	}
+}
+
+func TestFetchPendingFriendRequests_NonPositiveLimitDefaults(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pfrq_nonpos@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+	a := testutil.RegisterAgent(t, "pfrq_nonpos@test.com", "N", "bio")
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, aID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", aID)
+
+	seedPendingFriendRequests(t, aID, 3)
+
+	c := getPMClient(t)
+	zero := int32(0)
+	out, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: aID, Limit: &zero})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s (handler must not error on non-positive limit)", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if out.TotalCount != 3 {
+		t.Errorf("TotalCount: want 3, got %d", out.TotalCount)
+	}
+	// Handler clamps non-positive limit to 1 (see rpc/pm/handler.go).
+	if len(out.Requests) != 1 {
+		t.Errorf("len(Requests): want 1 (non-positive limit clamped to 1), got %d", len(out.Requests))
+	}
+
+	neg := int32(-5)
+	out2, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: aID, Limit: &neg})
+	if err != nil {
+		t.Fatalf("rpc (neg): %v", err)
+	}
+	if out2.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s (handler must not error on negative limit)", out2.BaseResp.Code, out2.BaseResp.Msg)
+	}
+	if out2.TotalCount != 3 {
+		t.Errorf("TotalCount (neg): want 3, got %d", out2.TotalCount)
+	}
+	if len(out2.Requests) != 1 {
+		t.Errorf("len(Requests) (neg): want 1, got %d", len(out2.Requests))
 	}
 }
