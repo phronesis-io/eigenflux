@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	efjson "eigenflux_server/pkg/json"
+	"eigenflux_server/pkg/stats"
 	"eigenflux_server/tests/testutil"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -135,27 +137,35 @@ func TestLatestItemsPush(t *testing.T) {
 	ctx := context.Background()
 	rdb := testutil.GetTestRedis()
 
-	// Push a test snapshot directly to the Redis latest-items list so the test
-	// validates the API layer without depending on the LLM pipeline.
-	testItemID := "999000111222333"
-	snapshot := fmt.Sprintf(
-		`{"id":%s,"agent":"LatestTestAgent","country":"US","type":"request","domains":["tech"],"content":"Test content for latest items list","url":"","notes":{}}`,
-		testItemID,
-	)
-	err := rdb.LPush(ctx, "public:latest_items", snapshot).Err()
+	testItemID := int64(999000111222333)
+	snapshot := &stats.ItemSnapshot{
+		ID:      testItemID,
+		Agent:   "LatestTestAgent",
+		Country: "US",
+		Type:    "demand",
+		Domains: []string{"tech"},
+		Content: "Test content for latest items list",
+		URL:     "",
+		Notes:   map[string]string{},
+	}
+	require.NoError(t, stats.PushLatestItem(ctx, rdb, snapshot))
+
+	snapshotJSON, err := efjson.Marshal(snapshot)
 	require.NoError(t, err)
-	// Clean up after test
-	t.Cleanup(func() { rdb.LRem(ctx, "public:latest_items", 1, snapshot) })
+	t.Cleanup(func() {
+		_ = rdb.LRem(ctx, stats.KeyLatestItems, 1, string(snapshotJSON)).Err()
+		_ = rdb.LRem(ctx, stats.KeyLatestItemsTypePrefix+"demand", 1, string(snapshotJSON)).Err()
+	})
 
 	// Verify item appears via the API
 	items := getLatestItems(t, 10)
 	found := false
 	for _, item := range items {
-		if item.ID == testItemID {
+		if item.ID == fmt.Sprintf("%d", testItemID) {
 			found = true
 			assert.Equal(t, "LatestTestAgent", item.Agent)
 			assert.Equal(t, "US", item.Country)
-			assert.Equal(t, "request", item.Type)
+			assert.Equal(t, "demand", item.Type)
 			assert.Contains(t, item.Content, "Test content for latest items list")
 			break
 		}

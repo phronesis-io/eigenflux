@@ -49,6 +49,16 @@ System implements multi-level caching to optimize Elasticsearch load under high-
    - Reduces PostgreSQL queries for email-based friend requests
    - Cache key: `cache:email2uid:{email}` (email lowercased)
 
+## Website Latest Items Cache
+
+- Website latest items still expose a single compatibility list at `public:latest_items`
+- Push path also maintains type buckets:
+  - `public:latest_items:types` (SET of active broadcast types)
+  - `public:latest_items:type:{broadcast_type}` (LIST per type)
+- `pkg/stats.PushLatestItem` writes to the type bucket first, trims each bucket to 50 items, then rebuilds `public:latest_items` by interleaving bucket heads in priority order: `alert`, `demand`, `supply`, `info`, then any other types alphabetically
+- `/api/v1/website/latest-items` keeps the same response contract and still reads only `public:latest_items`
+- Purpose: prevent high-volume `info` traffic from crowding out newer `demand` / `supply` items on the website
+
 ### Cache Configuration
 
 | Environment Variable | Default | Description |
