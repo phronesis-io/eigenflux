@@ -226,9 +226,9 @@ func TestSaveMessages_Dedup(t *testing.T) {
 
 	myID := "me"
 	SaveProfile("testserver", &Profile{AgentID: myID})
-	now := time.Now()
-	ts1 := now.Add(-2 * time.Minute).UnixMilli()
-	ts2 := now.Add(-1 * time.Minute).UnixMilli()
+	base := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	ts1 := base.UnixMilli()
+	ts2 := base.Add(1 * time.Minute).UnixMilli()
 	msgs := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello", CreatedAt: ts1},
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello dup", CreatedAt: ts1},
@@ -236,8 +236,7 @@ func TestSaveMessages_Dedup(t *testing.T) {
 	}
 	SaveMessages("testserver", msgs, nil)
 
-	today := time.Now().Format(dateFormat)
-	path := filepath.Join(dir, "servers", "testserver", "data", "messages", today, "agent-other.json")
+	path := filepath.Join(dir, "servers", "testserver", "data", "messages", "20260410", "agent-other.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("expected agent-other.json to exist: %v", err)
@@ -261,9 +260,9 @@ func TestSaveMessages_Dedup_AcrossCalls(t *testing.T) {
 
 	myID := "me"
 	SaveProfile("testserver", &Profile{AgentID: myID})
-	now := time.Now()
-	ts1 := now.Add(-2 * time.Minute).UnixMilli()
-	ts2 := now.Add(-1 * time.Minute).UnixMilli()
+	base := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	ts1 := base.UnixMilli()
+	ts2 := base.Add(1 * time.Minute).UnixMilli()
 	msgs1 := []CachedMessage{
 		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "hello", CreatedAt: ts1},
 	}
@@ -276,8 +275,7 @@ func TestSaveMessages_Dedup_AcrossCalls(t *testing.T) {
 	}
 	SaveMessages("testserver", msgs2, nil)
 
-	today := time.Now().Format(dateFormat)
-	path := filepath.Join(dir, "servers", "testserver", "data", "messages", today, "agent-other.json")
+	path := filepath.Join(dir, "servers", "testserver", "data", "messages", "20260410", "agent-other.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("expected agent-other.json to exist: %v", err)
@@ -297,16 +295,15 @@ func TestSaveMessages_GroupByAgent(t *testing.T) {
 
 	myID := "me"
 	SaveProfile("testserver", &Profile{AgentID: myID})
-	now := time.Now()
+	base := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	msgs := []CachedMessage{
-		{MsgID: "m1", ConvID: "c1", SenderID: "alice", ReceiverID: myID, Content: "from alice", CreatedAt: now.Add(-3 * time.Minute).UnixMilli()},
-		{MsgID: "m2", ConvID: "c2", SenderID: "bob", ReceiverID: myID, Content: "from bob", CreatedAt: now.Add(-2 * time.Minute).UnixMilli()},
-		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "alice", Content: "to alice", CreatedAt: now.Add(-1 * time.Minute).UnixMilli()},
+		{MsgID: "m1", ConvID: "c1", SenderID: "alice", ReceiverID: myID, Content: "from alice", CreatedAt: base.UnixMilli()},
+		{MsgID: "m2", ConvID: "c2", SenderID: "bob", ReceiverID: myID, Content: "from bob", CreatedAt: base.Add(1 * time.Minute).UnixMilli()},
+		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "alice", Content: "to alice", CreatedAt: base.Add(2 * time.Minute).UnixMilli()},
 	}
 	SaveMessages("testserver", msgs, nil)
 
-	today := time.Now().Format(dateFormat)
-	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", today)
+	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", "20260410")
 
 	// Should have agent-alice.json and agent-bob.json.
 	alicePath := filepath.Join(msgDir, "agent-alice.json")
@@ -343,16 +340,15 @@ func TestSaveMessages_GroupByItem(t *testing.T) {
 		"c1": "100",
 		"c2": "200",
 	}
-	now := time.Now()
+	base := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	msgs := []CachedMessage{
-		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "about item 100", CreatedAt: now.Add(-3 * time.Minute).UnixMilli()},
-		{MsgID: "m2", ConvID: "c2", SenderID: "other2", ReceiverID: myID, Content: "about item 200", CreatedAt: now.Add(-2 * time.Minute).UnixMilli()},
-		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "other", Content: "reply about item 100", CreatedAt: now.Add(-1 * time.Minute).UnixMilli()},
+		{MsgID: "m1", ConvID: "c1", SenderID: "other", ReceiverID: myID, Content: "about item 100", CreatedAt: base.UnixMilli()},
+		{MsgID: "m2", ConvID: "c2", SenderID: "other2", ReceiverID: myID, Content: "about item 200", CreatedAt: base.Add(1 * time.Minute).UnixMilli()},
+		{MsgID: "m3", ConvID: "c1", SenderID: myID, ReceiverID: "other", Content: "reply about item 100", CreatedAt: base.Add(2 * time.Minute).UnixMilli()},
 	}
 	SaveMessages("testserver", msgs, convItemMap)
 
-	today := time.Now().Format(dateFormat)
-	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", today)
+	msgDir := filepath.Join(dir, "servers", "testserver", "data", "messages", "20260410")
 
 	item100Path := filepath.Join(msgDir, "item-100.json")
 	item200Path := filepath.Join(msgDir, "item-200.json")
