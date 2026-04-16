@@ -276,3 +276,158 @@ func TestWSConnectionReplacement(t *testing.T) {
 
 	cleanPMData(t, agentID)
 }
+
+func TestWS_InitialPushIncludesHistory(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_hist_author@test.com", "ws_hist_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "ws_hist_author@test.com", "Hist Author", "author for history test")
+	user := testutil.RegisterAgent(t, "ws_hist_user@test.com", "Hist User", "user for history test")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+	authorToken := author["token"].(string)
+	userToken := user["token"].(string)
+
+	cleanPMData(t, authorID, userID)
+	defer cleanPMData(t, authorID, userID)
+
+	itemID := int64(990100)
+	mockItem(t, itemID, authorID) // author owns the item so PM goes TO author
+	defer cleanMockItem(t, itemID)
+
+	// User sends PM to author about the item.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "historical msg",
+	}, userToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// Author fetches (reads) the message so it becomes history (unread count → 0).
+	testutil.DoGet(t, "/api/v1/pm/fetch", authorToken)
+
+	// Author dials WS — should receive initial push with history_messages.
+	ws := dialWS(t, authorToken, 0)
+	defer ws.Close()
+
+	envelope := readPush(t, ws, 10*time.Second)
+
+	if envelope["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", envelope["type"])
+	}
+
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data to be a map, got: %T %v", envelope["data"], envelope["data"])
+	}
+
+	// history_messages must be present and non-empty.
+	rawHistory, hasHistory := data["history_messages"]
+	if !hasHistory {
+		t.Fatal("expected history_messages in initial push, key missing")
+	}
+	historyList, ok := rawHistory.([]interface{})
+	if !ok || len(historyList) == 0 {
+		t.Fatalf("expected non-empty history_messages, got: %v", rawHistory)
+	}
+	found := false
+	for _, item := range historyList {
+		m, ok := item.(map[string]interface{})
+		if ok && m["content"] == "historical msg" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("history_messages did not contain 'historical msg', got: %v", historyList)
+	}
+
+	// messages (unread) must be empty — author already read the message.
+	if rawMsgs, hasMsgs := data["messages"]; hasMsgs {
+		if list, ok := rawMsgs.([]interface{}); ok && len(list) > 0 {
+			t.Errorf("expected empty messages (all read), got: %v", list)
+		}
+	}
+}
+
+func TestWS_IncrementPushHasNoHistory(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_incr_a@test.com", "ws_incr_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	a := testutil.RegisterAgent(t, "ws_incr_a@test.com", "Incr A", "agent a for increment test")
+	b := testutil.RegisterAgent(t, "ws_incr_b@test.com", "Incr B", "agent b for increment test")
+
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(b["agent_id"].(string), 10, 64)
+	aToken := a["token"].(string)
+	bToken := b["token"].(string)
+
+	cleanPMData(t, aID, bID)
+	defer cleanPMData(t, aID, bID)
+
+	itemID := int64(990101)
+	mockItem(t, itemID, aID) // a owns the item so PM goes TO a
+	defer cleanMockItem(t, itemID)
+
+	// a dials WS fresh — no history, no unread, so pushInitial sends nothing.
+	ws := dialWS(t, aToken, 0)
+	defer ws.Close()
+
+	// Wait for pub/sub subscription to settle (mirrors TestWSRealtimePush).
+	time.Sleep(500 * time.Millisecond)
+
+	// b sends PM to a about the item.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": a["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "new msg",
+	}, bToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// Read the realtime (increment) push.
+	envelope := readPush(t, ws, 10*time.Second)
+
+	if envelope["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", envelope["type"])
+	}
+
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data to be a map, got: %T %v", envelope["data"], envelope["data"])
+	}
+
+	// messages must contain the new message.
+	messages, ok := data["messages"].([]interface{})
+	if !ok || len(messages) == 0 {
+		t.Fatalf("expected at least 1 message in increment push, got: %v", data["messages"])
+	}
+	found := false
+	for _, item := range messages {
+		m, ok := item.(map[string]interface{})
+		if ok && m["content"] == "new msg" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("messages did not contain 'new msg', got: %v", messages)
+	}
+
+	// history_messages must be absent or empty in an increment push.
+	if raw, has := data["history_messages"]; has {
+		if list, ok := raw.([]interface{}); ok && len(list) > 0 {
+			t.Errorf("increment push should not contain history_messages, got: %v", list)
+		}
+	}
+}
