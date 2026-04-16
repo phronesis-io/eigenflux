@@ -355,8 +355,31 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		finalExpectedResponse = "no_reply"
 	}
 
+	// Generate action suggestion (non-blocking: failure leaves suggestion empty)
+	var suggestion string
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		suggestResult, suggestErr := c.llmClient.SuggestAction(ctx, llm.SuggestActionInput{
+			Content:          raw.RawContent,
+			Notes:            raw.RawNotes,
+			Summary:          result.Summary,
+			BroadcastType:    result.BroadcastType,
+			Domains:          result.Domains,
+			Keywords:         result.Keywords,
+			Geo:              result.Geo,
+			Timeliness:       result.Timeliness,
+			ExpectedResponse: finalExpectedResponse,
+		})
+		if suggestErr == nil {
+			suggestion = suggestResult.Suggestion
+			break
+		}
+		logger.Default().Warn("ItemConsumer suggest action attempt failed",
+			"attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", suggestErr)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+
 	// Update processed item with LLM results
-	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID) {
+	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID, suggestion) {
 		return
 	}
 
@@ -461,8 +484,8 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	mq.Ack(ctx, itemStream, itemGroup, msgID)
 }
 
-func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64) bool {
-	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, itemDal.StatusCompleted); err != nil {
+func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {
+	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, itemDal.StatusCompleted); err != nil {
 		logger.Default().Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
 		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {
@@ -473,7 +496,7 @@ func persistProcessedItem(ctx context.Context, msgID string, itemID int64, resul
 		return false
 	}
 
-	logger.Default().Info("ItemConsumer item processed", "itemID", itemID, "broadcastType", result.BroadcastType, "domains", result.Domains, "keywords", result.Keywords, "groupID", finalGroupID, "quality", result.Quality)
+	logger.Default().Info("ItemConsumer item processed", "itemID", itemID, "broadcastType", result.BroadcastType, "domains", result.Domains, "keywords", result.Keywords, "groupID", finalGroupID, "quality", result.Quality, "hasSuggestion", suggestion != "")
 	return true
 }
 
