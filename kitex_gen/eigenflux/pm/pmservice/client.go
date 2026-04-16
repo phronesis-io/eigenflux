@@ -25,6 +25,7 @@ type Client interface {
 	ListFriendRequests(ctx context.Context, req *pm.ListFriendRequestsReq, callOptions ...callopt.Option) (r *pm.ListFriendRequestsResp, err error)
 	ListFriends(ctx context.Context, req *pm.ListFriendsReq, callOptions ...callopt.Option) (r *pm.ListFriendsResp, err error)
 	UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq, callOptions ...callopt.Option) (r *pm.UpdateFriendRemarkResp, err error)
+	FetchPendingFriendRequests(ctx context.Context, req *pm.FetchPendingFriendRequestsReq, callOptions ...callopt.Option) (r *pm.FetchPendingFriendRequestsResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -124,4 +125,9 @@ func (p *kPMServiceClient) ListFriends(ctx context.Context, req *pm.ListFriendsR
 func (p *kPMServiceClient) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq, callOptions ...callopt.Option) (r *pm.UpdateFriendRemarkResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.UpdateFriendRemark(ctx, req)
+}
+
+func (p *kPMServiceClient) FetchPendingFriendRequests(ctx context.Context, req *pm.FetchPendingFriendRequestsReq, callOptions ...callopt.Option) (r *pm.FetchPendingFriendRequestsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.FetchPendingFriendRequests(ctx, req)
 }

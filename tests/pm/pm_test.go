@@ -858,3 +858,79 @@ func TestFetchPMHistory_Empty(t *testing.T) {
 		t.Errorf("expected 0 messages for new agent, got %d", len(r.Messages))
 	}
 }
+
+func TestFetchPendingFriendRequests_RPCShape(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pfrq_recv@test.com", "pfrq_s1@test.com", "pfrq_s2@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	r := testutil.RegisterAgent(t, "pfrq_recv@test.com", "R", "bio")
+	s1 := testutil.RegisterAgent(t, "pfrq_s1@test.com", "S1", "bio")
+	s2 := testutil.RegisterAgent(t, "pfrq_s2@test.com", "S2", "bio")
+	rID, _ := strconv.ParseInt(r["agent_id"].(string), 10, 64)
+	s1ID, _ := strconv.ParseInt(s1["agent_id"].(string), 10, 64)
+	s2ID, _ := strconv.ParseInt(s2["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, rID, s1ID, s2ID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", rID)
+
+	for _, tok := range []string{s1["token"].(string), s2["token"].(string)} {
+		resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   r["agent_id"],
+			"greeting": "hi",
+		}, tok)
+		if int(resp["code"].(float64)) != 0 {
+			t.Fatalf("apply failed: %v", resp["msg"])
+		}
+	}
+
+	c := getPMClient(t)
+	limit := int32(5)
+	out, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: rID, Limit: &limit})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if out.TotalCount != 2 {
+		t.Errorf("TotalCount: want 2, got %d", out.TotalCount)
+	}
+	if len(out.Requests) != 2 {
+		t.Errorf("len(Requests): want 2, got %d", len(out.Requests))
+	}
+	if len(out.Requests) >= 1 && out.Requests[0].FromUid != s2ID {
+		t.Errorf("first request should be from s2 (%d), got %d", s2ID, out.Requests[0].FromUid)
+	}
+	if len(out.Requests) >= 1 {
+		name := out.Requests[0].GetFromName()
+		if name == "" {
+			t.Errorf("FromName should be populated")
+		}
+	}
+}
+
+func TestFetchPendingFriendRequests_Empty(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pfrq_empty@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+	a := testutil.RegisterAgent(t, "pfrq_empty@test.com", "E", "bio")
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, aID)
+
+	c := getPMClient(t)
+	out, err := c.FetchPendingFriendRequests(context.Background(),
+		&pm.FetchPendingFriendRequestsReq{AgentId: aID})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if out.TotalCount != 0 {
+		t.Errorf("TotalCount: want 0, got %d", out.TotalCount)
+	}
+	if len(out.Requests) != 0 {
+		t.Errorf("len(Requests): want 0, got %d", len(out.Requests))
+	}
+}

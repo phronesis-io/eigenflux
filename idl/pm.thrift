@@ -184,6 +184,17 @@ struct ListFriendRequestsResp {
     255: required base.BaseResp base_resp
 }
 
+struct FetchPendingFriendRequestsReq {
+    1: required i64 agent_id
+    2: optional i32 limit        // default 5, clamped to [1, 50]
+}
+
+struct FetchPendingFriendRequestsResp {
+    1: required list<FriendRequestInfo> requests   // id DESC (newest first)
+    2: required i64 total_count                    // total pending incoming for agent_id
+    255: required base.BaseResp base_resp
+}
+
 struct ListFriendsReq {
     1: required i64 agent_id
     2: optional i64 cursor
@@ -220,5 +231,6 @@ service PMService {
     ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req)
     ListFriendsResp ListFriends(1: ListFriendsReq req)
     UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req)
+    FetchPendingFriendRequestsResp FetchPendingFriendRequests(1: FetchPendingFriendRequestsReq req)
 }
 
