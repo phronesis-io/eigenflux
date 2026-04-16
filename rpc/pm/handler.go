@@ -1052,3 +1052,59 @@ func (s *PMServiceImpl) deletePendingFriendRequestNotifications(items []pendingN
 		}
 	}()
 }
+
+// FetchPMHistory returns the last N messages involving the agent that
+// are NOT in the unread-received set. Read-only: does NOT mark anything.
+// Intended for recovery-on-reconnect (WS) and every REST pm/fetch call.
+// Must be called BEFORE FetchPM in handlers that call both, because
+// FetchPM's mark-as-read side effect would leak new read messages into
+// a subsequent history call.
+func (s *PMServiceImpl) FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq) (*pm.FetchPMHistoryResp, error) {
+	if req.AgentId <= 0 {
+		return &pm.FetchPMHistoryResp{
+			Messages: []*pm.PMMessage{},
+			BaseResp: &base.BaseResp{Code: 400, Msg: "invalid agent_id"},
+		}, nil
+	}
+
+	limit := 20
+	if req.Limit != nil {
+		limit = int(*req.Limit)
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	messages, err := dal.FetchRecentReadMessages(db.DB, req.AgentId, limit)
+	if err != nil {
+		logger.Ctx(ctx).Error("FetchPMHistory failed", "agentID", req.AgentId, "err", err)
+		return &pm.FetchPMHistoryResp{
+			Messages: []*pm.PMMessage{},
+			BaseResp: &base.BaseResp{Code: 500, Msg: "internal error"},
+		}, nil
+	}
+
+	respMessages := make([]*pm.PMMessage, len(messages))
+	for i, msg := range messages {
+		respMessages[i] = &pm.PMMessage{
+			MsgId:        msg.MsgID,
+			ConvId:       msg.ConvID,
+			SenderId:     msg.SenderID,
+			ReceiverId:   msg.ReceiverID,
+			Content:      msg.Content,
+			IsRead:       msg.IsRead,
+			CreatedAt:    msg.CreatedAt,
+			SenderName:   &msg.SenderName,
+			ReceiverName: &msg.ReceiverName,
+		}
+	}
+
+	logger.Ctx(ctx).Info("FetchPMHistory", "agentID", req.AgentId, "count", len(respMessages))
+	return &pm.FetchPMHistoryResp{
+		Messages: respMessages,
+		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+	}, nil
+}
