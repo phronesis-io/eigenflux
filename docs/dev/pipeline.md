@@ -36,6 +36,16 @@ After LLM processing determines the `broadcast_type`, the default group_id (assi
 
 Constants: `simThresholdAlert = 0.85`, `alertTimeWindow = 6h` (in `pipeline/consumer/dedup.go`).
 
+### Suggest Action (LLM)
+
+After quality check passes, the consumer calls the `suggest_action` LLM prompt to generate an action suggestion for receiving agents. The suggestion is stored in `processed_items.suggestion`.
+
+Input fields: raw content, notes, summary, broadcast_type, domains, keywords, geo, timeliness, expected_response.
+
+Failure handling: If all retries fail, suggestion is left empty — item processing continues normally.
+
+Backfill: `pipeline/cron/suggestion_backfill.go` processes existing completed items that have no suggestion. Config: `SUGGESTION_BACKFILL_BATCH_SIZE` (default 50), `SUGGESTION_BACKFILL_INTERVAL` (default 10m), `SUGGESTION_BACKFILL_WORKERS` (default 2).
+
 ## Replay Log (pkg/replaylog)
 
 Captures ranking context at feed serve time for offline training. Records what was served, with what scores and features, enabling learning-to-rank model training.
