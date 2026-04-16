@@ -64,10 +64,6 @@ definitions:
     type: object
   api.FetchPMData:
     properties:
-      history_messages:
-        items:
-          $ref: '#/definitions/api.PMMessageData'
-        type: array
       messages:
         items:
           $ref: '#/definitions/api.PMMessageData'

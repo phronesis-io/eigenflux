@@ -826,12 +826,6 @@ const docTemplate = `{
         "api.FetchPMData": {
             "type": "object",
             "properties": {
-                "history_messages": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.PMMessageData"
-                    }
-                },
                 "messages": {
                     "type": "array",
                     "items": {
