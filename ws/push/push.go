@@ -20,11 +20,24 @@ type Message struct {
 	Data interface{} `json:"data"`
 }
 
-// PMFetchData mirrors the FetchPMResp.data shape sent via the REST API.
+// PMFetchData mirrors the FetchPMResp.data shape sent via the REST API,
+// extended on the WS initial envelope with history + pending friend requests.
 type PMFetchData struct {
-	Messages        []PMMessageData `json:"messages"`
-	NextCursor      string          `json:"next_cursor"`
-	HistoryMessages []PMMessageData `json:"history_messages,omitempty"`
+	Messages            []PMMessageData     `json:"messages"`
+	NextCursor          string              `json:"next_cursor"`
+	HistoryMessages     []PMMessageData     `json:"history_messages,omitempty"`
+	FriendRequests      []FriendRequestData `json:"friend_requests,omitempty"`
+	FriendRequestsCount int64               `json:"friend_requests_count,omitempty"`
+}
+
+type FriendRequestData struct {
+	RequestID string `json:"request_id"`
+	FromUID   string `json:"from_uid"`
+	ToUID     string `json:"to_uid"`
+	CreatedAt int64  `json:"created_at"`
+	FromName  string `json:"from_name,omitempty"`
+	ToName    string `json:"to_name,omitempty"`
+	Greeting  string `json:"greeting,omitempty"`
 }
 
 type PMMessageData struct {
@@ -56,6 +69,28 @@ func buildPMMessages(msgs []*pm.PMMessage) []PMMessageData {
 		}
 		if m.ReceiverName != nil {
 			result[i].ReceiverName = *m.ReceiverName
+		}
+	}
+	return result
+}
+
+func buildFriendRequests(infos []*pm.FriendRequestInfo) []FriendRequestData {
+	result := make([]FriendRequestData, len(infos))
+	for i, fr := range infos {
+		result[i] = FriendRequestData{
+			RequestID: fmt.Sprintf("%d", fr.RequestId),
+			FromUID:   fmt.Sprintf("%d", fr.FromUid),
+			ToUID:     fmt.Sprintf("%d", fr.ToUid),
+			CreatedAt: fr.CreatedAt,
+		}
+		if fr.FromName != nil {
+			result[i].FromName = *fr.FromName
+		}
+		if fr.ToName != nil {
+			result[i].ToName = *fr.ToName
+		}
+		if fr.Greeting != nil {
+			result[i].Greeting = *fr.Greeting
 		}
 	}
 	return result
@@ -98,6 +133,22 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		history = buildPMMessages(histResp.Messages)
 	}
 
+	prLimit := int32(5)
+	prResp, err := pmClient.FetchPendingFriendRequests(ctx, &pm.FetchPendingFriendRequestsReq{
+		AgentId: conn.AgentID,
+		Limit:   &prLimit,
+	})
+	var pending []FriendRequestData
+	var pendingTotal int64
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: FetchPendingFriendRequests failed", "agentID", conn.AgentID, "err", err)
+	} else if prResp.BaseResp.Code != 0 {
+		logger.Ctx(ctx).Error("ws: FetchPendingFriendRequests error", "agentID", conn.AgentID, "code", prResp.BaseResp.Code, "msg", prResp.BaseResp.Msg)
+	} else {
+		pending = buildFriendRequests(prResp.Requests)
+		pendingTotal = prResp.TotalCount
+	}
+
 	unreadResp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
 		AgentId: conn.AgentID,
 		Cursor:  &conn.PMCursor,
@@ -113,14 +164,16 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		nextCursor = unreadResp.NextCursor
 	}
 
-	if len(history) == 0 && len(unread) == 0 {
+	if len(history) == 0 && len(unread) == 0 && pendingTotal == 0 {
 		return
 	}
 
 	data := PMFetchData{
-		Messages:        unread,
-		NextCursor:      fmt.Sprintf("%d", nextCursor),
-		HistoryMessages: history,
+		Messages:            unread,
+		NextCursor:          fmt.Sprintf("%d", nextCursor),
+		HistoryMessages:     history,
+		FriendRequests:      pending,
+		FriendRequestsCount: pendingTotal,
 	}
 	envelope := Message{Type: "pm_push", Data: data}
 	payload, err := json.Marshal(envelope)
@@ -142,6 +195,8 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		"agentID", conn.AgentID,
 		"unread", len(unread),
 		"history", len(history),
+		"pending_shown", len(pending),
+		"pending_total", pendingTotal,
 		"cursor", conn.PMCursor)
 }
 
