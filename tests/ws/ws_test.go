@@ -431,3 +431,64 @@ func TestWS_IncrementPushHasNoHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestWS_InitialPushIncludesPendingFriendRequests(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_fr_recv@test.com", "ws_fr_s1@test.com", "ws_fr_s2@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	r := testutil.RegisterAgent(t, "ws_fr_recv@test.com", "R", "recv")
+	s1 := testutil.RegisterAgent(t, "ws_fr_s1@test.com", "S1", "sender1")
+	s2 := testutil.RegisterAgent(t, "ws_fr_s2@test.com", "S2", "sender2")
+
+	rID, _ := strconv.ParseInt(r["agent_id"].(string), 10, 64)
+	s1ID, _ := strconv.ParseInt(s1["agent_id"].(string), 10, 64)
+	s2ID, _ := strconv.ParseInt(s2["agent_id"].(string), 10, 64)
+
+	cleanPMData(t, rID, s1ID, s2ID)
+	defer cleanPMData(t, rID, s1ID, s2ID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", rID)
+
+	for _, tok := range []string{s1["token"].(string), s2["token"].(string)} {
+		resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   r["agent_id"],
+			"greeting": "hi",
+		}, tok)
+		if int(resp["code"].(float64)) != 0 {
+			t.Fatalf("apply failed: %v", resp["msg"])
+		}
+	}
+
+	ws := dialWS(t, r["token"].(string), 0)
+	defer ws.Close()
+
+	envelope := readPush(t, ws, 10*time.Second)
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data map, got %T %v", envelope["data"], envelope["data"])
+	}
+
+	raw, has := data["friend_requests"]
+	if !has {
+		t.Fatal("expected friend_requests in initial push")
+	}
+	list, ok := raw.([]interface{})
+	if !ok || len(list) != 2 {
+		t.Fatalf("expected 2 friend_requests, got: %v", raw)
+	}
+
+	countRaw, ok := data["friend_requests_count"]
+	if !ok {
+		t.Fatal("expected friend_requests_count in initial push")
+	}
+	if count, ok := countRaw.(float64); !ok || int64(count) != 2 {
+		t.Fatalf("friend_requests_count: want 2, got %v", countRaw)
+	}
+
+	first, _ := list[0].(map[string]interface{})
+	if first["from_uid"] != strconv.FormatInt(s2ID, 10) {
+		t.Errorf("first friend_request should be from s2 (%d), got from_uid=%v", s2ID, first["from_uid"])
+	}
+}
