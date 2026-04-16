@@ -24,6 +24,18 @@ Item processing flow in `pipeline/consumer/item_consumer.go`:
 11. **Persist** — write processed item fields and group_id to DB, set status to completed
 12. **Index** — index final item with embedding to Elasticsearch
 
+### Broadcast-Type-Aware Group Correction
+
+After LLM processing determines the `broadcast_type`, the default group_id (assigned using info-mode rules) is corrected:
+
+| broadcast_type | Rule | Rationale |
+|---|---|---|
+| `info` | No correction | Similar info from any source = duplicate |
+| `demand` / `supply` | Ungroup if matched item has different `author_agent_id` | Different people's similar needs are independently valuable |
+| `alert` | Ungroup if cosine < 0.85 or matched item older than 6h | Sequential event updates should not be grouped |
+
+Constants: `simThresholdAlert = 0.85`, `alertTimeWindow = 6h` (in `pipeline/consumer/dedup.go`).
+
 ## Replay Log (pkg/replaylog)
 
 Captures ranking context at feed serve time for offline training. Records what was served, with what scores and features, enabling learning-to-rank model training.
