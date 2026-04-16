@@ -22,8 +22,9 @@ type Message struct {
 
 // PMFetchData mirrors the FetchPMResp.data shape sent via the REST API.
 type PMFetchData struct {
-	Messages   []PMMessageData `json:"messages"`
-	NextCursor string          `json:"next_cursor"`
+	Messages        []PMMessageData `json:"messages"`
+	NextCursor      string          `json:"next_cursor"`
+	HistoryMessages []PMMessageData `json:"history_messages,omitempty"`
 }
 
 type PMMessageData struct {
@@ -38,6 +39,28 @@ type PMMessageData struct {
 	ReceiverName string `json:"receiver_name,omitempty"`
 }
 
+func buildPMMessages(msgs []*pm.PMMessage) []PMMessageData {
+	result := make([]PMMessageData, len(msgs))
+	for i, m := range msgs {
+		result[i] = PMMessageData{
+			MsgID:      fmt.Sprintf("%d", m.MsgId),
+			ConvID:     fmt.Sprintf("%d", m.ConvId),
+			SenderID:   fmt.Sprintf("%d", m.SenderId),
+			ReceiverID: fmt.Sprintf("%d", m.ReceiverId),
+			Content:    m.Content,
+			IsRead:     m.IsRead,
+			CreatedAt:  m.CreatedAt,
+		}
+		if m.SenderName != nil {
+			result[i].SenderName = *m.SenderName
+		}
+		if m.ReceiverName != nil {
+			result[i].ReceiverName = *m.ReceiverName
+		}
+	}
+	return result
+}
+
 // Run is the main push loop for a single connection. It blocks until the
 // connection's Done channel is closed or the context is cancelled.
 func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn *hub.Connection) {
@@ -46,7 +69,7 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 	defer pubsub.Close()
 
 	// Initial fetch on connect.
-	fetchAndPush(ctx, pmClient, conn)
+	pushInitial(ctx, pmClient, conn)
 
 	ch := pubsub.Channel()
 	for {
@@ -62,6 +85,64 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 			fetchAndPush(ctx, pmClient, conn)
 		}
 	}
+}
+
+func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
+	histResp, err := pmClient.FetchPMHistory(ctx, &pm.FetchPMHistoryReq{AgentId: conn.AgentID})
+	var history []PMMessageData
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: FetchPMHistory failed", "agentID", conn.AgentID, "err", err)
+	} else if histResp.BaseResp.Code != 0 {
+		logger.Ctx(ctx).Error("ws: FetchPMHistory error", "agentID", conn.AgentID, "code", histResp.BaseResp.Code, "msg", histResp.BaseResp.Msg)
+	} else {
+		history = buildPMMessages(histResp.Messages)
+	}
+
+	unreadResp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
+		AgentId: conn.AgentID,
+		Cursor:  &conn.PMCursor,
+	})
+	var unread []PMMessageData
+	nextCursor := conn.PMCursor
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: FetchPM failed", "agentID", conn.AgentID, "err", err)
+	} else if unreadResp.BaseResp.Code != 0 {
+		logger.Ctx(ctx).Error("ws: FetchPM error", "agentID", conn.AgentID, "code", unreadResp.BaseResp.Code, "msg", unreadResp.BaseResp.Msg)
+	} else {
+		unread = buildPMMessages(unreadResp.Messages)
+		nextCursor = unreadResp.NextCursor
+	}
+
+	if len(history) == 0 && len(unread) == 0 {
+		return
+	}
+
+	data := PMFetchData{
+		Messages:        unread,
+		NextCursor:      fmt.Sprintf("%d", nextCursor),
+		HistoryMessages: history,
+	}
+	envelope := Message{Type: "pm_push", Data: data}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: marshal initial failed", "err", err)
+		return
+	}
+
+	conn.WriteMu.Lock()
+	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
+	conn.WriteMu.Unlock()
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: write initial failed", "agentID", conn.AgentID, "err", err)
+		return
+	}
+
+	conn.PMCursor = nextCursor
+	logger.Ctx(ctx).Info("ws: pushed initial",
+		"agentID", conn.AgentID,
+		"unread", len(unread),
+		"history", len(history),
+		"cursor", conn.PMCursor)
 }
 
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
@@ -81,25 +162,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		return
 	}
 
-	// Build push payload.
-	msgs := make([]PMMessageData, len(resp.Messages))
-	for i, m := range resp.Messages {
-		msgs[i] = PMMessageData{
-			MsgID:      fmt.Sprintf("%d", m.MsgId),
-			ConvID:     fmt.Sprintf("%d", m.ConvId),
-			SenderID:   fmt.Sprintf("%d", m.SenderId),
-			ReceiverID: fmt.Sprintf("%d", m.ReceiverId),
-			Content:    m.Content,
-			IsRead:     m.IsRead,
-			CreatedAt:  m.CreatedAt,
-		}
-		if m.SenderName != nil {
-			msgs[i].SenderName = *m.SenderName
-		}
-		if m.ReceiverName != nil {
-			msgs[i].ReceiverName = *m.ReceiverName
-		}
-	}
+	msgs := buildPMMessages(resp.Messages)
 
 	data := PMFetchData{
 		Messages:   msgs,
@@ -125,4 +188,3 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 	conn.PMCursor = resp.NextCursor
 	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "count", len(resp.Messages), "cursor", conn.PMCursor)
 }
-
