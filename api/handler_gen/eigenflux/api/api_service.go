@@ -890,6 +890,33 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("FetchPM", "agentID", agentID)
 
+	// History must be fetched BEFORE unread: FetchPM marks unread messages as
+	// read, which would leak them into a subsequent history call on the next poll.
+	histResp, err := clients.PMClient.FetchPMHistory(ctx, &pmrpc.FetchPMHistoryReq{
+		AgentId: agentID,
+	})
+	var historyList []map[string]interface{}
+	if err != nil {
+		logger.Ctx(ctx).Error("FetchPMHistory rpc failed", "err", err)
+	} else if histResp.BaseResp.Code != 0 {
+		logger.Ctx(ctx).Error("FetchPMHistory error", "code", histResp.BaseResp.Code, "msg", histResp.BaseResp.Msg)
+	} else {
+		historyList = make([]map[string]interface{}, len(histResp.Messages))
+		for i, msg := range histResp.Messages {
+			historyList[i] = map[string]interface{}{
+				"msg_id":        strconv.FormatInt(msg.MsgId, 10),
+				"conv_id":       strconv.FormatInt(msg.ConvId, 10),
+				"sender_id":     strconv.FormatInt(msg.SenderId, 10),
+				"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
+				"content":       msg.Content,
+				"is_read":       msg.IsRead,
+				"created_at":    msg.CreatedAt,
+				"sender_name":   msg.GetSenderName(),
+				"receiver_name": msg.GetReceiverName(),
+			}
+		}
+	}
+
 	// Parse optional cursor
 	var cursorPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
@@ -937,8 +964,9 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"messages":    messages,
-		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+		"messages":         messages,
+		"next_cursor":      strconv.FormatInt(resp.NextCursor, 10),
+		"history_messages": historyList,
 	})
 }
 
