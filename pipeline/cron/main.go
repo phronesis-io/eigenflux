@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -40,6 +41,16 @@ func main() {
 	}
 	log.Println("Elasticsearch connected")
 
+	// Init LLM client for suggestion backfill
+	prompts, err := llm.LoadDefaultPrompts()
+	if err != nil {
+		log.Fatalf("failed to load prompt templates: %v", err)
+	}
+	if err := llm.ValidateAllPrompts(prompts); err != nil {
+		log.Fatalf("prompt validation failed: %v", err)
+	}
+	llmClient := llm.NewClient(cfg, prompts)
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,6 +59,7 @@ func main() {
 	go StartAgentCountUpdater(ctx, cfg, mq.RDB)
 	go StartStatsCalibrator(ctx, cfg, mq.RDB)
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
+	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
 
 	log.Println("Cron service started")
 
