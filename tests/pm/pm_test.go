@@ -7,8 +7,28 @@ import (
 	"testing"
 	"time"
 
+	"eigenflux_server/kitex_gen/eigenflux/pm"
+	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
+	"github.com/cloudwego/kitex/client"
 )
+
+var pmRPCClient pmservice.Client
+
+func getPMClient(t *testing.T) pmservice.Client {
+	t.Helper()
+	if pmRPCClient != nil {
+		return pmRPCClient
+	}
+	c, err := pmservice.NewClient("PMService",
+		client.WithHostPorts(fmt.Sprintf("127.0.0.1:%d", config.Load().PMRPCPort)))
+	if err != nil {
+		t.Fatalf("pm rpc client: %v", err)
+	}
+	pmRPCClient = c
+	return c
+}
 
 func TestMain(m *testing.M) {
 	testutil.RunTestMain(m)
@@ -703,4 +723,138 @@ func TestFetchPM_RedisCacheEvictionFallback(t *testing.T) {
 	}
 
 	t.Logf("FetchPM Redis eviction fallback OK")
+}
+
+func TestFetchPMHistory_SelectionAndOrdering(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	emails := []string{"pm_hist_author@test.com", "pm_hist_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "pm_hist_author@test.com", "Hist Author", "bio")
+	user := testutil.RegisterAgent(t, "pm_hist_user@test.com", "Hist User", "bio")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+
+	itemID := int64(7780100)
+	mockItem(t, itemID, authorID, "")
+	defer cleanMockItems(t, itemID)
+	defer cleanPMData(t, authorID, userID)
+
+	r1 := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "msg A (user→author)",
+		"item_id": strconv.FormatInt(itemID, 10),
+	}, user["token"].(string))
+	if int(r1["code"].(float64)) != 0 {
+		t.Fatalf("send #1 failed: %v", r1["msg"])
+	}
+
+	fetchResp := testutil.DoGet(t, "/api/v1/pm/fetch", author["token"].(string))
+	if int(fetchResp["code"].(float64)) != 0 {
+		t.Fatalf("fetch(author) failed")
+	}
+
+	convID := r1["data"].(map[string]interface{})["conv_id"].(string)
+
+	r2 := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "msg B (author→user)",
+		"conv_id": convID,
+	}, author["token"].(string))
+	if int(r2["code"].(float64)) != 0 {
+		t.Fatalf("send #2 failed: %v", r2["msg"])
+	}
+
+	r3 := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "msg C (user→author, unread)",
+		"conv_id": convID,
+	}, user["token"].(string))
+	if int(r3["code"].(float64)) != 0 {
+		t.Fatalf("send #3 failed: %v", r3["msg"])
+	}
+
+	c := getPMClient(t)
+	hist, err := c.FetchPMHistory(context.Background(), &pm.FetchPMHistoryReq{AgentId: authorID})
+	if err != nil {
+		t.Fatalf("FetchPMHistory RPC: %v", err)
+	}
+	if hist.BaseResp.Code != 0 {
+		t.Fatalf("FetchPMHistory code=%d msg=%s", hist.BaseResp.Code, hist.BaseResp.Msg)
+	}
+
+	got := make(map[string]bool)
+	for _, m := range hist.Messages {
+		got[m.Content] = true
+	}
+	if !got["msg A (user→author)"] {
+		t.Errorf("expected msg A in history, got: %v", got)
+	}
+	if !got["msg B (author→user)"] {
+		t.Errorf("expected msg B in history, got: %v", got)
+	}
+	if got["msg C (user→author, unread)"] {
+		t.Errorf("unread msg C should NOT appear in history")
+	}
+
+	for i := 1; i < len(hist.Messages); i++ {
+		if hist.Messages[i-1].MsgId < hist.Messages[i].MsgId {
+			t.Errorf("messages not in msg_id DESC order at index %d", i)
+		}
+	}
+}
+
+func TestFetchPMHistory_LimitClamp(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pm_hist_limit@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+	agent := testutil.RegisterAgent(t, "pm_hist_limit@test.com", "Limit", "bio")
+	agentID, _ := strconv.ParseInt(agent["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, agentID)
+
+	c := getPMClient(t)
+
+	limit := int32(200)
+	r, err := c.FetchPMHistory(context.Background(), &pm.FetchPMHistoryReq{AgentId: agentID, Limit: &limit})
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	if r.BaseResp.Code != 0 {
+		t.Fatalf("unexpected code=%d msg=%s", r.BaseResp.Code, r.BaseResp.Msg)
+	}
+	if len(r.Messages) > 50 {
+		t.Errorf("limit not clamped: got %d messages", len(r.Messages))
+	}
+
+	zero := int32(0)
+	r, err = c.FetchPMHistory(context.Background(), &pm.FetchPMHistoryReq{AgentId: agentID, Limit: &zero})
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	if r.BaseResp.Code != 0 {
+		t.Fatalf("unexpected code=%d msg=%s", r.BaseResp.Code, r.BaseResp.Msg)
+	}
+	if len(r.Messages) > 50 {
+		t.Errorf("limit not clamped: got %d", len(r.Messages))
+	}
+}
+
+func TestFetchPMHistory_Empty(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"pm_hist_empty@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+	agent := testutil.RegisterAgent(t, "pm_hist_empty@test.com", "Empty", "bio")
+	agentID, _ := strconv.ParseInt(agent["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, agentID)
+
+	c := getPMClient(t)
+	r, err := c.FetchPMHistory(context.Background(), &pm.FetchPMHistoryReq{AgentId: agentID})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if r.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s", r.BaseResp.Code, r.BaseResp.Msg)
+	}
+	if len(r.Messages) != 0 {
+		t.Errorf("expected 0 messages for new agent, got %d", len(r.Messages))
+	}
 }
