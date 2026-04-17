@@ -521,7 +521,7 @@ func GetItemsByGroupID(db *gorm.DB, groupID int64) ([]*ProcessedItem, error) {
 // RawItemInfo is the per-item lookup result used by Feed to enrich responses.
 type RawItemInfo struct {
 	AuthorAgentID int64
-	RawURL        string // empty string when column is NULL
+	RawURL        string // empty string when no URL was provided at publish time
 }
 
 // BatchGetRawItemInfo retrieves author_agent_id and raw_url for multiple items.
@@ -533,7 +533,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 	var results []struct {
 		ItemID        int64
 		AuthorAgentID int64
-		RawURL        *string
+		RawURL        string
 	}
 
 	err := db.Table("raw_items").
@@ -547,11 +547,10 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 
 	info := make(map[int64]RawItemInfo, len(results))
 	for _, r := range results {
-		entry := RawItemInfo{AuthorAgentID: r.AuthorAgentID}
-		if r.RawURL != nil {
-			entry.RawURL = *r.RawURL
+		info[r.ItemID] = RawItemInfo{
+			AuthorAgentID: r.AuthorAgentID,
+			RawURL:        r.RawURL,
 		}
-		info[r.ItemID] = entry
 	}
 
 	return info, nil
