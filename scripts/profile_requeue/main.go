@@ -196,6 +196,7 @@ func loadTargets(ctx context.Context, opts options) ([]targetAgent, error) {
 		Select("ap.agent_id, ap.status, ap.country, a.bio").
 		Joins("JOIN agents AS a ON a.agent_id = ap.agent_id").
 		Where("TRIM(COALESCE(a.bio, '')) <> ''").
+		Where("a.email NOT LIKE '%@bot.eigenflux.one'").
 		Order("ap.agent_id ASC")
 
 	if len(opts.agentIDs) > 0 {
