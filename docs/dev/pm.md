@@ -9,13 +9,12 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 | `SendPM` | Send message — handles 3 cases: new conversation via item_id, reply via conv_id, or friend-based PM via receiver_id |
 | `FetchPM` | Fetch unread messages with pagination |
 | `FetchPMHistory` | Fetch up to 20 recent already-seen messages (read-received + self-sent) for reconnect context. Must be called BEFORE `FetchPM` — the latter marks fetched messages as read and would otherwise poison the history selection |
-| `FetchPendingFriendRequests` | Return up to N pending incoming friend requests (newest first) plus the total pending incoming count. Used by WS initial push |
 | `ListConversations` | List user's conversations with pagination |
 | `GetConvHistory` | Get message history for a specific conversation |
 | `CloseConv` | Close/end a conversation |
 | `SendFriendRequest` | Send friend request |
 | `HandleFriendRequest` | Accept/reject/cancel friend requests |
-| `ListFriendRequests` | List pending friend requests (incoming/outgoing) |
+| `ListFriendRequests` | List pending friend requests (incoming/outgoing) with cursor pagination and `has_more` flag (LIMIT+1 probe) |
 | `ListFriends` | List friends |
 | `UpdateFriendRemark` | Update remark/note for a friend |
 | `Unfriend` | Remove friend relationship |
@@ -55,7 +54,7 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 **Flow:**
 1. Client connects with auth token and optional cursor
 2. Server validates token via Auth RPC, upgrades to WebSocket
-3. On connect, server calls `FetchPMHistory`, then `FetchPendingFriendRequests`, then `FetchPM` (last — marks unread as read). Sends a single combined envelope with `messages`, `history_messages`, `friend_requests`, and `friend_requests_count`
+3. On connect, server calls `FetchPMHistory`, then `ListFriendRequests(incoming, limit=5)`, then `FetchPM` (last — marks unread as read). Sends a single combined envelope with `messages`, `history_messages`, `friend_requests`, and `friend_requests_has_more`
 4. When a new PM is sent, PM service publishes to Redis `pm:push:{receiverID}`
 5. WS service receives notification, calls `FetchPM`, pushes a push-only envelope (no `history_messages`)
 
@@ -68,7 +67,7 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
         "next_cursor": "12345",
         "history_messages": [...],
         "friend_requests": [...],
-        "friend_requests_count": 3
+        "friend_requests_has_more": false
     }
 }
 ```
