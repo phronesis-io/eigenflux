@@ -1709,6 +1709,7 @@ var fieldIDToName_FriendRequestInfo = map[int16]string{
 type ListFriendRequestsResp struct {
 	Requests   []*FriendRequestInfo `thrift:"requests,1,required" frugal:"1,required,list<FriendRequestInfo>" json:"requests"`
 	NextCursor int64                `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	HasMore    *bool                `thrift:"has_more,3,optional" frugal:"3,optional,bool" json:"has_more,omitempty"`
 	BaseResp   *base.BaseResp       `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
@@ -1727,6 +1728,15 @@ func (p *ListFriendRequestsResp) GetNextCursor() (v int64) {
 	return p.NextCursor
 }
 
+var ListFriendRequestsResp_HasMore_DEFAULT bool
+
+func (p *ListFriendRequestsResp) GetHasMore() (v bool) {
+	if !p.IsSetHasMore() {
+		return ListFriendRequestsResp_HasMore_DEFAULT
+	}
+	return *p.HasMore
+}
+
 var ListFriendRequestsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ListFriendRequestsResp) GetBaseResp() (v *base.BaseResp) {
@@ -1741,8 +1751,15 @@ func (p *ListFriendRequestsResp) SetRequests(val []*FriendRequestInfo) {
 func (p *ListFriendRequestsResp) SetNextCursor(val int64) {
 	p.NextCursor = val
 }
+func (p *ListFriendRequestsResp) SetHasMore(val *bool) {
+	p.HasMore = val
+}
 func (p *ListFriendRequestsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *ListFriendRequestsResp) IsSetHasMore() bool {
+	return p.HasMore != nil
 }
 
 func (p *ListFriendRequestsResp) IsSetBaseResp() bool {
@@ -1759,6 +1776,7 @@ func (p *ListFriendRequestsResp) String() string {
 var fieldIDToName_ListFriendRequestsResp = map[int16]string{
 	1:   "requests",
 	2:   "next_cursor",
+	3:   "has_more",
 	255: "base_resp",
 }
 

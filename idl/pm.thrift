@@ -181,6 +181,7 @@ struct FriendRequestInfo {
 struct ListFriendRequestsResp {
     1: required list<FriendRequestInfo> requests
     2: required i64 next_cursor
+    3: optional bool has_more
     255: required base.BaseResp base_resp
 }
 

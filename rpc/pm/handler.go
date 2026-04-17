@@ -931,7 +931,7 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 	}
 	cursor := req.GetCursor()
 
-	requests, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
+	requests, hasMore, err := dal.ListFriendRequests(db.DB, req.AgentId, req.Direction, cursor, limit)
 	if err != nil {
 		logger.Ctx(ctx).Error("ListFriendRequests failed", "agentID", req.AgentId, "direction", req.Direction, "err", err)
 		return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list"}}, nil
@@ -967,7 +967,7 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 	if len(requests) > 0 {
 		nextCursor = requests[len(requests)-1].ID
 	}
-	return &pm.ListFriendRequestsResp{Requests: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	return &pm.ListFriendRequestsResp{Requests: result, NextCursor: nextCursor, HasMore: &hasMore, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq) (*pm.ListFriendsResp, error) {
