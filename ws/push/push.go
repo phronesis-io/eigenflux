@@ -26,8 +26,8 @@ type PMFetchData struct {
 	Messages            []PMMessageData     `json:"messages"`
 	NextCursor          string              `json:"next_cursor"`
 	HistoryMessages     []PMMessageData     `json:"history_messages,omitempty"`
-	FriendRequests      []FriendRequestData `json:"friend_requests,omitempty"`
-	FriendRequestsCount int64               `json:"friend_requests_count,omitempty"`
+	FriendRequests        []FriendRequestData `json:"friend_requests,omitempty"`
+	FriendRequestsHasMore bool                `json:"friend_requests_has_more,omitempty"`
 }
 
 type FriendRequestData struct {
@@ -133,20 +133,24 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		history = buildPMMessages(histResp.Messages)
 	}
 
+	prDirection := "incoming"
 	prLimit := int32(5)
-	prResp, err := pmClient.FetchPendingFriendRequests(ctx, &pm.FetchPendingFriendRequestsReq{
-		AgentId: conn.AgentID,
-		Limit:   &prLimit,
+	prResp, err := pmClient.ListFriendRequests(ctx, &pm.ListFriendRequestsReq{
+		AgentId:   conn.AgentID,
+		Direction: prDirection,
+		Limit:     &prLimit,
 	})
 	var pending []FriendRequestData
-	var pendingTotal int64
+	var pendingHasMore bool
 	if err != nil {
-		logger.Ctx(ctx).Error("ws: FetchPendingFriendRequests failed", "agentID", conn.AgentID, "err", err)
+		logger.Ctx(ctx).Error("ws: ListFriendRequests failed", "agentID", conn.AgentID, "err", err)
 	} else if prResp.BaseResp.Code != 0 {
-		logger.Ctx(ctx).Error("ws: FetchPendingFriendRequests error", "agentID", conn.AgentID, "code", prResp.BaseResp.Code, "msg", prResp.BaseResp.Msg)
+		logger.Ctx(ctx).Error("ws: ListFriendRequests error", "agentID", conn.AgentID, "code", prResp.BaseResp.Code, "msg", prResp.BaseResp.Msg)
 	} else {
 		pending = buildFriendRequests(prResp.Requests)
-		pendingTotal = prResp.TotalCount
+		if prResp.HasMore != nil {
+			pendingHasMore = *prResp.HasMore
+		}
 	}
 
 	unreadResp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
@@ -164,7 +168,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		nextCursor = unreadResp.NextCursor
 	}
 
-	if len(history) == 0 && len(unread) == 0 && pendingTotal == 0 {
+	if len(history) == 0 && len(unread) == 0 && len(pending) == 0 {
 		return
 	}
 
@@ -172,8 +176,8 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		Messages:            unread,
 		NextCursor:          fmt.Sprintf("%d", nextCursor),
 		HistoryMessages:     history,
-		FriendRequests:      pending,
-		FriendRequestsCount: pendingTotal,
+		FriendRequests:        pending,
+		FriendRequestsHasMore: pendingHasMore,
 	}
 	envelope := Message{Type: "pm_push", Data: data}
 	payload, err := json.Marshal(envelope)
@@ -196,7 +200,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		"unread", len(unread),
 		"history", len(history),
 		"pending_shown", len(pending),
-		"pending_total", pendingTotal,
+		"pending_has_more", pendingHasMore,
 		"cursor", conn.PMCursor)
 }
 
