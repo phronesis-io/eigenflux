@@ -33,22 +33,17 @@ func resolveGroupID(itemID, authorAgentID int64, broadcastType string, similarIt
 
 	switch broadcastType {
 	case "demand", "supply":
-		// Score is not checked here — the initial search already filters at
-		// simThreshold (0.70). For demand/supply the distinguishing factor is
-		// authorship, not similarity degree.
-		for _, item := range similarItems {
-			if item.AuthorAgentID == authorAgentID && item.AuthorAgentID != 0 {
-				return item.GroupID
-			}
+		// Only check the top match (similarItems[0]). Per spec, corrections
+		// only ungroup — never reassign to a different group.
+		if similarItems[0].AuthorAgentID == authorAgentID && similarItems[0].AuthorAgentID != 0 {
+			return similarItems[0].GroupID
 		}
 		return itemID
 
 	case "alert":
 		cutoff := now.Add(-alertTimeWindow)
-		for _, item := range similarItems {
-			if item.Score >= simThresholdAlert && item.CreatedAt.After(cutoff) {
-				return item.GroupID
-			}
+		if similarItems[0].Score >= simThresholdAlert && similarItems[0].CreatedAt.After(cutoff) {
+			return similarItems[0].GroupID
 		}
 		return itemID
 

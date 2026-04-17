@@ -60,7 +60,7 @@ func TestResolveGroupID_Demand_SameAuthorNotFirst(t *testing.T) {
 		{ID: 200, GroupID: 60, AuthorAgentID: 111, Score: 0.80, CreatedAt: time.Now()},
 	}
 	got := resolveGroupID(1, 111, "demand", similar, time.Now())
-	assert.Equal(t, int64(60), got, "should find same-author match at index 1")
+	assert.Equal(t, int64(1), got, "top match is different author — ungroup, never reassign")
 }
 
 func TestResolveGroupID_Demand_AllDifferentAuthors(t *testing.T) {
@@ -94,7 +94,7 @@ func TestResolveGroupID_Supply_SameAuthorNotFirst(t *testing.T) {
 		{ID: 200, GroupID: 60, AuthorAgentID: 111, Score: 0.75, CreatedAt: time.Now()},
 	}
 	got := resolveGroupID(1, 111, "supply", similar, time.Now())
-	assert.Equal(t, int64(60), got, "should find same-author match at index 1")
+	assert.Equal(t, int64(1), got, "top match is different author — ungroup, never reassign")
 }
 
 func TestResolveGroupID_Alert_HighSimRecent_KeepsGroup(t *testing.T) {
@@ -137,10 +137,10 @@ func TestResolveGroupID_Alert_QualifyingItemNotFirst(t *testing.T) {
 	now := time.Now()
 	similar := []sortDal.Item{
 		{ID: 100, GroupID: 50, AuthorAgentID: 999, Score: 0.90, CreatedAt: now.Add(-8 * time.Hour)}, // too old
-		{ID: 200, GroupID: 60, AuthorAgentID: 999, Score: 0.88, CreatedAt: now.Add(-2 * time.Hour)}, // qualifies
+		{ID: 200, GroupID: 60, AuthorAgentID: 999, Score: 0.88, CreatedAt: now.Add(-2 * time.Hour)}, // qualifies but not top match
 	}
 	got := resolveGroupID(1, 111, "alert", similar, now)
-	assert.Equal(t, int64(60), got, "should find qualifying match at index 1")
+	assert.Equal(t, int64(1), got, "top match is too old — ungroup, never reassign")
 }
 
 func TestResolveGroupID_Alert_NoneQualify(t *testing.T) {
