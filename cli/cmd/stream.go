@@ -191,7 +191,7 @@ Examples:
 								Greeting  string `json:"greeting"`
 								CreatedAt int64  `json:"created_at"`
 							} `json:"friend_requests"`
-							FriendRequestsCount int64 `json:"friend_requests_count"`
+							FriendRequestsHasMore bool `json:"friend_requests_has_more"`
 						}
 						if err := json.Unmarshal(push.Data, &data); err != nil {
 							fmt.Fprintln(os.Stdout, string(msg))
@@ -210,8 +210,8 @@ Examples:
 							}
 							if len(data.FriendRequests) > 0 {
 								label := fmt.Sprintf("%d shown", len(data.FriendRequests))
-								if data.FriendRequestsCount > int64(len(data.FriendRequests)) {
-									label = fmt.Sprintf("%d shown, %d total", len(data.FriendRequests), data.FriendRequestsCount)
+								if data.FriendRequestsHasMore {
+									label = fmt.Sprintf("%d shown, more pending — see /relations/applications", len(data.FriendRequests))
 								}
 								fmt.Fprintf(os.Stdout, "--- pending friend requests (%s) ---\n", label)
 								for _, fr := range data.FriendRequests {
