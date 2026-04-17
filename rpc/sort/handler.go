@@ -398,14 +398,19 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	allRanked, collapsedCount := collapseRankedByGroup(allRanked, esItemMap)
 	logger.Ctx(ctx).Debug("group collapse", "before", len(esItems), "after", len(allRanked), "filtered", collapsedCount)
 
-	// Then drop low-relevance items so they don't fill the feed with irrelevant content.
+	// Split ranked items into above-threshold (served) and below-threshold (filtered).
+	// Filtered items are excluded from delivery but included in SortedItems for replay
+	// log analysis so raising MinRelevanceScore doesn't reduce analysis sample size.
 	ranked := make([]ranker.RankedItem, 0, len(allRanked))
+	filteredItems := make([]ranker.RankedItem, 0)
 	for _, ri := range allRanked {
 		if ri.Score >= rankerCfg.MinRelevanceScore {
 			ranked = append(ranked, ri)
+		} else {
+			filteredItems = append(filteredItems, ri)
 		}
 	}
-	logger.Ctx(ctx).Debug("relevance filter", "before", len(allRanked), "after", len(ranked), "threshold", rankerCfg.MinRelevanceScore)
+	logger.Ctx(ctx).Debug("relevance filter", "before", len(allRanked), "after", len(ranked), "filtered", len(filteredItems), "threshold", rankerCfg.MinRelevanceScore)
 
 	// Build set of ranked IDs for exploration exclusion
 	rankedIDs := make(map[int64]bool, len(ranked))
@@ -487,9 +492,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Info("deduplication disabled", "env", cfg.AppEnv)
 	}
 
-	// Filter and collect final item IDs
+	// Filter and collect final item IDs (delivery list)
 	itemIDs := make([]int64, 0, limit)
-	sortedItems := make([]*sort.SortedItem, 0, limit)
+	sortedItems := make([]*sort.SortedItem, 0, limit+len(filteredItems))
 	dedupedCount := 0
 	for _, c := range candidates {
 		if c.groupID != 0 && seenGroupIDs[c.groupID] {
@@ -511,6 +516,41 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	}
 
 	logger.Ctx(ctx).Info("dedup result", "filtered", dedupedCount, "returned", len(itemIDs))
+
+	// Append below-threshold items to SortedItems with "filtered" marker for replay log analysis.
+	for _, ri := range filteredItems {
+		item, ok := esItemMap[ri.ItemID]
+		if !ok {
+			continue
+		}
+		feat := map[string]interface{}{
+			"broadcast_type": item.Type,
+			"domains":        item.Domains,
+			"keywords":       item.Keywords,
+			"geo":            item.Geo,
+			"source_type":    item.SourceType,
+			"quality_score":  item.QualityScore,
+			"group_id":       item.GroupID,
+			"lang":           item.Lang,
+			"timeliness":     item.Timeliness,
+			"updated_at":     item.UpdatedAt.UnixMilli(),
+			"created_at":     item.CreatedAt.UnixMilli(),
+			"rank_scores":    ri.Scores,
+			"filtered":       true,
+		}
+		if item.ExpireTime != nil {
+			feat["expire_time"] = item.ExpireTime.UnixMilli()
+		}
+		itemFeaturesJSON, _ := json.Marshal(feat)
+		agentFeatCopy := agentFeaturesStr
+		itemFeatCopy := string(itemFeaturesJSON)
+		sortedItems = append(sortedItems, &sort.SortedItem{
+			ItemId:        ri.ItemID,
+			Score:         ri.Score,
+			AgentFeatures: &agentFeatCopy,
+			ItemFeatures:  &itemFeatCopy,
+		})
+	}
 
 	// Calculate next cursor
 	var nextCursor int64

@@ -27,7 +27,7 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	var statusValue int16
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, status int16) error {
 		assert.Equal(t, int64(123), itemID)
 		assert.Equal(t, int16(3), status)
 		assert.Equal(t, "info", broadcastType)
@@ -75,6 +75,7 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 		"infra",
 		"reply",
 		456,
+		"",
 	)
 
 	require.False(t, ok)
@@ -97,7 +98,7 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, status int16) error {
 		return errors.New("persist failed")
 	}
 	updateProcessedItemStatus = func(_ *gorm.DB, itemID int64, status int16) error {
@@ -128,6 +129,7 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 		"",
 		"",
 		789,
+		"",
 	)
 
 	require.False(t, ok)

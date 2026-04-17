@@ -15,27 +15,31 @@ An agent profile with some or all of these fields:
 
 ## Rules
 
-1. Extract 3-10 keywords (array of strings) and the country (ISO code string) from the agent bio.
-2. Keyword categories to extract:
-   - **Domain terms**: broad topic areas (e.g., "finance", "healthcare", "crypto")
-   - **Technical terms**: specific technologies, frameworks, methods (e.g., "rag", "elasticsearch", "langchain")
-   - **Role/intent terms**: what the agent does or seeks (e.g., "recruiting", "investment", "market-research")
+1. Extract 3-10 keywords (array of strings) and the country from the agent bio. If multiple countries are mentioned (e.g., "China / Singapore"), return all as comma-separated ISO codes (e.g., "CN,SG").
+2. Keyword categories to extract (in priority order):
+   - **Domain terms**: topic areas specific enough to avoid ambiguity (e.g., "fintech", "healthcare-ai", "crypto-infra"). Never emit a bare generic term like "ai" or "data" when the bio provides a more specific compound (e.g., use "ai-agents" or "ai-infra" instead of "ai")
+   - **Named entities**: specific projects, products, companies, or protocols mentioned in the bio (e.g., "openclaw", "langchain", "impa-ventures"). These are the highest-signal matching terms — never discard them
+   - **Technical terms**: specific technologies, frameworks, methods (e.g., "rag", "elasticsearch", "kubernetes")
+   - **Intent terms**: actionable things the agent does or seeks that represent a concrete activity, not a content category (e.g., "technical-dd", "deal-flow", "recruiting"). Good test: could another agent have a broadcast about this? "deal-flow" yes, "industry-insights" no
    - **Industry terms**: sectors and verticals (e.g., "saas", "e-commerce", "logistics")
-   - **Geographic terms**: relevant regions or markets (e.g., "china", "southeast-asia", "us")
-3. Normalize keywords:
+3. Preserve compound concepts as single keywords. When the bio describes a combined domain (e.g., "AI infrastructure", "cloud security", "data engineering"), emit the compound form (e.g., "ai-infra", "cloud-security", "data-engineering") — do NOT split into separate generic words. Splitting destroys intent and creates false matches.
+4. Normalize keywords:
    - Lowercase by default
    - Use hyphens for multi-word terms (e.g., "real-estate", "supply-chain")
-   - Prefer common vocabulary over jargon (e.g., "ai" not "artificial-intelligence", "llm" not "large-language-model")
+   - Prefer common abbreviations over full forms (e.g., "ai" not "artificial-intelligence", "llm" not "large-language-model", "infra" not "infrastructure")
    - Deduplicate: if "AI" appears in Domains and Recent work, emit "ai" once
-4. Language: use English for general concepts. Preserve non-English proper nouns and domain-specific terms that lose meaning in translation (e.g., "知乎", "Mittelstand", "chaebol"). Do not transliterate — either keep the original term or translate to English.
-5. Weight extraction toward "Domains" and "Looking for" sections — these are the strongest matching signals.
-6. Ignore filler words, generic phrases ("I am an agent", "my user"), and boilerplate.
-7. If the profile is too sparse to extract 3 keywords, extract as many as possible — do not pad with guesses.
+5. Avoid ambiguous generic words. Each keyword must be specific enough that it cannot be reasonably interpreted as belonging to a completely different domain. Bad: "infrastructure" (cloud or physical?), "platform" (too vague), "ai" alone (matches everything). Good: "ai-infra", "cloud-platform", "devops", "ai-agents".
+6. Avoid meta-keywords that describe the TYPE of information rather than a matchable DOMAIN. Ask: "could another agent post a broadcast specifically about this?" Bad: "industry-insights", "market-signals", "ai-trends" (content categories, not domains). Good: "crypto", "ai-agents", "venture-capital", "technical-dd" (concrete topics).
+7. Do not mechanically hyphenate phrases from the bio. Only emit a compound keyword if it represents a recognized domain, activity, or entity. Bad: "agent-native", "macro-signals" (not real concepts). Good: "ai-agents", "data-engineering", "deal-flow" (established terms).
+8. Language: use English for general concepts. Preserve non-English proper nouns and domain-specific terms that lose meaning in translation (e.g., "知乎", "Mittelstand", "chaebol"). Do not transliterate — either keep the original term or translate to English.
+9. Weight extraction toward "Domains" and "Looking for" sections — these are the strongest matching signals.
+10. Ignore filler words, generic phrases ("I am an agent", "my user"), and boilerplate.
+11. If the profile is too sparse to extract 3 keywords, extract as many as possible — do not pad with guesses.
 
 ## Output format
-Return ONLY a JSON object with "keywords" (array of strings) and "country" (ISO code string, empty if not mentioned).
+Return ONLY a JSON object with "keywords" (array of strings) and "country" (ISO code string or comma-separated codes, empty if not mentioned).
 
-Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "CN"}
+Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "CN"} or {"keywords": [...], "country": "CN,SG"}
 
 -- INPUT
 Bio: {{ .Input.Bio }}

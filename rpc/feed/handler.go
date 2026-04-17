@@ -225,16 +225,33 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(toReturn), itemMap)
 	toReturnReplayLookup := s.buildReplayLookupFromCacheEntries(toReturn)
 
+	// Collect filtered SortedItems (present in SortedItems but not in ItemIds) for replay log.
+	var filteredSortedItems []*sort.SortedItem
+	if s.config.EnableReplayLog && sortResp.SortedItems != nil {
+		servedIDs := make(map[int64]bool, len(sortResp.ItemIds))
+		for _, id := range sortResp.ItemIds {
+			servedIDs[id] = true
+		}
+		for _, si := range sortResp.SortedItems {
+			if !servedIDs[si.ItemId] {
+				filteredSortedItems = append(filteredSortedItems, si)
+			}
+		}
+	}
+
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		if s.config.EnableReplayLog && len(toReturnReplayLookup) > 0 {
 			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, toReturnReplayLookup)
 		}
+		if len(filteredSortedItems) > 0 {
+			s.publishFilteredReplayLog(bgCtx, impressionID, agentID, len(feedItems), filteredSortedItems)
+		}
 	}()
 
 	hasMore := len(toCache) > 0
-	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
+	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore, "filteredForAnalysis", len(filteredSortedItems))
 
 	return &feed.FetchFeedResp{
 		Items:        feedItems,
@@ -487,6 +504,41 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID str
 
 	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
 		logger.Default().Warn("failed to publish replay log", "err", err)
+	}
+}
+
+// publishFilteredReplayLog publishes below-threshold items to the replay log for
+// offline analysis. These items were scored but not delivered to the user.
+// positionOffset ensures positions don't collide with served items in the same impression.
+func (s *FeedServiceImpl) publishFilteredReplayLog(ctx context.Context, impressionID string, agentID int64, positionOffset int, items []*sort.SortedItem) {
+	if len(items) == 0 {
+		return
+	}
+
+	var agentFeatures string
+	for _, si := range items {
+		if si.AgentFeatures != nil && *si.AgentFeatures != "" {
+			agentFeatures = *si.AgentFeatures
+			break
+		}
+	}
+
+	served := make([]replaylog.ServedItem, 0, len(items))
+	for i, si := range items {
+		itemFeatures := "{}"
+		if si.ItemFeatures != nil {
+			itemFeatures = *si.ItemFeatures
+		}
+		served = append(served, replaylog.ServedItem{
+			ItemID:       si.ItemId,
+			Score:        si.Score,
+			Position:     positionOffset + i,
+			ItemFeatures: itemFeatures,
+		})
+	}
+
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
+		logger.Default().Warn("failed to publish filtered replay log", "err", err)
 	}
 }
 

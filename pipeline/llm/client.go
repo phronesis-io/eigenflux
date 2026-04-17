@@ -73,6 +73,11 @@ func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (
 	return ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
 }
 
+// SuggestAction generates an action suggestion for a processed item.
+func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*SuggestActionResult, error) {
+	return SuggestActionPrompt.Execute(ctx, c, input)
+}
+
 func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:               openai.ChatModel(c.model),

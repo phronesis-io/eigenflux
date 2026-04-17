@@ -69,6 +69,10 @@ type Config struct {
 	EmbeddingBackfillInterval  string   // Embedding backfill cron interval (default: "5m")
 	EmbeddingBackfillWorkers   int      // Concurrent workers for embedding backfill (default: 4)
 	EmbeddingBackfillPauseMs   int      // Per-worker pause between embedding requests in milliseconds (default: 100)
+	SuggestionBackfillBatchSize int    // Number of items per suggestion backfill run (default: 50)
+	SuggestionBackfillInterval  string // Suggestion backfill cron interval (default: "10m")
+	SuggestionBackfillWorkers   int    // Concurrent workers for suggestion backfill (default: 2)
+	SuggestionBackfillPauseMs   int    // Per-worker pause between LLM requests in milliseconds (default: 500)
 	FreshnessOffset            string   // ES freshness decay offset, no decay within this duration (default: "12h")
 	FreshnessScale             string   // ES freshness decay scale, time for score to decay to FreshnessDecay (default: "7d")
 	FreshnessDecay             float64  // ES freshness decay factor at scale distance (default: 0.8)
@@ -173,6 +177,10 @@ func Load() *Config {
 		EmbeddingBackfillInterval:  getEnv("EMBEDDING_BACKFILL_INTERVAL", "5m"),
 		EmbeddingBackfillWorkers:   getEnvInt("EMBEDDING_BACKFILL_WORKERS", 4),
 		EmbeddingBackfillPauseMs:   getEnvInt("EMBEDDING_BACKFILL_PAUSE_MS", 100),
+		SuggestionBackfillBatchSize: getEnvInt("SUGGESTION_BACKFILL_BATCH_SIZE", 50),
+		SuggestionBackfillInterval:  getEnv("SUGGESTION_BACKFILL_INTERVAL", "10m"),
+		SuggestionBackfillWorkers:   getEnvInt("SUGGESTION_BACKFILL_WORKERS", 2),
+		SuggestionBackfillPauseMs:   getEnvInt("SUGGESTION_BACKFILL_PAUSE_MS", 500),
 		FreshnessOffset:            getEnv("FRESHNESS_OFFSET", "12h"),
 		FreshnessScale:             getEnv("FRESHNESS_SCALE", "7d"),
 		FreshnessDecay:             getEnvFloat("FRESHNESS_DECAY", 0.8),

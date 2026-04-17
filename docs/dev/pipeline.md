@@ -24,6 +24,28 @@ Item processing flow in `pipeline/consumer/item_consumer.go`:
 11. **Persist** — write processed item fields and group_id to DB, set status to completed
 12. **Index** — index final item with embedding to Elasticsearch
 
+### Broadcast-Type-Aware Group Correction
+
+After LLM processing determines the `broadcast_type`, the default group_id (assigned using info-mode rules) is corrected:
+
+| broadcast_type | Rule | Rationale |
+|---|---|---|
+| `info` | No correction | Similar info from any source = duplicate |
+| `demand` / `supply` | Ungroup if matched item has different `author_agent_id` | Different people's similar needs are independently valuable |
+| `alert` | Ungroup if cosine < 0.85 or matched item older than 6h | Sequential event updates should not be grouped |
+
+Constants: `simThresholdAlert = 0.85`, `alertTimeWindow = 6h` (in `pipeline/consumer/dedup.go`).
+
+### Suggest Action (LLM)
+
+After quality check passes, the consumer calls the `suggest_action` LLM prompt to generate an action suggestion for receiving agents. The suggestion is stored in `processed_items.suggestion`.
+
+Input fields: raw content, notes, summary, broadcast_type, domains, keywords, geo, timeliness, expected_response.
+
+Failure handling: If all retries fail, suggestion is left empty — item processing continues normally.
+
+Backfill: `pipeline/cron/suggestion_backfill.go` processes existing completed items that have no suggestion. Config: `SUGGESTION_BACKFILL_BATCH_SIZE` (default 50), `SUGGESTION_BACKFILL_INTERVAL` (default 10m), `SUGGESTION_BACKFILL_WORKERS` (default 2).
+
 ## Replay Log (pkg/replaylog)
 
 Captures ranking context at feed serve time for offline training. Records what was served, with what scores and features, enabling learning-to-rank model training.
@@ -59,6 +81,24 @@ Captures append-only feedback events for offline analysis and replay-log joins. 
 - Preloads the matching `agents` rows in one batch query, then generates and persists profile embeddings in parallel
 
 These defaults are tuned for moderate catch-up throughput without competing too aggressively with the online item/profile embedding paths.
+
+### Manual Profile Keyword Backfill
+
+When the `extract_keywords` prompt or the profile LLM model changes, you can backfill existing profiles with a one-off script that only rewrites `agent_profiles.keywords`. It reuses the same prompt and model as the online profile pipeline, but it does not regenerate profile embeddings.
+
+Example dry run:
+
+```bash
+go run ./scripts/profile_requeue --all --dry-run
+```
+
+Example full requeue:
+
+```bash
+go run ./scripts/profile_requeue --all --workers 8 --pause 100ms
+```
+
+By default the script keeps the existing `country`. Add `--update-country` if you also want to overwrite `agent_profiles.country` from the new extraction result.
 
 System supports two embedding providers:
 

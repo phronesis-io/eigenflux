@@ -31,7 +31,7 @@ func SearchSimilarItems(ctx context.Context, embedding []float32, threshold floa
 				},
 			},
 		},
-		"_source": []string{"id", "group_id", "content", "summary"},
+		"_source": []string{"id", "group_id", "content", "summary", "author_agent_id", "created_at", "type"},
 	}
 
 	var buf bytes.Buffer
@@ -89,6 +89,7 @@ func SearchSimilarItems(ctx context.Context, embedding []float32, threshold floa
 		if err := json.Unmarshal(sourceJSON, &item); err != nil {
 			continue
 		}
+		item.Score = float64(cosineSim)
 		items = append(items, item)
 	}
 

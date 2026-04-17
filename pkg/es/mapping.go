@@ -28,8 +28,9 @@ func BuildIndexMapping(embeddingDims int) map[string]interface{} {
 				"normalizer": "lowercase_normalizer",
 				"fields": map[string]interface{}{
 					"text": map[string]interface{}{
-						"type":     "text",
-						"analyzer": "standard",
+						"type":            "text",
+						"analyzer":        "standard",
+						"search_analyzer": "synonym_search",
 					},
 				},
 			},
@@ -59,8 +60,9 @@ func BuildIndexMapping(embeddingDims int) map[string]interface{} {
 				"normalizer": "lowercase_normalizer",
 				"fields": map[string]interface{}{
 					"text": map[string]interface{}{
-						"type":     "text",
-						"analyzer": "standard",
+						"type":            "text",
+						"analyzer":        "standard",
+						"search_analyzer": "synonym_search",
 					},
 				},
 			},
