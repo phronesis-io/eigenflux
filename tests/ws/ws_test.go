@@ -479,12 +479,11 @@ func TestWS_InitialPushIncludesPendingFriendRequests(t *testing.T) {
 		t.Fatalf("expected 2 friend_requests, got: %v", raw)
 	}
 
-	countRaw, ok := data["friend_requests_count"]
-	if !ok {
-		t.Fatal("expected friend_requests_count in initial push")
-	}
-	if count, ok := countRaw.(float64); !ok || int64(count) != 2 {
-		t.Fatalf("friend_requests_count: want 2, got %v", countRaw)
+	// has_more should be false (2 pending, limit 5)
+	if hasMore, ok := data["friend_requests_has_more"]; ok {
+		if hasMore.(bool) {
+			t.Errorf("friend_requests_has_more: want false (2 pending, limit 5), got true")
+		}
 	}
 
 	first, _ := list[0].(map[string]interface{})
