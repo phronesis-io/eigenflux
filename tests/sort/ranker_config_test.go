@@ -28,8 +28,8 @@ func TestScoringConfigDefaults(t *testing.T) {
 	assert.InDelta(t, 0.5, cfg.UrgencyBoost, 0.001)
 	assert.Equal(t, "24h", cfg.UrgencyWindow)
 	assert.InDelta(t, 0.7, cfg.MMRLambda, 0.001)
-	assert.Equal(t, 1, cfg.ExplorationSlots)
-	assert.InDelta(t, 0.0, cfg.MinRelevanceScore, 0.001)
+	assert.Equal(t, 0, cfg.ExplorationSlots)
+	assert.InDelta(t, 0.1, cfg.MinRelevanceScore, 0.001)
 
 	assert.Equal(t, "2h", cfg.FreshnessAlertOffset)
 	assert.Equal(t, "12h", cfg.FreshnessAlertScale)
