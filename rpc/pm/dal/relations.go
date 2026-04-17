@@ -286,29 +286,6 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 	return friends, nil
 }
 
-// FetchRecentPendingFriendRequests returns up to `limit` pending incoming friend
-// requests for agentID, ordered by id DESC (newest first), plus the total count
-// of pending incoming requests. Uses two queries; the partial index
-// idx_req_pending_to(to_uid, id DESC) WHERE status = 0 covers both.
-func FetchRecentPendingFriendRequests(db *gorm.DB, agentID int64, limit int) ([]*FriendRequest, int64, error) {
-	var requests []*FriendRequest
-	err := db.Where("to_uid = ? AND status = ?", agentID, RequestStatusPending).
-		Order("id DESC").
-		Limit(limit).
-		Find(&requests).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var total int64
-	err = db.Model(&FriendRequest{}).
-		Where("to_uid = ? AND status = ?", agentID, RequestStatusPending).
-		Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-	return requests, total, nil
-}
 
 // UpdateFriendRemark updates the remark for a friend relation.
 func UpdateFriendRemark(db *gorm.DB, agentID, friendUID int64, remark string) error {

@@ -111,13 +111,6 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
-	"FetchPendingFriendRequests": kitex.NewMethodInfo(
-		fetchPendingFriendRequestsHandler,
-		newPMServiceFetchPendingFriendRequestsArgs,
-		newPMServiceFetchPendingFriendRequestsResult,
-		false,
-		kitex.WithStreamingMode(kitex.StreamingNone),
-	),
 }
 
 var (
@@ -436,24 +429,6 @@ func newPMServiceUpdateFriendRemarkResult() interface{} {
 	return pm.NewPMServiceUpdateFriendRemarkResult()
 }
 
-func fetchPendingFriendRequestsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
-	realArg := arg.(*pm.PMServiceFetchPendingFriendRequestsArgs)
-	realResult := result.(*pm.PMServiceFetchPendingFriendRequestsResult)
-	success, err := handler.(pm.PMService).FetchPendingFriendRequests(ctx, realArg.Req)
-	if err != nil {
-		return err
-	}
-	realResult.Success = success
-	return nil
-}
-func newPMServiceFetchPendingFriendRequestsArgs() interface{} {
-	return pm.NewPMServiceFetchPendingFriendRequestsArgs()
-}
-
-func newPMServiceFetchPendingFriendRequestsResult() interface{} {
-	return pm.NewPMServiceFetchPendingFriendRequestsResult()
-}
-
 type kClient struct {
 	c client.Client
 }
@@ -599,16 +574,6 @@ func (p *kClient) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRe
 	_args.Req = req
 	var _result pm.PMServiceUpdateFriendRemarkResult
 	if err = p.c.Call(ctx, "UpdateFriendRemark", &_args, &_result); err != nil {
-		return
-	}
-	return _result.GetSuccess(), nil
-}
-
-func (p *kClient) FetchPendingFriendRequests(ctx context.Context, req *pm.FetchPendingFriendRequestsReq) (r *pm.FetchPendingFriendRequestsResp, err error) {
-	var _args pm.PMServiceFetchPendingFriendRequestsArgs
-	_args.Req = req
-	var _result pm.PMServiceFetchPendingFriendRequestsResult
-	if err = p.c.Call(ctx, "FetchPendingFriendRequests", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
