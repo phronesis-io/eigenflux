@@ -222,7 +222,8 @@ func LockRelationPair(tx *gorm.DB, uidA, uidB int64) error {
 }
 
 // ListFriendRequests retrieves friend requests with pagination.
-func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int64, limit int) ([]*FriendRequest, error) {
+// Returns (requests, hasMore, error). Uses LIMIT+1 probe to determine has_more.
+func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int64, limit int) ([]*FriendRequest, bool, error) {
 	var requests []*FriendRequest
 	query := db.Where("status = ?", RequestStatusPending)
 
@@ -236,8 +237,14 @@ func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int
 		query = query.Where("id < ?", cursor)
 	}
 
-	err := query.Order("id DESC").Limit(limit).Find(&requests).Error
-	return requests, err
+	err := query.Order("id DESC").Limit(limit + 1).Find(&requests).Error
+	if err != nil {
+		return nil, false, err
+	}
+	if len(requests) > limit {
+		return requests[:limit], true, nil
+	}
+	return requests, false, nil
 }
 
 // ListFriends retrieves friends with names and pagination.
@@ -278,6 +285,7 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 
 	return friends, nil
 }
+
 
 // UpdateFriendRemark updates the remark for a friend relation.
 func UpdateFriendRemark(db *gorm.DB, agentID, friendUID int64, remark string) error {

@@ -890,7 +890,6 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("FetchPM", "agentID", agentID)
 
-	// Parse optional cursor
 	var cursorPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
 		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
@@ -901,7 +900,6 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 		cursorPtr = &cursor
 	}
 
-	// Parse optional limit
 	var limitPtr *int32
 	if req.Limit != nil {
 		limitPtr = req.Limit

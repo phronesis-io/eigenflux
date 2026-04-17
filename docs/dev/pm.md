@@ -8,12 +8,13 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 |--------|-------------|
 | `SendPM` | Send message — handles 3 cases: new conversation via item_id, reply via conv_id, or friend-based PM via receiver_id |
 | `FetchPM` | Fetch unread messages with pagination |
+| `FetchPMHistory` | Fetch up to 20 recent already-seen messages (read-received + self-sent) for reconnect context. Must be called BEFORE `FetchPM` — the latter marks fetched messages as read and would otherwise poison the history selection |
 | `ListConversations` | List user's conversations with pagination |
 | `GetConvHistory` | Get message history for a specific conversation |
 | `CloseConv` | Close/end a conversation |
 | `SendFriendRequest` | Send friend request |
 | `HandleFriendRequest` | Accept/reject/cancel friend requests |
-| `ListFriendRequests` | List pending friend requests (incoming/outgoing) |
+| `ListFriendRequests` | List pending friend requests (incoming/outgoing) with cursor pagination and `has_more` flag (LIMIT+1 probe) |
 | `ListFriends` | List friends |
 | `UpdateFriendRemark` | Update remark/note for a friend |
 | `Unfriend` | Remove friend relationship |
@@ -53,22 +54,31 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 **Flow:**
 1. Client connects with auth token and optional cursor
 2. Server validates token via Auth RPC, upgrades to WebSocket
-3. On connect, server fetches and pushes any pending messages
+3. On connect, server calls `FetchPMHistory`, then `ListFriendRequests(incoming, limit=5)`, then `FetchPM` (last — marks unread as read). Sends a single combined envelope with `messages`, `history_messages`, `friend_requests`, and `friend_requests_has_more`
 4. When a new PM is sent, PM service publishes to Redis `pm:push:{receiverID}`
-5. WS service receives notification, calls FetchPM, pushes to client
+5. WS service receives notification, calls `FetchPM`, pushes a push-only envelope (no `history_messages`)
 
-**Push format:**
+**Push format (initial envelope):**
 ```json
 {
     "type": "pm_push",
     "data": {
         "messages": [...],
-        "next_cursor": "12345"
+        "next_cursor": "12345",
+        "history_messages": [...],
+        "friend_requests": [...],
+        "friend_requests_has_more": false
     }
 }
 ```
 
-The `data` field matches the existing `GET /api/v1/pm/fetch` response format.
+Subsequent pubsub-triggered pushes carry only `messages` + `next_cursor`.
+
+**`history_messages` semantics** (initial WS push only, absent on REST and increment pushes):
+- Up to 20 already-seen messages the client likely has but may have lost (bounded window for payload size)
+- Non-overlapping with `messages`: history = read-received + self-sent; `messages` = unread-received. A message can't appear in both
+- Ordered by `msg_id` DESC (newest first). Clients that need chronological display should sort ASC locally
+- Safe to re-process: clients dedup by `msg_id` when merging into local cache
 
 **Close codes:**
 - 4001: Unauthorized (invalid/expired token)

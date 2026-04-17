@@ -87,6 +87,20 @@ func FetchUnreadMessages(db *gorm.DB, agentID, cursor int64, limit int) ([]*Priv
 	return messages, err
 }
 
+// FetchRecentReadMessages returns up to `limit` messages involving agentID
+// that are NOT currently eligible for FetchUnreadMessages, i.e.:
+//   (receiver_id = agentID AND is_read = TRUE)  // already-read received
+//   OR sender_id = agentID                       // anything agent sent
+// Ordered by msg_id DESC. Used by FetchPMHistory for recovery-on-reconnect.
+func FetchRecentReadMessages(db *gorm.DB, agentID int64, limit int) ([]*PrivateMessage, error) {
+	var messages []*PrivateMessage
+	err := db.Where(
+		"(receiver_id = ? AND is_read = ?) OR sender_id = ?",
+		agentID, true, agentID,
+	).Order("msg_id DESC").Limit(limit).Find(&messages).Error
+	return messages, err
+}
+
 // MarkMessagesAsRead marks messages as read
 func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 	if len(msgIDs) == 0 {

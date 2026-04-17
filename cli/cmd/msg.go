@@ -228,24 +228,32 @@ func cacheMessages(data json.RawMessage) {
 	}
 	ensureProfileCached(srv)
 
-	var wrapper struct {
-		Messages []struct {
-			MsgID        string `json:"msg_id"`
-			ConvID       string `json:"conv_id"`
-			SenderID     string `json:"sender_id"`
-			ReceiverID   string `json:"receiver_id"`
-			Content      string `json:"content"`
-			CreatedAt    int64  `json:"created_at"`
-			SenderName   string `json:"sender_name"`
-			ReceiverName string `json:"receiver_name"`
-		} `json:"messages"`
+	type rawMsg struct {
+		MsgID        string `json:"msg_id"`
+		ConvID       string `json:"conv_id"`
+		SenderID     string `json:"sender_id"`
+		ReceiverID   string `json:"receiver_id"`
+		Content      string `json:"content"`
+		CreatedAt    int64  `json:"created_at"`
+		SenderName   string `json:"sender_name"`
+		ReceiverName string `json:"receiver_name"`
 	}
-	if json.Unmarshal(data, &wrapper) != nil || len(wrapper.Messages) == 0 {
+	var wrapper struct {
+		Messages        []rawMsg `json:"messages"`
+		HistoryMessages []rawMsg `json:"history_messages"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return
+	}
+	if len(wrapper.Messages) == 0 && len(wrapper.HistoryMessages) == 0 {
 		return
 	}
 
-	msgs := make([]cache.CachedMessage, len(wrapper.Messages))
-	for i, m := range wrapper.Messages {
+	combined := append([]rawMsg(nil), wrapper.Messages...)
+	combined = append(combined, wrapper.HistoryMessages...)
+
+	msgs := make([]cache.CachedMessage, len(combined))
+	for i, m := range combined {
 		msgs[i] = cache.CachedMessage{
 			MsgID:        m.MsgID,
 			ConvID:       m.ConvID,

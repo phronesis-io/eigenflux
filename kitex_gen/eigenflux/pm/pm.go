@@ -436,6 +436,100 @@ var fieldIDToName_FetchPMResp = map[int16]string{
 	255: "base_resp",
 }
 
+type FetchPMHistoryReq struct {
+	AgentId int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Limit   *int32 `thrift:"limit,2,optional" frugal:"2,optional,i32" json:"limit,omitempty"`
+}
+
+func NewFetchPMHistoryReq() *FetchPMHistoryReq {
+	return &FetchPMHistoryReq{}
+}
+
+func (p *FetchPMHistoryReq) InitDefault() {
+}
+
+func (p *FetchPMHistoryReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+var FetchPMHistoryReq_Limit_DEFAULT int32
+
+func (p *FetchPMHistoryReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return FetchPMHistoryReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *FetchPMHistoryReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *FetchPMHistoryReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *FetchPMHistoryReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *FetchPMHistoryReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FetchPMHistoryReq(%+v)", *p)
+}
+
+var fieldIDToName_FetchPMHistoryReq = map[int16]string{
+	1: "agent_id",
+	2: "limit",
+}
+
+type FetchPMHistoryResp struct {
+	Messages []*PMMessage   `thrift:"messages,1,required" frugal:"1,required,list<PMMessage>" json:"messages"`
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewFetchPMHistoryResp() *FetchPMHistoryResp {
+	return &FetchPMHistoryResp{}
+}
+
+func (p *FetchPMHistoryResp) InitDefault() {
+}
+
+func (p *FetchPMHistoryResp) GetMessages() (v []*PMMessage) {
+	return p.Messages
+}
+
+var FetchPMHistoryResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *FetchPMHistoryResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return FetchPMHistoryResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *FetchPMHistoryResp) SetMessages(val []*PMMessage) {
+	p.Messages = val
+}
+func (p *FetchPMHistoryResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *FetchPMHistoryResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *FetchPMHistoryResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FetchPMHistoryResp(%+v)", *p)
+}
+
+var fieldIDToName_FetchPMHistoryResp = map[int16]string{
+	1:   "messages",
+	255: "base_resp",
+}
+
 type ListConversationsReq struct {
 	AgentId int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
 	Cursor  *int64 `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
@@ -1615,6 +1709,7 @@ var fieldIDToName_FriendRequestInfo = map[int16]string{
 type ListFriendRequestsResp struct {
 	Requests   []*FriendRequestInfo `thrift:"requests,1,required" frugal:"1,required,list<FriendRequestInfo>" json:"requests"`
 	NextCursor int64                `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	HasMore    *bool                `thrift:"has_more,3,optional" frugal:"3,optional,bool" json:"has_more,omitempty"`
 	BaseResp   *base.BaseResp       `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
@@ -1633,6 +1728,15 @@ func (p *ListFriendRequestsResp) GetNextCursor() (v int64) {
 	return p.NextCursor
 }
 
+var ListFriendRequestsResp_HasMore_DEFAULT bool
+
+func (p *ListFriendRequestsResp) GetHasMore() (v bool) {
+	if !p.IsSetHasMore() {
+		return ListFriendRequestsResp_HasMore_DEFAULT
+	}
+	return *p.HasMore
+}
+
 var ListFriendRequestsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ListFriendRequestsResp) GetBaseResp() (v *base.BaseResp) {
@@ -1647,8 +1751,15 @@ func (p *ListFriendRequestsResp) SetRequests(val []*FriendRequestInfo) {
 func (p *ListFriendRequestsResp) SetNextCursor(val int64) {
 	p.NextCursor = val
 }
+func (p *ListFriendRequestsResp) SetHasMore(val *bool) {
+	p.HasMore = val
+}
 func (p *ListFriendRequestsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *ListFriendRequestsResp) IsSetHasMore() bool {
+	return p.HasMore != nil
 }
 
 func (p *ListFriendRequestsResp) IsSetBaseResp() bool {
@@ -1665,6 +1776,7 @@ func (p *ListFriendRequestsResp) String() string {
 var fieldIDToName_ListFriendRequestsResp = map[int16]string{
 	1:   "requests",
 	2:   "next_cursor",
+	3:   "has_more",
 	255: "base_resp",
 }
 
@@ -1859,6 +1971,8 @@ type PMService interface {
 
 	FetchPM(ctx context.Context, req *FetchPMReq) (r *FetchPMResp, err error)
 
+	FetchPMHistory(ctx context.Context, req *FetchPMHistoryReq) (r *FetchPMHistoryResp, err error)
+
 	ListConversations(ctx context.Context, req *ListConversationsReq) (r *ListConversationsResp, err error)
 
 	GetConvHistory(ctx context.Context, req *GetConvHistoryReq) (r *GetConvHistoryResp, err error)
@@ -2031,6 +2145,82 @@ func (p *PMServiceFetchPMResult) String() string {
 }
 
 var fieldIDToName_PMServiceFetchPMResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceFetchPMHistoryArgs struct {
+	Req *FetchPMHistoryReq `thrift:"req,1" frugal:"1,default,FetchPMHistoryReq" json:"req"`
+}
+
+func NewPMServiceFetchPMHistoryArgs() *PMServiceFetchPMHistoryArgs {
+	return &PMServiceFetchPMHistoryArgs{}
+}
+
+func (p *PMServiceFetchPMHistoryArgs) InitDefault() {
+}
+
+var PMServiceFetchPMHistoryArgs_Req_DEFAULT *FetchPMHistoryReq
+
+func (p *PMServiceFetchPMHistoryArgs) GetReq() (v *FetchPMHistoryReq) {
+	if !p.IsSetReq() {
+		return PMServiceFetchPMHistoryArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceFetchPMHistoryArgs) SetReq(val *FetchPMHistoryReq) {
+	p.Req = val
+}
+
+func (p *PMServiceFetchPMHistoryArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceFetchPMHistoryArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceFetchPMHistoryArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceFetchPMHistoryArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceFetchPMHistoryResult struct {
+	Success *FetchPMHistoryResp `thrift:"success,0,optional" frugal:"0,optional,FetchPMHistoryResp" json:"success,omitempty"`
+}
+
+func NewPMServiceFetchPMHistoryResult() *PMServiceFetchPMHistoryResult {
+	return &PMServiceFetchPMHistoryResult{}
+}
+
+func (p *PMServiceFetchPMHistoryResult) InitDefault() {
+}
+
+var PMServiceFetchPMHistoryResult_Success_DEFAULT *FetchPMHistoryResp
+
+func (p *PMServiceFetchPMHistoryResult) GetSuccess() (v *FetchPMHistoryResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceFetchPMHistoryResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceFetchPMHistoryResult) SetSuccess(x interface{}) {
+	p.Success = x.(*FetchPMHistoryResp)
+}
+
+func (p *PMServiceFetchPMHistoryResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceFetchPMHistoryResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceFetchPMHistoryResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceFetchPMHistoryResult = map[int16]string{
 	0: "success",
 }
 

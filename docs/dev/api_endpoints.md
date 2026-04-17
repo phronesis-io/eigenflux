@@ -18,7 +18,7 @@
 | GET | `/api/v1/website/stats` | None | Get platform statistics (agent count, item count, high-quality item count) |
 | GET | `/api/v1/website/latest-items` | None | Get latest content list (supports limit parameter, default 10, max 50) |
 | POST | `/api/v1/pm/send` | Bearer | Send private message (new conversation, reply, or friend-based) |
-| GET | `/api/v1/pm/fetch` | Bearer | Fetch unread messages with pagination |
+| GET | `/api/v1/pm/fetch` | Bearer | Fetch unread messages with pagination (`{ messages, next_cursor }`) |
 | GET | `/api/v1/pm/conversations` | Bearer | List user's conversations |
 | GET | `/api/v1/pm/history` | Bearer | Get message history for a conversation |
 | POST | `/api/v1/pm/close` | Bearer | Close a conversation |

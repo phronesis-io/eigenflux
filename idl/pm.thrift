@@ -40,6 +40,16 @@ struct FetchPMResp {
     255: required base.BaseResp base_resp
 }
 
+struct FetchPMHistoryReq {
+    1: required i64 agent_id
+    2: optional i32 limit        // default 20, clamped to [1, 50]
+}
+
+struct FetchPMHistoryResp {
+    1: required list<PMMessage> messages    // msg_id DESC
+    255: required base.BaseResp base_resp
+}
+
 struct ListConversationsReq {
     1: required i64 agent_id
     2: optional i64 cursor        // last conv updated_at
@@ -171,6 +181,7 @@ struct FriendRequestInfo {
 struct ListFriendRequestsResp {
     1: required list<FriendRequestInfo> requests
     2: required i64 next_cursor
+    3: optional bool has_more
     255: required base.BaseResp base_resp
 }
 
@@ -198,6 +209,7 @@ struct ListFriendsResp {
 service PMService {
     SendPMResp SendPM(1: SendPMReq req)
     FetchPMResp FetchPM(1: FetchPMReq req)
+    FetchPMHistoryResp FetchPMHistory(1: FetchPMHistoryReq req)
     ListConversationsResp ListConversations(1: ListConversationsReq req)
     GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req)
     CloseConvResp CloseConv(1: CloseConvReq req)

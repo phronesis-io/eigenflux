@@ -27,6 +27,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"FetchPMHistory": kitex.NewMethodInfo(
+		fetchPMHistoryHandler,
+		newPMServiceFetchPMHistoryArgs,
+		newPMServiceFetchPMHistoryResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"ListConversations": kitex.NewMethodInfo(
 		listConversationsHandler,
 		newPMServiceListConversationsArgs,
@@ -204,6 +211,24 @@ func newPMServiceFetchPMArgs() interface{} {
 
 func newPMServiceFetchPMResult() interface{} {
 	return pm.NewPMServiceFetchPMResult()
+}
+
+func fetchPMHistoryHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceFetchPMHistoryArgs)
+	realResult := result.(*pm.PMServiceFetchPMHistoryResult)
+	success, err := handler.(pm.PMService).FetchPMHistory(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceFetchPMHistoryArgs() interface{} {
+	return pm.NewPMServiceFetchPMHistoryArgs()
+}
+
+func newPMServiceFetchPMHistoryResult() interface{} {
+	return pm.NewPMServiceFetchPMHistoryResult()
 }
 
 func listConversationsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
@@ -429,6 +454,16 @@ func (p *kClient) FetchPM(ctx context.Context, req *pm.FetchPMReq) (r *pm.FetchP
 	_args.Req = req
 	var _result pm.PMServiceFetchPMResult
 	if err = p.c.Call(ctx, "FetchPM", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq) (r *pm.FetchPMHistoryResp, err error) {
+	var _args pm.PMServiceFetchPMHistoryArgs
+	_args.Req = req
+	var _result pm.PMServiceFetchPMHistoryResult
+	if err = p.c.Call(ctx, "FetchPMHistory", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

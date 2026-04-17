@@ -9,9 +9,9 @@ import (
 type Connection struct {
 	AgentID  int64
 	Conn     *websocket.Conn
-	PMCursor int64
+	PMCursor int64         // written only by the push goroutine (push.Run); no external lock
 	Done     chan struct{} // closed when this connection should shut down
-	WriteMu  sync.Mutex   // protects concurrent writes to Conn
+	WriteMu  sync.Mutex    // protects concurrent writes to Conn
 }
 
 type Hub struct {

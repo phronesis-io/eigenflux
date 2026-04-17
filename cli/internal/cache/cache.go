@@ -108,8 +108,8 @@ func SavePublishRecord(serverName string, request, response json.RawMessage) {
 // SaveMessages saves messages grouped by counterpart agent and item. The
 // counterpart for each message is the agent_id that is not ours — we read our
 // own agent_id from profile.json so callers don't have to pass it. Messages
-// are deduped by msg_id, merged with existing files, and sorted by created_at
-// DESC.
+// are bucketed by their own created_at date (not wall-clock today), deduped by
+// msg_id, merged with existing files, and sorted by created_at DESC.
 func SaveMessages(serverName string, messages []CachedMessage, convItemMap map[string]string) {
 	if len(messages) == 0 {
 		return
@@ -121,35 +121,36 @@ func SaveMessages(serverName string, messages []CachedMessage, convItemMap map[s
 		return
 	}
 	myAgentID := p.AgentID
-	today := time.Now().Format(dateFormat)
-	dir := filepath.Join(ServerDataDir(serverName), "messages", today)
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
-		log.Printf("cache: mkdir %s: %v", dir, err)
-		return
-	}
 
-	// Group messages by counterpart agent ID.
-	byAgent := make(map[string][]CachedMessage)
-	byItem := make(map[string][]CachedMessage)
+	type fileKey struct {
+		date     string
+		filename string
+	}
+	byFile := make(map[fileKey][]CachedMessage)
+
 	for _, msg := range messages {
+		date := time.UnixMilli(msg.CreatedAt).Format(dateFormat)
 		counterpart := msg.SenderID
 		if counterpart == myAgentID {
 			counterpart = msg.ReceiverID
 		}
-		byAgent[counterpart] = append(byAgent[counterpart], msg)
+		agentKey := fileKey{date, "agent-" + counterpart}
+		byFile[agentKey] = append(byFile[agentKey], msg)
 
 		if itemID, ok := convItemMap[msg.ConvID]; ok && itemID != "" {
-			byItem[itemID] = append(byItem[itemID], msg)
+			itemKey := fileKey{date, "item-" + itemID}
+			byFile[itemKey] = append(byFile[itemKey], msg)
 		}
 	}
 
-	for agentID, msgs := range byAgent {
-		path := filepath.Join(dir, fmt.Sprintf("agent-%s.json", agentID))
-		mergeAndWrite(path, msgs)
-	}
-	for itemID, msgs := range byItem {
-		path := filepath.Join(dir, fmt.Sprintf("item-%s.json", itemID))
-		mergeAndWrite(path, msgs)
+	baseDir := filepath.Join(ServerDataDir(serverName), "messages")
+	for key, msgs := range byFile {
+		dir := filepath.Join(baseDir, key.date)
+		if err := os.MkdirAll(dir, dirPerm); err != nil {
+			log.Printf("cache: mkdir %s: %v", dir, err)
+			continue
+		}
+		mergeAndWrite(filepath.Join(dir, key.filename+".json"), msgs)
 	}
 }
 

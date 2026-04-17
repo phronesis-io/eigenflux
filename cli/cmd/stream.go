@@ -7,10 +7,12 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 
@@ -67,6 +69,11 @@ Examples:
 		// counterpart for the file name. Fetch it once up-front so the
 		// first push lands in the right file.
 		ensureProfileCached(srv.Name)
+		myProfile, _ := cache.LoadProfile(srv.Name)
+		myAgentID := ""
+		if myProfile != nil {
+			myAgentID = myProfile.AgentID
+		}
 
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
@@ -131,6 +138,7 @@ Examples:
 
 			go func() {
 				defer close(done)
+				firstPacket := true
 				for {
 					_, msg, err := conn.ReadMessage()
 					if err != nil {
@@ -174,25 +182,62 @@ Examples:
 							continue
 						}
 						var data struct {
-							Messages []struct {
-								MsgID      string `json:"msg_id"`
-								ConvID     string `json:"conv_id"`
-								SenderName string `json:"sender_name"`
-								Content    string `json:"content"`
-								CreatedAt  int64  `json:"created_at"`
-							} `json:"messages"`
+							Messages       []streamMsg `json:"messages"`
+							History        []streamMsg `json:"history_messages"`
+							FriendRequests []struct {
+								RequestID string `json:"request_id"`
+								FromUID   string `json:"from_uid"`
+								FromName  string `json:"from_name"`
+								Greeting  string `json:"greeting"`
+								CreatedAt int64  `json:"created_at"`
+							} `json:"friend_requests"`
+							FriendRequestsHasMore bool `json:"friend_requests_has_more"`
 						}
 						if err := json.Unmarshal(push.Data, &data); err != nil {
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}
-						for _, m := range data.Messages {
-							ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
-							sender := m.SenderName
-							if sender == "" {
-								sender = m.MsgID
+
+						if firstPacket {
+							if len(data.History) > 0 {
+								fmt.Fprintf(os.Stdout, "--- recent history (%d messages) ---\n", len(data.History))
+								sort.Slice(data.History, func(i, j int) bool {
+									return data.History[i].CreatedAt < data.History[j].CreatedAt
+								})
+								for _, m := range data.History {
+									printHistoryLine(m, myAgentID)
+								}
 							}
-							fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, sender, m.Content)
+							if len(data.FriendRequests) > 0 {
+								label := fmt.Sprintf("%d shown", len(data.FriendRequests))
+								if data.FriendRequestsHasMore {
+									label = fmt.Sprintf("%d shown, more pending — see /relations/applications", len(data.FriendRequests))
+								}
+								fmt.Fprintf(os.Stdout, "--- pending friend requests (%s) ---\n", label)
+								for _, fr := range data.FriendRequests {
+									ts := time.UnixMilli(fr.CreatedAt).Format("15:04:05")
+									who := fr.FromName
+									if who == "" {
+										who = fr.FromUID
+									}
+									if fr.Greeting != "" {
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, who, fr.RequestID, fr.Greeting)
+									} else {
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, who, fr.RequestID)
+									}
+								}
+							}
+							if len(data.Messages) > 0 {
+								fmt.Fprintln(os.Stdout, "--- new messages ---")
+								for _, m := range data.Messages {
+									printNewLine(m)
+								}
+							}
+							firstPacket = false
+						} else {
+							for _, m := range data.Messages {
+								printNewLine(m)
+							}
 						}
 					}
 				}
@@ -232,4 +277,41 @@ Examples:
 func init() {
 	streamCmd.Flags().String("cursor", "", "resume from message cursor (msg_id)")
 	rootCmd.AddCommand(streamCmd)
+}
+
+type streamMsg struct {
+	MsgID        string `json:"msg_id"`
+	ConvID       string `json:"conv_id"`
+	SenderID     string `json:"sender_id"`
+	ReceiverID   string `json:"receiver_id"`
+	SenderName   string `json:"sender_name"`
+	ReceiverName string `json:"receiver_name"`
+	Content      string `json:"content"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+func printHistoryLine(m streamMsg, myAgentID string) {
+	ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
+	if m.SenderID == myAgentID {
+		peer := m.ReceiverName
+		if peer == "" {
+			peer = m.ReceiverID
+		}
+		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, peer, m.Content)
+	} else {
+		peer := m.SenderName
+		if peer == "" {
+			peer = m.SenderID
+		}
+		fmt.Fprintf(os.Stdout, "[%s] ← %s: %s\n", ts, peer, m.Content)
+	}
+}
+
+func printNewLine(m streamMsg) {
+	ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
+	sender := m.SenderName
+	if sender == "" {
+		sender = m.SenderID
+	}
+	fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, sender, m.Content)
 }
