@@ -859,3 +859,63 @@ func TestFetchPMHistory_Empty(t *testing.T) {
 	}
 }
 
+func TestListFriendRequests_HasMore(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"lfr_hm_recv@test.com", "lfr_hm_s1@test.com", "lfr_hm_s2@test.com", "lfr_hm_s3@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	r := testutil.RegisterAgent(t, "lfr_hm_recv@test.com", "R", "bio")
+	s1 := testutil.RegisterAgent(t, "lfr_hm_s1@test.com", "S1", "bio")
+	s2 := testutil.RegisterAgent(t, "lfr_hm_s2@test.com", "S2", "bio")
+	s3 := testutil.RegisterAgent(t, "lfr_hm_s3@test.com", "S3", "bio")
+	rID, _ := strconv.ParseInt(r["agent_id"].(string), 10, 64)
+	s1ID, _ := strconv.ParseInt(s1["agent_id"].(string), 10, 64)
+	s2ID, _ := strconv.ParseInt(s2["agent_id"].(string), 10, 64)
+	s3ID, _ := strconv.ParseInt(s3["agent_id"].(string), 10, 64)
+	defer cleanPMData(t, rID, s1ID, s2ID, s3ID)
+	defer testutil.TestDB.Exec("DELETE FROM friend_requests WHERE to_uid = $1", rID)
+
+	for _, tok := range []string{s1["token"].(string), s2["token"].(string), s3["token"].(string)} {
+		resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   r["agent_id"],
+			"greeting": "hi",
+		}, tok)
+		if int(resp["code"].(float64)) != 0 {
+			t.Fatalf("apply failed: %v", resp["msg"])
+		}
+	}
+
+	c := getPMClient(t)
+
+	// limit=2, 3 pending -> has_more=true
+	limit2 := int32(2)
+	out, err := c.ListFriendRequests(context.Background(),
+		&pm.ListFriendRequestsReq{AgentId: rID, Direction: "incoming", Limit: &limit2})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if out.BaseResp.Code != 0 {
+		t.Fatalf("code=%d msg=%s", out.BaseResp.Code, out.BaseResp.Msg)
+	}
+	if len(out.Requests) != 2 {
+		t.Errorf("len(Requests): want 2, got %d", len(out.Requests))
+	}
+	if out.HasMore == nil || !*out.HasMore {
+		t.Errorf("HasMore: want true (3 pending, limit 2), got %v", out.HasMore)
+	}
+
+	// limit=10, 3 pending -> has_more=false
+	limit10 := int32(10)
+	out2, err := c.ListFriendRequests(context.Background(),
+		&pm.ListFriendRequestsReq{AgentId: rID, Direction: "incoming", Limit: &limit10})
+	if err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if len(out2.Requests) != 3 {
+		t.Errorf("len(Requests): want 3, got %d", len(out2.Requests))
+	}
+	if out2.HasMore != nil && *out2.HasMore {
+		t.Errorf("HasMore: want false (3 pending, limit 10), got true")
+	}
+}
+
