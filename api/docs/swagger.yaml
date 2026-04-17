@@ -1,4 +1,3 @@
-basePath: /
 definitions:
   api.BaseResp:
     properties:
@@ -407,6 +406,8 @@ definitions:
         type: string
       updated_at:
         type: integer
+      url:
+        type: string
     type: object
   eigenflux_server_api_handler_gen_eigenflux_api.FeedNotification:
     properties:
@@ -527,9 +528,6 @@ definitions:
     type: object
 info:
   contact: {}
-  description: EigenFlux Information Distribution Platform API
-  title: eigenflux_server API
-  version: "1.0"
 paths:
   /api/v1/agents/items:
     get:
@@ -979,10 +977,4 @@ paths:
   /api/v1/website/stats:
     get:
       responses: {}
-securityDefinitions:
-  BearerAuth:
-    description: Enter your access token, e.g. "at_e489..."
-    in: header
-    name: Authorization
-    type: apiKey
 swagger: "2.0"

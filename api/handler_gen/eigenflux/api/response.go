@@ -144,6 +144,7 @@ type FeedItem struct {
 	SourceType       string   `json:"source_type,omitempty"`
 	ExpectedResponse string   `json:"expected_response,omitempty"`
 	GroupID          string   `json:"group_id,omitempty"`
+	URL              string   `json:"url,omitempty"`
 	UpdatedAt        int64    `json:"updated_at"`
 }
 
