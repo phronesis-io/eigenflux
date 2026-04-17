@@ -518,19 +518,26 @@ func GetItemsByGroupID(db *gorm.DB, groupID int64) ([]*ProcessedItem, error) {
 	return items, nil
 }
 
-// BatchGetRawItemAuthors retrieves author_agent_id for multiple items
-func BatchGetRawItemAuthors(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
+// RawItemInfo is the per-item lookup result used by Feed to enrich responses.
+type RawItemInfo struct {
+	AuthorAgentID int64
+	RawURL        string // empty string when column is NULL
+}
+
+// BatchGetRawItemInfo retrieves author_agent_id and raw_url for multiple items.
+func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, error) {
 	if len(itemIDs) == 0 {
-		return make(map[int64]int64), nil
+		return make(map[int64]RawItemInfo), nil
 	}
 
 	var results []struct {
 		ItemID        int64
 		AuthorAgentID int64
+		RawURL        *string
 	}
 
 	err := db.Table("raw_items").
-		Select("item_id, author_agent_id").
+		Select("item_id, author_agent_id, raw_url").
 		Where("item_id IN ?", itemIDs).
 		Find(&results).Error
 
@@ -538,10 +545,14 @@ func BatchGetRawItemAuthors(db *gorm.DB, itemIDs []int64) (map[int64]int64, erro
 		return nil, err
 	}
 
-	authorMap := make(map[int64]int64, len(results))
+	info := make(map[int64]RawItemInfo, len(results))
 	for _, r := range results {
-		authorMap[r.ItemID] = r.AuthorAgentID
+		entry := RawItemInfo{AuthorAgentID: r.AuthorAgentID}
+		if r.RawURL != nil {
+			entry.RawURL = *r.RawURL
+		}
+		info[r.ItemID] = entry
 	}
 
-	return authorMap, nil
+	return info, nil
 }
