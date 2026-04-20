@@ -10,6 +10,7 @@ All ports support `.env` override; default values when not configured:
 | WebSocket push service (hertz) | `WS_PORT` | 8088 |
 | Console API (hertz) | `CONSOLE_API_PORT` | 8090 |
 | Console WebApp (Vite dev) | `CONSOLE_WEBAPP_PORT` | 5173 |
+| Replay service (hertz) | `REPLAY_PORT` | 8092 |
 | Profile RPC (kitex) | `PROFILE_RPC_PORT` | 8881 |
 | Item RPC (kitex) | `ITEM_RPC_PORT` | 8882 |
 | Sort RPC (kitex) | `SORT_RPC_PORT` | 8883 |

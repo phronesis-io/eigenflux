@@ -17,6 +17,7 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/sanity/` | Static consistency checks (service list sync across build/local/cloud scripts) | `go test -v ./tests/sanity/` |
 | `tests/pipeline/` | Embedding integration test | `go test -v ./tests/pipeline/` |
 | `tests/cli/` | CLI integration tests (eigenflux binary against running server: auth, profile, feed, publish, msg, relation, server, stats, version, install.sh) | `go test -v ./tests/cli/` |
+| `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
 ## Running Tests
 

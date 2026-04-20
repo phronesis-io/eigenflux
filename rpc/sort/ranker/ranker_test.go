@@ -137,3 +137,30 @@ func TestRanker_EmptyCandidates(t *testing.T) {
 	ranked := r.Rank(nil, &UserProfile{}, 5)
 	assert.Empty(t, ranked)
 }
+
+func TestRankWithCustomTime(t *testing.T) {
+	cfg := &RankerConfig{
+		Alpha: 0.0, Beta: 0.0, Gamma: 1.0, Delta: 0.0,
+		Freshness: map[string]FreshnessParams{
+			"info": {Offset: 12 * time.Hour, Scale: 7 * 24 * time.Hour, Decay: 0.8},
+		},
+		DraftDampening: 0.8,
+	}
+	r := New(cfg)
+
+	now := time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC)
+	candidates := []sortDal.Item{
+		{ID: 1, Type: "info", Keywords: []string{"go"}, UpdatedAt: now.Add(-1 * time.Hour)},
+		{ID: 2, Type: "info", Keywords: []string{"go"}, UpdatedAt: now.Add(-48 * time.Hour)},
+	}
+	profile := &UserProfile{Keywords: []string{"go"}}
+
+	ranked := r.RankAt(candidates, profile, 2, now)
+
+	if len(ranked) != 2 {
+		t.Fatalf("expected 2 ranked items, got %d", len(ranked))
+	}
+	if ranked[0].ItemID != 1 {
+		t.Errorf("expected item 1 ranked first (fresher), got item %d", ranked[0].ItemID)
+	}
+}

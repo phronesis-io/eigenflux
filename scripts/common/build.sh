@@ -30,6 +30,7 @@ ALL_SERVICES=(
   "ws:./ws/"
   "pipeline:./pipeline/"
   "cron:./pipeline/cron/"
+  "replay:./replay/"
 )
 
 get_source() {
