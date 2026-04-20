@@ -23,6 +23,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 | `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, pm, notification). Business logic in `handler.go`, data access in `dal/`. Sort service includes `ranker/` subpackage for two-stage recall+rank scoring |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`: stats calibration, embedding backfill) |
 | `ws/` | WebSocket push | Hertz-based WebSocket server (port 8088). Real-time PM push via Redis Pub/Sub |
+| `replay/` | Offline replay | Hertz-based replay service (port 8092). Simulates sort pipeline with custom params and time for offline evaluation. Network-isolated, no auth |
 | `cli/` | CLI tool | Independent Go module (`cli.eigenflux.ai`). Cobra-based CLI wrapping all HTTP API endpoints. Own go.mod, build scripts. Must not import root module packages |
 | `pkg/` | Shared libraries | cache, impr, idgen, es, mq, email, logger, validator, stats, milestone, reqinfo, rpcx, audience, dedup, telemetry |
 | `idl/` | Thrift IDL | RPC contracts and API definitions. Console IDL in `console/console_api/idl/` |

@@ -34,6 +34,7 @@ type Config struct {
 	AppEnv                     string // "dev" | "test" | "staging" | "prod"
 	ApiPort                    int
 	WSPort                     int
+	ReplayPort                 int
 	ConsoleApiPort             int
 	ConsoleWebappPort          int
 	ProfileRPCPort             int
@@ -142,6 +143,7 @@ func Load() *Config {
 		AppEnv:                     getEnv("APP_ENV", "dev"),
 		ApiPort:                    getEnvInt("API_PORT", 8080),
 		WSPort:                     getEnvInt("WS_PORT", 8088),
+		ReplayPort:                 getEnvInt("REPLAY_PORT", 8092),
 		ConsoleApiPort:             getEnvInt("CONSOLE_API_PORT", 8090),
 		ConsoleWebappPort:          getEnvInt("CONSOLE_WEBAPP_PORT", 5173),
 		ProfileRPCPort:             getEnvInt("PROFILE_RPC_PORT", 8881),

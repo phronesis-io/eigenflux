@@ -3,6 +3,7 @@ package dal
 import (
 	"eigenflux_server/pkg/json"
 	"testing"
+	"time"
 )
 
 func getTopLevelBoolQuery(t *testing.T, query map[string]interface{}) map[string]interface{} {
@@ -66,6 +67,21 @@ func getRelevanceShouldClauses(t *testing.T, query map[string]interface{}) []int
 		shouldClauses = should
 	}
 	return shouldClauses
+}
+
+func TestBuildExpireTimeFilterCustomTime(t *testing.T) {
+	fixedTime := time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC)
+	filter := buildExpireTimeFilter(fixedTime)
+	boolClause := filter["bool"].(map[string]interface{})
+	shouldClauses := boolClause["should"].([]interface{})
+	rangeClause := shouldClauses[1].(map[string]interface{})
+	expireRange := rangeClause["range"].(map[string]interface{})
+	expireTime := expireRange["expire_time"].(map[string]interface{})
+	gte := expireTime["gte"].(string)
+	expected := fixedTime.Format(time.RFC3339)
+	if gte != expected {
+		t.Errorf("expected expire filter time %s, got %s", expected, gte)
+	}
 }
 
 // TestBuildSearchQuery tests query building logic (no ES service required)
@@ -283,9 +299,11 @@ func TestQuerySorting(t *testing.T) {
 }
 
 func TestFreshnessFunctionScore(t *testing.T) {
+	fixedTime := time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC)
 	req := &SearchItemsRequest{
 		Keywords: []string{"ai"},
 		Limit:    10,
+		Now:      fixedTime,
 	}
 
 	query := buildSearchQuery(req)
@@ -316,8 +334,9 @@ func TestFreshnessFunctionScore(t *testing.T) {
 		t.Fatal("expected gauss freshness function on updated_at")
 	}
 
-	if updatedAt["origin"] != "now" {
-		t.Fatalf("expected freshness origin=now, got %v", updatedAt["origin"])
+	expectedOrigin := fixedTime.Format(time.RFC3339)
+	if updatedAt["origin"] != expectedOrigin {
+		t.Fatalf("expected freshness origin=%s, got %v", expectedOrigin, updatedAt["origin"])
 	}
 	if updatedAt["offset"] != defaultFreshnessOffset {
 		t.Fatalf("expected freshness offset=%s, got %v", defaultFreshnessOffset, updatedAt["offset"])

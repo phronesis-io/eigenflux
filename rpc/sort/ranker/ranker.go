@@ -43,11 +43,15 @@ func New(cfg *RankerConfig) *Ranker {
 // Rank scores candidates and returns top-limit items sorted by relevance score.
 // MMR diversity selection is implemented (see rankMMR) but disabled for now.
 func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int) []RankedItem {
+	return r.RankAt(candidates, profile, limit, time.Now())
+}
+
+// RankAt is like Rank but uses the provided timestamp instead of time.Now().
+func (r *Ranker) RankAt(candidates []sortDal.Item, profile *UserProfile, limit int, now time.Time) []RankedItem {
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	now := time.Now()
 	ps := buildProfileSets(profile)
 
 	// Compute relevance scores
@@ -91,11 +95,15 @@ func (r *Ranker) Rank(candidates []sortDal.Item, profile *UserProfile, limit int
 // rankMMR selects top-limit items using Maximal Marginal Relevance for diversity.
 // Currently unused — kept for future activation.
 func (r *Ranker) rankMMR(candidates []sortDal.Item, profile *UserProfile, limit int) []RankedItem {
+	return r.rankMMRAt(candidates, profile, limit, time.Now())
+}
+
+// rankMMRAt is like rankMMR but uses the provided timestamp instead of time.Now().
+func (r *Ranker) rankMMRAt(candidates []sortDal.Item, profile *UserProfile, limit int, now time.Time) []RankedItem {
 	if len(candidates) == 0 {
 		return nil
 	}
 
-	now := time.Now()
 	ps := buildProfileSets(profile)
 
 	breakdowns := make([]ScoreBreakdown, len(candidates))

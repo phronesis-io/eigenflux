@@ -10,11 +10,15 @@ import (
 // Criteria: recent (within maxAge), complete (has Type), quality >= minQuality,
 // not already selected by item_id, and not already selected by group_id.
 func PickExplorationItems(candidates []sortDal.Item, seenIDs, seenGroupIDs map[int64]bool, count int, maxAge time.Duration, minQuality float64) []sortDal.Item {
+	return PickExplorationItemsAt(candidates, seenIDs, seenGroupIDs, count, maxAge, minQuality, time.Now())
+}
+
+// PickExplorationItemsAt is like PickExplorationItems but uses the provided timestamp instead of time.Now().
+func PickExplorationItemsAt(candidates []sortDal.Item, seenIDs, seenGroupIDs map[int64]bool, count int, maxAge time.Duration, minQuality float64, now time.Time) []sortDal.Item {
 	if count <= 0 || len(candidates) == 0 {
 		return nil
 	}
 
-	now := time.Now()
 	cutoff := now.Add(-maxAge)
 
 	var eligible []sortDal.Item

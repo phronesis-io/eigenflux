@@ -20,7 +20,7 @@ const (
 
 // buildExpireTimeFilter returns a bool clause that passes items with no expire_time
 // or expire_time in the future.
-func buildExpireTimeFilter() map[string]interface{} {
+func buildExpireTimeFilter(now time.Time) map[string]interface{} {
 	return map[string]interface{}{
 		"bool": map[string]interface{}{
 			"should": []interface{}{
@@ -36,7 +36,7 @@ func buildExpireTimeFilter() map[string]interface{} {
 				map[string]interface{}{
 					"range": map[string]interface{}{
 						"expire_time": map[string]interface{}{
-							"gte": time.Now().Format(time.RFC3339),
+							"gte": now.Format(time.RFC3339),
 						},
 					},
 				},
@@ -72,8 +72,8 @@ func buildGeoCountryFilter(geoCountry string) map[string]interface{} {
 
 // BuildRecallFilters returns the mandatory filter clauses (expire_time + geo_country)
 // for use in kNN recall queries.
-func BuildRecallFilters(geoCountry string) []interface{} {
-	filters := []interface{}{buildExpireTimeFilter()}
+func BuildRecallFilters(geoCountry string, now time.Time) []interface{} {
+	filters := []interface{}{buildExpireTimeFilter(now)}
 	if geoCountry != "" {
 		filters = append(filters, buildGeoCountryFilter(geoCountry))
 	}
@@ -101,7 +101,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 	mustClauses := []interface{}{}
 
 	// 1. Expire time filter
-	mustClauses = append(mustClauses, buildExpireTimeFilter())
+	mustClauses = append(mustClauses, buildExpireTimeFilter(req.Now))
 
 	// 2. Geo country hard filter
 	if req.GeoCountry != "" {
@@ -206,7 +206,7 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 					map[string]interface{}{
 						"gauss": map[string]interface{}{
 							"updated_at": map[string]interface{}{
-								"origin": "now",
+								"origin": req.Now.Format(time.RFC3339),
 								"offset": offset,
 								"scale":  scale,
 								"decay":  decay,

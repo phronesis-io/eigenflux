@@ -212,7 +212,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			filters := sortDal.BuildRecallFilters("")
+			filters := sortDal.BuildRecallFilters("", time.Now())
 			knnItems, knnErr = sortDal.SearchByEmbedding(ctx, profileEmbedding, filters, rankerCfg.KNNRecallK, rankerCfg.KNNRecallCandidates)
 			if knnErr != nil {
 				logger.Ctx(ctx).Warn("kNN recall failed, continuing with keyword only", "err", knnErr)
