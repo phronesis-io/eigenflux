@@ -21,6 +21,7 @@ type FeedItem struct {
 	GroupId          *int64   `thrift:"group_id,10,optional" frugal:"10,optional,i64" json:"group_id,omitempty"`
 	UpdatedAt        int64    `thrift:"updated_at,11,required" frugal:"11,required,i64" json:"updated_at"`
 	AuthorAgentId    *int64   `thrift:"author_agent_id,12,optional" frugal:"12,optional,i64" json:"author_agent_id,omitempty"`
+	RawUrl           *string  `thrift:"raw_url,13,optional" frugal:"13,optional,string" json:"raw_url,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -122,6 +123,15 @@ func (p *FeedItem) GetAuthorAgentId() (v int64) {
 	}
 	return *p.AuthorAgentId
 }
+
+var FeedItem_RawUrl_DEFAULT string
+
+func (p *FeedItem) GetRawUrl() (v string) {
+	if !p.IsSetRawUrl() {
+		return FeedItem_RawUrl_DEFAULT
+	}
+	return *p.RawUrl
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -157,6 +167,9 @@ func (p *FeedItem) SetUpdatedAt(val int64) {
 }
 func (p *FeedItem) SetAuthorAgentId(val *int64) {
 	p.AuthorAgentId = val
+}
+func (p *FeedItem) SetRawUrl(val *string) {
+	p.RawUrl = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -195,6 +208,10 @@ func (p *FeedItem) IsSetAuthorAgentId() bool {
 	return p.AuthorAgentId != nil
 }
 
+func (p *FeedItem) IsSetRawUrl() bool {
+	return p.RawUrl != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -215,6 +232,7 @@ var fieldIDToName_FeedItem = map[int16]string{
 	10: "group_id",
 	11: "updated_at",
 	12: "author_agent_id",
+	13: "raw_url",
 }
 
 type FetchFeedReq struct {

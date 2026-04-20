@@ -15,6 +15,7 @@ struct FeedItem {
     10: optional i64 group_id
     11: required i64 updated_at
     12: optional i64 author_agent_id
+    13: optional string raw_url
 }
 
 struct FetchFeedReq {

@@ -566,6 +566,9 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.AuthorAgentId != nil {
 			item["author_agent_id"] = strconv.FormatInt(*it.AuthorAgentId, 10)
 		}
+		if it.RawUrl != nil && *it.RawUrl != "" {
+			item["url"] = *it.RawUrl
+		}
 		items = append(items, item)
 	}
 

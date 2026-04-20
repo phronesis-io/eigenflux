@@ -365,7 +365,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*item.ProcessedItem) []*feed.FeedItem {
 	var feedItems []*feed.FeedItem
 
-	// Collect item IDs for batch author lookup
+	// Collect item IDs for batch raw_items lookup
 	itemIDs := make([]int64, 0, len(groupIDs))
 	for _, gid := range groupIDs {
 		if pi, ok := itemMap[gid]; ok {
@@ -373,11 +373,11 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 		}
 	}
 
-	// Batch get author IDs
-	authorMap, err := itemDal.BatchGetRawItemAuthors(db.DB, itemIDs)
+	// Batch get author + raw_url
+	rawInfoMap, err := itemDal.BatchGetRawItemInfo(db.DB, itemIDs)
 	if err != nil {
-		logger.Default().Warn("failed to batch get authors", "err", err)
-		authorMap = make(map[int64]int64) // Continue with empty map
+		logger.Default().Warn("failed to batch get raw item info", "err", err)
+		rawInfoMap = make(map[int64]itemDal.RawItemInfo) // Continue with empty map
 	}
 
 	for _, gid := range groupIDs {
@@ -401,9 +401,13 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 			UpdatedAt:        pi.UpdatedAt,
 		}
 
-		// Add author_agent_id if found
-		if authorID, found := authorMap[pi.ItemId]; found {
+		if info, found := rawInfoMap[pi.ItemId]; found {
+			authorID := info.AuthorAgentID
 			feedItem.AuthorAgentId = &authorID
+			if info.RawURL != "" {
+				rawURL := info.RawURL
+				feedItem.RawUrl = &rawURL
+			}
 		}
 
 		feedItems = append(feedItems, feedItem)

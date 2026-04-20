@@ -1346,6 +1346,9 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "integer"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },

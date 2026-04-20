@@ -407,6 +407,8 @@ definitions:
         type: string
       updated_at:
         type: integer
+      url:
+        type: string
     type: object
   eigenflux_server_api_handler_gen_eigenflux_api.FeedNotification:
     properties:

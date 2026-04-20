@@ -84,15 +84,32 @@ func TestFeedProtocol(t *testing.T) {
 		return
 	}
 
-	// Collect group_ids from first fetch
+	// Collect group_ids and urls from first fetch
 	groupIDs1 := make(map[string]bool)
+	seenURLs := make(map[string]bool)
 	for _, it := range items1 {
 		item := it.(map[string]interface{})
 		if groupID, ok := item["group_id"].(string); ok && groupID != "" {
 			groupIDs1[groupID] = true
 		}
+		if u, ok := item["url"].(string); ok && u != "" {
+			seenURLs[u] = true
+		}
 	}
 	t.Logf("First fetch returned %d unique groups", len(groupIDs1))
+
+	// Verify url is propagated from raw_items.raw_url on at least one item.
+	// All test items were published with distinct https://example.com/... URLs.
+	foundExpectedURL := false
+	for _, c := range contents {
+		if seenURLs[c.url] {
+			foundExpectedURL = true
+			break
+		}
+	}
+	if !foundExpectedURL {
+		t.Errorf("feed response did not include a url matching any published raw_url; seenURLs=%v", seenURLs)
+	}
 
 	// Test 2: Load more action
 	if hasMore1 {
