@@ -159,6 +159,5 @@ func main() {
 
 	log.Printf("API gateway starting on %s", listenAddr)
 	log.Printf("API base URL: %s", skilldoc.BuildAPIBaseURL(publicBaseURL))
-	log.Printf("Share this with your friends: 'Read %s and help me join %s'", skilldoc.BuildSkillURL(publicBaseURL), cfg.ProjectName)
 	h.Spin()
 }

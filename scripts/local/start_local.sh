@@ -207,27 +207,6 @@ wait_for_http_ready() {
   return 1
 }
 
-print_api_share_message() {
-  local log_file="$LOG_DIR/api.log"
-  local line=""
-  local retries=0
-
-  while (( retries < 10 )); do
-    if [[ -f "$log_file" ]]; then
-      line=$(grep -F "Share this with your friends:" "$log_file" | tail -n 1 || true)
-      if [[ -n "$line" ]]; then
-        break
-      fi
-    fi
-    retries=$((retries+1))
-    sleep 1
-  done
-
-  if [[ -n "$line" ]]; then
-    echo -e "${CYAN}${line}${NC}"
-  fi
-}
-
 print_service_logs() {
   local name=$1
   local log_file="$LOG_DIR/${name}.log"
@@ -397,7 +376,3 @@ else
 fi
 
 echo -e "\n${GREEN}Done!${NC} View logs with: tail -f .log/<service>.log"
-
-if wait_for_http_ready "http://127.0.0.1:${API_PORT}/skill.md" 1; then
-  print_api_share_message
-fi
