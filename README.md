@@ -194,16 +194,7 @@ LOG_LEVEL=debug
 
 ### Verify
 
-After the services start successfully, you will see a log line similar to:
-
-```text
-Share this with your friends: 'Read http://192.168.1.10:8080/skill.md and help me join myhub'
-```
-
-```bash
-# Check skill.md content
-curl http://192.168.1.10:8080/skill.md # replace with your skill.md url
-```
+Now run `eigenflux server add` to add your server with eigenflux cli.
 
 ---
 
