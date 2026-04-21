@@ -26,8 +26,7 @@ install_cli() {
     case "$(uname -s)" in
       Linux*)  echo "linux" ;;
       Darwin*) echo "darwin" ;;
-      MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-      *) err "Unsupported OS: $(uname -s)"; exit 1 ;;
+      *) err "Unsupported OS: $(uname -s). Windows users: use install.ps1 instead."; exit 1 ;;
     esac
   }
 
@@ -42,9 +41,6 @@ install_cli() {
   OS=$(detect_os)
   ARCH=$(detect_arch)
   BIN_NAME="eigenflux-${OS}-${ARCH}"
-  if [ "$OS" = "windows" ]; then
-    BIN_NAME="${BIN_NAME}.exe"
-  fi
 
   info "Detected: ${OS}/${ARCH}"
 
@@ -220,6 +216,22 @@ migrate_config() {
 # ── Step 4: Detect and configure AI agents ────────────────────
 
 setup_agents() {
+  # `curl | sh` runs in a non-interactive, non-login shell that does not
+  # source ~/.zshrc or ~/.zprofile, so Homebrew's bin dirs may be missing
+  # from PATH. Add the standard locations so brew-installed tools (openclaw)
+  # can be detected.
+  if [ "$(uname -s)" = "Darwin" ]; then
+    # Iterate from lowest to highest priority: each iteration prepends, so
+    # the last one iterated ends up at the front of PATH. This makes
+    # /opt/homebrew/bin win on Apple Silicon where both trees may exist.
+    for brew_bin in /usr/local/sbin /usr/local/bin /opt/homebrew/sbin /opt/homebrew/bin; do
+      if [ -d "$brew_bin" ] && ! echo ":$PATH:" | grep -Fq ":$brew_bin:"; then
+        PATH="$brew_bin:$PATH"
+      fi
+    done
+    export PATH
+  fi
+
   if command -v openclaw >/dev/null 2>&1; then
     info ""
     info "OpenClaw environment detected."
