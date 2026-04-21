@@ -569,6 +569,9 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.RawUrl != nil && *it.RawUrl != "" {
 			item["url"] = *it.RawUrl
 		}
+		if it.Suggestion != nil {
+			item["suggestion"] = *it.Suggestion
+		}
 		items = append(items, item)
 	}
 
@@ -651,6 +654,9 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	}
 	if item.GroupID != 0 {
 		detail["group_id"] = strconv.FormatInt(item.GroupID, 10)
+	}
+	if item.Suggestion != "" {
+		detail["suggestion"] = item.Suggestion
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

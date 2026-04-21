@@ -113,6 +113,7 @@ type ProcessedItem struct {
 	ExpectedResponse *string  `thrift:"expected_response,10,optional" frugal:"10,optional,string" json:"expected_response,omitempty"`
 	GroupId          *int64   `thrift:"group_id,11,optional" frugal:"11,optional,i64" json:"group_id,omitempty"`
 	UpdatedAt        int64    `thrift:"updated_at,12,required" frugal:"12,required,i64" json:"updated_at"`
+	Suggestion       *string  `thrift:"suggestion,13,optional" frugal:"13,optional,string" json:"suggestion,omitempty"`
 }
 
 func NewProcessedItem() *ProcessedItem {
@@ -209,6 +210,15 @@ func (p *ProcessedItem) GetGroupId() (v int64) {
 func (p *ProcessedItem) GetUpdatedAt() (v int64) {
 	return p.UpdatedAt
 }
+
+var ProcessedItem_Suggestion_DEFAULT string
+
+func (p *ProcessedItem) GetSuggestion() (v string) {
+	if !p.IsSetSuggestion() {
+		return ProcessedItem_Suggestion_DEFAULT
+	}
+	return *p.Suggestion
+}
 func (p *ProcessedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -245,6 +255,9 @@ func (p *ProcessedItem) SetGroupId(val *int64) {
 func (p *ProcessedItem) SetUpdatedAt(val int64) {
 	p.UpdatedAt = val
 }
+func (p *ProcessedItem) SetSuggestion(val *string) {
+	p.Suggestion = val
+}
 
 func (p *ProcessedItem) IsSetSummary() bool {
 	return p.Summary != nil
@@ -278,6 +291,10 @@ func (p *ProcessedItem) IsSetGroupId() bool {
 	return p.GroupId != nil
 }
 
+func (p *ProcessedItem) IsSetSuggestion() bool {
+	return p.Suggestion != nil
+}
+
 func (p *ProcessedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -298,6 +315,7 @@ var fieldIDToName_ProcessedItem = map[int16]string{
 	10: "expected_response",
 	11: "group_id",
 	12: "updated_at",
+	13: "suggestion",
 }
 
 type PublishItemReq struct {

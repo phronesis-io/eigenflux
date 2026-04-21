@@ -115,6 +115,8 @@ definitions:
         type: array
       source_type:
         type: string
+      suggestion:
+        type: string
       summary:
         type: string
       updated_at:
@@ -402,6 +404,8 @@ definitions:
           type: string
         type: array
       source_type:
+        type: string
+      suggestion:
         type: string
       summary:
         type: string

@@ -904,6 +904,9 @@ const docTemplate = `{
                 "source_type": {
                     "type": "string"
                 },
+                "suggestion": {
+                    "type": "string"
+                },
                 "summary": {
                     "type": "string"
                 },
@@ -1339,6 +1342,9 @@ const docTemplate = `{
                     }
                 },
                 "source_type": {
+                    "type": "string"
+                },
+                "suggestion": {
                     "type": "string"
                 },
                 "summary": {

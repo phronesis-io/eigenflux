@@ -24,6 +24,7 @@ struct ProcessedItem {
     10: optional string expected_response
     11: optional i64 group_id
     12: required i64 updated_at
+    13: optional string suggestion
 }
 
 struct PublishItemReq {

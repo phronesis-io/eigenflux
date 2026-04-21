@@ -399,6 +399,7 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 			ExpectedResponse: pi.ExpectedResponse,
 			GroupId:          pi.GroupId,
 			UpdatedAt:        pi.UpdatedAt,
+			Suggestion:       pi.Suggestion,
 		}
 
 		if info, found := rawInfoMap[pi.ItemId]; found {

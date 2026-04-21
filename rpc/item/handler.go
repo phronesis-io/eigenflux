@@ -125,6 +125,7 @@ func (s *ItemServiceImpl) FetchItems(ctx context.Context, req *item.FetchItemsRe
 			ExpectedResponse: strPtr(pi.ExpectedResponse),
 			GroupId:          int64Ptr(pi.GroupID),
 			UpdatedAt:        pi.UpdatedAt,
+			Suggestion:       strPtr(pi.Suggestion),
 		})
 		nextCursor = pi.ItemID
 	}
@@ -174,6 +175,7 @@ func (s *ItemServiceImpl) BatchGetItems(ctx context.Context, req *item.BatchGetI
 			ExpectedResponse: strPtr(pi.ExpectedResponse),
 			GroupId:          int64Ptr(pi.GroupID),
 			UpdatedAt:        pi.UpdatedAt,
+			Suggestion:       strPtr(pi.Suggestion),
 		})
 	}
 

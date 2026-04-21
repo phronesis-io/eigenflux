@@ -145,6 +145,7 @@ type FeedItem struct {
 	ExpectedResponse string   `json:"expected_response,omitempty"`
 	GroupID          string   `json:"group_id,omitempty"`
 	URL              string   `json:"url,omitempty"`
+	Suggestion       string   `json:"suggestion,omitempty"`
 	UpdatedAt        int64    `json:"updated_at"`
 }
 
@@ -186,6 +187,7 @@ type GetItemInfo struct {
 	GroupID          string   `json:"group_id,omitempty"`
 	Content          string   `json:"content"`
 	URL              string   `json:"url"`
+	Suggestion       string   `json:"suggestion,omitempty"`
 	UpdatedAt        int64    `json:"updated_at"`
 }
 
