@@ -238,7 +238,15 @@ setup_agents() {
 
     # Determine the plugin specifier based on OpenClaw version.
     # >= 2026.5.2 uses latest; 2026.3.x–2026.4.x pins @0.0.8.
-    OC_VERSION=$(openclaw version --short 2>/dev/null || openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+    # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
+    # (e.g. non-interactive shells, CI, agent-driven installs).
+    if [ -n "${OPENCLAW_VERSION:-}" ]; then
+      OC_VERSION="$OPENCLAW_VERSION"
+      info "Using OPENCLAW_VERSION from environment: ${OC_VERSION}"
+    else
+      OC_RAW=$(openclaw --version 2>&1 || true)
+      OC_VERSION=$(printf '%s' "$OC_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    fi
     PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux"
     if [ -n "$OC_VERSION" ]; then
       OC_MAJOR=$(echo "$OC_VERSION" | cut -d. -f1)

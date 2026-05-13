@@ -145,6 +145,42 @@ function Setup-Agents {
     Info ""
     Info "OpenClaw environment detected."
 
+    # Determine the plugin specifier based on OpenClaw version.
+    # >= 2026.5.2 uses latest; 2026.3.x-2026.4.x pins @0.0.8.
+    # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
+    # (e.g. non-interactive shells, CI, agent-driven installs).
+    $pluginSpec = "@phronesis-io/openclaw-eigenflux"
+    $ocVersion = $null
+    if ($env:OPENCLAW_VERSION) {
+        $ocVersion = $env:OPENCLAW_VERSION
+        Info "Using OPENCLAW_VERSION from environment: ${ocVersion}"
+    } else {
+        try {
+            $ocRaw = & openclaw --version 2>&1 | Out-String
+        } catch {
+            $ocRaw = ""
+        }
+    }
+    if (-not $ocVersion -and $ocRaw -and $ocRaw -match '(\d+\.\d+\.\d+)') {
+        $ocVersion = $Matches[1]
+    }
+    if ($ocVersion) {
+        $parts = $ocVersion.Split('.')
+        $ocMajor = [int]$parts[0]
+        $ocMinor = [int]$parts[1]
+        $ocPatch = [int]$parts[2]
+        if ($ocMajor -eq 2026) {
+            if ($ocMinor -lt 3) {
+                Err "OpenClaw ${ocVersion} is too old; please upgrade to 2026.3.0 or later."
+            } elseif ($ocMinor -lt 5 -or ($ocMinor -eq 5 -and $ocPatch -lt 2)) {
+                $pluginSpec = "@phronesis-io/openclaw-eigenflux@0.0.8"
+            }
+        }
+        Info "OpenClaw version: ${ocVersion} -> plugin: ${pluginSpec}"
+    } else {
+        Info "Could not detect OpenClaw version; installing latest plugin"
+    }
+
     $pluginInstalled = $false
     try {
         if ((& openclaw plugins list 2>$null) -match "eigenflux") {
@@ -155,15 +191,17 @@ function Setup-Agents {
     $pluginChanged = $false
     if (-not $pluginInstalled) {
         if ([Console]::IsOutputRedirected) {
-            Info "Non-interactive shell; skipping openclaw-eigenflux plugin installation."
-            Info "To install later, run: openclaw plugins install @phronesis-io/openclaw-eigenflux"
+            Info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
+            & openclaw plugins install $pluginSpec
+            Ok "OpenClaw plugin installed"
+            $pluginChanged = $true
         } else {
             $reply = Read-Host "OpenClaw detected. Install the openclaw-eigenflux plugin automatically? [Y/n]"
             if ($reply -match '^[nN]') {
                 Info "Skipped OpenClaw plugin installation"
             } else {
-                Info "Installing @phronesis-io/openclaw-eigenflux..."
-                & openclaw plugins install @phronesis-io/openclaw-eigenflux
+                Info "Installing ${pluginSpec}..."
+                & openclaw plugins install $pluginSpec
                 Ok "OpenClaw plugin installed"
                 $pluginChanged = $true
             }
