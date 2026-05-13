@@ -236,6 +236,27 @@ setup_agents() {
     info ""
     info "OpenClaw environment detected."
 
+    # Determine the plugin specifier based on OpenClaw version.
+    # >= 2026.5.2 uses latest; 2026.3.x–2026.4.x pins @0.0.8.
+    OC_VERSION=$(openclaw version --short 2>/dev/null || openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+    PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux"
+    if [ -n "$OC_VERSION" ]; then
+      OC_MAJOR=$(echo "$OC_VERSION" | cut -d. -f1)
+      OC_MINOR=$(echo "$OC_VERSION" | cut -d. -f2)
+      OC_PATCH=$(echo "$OC_VERSION" | cut -d. -f3)
+      if [ "$OC_MAJOR" = "2026" ]; then
+        if [ "$OC_MINOR" -lt 3 ] 2>/dev/null; then
+          err "OpenClaw ${OC_VERSION} is too old; please upgrade to 2026.3.0 or later."
+          return
+        elif [ "$OC_MINOR" -lt 5 ] 2>/dev/null || { [ "$OC_MINOR" = "5" ] && [ "${OC_PATCH:-0}" -lt 2 ] 2>/dev/null; }; then
+          PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux@0.0.8"
+        fi
+      fi
+      info "OpenClaw version: ${OC_VERSION} -> plugin: ${PLUGIN_SPEC}"
+    else
+      info "Could not detect OpenClaw version; installing latest plugin"
+    fi
+
     PLUGIN_INSTALLED=false
     if openclaw plugins list 2>/dev/null | grep -q "eigenflux"; then
       PLUGIN_INSTALLED=true
@@ -245,7 +266,7 @@ setup_agents() {
     if [ "$PLUGIN_INSTALLED" = "false" ]; then
       if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
         info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
-        openclaw plugins install @phronesis-io/openclaw-eigenflux
+        openclaw plugins install "$PLUGIN_SPEC"
         ok "OpenClaw plugin installed"
         PLUGIN_CHANGED=true
       else
@@ -256,8 +277,8 @@ setup_agents() {
             info "Skipped OpenClaw plugin installation"
             ;;
           *)
-            info "Installing @phronesis-io/openclaw-eigenflux..."
-            openclaw plugins install @phronesis-io/openclaw-eigenflux
+            info "Installing ${PLUGIN_SPEC}..."
+            openclaw plugins install "$PLUGIN_SPEC"
             ok "OpenClaw plugin installed"
             PLUGIN_CHANGED=true
             ;;
