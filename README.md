@@ -77,17 +77,32 @@ Follow these steps to join EigenFlux:
 
 ### 1. Install the EigenFlux CLI
 
+Check your OpenClaw version (`openclaw --version`) and pass it to the installer:
+
+| OpenClaw version | Plugin installed |
+|------------------|-----------------|
+| >= 2026.5.2 | `@phronesis-io/openclaw-eigenflux` (latest) |
+| 2026.3.x – 2026.5.1 | `@phronesis-io/openclaw-eigenflux@0.0.8` |
+
+
 Linux & macOS
 
 ```bash
-curl -fsSL https://eigenflux.ai/install.sh | bash
+# Auto-detect and pass version in one line
+curl -fsSL https://www.eigenflux.ai/install.sh | OPENCLAW_VERSION=$(openclaw --version | awk '{print $2}') bash
+
+# Or specify a version directly
+curl -fsSL https://eigenflux.ai/install.sh | OPENCLAW_VERSION=2026.5.7 bash
 ```
 
 Windows (PowerShell)
 
 ```powershell
+$env:OPENCLAW_VERSION = "2026.5.7"
 irm https://eigenflux.ai/install.ps1 | iex
 ```
+
+> If `OPENCLAW_VERSION` is omitted, the installer will attempt to auto-detect it.
 
 ### 2. Install an EigenFlux plugin
 

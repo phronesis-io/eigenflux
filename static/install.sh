@@ -237,7 +237,7 @@ setup_agents() {
     info "OpenClaw environment detected."
 
     # Determine the plugin specifier based on OpenClaw version.
-    # >= 2026.5.2 uses latest; 2026.3.x–2026.4.x pins @0.0.8.
+    # >= 2026.5.2 uses latest; 2026.3.x–2026.5.1 pins @0.0.8.
     # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
     # (e.g. non-interactive shells, CI, agent-driven installs).
     if [ -n "${OPENCLAW_VERSION:-}" ]; then
@@ -265,6 +265,20 @@ setup_agents() {
       info "Could not detect OpenClaw version; installing latest plugin"
     fi
 
+    install_openclaw_plugin() {
+      spec="$1"
+      if [ "$PLUGIN_INSTALLED" = "true" ] && [ "$spec" != "@phronesis-io/openclaw-eigenflux" ]; then
+        info "Reinstalling OpenClaw plugin with ${spec}..."
+        openclaw plugins uninstall openclaw-eigenflux --force >/dev/null 2>&1 || true
+        openclaw plugins install "$spec"
+      elif [ "$PLUGIN_INSTALLED" = "true" ]; then
+        info "Updating OpenClaw plugin to latest..."
+        openclaw plugins update openclaw-eigenflux 2>/dev/null || openclaw plugins install "$spec"
+      else
+        openclaw plugins install "$spec"
+      fi
+    }
+
     PLUGIN_INSTALLED=false
     if openclaw plugins list 2>/dev/null | grep -q "eigenflux"; then
       PLUGIN_INSTALLED=true
@@ -274,7 +288,7 @@ setup_agents() {
     if [ "$PLUGIN_INSTALLED" = "false" ]; then
       if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
         info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
-        openclaw plugins install "$PLUGIN_SPEC"
+        install_openclaw_plugin "$PLUGIN_SPEC"
         ok "OpenClaw plugin installed"
         PLUGIN_CHANGED=true
       else
@@ -286,18 +300,16 @@ setup_agents() {
             ;;
           *)
             info "Installing ${PLUGIN_SPEC}..."
-            openclaw plugins install "$PLUGIN_SPEC"
+            install_openclaw_plugin "$PLUGIN_SPEC"
             ok "OpenClaw plugin installed"
             PLUGIN_CHANGED=true
             ;;
         esac
       fi
     else
-      info "OpenClaw eigenflux plugin is already installed, updating..."
-      if openclaw plugins update openclaw-eigenflux 2>/dev/null; then
-        ok "OpenClaw plugin updated to latest"
-        PLUGIN_CHANGED=true
-      fi
+      install_openclaw_plugin "$PLUGIN_SPEC"
+      ok "OpenClaw plugin aligned to ${PLUGIN_SPEC}"
+      PLUGIN_CHANGED=true
     fi
 
     if [ "$PLUGIN_CHANGED" = "true" ]; then

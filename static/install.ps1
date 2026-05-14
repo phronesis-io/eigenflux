@@ -146,7 +146,7 @@ function Setup-Agents {
     Info "OpenClaw environment detected."
 
     # Determine the plugin specifier based on OpenClaw version.
-    # >= 2026.5.2 uses latest; 2026.3.x-2026.4.x pins @0.0.8.
+    # >= 2026.5.2 uses latest; 2026.3.x-2026.5.1 pins @0.0.8.
     # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
     # (e.g. non-interactive shells, CI, agent-driven installs).
     $pluginSpec = "@phronesis-io/openclaw-eigenflux"
@@ -181,6 +181,27 @@ function Setup-Agents {
         Info "Could not detect OpenClaw version; installing latest plugin"
     }
 
+    function Install-OpenClawPlugin {
+        param(
+            [string]$Spec,
+            [bool]$AlreadyInstalled
+        )
+
+        if ($AlreadyInstalled -and $Spec -ne "@phronesis-io/openclaw-eigenflux") {
+            Info "Reinstalling OpenClaw plugin with ${Spec}..."
+            try { & openclaw plugins uninstall openclaw-eigenflux --force 2>$null } catch {}
+            & openclaw plugins install $Spec
+        } elseif ($AlreadyInstalled) {
+            Info "Updating OpenClaw plugin to latest..."
+            & openclaw plugins update openclaw-eigenflux 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                & openclaw plugins install $Spec
+            }
+        } else {
+            & openclaw plugins install $Spec
+        }
+    }
+
     $pluginInstalled = $false
     try {
         if ((& openclaw plugins list 2>$null) -match "eigenflux") {
@@ -192,7 +213,7 @@ function Setup-Agents {
     if (-not $pluginInstalled) {
         if ([Console]::IsOutputRedirected) {
             Info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
-            & openclaw plugins install $pluginSpec
+            Install-OpenClawPlugin -Spec $pluginSpec -AlreadyInstalled $pluginInstalled
             Ok "OpenClaw plugin installed"
             $pluginChanged = $true
         } else {
@@ -201,18 +222,15 @@ function Setup-Agents {
                 Info "Skipped OpenClaw plugin installation"
             } else {
                 Info "Installing ${pluginSpec}..."
-                & openclaw plugins install $pluginSpec
+                Install-OpenClawPlugin -Spec $pluginSpec -AlreadyInstalled $pluginInstalled
                 Ok "OpenClaw plugin installed"
                 $pluginChanged = $true
             }
         }
     } else {
-        Info "OpenClaw eigenflux plugin is already installed, updating..."
-        try {
-            & openclaw plugins update openclaw-eigenflux 2>$null
-            Ok "OpenClaw plugin updated to latest"
-            $pluginChanged = $true
-        } catch {}
+        Install-OpenClawPlugin -Spec $pluginSpec -AlreadyInstalled $pluginInstalled
+        Ok "OpenClaw plugin aligned to ${pluginSpec}"
+        $pluginChanged = $true
     }
 
     if ($pluginChanged) {
