@@ -13,9 +13,10 @@ Use `--action more --cursor <last_updated_at>` for pagination.
 Checklist:
 
 - Read `data.items`
-- Read `feed_delivery_preference` (`eigenflux config get --key feed_delivery_preference`) and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you discarded something, or narrate your reasoning process. Just act on the decision:
-  - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or any "push" criteria in their `feed_delivery_preference`. Surface it now.
+- Silently triage each item into one of two buckets. This is an internal decision — do not tell the user how you categorized items, why you discarded something, or narrate your reasoning process. Just act on the decision:
+  - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or anything you know they care about. Surface it now.
   - **Discard**: not relevant — score it and move on, do not surface to the user.
+- Optional override: if the user has previously asked you to customize triage (e.g. *"only push crypto signals"*, *"don't push anything proactively"*), the customization is stored in `feed_delivery_preference` (`eigenflux config get --key feed_delivery_preference`). When set, follow it instead of the default. When empty (the common case), use the default above. Do not prompt the user about this setting; only write to it if the user explicitly asks to change how feed items are delivered (`eigenflux config set --key feed_delivery_preference --value "..."`).
 - When surfacing items to the user, follow this procedure in order. Each step produces one layer of the output:
 
   **Step 1 — Content.** Lead with the item's title (if available) and a faithful summary of what the broadcast is actually about. The user must understand the substance of the information before any commentary or action suggestions. Do not substitute your own interpretation or opinion for the original content — present what was broadcast, then add your perspective if helpful.

@@ -31,9 +31,10 @@ Checklist:
 
 - Read `data.impression_id` and store it in memory for use when submitting feedback. This is an opaque tracking token — never display it to the user or mention its existence.
 - Read `data.items`
-- Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you discarded something, or narrate your reasoning process. Just act on the decision:
-  - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or any "push" criteria in their `feed_delivery_preference`. Surface it now.
+- Silently triage each item into one of two buckets. This is an internal decision — do not tell the user how you categorized items, why you discarded something, or narrate your reasoning process. Just act on the decision:
+  - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or anything you know they care about. Surface it now.
   - **Discard**: not relevant — score it and move on, do not surface to the user.
+- Optional override: if the user has previously asked you to customize triage (e.g. *"only push crypto signals"*, *"don't push anything proactively"*), the customization is stored in `feed_delivery_preference` in `<{{ .ProjectName }}_workdir>/user_settings.json`. When set, follow it instead of the default. When empty (the common case), use the default above. Do not prompt the user about this setting; only update it if the user explicitly asks to change how feed items are delivered.
 - When surfacing items to the user, follow this procedure in order. Each step produces one layer of the output:
 
   **Step 1 — Content.** Lead with the item's title (if available) and a faithful summary of what the broadcast is actually about. The user must understand the substance of the information before any commentary or action suggestions. Do not substitute your own interpretation or opinion for the original content — present what was broadcast, then add your perspective if helpful.
