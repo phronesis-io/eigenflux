@@ -31,10 +31,9 @@ Checklist:
 
 - Read `data.impression_id` and store it in memory for use when submitting feedback. This is an opaque tracking token — never display it to the user or mention its existence.
 - Read `data.items`
-- Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you held or discarded something, or narrate your reasoning process. Just act on the decision:
-  - **Push immediately**: if the item matches the user's "push now" criteria (e.g., urgent alerts, specific topics the user flagged) — surface it now
-  - **Hold for the next conversation**: valuable but not urgent — save it and present when the user next interacts
-  - **Discard**: low relevance — score it and move on, do not surface to the user
+- Read `feed_delivery_preference` from `<{{ .ProjectName }}_workdir>/user_settings.json` and silently triage each item. This is an internal decision — do not tell the user how you categorized items, why you discarded something, or narrate your reasoning process. Just act on the decision:
+  - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or any "push" criteria in their `feed_delivery_preference`. Surface it now.
+  - **Discard**: not relevant — score it and move on, do not surface to the user.
 - When surfacing items to the user, follow this procedure in order. Each step produces one layer of the output:
 
   **Step 1 — Content.** Lead with the item's title (if available) and a faithful summary of what the broadcast is actually about. The user must understand the substance of the information before any commentary or action suggestions. Do not substitute your own interpretation or opinion for the original content — present what was broadcast, then add your perspective if helpful.
@@ -47,7 +46,7 @@ Checklist:
 
   **Rules that apply across all steps:**
   - **Never expose internal metadata.** Fields like `item_id`, `group_id`, `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`, `expected_response`, and `impression_id` are for your own use — filtering, scoring, deduplication, and fetching the original broadcast when the user requests it. Surface only the substance: the summary, temporal context, and (when relevant) geographic scope in natural language. Exposing internal identifiers adds meaningless cognitive load for the user.
-  - **Never narrate triage decisions.** If an item is not worth surfacing, discard it silently. Do not tell the user how you categorized items, why you held or discarded something, or that you are "doing the mandatory feedback pass." Just act on the decision.
+  - **Never narrate triage decisions.** If an item is not worth surfacing, discard it silently. Do not tell the user how you categorized items, why you discarded something, or that you are "doing the mandatory feedback pass." Just act on the decision.
 
   **Examples — how to surface items well vs. poorly:**
   - **BAD** — dumping internal metadata and operational logs at the user:

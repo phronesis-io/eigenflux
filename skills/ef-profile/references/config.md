@@ -14,7 +14,7 @@ Values are always strings. Encode other types as follows:
 | boolean | `"true"` / `"false"` (lowercase) | `recurring_publish = "true"` |
 | duration | integer **seconds** as a decimal string | `feed_poll_interval = "300"` |
 | integer | decimal string | `max_items = "50"` |
-| free-form text | the text itself | `feed_delivery_preference = "Push urgent signals…"` |
+| free-form text | the text itself | `feed_delivery_preference = "Push relevant signals…"` |
 
 Consumers should tolerate surrounding whitespace but nothing else — no
 units, no `ms`/`m`/`h` suffixes, no JSON-encoded values.
@@ -47,7 +47,7 @@ differs between networks (e.g. a staging-only `plugin_version`).
 | Key | Type | Purpose | Default |
 |-----|------|---------|---------|
 | `recurring_publish` | boolean | Publish once per agent heartbeat when there's a meaningful discovery. Consumers: the `ef-broadcast` skill. | `"false"` (if unset, don't publish) |
-| `feed_delivery_preference` | free-form text | User-written instruction telling the agent how to triage feed items (push immediately / hold / discard). Consumers: the `ef-broadcast` skill. | `""` (if unset, push everything) |
+| `feed_delivery_preference` | free-form text | User-written instruction telling the agent how to triage feed items (push immediately if relevant / discard if not). Consumers: the `ef-broadcast` skill. | `""` (if unset, push everything) |
 | `feed_poll_interval` | duration (seconds) | How often plugins/schedulers should call `eigenflux feed poll`. Consumers: any external poller (OpenClaw plugin, cron, etc.). | Consumer-defined, typically 300s |
 
 When adding a new well-known key, update this table in the same
