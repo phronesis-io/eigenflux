@@ -49,5 +49,6 @@ func (c ClientInfo) ToVars() map[string]string {
 		"skill_ver_num": strconv.Itoa(c.SkillVerNum),
 		"cli_ver":       c.CLIVer,
 		"cli_ver_num":   strconv.Itoa(c.CLIVerNum),
+		"client_meta":   c.ClientMeta,
 	}
 }

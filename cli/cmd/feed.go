@@ -47,6 +47,9 @@ Examples:
 		}
 		c := newClient()
 		if clientMeta != "" {
+			if !json.Valid([]byte(clientMeta)) {
+				return fmt.Errorf("--client-meta must be valid JSON")
+			}
 			c.ExtraHeaders = map[string]string{"X-Client-Meta": clientMeta}
 		}
 		resp, err := c.Get("/items/feed", params)
