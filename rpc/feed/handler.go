@@ -16,6 +16,7 @@ import (
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/replaylog"
+	"eigenflux_server/pkg/reqinfo"
 	itemDal "eigenflux_server/rpc/item/dal"
 )
 
@@ -239,14 +240,16 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		}
 	}
 
+	clientMeta := reqinfo.ClientFromContext(ctx).ClientMeta
+
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		if s.config.EnableReplayLog && len(toReturnReplayLookup) > 0 {
-			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, toReturnReplayLookup)
+			s.publishReplayLog(bgCtx, impressionID, agentID, clientMeta, feedItems, toReturnReplayLookup)
 		}
 		if len(filteredSortedItems) > 0 {
-			s.publishFilteredReplayLog(bgCtx, impressionID, agentID, len(feedItems), filteredSortedItems)
+			s.publishFilteredReplayLog(bgCtx, impressionID, agentID, clientMeta, len(feedItems), filteredSortedItems)
 		}
 	}()
 
@@ -336,12 +339,14 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 
 	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(resolvedEntries), itemMap)
 
+	clientMeta := reqinfo.ClientFromContext(ctx).ClientMeta
+
 	go func() {
 		bgCtx := context.Background()
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		replayLookup := s.buildReplayLookupFromCacheEntries(resolvedEntries)
 		if s.config.EnableReplayLog && len(replayLookup) > 0 {
-			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, replayLookup)
+			s.publishReplayLog(bgCtx, impressionID, agentID, clientMeta, feedItems, replayLookup)
 		}
 	}()
 
@@ -473,7 +478,7 @@ func impressionIDFromCacheEntries(entries []feedcache.Entry) string {
 	return ""
 }
 
-func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID string, agentID int64, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
+func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID string, agentID int64, clientMeta string, feedItems []*feed.FeedItem, lookup map[int64]*replayData) {
 	if len(feedItems) == 0 {
 		return
 	}
@@ -507,7 +512,7 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID str
 		served = append(served, si)
 	}
 
-	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, clientMeta, served); err != nil {
 		logger.Default().Warn("failed to publish replay log", "err", err)
 	}
 }
@@ -515,7 +520,7 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID str
 // publishFilteredReplayLog publishes below-threshold items to the replay log for
 // offline analysis. These items were scored but not delivered to the user.
 // positionOffset ensures positions don't collide with served items in the same impression.
-func (s *FeedServiceImpl) publishFilteredReplayLog(ctx context.Context, impressionID string, agentID int64, positionOffset int, items []*sort.SortedItem) {
+func (s *FeedServiceImpl) publishFilteredReplayLog(ctx context.Context, impressionID string, agentID int64, clientMeta string, positionOffset int, items []*sort.SortedItem) {
 	if len(items) == 0 {
 		return
 	}
@@ -542,7 +547,7 @@ func (s *FeedServiceImpl) publishFilteredReplayLog(ctx context.Context, impressi
 		})
 	}
 
-	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, clientMeta, served); err != nil {
 		logger.Default().Warn("failed to publish filtered replay log", "err", err)
 	}
 }
