@@ -29,6 +29,9 @@ func ClientInfoMiddleware() app.HandlerFunc {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVer, ver)
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVerNum, strconv.Itoa(num))
 		}
+		if v := c.GetHeader("X-Client-Meta"); len(v) > 0 && len(v) <= 2048 {
+			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyClientMeta, string(v))
+		}
 		c.Next(ctx)
 	}
 }

@@ -12,6 +12,7 @@ const (
 	KeySkillVerNum = "ef.skill_ver_num"
 	KeyCLIVer      = "ef.cli_ver"
 	KeyCLIVerNum   = "ef.cli_ver_num"
+	KeyClientMeta  = "ef.client_meta"
 )
 
 type ClientInfo struct {
@@ -19,6 +20,7 @@ type ClientInfo struct {
 	SkillVerNum int
 	CLIVer      string
 	CLIVerNum   int
+	ClientMeta  string
 }
 
 func ClientFromContext(ctx context.Context) ClientInfo {
@@ -34,6 +36,9 @@ func ClientFromContext(ctx context.Context) ClientInfo {
 	}
 	if v, ok := metainfo.GetPersistentValue(ctx, KeyCLIVerNum); ok {
 		c.CLIVerNum, _ = strconv.Atoi(v)
+	}
+	if v, ok := metainfo.GetPersistentValue(ctx, KeyClientMeta); ok {
+		c.ClientMeta = v
 	}
 	return c
 }
