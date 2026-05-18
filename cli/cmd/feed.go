@@ -34,6 +34,7 @@ Examples:
 		limit, _ := cmd.Flags().GetString("limit")
 		action, _ := cmd.Flags().GetString("action")
 		cursor, _ := cmd.Flags().GetString("cursor")
+		clientMeta, _ := cmd.Flags().GetString("client-meta")
 		params := map[string]string{}
 		if limit != "" {
 			params["limit"] = limit
@@ -45,6 +46,9 @@ Examples:
 			params["cursor"] = cursor
 		}
 		c := newClient()
+		if clientMeta != "" {
+			c.ExtraHeaders = map[string]string{"X-Client-Meta": clientMeta}
+		}
 		resp, err := c.Get("/items/feed", params)
 		if err != nil {
 			return err
@@ -147,6 +151,7 @@ func init() {
 	feedPollCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
 	feedPollCmd.Flags().String("cursor", "", "pagination cursor (last_updated_at)")
+	feedPollCmd.Flags().String("client-meta", "", "JSON metadata about the client environment")
 	feedGetCmd.Flags().String("item-id", "", "item ID to fetch (required)")
 	feedFeedbackCmd.Flags().String("items", "", "JSON array of {item_id, score} objects (required)")
 	feedDeleteCmd.Flags().String("item-id", "", "item ID to delete (required)")
