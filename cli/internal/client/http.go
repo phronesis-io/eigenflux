@@ -30,10 +30,11 @@ func (e *APIError) Error() string {
 }
 
 type Client struct {
-	BaseURL    string
-	Token      string
-	CLIVersion string
-	HTTPClient *http.Client
+	BaseURL      string
+	Token        string
+	CLIVersion   string
+	HTTPClient   *http.Client
+	ExtraHeaders map[string]string
 }
 
 func New(baseURL, token, cliVersion string) *Client {
@@ -68,6 +69,9 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 	}
 	if c.CLIVersion != "" {
 		req.Header.Set("X-CLI-Ver", c.CLIVersion)
+	}
+	for k, v := range c.ExtraHeaders {
+		req.Header.Set(k, v)
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

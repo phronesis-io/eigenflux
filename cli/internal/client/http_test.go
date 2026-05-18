@@ -87,6 +87,28 @@ func TestClientHandles401(t *testing.T) {
 	}
 }
 
+func TestClientExtraHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Client-Meta"); got != `{"plugin":"0.0.9"}` {
+			t.Errorf("X-Client-Meta = %q, want %q", got, `{"plugin":"0.0.9"}`)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tk" {
+			t.Errorf("Authorization = %q, want %q", got, "Bearer tk")
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "msg": "ok"})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tk", "0.0.6")
+	c.ExtraHeaders = map[string]string{"X-Client-Meta": `{"plugin":"0.0.9"}`}
+	resp, err := c.Get("/test", nil)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if resp.Code != 0 {
+		t.Errorf("Code = %d, want 0", resp.Code)
+	}
+}
+
 func TestClientDelete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {
