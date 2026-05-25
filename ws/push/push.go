@@ -96,6 +96,31 @@ func buildFriendRequests(infos []*pm.FriendRequestInfo) []FriendRequestData {
 	return result
 }
 
+const pendingFRDirection = "incoming"
+const pendingFRLimit = int32(5)
+
+// fetchPendingFriendRequests fetches incoming pending friend requests for the agent.
+// Returns nil slices on error (logged as warning).
+func fetchPendingFriendRequests(ctx context.Context, pmClient pmservice.Client, agentID int64) ([]FriendRequestData, bool) {
+	limit := pendingFRLimit
+	resp, err := pmClient.ListFriendRequests(ctx, &pm.ListFriendRequestsReq{
+		AgentId:   agentID,
+		Direction: pendingFRDirection,
+		Limit:     &limit,
+	})
+	if err != nil {
+		logger.Ctx(ctx).Warn("ws: ListFriendRequests failed", "agentID", agentID, "err", err)
+		return nil, false
+	}
+	if resp.BaseResp.Code != 0 {
+		logger.Ctx(ctx).Warn("ws: ListFriendRequests error", "agentID", agentID, "code", resp.BaseResp.Code, "msg", resp.BaseResp.Msg)
+		return nil, false
+	}
+	pending := buildFriendRequests(resp.Requests)
+	hasMore := resp.HasMore != nil && *resp.HasMore
+	return pending, hasMore
+}
+
 // Run is the main push loop for a single connection. It blocks until the
 // connection's Done channel is closed or the context is cancelled.
 func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn *hub.Connection) {
@@ -113,11 +138,11 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 			return
 		case <-ctx.Done():
 			return
-		case _, ok := <-ch:
+		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
-			fetchAndPush(ctx, pmClient, conn)
+			fetchAndPush(ctx, pmClient, conn, msg.Payload)
 		}
 	}
 }
@@ -133,25 +158,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		history = buildPMMessages(histResp.Messages)
 	}
 
-	prDirection := "incoming"
-	prLimit := int32(5)
-	prResp, err := pmClient.ListFriendRequests(ctx, &pm.ListFriendRequestsReq{
-		AgentId:   conn.AgentID,
-		Direction: prDirection,
-		Limit:     &prLimit,
-	})
-	var pending []FriendRequestData
-	var pendingHasMore bool
-	if err != nil {
-		logger.Ctx(ctx).Error("ws: ListFriendRequests failed", "agentID", conn.AgentID, "err", err)
-	} else if prResp.BaseResp.Code != 0 {
-		logger.Ctx(ctx).Error("ws: ListFriendRequests error", "agentID", conn.AgentID, "code", prResp.BaseResp.Code, "msg", prResp.BaseResp.Msg)
-	} else {
-		pending = buildFriendRequests(prResp.Requests)
-		if prResp.HasMore != nil {
-			pendingHasMore = *prResp.HasMore
-		}
-	}
+	pending, pendingHasMore := fetchPendingFriendRequests(ctx, pmClient, conn.AgentID)
 
 	unreadResp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
 		AgentId: conn.AgentID,
@@ -204,7 +211,10 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		"cursor", conn.PMCursor)
 }
 
-func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
+func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection, eventPayload string) {
+	isFriendRequestEvent := eventPayload == "friend_request"
+
+	// Always fetch unread PMs.
 	resp, err := pmClient.FetchPM(ctx, &pm.FetchPMReq{
 		AgentId: conn.AgentID,
 		Cursor:  &conn.PMCursor,
@@ -220,21 +230,12 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 
 	msgs := buildPMMessages(resp.Messages)
 
-	// Also check for pending friend requests.
-	prDirection := "incoming"
-	prLimit := int32(5)
+	// Only fetch friend requests when the event is a friend_request,
+	// not on every PM event — avoids unnecessary RPC/DB calls at scale.
 	var pending []FriendRequestData
 	var pendingHasMore bool
-	prResp, prErr := pmClient.ListFriendRequests(ctx, &pm.ListFriendRequestsReq{
-		AgentId:   conn.AgentID,
-		Direction: prDirection,
-		Limit:     &prLimit,
-	})
-	if prErr == nil && prResp.BaseResp.Code == 0 {
-		pending = buildFriendRequests(prResp.Requests)
-		if prResp.HasMore != nil {
-			pendingHasMore = *prResp.HasMore
-		}
+	if isFriendRequestEvent {
+		pending, pendingHasMore = fetchPendingFriendRequests(ctx, pmClient, conn.AgentID)
 	}
 
 	if len(msgs) == 0 && len(pending) == 0 {
@@ -266,5 +267,5 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 	if len(resp.Messages) > 0 {
 		conn.PMCursor = resp.NextCursor
 	}
-	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "msgCount", len(msgs), "frCount", len(pending), "cursor", conn.PMCursor)
+	logger.Ctx(ctx).Info("ws: pushed", "agentID", conn.AgentID, "event", eventPayload, "msgCount", len(msgs), "frCount", len(pending), "cursor", conn.PMCursor)
 }
