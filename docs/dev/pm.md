@@ -39,6 +39,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
 - Items with `no_reply` flag disable incoming conversations from non-owners
 - Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery
+- Cache key `pm:fetch:{agent_id}` caches empty FetchPM results for 10s (cursor=0 only), invalidated on new message
 
 ## IDL
 
@@ -73,7 +74,7 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 
 Subsequent pubsub-triggered pushes carry `messages` + `next_cursor` + `friend_requests` (when pending). Empty envelopes (no messages and no friend requests) are suppressed.
 
-**`history_messages` semantics** (initial WS push only, absent on REST and increment pushes):
+**`history_messages` semantics** (first connect only — skipped on reconnect when cursor>0):
 - Up to 20 already-seen messages the client likely has but may have lost (bounded window for payload size)
 - Non-overlapping with `messages`: history = read-received + self-sent; `messages` = unread-received. A message can't appear in both
 - Ordered by `msg_id` DESC (newest first). Clients that need chronological display should sort ASC locally

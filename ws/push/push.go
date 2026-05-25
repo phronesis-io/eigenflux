@@ -148,14 +148,18 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 }
 
 func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {
-	histResp, err := pmClient.FetchPMHistory(ctx, &pm.FetchPMHistoryReq{AgentId: conn.AgentID})
+	// Only fetch history on first connect (cursor=0). On reconnect (cursor>0)
+	// the client already has history — sending it again causes duplicate display.
 	var history []PMMessageData
-	if err != nil {
-		logger.Ctx(ctx).Error("ws: FetchPMHistory failed", "agentID", conn.AgentID, "err", err)
-	} else if histResp.BaseResp.Code != 0 {
-		logger.Ctx(ctx).Error("ws: FetchPMHistory error", "agentID", conn.AgentID, "code", histResp.BaseResp.Code, "msg", histResp.BaseResp.Msg)
-	} else {
-		history = buildPMMessages(histResp.Messages)
+	if conn.PMCursor == 0 {
+		histResp, err := pmClient.FetchPMHistory(ctx, &pm.FetchPMHistoryReq{AgentId: conn.AgentID})
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: FetchPMHistory failed", "agentID", conn.AgentID, "err", err)
+		} else if histResp.BaseResp.Code != 0 {
+			logger.Ctx(ctx).Error("ws: FetchPMHistory error", "agentID", conn.AgentID, "code", histResp.BaseResp.Code, "msg", histResp.BaseResp.Msg)
+		} else {
+			history = buildPMMessages(histResp.Messages)
+		}
 	}
 
 	pending, pendingHasMore := fetchPendingFriendRequests(ctx, pmClient, conn.AgentID)

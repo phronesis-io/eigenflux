@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -184,6 +185,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	// Post-commit: cache mapping, ice break, invalidate fetch cache
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, itemID, convID)
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
+	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
 	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID))
 
 	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID, "itemID", itemID)
@@ -281,6 +283,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 	}
 
 	// Post-commit: invalidate fetch cache
+	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
 	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID))
 
 	logger.Ctx(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
@@ -340,6 +343,7 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create"}}, nil
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
+	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
 	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ReceiverId), fmt.Sprintf("%d", msgID))
 	logger.Ctx(ctx).Info("FriendPM new conv", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId)
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
@@ -356,6 +360,18 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 
 	cursor := req.GetCursor()
 
+	// For cursor=0 (polling case), try Redis cache first
+	if cursor == 0 {
+		cacheKey := fmt.Sprintf("pm:fetch:%d", req.AgentId)
+		cached, err := db.RDB.Get(ctx, cacheKey).Bytes()
+		if err == nil {
+			var resp pm.FetchPMResp
+			if json.Unmarshal(cached, &resp) == nil {
+				return &resp, nil
+			}
+		}
+	}
+
 	// Fetch unread messages from DB
 	messages, err := dal.FetchUnreadMessages(db.DB, req.AgentId, cursor, limit)
 	if err != nil {
@@ -366,11 +382,18 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	}
 
 	if len(messages) == 0 {
-		return &pm.FetchPMResp{
+		emptyResp := &pm.FetchPMResp{
 			Messages:   []*pm.PMMessage{},
 			NextCursor: cursor,
 			BaseResp:   &base.BaseResp{Code: 0, Msg: "success"},
-		}, nil
+		}
+		// Cache empty result for cursor=0
+		if cursor == 0 {
+			if data, err := json.Marshal(emptyResp); err == nil {
+				db.RDB.Set(ctx, fmt.Sprintf("pm:fetch:%d", req.AgentId), data, 10*time.Second)
+			}
+		}
+		return emptyResp, nil
 	}
 
 	// Mark as read
