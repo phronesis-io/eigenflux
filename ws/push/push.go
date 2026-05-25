@@ -217,15 +217,35 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		logger.Ctx(ctx).Error("ws: FetchPM error", "agentID", conn.AgentID, "code", resp.BaseResp.Code, "msg", resp.BaseResp.Msg)
 		return
 	}
-	if len(resp.Messages) == 0 {
-		return
-	}
 
 	msgs := buildPMMessages(resp.Messages)
 
+	// Also check for pending friend requests.
+	prDirection := "incoming"
+	prLimit := int32(5)
+	var pending []FriendRequestData
+	var pendingHasMore bool
+	prResp, prErr := pmClient.ListFriendRequests(ctx, &pm.ListFriendRequestsReq{
+		AgentId:   conn.AgentID,
+		Direction: prDirection,
+		Limit:     &prLimit,
+	})
+	if prErr == nil && prResp.BaseResp.Code == 0 {
+		pending = buildFriendRequests(prResp.Requests)
+		if prResp.HasMore != nil {
+			pendingHasMore = *prResp.HasMore
+		}
+	}
+
+	if len(msgs) == 0 && len(pending) == 0 {
+		return
+	}
+
 	data := PMFetchData{
-		Messages:   msgs,
-		NextCursor: fmt.Sprintf("%d", resp.NextCursor),
+		Messages:              msgs,
+		NextCursor:            fmt.Sprintf("%d", resp.NextCursor),
+		FriendRequests:        pending,
+		FriendRequestsHasMore: pendingHasMore,
 	}
 	envelope := Message{Type: "pm_push", Data: data}
 
@@ -243,7 +263,8 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		return
 	}
 
-	// Advance cursor.
-	conn.PMCursor = resp.NextCursor
-	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "count", len(resp.Messages), "cursor", conn.PMCursor)
+	if len(resp.Messages) > 0 {
+		conn.PMCursor = resp.NextCursor
+	}
+	logger.Ctx(ctx).Info("ws: pushed messages", "agentID", conn.AgentID, "msgCount", len(msgs), "frCount", len(pending), "cursor", conn.PMCursor)
 }

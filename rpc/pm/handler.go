@@ -665,6 +665,7 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 				logger.Default().Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
 			}
 		}()
+		db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ToUid), "friend_request")
 	} else {
 		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 	}

@@ -88,6 +88,34 @@ func cleanPMData(t *testing.T, agentIDs ...int64) {
 	}
 }
 
+func cleanRelationsData(t *testing.T, agentIDs ...int64) {
+	t.Helper()
+	ctx := context.Background()
+	rdb := testutil.GetTestRedis()
+	for _, id := range agentIDs {
+		testutil.TestDB.Exec("DELETE FROM user_relations WHERE from_uid = $1 OR to_uid = $1", id)
+		testutil.TestDB.Exec("DELETE FROM friend_requests WHERE from_uid = $1 OR to_uid = $1", id)
+		rdb.Del(ctx, fmt.Sprintf("friend:%d", id))
+		rdb.Del(ctx, fmt.Sprintf("block:%d", id))
+		rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", id))
+	}
+}
+
+// tryReadPush reads a WS message with timeout, returning nil if no message arrives.
+func tryReadPush(t *testing.T, conn *websocket.Conn, timeout time.Duration) map[string]interface{} {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		return nil
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(msg, &result); err != nil {
+		return nil
+	}
+	return result
+}
+
 func mockItem(t *testing.T, itemID, authorAgentID int64) {
 	t.Helper()
 	now := time.Now().UnixMilli()
@@ -498,5 +526,66 @@ func TestWS_InitialPushIncludesPendingFriendRequests(t *testing.T) {
 	}
 	if rid, _ := first["request_id"].(string); rid == "" {
 		t.Errorf("first friend_request request_id should be non-empty, got %v", first["request_id"])
+	}
+}
+
+// Bug 1: Friend request should be pushed in real-time via WebSocket.
+func TestWS_FriendRequestRealtimePush(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_frrt_recv@test.com", "ws_frrt_sender@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	receiver := testutil.RegisterAgent(t, "ws_frrt_recv@test.com", "FRRecv", "recv")
+	sender := testutil.RegisterAgent(t, "ws_frrt_sender@test.com", "FRSend", "sender")
+
+	rID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
+	sID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+
+	cleanPMData(t, rID, sID)
+	cleanRelationsData(t, rID, sID)
+	defer cleanPMData(t, rID, sID)
+	defer cleanRelationsData(t, rID, sID)
+
+	// Receiver connects WS first (no pending data).
+	ws := dialWS(t, receiver["token"].(string), 0)
+	defer ws.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Sender sends friend request while receiver is connected.
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   receiver["agent_id"],
+		"greeting": "realtime hello",
+	}, sender["token"].(string))
+	if int(resp["code"].(float64)) != 0 {
+		t.Fatalf("apply failed: %v", resp["msg"])
+	}
+
+	// Receiver should get a push with the friend request.
+	envelope := readPush(t, ws, 10*time.Second)
+	if envelope["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", envelope["type"])
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data map, got %T %v", envelope["data"], envelope["data"])
+	}
+
+	raw, has := data["friend_requests"]
+	if !has {
+		t.Fatal("expected friend_requests in realtime push")
+	}
+	list, ok := raw.([]interface{})
+	if !ok || len(list) == 0 {
+		t.Fatalf("expected at least 1 friend_request in push, got: %v", raw)
+	}
+	fr := list[0].(map[string]interface{})
+	if fr["from_name"] != "FRSend" {
+		t.Errorf("expected from_name=FRSend, got %v", fr["from_name"])
+	}
+	if fr["greeting"] != "realtime hello" {
+		t.Errorf("expected greeting='realtime hello', got %v", fr["greeting"])
 	}
 }
