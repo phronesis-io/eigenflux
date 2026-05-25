@@ -29,6 +29,7 @@ type options struct {
 	pause         time.Duration
 	dryRun        bool
 	updateCountry bool
+	republish     bool
 }
 
 type targetAgent struct {
@@ -82,6 +83,12 @@ func main() {
 		return
 	}
 
+	if opts.republish {
+		success, failed := republishTargets(ctx, targets)
+		log.Printf("profile republish finished success=%d failed=%d", success, failed)
+		return
+	}
+
 	success, failed := processTargets(ctx, targets, llmClient, profileCache, opts)
 	log.Printf("profile keyword backfill finished success=%d failed=%d", success, failed)
 }
@@ -96,6 +103,7 @@ func parseOptions() (options, error) {
 		pause         = flag.Duration("pause", 100*time.Millisecond, "per-worker sleep after each LLM call")
 		dryRun        = flag.Bool("dry-run", false, "print matched profiles without calling the LLM")
 		updateCountry = flag.Bool("update-country", false, "also overwrite agent_profiles.country from the LLM result")
+		republish     = flag.Bool("republish", false, "reset status to pending and republish to stream:profile:update (re-enter consumer pipeline)")
 	)
 	flag.Parse()
 
@@ -117,6 +125,7 @@ func parseOptions() (options, error) {
 		pause:         *pause,
 		dryRun:        *dryRun,
 		updateCountry: *updateCountry,
+		republish:     *republish,
 	}
 	if err := opts.validate(); err != nil {
 		return options{}, err
@@ -318,6 +327,29 @@ func buildCachedProfile(agentID int64, keywords []string, country string) *cache
 		Geo:        "",
 		GeoCountry: country,
 	}
+}
+
+func republishTargets(ctx context.Context, targets []targetAgent) (int, int) {
+	success, failed := 0, 0
+	for _, t := range targets {
+		if err := profileDal.UpdateAgentProfileStatus(db.DB, t.AgentID, 0); err != nil {
+			log.Printf("agent_id=%d reset status failed: %v", t.AgentID, err)
+			failed++
+			continue
+		}
+		if _, err := mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
+			"agent_id": strconv.FormatInt(t.AgentID, 10),
+		}); err != nil {
+			log.Printf("agent_id=%d publish failed: %v", t.AgentID, err)
+			failed++
+			continue
+		}
+		success++
+		if success%50 == 0 {
+			log.Printf("republish progress: published=%d failed=%d total=%d", success, failed, len(targets))
+		}
+	}
+	return success, failed
 }
 
 func summarizeIDs(targets []targetAgent, limit int) string {
