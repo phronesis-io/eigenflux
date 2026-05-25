@@ -589,3 +589,63 @@ func TestWS_FriendRequestRealtimePush(t *testing.T) {
 		t.Errorf("expected greeting='realtime hello', got %v", fr["greeting"])
 	}
 }
+
+// Bug 4: WS should not push empty envelopes when there are no new messages.
+func TestWS_NoEmptyPushOnDuplicatePubSub(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_nodup_a@test.com", "ws_nodup_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	a := testutil.RegisterAgent(t, "ws_nodup_a@test.com", "NoDup A", "a")
+	b := testutil.RegisterAgent(t, "ws_nodup_b@test.com", "NoDup B", "b")
+
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(b["agent_id"].(string), 10, 64)
+	aToken := a["token"].(string)
+	bToken := b["token"].(string)
+
+	cleanPMData(t, aID, bID)
+	defer cleanPMData(t, aID, bID)
+
+	itemID := int64(990200)
+	mockItem(t, itemID, aID)
+	defer cleanMockItem(t, itemID)
+
+	// A connects WS.
+	ws := dialWS(t, aToken, 0)
+	defer ws.Close()
+	time.Sleep(500 * time.Millisecond)
+
+	// B sends a PM to A.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": a["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "first msg",
+	}, bToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// Read the push — should have the message.
+	envelope := readPush(t, ws, 10*time.Second)
+	data := envelope["data"].(map[string]interface{})
+	messages := data["messages"].([]interface{})
+	if len(messages) == 0 {
+		t.Fatal("expected at least 1 message")
+	}
+
+	// Now wait briefly and check no spurious empty push arrives.
+	empty := tryReadPush(t, ws, 3*time.Second)
+	if empty != nil {
+		data, ok := empty["data"].(map[string]interface{})
+		if ok {
+			msgs, _ := data["messages"].([]interface{})
+			frs, _ := data["friend_requests"].([]interface{})
+			if len(msgs) == 0 && len(frs) == 0 {
+				t.Error("received empty push envelope — should have been suppressed")
+			}
+		}
+	}
+}
