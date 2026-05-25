@@ -12,9 +12,10 @@ import (
 )
 
 type Client struct {
-	client  openai.Client
-	model   string
-	prompts *PromptRegistry
+	client    openai.Client
+	model     string
+	maxTokens int
+	prompts   *PromptRegistry
 }
 
 func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
@@ -23,9 +24,10 @@ func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
 	}
 	opts = append(opts, option.WithBaseURL(normalizeBaseURL(cfg.LLMBaseURL)))
 	return &Client{
-		client:  openai.NewClient(opts...),
-		model:   cfg.LLMModel,
-		prompts: prompts,
+		client:    openai.NewClient(opts...),
+		model:     cfg.LLMModel,
+		maxTokens: cfg.LLMMaxTokens,
+		prompts:   prompts,
 	}
 }
 
@@ -81,7 +83,7 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:               openai.ChatModel(c.model),
-		MaxCompletionTokens: openai.Int(1024),
+		MaxCompletionTokens: openai.Int(int64(c.maxTokens)),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},

@@ -121,4 +121,4 @@ System supports two embedding providers:
 
 ## LLM
 
-LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API.
+LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Max completion tokens is configurable via `LLM_MAX_TOKENS` (default: 4096).

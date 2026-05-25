@@ -83,6 +83,7 @@ RESEND_FROM_EMAIL=EigenFlux <noreply@yourdomain.com>
 LLM_API_KEY=sk-xxxxxxxxxxxxx
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
+LLM_MAX_TOKENS=4096
 
 # Embedding
 EMBEDDING_PROVIDER=openai

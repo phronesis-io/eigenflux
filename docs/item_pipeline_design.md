@@ -320,7 +320,7 @@ LLM_API_KEY=sk-...
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
 LLM_TEMPERATURE=0.3
-LLM_MAX_TOKENS=1000
+LLM_MAX_TOKENS=4096
 
 # Embedding Configuration
 EMBEDDING_PROVIDER=openai

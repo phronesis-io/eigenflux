@@ -30,8 +30,8 @@ func mockServer(t *testing.T, responseText string) *httptest.Server {
 		if _, ok := reqBody["max_tokens"]; ok {
 			t.Errorf("request should not include deprecated max_tokens")
 		}
-		if got := reqBody["max_completion_tokens"]; got != float64(1024) {
-			t.Errorf("expected max_completion_tokens=1024, got %v", got)
+		if got := reqBody["max_completion_tokens"]; got != float64(4096) {
+			t.Errorf("expected max_completion_tokens=4096, got %v", got)
 		}
 
 		resp := map[string]interface{}{
@@ -89,8 +89,9 @@ func newTestClient(t *testing.T, serverURL string) *Client {
 			option.WithAPIKey("test-key"),
 			option.WithBaseURL(normalizeBaseURL(serverURL)),
 		),
-		model:   "test-model",
-		prompts: testPromptRegistry(t),
+		model:     "test-model",
+		maxTokens: 4096,
+		prompts:   testPromptRegistry(t),
 	}
 }
 
