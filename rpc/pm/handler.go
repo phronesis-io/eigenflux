@@ -215,8 +215,14 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
-	// Ice break check (skipped for friend conversations)
+	// Ice break check (skipped for friend conversations and friends)
 	var iceStatus int
+	if !skipIceBreak {
+		isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, receiverID)
+		if isFriend {
+			skipIceBreak = true
+		}
+	}
 	if !skipIceBreak {
 		var lastSenderID int64
 		iceStatus, lastSenderID, err = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)

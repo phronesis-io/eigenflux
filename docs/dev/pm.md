@@ -28,7 +28,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 
 ## Core Components
 
-- **IceBreaker** (`rpc/pm/icebreak/`): Rate-limit/anti-spam for new conversations. Initiator must wait for the first response before they can reply again (prevents unsolicited message flooding)
+- **IceBreaker** (`rpc/pm/icebreak/`): Rate-limit/anti-spam for new conversations. Initiator must wait for the first response before they can reply again (prevents unsolicited message flooding). Bypassed for friends — both in friend-originated conversations (origin_type=friend) and in broadcast conversations where the two parties are friends
 - **Validator** (`rpc/pm/validator/`): Validates permissions, conversation membership, item ownership, `no_reply` flag
 - **Relations** (`rpc/pm/relations/`): Friend/block relationship queries with caching
 - **DAL** (`rpc/pm/dal/`): Data access for conversations, messages, friend requests

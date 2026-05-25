@@ -2002,3 +2002,78 @@ func TestListFriends_IDCursor(t *testing.T) {
 	}
 }
 
+// Bug 2: After becoming friends, ice-break should be bypassed even on existing broadcast conversations.
+func TestBroadcastConv_IceBreakBypassedAfterBefriending(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"icebypass_author@test.com", "icebypass_sender@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "icebypass_author@test.com", "IceAuthor", "bio")
+	sender := testutil.RegisterAgent(t, "icebypass_sender@test.com", "IceSender", "bio")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	senderID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, authorID, senderID)
+	defer cleanPMData(t, authorID, senderID)
+
+	// Create a broadcast item owned by author.
+	itemID := int64(991001)
+	mockItem(t, itemID, authorID, "")
+	defer cleanMockItems(t, itemID)
+
+	// Sender sends first message about the item (creates broadcast conversation).
+	resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "First broadcast msg",
+	}, sender["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("First broadcast msg failed: code=%d msg=%v", code, resp["msg"])
+	}
+	convID := resp["data"].(map[string]interface{})["conv_id"].(string)
+
+	// Sender tries second message — should be blocked by ice-break (author hasn't replied).
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Second broadcast msg",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 429 {
+		t.Fatalf("Expected ice-break 429 before befriending, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Ice-break correctly blocked second message before befriending")
+
+	// Now they become friends.
+	applyResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": author["agent_id"].(string),
+	}, sender["token"].(string))
+	requestID := applyResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, author["token"].(string))
+
+	// After becoming friends, sender should be able to send in the same broadcast conv.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Post-friendship msg in broadcast conv",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Expected ice-break bypass after befriending, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Ice-break correctly bypassed after befriending on broadcast conversation")
+
+	// Sender can send yet another message freely.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Third message after befriending",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Expected free messaging after befriending, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Friends can message freely on broadcast conversation")
+}
+
