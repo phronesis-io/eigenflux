@@ -88,6 +88,34 @@ func cleanPMData(t *testing.T, agentIDs ...int64) {
 	}
 }
 
+func cleanRelationsData(t *testing.T, agentIDs ...int64) {
+	t.Helper()
+	ctx := context.Background()
+	rdb := testutil.GetTestRedis()
+	for _, id := range agentIDs {
+		testutil.TestDB.Exec("DELETE FROM user_relations WHERE from_uid = $1 OR to_uid = $1", id)
+		testutil.TestDB.Exec("DELETE FROM friend_requests WHERE from_uid = $1 OR to_uid = $1", id)
+		rdb.Del(ctx, fmt.Sprintf("friend:%d", id))
+		rdb.Del(ctx, fmt.Sprintf("block:%d", id))
+		rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", id))
+	}
+}
+
+// tryReadPush reads a WS message with timeout, returning nil if no message arrives.
+func tryReadPush(t *testing.T, conn *websocket.Conn, timeout time.Duration) map[string]interface{} {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		return nil
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(msg, &result); err != nil {
+		return nil
+	}
+	return result
+}
+
 func mockItem(t *testing.T, itemID, authorAgentID int64) {
 	t.Helper()
 	now := time.Now().UnixMilli()
@@ -498,5 +526,208 @@ func TestWS_InitialPushIncludesPendingFriendRequests(t *testing.T) {
 	}
 	if rid, _ := first["request_id"].(string); rid == "" {
 		t.Errorf("first friend_request request_id should be non-empty, got %v", first["request_id"])
+	}
+}
+
+// Bug 1: Friend request should be pushed in real-time via WebSocket.
+func TestWS_FriendRequestRealtimePush(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_frrt_recv@test.com", "ws_frrt_sender@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	receiver := testutil.RegisterAgent(t, "ws_frrt_recv@test.com", "FRRecv", "recv")
+	sender := testutil.RegisterAgent(t, "ws_frrt_sender@test.com", "FRSend", "sender")
+
+	rID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
+	sID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+
+	cleanPMData(t, rID, sID)
+	cleanRelationsData(t, rID, sID)
+	defer cleanPMData(t, rID, sID)
+	defer cleanRelationsData(t, rID, sID)
+
+	// Receiver connects WS first (no pending data).
+	ws := dialWS(t, receiver["token"].(string), 0)
+	defer ws.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Sender sends friend request while receiver is connected.
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+		"to_uid":   receiver["agent_id"],
+		"greeting": "realtime hello",
+	}, sender["token"].(string))
+	if int(resp["code"].(float64)) != 0 {
+		t.Fatalf("apply failed: %v", resp["msg"])
+	}
+
+	// Receiver should get a push with the friend request.
+	envelope := readPush(t, ws, 10*time.Second)
+	if envelope["type"] != "pm_push" {
+		t.Fatalf("expected type pm_push, got %v", envelope["type"])
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data map, got %T %v", envelope["data"], envelope["data"])
+	}
+
+	raw, has := data["friend_requests"]
+	if !has {
+		t.Fatal("expected friend_requests in realtime push")
+	}
+	list, ok := raw.([]interface{})
+	if !ok || len(list) == 0 {
+		t.Fatalf("expected at least 1 friend_request in push, got: %v", raw)
+	}
+	fr := list[0].(map[string]interface{})
+	if fr["from_name"] != "FRSend" {
+		t.Errorf("expected from_name=FRSend, got %v", fr["from_name"])
+	}
+	if fr["greeting"] != "realtime hello" {
+		t.Errorf("expected greeting='realtime hello', got %v", fr["greeting"])
+	}
+}
+
+// Bug 4: Reconnecting with cursor>0 should NOT re-push history_messages.
+// This is the core regression test for the duplicate push bug.
+func TestWS_ReconnectWithCursorSkipsHistory(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_reconn_author@test.com", "ws_reconn_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "ws_reconn_author@test.com", "Reconn Author", "author")
+	user := testutil.RegisterAgent(t, "ws_reconn_user@test.com", "Reconn User", "user")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+	authorToken := author["token"].(string)
+	userToken := user["token"].(string)
+
+	cleanPMData(t, authorID, userID)
+	defer cleanPMData(t, authorID, userID)
+
+	itemID := int64(990300)
+	mockItem(t, itemID, authorID)
+	defer cleanMockItem(t, itemID)
+
+	// User sends a PM to author (about the item). Message is unread.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "reconnect test msg",
+	}, userToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// --- First connect: cursor=0, message is unread so appears in messages. ---
+	ws1 := dialWS(t, authorToken, 0)
+	envelope1 := readPush(t, ws1, 10*time.Second)
+	ws1.Close()
+
+	if envelope1["type"] != "pm_push" {
+		t.Fatalf("expected pm_push on first connect, got %v", envelope1["type"])
+	}
+	data1 := envelope1["data"].(map[string]interface{})
+
+	// Extract next_cursor — must be > 0 because we received unread messages.
+	nextCursorStr, ok := data1["next_cursor"].(string)
+	if !ok || nextCursorStr == "" || nextCursorStr == "0" {
+		t.Fatalf("expected non-zero next_cursor in initial push, got: %v", data1["next_cursor"])
+	}
+	nextCursor, err := strconv.ParseInt(nextCursorStr, 10, 64)
+	if err != nil || nextCursor == 0 {
+		t.Fatalf("failed to parse next_cursor %q: %v", nextCursorStr, err)
+	}
+
+	// The first connect (cursor=0) fetched unread; the message is now read → history.
+	// Brief pause for the server to fully tear down the first connection.
+	time.Sleep(500 * time.Millisecond)
+
+	// --- Reconnect: cursor=nextCursor (>0), should NOT receive history_messages. ---
+	ws2 := dialWS(t, authorToken, nextCursor)
+	defer ws2.Close()
+
+	// No new messages since cursor. Server should either send nothing,
+	// or send a push without history_messages.
+	push2 := tryReadPush(t, ws2, 3*time.Second)
+	if push2 == nil {
+		// No push at all — correct behavior when no new data after cursor.
+		return
+	}
+
+	// If we got a push, verify it does NOT contain history_messages.
+	data2, ok := push2["data"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if rawHist, has := data2["history_messages"]; has {
+		if list, ok := rawHist.([]interface{}); ok && len(list) > 0 {
+			t.Errorf("reconnect with cursor>0 should NOT receive history_messages, got %d items", len(list))
+		}
+	}
+}
+
+// Bug 4: WS should not push empty envelopes when there are no new messages.
+func TestWS_NoEmptyPushOnDuplicatePubSub(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_nodup_a@test.com", "ws_nodup_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	a := testutil.RegisterAgent(t, "ws_nodup_a@test.com", "NoDup A", "a")
+	b := testutil.RegisterAgent(t, "ws_nodup_b@test.com", "NoDup B", "b")
+
+	aID, _ := strconv.ParseInt(a["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(b["agent_id"].(string), 10, 64)
+	aToken := a["token"].(string)
+	bToken := b["token"].(string)
+
+	cleanPMData(t, aID, bID)
+	defer cleanPMData(t, aID, bID)
+
+	itemID := int64(990200)
+	mockItem(t, itemID, aID)
+	defer cleanMockItem(t, itemID)
+
+	// A connects WS.
+	ws := dialWS(t, aToken, 0)
+	defer ws.Close()
+	time.Sleep(500 * time.Millisecond)
+
+	// B sends a PM to A.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": a["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "first msg",
+	}, bToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// Read the push — should have the message.
+	envelope := readPush(t, ws, 10*time.Second)
+	data := envelope["data"].(map[string]interface{})
+	messages := data["messages"].([]interface{})
+	if len(messages) == 0 {
+		t.Fatal("expected at least 1 message")
+	}
+
+	// Now wait briefly and check no spurious empty push arrives.
+	empty := tryReadPush(t, ws, 3*time.Second)
+	if empty != nil {
+		data, ok := empty["data"].(map[string]interface{})
+		if ok {
+			msgs, _ := data["messages"].([]interface{})
+			frs, _ := data["friend_requests"].([]interface{})
+			if len(msgs) == 0 && len(frs) == 0 {
+				t.Error("received empty push envelope — should have been suppressed")
+			}
+		}
 	}
 }

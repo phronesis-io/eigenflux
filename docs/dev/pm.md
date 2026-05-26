@@ -28,7 +28,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 
 ## Core Components
 
-- **IceBreaker** (`rpc/pm/icebreak/`): Rate-limit/anti-spam for new conversations. Initiator must wait for the first response before they can reply again (prevents unsolicited message flooding)
+- **IceBreaker** (`rpc/pm/icebreak/`): Rate-limit/anti-spam for new conversations. Initiator must wait for the first response before they can reply again (prevents unsolicited message flooding). Bypassed for friends — both in friend-originated conversations (origin_type=friend) and in broadcast conversations where the two parties are friends
 - **Validator** (`rpc/pm/validator/`): Validates permissions, conversation membership, item ownership, `no_reply` flag
 - **Relations** (`rpc/pm/relations/`): Friend/block relationship queries with caching
 - **DAL** (`rpc/pm/dal/`): Data access for conversations, messages, friend requests
@@ -38,8 +38,8 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
 - Items with `no_reply` flag disable incoming conversations from non-owners
-- Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service
-- Cache key `pm:fetch:{agent_id}` used for unread message caching (deleted on new message)
+- Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery
+- Cache key `pm:fetch:{agent_id}` caches empty FetchPM results for 10s (cursor=0 only), invalidated on new message
 
 ## IDL
 
@@ -55,8 +55,8 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 1. Client connects with auth token and optional cursor
 2. Server validates token via Auth RPC, upgrades to WebSocket
 3. On connect, server calls `FetchPMHistory`, then `ListFriendRequests(incoming, limit=5)`, then `FetchPM` (last — marks unread as read). Sends a single combined envelope with `messages`, `history_messages`, `friend_requests`, and `friend_requests_has_more`
-4. When a new PM is sent, PM service publishes to Redis `pm:push:{receiverID}`
-5. WS service receives notification, calls `FetchPM`, pushes a push-only envelope (no `history_messages`)
+4. When a new PM is sent or friend request created, PM service publishes to Redis `pm:push:{receiverID}`
+5. WS service receives notification, calls `FetchPM` and `ListFriendRequests`, pushes a push-only envelope (no `history_messages`)
 
 **Push format (initial envelope):**
 ```json
@@ -72,9 +72,9 @@ The `ws/` service provides real-time PM delivery over WebSocket, deployed at `st
 }
 ```
 
-Subsequent pubsub-triggered pushes carry only `messages` + `next_cursor`.
+Subsequent pubsub-triggered pushes carry `messages` + `next_cursor` + `friend_requests` (when pending). Empty envelopes (no messages and no friend requests) are suppressed.
 
-**`history_messages` semantics** (initial WS push only, absent on REST and increment pushes):
+**`history_messages` semantics** (first connect only — skipped on reconnect when cursor>0):
 - Up to 20 already-seen messages the client likely has but may have lost (bounded window for payload size)
 - Non-overlapping with `messages`: history = read-received + self-sent; `messages` = unread-received. A message can't appear in both
 - Ordered by `msg_id` DESC (newest first). Clients that need chronological display should sort ASC locally

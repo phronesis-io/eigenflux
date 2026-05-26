@@ -186,7 +186,9 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, itemID, convID)
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
-	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID))
+	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID)).Err(); err != nil {
+		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", receiverID, "msgID", msgID, "err", err)
+	}
 
 	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID, "itemID", itemID)
 
@@ -215,8 +217,14 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		return &pm.SendPMResp{MsgId: 0, ConvId: 0, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 	}
 
-	// Ice break check (skipped for friend conversations)
+	// Ice break check (skipped for friend conversations and friends)
 	var iceStatus int
+	if !skipIceBreak {
+		isFriend, _ := relations.IsFriendCached(ctx, db.RDB, db.DB, req.SenderId, receiverID)
+		if isFriend {
+			skipIceBreak = true
+		}
+	}
 	if !skipIceBreak {
 		var lastSenderID int64
 		iceStatus, lastSenderID, err = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
@@ -278,7 +286,9 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 
 	// Post-commit: invalidate fetch cache
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
-	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID))
+	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID)).Err(); err != nil {
+		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", receiverID, "msgID", msgID, "err", err)
+	}
 
 	logger.Ctx(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
 
@@ -338,7 +348,9 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
 	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
-	db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ReceiverId), fmt.Sprintf("%d", msgID))
+	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ReceiverId), fmt.Sprintf("%d", msgID)).Err(); err != nil {
+		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", req.ReceiverId, "msgID", msgID, "err", err)
+	}
 	logger.Ctx(ctx).Info("FriendPM new conv", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId)
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -665,6 +677,9 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 				logger.Default().Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
 			}
 		}()
+		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ToUid), "friend_request").Err(); err != nil {
+			logger.Ctx(ctx).Error("failed to publish friend request push notification", "agentID", req.ToUid, "err", err)
+		}
 	} else {
 		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 	}
