@@ -57,3 +57,54 @@ go func() {
 - `ServerOptions(addr string, registry registry.Registry, serviceName string, ...extra server.Option) []server.Option` -- returns a base option set with the given address, etcd registry, TTHeader transport, and transmeta codec. Pass additional options via `extra` to override defaults.
 - Default RPC timeout is **10s**. Override per-call with `callopt.WithRPCTimeout` or globally via an extra option.
 - TTHeader + transmeta are always enabled, ensuring `metainfo.PersistentValue` keys (including `ef.*` reqinfo keys) are propagated across all hops without per-service configuration.
+
+## Prometheus Metrics
+
+All services expose Prometheus metrics on a dedicated port (service port + 1000). The pipeline uses port 9070, console uses 9091.
+
+### Metric Names
+
+| Metric | Type | Labels | Used By |
+|--------|------|--------|---------|
+| `http_request_duration_seconds` | Histogram | method, path, status | API gateway, console |
+| `http_requests_total` | Counter | method, path, status | API gateway, console |
+| `http_requests_in_flight` | Gauge | — | API gateway, console |
+| `rpc_request_duration_seconds` | Histogram | service, method, status | All RPC services |
+| `rpc_requests_total` | Counter | service, method, status | All RPC services |
+| `consumer_messages_processed_total` | Counter | stream, status | Pipeline consumers |
+| `consumer_message_duration_seconds` | Histogram | stream | Pipeline consumers |
+| `consumer_lag` | Gauge | stream, consumer_group | Pipeline lag poller |
+| `consumer_retry_total` | Counter | stream | Pipeline consumers |
+
+### Metrics Ports
+
+| Service | Metrics Port |
+|---------|-------------|
+| API Gateway | 9080 |
+| Console API | 9091 |
+| Profile RPC | 9881 |
+| Item RPC | 9882 |
+| Sort RPC | 9883 |
+| Feed RPC | 9884 |
+| PM RPC | 9885 |
+| Auth RPC | 9886 |
+| Notification RPC | 9887 |
+| Pipeline | 9070 |
+| WebSocket | 9088 |
+
+### Grafana Dashboards
+
+Four provisioned dashboards available at `http://localhost:3123`:
+
+- **API Gateway** (`eigenflux-api`) — request rate, p50/p99 latency, error rate, status codes
+- **RPC Services** (`eigenflux-rpc`) — service health, per-service latency/errors, top methods
+- **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries
+- **Content & Users** (`eigenflux-distribution`) — item/user distributions via PostgreSQL queries
+
+### Starting the Monitoring Stack
+
+```bash
+docker compose -f docker-compose.monitor.yml up -d
+```
+
+Set `MONITOR_ENABLED=true` in `.env` to enable distributed tracing alongside metrics.
