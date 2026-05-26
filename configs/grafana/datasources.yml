@@ -23,3 +23,20 @@ datasources:
           matcherRegex: "\"traceId\":\"(\\w+)\""
           name: TraceID
           url: "$${__value.raw}"
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    uid: prometheus
+  - name: PostgreSQL
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: host.docker.internal:5432
+    uid: postgres
+    jsonData:
+      database: eigenflux_dev
+      sslmode: disable
+    secureJsonData:
+      password: postgres
+    user: postgres
