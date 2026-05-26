@@ -63,10 +63,42 @@ var (
 	}, []string{"stream"})
 )
 
+// Pipeline processing metrics.
+var (
+	ItemPublishToProcessDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "item_publish_to_process_duration_seconds",
+		Help:    "End-to-end latency from item publish to processing complete.",
+		Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600},
+	})
+)
+
+// LLM call metrics.
+var (
+	LLMCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "llm_call_duration_seconds",
+		Help:    "LLM API call latency in seconds.",
+		Buckets: []float64{0.5, 1, 2, 5, 10, 20, 30, 60},
+	}, []string{"prompt"})
+
+	LLMReasoningTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "llm_reasoning_tokens",
+		Help:    "Number of reasoning tokens in LLM response.",
+		Buckets: []float64{0, 100, 500, 1000, 2000, 5000, 10000},
+	}, []string{"prompt"})
+
+	LLMCompletionTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "llm_completion_tokens",
+		Help:    "Number of completion tokens in LLM response.",
+		Buckets: []float64{50, 100, 200, 500, 1000, 2000, 5000},
+	}, []string{"prompt"})
+)
+
 func init() {
 	Registry.MustRegister(
 		HTTPRequestDuration, HTTPRequestsTotal, HTTPRequestsInFlight,
 		RPCRequestDuration, RPCRequestsTotal,
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
+		ItemPublishToProcessDuration,
+		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 	)
 }

@@ -75,6 +75,10 @@ All services expose Prometheus metrics on a dedicated port (service port + 1000)
 | `consumer_message_duration_seconds` | Histogram | stream | Pipeline consumers |
 | `consumer_lag` | Gauge | stream, consumer_group | Pipeline lag poller |
 | `consumer_retry_total` | Counter | stream | Pipeline consumers |
+| `item_publish_to_process_duration_seconds` | Histogram | — | Item consumer |
+| `llm_call_duration_seconds` | Histogram | prompt | Pipeline LLM client |
+| `llm_reasoning_tokens` | Histogram | prompt | Pipeline LLM client |
+| `llm_completion_tokens` | Histogram | prompt | Pipeline LLM client |
 
 ### Metrics Ports
 
@@ -98,7 +102,7 @@ Four provisioned dashboards available at `http://localhost:3123`:
 
 - **API Gateway** (`eigenflux-api`) — request rate, p50/p99 latency, error rate, status codes
 - **RPC Services** (`eigenflux-rpc`) — service health, per-service latency/errors, top methods
-- **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries
+- **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries, publish-to-process latency, LLM call duration/token usage
 - **Content & Users** (`eigenflux-distribution`) — item/user distributions via PostgreSQL queries
 
 ### Starting the Monitoring Stack

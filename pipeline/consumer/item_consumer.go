@@ -490,6 +490,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	}
 
 	metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "success").Inc()
+	metrics.ItemPublishToProcessDuration.Observe(float64(time.Now().UnixMilli()-raw.CreatedAt) / 1000.0)
 	mq.Ack(ctx, itemStream, itemGroup, msgID)
 }
 
