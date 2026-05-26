@@ -112,6 +112,10 @@ func fetchPendingFriendRequests(ctx context.Context, pmClient pmservice.Client, 
 		logger.Ctx(ctx).Warn("ws: ListFriendRequests failed", "agentID", agentID, "err", err)
 		return nil, false
 	}
+	if resp == nil || resp.BaseResp == nil {
+		logger.Ctx(ctx).Warn("ws: ListFriendRequests returned nil response or base_resp", "agentID", agentID)
+		return nil, false
+	}
 	if resp.BaseResp.Code != 0 {
 		logger.Ctx(ctx).Warn("ws: ListFriendRequests error", "agentID", agentID, "code", resp.BaseResp.Code, "msg", resp.BaseResp.Msg)
 		return nil, false
@@ -155,6 +159,8 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		histResp, err := pmClient.FetchPMHistory(ctx, &pm.FetchPMHistoryReq{AgentId: conn.AgentID})
 		if err != nil {
 			logger.Ctx(ctx).Error("ws: FetchPMHistory failed", "agentID", conn.AgentID, "err", err)
+		} else if histResp == nil || histResp.BaseResp == nil {
+			logger.Ctx(ctx).Error("ws: FetchPMHistory returned nil response or base_resp", "agentID", conn.AgentID)
 		} else if histResp.BaseResp.Code != 0 {
 			logger.Ctx(ctx).Error("ws: FetchPMHistory error", "agentID", conn.AgentID, "code", histResp.BaseResp.Code, "msg", histResp.BaseResp.Msg)
 		} else {
@@ -172,6 +178,8 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 	nextCursor := conn.PMCursor
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: FetchPM failed", "agentID", conn.AgentID, "err", err)
+	} else if unreadResp == nil || unreadResp.BaseResp == nil {
+		logger.Ctx(ctx).Error("ws: FetchPM returned nil response or base_resp", "agentID", conn.AgentID)
 	} else if unreadResp.BaseResp.Code != 0 {
 		logger.Ctx(ctx).Error("ws: FetchPM error", "agentID", conn.AgentID, "code", unreadResp.BaseResp.Code, "msg", unreadResp.BaseResp.Msg)
 	} else {
@@ -225,6 +233,10 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 	})
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: FetchPM failed", "agentID", conn.AgentID, "err", err)
+		return
+	}
+	if resp == nil || resp.BaseResp == nil {
+		logger.Ctx(ctx).Error("ws: FetchPM returned nil response or base_resp", "agentID", conn.AgentID)
 		return
 	}
 	if resp.BaseResp.Code != 0 {
