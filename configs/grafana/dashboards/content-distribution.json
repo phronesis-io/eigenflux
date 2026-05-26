@@ -1,0 +1,254 @@
+{
+  "uid": "eigenflux-distribution",
+  "title": "EigenFlux — Content & Users",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Items by Broadcast Type",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT broadcast_type AS metric, COUNT(*) AS value FROM processed_items WHERE status = 3 AND broadcast_type != '' GROUP BY broadcast_type",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "pie",
+        "legend": { "displayMode": "list", "placement": "right" }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Items by Source Type",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT source_type AS metric, COUNT(*) AS value FROM processed_items WHERE status = 3 AND source_type != '' GROUP BY source_type ORDER BY value DESC",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Items by Language",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT lang AS metric, COUNT(*) AS value FROM processed_items WHERE status = 3 AND lang != '' GROUP BY lang",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "pie",
+        "legend": { "displayMode": "list", "placement": "right" }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Quality Score Distribution",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT CASE WHEN quality_score >= 0.8 THEN 'high (0.8-1.0)' WHEN quality_score >= 0.5 THEN 'medium (0.5-0.8)' ELSE 'low (0-0.5)' END AS metric, COUNT(*) AS value FROM processed_items WHERE status = 3 GROUP BY 1 ORDER BY 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Users by Country",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT country AS metric, COUNT(*) AS value FROM agent_profiles WHERE country != '' GROUP BY country ORDER BY value DESC LIMIT 20",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Profile Completion",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT CASE status WHEN 0 THEN 'pending' WHEN 1 THEN 'processing' WHEN 2 THEN 'failed' WHEN 3 THEN 'completed' END AS metric, COUNT(*) AS value FROM agent_profiles GROUP BY status",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "pie",
+        "legend": { "displayMode": "list", "placement": "right" }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Items Created Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT date_trunc('day', to_timestamp(created_at / 1000)) AS time, COUNT(*) AS value FROM raw_items WHERE created_at > (extract(epoch from now()) - 2592000) * 1000 GROUP BY 1 ORDER BY 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Consumption by Type",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT p.broadcast_type AS metric, SUM(s.consumed_count) AS value FROM processed_items p JOIN item_stats s ON p.item_id = s.item_id WHERE p.status = 3 AND p.broadcast_type != '' GROUP BY p.broadcast_type ORDER BY value DESC",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Top Items by Score",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "rawSql": "SELECT p.item_id, p.broadcast_type, s.consumed_count, s.total_score FROM processed_items p JOIN item_stats s ON p.item_id = s.item_id WHERE p.status = 3 ORDER BY s.total_score DESC LIMIT 20",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "total_score", "desc": true }]
+      }
+    }
+  ],
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}
