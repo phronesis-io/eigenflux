@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
 )
@@ -27,6 +28,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.ProfileRPCPort + 1000)
 
 	db.Init(cfg.PgDSN)
 
@@ -56,7 +59,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := profileservice.NewServer(
 		&ProfileServiceImpl{agentIDGen: agentIDGen},
-		rpcx.ServerOptions(addr, r, "ProfileService")...,
+		rpcx.ServerOptions(addr, r, "ProfileService", metrics.KitexServerMW())...,
 	)
 
 	if err := svr.Run(); err != nil {
