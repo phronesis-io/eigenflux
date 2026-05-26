@@ -590,6 +590,88 @@ func TestWS_FriendRequestRealtimePush(t *testing.T) {
 	}
 }
 
+// Bug 4: Reconnecting with cursor>0 should NOT re-push history_messages.
+// This is the core regression test for the duplicate push bug.
+func TestWS_ReconnectWithCursorSkipsHistory(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_reconn_author@test.com", "ws_reconn_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "ws_reconn_author@test.com", "Reconn Author", "author")
+	user := testutil.RegisterAgent(t, "ws_reconn_user@test.com", "Reconn User", "user")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+	authorToken := author["token"].(string)
+	userToken := user["token"].(string)
+
+	cleanPMData(t, authorID, userID)
+	defer cleanPMData(t, authorID, userID)
+
+	itemID := int64(990300)
+	mockItem(t, itemID, authorID)
+	defer cleanMockItem(t, itemID)
+
+	// User sends a PM to author (about the item). Message is unread.
+	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "reconnect test msg",
+	}, userToken)
+	if int(sendResp["code"].(float64)) != 0 {
+		t.Fatalf("send PM failed: %v", sendResp["msg"])
+	}
+
+	// --- First connect: cursor=0, message is unread so appears in messages. ---
+	ws1 := dialWS(t, authorToken, 0)
+	envelope1 := readPush(t, ws1, 10*time.Second)
+	ws1.Close()
+
+	if envelope1["type"] != "pm_push" {
+		t.Fatalf("expected pm_push on first connect, got %v", envelope1["type"])
+	}
+	data1 := envelope1["data"].(map[string]interface{})
+
+	// Extract next_cursor — must be > 0 because we received unread messages.
+	nextCursorStr, ok := data1["next_cursor"].(string)
+	if !ok || nextCursorStr == "" || nextCursorStr == "0" {
+		t.Fatalf("expected non-zero next_cursor in initial push, got: %v", data1["next_cursor"])
+	}
+	nextCursor, err := strconv.ParseInt(nextCursorStr, 10, 64)
+	if err != nil || nextCursor == 0 {
+		t.Fatalf("failed to parse next_cursor %q: %v", nextCursorStr, err)
+	}
+
+	// The first connect (cursor=0) fetched unread; the message is now read → history.
+	// Brief pause for the server to fully tear down the first connection.
+	time.Sleep(500 * time.Millisecond)
+
+	// --- Reconnect: cursor=nextCursor (>0), should NOT receive history_messages. ---
+	ws2 := dialWS(t, authorToken, nextCursor)
+	defer ws2.Close()
+
+	// No new messages since cursor. Server should either send nothing,
+	// or send a push without history_messages.
+	push2 := tryReadPush(t, ws2, 3*time.Second)
+	if push2 == nil {
+		// No push at all — correct behavior when no new data after cursor.
+		return
+	}
+
+	// If we got a push, verify it does NOT contain history_messages.
+	data2, ok := push2["data"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if rawHist, has := data2["history_messages"]; has {
+		if list, ok := rawHist.([]interface{}); ok && len(list) > 0 {
+			t.Errorf("reconnect with cursor>0 should NOT receive history_messages, got %d items", len(list))
+		}
+	}
+}
+
 // Bug 4: WS should not push empty envelopes when there are no new messages.
 func TestWS_NoEmptyPushOnDuplicatePubSub(t *testing.T) {
 	testutil.WaitForAPI(t)

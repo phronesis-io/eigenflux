@@ -2077,3 +2077,138 @@ func TestBroadcastConv_IceBreakBypassedAfterBefriending(t *testing.T) {
 	t.Logf("Friends can message freely on broadcast conversation")
 }
 
+// Bug 2 edge case: Author (item owner) initiates the friend request to sender,
+// sender accepts, then sender can message freely in the broadcast conversation.
+// Existing test only covers sender→author direction.
+func TestBroadcastConv_AuthorInitiatedFriendship_IceBreakBypassed(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"iceauth_author@test.com", "iceauth_sender@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "iceauth_author@test.com", "IceAuthAuthor", "bio")
+	sender := testutil.RegisterAgent(t, "iceauth_sender@test.com", "IceAuthSender", "bio")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	senderID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, authorID, senderID)
+	defer cleanPMData(t, authorID, senderID)
+
+	itemID := int64(991002)
+	mockItem(t, itemID, authorID, "")
+	defer cleanMockItems(t, itemID)
+
+	// Sender sends first message (creates broadcast conversation).
+	resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "First msg",
+	}, sender["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("First msg failed: code=%d msg=%v", code, resp["msg"])
+	}
+	convID := resp["data"].(map[string]interface{})["conv_id"].(string)
+
+	// Sender tries second message — should be blocked by ice-break.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Blocked msg",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 429 {
+		t.Fatalf("Expected 429 before befriending, got code=%d", code)
+	}
+
+	// Author (item owner) initiates friend request to sender — reverse direction.
+	applyResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": sender["agent_id"].(string),
+	}, author["token"].(string))
+	requestID := applyResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, sender["token"].(string))
+
+	// After befriending (author-initiated), sender should be unblocked.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Post-friendship msg (author initiated)",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Expected ice-break bypass after author-initiated friendship, got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Ice-break bypassed when author initiated friendship")
+}
+
+// Bug 2 edge case: Unfriending should reactivate ice-break on broadcast conversations.
+func TestBroadcastConv_UnfriendReactivatesIceBreak(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"iceunfr_author@test.com", "iceunfr_sender@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "iceunfr_author@test.com", "IceUnfrAuthor", "bio")
+	sender := testutil.RegisterAgent(t, "iceunfr_sender@test.com", "IceUnfrSender", "bio")
+
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	senderID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, authorID, senderID)
+	defer cleanPMData(t, authorID, senderID)
+
+	itemID := int64(991003)
+	mockItem(t, itemID, authorID, "")
+	defer cleanMockItems(t, itemID)
+
+	// Sender sends first message (creates broadcast conversation).
+	resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "First msg",
+	}, sender["token"].(string))
+	code := int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("First msg failed: code=%d msg=%v", code, resp["msg"])
+	}
+	convID := resp["data"].(map[string]interface{})["conv_id"].(string)
+
+	// Become friends.
+	applyResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": author["agent_id"].(string),
+	}, sender["token"].(string))
+	requestID := applyResp["data"].(map[string]interface{})["request_id"].(string)
+	testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, author["token"].(string))
+
+	// Friendship bypasses ice-break.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Message while friends",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Expected success while friends, got code=%d msg=%v", code, resp["msg"])
+	}
+
+	// Unfriend.
+	resp = testutil.DoPost(t, "/api/v1/relations/unfriend", map[string]string{
+		"to_uid": author["agent_id"].(string),
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 0 {
+		t.Fatalf("Unfriend failed: code=%d msg=%v", code, resp["msg"])
+	}
+
+	// After unfriending, ice-break should be reactivated — sender blocked again.
+	resp = testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"conv_id": convID,
+		"content": "Should be blocked after unfriend",
+	}, sender["token"].(string))
+	code = int(resp["code"].(float64))
+	if code != 429 {
+		t.Fatalf("Expected 429 after unfriend (ice-break reactivated), got code=%d msg=%v", code, resp["msg"])
+	}
+	t.Logf("Ice-break correctly reactivated after unfriend")
+}
+
