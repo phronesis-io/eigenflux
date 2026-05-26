@@ -19,6 +19,7 @@ import (
 	_ "console.eigenflux.ai/docs"
 	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"console.eigenflux.ai/internal/config"
+	"console.eigenflux.ai/internal/metrics"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
 	"console.eigenflux.ai/internal/logger"
@@ -42,6 +43,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(9091)
 
 	db.InitPostgres(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
@@ -76,6 +79,7 @@ func main() {
 	)
 	h.Use(hertztracing.ServerMiddleware(tracerCfg))
 	h.Use(traceIDMiddleware())
+	h.Use(metrics.HertzMiddleware())
 
 	allowOrigins := parseAllowOrigins()
 	h.Use(cors.New(cors.Config{
