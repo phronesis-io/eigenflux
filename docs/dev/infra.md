@@ -107,8 +107,30 @@ Four provisioned dashboards available at `http://localhost:3123`:
 
 ### Starting the Monitoring Stack
 
+**Local dev** (services on host, monitoring in Docker):
+
 ```bash
 docker compose -f docker-compose.monitor.yml up -d
 ```
 
-Set `MONITOR_ENABLED=true` in `.env` to enable distributed tracing alongside metrics.
+Prometheus scrapes `host.docker.internal:*` by default. Grafana at `http://localhost:3123`.
+
+**Cloud** (app server and monitor server are separate ECS instances):
+
+```bash
+METRICS_HOST=<app-server-internal-ip> \
+GF_PG_HOST=<aliyun-pg-host> \
+GF_PG_PORT=5432 \
+GF_PG_DATABASE=<db-name> \
+GF_PG_USER=<user> \
+GF_PG_PASSWORD=<password> \
+docker compose -f docker-compose.monitor.yml up -d
+```
+
+`METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup. Grafana PostgreSQL datasource uses `GF_PG_*` env vars.
+
+Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887) from the monitor server.
+
+**Dashboard provisioning**: All 4 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
+
+Set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics.
