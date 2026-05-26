@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/dedup"
 	"eigenflux_server/pkg/logger"
@@ -73,7 +74,9 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 			defer wg.Done()
 			logger.Default().Info("ItemConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
+				start := time.Now()
 				c.processMessage(ctx, task.id, task.values)
+				metrics.ConsumerMessageDuration.WithLabelValues("item:publish").Observe(time.Since(start).Seconds())
 			}
 			logger.Default().Info("ItemConsumer worker stopped", "workerID", workerID)
 		}(i)
@@ -125,6 +128,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	itemIDStr, ok := values["item_id"].(string)
 	if !ok {
 		logger.Default().Warn("ItemConsumer invalid message: missing item_id")
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -132,6 +136,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ItemConsumer invalid item_id", "itemID", itemIDStr)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -149,6 +154,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Warn("raw item not found", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -247,6 +253,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Error("ItemConsumer safety check all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -290,6 +297,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Error("all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
 		mq.Ack(ctx, itemStream, itemGroup, msgID)
 		return
 	}
@@ -481,6 +489,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}()
 	}
 
+	metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "success").Inc()
 	mq.Ack(ctx, itemStream, itemGroup, msgID)
 }
 
