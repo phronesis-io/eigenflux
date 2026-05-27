@@ -46,3 +46,7 @@ scrape_configs:
   - job_name: ws
     static_configs:
       - targets: ["METRICS_HOST:9088"]
+
+  - job_name: pgc-pipeline
+    static_configs:
+      - targets: ["METRICS_HOST:9090"]
