@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -11,6 +12,11 @@ import (
 type StreamGroup struct {
 	Stream string
 	Group  string
+}
+
+// shortStreamName strips the "stream:" prefix for consistent metric labels.
+func shortStreamName(s string) string {
+	return strings.TrimPrefix(s, "stream:")
 }
 
 func StartLagPoller(ctx context.Context, rdb *redis.Client, streams []StreamGroup, interval time.Duration) {
@@ -32,7 +38,7 @@ func StartLagPoller(ctx context.Context, rdb *redis.Client, streams []StreamGrou
 					log.Printf("lag poll error for %s/%s: %v", sg.Stream, sg.Group, err)
 					continue
 				}
-				ConsumerLag.WithLabelValues(sg.Stream, sg.Group).Set(float64(pending.Count))
+				ConsumerLag.WithLabelValues(shortStreamName(sg.Stream), sg.Group).Set(float64(pending.Count))
 			}
 		}
 	}
