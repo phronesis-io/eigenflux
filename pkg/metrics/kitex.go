@@ -13,6 +13,9 @@ func KitexServerMW() server.Option {
 	return server.WithMiddleware(func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, req, resp interface{}) error {
 			ri := rpcinfo.GetRPCInfo(ctx)
+			if ri == nil || ri.To() == nil {
+				return next(ctx, req, resp)
+			}
 			service := ri.To().ServiceName()
 			method := ri.To().Method()
 

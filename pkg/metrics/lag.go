@@ -14,6 +14,10 @@ type StreamGroup struct {
 }
 
 func StartLagPoller(ctx context.Context, rdb *redis.Client, streams []StreamGroup, interval time.Duration) {
+	if rdb == nil {
+		log.Println("lag poller not started: redis client is nil")
+		return
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

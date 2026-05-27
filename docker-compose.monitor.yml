@@ -60,7 +60,7 @@ services:
     volumes:
       - ./configs/prometheus/prometheus.yml:/template/prometheus.yml:ro
       - prometheus-config:/etc/prometheus
-    command: sh -c 'sed "s/METRICS_HOST/$$METRICS_HOST/g" /template/prometheus.yml > /etc/prometheus/prometheus.yml'
+    command: sh -c 'sed "s|METRICS_HOST|$$METRICS_HOST|g" /template/prometheus.yml > /etc/prometheus/prometheus.yml'
 
   grafana:
     image: grafana/grafana:11.6.0
