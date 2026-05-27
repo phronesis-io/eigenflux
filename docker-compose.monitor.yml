@@ -69,12 +69,6 @@ services:
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_PG_HOST=${GF_PG_HOST:-host.docker.internal}
-      - GF_PG_PORT=${GF_PG_PORT:-5432}
-      - GF_PG_DATABASE=${GF_PG_DATABASE:-eigenflux_dev}
-      - GF_PG_USER=${GF_PG_USER:-postgres}
-      - GF_PG_PASSWORD=${GF_PG_PASSWORD:-postgres}
-      - GF_PG_SSLMODE=${GF_PG_SSLMODE:-disable}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

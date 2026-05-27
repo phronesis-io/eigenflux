@@ -98,12 +98,11 @@ All services expose Prometheus metrics on a dedicated port (service port + 1000)
 
 ### Grafana Dashboards
 
-Four provisioned dashboards available at `http://localhost:3123`:
+Three provisioned dashboards available at `http://localhost:3123`:
 
 - **API Gateway** (`eigenflux-api`) — request rate, p50/p99 latency, error rate, status codes
 - **RPC Services** (`eigenflux-rpc`) — service health, per-service latency/errors, top methods
 - **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries, publish-to-process latency, LLM call duration/token usage
-- **Content & Users** (`eigenflux-distribution`) — item/user distributions via PostgreSQL queries
 
 ### Starting the Monitoring Stack
 
@@ -119,18 +118,13 @@ Prometheus scrapes `host.docker.internal:*` by default. Grafana at `http://local
 
 ```bash
 METRICS_HOST=<app-server-internal-ip> \
-GF_PG_HOST=<aliyun-pg-host> \
-GF_PG_PORT=5432 \
-GF_PG_DATABASE=<db-name> \
-GF_PG_USER=<user> \
-GF_PG_PASSWORD=<password> \
 docker compose -f docker-compose.monitor.yml up -d
 ```
 
-`METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup. Grafana PostgreSQL datasource uses `GF_PG_*` env vars.
+`METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup.
 
 Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887) from the monitor server.
 
-**Dashboard provisioning**: All 4 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
+**Dashboard provisioning**: All 3 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
 
 Set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics.

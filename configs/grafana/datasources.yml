@@ -29,14 +29,3 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     uid: prometheus
-  - name: PostgreSQL
-    type: grafana-postgresql-datasource
-    access: proxy
-    url: ${GF_PG_HOST:-host.docker.internal}:${GF_PG_PORT:-5432}
-    uid: postgres
-    jsonData:
-      database: ${GF_PG_DATABASE:-eigenflux_dev}
-      sslmode: ${GF_PG_SSLMODE:-disable}
-    secureJsonData:
-      password: ${GF_PG_PASSWORD:-postgres}
-    user: ${GF_PG_USER:-postgres}
