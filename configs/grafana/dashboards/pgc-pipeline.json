@@ -8,239 +8,116 @@
     "editable": true,
     "graphTooltip": 1,
     "timezone": "browser",
-    "refresh": "1m",
-    "time": { "from": "now-6h", "to": "now" },
+    "refresh": "30s",
+    "time": { "from": "now-3h", "to": "now" },
+    "templating": { "list": [] },
     "panels": [
       {
         "id": 10,
-        "title": "",
+        "title": "Overview",
         "type": "row",
         "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
-        "collapsed": false,
-        "panels": []
+        "collapsed": false
       },
       {
         "id": 1,
-        "title": "Published (total)",
+        "title": "Published",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap published | __error__=\"\"",
-          "legendFormat": "published",
-          "refId": "A"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "none",
-          "textMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "green" },
-            "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}] }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_published_total{job=\"pgc-pipeline\"}", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+        "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } } }
       },
       {
         "id": 2,
-        "title": "Queue Depth",
-        "description": "fetched + extracting + extracted + processing + done",
+        "title": "Queue",
+        "description": "fetched + extracted + extracting + processing + done",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap fetched | __error__=\"\"",
-          "legendFormat": "fetched",
-          "refId": "A"
-        }, {
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap extracted | __error__=\"\"",
-          "legendFormat": "extracted",
-          "refId": "B"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "none",
-          "textMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 100},
-                {"color": "red", "value": 1000}
-              ]
-            }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_queue_fetched + pgc_queue_extracted + pgc_queue_extracting + pgc_queue_processing + pgc_queue_done", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+        "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 1000}] } } }
       },
       {
         "id": 3,
         "title": "Error Extract",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap error_extract | __error__=\"\"",
-          "legendFormat": "error_extract",
-          "refId": "A"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "area"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "orange", "value": 1000},
-                {"color": "red", "value": 10000}
-              ]
-            }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_error_extract_total{job=\"pgc-pipeline\"}", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+        "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 50000}, {"color": "red", "value": 200000}] } } }
       },
       {
         "id": 4,
         "title": "Error LLM",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap error_llm | __error__=\"\"",
-          "legendFormat": "error_llm",
-          "refId": "A"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "area"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "orange", "value": 500},
-                {"color": "red", "value": 5000}
-              ]
-            }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_error_llm_total{job=\"pgc-pipeline\"}", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+        "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1000}, {"color": "red", "value": 5000}] } } }
       },
       {
         "id": 5,
         "title": "Unhealthy Feeds",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap unhealthy_feeds | __error__=\"\"",
-          "legendFormat": "unhealthy",
-          "refId": "A"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "none"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 50},
-                {"color": "orange", "value": 100},
-                {"color": "red", "value": 200}
-              ]
-            }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_crawl_unhealthy_feeds{job=\"pgc-pipeline\"}", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+        "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "orange", "value": 100}, {"color": "red", "value": 200}] } } }
       },
       {
         "id": 6,
         "title": "Dedup",
         "type": "stat",
         "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap dedup | __error__=\"\"",
-          "legendFormat": "dedup",
-          "refId": "A"
-        }],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "colorMode": "value",
-          "graphMode": "none"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "purple" }
-          }
-        }
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_dedup_total{job=\"pgc-pipeline\"}", "refId": "A" }],
+        "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+        "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" } } }
       },
 
       {
         "id": 20,
-        "title": "Crawl & Extract",
+        "title": "Pipeline Throughput",
         "type": "row",
         "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
-        "collapsed": false,
-        "panels": []
+        "collapsed": false
       },
       {
         "id": 21,
-        "title": "Extract OK / Fail per Round",
+        "title": "Published Total",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap extract_ok | __error__=\"\"",
-            "legendFormat": "extract_ok",
-            "refId": "A"
-          },
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap extract_fail | __error__=\"\"",
-            "legendFormat": "extract_fail",
-            "refId": "B"
-          }
-        ],
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_published_total{job=\"pgc-pipeline\"}", "legendFormat": "published", "refId": "A" }],
         "fieldConfig": {
           "defaults": {
-            "custom": { "drawStyle": "points", "pointSize": 6, "fillOpacity": 0 },
+            "color": { "mode": "fixed", "fixedColor": "green" },
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "gradientMode": "scheme", "pointSize": 3, "spanNulls": true },
             "unit": "short"
-          },
-          "overrides": [
-            { "matcher": { "id": "byName", "options": "extract_ok" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" }}] },
-            { "matcher": { "id": "byName", "options": "extract_fail" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
-          ]
+          }
         }
       },
       {
         "id": 22,
-        "title": "Unhealthy Feeds Over Time",
+        "title": "Queue Depth",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap unhealthy_feeds | __error__=\"\"",
-          "legendFormat": "unhealthy feeds (3+ consecutive fails)",
-          "refId": "A"
-        }],
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [
+          { "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"}", "legendFormat": "fetched", "refId": "A" },
+          { "expr": "pgc_queue_extracted{job=\"pgc-pipeline\"}", "legendFormat": "extracted", "refId": "B" },
+          { "expr": "pgc_queue_processing{job=\"pgc-pipeline\"}", "legendFormat": "processing", "refId": "C" },
+          { "expr": "pgc_queue_done{job=\"pgc-pipeline\"}", "legendFormat": "done", "refId": "D" }
+        ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "orange" },
-            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "pointSize": 4 },
+            "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "stacking": { "mode": "normal" }, "spanNulls": true },
             "unit": "short"
           }
         }
@@ -248,35 +125,41 @@
 
       {
         "id": 30,
-        "title": "LLM Process",
+        "title": "Stage Metrics",
         "type": "row",
         "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
-        "collapsed": false,
-        "panels": []
+        "collapsed": false
       },
       {
         "id": 31,
-        "title": "Process OK / Fail per Round",
+        "title": "Crawl — Extract OK / Fail",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
-        "datasource": { "uid": "loki", "type": "loki" },
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
         "targets": [
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"process\"} | json | unwrap process_ok | __error__=\"\"",
-            "legendFormat": "process_ok",
-            "refId": "A"
-          },
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"process\"} | json | unwrap process_fail | __error__=\"\"",
-            "legendFormat": "process_fail",
-            "refId": "B"
-          }
+          { "expr": "pgc_crawl_extract_ok{job=\"pgc-pipeline\"}", "legendFormat": "extract_ok", "refId": "A" },
+          { "expr": "pgc_crawl_extract_fail{job=\"pgc-pipeline\"}", "legendFormat": "extract_fail", "refId": "B" }
         ],
         "fieldConfig": {
-          "defaults": {
-            "custom": { "drawStyle": "points", "pointSize": 6, "fillOpacity": 0 },
-            "unit": "short"
-          },
+          "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "pointSize": 4, "spanNulls": true }, "unit": "short" },
+          "overrides": [
+            { "matcher": { "id": "byName", "options": "extract_ok" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" }}] },
+            { "matcher": { "id": "byName", "options": "extract_fail" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
+          ]
+        }
+      },
+      {
+        "id": 32,
+        "title": "Process — OK / Fail",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [
+          { "expr": "pgc_process_ok{job=\"pgc-pipeline\"}", "legendFormat": "process_ok", "refId": "A" },
+          { "expr": "pgc_process_fail{job=\"pgc-pipeline\"}", "legendFormat": "process_fail", "refId": "B" }
+        ],
+        "fieldConfig": {
+          "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "pointSize": 4, "spanNulls": true }, "unit": "short" },
           "overrides": [
             { "matcher": { "id": "byName", "options": "process_ok" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" }}] },
             { "matcher": { "id": "byName", "options": "process_fail" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
@@ -284,89 +167,60 @@
         }
       },
       {
-        "id": 32,
-        "title": "DB Status — Error Totals",
-        "description": "Cumulative error counts from DB snapshot",
+        "id": 33,
+        "title": "Publish — OK / Fail",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
-        "datasource": { "uid": "loki", "type": "loki" },
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
         "targets": [
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap error_extract | __error__=\"\"",
-            "legendFormat": "error_extract",
-            "refId": "A"
-          },
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap error_llm | __error__=\"\"",
-            "legendFormat": "error_llm",
-            "refId": "B"
-          }
+          { "expr": "pgc_publish_ok{job=\"pgc-pipeline\"}", "legendFormat": "publish_ok", "refId": "A" },
+          { "expr": "pgc_publish_fail{job=\"pgc-pipeline\"}", "legendFormat": "publish_fail", "refId": "B" }
         ],
         "fieldConfig": {
-          "defaults": {
-            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "pointSize": 3 },
-            "unit": "short"
-          },
-          "overrides": [
-            { "matcher": { "id": "byName", "options": "error_extract" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" }}] },
-            { "matcher": { "id": "byName", "options": "error_llm" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
-          ]
-        }
-      },
-
-      {
-        "id": 40,
-        "title": "Publish",
-        "type": "row",
-        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
-        "collapsed": false,
-        "panels": []
-      },
-      {
-        "id": 41,
-        "title": "Publish OK / Fail per Round",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap publish_ok | __error__=\"\"",
-            "legendFormat": "publish_ok",
-            "refId": "A"
-          },
-          {
-            "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap publish_fail | __error__=\"\"",
-            "legendFormat": "publish_fail",
-            "refId": "B"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "custom": { "drawStyle": "points", "pointSize": 6, "fillOpacity": 0 },
-            "unit": "short"
-          },
+          "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "pointSize": 4, "spanNulls": true }, "unit": "short" },
           "overrides": [
             { "matcher": { "id": "byName", "options": "publish_ok" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" }}] },
             { "matcher": { "id": "byName", "options": "publish_fail" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
           ]
         }
       },
+
+      {
+        "id": 40,
+        "title": "Errors & Feeds",
+        "type": "row",
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+        "collapsed": false
+      },
+      {
+        "id": 41,
+        "title": "Error Totals Over Time",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [
+          { "expr": "pgc_error_extract_total{job=\"pgc-pipeline\"}", "legendFormat": "error_extract", "refId": "A" },
+          { "expr": "pgc_error_llm_total{job=\"pgc-pipeline\"}", "legendFormat": "error_llm", "refId": "B" }
+        ],
+        "fieldConfig": {
+          "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true }, "unit": "short" },
+          "overrides": [
+            { "matcher": { "id": "byName", "options": "error_extract" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" }}] },
+            { "matcher": { "id": "byName", "options": "error_llm" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" }}] }
+          ]
+        }
+      },
       {
         "id": 42,
-        "title": "Published Total Over Time",
-        "description": "Cumulative published count from DB snapshot",
+        "title": "Unhealthy Feeds Over Time",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-        "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap published | __error__=\"\"",
-          "legendFormat": "published (total)",
-          "refId": "A"
-        }],
+        "datasource": { "uid": "prometheus", "type": "prometheus" },
+        "targets": [{ "expr": "pgc_crawl_unhealthy_feeds{job=\"pgc-pipeline\"}", "legendFormat": "unhealthy feeds (3+ fails)", "refId": "A" }],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "green" },
-            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 3, "gradientMode": "scheme" },
+            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "spanNulls": true },
             "unit": "short"
           }
         }
@@ -377,8 +231,7 @@
         "title": "Logs",
         "type": "row",
         "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
-        "collapsed": false,
-        "panels": []
+        "collapsed": false
       },
       {
         "id": 51,
@@ -386,10 +239,7 @@
         "type": "logs",
         "gridPos": { "h": 10, "w": 24, "x": 0, "y": 33 },
         "datasource": { "uid": "loki", "type": "loki" },
-        "targets": [{
-          "expr": "{service=\"pgc-pipeline\"}",
-          "refId": "A"
-        }],
+        "targets": [{ "expr": "{service=\"pgc-pipeline\"}", "refId": "A" }],
         "options": {
           "showTime": true,
           "showLabels": true,
