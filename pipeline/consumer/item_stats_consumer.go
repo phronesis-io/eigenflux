@@ -9,6 +9,7 @@ import (
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
@@ -71,7 +72,9 @@ func (c *ItemStatsConsumer) Start(ctx context.Context) {
 			defer wg.Done()
 			logger.Default().Info("ItemStatsConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
+				start := time.Now()
 				c.processMessage(ctx, task.id, task.values)
+				metrics.ConsumerMessageDuration.WithLabelValues("item:stats").Observe(time.Since(start).Seconds())
 			}
 			logger.Default().Info("ItemStatsConsumer worker stopped", "workerID", workerID)
 		}(i)
@@ -123,6 +126,7 @@ func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage,
 		for _, pending := range reclaimed {
 			if pending.RetryCount >= c.maxRetries {
 				logger.Default().Warn("ItemStatsConsumer dropping message after failed attempts", "msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
+				metrics.ConsumerRetryTotal.WithLabelValues("item:stats").Inc()
 				c.ackMessage(ctx, pending.Message.ID)
 				continue
 			}
@@ -162,16 +166,19 @@ func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, va
 	event, err := itemstats.ParseEvent(values)
 	if err != nil {
 		logger.Default().Warn("ItemStatsConsumer invalid message", "err", err)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "failure").Inc()
 		c.ackMessage(ctx, msgID)
 		return
 	}
 
 	if err := c.handleEvent(ctx, msgID, event); err != nil {
 		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
+		metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "failure").Inc()
 		return
 	}
 
 	logger.Default().Info("ItemStatsConsumer processed event", "eventType", event.EventType, "itemID", event.ItemID)
+	metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "success").Inc()
 	c.ackMessage(ctx, msgID)
 }
 

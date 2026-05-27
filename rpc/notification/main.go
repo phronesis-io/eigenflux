@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
 )
@@ -26,6 +27,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.NotificationRPCPort + 1000)
 
 	db.Init(cfg.PgDSN)
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
@@ -47,7 +50,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := notificationservice.NewServer(
 		impl,
-		rpcx.ServerOptions(addr, registry, "NotificationService")...,
+		rpcx.ServerOptions(addr, registry, "NotificationService", metrics.KitexServerMW())...,
 	)
 
 	log.Printf("[Notification] Service starting on %s", listenAddr)

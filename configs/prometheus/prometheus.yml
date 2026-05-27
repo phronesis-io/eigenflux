@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api-gateway
+    static_configs:
+      - targets: ["METRICS_HOST:9080"]
+
+  - job_name: console-api
+    static_configs:
+      - targets: ["METRICS_HOST:9091"]
+
+  - job_name: profile-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9881"]
+
+  - job_name: item-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9882"]
+
+  - job_name: sort-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9883"]
+
+  - job_name: feed-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9884"]
+
+  - job_name: pm-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9885"]
+
+  - job_name: auth-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9886"]
+
+  - job_name: notification-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9887"]
+
+  - job_name: pipeline
+    static_configs:
+      - targets: ["METRICS_HOST:9070"]
+
+  - job_name: ws
+    static_configs:
+      - targets: ["METRICS_HOST:9088"]

@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
@@ -35,6 +36,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.FeedRPCPort + 1000)
 
 	db.Init(cfg.PgDSN)
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
@@ -80,7 +83,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := feedservice.NewServer(
 		NewFeedServiceImpl(cfg, impressionIDGen),
-		rpcx.ServerOptions(addr, registry, "FeedService")...,
+		rpcx.ServerOptions(addr, registry, "FeedService", metrics.KitexServerMW())...,
 	)
 
 	if err := svr.Run(); err != nil {

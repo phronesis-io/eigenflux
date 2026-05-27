@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/replaylog"
 )
@@ -56,7 +57,9 @@ func (c *ReplayConsumer) Start(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 			for task := range msgChan {
+				start := time.Now()
 				c.processMessage(ctx, task.id, task.values)
+				metrics.ConsumerMessageDuration.WithLabelValues("replay:log").Observe(time.Since(start).Seconds())
 			}
 		}()
 	}
@@ -145,6 +148,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ReplayConsumer invalid agent_id", "raw", agentIDStr, "err", err)
+		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
 		c.ackMessage(ctx, msgID)
 		return
 	}
@@ -152,6 +156,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 	impressionID, _ := values["impression_id"].(string)
 	if impressionID == "" {
 		logger.Default().Warn("ReplayConsumer invalid impression_id", "msgID", msgID)
+		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
 		c.ackMessage(ctx, msgID)
 		return
 	}
@@ -168,6 +173,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 	var servedItems []replaylog.ServedItem
 	if err := json.Unmarshal([]byte(itemsStr), &servedItems); err != nil {
 		logger.Default().Warn("ReplayConsumer invalid items JSON", "err", err)
+		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
 		c.ackMessage(ctx, msgID)
 		return
 	}
@@ -208,10 +214,12 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 
 	if err := batchInsertReplayLogs(db.DB, logs); err != nil {
 		logger.Default().Error("ReplayConsumer failed to insert replay logs", "err", err, "count", len(logs))
+		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
 		return
 	}
 
 	logger.Default().Info("ReplayConsumer inserted replay logs", "impressionID", impressionID, "count", len(logs))
+	metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "success").Inc()
 	c.ackMessage(ctx, msgID)
 }
 

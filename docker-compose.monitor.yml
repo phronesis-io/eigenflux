@@ -33,6 +33,35 @@ services:
       timeout: 5s
       retries: 10
 
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus-config:/etc/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      prometheus-init:
+        condition: service_completed_successfully
+
+  # Generates prometheus.yml with METRICS_HOST replaced.
+  # Local: defaults to host.docker.internal (services on host).
+  # Cloud: set METRICS_HOST to the app server's internal IP.
+  prometheus-init:
+    image: busybox:1.37
+    environment:
+      - METRICS_HOST=${METRICS_HOST:-host.docker.internal}
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/template/prometheus.yml:ro
+      - prometheus-config:/etc/prometheus
+    command: sh -c 'sed "s|METRICS_HOST|$$METRICS_HOST|g" /template/prometheus.yml > /etc/prometheus/prometheus.yml'
+
   grafana:
     image: grafana/grafana:11.6.0
     ports:
@@ -40,15 +69,24 @@ services:
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./configs/grafana/datasources.yml:/etc/grafana/provisioning/datasources/ds.yml
+      - ./configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       jaeger:
         condition: service_healthy
       loki:
+        condition: service_healthy
+      prometheus:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+volumes:
+  prometheus-config:

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 )
 
 type Client struct {
@@ -81,6 +83,7 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 }
 
 func (c *Client) call(ctx context.Context, prompt string) (string, error) {
+	start := time.Now()
 	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:               openai.ChatModel(c.model),
 		MaxCompletionTokens: openai.Int(int64(c.maxTokens)),
@@ -88,9 +91,19 @@ func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 			openai.UserMessage(prompt),
 		},
 	})
+	duration := time.Since(start).Seconds()
+
+	// Determine prompt label from the first line of the prompt template
+	promptLabel := identifyPrompt(prompt)
+	metrics.LLMCallDuration.WithLabelValues(promptLabel).Observe(duration)
+
 	if err != nil {
 		return "", fmt.Errorf("LLM API error: %w", err)
 	}
+
+	// Record token usage metrics
+	metrics.LLMCompletionTokens.WithLabelValues(promptLabel).Observe(float64(completion.Usage.CompletionTokens))
+	metrics.LLMReasoningTokens.WithLabelValues(promptLabel).Observe(float64(completion.Usage.CompletionTokensDetails.ReasoningTokens))
 
 	if len(completion.Choices) == 0 {
 		return "", fmt.Errorf("empty response from LLM")
@@ -103,6 +116,21 @@ func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 
 	text = extractJSON(text)
 	return text, nil
+}
+
+// identifyPrompt extracts a short label from the prompt text for metrics.
+func identifyPrompt(prompt string) string {
+	lower := strings.ToLower(prompt)
+	switch {
+	case strings.Contains(lower, "safety"):
+		return "safety"
+	case strings.Contains(lower, "suggest"):
+		return "suggest_action"
+	case strings.Contains(lower, "keywords"):
+		return "extract_keywords"
+	default:
+		return "process_item"
+	}
 }
 
 func normalizeBaseURL(baseURL string) string {

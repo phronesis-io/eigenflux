@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pipeline/consumer"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/idgen"
@@ -31,6 +32,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(9070)
 
 	db.Init(cfg.PgDSN)
 	log.Println("PostgreSQL connected")
@@ -111,6 +114,13 @@ func main() {
 	if replayConsumer != nil {
 		go replayConsumer.Start(ctx)
 	}
+
+	go metrics.StartLagPoller(ctx, mq.RDB, []metrics.StreamGroup{
+		{Stream: "stream:profile:update", Group: "cg:profile:update"},
+		{Stream: "stream:item:publish", Group: "cg:item:publish"},
+		{Stream: "stream:item:stats", Group: "cg:item:stats"},
+		{Stream: "stream:replay:log", Group: "cg:replay:log"},
+	}, 10*time.Second)
 
 	log.Println("Pipeline started, waiting for messages...")
 

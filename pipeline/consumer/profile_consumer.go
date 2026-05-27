@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
@@ -77,7 +78,9 @@ func (c *ProfileConsumer) Start(ctx context.Context) {
 			defer wg.Done()
 			logger.Default().Info("ProfileConsumer worker started", "workerID", workerID)
 			for task := range msgChan {
+				start := time.Now()
 				c.processMessage(ctx, task.id, task.values)
+				metrics.ConsumerMessageDuration.WithLabelValues("profile:update").Observe(time.Since(start).Seconds())
 			}
 			logger.Default().Info("ProfileConsumer worker stopped", "workerID", workerID)
 		}(i)
@@ -129,6 +132,7 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	agentIDStr, ok := values["agent_id"].(string)
 	if !ok {
 		logger.Default().Warn("ProfileConsumer invalid message: missing agent_id")
+		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
@@ -136,6 +140,7 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ProfileConsumer invalid agent_id", "agentID", agentIDStr)
+		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
@@ -150,6 +155,7 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	if err != nil {
 		logger.Default().Warn("ProfileConsumer agent not found", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
+		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
@@ -176,6 +182,7 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	if err != nil {
 		logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
+		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
 		mq.Ack(ctx, profileStream, profileGroup, msgID)
 		return
 	}
@@ -225,5 +232,6 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 		}
 	}
 
+	metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "success").Inc()
 	mq.Ack(ctx, profileStream, profileGroup, msgID)
 }

@@ -11,6 +11,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -29,6 +30,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.WSPort + 1000)
 
 	// Redis (for Pub/Sub subscription).
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)

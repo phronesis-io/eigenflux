@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
@@ -39,6 +40,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.SortRPCPort + 1000)
 
 	// Initialize PostgreSQL (for fetching user profiles)
 	db.Init(cfg.PgDSN)
@@ -84,7 +87,7 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := sortservice.NewServer(
 		new(SortServiceESImpl),
-		rpcx.ServerOptions(addr, r, "SortService")...,
+		rpcx.ServerOptions(addr, r, "SortService", metrics.KitexServerMW())...,
 	)
 
 	logger.Default().Info("sort service started", "addr", listenAddr)

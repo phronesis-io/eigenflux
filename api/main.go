@@ -32,6 +32,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -51,6 +52,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.ApiPort + 1000)
 
 	// Init PostgreSQL for handlers that query DB directly (e.g. feed URL enrichment).
 	db.Init(cfg.PgDSN)
@@ -132,6 +135,7 @@ func main() {
 	)
 	h.Use(hertztracing.ServerMiddleware(tracerCfg))
 	h.Use(middleware.TraceIDMiddleware())
+	h.Use(metrics.HertzMiddleware())
 
 	// Skill document endpoints. All return text/markdown with version header.
 	serveSkillDoc := func(content []byte) app.HandlerFunc {

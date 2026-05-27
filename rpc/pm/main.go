@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
@@ -30,6 +31,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.PMRPCPort + 1000)
 
 	// Initialize database connection
 	db.Init(cfg.PgDSN)
@@ -106,7 +109,7 @@ func main() {
 			iceBreaker: iceBreaker,
 			validator:  pmValidator,
 		},
-		rpcx.ServerOptions(addr, registry, "PMService")...,
+		rpcx.ServerOptions(addr, registry, "PMService", metrics.KitexServerMW())...,
 	)
 
 	logger.Default().Info("PM service started", "addr", listenAddr)

@@ -57,3 +57,74 @@ go func() {
 - `ServerOptions(addr string, registry registry.Registry, serviceName string, ...extra server.Option) []server.Option` -- returns a base option set with the given address, etcd registry, TTHeader transport, and transmeta codec. Pass additional options via `extra` to override defaults.
 - Default RPC timeout is **10s**. Override per-call with `callopt.WithRPCTimeout` or globally via an extra option.
 - TTHeader + transmeta are always enabled, ensuring `metainfo.PersistentValue` keys (including `ef.*` reqinfo keys) are propagated across all hops without per-service configuration.
+
+## Prometheus Metrics
+
+All services expose Prometheus metrics on a dedicated port (service port + 1000). The pipeline uses port 9070, console uses 9091.
+
+### Metric Names
+
+| Metric | Type | Labels | Used By |
+|--------|------|--------|---------|
+| `http_request_duration_seconds` | Histogram | method, path, status | API gateway, console |
+| `http_requests_total` | Counter | method, path, status | API gateway, console |
+| `http_requests_in_flight` | Gauge | — | API gateway, console |
+| `rpc_request_duration_seconds` | Histogram | service, method, status | All RPC services |
+| `rpc_requests_total` | Counter | service, method, status | All RPC services |
+| `consumer_messages_processed_total` | Counter | stream, status | Pipeline consumers |
+| `consumer_message_duration_seconds` | Histogram | stream | Pipeline consumers |
+| `consumer_lag` | Gauge | stream, consumer_group | Pipeline lag poller |
+| `consumer_retry_total` | Counter | stream | Pipeline consumers |
+| `item_publish_to_process_duration_seconds` | Histogram | — | Item consumer |
+| `llm_call_duration_seconds` | Histogram | prompt | Pipeline LLM client |
+| `llm_reasoning_tokens` | Histogram | prompt | Pipeline LLM client |
+| `llm_completion_tokens` | Histogram | prompt | Pipeline LLM client |
+
+### Metrics Ports
+
+| Service | Metrics Port |
+|---------|-------------|
+| API Gateway | 9080 |
+| Console API | 9091 |
+| Profile RPC | 9881 |
+| Item RPC | 9882 |
+| Sort RPC | 9883 |
+| Feed RPC | 9884 |
+| PM RPC | 9885 |
+| Auth RPC | 9886 |
+| Notification RPC | 9887 |
+| Pipeline | 9070 |
+| WebSocket | 9088 |
+
+### Grafana Dashboards
+
+Three provisioned dashboards available at `http://localhost:3123`:
+
+- **API Gateway** (`eigenflux-api`) — request rate, p50/p99 latency, error rate, status codes
+- **RPC Services** (`eigenflux-rpc`) — service health, per-service latency/errors, top methods
+- **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries, publish-to-process latency, LLM call duration/token usage
+
+### Starting the Monitoring Stack
+
+**Local dev** (services on host, monitoring in Docker):
+
+```bash
+docker compose -f docker-compose.monitor.yml up -d
+```
+
+Prometheus scrapes `host.docker.internal:*` by default. Grafana at `http://localhost:3123`.
+
+**Cloud** (app server and monitor server are separate ECS instances):
+
+```bash
+METRICS_HOST=<app-server-internal-ip> \
+docker compose -f docker-compose.monitor.yml up -d
+```
+
+`METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup.
+
+Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887) from the monitor server.
+
+**Dashboard provisioning**: All 3 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
+
+Set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics.

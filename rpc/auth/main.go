@@ -14,6 +14,7 @@ import (
 	"eigenflux_server/pkg/email"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
@@ -32,6 +33,8 @@ func main() {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
 	defer shutdown(context.Background())
+
+	go metrics.StartMetricsServer(cfg.AuthRPCPort + 1000)
 
 	db.Init(cfg.PgDSN)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
@@ -80,7 +83,7 @@ func main() {
 			mockOTPIPWhitelist:       cfg.MockOTPIPWhitelist,
 			agentIDGen:               agentIDGen,
 		},
-		rpcx.ServerOptions(addr, r, "AuthService")...,
+		rpcx.ServerOptions(addr, r, "AuthService", metrics.KitexServerMW())...,
 	)
 
 	if err := svr.Run(); err != nil {
