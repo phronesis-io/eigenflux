@@ -1,0 +1,127 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "pgc-pipeline",
+    "title": "PGC Pipeline",
+    "tags": ["pgc", "pipeline"],
+    "timezone": "browser",
+    "refresh": "1m",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Crawl - Extract OK / Fail",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": { "uid": "loki", "type": "loki" },
+        "targets": [
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap extract_ok | __error__=\"\"",
+            "legendFormat": "extract_ok",
+            "refId": "A"
+          },
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap extract_fail | __error__=\"\"",
+            "legendFormat": "extract_fail",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5 }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Process - OK / Fail",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": { "uid": "loki", "type": "loki" },
+        "targets": [
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"process\"} | json | unwrap process_ok | __error__=\"\"",
+            "legendFormat": "process_ok",
+            "refId": "A"
+          },
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"process\"} | json | unwrap process_fail | __error__=\"\"",
+            "legendFormat": "process_fail",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5 }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Publish - OK / Fail",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "datasource": { "uid": "loki", "type": "loki" },
+        "targets": [
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap publish_ok | __error__=\"\"",
+            "legendFormat": "publish_ok",
+            "refId": "A"
+          },
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"publish\"} | json | unwrap publish_fail | __error__=\"\"",
+            "legendFormat": "publish_fail",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5 }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Unhealthy Feeds",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "datasource": { "uid": "loki", "type": "loki" },
+        "targets": [
+          {
+            "expr": "{service=\"pgc-pipeline\", stage=\"crawl\"} | json | unwrap unhealthy_feeds | __error__=\"\"",
+            "legendFormat": "unhealthy_feeds",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "pointSize": 5 }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Pipeline Logs",
+        "type": "logs",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+        "datasource": { "uid": "loki", "type": "loki" },
+        "targets": [
+          {
+            "expr": "{service=\"pgc-pipeline\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "showLabels": true,
+          "sortOrder": "Descending",
+          "enableLogDetails": true
+        }
+      }
+    ],
+    "schemaVersion": 39,
+    "version": 1
+  },
+  "overwrite": true
+}
