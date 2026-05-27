@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -32,7 +33,7 @@ func StartLagPoller(ctx context.Context, rdb *redis.Client, streams []StreamGrou
 					log.Printf("lag poll error for %s/%s: %v", sg.Stream, sg.Group, err)
 					continue
 				}
-				ConsumerLag.WithLabelValues(sg.Stream, sg.Group).Set(float64(pending.Count))
+				ConsumerLag.WithLabelValues(strings.TrimPrefix(sg.Stream, "stream:"), sg.Group).Set(float64(pending.Count))
 			}
 		}
 	}
