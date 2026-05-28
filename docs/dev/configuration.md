@@ -56,6 +56,11 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `MONITOR_ENABLED` | `false` | Enable distributed tracing and log aggregation |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint for trace export |
 | `LOKI_URL` | (empty) | Loki push API base URL; set `http://localhost:3122` to enable |
+| `LLM_API_KEY` | -- | API key for LLM provider |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | Base URL for LLM endpoint (OpenAI-compatible Responses API) |
+| `LLM_MODEL` | `gpt-4o-mini` | Model name for LLM calls |
+| `LLM_MAX_TOKENS` | `4096` | Maximum output tokens for LLM responses |
+| `LLM_REASONING_EFFORT` | `low` | Reasoning effort level: `none` / `minimal` / `low` / `medium` / `high` |
 | `EMBEDDING_PROVIDER` | `openai` | Embedding provider: `openai` / `ollama` |
 | `EMBEDDING_API_KEY` | -- | API key for embedding provider |
 | `EMBEDDING_BASE_URL` | -- | Base URL for embedding endpoint |

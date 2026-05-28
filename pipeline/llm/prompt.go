@@ -14,7 +14,8 @@ type templateData[In any] struct {
 
 // Prompt binds a template name to typed input and output structs.
 type Prompt[In, Out any] struct {
-	name string
+	name            string
+	reasoningEffort string // per-prompt override; empty means use client default
 }
 
 // NewPrompt creates a typed prompt definition and registers it for startup validation.
@@ -24,13 +25,19 @@ func NewPrompt[In, Out any](name string) Prompt[In, Out] {
 	return p
 }
 
+// WithReasoning returns a copy of the prompt with a per-prompt reasoning effort override.
+func (p Prompt[In, Out]) WithReasoning(effort string) Prompt[In, Out] {
+	p.reasoningEffort = effort
+	return p
+}
+
 // Execute renders the template with input, calls LLM, and unmarshals into *Out.
 func (p Prompt[In, Out]) Execute(ctx context.Context, c *Client, input In) (*Out, error) {
 	rendered, err := c.prompts.Render(p.name, templateData[In]{Input: input})
 	if err != nil {
 		return nil, fmt.Errorf("render %s prompt: %w", p.name, err)
 	}
-	resp, err := c.call(ctx, rendered)
+	resp, err := c.call(ctx, rendered, p.name, p.reasoningEffort)
 	if err != nil {
 		return nil, fmt.Errorf("LLM call failed: %w", err)
 	}

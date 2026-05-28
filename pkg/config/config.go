@@ -48,6 +48,7 @@ type Config struct {
 	LLMBaseURL                 string
 	LLMModel                   string
 	LLMMaxTokens               int
+	LLMReasoningEffort         string
 	EmbeddingProvider          string // "openai" or "ollama"
 	EmbeddingApiKey            string
 	EmbeddingBaseURL           string
@@ -158,6 +159,7 @@ func Load() *Config {
 		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                   getEnv("LLM_MODEL", "gpt-4o-mini"),
 			LLMMaxTokens:               getEnvInt("LLM_MAX_TOKENS", 4096),
+		LLMReasoningEffort:         getEnv("LLM_REASONING_EFFORT", "low"),
 		EmbeddingProvider:          embeddingProvider,
 		EmbeddingApiKey:            getEnv("EMBEDDING_API_KEY", ""),
 		EmbeddingBaseURL:           getEnv("EMBEDDING_BASE_URL", ""),

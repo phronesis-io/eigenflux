@@ -8,16 +8,19 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/metrics"
 )
 
 type Client struct {
-	client    openai.Client
-	model     string
-	maxTokens int
-	prompts   *PromptRegistry
+	client          openai.Client
+	model           string
+	maxTokens       int
+	reasoningEffort shared.ReasoningEffort
+	prompts         *PromptRegistry
 }
 
 func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
@@ -26,10 +29,11 @@ func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
 	}
 	opts = append(opts, option.WithBaseURL(normalizeBaseURL(cfg.LLMBaseURL)))
 	return &Client{
-		client:    openai.NewClient(opts...),
-		model:     cfg.LLMModel,
-		maxTokens: cfg.LLMMaxTokens,
-		prompts:   prompts,
+		client:          openai.NewClient(opts...),
+		model:           cfg.LLMModel,
+		maxTokens:       cfg.LLMMaxTokens,
+		reasoningEffort: shared.ReasoningEffort(cfg.LLMReasoningEffort),
+		prompts:         prompts,
 	}
 }
 
@@ -82,35 +86,34 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 	return SuggestActionPrompt.Execute(ctx, c, input)
 }
 
-func (c *Client) call(ctx context.Context, prompt string) (string, error) {
+func (c *Client) call(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
+	effort := c.reasoningEffort
+	if effortOverride != "" {
+		effort = shared.ReasoningEffort(effortOverride)
+	}
 	start := time.Now()
-	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:               openai.ChatModel(c.model),
-		MaxCompletionTokens: openai.Int(int64(c.maxTokens)),
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
+	resp, err := c.client.Responses.New(ctx, responses.ResponseNewParams{
+		Model:           shared.ResponsesModel(c.model),
+		MaxOutputTokens: openai.Int(int64(c.maxTokens)),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: openai.String(prompt),
 		},
-		ReasoningEffort: openai.ReasoningEffortLow,
+		Reasoning: shared.ReasoningParam{
+			Effort: effort,
+		},
 	})
 	duration := time.Since(start).Seconds()
 
-	// Determine prompt label from the first line of the prompt template
-	promptLabel := identifyPrompt(prompt)
-	metrics.LLMCallDuration.WithLabelValues(promptLabel).Observe(duration)
+	metrics.LLMCallDuration.WithLabelValues(promptName).Observe(duration)
 
 	if err != nil {
 		return "", fmt.Errorf("LLM API error: %w", err)
 	}
 
-	// Record token usage metrics
-	metrics.LLMCompletionTokens.WithLabelValues(promptLabel).Observe(float64(completion.Usage.CompletionTokens))
-	metrics.LLMReasoningTokens.WithLabelValues(promptLabel).Observe(float64(completion.Usage.CompletionTokensDetails.ReasoningTokens))
+	metrics.LLMCompletionTokens.WithLabelValues(promptName).Observe(float64(resp.Usage.OutputTokens))
+	metrics.LLMReasoningTokens.WithLabelValues(promptName).Observe(float64(resp.Usage.OutputTokensDetails.ReasoningTokens))
 
-	if len(completion.Choices) == 0 {
-		return "", fmt.Errorf("empty response from LLM")
-	}
-
-	text := strings.TrimSpace(completion.Choices[0].Message.Content)
+	text := strings.TrimSpace(resp.OutputText())
 	if text == "" {
 		return "", fmt.Errorf("no text content in LLM response")
 	}
@@ -119,20 +122,6 @@ func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 	return text, nil
 }
 
-// identifyPrompt extracts a short label from the prompt text for metrics.
-func identifyPrompt(prompt string) string {
-	lower := strings.ToLower(prompt)
-	switch {
-	case strings.Contains(lower, "safety"):
-		return "safety"
-	case strings.Contains(lower, "suggest"):
-		return "suggest_action"
-	case strings.Contains(lower, "keywords"):
-		return "extract_keywords"
-	default:
-		return "process_item"
-	}
-}
 
 func normalizeBaseURL(baseURL string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")

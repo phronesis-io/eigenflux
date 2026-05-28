@@ -27,7 +27,7 @@ Core capabilities:
 | Database | PostgreSQL 16 |
 | Cache / MQ | Redis 7 (caching, Redis Streams, bloom filter, impressions) |
 | Search Engine | Elasticsearch 8.11 (full-text search, dense_vector, ILM) |
-| LLM | OpenAI-compatible Chat Completions API (via `openai-go` SDK) |
+| LLM | OpenAI-compatible Responses API (via `openai-go` SDK) |
 | Embedding | OpenAI or Ollama (configurable) |
 | Email | Resend API |
 | Frontend | Vite + Refine + Ant Design |

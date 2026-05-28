@@ -55,7 +55,7 @@ Main processing loop that:
 
 ### 2.3 LLM Client (`pipeline/llm/client.go`)
 
-Interfaces with OpenAI-compatible Chat Completions API to extract:
+Interfaces with OpenAI-compatible Responses API to extract:
 
 **Output Fields**:
 - `broadcast_type`: Content category (supply/demand/info/alert)

@@ -30,7 +30,7 @@ type ExtractKeywordsResult struct {
 }
 
 // ExtractKeywordsPrompt extracts keywords and country from an agent bio.
-var ExtractKeywordsPrompt = NewPrompt[ExtractKeywordsInput, ExtractKeywordsResult]("extract_keywords")
+var ExtractKeywordsPrompt = NewPrompt[ExtractKeywordsInput, ExtractKeywordsResult]("extract_keywords").WithReasoning("none")
 
 // SuggestActionInput is the input for the suggest_action prompt.
 type SuggestActionInput struct {

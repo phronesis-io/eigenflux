@@ -121,4 +121,4 @@ System supports two embedding providers:
 
 ## LLM
 
-LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) to interface with OpenAI-compatible Chat Completions API. Max completion tokens is configurable via `LLM_MAX_TOKENS` (default: 4096).
+LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) via the Responses API (`client.Responses.New`). Max output tokens is configurable via `LLM_MAX_TOKENS` (default: 4096). Default reasoning effort is configurable via `LLM_REASONING_EFFORT` (default: `low`; supported values: `none`, `minimal`, `low`, `medium`, `high`). Individual prompts can override reasoning effort via `WithReasoning()` — e.g. `extract_keywords` uses `none` since it only needs simple structured extraction.
