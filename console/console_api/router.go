@@ -4,6 +4,7 @@ package main
 
 import (
 	handler "console.eigenflux.ai/handler_gen"
+	console "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
@@ -11,5 +12,12 @@ import (
 func customizedRegister(r *server.Hertz) {
 	r.GET("/ping", handler.Ping)
 
-	// your code ...
+	// Dashboard endpoints
+	dash := r.Group("/console/api/v1/dashboard")
+	dash.GET("/snapshots", console.ListDashboardSnapshots)
+	dash.GET("/snapshots/latest", console.GetDashboardSnapshotLatest)
+	dash.GET("/snapshots/:snapshot_id", console.GetDashboardSnapshot)
+	dash.POST("/snapshots/refresh", console.RefreshDashboardSnapshot)
+	dash.DELETE("/snapshots/:snapshot_id", console.DeleteDashboardSnapshot)
+	dash.GET("/trends", console.GetDashboardTrends)
 }

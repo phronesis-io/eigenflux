@@ -9,6 +9,7 @@ import (
 
 	"console.eigenflux.ai/internal/audience"
 	"console.eigenflux.ai/internal/dal"
+	"console.eigenflux.ai/internal/dashboard"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
 	"console.eigenflux.ai/internal/model"
@@ -1548,5 +1549,186 @@ func GetConvMessages(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, GetConvMessagesResp{
 		Code: 0, Msg: "success",
 		Data: &GetConvMessagesData{Messages: msgs},
+	})
+}
+
+// ===========================================================================
+// Handlers: Dashboard
+// ===========================================================================
+
+// ListDashboardSnapshots godoc
+// @Summary      List dashboard snapshots
+// @Tags         dashboard
+// @Produce      json
+// @Param        page       query  integer  false  "Page number (default: 1)"
+// @Param        page_size  query  integer  false  "Items per page (default: 20)"
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/snapshots [GET]
+func ListDashboardSnapshots(ctx context.Context, c *app.RequestContext) {
+	page, pageSize := parsePagination(c)
+
+	snapshots, total, err := dal.ListSnapshotSummaries(page, pageSize)
+	if err != nil {
+		writeConsoleError(c, "failed to list snapshots: "+err.Error())
+		return
+	}
+
+	items := make([]map[string]interface{}, 0, len(snapshots))
+	for _, s := range snapshots {
+		items = append(items, map[string]interface{}{
+			"snapshot_id": s.SnapshotID,
+			"created_at":  s.CreatedAt,
+		})
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
+		"data": map[string]interface{}{
+			"snapshots": items,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
+}
+
+// GetDashboardSnapshotLatest godoc
+// @Summary      Get latest dashboard snapshot
+// @Tags         dashboard
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/snapshots/latest [GET]
+func GetDashboardSnapshotLatest(ctx context.Context, c *app.RequestContext) {
+	snap, err := dal.GetLatestSnapshot()
+	if err != nil {
+		writeConsoleError(c, "no snapshot found")
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
+		"data": map[string]interface{}{
+			"snapshot": map[string]interface{}{
+				"snapshot_id": snap.SnapshotID,
+				"data":        snap.Data,
+				"created_at":  snap.CreatedAt,
+			},
+		},
+	})
+}
+
+// GetDashboardSnapshot godoc
+// @Summary      Get a dashboard snapshot by ID
+// @Tags         dashboard
+// @Produce      json
+// @Param        snapshot_id  path  integer  true  "Snapshot ID"
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/snapshots/{snapshot_id} [GET]
+func GetDashboardSnapshot(ctx context.Context, c *app.RequestContext) {
+	idStr := c.Param("snapshot_id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeConsoleError(c, "invalid snapshot_id")
+		return
+	}
+
+	snap, err := dal.GetSnapshotByID(id)
+	if err != nil {
+		writeConsoleError(c, "snapshot not found")
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
+		"data": map[string]interface{}{
+			"snapshot": map[string]interface{}{
+				"snapshot_id": snap.SnapshotID,
+				"data":        snap.Data,
+				"created_at":  snap.CreatedAt,
+			},
+		},
+	})
+}
+
+// GetDashboardTrends godoc
+// @Summary      Get dashboard trend data for line charts
+// @Tags         dashboard
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/trends [GET]
+func GetDashboardTrends(ctx context.Context, c *app.RequestContext) {
+	points, err := dal.GetTrendPoints()
+	if err != nil {
+		writeConsoleError(c, "failed to get trends: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
+		"data": map[string]interface{}{
+			"trends": points,
+		},
+	})
+}
+
+// RefreshDashboardSnapshot godoc
+// @Summary      Trigger a new dashboard snapshot computation
+// @Tags         dashboard
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/snapshots/refresh [POST]
+func RefreshDashboardSnapshot(ctx context.Context, c *app.RequestContext) {
+	_, err := dashboard.RunOnce(db.DB)
+	if err != nil {
+		writeConsoleError(c, "failed to refresh: "+err.Error())
+		return
+	}
+
+	latest, err := dal.GetLatestSnapshot()
+	if err != nil {
+		writeConsoleError(c, "snapshot created but failed to read back: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
+		"data": map[string]interface{}{
+			"snapshot": map[string]interface{}{
+				"snapshot_id": latest.SnapshotID,
+				"data":        latest.Data,
+				"created_at":  latest.CreatedAt,
+			},
+		},
+	})
+}
+
+// DeleteDashboardSnapshot godoc
+// @Summary      Delete a dashboard snapshot
+// @Tags         dashboard
+// @Produce      json
+// @Param        snapshot_id  path  integer  true  "Snapshot ID"
+// @Success      200  {object}  map[string]interface{}
+// @Router /console/api/v1/dashboard/snapshots/{snapshot_id} [DELETE]
+func DeleteDashboardSnapshot(ctx context.Context, c *app.RequestContext) {
+	idStr := c.Param("snapshot_id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeConsoleError(c, "invalid snapshot_id")
+		return
+	}
+
+	if err := dal.DeleteSnapshot(id); err != nil {
+		writeConsoleError(c, "failed to delete snapshot: "+err.Error())
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code": 0,
+		"msg":  "success",
 	})
 }

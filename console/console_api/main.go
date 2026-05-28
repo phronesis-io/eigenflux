@@ -19,6 +19,7 @@ import (
 	_ "console.eigenflux.ai/docs"
 	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"console.eigenflux.ai/internal/config"
+	"console.eigenflux.ai/internal/dashboard"
 	"console.eigenflux.ai/internal/metrics"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
@@ -71,6 +72,11 @@ func main() {
 	if recoverErr := notifSvc.RecoverActiveNotifications(context.Background()); recoverErr != nil {
 		log.Printf("[console] Warning: failed to recover active notifications: %v", recoverErr)
 	}
+
+	// Start dashboard snapshot cron
+	dashCtx, dashCancel := context.WithCancel(context.Background())
+	defer dashCancel()
+	go dashboard.StartSnapshotCron(dashCtx, db.DB, db.RDB)
 
 	tracer, tracerCfg := hertztracing.NewServerTracer()
 	h := server.Default(
