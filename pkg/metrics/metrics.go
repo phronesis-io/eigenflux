@@ -72,6 +72,14 @@ var (
 	})
 )
 
+// Recall source metrics (sort service).
+var (
+	RecallImpressionTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "recall_impression_total",
+		Help: "Total items impressed (served) by recall source.",
+	}, []string{"source"})
+)
+
 // LLM call metrics.
 var (
 	LLMCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -99,6 +107,7 @@ func init() {
 		RPCRequestDuration, RPCRequestsTotal,
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
 		ItemPublishToProcessDuration,
+		RecallImpressionTotal,
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 	)
 }

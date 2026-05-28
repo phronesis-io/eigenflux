@@ -17,6 +17,8 @@ import (
 	"eigenflux_server/pkg/db"
 	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/recallsource"
 	profileDal "eigenflux_server/rpc/profile/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
 	"eigenflux_server/rpc/sort/ranker"
@@ -368,8 +370,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		esItems = searchResp.Items
 	}
 
-	// Wait for kNN recall and merge results
+	// Wait for kNN recall and merge with source tracking
 	wg.Wait()
+
+	sourceMap := make(map[int64]recallsource.Source, len(esItems))
+	for _, item := range esItems {
+		sourceMap[item.ID] |= recallsource.Keyword
+	}
+
 	if knnErr == nil && len(knnItems) > 0 {
 		seen := make(map[int64]bool, len(esItems))
 		for _, item := range esItems {
@@ -377,6 +385,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 		added := 0
 		for _, item := range knnItems {
+			sourceMap[item.ID] |= recallsource.KNN
 			if !seen[item.ID] {
 				esItems = append(esItems, item)
 				seen[item.ID] = true
@@ -457,6 +466,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
+			"recall_source":  int(sourceMap[ri.ItemID]),
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()
@@ -517,6 +527,13 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 	logger.Ctx(ctx).Info("dedup result", "filtered", dedupedCount, "returned", len(itemIDs))
 
+	// Record recall source impressions
+	for _, id := range itemIDs {
+		for _, name := range recallsource.Names(sourceMap[id]) {
+			metrics.RecallImpressionTotal.WithLabelValues(name).Inc()
+		}
+	}
+
 	// Append below-threshold items to SortedItems with "filtered" marker for replay log analysis.
 	for _, ri := range filteredItems {
 		item, ok := esItemMap[ri.ItemID]
@@ -536,6 +553,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
+			"recall_source":  int(sourceMap[ri.ItemID]),
 			"filtered":       true,
 		}
 		if item.ExpireTime != nil {

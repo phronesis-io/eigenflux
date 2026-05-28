@@ -49,6 +49,9 @@ __pycache__
 .mock/
 .draft/
 
+# dashboard snapshot data
+data/dashboard/
+
 # superpowers
 .superpowers
 docs/superpowers/

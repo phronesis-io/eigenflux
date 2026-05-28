@@ -764,6 +764,104 @@ paths:
       summary: Get conversation messages
       tags:
       - console
+  /console/api/v1/dashboard/snapshots:
+    get:
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List dashboard snapshots
+      tags:
+      - dashboard
+  /console/api/v1/dashboard/snapshots/{snapshot_id}:
+    delete:
+      parameters:
+      - description: Snapshot ID
+        in: path
+        name: snapshot_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a dashboard snapshot
+      tags:
+      - dashboard
+    get:
+      parameters:
+      - description: Snapshot ID
+        in: path
+        name: snapshot_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a dashboard snapshot by ID
+      tags:
+      - dashboard
+  /console/api/v1/dashboard/snapshots/latest:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get latest dashboard snapshot
+      tags:
+      - dashboard
+  /console/api/v1/dashboard/snapshots/refresh:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Trigger a new dashboard snapshot computation
+      tags:
+      - dashboard
+  /console/api/v1/dashboard/trends:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get dashboard trend data for line charts
+      tags:
+      - dashboard
   /console/api/v1/impr/items:
     delete:
       description: Clears all Redis impression records (items, groups, urls) for a

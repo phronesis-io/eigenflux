@@ -90,6 +90,7 @@ func (c *Client) call(ctx context.Context, prompt string) (string, error) {
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},
+		ReasoningEffort: openai.ReasoningEffortLow,
 	})
 	duration := time.Since(start).Seconds()
 

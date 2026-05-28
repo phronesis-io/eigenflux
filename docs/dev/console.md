@@ -62,6 +62,12 @@ Console must not import any root module packages (`eigenflux_server/pkg/*`, `eig
 | DELETE | `/console/api/v1/blacklist-keywords/:keyword_id` | -- | Delete keyword |
 | GET | `/console/api/v1/conversations` | `page`, `page_size`, `item_id`, `agent_id` | List conversations filtered by item_id (broadcast only) and/or agent_id. At least one filter required |
 | GET | `/console/api/v1/conversations/:conv_id/messages` | -- | Return all messages of a conversation, ordered by `created_at DESC` |
+| GET | `/console/api/v1/dashboard/snapshots` | `page`, `page_size` | List dashboard snapshot summaries (without full data) |
+| GET | `/console/api/v1/dashboard/snapshots/latest` | -- | Get latest dashboard snapshot with full data |
+| GET | `/console/api/v1/dashboard/snapshots/:snapshot_id` | -- | Get a specific dashboard snapshot by ID |
+| POST | `/console/api/v1/dashboard/snapshots/refresh` | -- | Trigger a new dashboard snapshot computation |
+| DELETE | `/console/api/v1/dashboard/snapshots/:snapshot_id` | -- | Delete a dashboard snapshot |
+| GET | `/console/api/v1/dashboard/trends` | -- | Get trend data points extracted from all snapshots |
 
 ### Common Query Parameters
 
@@ -82,7 +88,7 @@ All external console HTTP IDs must be serialized as strings in JSON, query param
 ## Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 7 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`.
+Currently includes 8 pages: `/dashboard`, `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`.
 
 ```bash
 cd console/webapp
@@ -92,3 +98,29 @@ pnpm build       # Build production version
 ```
 
 Frontend defaults to connecting to `http://<current-access-host>/console/api/v1`. `console/webapp` currently reads repository root `.env` via Vite's `envDir=../..`; can explicitly specify console API address via `CONSOLE_API_URL` in root `.env`.
+
+## Dashboard
+
+The Dashboard tab (`/dashboard`) provides content-market fit analysis: keyword supply vs demand, domain distribution, and engagement trends.
+
+### Architecture
+
+A background cron job (24h interval) computes analysis by querying `processed_items`, `agent_profiles`, and `item_stats` tables. Results are stored as JSON files under `data/dashboard/` (one file per snapshot, named `{unix_ms}.json`). The cron uses Redis distributed lock (`lock:cron:dashboard_snapshot`, TTL 5min) for single-instance execution. Manual refresh is available via `POST /console/api/v1/dashboard/snapshots/refresh`.
+
+### Snapshot Data Schema
+
+The snapshot JSON structure is defined in `console/console_api/internal/dashboard/analyzer.go` (`SnapshotData` struct):
+
+- `summary`: Total/active items, total users, avg quality score
+- `keyword_analysis`: Top item keywords (supply), top user keywords (demand), overlap, supply-only, demand-only
+- `domain_analysis`: Broadcast type distribution, top domains with avg consumed count
+- `engagement`: Quality score distribution, consumed rate by keyword, top 50 items by engagement
+
+### Frontend
+
+The dashboard page (`console/webapp/src/pages/dashboard/index.tsx`) renders:
+- Summary statistic cards with delta indicators (vs previous snapshot)
+- Trend line charts (items, users, quality score over time)
+- Keyword supply vs demand bar charts and overlap/supply-only/demand-only tables
+- Domain distribution pie chart and column chart
+- Quality distribution histogram and top items table

@@ -13,6 +13,7 @@ import { MilestoneRuleList } from "./pages/milestone-rules/list";
 import { SystemNotificationList } from "./pages/system-notifications/list";
 import { BlacklistKeywordList } from "./pages/blacklist/list";
 import { ConversationList } from "./pages/conversations/list";
+import { DashboardPage } from "./pages/dashboard/index";
 
 function App() {
   return (
@@ -23,6 +24,13 @@ function App() {
             dataProvider={consoleDataProvider(consoleApiUrl)}
             notificationProvider={useNotificationProvider}
             resources={[
+              {
+                name: "dashboard",
+                list: "/dashboard",
+                meta: {
+                  label: "Dashboard",
+                },
+              },
               {
                 name: "agents",
                 list: "/agents",
@@ -64,7 +72,8 @@ function App() {
                   </ThemedLayout>
                 }
               >
-                <Route index element={<Navigate to="/agents" replace />} />
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/agents" element={<AgentList />} />
                 <Route path="/items" element={<ItemList />} />
                 <Route path="/impr" element={<ImprRecordList />} />
