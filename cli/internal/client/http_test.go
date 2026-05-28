@@ -27,7 +27,7 @@ func TestClientGet(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	c := New(srv.URL, "at_test", "0.0.6")
+	c := New(srv.URL, "at_test", "0.0.6", Meta{})
 	params := map[string]string{"limit": "10"}
 	resp, err := c.Get("/test", params)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestClientPost(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	c := New(srv.URL, "", "0.0.6")
+	c := New(srv.URL, "", "0.0.6", Meta{})
 	resp, err := c.Post("/auth/login", map[string]string{"email": "test@example.com"})
 	if err != nil {
 		t.Fatalf("Post error: %v", err)
@@ -73,7 +73,7 @@ func TestClientHandles401(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"code": 401, "msg": "unauthorized"})
 	}))
 	defer srv.Close()
-	c := New(srv.URL, "at_expired", "0.0.6")
+	c := New(srv.URL, "at_expired", "0.0.6", Meta{})
 	_, err := c.Get("/test", nil)
 	if err == nil {
 		t.Error("expected error for 401")
@@ -95,7 +95,7 @@ func TestClientDelete(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "msg": "success"})
 	}))
 	defer srv.Close()
-	c := New(srv.URL, "at_test", "0.0.6")
+	c := New(srv.URL, "at_test", "0.0.6", Meta{})
 	resp, err := c.Delete("/items/123")
 	if err != nil {
 		t.Fatalf("Delete error: %v", err)

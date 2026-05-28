@@ -33,14 +33,16 @@ type Client struct {
 	BaseURL    string
 	Token      string
 	CLIVersion string
+	Meta       Meta
 	HTTPClient *http.Client
 }
 
-func New(baseURL, token, cliVersion string) *Client {
+func New(baseURL, token, cliVersion string, meta Meta) *Client {
 	return &Client{
 		BaseURL:    baseURL,
 		Token:      token,
 		CLIVersion: cliVersion,
+		Meta:       meta,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -69,6 +71,7 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 	if c.CLIVersion != "" {
 		req.Header.Set("X-CLI-Ver", c.CLIVersion)
 	}
+	c.Meta.SetHeaders(req.Header)
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)

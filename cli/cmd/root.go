@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -16,6 +17,7 @@ var (
 	homeDirFlag string
 	noInteract  bool
 	verboseFlag bool
+	clientMeta  client.Meta
 )
 
 func SetVersion(v string) {
@@ -47,6 +49,7 @@ Examples:
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}
+		clientMeta = client.ResolveMeta()
 	},
 }
 

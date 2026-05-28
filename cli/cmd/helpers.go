@@ -38,7 +38,7 @@ func newClientOptionalAuth(requireAuth bool) *client.Client {
 		token = creds.AccessToken
 	}
 	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
-	return client.New(baseURL, token, version)
+	return client.New(baseURL, token, version, clientMeta)
 }
 
 func activeServerName() string {

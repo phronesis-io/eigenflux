@@ -107,6 +107,7 @@ Examples:
 			if version != "" {
 				dialHeaders.Set("X-CLI-Ver", version)
 			}
+			clientMeta.SetHeaders(dialHeaders)
 			conn, _, dialErr := websocket.DefaultDialer.Dial(u.String(), dialHeaders)
 			if dialErr != nil {
 				output.PrintMessage("Connect failed: %v, retrying in %s...", dialErr, backoff)

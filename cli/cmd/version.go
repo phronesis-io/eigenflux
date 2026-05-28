@@ -24,22 +24,32 @@ Examples:
 			return nil
 		}
 		homeDir, source := config.HomeDirInfo()
+		meta := clientMeta
 		info := map[string]string{
 			"cli_version": version,
 			"commit":      commit,
 			"go_version":  runtime.Version(),
-			"os":          runtime.GOOS,
-			"arch":        runtime.GOARCH,
+			"os":          meta.OS,
+			"timezone":    meta.TZ,
+			"language":    meta.Lang,
+			"host":        meta.Host,
+			"channel":     meta.Channel,
+			"client_id":   meta.ClientID,
 			"home":        homeDir,
 			"home_source": string(source),
 		}
 		format := resolveFormat()
 		if format == "table" {
 			fmt.Printf("eigenflux CLI %s\n", version)
-			fmt.Printf("  Commit:  %s\n", commit)
-			fmt.Printf("  Go:      %s\n", runtime.Version())
-			fmt.Printf("  OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-			fmt.Printf("  Home:    %s (%s)\n", homeDir, source)
+			fmt.Printf("  Commit:   %s\n", commit)
+			fmt.Printf("  Go:       %s\n", runtime.Version())
+			fmt.Printf("  OS:       %s\n", meta.OS)
+			fmt.Printf("  TZ:       %s\n", meta.TZ)
+			fmt.Printf("  Lang:     %s\n", meta.Lang)
+			fmt.Printf("  Host:     %s\n", meta.Host)
+			fmt.Printf("  Channel:  %s\n", meta.Channel)
+			fmt.Printf("  ClientID: %s\n", meta.ClientID)
+			fmt.Printf("  Home:     %s (%s)\n", homeDir, source)
 			return nil
 		}
 		output.PrintData(info, format)

@@ -29,6 +29,27 @@ func ClientInfoMiddleware() app.HandlerFunc {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVer, ver)
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVerNum, strconv.Itoa(num))
 		}
+		for _, h := range []struct {
+			header string
+			key    string
+			ctxKey string
+		}{
+			{"X-Client-OS", "client_os", reqinfo.KeyClientOS},
+			{"X-Client-TZ", "client_tz", reqinfo.KeyClientTZ},
+			{"X-Client-Lang", "client_lang", reqinfo.KeyClientLang},
+			{"X-Client-Host", "client_host", reqinfo.KeyClientHost},
+			{"X-Client-Channel", "client_channel", reqinfo.KeyClientChannel},
+			{"X-Client-ID", "client_id", reqinfo.KeyClientID},
+		} {
+			if v := c.GetHeader(h.header); len(v) > 0 {
+				val := string(v)
+				if len(val) > 128 {
+					val = val[:128]
+				}
+				c.Set(h.key, val)
+				ctx = metainfo.WithPersistentValue(ctx, h.ctxKey, val)
+			}
+		}
 		c.Next(ctx)
 	}
 }
