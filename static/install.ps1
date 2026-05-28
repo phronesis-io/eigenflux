@@ -4,6 +4,7 @@
 # ============================================================
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 $CdnUrl = if ($env:EIGENFLUX_CDN_URL) { $env:EIGENFLUX_CDN_URL } else { "https://cdn.eigenflux.ai" }
 $GithubRepo = "phronesis-io/eigenflux"
@@ -12,6 +13,57 @@ $Branch = "main"
 function Info($msg)  { Write-Host $msg -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host $msg -ForegroundColor Green }
 function Err($msg)   { Write-Host $msg -ForegroundColor Red; exit 1 }
+
+# ── Helper: download with retry, temp file, optional SHA256 ──
+
+function Download-WithRetry {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [int]$MaxRetries = 3,
+        [string]$Sha256Url = ""
+    )
+
+    $tmpFile = Join-Path $env:TEMP ("eigenflux-dl-" + [System.IO.Path]::GetRandomFileName())
+    $attempt = 0
+    $downloaded = $false
+
+    while ($attempt -lt $MaxRetries -and -not $downloaded) {
+        $attempt++
+        try {
+            if ($attempt -gt 1) { Info "Retry ${attempt}/${MaxRetries}..." }
+            Invoke-WebRequest -Uri $Url -OutFile $tmpFile -UseBasicParsing
+            $downloaded = $true
+        } catch {
+            if ($attempt -ge $MaxRetries) {
+                Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
+                throw "Download failed after ${MaxRetries} attempts: ${Url}`n$($_.Exception.Message)"
+            }
+            Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+
+    if ($Sha256Url) {
+        try {
+            $expectedHash = (Invoke-RestMethod -Uri $Sha256Url).Trim().Split(" ")[0]
+            $actualHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash.ToLower()
+            if ($actualHash -ne $expectedHash.ToLower()) {
+                Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
+                throw "SHA256 mismatch for ${Url}: expected ${expectedHash}, got ${actualHash}"
+            }
+            Ok "SHA256 verified"
+        } catch [System.Net.WebException] {
+            Info "SHA256 checksum not available, skipping verification"
+        }
+    }
+
+    $destDir = Split-Path -Parent $Destination
+    if (-not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+    Move-Item -Path $tmpFile -Destination $Destination -Force
+}
 
 # ── Step 1: Install CLI binary ────────────────────────────────
 
@@ -46,14 +98,12 @@ function Install-Cli {
     }
 
     $downloadUrl = "${CdnUrl}/cli/${script:latestVersion}/${binName}"
+    $sha256Url = "${CdnUrl}/cli/${script:latestVersion}/${binName}.sha256"
     $script:installDir = Join-Path $env:LOCALAPPDATA "local\bin"
-    if (-not (Test-Path $script:installDir)) {
-        New-Item -ItemType Directory -Path $script:installDir -Force | Out-Null
-    }
     $installPath = Join-Path $script:installDir "eigenflux.exe"
 
     Info "Downloading ${downloadUrl}..."
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $installPath -UseBasicParsing
+    Download-WithRetry -Url $downloadUrl -Destination $installPath -Sha256Url $sha256Url
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$($script:installDir)*") {
@@ -79,7 +129,7 @@ function Install-Skills {
 
     try {
         if (Test-Path $tmpExtract) { Remove-Item -Recurse -Force $tmpExtract }
-        Invoke-WebRequest -Uri $zipUrl -OutFile $tmpZip -UseBasicParsing
+        Download-WithRetry -Url $zipUrl -Destination $tmpZip
         Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
 
         $extracted = Get-ChildItem $tmpExtract | Select-Object -First 1
@@ -171,7 +221,8 @@ function Setup-Agents {
         $ocPatch = [int]$parts[2]
         if ($ocMajor -eq 2026) {
             if ($ocMinor -lt 3) {
-                Err "OpenClaw ${ocVersion} is too old; please upgrade to 2026.3.0 or later."
+                Info "OpenClaw ${ocVersion} is too old; please upgrade to 2026.3.0 or later."
+                return
             } elseif ($ocMinor -lt 5 -or ($ocMinor -eq 5 -and $ocPatch -lt 2)) {
                 $pluginSpec = "@phronesis-io/openclaw-eigenflux@0.0.8"
             }
