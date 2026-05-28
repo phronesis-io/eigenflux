@@ -17,6 +17,8 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/recall"
+	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/rpc/sort/ranker"
@@ -29,6 +31,7 @@ var profileCache *cache.ProfileCache
 var rankerInstance *ranker.Ranker
 var rankerCfg *ranker.RankerConfig
 var embeddingCache *cache.EmbeddingCache
+var recallSources []recallsource.RecallSource
 
 func main() {
 	cfg = config.Load()
@@ -72,6 +75,19 @@ func main() {
 
 	// Initialize embedding cache
 	embeddingCache = cache.NewEmbeddingCache(mq.RDB, 24*time.Hour)
+
+	// Initialize recall sources
+	recallReader := recall.NewRedisRecallReader(mq.RDB, cfg.RecallRedisNamespace)
+	if cfg.EnableHotRecall {
+		recallSources = append(recallSources, recallsource.NewRedisRecallSource(recallReader, "hot_recall", recallsource.HotRecall, "hot_recall"))
+	}
+	if cfg.EnableNewRecall {
+		recallSources = append(recallSources, recallsource.NewRedisRecallSource(recallReader, "new_recall", recallsource.NewRecall, "new_recall"))
+	}
+	if cfg.EnableTwoTowerRecall {
+		recallSources = append(recallSources, recallsource.NewTwoTowerRecallSource(recallReader, cfg.TwoTowerRecallRedisKey, cfg.TwoTowerRecallK))
+	}
+	logger.Default().Info("recall sources initialized", "count", len(recallSources))
 
 	// Initialize Elasticsearch
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {
