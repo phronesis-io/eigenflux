@@ -366,7 +366,7 @@ func computeEngagement(db *gorm.DB) (Engagement, error) {
 		TotalScore    int64   `gorm:"column:total_score"`
 	}
 	if err := db.Table("processed_items").
-		Select("processed_items.item_id, processed_items.keywords, processed_items.quality_score, COALESCE(item_stats.consumed_count, 0) as consumed_count, COALESCE(item_stats.total_score, 0) as total_score").
+		Select("processed_items.item_id, processed_items.keywords, COALESCE(processed_items.quality_score, 0) as quality_score, COALESCE(item_stats.consumed_count, 0) as consumed_count, COALESCE(item_stats.total_score, 0) as total_score").
 		Joins("LEFT JOIN item_stats ON processed_items.item_id = item_stats.item_id").
 		Where("processed_items.status = 3").
 		Order("COALESCE(item_stats.consumed_count, 0) + COALESCE(item_stats.total_score, 0) DESC").

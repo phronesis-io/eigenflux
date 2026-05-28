@@ -113,6 +113,11 @@ func GetTrendPoints() ([]TrendPoint, error) {
 		return nil, err
 	}
 
+	// Limit to most recent 30 snapshots
+	if len(ids) > 30 {
+		ids = ids[len(ids)-30:]
+	}
+
 	points := make([]TrendPoint, 0, len(ids))
 	for _, id := range ids {
 		data, err := os.ReadFile(filepath.Join(SnapshotDir, fmt.Sprintf("%d.json", id)))

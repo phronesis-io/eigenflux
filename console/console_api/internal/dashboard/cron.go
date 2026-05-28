@@ -61,6 +61,14 @@ func RunOnce(db *gorm.DB) (int64, error) {
 }
 
 func runWithLock(ctx context.Context, db *gorm.DB, rdb *redis.Client) {
+	// Skip if a recent snapshot already exists (avoids redundant work on restart)
+	if latest, err := dal.GetLatestSnapshot(); err == nil && latest != nil {
+		if time.Since(time.UnixMilli(latest.CreatedAt)) < cronInterval {
+			log.Println("[dashboard] snapshot skipped (latest snapshot is recent)")
+			return
+		}
+	}
+
 	acquired, err := rdb.SetNX(ctx, lockKeyDashboard, time.Now().Unix(), lockTTL).Result()
 	if err != nil {
 		log.Printf("[dashboard] failed to acquire lock: %v", err)
@@ -70,7 +78,7 @@ func runWithLock(ctx context.Context, db *gorm.DB, rdb *redis.Client) {
 		log.Println("[dashboard] snapshot skipped (another instance is running)")
 		return
 	}
-	defer rdb.Del(ctx, lockKeyDashboard)
+	defer rdb.Del(context.Background(), lockKeyDashboard)
 
 	data, err := ComputeSnapshot(db)
 	if err != nil {
