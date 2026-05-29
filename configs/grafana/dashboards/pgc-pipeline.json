@@ -851,17 +851,17 @@
         "datasource": { "uid": "pgc-prometheus", "type": "prometheus" },
         "targets": [
           {
-            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model!~\"rule-based|dedup-pre-llm|unknown\"}[1h]))",
+            "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model!~\"rule-based|dedup-pre-llm|unknown\"}[$__rate_interval])) * 3600",
             "legendFormat": "real LLM",
             "refId": "A"
           },
           {
-            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"rule-based\"}[1h]))",
+            "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"rule-based\"}[$__rate_interval])) * 3600",
             "legendFormat": "rule-based (no LLM)",
             "refId": "B"
           },
           {
-            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"dedup-pre-llm\"}[1h]))",
+            "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"dedup-pre-llm\"}[$__rate_interval])) * 3600",
             "legendFormat": "dedup (no LLM)",
             "refId": "C"
           }
