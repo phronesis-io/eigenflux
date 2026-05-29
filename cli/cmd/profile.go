@@ -100,7 +100,7 @@ Examples:
 			params["limit"] = limit
 		}
 		if cursor != "" {
-			params["cursor"] = cursor
+			params["last_item_id"] = cursor
 		}
 		c := newClient()
 		resp, err := c.Get("/agents/items", params)
