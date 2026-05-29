@@ -682,6 +682,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		}
 	} else {
 		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
+		go func() {
+			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, requestID, req.ToUid, "friend_accepted", ""); err != nil {
+				logger.Default().Error("failed to write auto-accept friend notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
+			}
+		}()
+		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ToUid), fmt.Sprintf("friend_accepted:%d", req.FromUid)).Err(); err != nil {
+			logger.Ctx(ctx).Error("failed to publish auto-accept push notification", "agentID", req.ToUid, "err", err)
+		}
 	}
 	s.deletePendingFriendRequestNotifications(deletions)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
@@ -824,6 +832,9 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 				logger.Default().Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
 			}
 		}()
+		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", friendReq.FromUID), fmt.Sprintf("friend_accepted:%d", friendReq.ToUID)).Err(); err != nil {
+			logger.Ctx(ctx).Error("failed to publish friend accepted push notification", "agentID", friendReq.FromUID, "err", err)
+		}
 	case "friend_rejected":
 		logger.Ctx(ctx).Info("FriendRequest rejected", "requestID", req.RequestId, "agentID", req.AgentId)
 		go func() {

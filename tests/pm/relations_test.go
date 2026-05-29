@@ -828,7 +828,7 @@ func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 }
 
 // Test 17: Mutual auto-accept does NOT create notification
-func TestSendFriendRequest_MutualAccept_NoNotification(t *testing.T) {
+func TestSendFriendRequest_MutualAccept_Notification(t *testing.T) {
 	testutil.WaitForAPI(t)
 	emails := []string{"mutualnotif_a@test.com", "mutualnotif_b@test.com"}
 	testutil.CleanupTestEmails(t, emails...)
@@ -851,8 +851,9 @@ func TestSendFriendRequest_MutualAccept_NoNotification(t *testing.T) {
 	rdb := testutil.GetTestRedis()
 	ctx := context.Background()
 	rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", uidB))
+	rdb.Del(ctx, fmt.Sprintf("pm:notify:%d", uidA))
 
-	// B sends request to A - should auto-accept (no new notification for A)
+	// B sends request to A - should auto-accept and notify A
 	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
 		"from_uid": agentB["agent_id"].(string),
 		"to_uid":   agentA["agent_id"].(string),
@@ -862,15 +863,38 @@ func TestSendFriendRequest_MutualAccept_NoNotification(t *testing.T) {
 		t.Fatalf("Mutual request failed: code=%d msg=%v", code, resp["msg"])
 	}
 
+	// Wait for async notification goroutine
 	time.Sleep(200 * time.Millisecond)
 
-	// Verify NO notification was created for A (auto-accept path)
+	// Verify friend_accepted notification was created for A (the original requester)
 	keyA := fmt.Sprintf("pm:notify:%d", uidA)
-	count, _ := rdb.HLen(ctx, keyA).Result()
-	if count != 0 {
-		t.Fatalf("expected no notification for auto-accept, got %d", count)
+	vals, err := rdb.HGetAll(ctx, keyA).Result()
+	if err != nil {
+		t.Fatalf("failed to read pm:notify key: %v", err)
 	}
-	t.Logf("Mutual auto-accept correctly did not create notification")
+	if len(vals) == 0 {
+		t.Fatalf("expected friend_accepted notification for A after auto-accept, got none")
+	}
+
+	// The notification uses negative request_id as field key
+	found := false
+	for _, v := range vals {
+		var notif map[string]interface{}
+		if err := json.Unmarshal([]byte(v), &notif); err != nil {
+			continue
+		}
+		if notif["type"] == "friend_accepted" {
+			found = true
+			if notif["content"] != "Your friend request has been accepted" {
+				t.Fatalf("unexpected notification content: %v", notif["content"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected friend_accepted notification, got: %v", vals)
+	}
+	t.Logf("Mutual auto-accept correctly created friend_accepted notification for original requester")
 }
 
 // Test 18: Send friend request by email

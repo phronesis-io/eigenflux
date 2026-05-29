@@ -327,7 +327,7 @@ func TestWS_InitialPushIncludesHistory(t *testing.T) {
 	mockItem(t, itemID, authorID) // author owns the item so PM goes TO author
 	defer cleanMockItem(t, itemID)
 
-	// User sends PM to author about the item.
+	// User sends first PM to author — this will become the "historical" message.
 	sendResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
 		"receiver_id": author["agent_id"],
 		"item_id":     strconv.FormatInt(itemID, 10),
@@ -337,10 +337,33 @@ func TestWS_InitialPushIncludesHistory(t *testing.T) {
 		t.Fatalf("send PM failed: %v", sendResp["msg"])
 	}
 
-	// Author fetches (reads) the message so it becomes history (unread count → 0).
+	// Author fetches (reads) the first message so it becomes history.
 	testutil.DoGet(t, "/api/v1/pm/fetch", authorToken)
 
-	// Author dials WS — should receive initial push with history_messages.
+	// Author replies to break the ice, allowing user to send more messages.
+	convID := sendResp["data"].(map[string]interface{})["conv_id"].(string)
+	replyResp := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": user["agent_id"],
+		"conv_id":     convID,
+		"content":     "reply to break ice",
+	}, authorToken)
+	if int(replyResp["code"].(float64)) != 0 {
+		t.Fatalf("author reply failed: %v", replyResp["msg"])
+	}
+	// User reads the reply so it also becomes history.
+	testutil.DoGet(t, "/api/v1/pm/fetch", userToken)
+
+	// User sends second PM — this stays unread for author, ensuring pushInitial fires.
+	sendResp2 := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": author["agent_id"],
+		"item_id":     strconv.FormatInt(itemID, 10),
+		"content":     "unread msg",
+	}, userToken)
+	if int(sendResp2["code"].(float64)) != 0 {
+		t.Fatalf("send second PM failed: %v", sendResp2["msg"])
+	}
+
+	// Author dials WS — should receive initial push with both history and unread.
 	ws := dialWS(t, authorToken, 0)
 	defer ws.Close()
 
@@ -355,7 +378,7 @@ func TestWS_InitialPushIncludesHistory(t *testing.T) {
 		t.Fatalf("expected data to be a map, got: %T %v", envelope["data"], envelope["data"])
 	}
 
-	// history_messages must be present and non-empty.
+	// history_messages must be present and contain the read message.
 	rawHistory, hasHistory := data["history_messages"]
 	if !hasHistory {
 		t.Fatal("expected history_messages in initial push, key missing")
@@ -376,11 +399,25 @@ func TestWS_InitialPushIncludesHistory(t *testing.T) {
 		t.Fatalf("history_messages did not contain 'historical msg', got: %v", historyList)
 	}
 
-	// messages (unread) must be empty — author already read the message.
-	if rawMsgs, hasMsgs := data["messages"]; hasMsgs {
-		if list, ok := rawMsgs.([]interface{}); ok && len(list) > 0 {
-			t.Errorf("expected empty messages (all read), got: %v", list)
+	// messages (unread) must contain the second message.
+	rawMsgs, hasMsgs := data["messages"]
+	if !hasMsgs {
+		t.Fatal("expected messages in initial push")
+	}
+	msgList, ok := rawMsgs.([]interface{})
+	if !ok || len(msgList) == 0 {
+		t.Fatalf("expected non-empty messages (unread), got: %v", rawMsgs)
+	}
+	unreadFound := false
+	for _, item := range msgList {
+		m, ok := item.(map[string]interface{})
+		if ok && m["content"] == "unread msg" {
+			unreadFound = true
+			break
 		}
+	}
+	if !unreadFound {
+		t.Fatalf("messages did not contain 'unread msg', got: %v", msgList)
 	}
 }
 
@@ -730,4 +767,121 @@ func TestWS_NoEmptyPushOnDuplicatePubSub(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Bug: Auto-accept mutual friend request should push friend_accepted via WS
+// to the original requester who is online.
+func TestWS_AutoAcceptFriendRequestPush(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_autoaccept_a@test.com", "ws_autoaccept_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "ws_autoaccept_a@test.com", "AutoA", "bio")
+	agentB := testutil.RegisterAgent(t, "ws_autoaccept_b@test.com", "AutoB", "bio")
+
+	aID, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+
+	cleanPMData(t, aID, bID)
+	cleanRelationsData(t, aID, bID)
+	defer cleanPMData(t, aID, bID)
+	defer cleanRelationsData(t, aID, bID)
+
+	// A sends friend request to B.
+	testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"from_uid": agentA["agent_id"].(string),
+		"to_uid":   agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+
+	time.Sleep(300 * time.Millisecond)
+
+	// A connects to WS (simulating the user being online).
+	ws := dialWS(t, agentA["token"].(string), 0)
+	defer ws.Close()
+
+	// Wait for WS subscription to establish (no initial push expected since A has
+	// no unread PMs or pending incoming requests).
+	time.Sleep(500 * time.Millisecond)
+
+	// B sends friend request to A — triggers auto-accept.
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"from_uid": agentB["agent_id"].(string),
+		"to_uid":   agentA["agent_id"].(string),
+	}, agentB["token"].(string))
+	if int(resp["code"].(float64)) != 0 {
+		t.Fatalf("auto-accept request failed: %v", resp["msg"])
+	}
+
+	// A should receive a friend_accepted push via WS.
+	envelope := readPush(t, ws, 10*time.Second)
+	if envelope["type"] != "friend_accepted" {
+		t.Fatalf("expected type friend_accepted, got %v", envelope["type"])
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data map, got %T %v", envelope["data"], envelope["data"])
+	}
+	if data["friend_uid"] != agentB["agent_id"].(string) {
+		t.Errorf("expected friend_uid=%s, got %v", agentB["agent_id"].(string), data["friend_uid"])
+	}
+	t.Logf("Auto-accept correctly pushed friend_accepted to original requester via WS")
+}
+
+// HandleFriendRequest accept should push friend_accepted via WS to the original sender.
+func TestWS_AcceptFriendRequestPush(t *testing.T) {
+	testutil.WaitForAPI(t)
+	waitForWS(t)
+
+	emails := []string{"ws_acceptpush_a@test.com", "ws_acceptpush_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, "ws_acceptpush_a@test.com", "AccPushA", "bio")
+	agentB := testutil.RegisterAgent(t, "ws_acceptpush_b@test.com", "AccPushB", "bio")
+
+	aID, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	bID, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+
+	cleanPMData(t, aID, bID)
+	cleanRelationsData(t, aID, bID)
+	defer cleanPMData(t, aID, bID)
+	defer cleanRelationsData(t, aID, bID)
+
+	// A sends friend request to B.
+	resp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"from_uid": agentA["agent_id"].(string),
+		"to_uid":   agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	requestID := resp["data"].(map[string]interface{})["request_id"].(string)
+
+	// A connects to WS.
+	ws := dialWS(t, agentA["token"].(string), 0)
+	defer ws.Close()
+
+	// Wait for WS subscription to establish.
+	time.Sleep(500 * time.Millisecond)
+
+	// B accepts the friend request.
+	acceptResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+	if int(acceptResp["code"].(float64)) != 0 {
+		t.Fatalf("accept failed: %v", acceptResp["msg"])
+	}
+
+	// A should receive a friend_accepted push via WS.
+	envelope := readPush(t, ws, 10*time.Second)
+	if envelope["type"] != "friend_accepted" {
+		t.Fatalf("expected type friend_accepted, got %v", envelope["type"])
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data map, got %T %v", envelope["data"], envelope["data"])
+	}
+	if data["friend_uid"] != agentB["agent_id"].(string) {
+		t.Errorf("expected friend_uid=%s, got %v", agentB["agent_id"].(string), data["friend_uid"])
+	}
+	t.Logf("Accept correctly pushed friend_accepted to original sender via WS")
 }

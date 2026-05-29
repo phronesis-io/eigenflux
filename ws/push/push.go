@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hertz-contrib/websocket"
 	"github.com/redis/go-redis/v9"
@@ -224,6 +225,24 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 }
 
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection, eventPayload string) {
+	// Handle friend_accepted event — push directly without fetching PMs or pending requests.
+	if friendUID, ok := strings.CutPrefix(eventPayload, "friend_accepted:"); ok {
+		envelope := Message{Type: "friend_accepted", Data: map[string]string{"friend_uid": friendUID}}
+		payload, err := json.Marshal(envelope)
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: marshal friend_accepted failed", "err", err)
+			return
+		}
+		conn.WriteMu.Lock()
+		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
+		conn.WriteMu.Unlock()
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: write friend_accepted failed", "agentID", conn.AgentID, "err", err)
+		}
+		logger.Ctx(ctx).Info("ws: pushed", "agentID", conn.AgentID, "event", eventPayload)
+		return
+	}
+
 	isFriendRequestEvent := eventPayload == "friend_request"
 
 	// Always fetch unread PMs.
