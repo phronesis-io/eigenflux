@@ -75,6 +75,8 @@ func TestAuthLoginFlow(t *testing.T) {
 		"auth_case_identity@test.com", "auth_case_reuse@test.com",
 		"auth_reuse_ip_limit@test.com",
 		"auth_mock_start_bypass@test.com", "auth_mock_verify_bypass@test.com",
+		"auth_idempotent_wrongcode@test.com",
+		"auth_verify_cleanup@test.com", "auth_concurrent_race@test.com",
 	}
 	testutil.CleanupTestEmails(t, allEmails...)
 
@@ -408,7 +410,11 @@ func TestAuthLoginFlow(t *testing.T) {
 			}
 		})
 
-		t.Run("Replay_ConsumedChallenge", func(t *testing.T) {
+		t.Run("Replay_ConsumedChallenge_Idempotent", func(t *testing.T) {
+			// After the VerifyLogin idempotent fix, replaying with the correct
+			// OTP within the 2-minute cache window returns the cached success
+			// result (same access_token). This prevents client double-click
+			// scenarios from causing login loops.
 			email := "auth_replay@test.com"
 			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
@@ -420,13 +426,21 @@ func TestAuthLoginFlow(t *testing.T) {
 			if int(verifyResp["code"].(float64)) != 0 {
 				t.Fatalf("first verify should succeed: %v", verifyResp["msg"])
 			}
+			firstData := verifyResp["data"].(map[string]interface{})
+			firstToken := firstData["access_token"].(string)
 
 			replayResp := testutil.LoginVerifyOTP(t, challengeID, otp)
-			code := int(replayResp["code"].(float64))
-			if code == 0 {
-				t.Fatal("expected failure for replay of consumed challenge")
+			replayCode := int(replayResp["code"].(float64))
+			if replayCode != 0 {
+				t.Fatalf("idempotent replay should succeed, got code=%d msg=%v", replayCode, replayResp["msg"])
 			}
-			t.Log("Replay of consumed challenge correctly rejected")
+			replayData := replayResp["data"].(map[string]interface{})
+			replayToken := replayData["access_token"].(string)
+
+			if replayToken != firstToken {
+				t.Fatalf("idempotent replay should return same access_token: first=%s replay=%s", firstToken, replayToken)
+			}
+			t.Logf("Idempotent replay correctly returned same access_token")
 		})
 
 		t.Run("Expired_Challenge", func(t *testing.T) {
@@ -451,6 +465,113 @@ func TestAuthLoginFlow(t *testing.T) {
 				t.Fatal("expected failure for expired challenge")
 			}
 			t.Log("Expired challenge correctly rejected")
+		})
+
+		t.Run("VerifyLogin_IdempotentWrongCode", func(t *testing.T) {
+			// Idempotent replay must only work with the correct OTP.
+			// A wrong code against a consumed challenge must still fail.
+			email := "auth_idempotent_wrongcode@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+			otp := testutil.GetMockOTP(t)
+
+			verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			if int(verifyResp["code"].(float64)) != 0 {
+				t.Fatalf("first verify should succeed: %v", verifyResp["msg"])
+			}
+
+			wrongResp := testutil.LoginVerifyOTP(t, challengeID, "000000")
+			if int(wrongResp["code"].(float64)) == 0 {
+				t.Fatal("wrong OTP against consumed challenge should still fail")
+			}
+			t.Log("Wrong OTP against consumed challenge correctly rejected")
+		})
+
+		t.Run("VerifyLogin_CleansUpRedisActiveKey", func(t *testing.T) {
+			email := "auth_verify_cleanup@test.com"
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+			ctx := context.Background()
+			rdb := testutil.GetTestRedis()
+			emailHash := sha256.Sum256([]byte(email))
+			activeKey := "auth:login:email:active:" + hex.EncodeToString(emailHash[:])
+
+			startData := testutil.LoginStart(t, email)
+			challengeID := startData["challenge_id"].(string)
+
+			// Verify Redis key exists before consumption
+			_, err := rdb.Get(ctx, activeKey).Result()
+			if err != nil {
+				t.Fatalf("expected active key before verify: %v", err)
+			}
+
+			// Verify login (consume challenge)
+			otp := testutil.GetMockOTP(t)
+			verifyResp := testutil.LoginVerifyOTP(t, challengeID, otp)
+			if int(verifyResp["code"].(float64)) != 0 {
+				t.Fatalf("verify failed: %v", verifyResp["msg"])
+			}
+
+			// Redis active key should be cleaned up
+			_, err = rdb.Get(ctx, activeKey).Result()
+			if err == nil {
+				t.Fatal("expected active key to be deleted after successful verification")
+			}
+			t.Log("Redis active key correctly cleaned up after verification")
+		})
+
+		t.Run("ConcurrentStartLogin_SameChallengeID", func(t *testing.T) {
+			email := "auth_concurrent_race@test.com"
+			ip := mockWhitelistedIP(t)
+			t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+			ctx := context.Background()
+			rdb := testutil.GetTestRedis()
+			emailHash := sha256.Sum256([]byte(email))
+			activeKey := "auth:login:email:active:" + hex.EncodeToString(emailHash[:])
+			rdb.Del(ctx, activeKey)
+
+			const concurrency = 5
+			type result struct {
+				challengeID string
+				err         error
+			}
+			results := make(chan result, concurrency)
+
+			for i := 0; i < concurrency; i++ {
+				go func() {
+					resp := doPostWithIPHeader(t, "/api/v1/auth/login", map[string]string{
+						"login_method": "email",
+						"email":        email,
+					}, ip)
+					code := int(resp["code"].(float64))
+					if code != 0 {
+						results <- result{err: fmt.Errorf("code=%v msg=%v", resp["code"], resp["msg"])}
+						return
+					}
+					data := resp["data"].(map[string]interface{})
+					results <- result{challengeID: data["challenge_id"].(string)}
+				}()
+			}
+
+			var ids []string
+			for i := 0; i < concurrency; i++ {
+				r := <-results
+				if r.err != nil {
+					t.Fatalf("concurrent login failed: %v", r.err)
+				}
+				ids = append(ids, r.challengeID)
+			}
+
+			// All concurrent requests must converge on the same challenge_id.
+			for i := 1; i < len(ids); i++ {
+				if ids[i] != ids[0] {
+					t.Fatalf("race condition: concurrent requests got different challenge_ids: %s vs %s", ids[0], ids[i])
+				}
+			}
+			t.Logf("All %d concurrent requests converged on challenge_id=%s", concurrency, ids[0])
 		})
 	}
 

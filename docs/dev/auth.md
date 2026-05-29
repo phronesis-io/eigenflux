@@ -14,7 +14,8 @@ Email login, passwordless:
 ## Security Mechanisms
 
 Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:
-- Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Each call still sends the email and counts toward the IP rate limit. This prevents agents from confusing round-trips by verifying a stale code against a freshly issued challenge.
+- Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Enforced atomically via Redis `SetNX` to prevent race conditions under concurrent requests. Each call still sends the email and counts toward the IP rate limit.
+- Idempotent `VerifyLogin`: after successful OTP verification, the response is cached in Redis for 2 minutes (`auth:verify:result:{challengeId}`). Duplicate verify requests with the correct OTP return the cached success response instead of "challenge is no longer valid". This prevents client double-click scenarios from causing login loops. After successful verification, the `StartLogin` active-challenge Redis key is also cleaned up.
 - Verify IP rate limiting (100 times/10min; requests matching mock email suffix whitelist AND IP whitelist skip this limit)
 - OTP max 5 attempts
 - 10-minute challenge expiration

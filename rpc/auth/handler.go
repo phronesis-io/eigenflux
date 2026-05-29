@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -99,6 +100,21 @@ func generateOTP() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+// getCachedVerifyResult returns a previously cached VerifyLogin success
+// response, or nil if the cache is empty or corrupt.
+func getCachedVerifyResult(ctx context.Context, challengeID string) *auth.VerifyLoginResp {
+	cacheKey := "auth:verify:result:" + challengeID
+	cached, err := mq.RDB.Get(ctx, cacheKey).Result()
+	if err != nil {
+		return nil
+	}
+	var resp auth.VerifyLoginResp
+	if jerr := json.Unmarshal([]byte(cached), &resp); jerr != nil {
+		return nil
+	}
+	return &resp
 }
 
 func normalizeEmail(raw string) string {
@@ -259,32 +275,37 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 	}
 
 	// Within the 10-minute challenge validity window, repeated StartLogin for
-	// the same email must return the same challenge_id and the same OTP. This
-	// prevents agents from mixing up round-trips (verifying a stale code
-	// against a freshly issued challenge).
+	// the same email must return the same challenge_id and the same OTP.
+	// Uses a SetNX-based retry loop to prevent race conditions when concurrent
+	// requests arrive (e.g. LLM agents that fire multiple requests rapidly).
 	activeKey := "auth:login:email:active:" + emailHash
 	var challengeID string
 	var otpCode string
 	var expireAt int64
 
-	if val, gerr := mq.RDB.Get(ctx, activeKey).Result(); gerr == nil && val != "" {
-		if sep := strings.IndexByte(val, ':'); sep > 0 {
-			cachedID := val[:sep]
-			cachedOTP := val[sep+1:]
-			// 1-minute safety buffer: if the existing challenge is about to
-			// expire, issue a fresh one so the user has enough time to enter
-			// the OTP after receiving the email.
-			if existing, cerr := dal.GetChallenge(db.DB, cachedID); cerr == nil &&
-				existing != nil && existing.Status == 0 &&
-				existing.ExpireAt > time.Now().Add(time.Minute).UnixMilli() {
-				challengeID = cachedID
-				otpCode = cachedOTP
-				expireAt = existing.ExpireAt
+	for attempt := 0; attempt < 2 && challengeID == ""; attempt++ {
+		// Step 1: Try to reuse an existing challenge from Redis cache.
+		if val, gerr := mq.RDB.Get(ctx, activeKey).Result(); gerr == nil && val != "" {
+			if sep := strings.IndexByte(val, ':'); sep > 0 {
+				cachedID := val[:sep]
+				cachedOTP := val[sep+1:]
+				// 1-minute safety buffer: if the existing challenge is about to
+				// expire, issue a fresh one so the user has enough time to enter
+				// the OTP after receiving the email.
+				if existing, cerr := dal.GetChallenge(db.DB, cachedID); cerr == nil &&
+					existing != nil && existing.Status == 0 &&
+					existing.ExpireAt > time.Now().Add(time.Minute).UnixMilli() {
+					challengeID = cachedID
+					otpCode = cachedOTP
+					expireAt = existing.ExpireAt
+					break
+				}
 			}
+			// Stale or consumed entry — delete so SetNX below can proceed.
+			mq.RDB.Del(ctx, activeKey)
 		}
-	}
 
-	if challengeID == "" {
+		// Step 2: Create a new challenge in the DB.
 		newID := "ch_" + uuid.New().String()
 		newOTP, gerr := generateOTP()
 		if gerr != nil {
@@ -317,11 +338,35 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 			}, nil
 		}
 
-		mq.RDB.Set(ctx, activeKey, newID+":"+newOTP, 10*time.Minute)
+		// Step 3: Atomic claim via SET NX — only one concurrent request wins.
+		set, serr := mq.RDB.SetNX(ctx, activeKey, newID+":"+newOTP, 10*time.Minute).Result()
+		if serr != nil {
+			// Redis unavailable — degrade gracefully: use the challenge we
+			// just created and accept a small chance of duplicate OTPs.
+			logger.Ctx(ctx).Warn("StartLogin SetNX failed, degrading", "err", serr)
+			challengeID = newID
+			otpCode = newOTP
+			expireAt = newExpireAt
+			break
+		}
 
-		challengeID = newID
-		otpCode = newOTP
-		expireAt = newExpireAt
+		if set {
+			// We won the race.
+			challengeID = newID
+			otpCode = newOTP
+			expireAt = newExpireAt
+		} else {
+			// Another request claimed the key first. Revoke our orphaned
+			// challenge and loop back to read the winner's value.
+			_ = dal.RevokeChallenge(db.DB, newID)
+			logger.Ctx(ctx).Info("StartLogin SetNX race lost, retrying", "attempt", attempt, "revokedChallenge", newID)
+		}
+	}
+
+	if challengeID == "" {
+		return &auth.StartLoginResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to establish login challenge"},
+		}, nil
 	}
 
 	// Send email on every call (skip for mock OTP targets). Reuse of the
@@ -412,6 +457,23 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 
 	now := time.Now().UnixMilli()
 
+	// Idempotent handling for already-consumed challenges (e.g. client
+	// double-click submits two VerifyLogin requests within ~1s; the first
+	// succeeds, the second would previously fail with "challenge is no longer
+	// valid", causing the client to think verification failed).
+	// Check cache first: if no cache, skip SHA256 entirely. If cache exists,
+	// verify OTP before returning (so a wrong code still fails).
+	if challenge.Status == 1 {
+		if resp := getCachedVerifyResult(ctx, req.ChallengeId); resp != nil {
+			if s.isOTPMatched(*req.Code, challenge) {
+				logger.Ctx(ctx).Info("VerifyLogin idempotent hit", "challengeID", req.ChallengeId)
+				return resp, nil
+			}
+		}
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: "challenge is no longer valid"},
+		}, nil
+	}
 	if challenge.Status != 0 {
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "challenge is no longer valid"},
@@ -452,6 +514,12 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 		}, nil
 	}
 	if !consumed {
+		// Another request consumed it between our status check and the atomic
+		// UPDATE.  Return the cached result (idempotent).
+		if resp := getCachedVerifyResult(ctx, req.ChallengeId); resp != nil {
+			logger.Ctx(ctx).Info("VerifyLogin idempotent hit (post-consume race)", "challengeID", req.ChallengeId)
+			return resp, nil
+		}
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "challenge is no longer valid"},
 		}, nil
@@ -463,7 +531,29 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 		}, nil
 	}
 
-	return s.completeEmailLogin(ctx, normalizeEmail(*challenge.Email), req.ClientIp, req.UserAgent)
+	loginResp, loginErr := s.completeEmailLogin(ctx, normalizeEmail(*challenge.Email), req.ClientIp, req.UserAgent)
+	if loginErr != nil {
+		return nil, loginErr
+	}
+	if loginResp.BaseResp != nil && loginResp.BaseResp.Code == 0 {
+		// Cache the successful response for idempotent replay (2-minute window
+		// is sufficient to cover client double-click scenarios).
+		if respJSON, jerr := json.Marshal(loginResp); jerr == nil {
+			cacheKey := "auth:verify:result:" + req.ChallengeId
+			mq.RDB.Set(ctx, cacheKey, string(respJSON), 2*time.Minute)
+		}
+
+		// Clean up the StartLogin active-challenge key so the next StartLogin
+		// creates a fresh challenge instead of reusing this consumed one.
+		consumedEmail := normalizeEmail(*challenge.Email)
+		activeKey := "auth:login:email:active:" + sha256Hex(consumedEmail)
+		if cached, cerr := mq.RDB.Get(ctx, activeKey).Result(); cerr == nil {
+			if strings.HasPrefix(cached, req.ChallengeId+":") {
+				mq.RDB.Del(ctx, activeKey)
+			}
+		}
+	}
+	return loginResp, nil
 }
 
 // ValidateSession verifies an access token and returns the associated agent_id and email.
