@@ -880,6 +880,35 @@
             "unit": "short"
           }
         }
+      },
+      {
+        "id": 63,
+        "title": "Stage Latency (avg, 6h)",
+        "type": "timeseries",
+        "description": "Average seconds per pipeline stage over the last 6h — which stage is slow + that each stage is alive. extract=indexed→extracted, process=extracted→processed, publish=processed→pushed. Requires pgc_stage_latency_seconds (eigenflux-pgc PR — shows no data until that exporter is deployed).",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+        "datasource": { "uid": "pgc-prometheus", "type": "prometheus" },
+        "targets": [
+          {
+            "expr": "pgc_stage_latency_seconds{job=\"pgc-pipeline\"}",
+            "legendFormat": "{{stage}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "scheme",
+              "pointSize": 3,
+              "spanNulls": true
+            },
+            "unit": "s"
+          }
+        }
       }
     ],
     "schemaVersion": 39,
