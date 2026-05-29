@@ -50,7 +50,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -81,7 +82,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -112,7 +114,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           },
           "color": { "mode": "palette-classic" }
         },
@@ -171,7 +174,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -202,7 +206,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -240,7 +245,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -278,7 +284,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -315,7 +322,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -352,7 +360,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "pointSize": 5,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "spanNulls": true
           }
         },
         "overrides": []

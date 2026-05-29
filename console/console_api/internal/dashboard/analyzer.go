@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -79,13 +80,16 @@ type Engagement struct {
 }
 
 // ComputeSnapshot runs all analysis queries and returns the snapshot JSON.
+// Item-level analysis is scoped to the last 7 days to keep query sizes manageable.
 func ComputeSnapshot(db *gorm.DB) (json.RawMessage, error) {
+	sinceMs := time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
+
 	summary, err := computeSummary(db)
 	if err != nil {
 		return nil, err
 	}
 
-	itemKeywordFreq, err := queryItemKeywords(db)
+	itemKeywordFreq, err := queryItemKeywords(db, sinceMs)
 	if err != nil {
 		return nil, err
 	}
@@ -97,12 +101,12 @@ func ComputeSnapshot(db *gorm.DB) (json.RawMessage, error) {
 
 	keywordAnalysis := computeKeywordAnalysis(itemKeywordFreq, userKeywordFreq)
 
-	domainAnalysis, err := computeDomainAnalysis(db)
+	domainAnalysis, err := computeDomainAnalysis(db, sinceMs)
 	if err != nil {
 		return nil, err
 	}
 
-	engagement, err := computeEngagement(db)
+	engagement, err := computeEngagement(db, sinceMs)
 	if err != nil {
 		return nil, err
 	}
@@ -144,13 +148,13 @@ func computeSummary(db *gorm.DB) (Summary, error) {
 	return s, nil
 }
 
-func queryItemKeywords(db *gorm.DB) (map[string]int, error) {
+func queryItemKeywords(db *gorm.DB, sinceMs int64) (map[string]int, error) {
 	var rows []struct {
 		Keywords string `gorm:"column:keywords"`
 	}
 	if err := db.Table("processed_items").
 		Select("keywords").
-		Where("status = 3 AND keywords != ''").
+		Where("status = 3 AND keywords != '' AND updated_at >= ?", sinceMs).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -225,7 +229,7 @@ func computeKeywordAnalysis(itemFreq, userFreq map[string]int) KeywordAnalysis {
 	return ka
 }
 
-func computeDomainAnalysis(db *gorm.DB) (DomainAnalysis, error) {
+func computeDomainAnalysis(db *gorm.DB, sinceMs int64) (DomainAnalysis, error) {
 	var da DomainAnalysis
 	da.BroadcastTypeDistribution = make(map[string]int)
 
@@ -235,7 +239,7 @@ func computeDomainAnalysis(db *gorm.DB) (DomainAnalysis, error) {
 	}
 	if err := db.Table("processed_items").
 		Select("broadcast_type, COUNT(*) as count").
-		Where("status = 3").
+		Where("status = 3 AND updated_at >= ?", sinceMs).
 		Group("broadcast_type").
 		Find(&btRows).Error; err != nil {
 		return da, err
@@ -254,7 +258,7 @@ func computeDomainAnalysis(db *gorm.DB) (DomainAnalysis, error) {
 	}
 	if err := db.Table("processed_items").
 		Select("domains, item_id").
-		Where("status = 3 AND domains != ''").
+		Where("status = 3 AND domains != '' AND updated_at >= ?", sinceMs).
 		Find(&domainRows).Error; err != nil {
 		return da, err
 	}
@@ -266,18 +270,25 @@ func computeDomainAnalysis(db *gorm.DB) (DomainAnalysis, error) {
 
 	consumedMap := make(map[int64]int64)
 	if len(itemIDs) > 0 {
-		var statsRows []struct {
-			ItemID        int64 `gorm:"column:item_id"`
-			ConsumedCount int64 `gorm:"column:consumed_count"`
-		}
-		if err := db.Table("item_stats").
-			Select("item_id, consumed_count").
-			Where("item_id IN ?", itemIDs).
-			Find(&statsRows).Error; err != nil {
-			return da, err
-		}
-		for _, s := range statsRows {
-			consumedMap[s.ItemID] = s.ConsumedCount
+		const batchSize = 50000
+		for start := 0; start < len(itemIDs); start += batchSize {
+			end := start + batchSize
+			if end > len(itemIDs) {
+				end = len(itemIDs)
+			}
+			var statsRows []struct {
+				ItemID        int64 `gorm:"column:item_id"`
+				ConsumedCount int64 `gorm:"column:consumed_count"`
+			}
+			if err := db.Table("item_stats").
+				Select("item_id, consumed_count").
+				Where("item_id IN ?", itemIDs[start:end]).
+				Find(&statsRows).Error; err != nil {
+				return da, err
+			}
+			for _, s := range statsRows {
+				consumedMap[s.ItemID] = s.ConsumedCount
+			}
 		}
 	}
 
@@ -319,7 +330,7 @@ func computeDomainAnalysis(db *gorm.DB) (DomainAnalysis, error) {
 	return da, nil
 }
 
-func computeEngagement(db *gorm.DB) (Engagement, error) {
+func computeEngagement(db *gorm.DB, sinceMs int64) (Engagement, error) {
 	var e Engagement
 
 	var qualityRows []struct {
@@ -327,7 +338,7 @@ func computeEngagement(db *gorm.DB) (Engagement, error) {
 	}
 	if err := db.Table("processed_items").
 		Select("quality_score").
-		Where("status = 3").
+		Where("status = 3 AND updated_at >= ?", sinceMs).
 		Find(&qualityRows).Error; err != nil {
 		return e, err
 	}
@@ -368,7 +379,7 @@ func computeEngagement(db *gorm.DB) (Engagement, error) {
 	if err := db.Table("processed_items").
 		Select("processed_items.item_id, processed_items.keywords, COALESCE(processed_items.quality_score, 0) as quality_score, COALESCE(item_stats.consumed_count, 0) as consumed_count, COALESCE(item_stats.total_score, 0) as total_score").
 		Joins("LEFT JOIN item_stats ON processed_items.item_id = item_stats.item_id").
-		Where("processed_items.status = 3").
+		Where("processed_items.status = 3 AND processed_items.updated_at >= ?", sinceMs).
 		Order("COALESCE(item_stats.consumed_count, 0) + COALESCE(item_stats.total_score, 0) DESC").
 		Limit(50).
 		Find(&topItems).Error; err != nil {
@@ -392,7 +403,7 @@ func computeEngagement(db *gorm.DB) (Engagement, error) {
 	if err := db.Table("processed_items").
 		Select("processed_items.item_id, processed_items.keywords, COALESCE(item_stats.consumed_count, 0) as consumed_count").
 		Joins("LEFT JOIN item_stats ON processed_items.item_id = item_stats.item_id").
-		Where("processed_items.status = 3 AND processed_items.keywords != ''").
+		Where("processed_items.status = 3 AND processed_items.keywords != '' AND processed_items.updated_at >= ?", sinceMs).
 		Find(&allItemStats).Error; err != nil {
 		return e, err
 	}
