@@ -805,6 +805,81 @@
           "enableLogDetails": true,
           "dedupStrategy": "none"
         }
+      },
+      {
+        "id": 60,
+        "title": "Worker Health & Real LLM",
+        "type": "row",
+        "collapsed": false,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 }
+      },
+      {
+        "id": 61,
+        "title": "Worker Last Run Age",
+        "type": "timeseries",
+        "description": "Seconds since each worker last finished a run_once cycle. All three workers (crawl / process / publish) appear via the {{worker}} legend — if 'process' is missing it never finished a cycle, not that the metric is absent. A line that only climbs = that worker stalled or crashed mid-cycle.",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+        "datasource": { "uid": "pgc-prometheus", "type": "prometheus" },
+        "targets": [
+          {
+            "expr": "pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"}",
+            "legendFormat": "{{worker}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "scheme",
+              "pointSize": 3,
+              "spanNulls": true
+            },
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 62,
+        "title": "LLM Calls by Type (per hour)",
+        "type": "timeseries",
+        "description": "Splits pgc_llm_calls_total by what actually ran. Only 'real LLM' consumes model tokens; 'rule-based' (NewsAPI shortcut) and 'dedup' make ZERO LLM calls. Summing all three — the old 'LLM per day' number — over-counts real LLM usage.",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+        "datasource": { "uid": "pgc-prometheus", "type": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model!~\"rule-based|dedup-pre-llm|unknown\"}[1h]))",
+            "legendFormat": "real LLM",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"rule-based\"}[1h]))",
+            "legendFormat": "rule-based (no LLM)",
+            "refId": "B"
+          },
+          {
+            "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"dedup-pre-llm\"}[1h]))",
+            "legendFormat": "dedup (no LLM)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "scheme",
+              "pointSize": 3,
+              "spanNulls": true
+            },
+            "unit": "short"
+          }
+        }
       }
     ],
     "schemaVersion": 39,
