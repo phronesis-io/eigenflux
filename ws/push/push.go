@@ -187,7 +187,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		nextCursor = unreadResp.NextCursor
 	}
 
-	if len(history) == 0 && len(unread) == 0 && len(pending) == 0 {
+	if len(unread) == 0 && len(pending) == 0 {
 		return
 	}
 
