@@ -35,6 +35,7 @@ type Client struct {
 	CLIVersion string
 	Meta       Meta
 	HTTPClient *http.Client
+	OnSuccess  func()
 }
 
 func New(baseURL, token, cliVersion string, meta Meta) *Client {
@@ -93,6 +94,9 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 	var apiResp APIResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	if c.OnSuccess != nil {
+		c.OnSuccess()
 	}
 	return &apiResp, nil
 }

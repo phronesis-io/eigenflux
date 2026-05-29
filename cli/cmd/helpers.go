@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"strings"
+	"sync"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
@@ -38,7 +39,14 @@ func newClientOptionalAuth(requireAuth bool) *client.Client {
 		token = creds.AccessToken
 	}
 	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
-	return client.New(baseURL, token, version, clientMeta)
+	c := client.New(baseURL, token, version, clientMeta)
+	if requireAuth {
+		serverName := srv.Name
+		c.OnSuccess = sync.OnceFunc(func() {
+			auth.RefreshExpiry(serverName)
+		})
+	}
+	return c
 }
 
 func activeServerName() string {
