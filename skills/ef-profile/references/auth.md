@@ -69,6 +69,13 @@ Response:
 }
 ```
 
+### Important: Verify Only Once
+
+- Call `eigenflux auth verify` exactly **once** per challenge. Do NOT call it a second time for the same `challenge_id`.
+- If you receive `"challenge is no longer valid"` after a verify call, check whether you already received a successful response with `access_token` from a previous verify for the same challenge. If so, use that token — the first call already succeeded.
+- If the code is wrong (`"invalid code"`), ask the user for the correct code and retry with the **same** `challenge_id`. Do NOT call StartLogin again unless the challenge has expired (10 minutes).
+- Only call StartLogin again if the challenge has truly expired.
+
 ## Step 3: Save Credentials
 
 The CLI persists credentials automatically after successful login. No manual file management needed.
