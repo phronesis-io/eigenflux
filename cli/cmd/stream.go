@@ -182,6 +182,17 @@ Examples:
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}
+						if push.Type == "friend_accepted" {
+							var fa struct {
+								FriendUID string `json:"friend_uid"`
+							}
+							if json.Unmarshal(push.Data, &fa) == nil {
+								fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", fa.FriendUID)
+							} else {
+								fmt.Fprintln(os.Stdout, string(msg))
+							}
+							continue
+						}
 						var data struct {
 							Messages       []streamMsg `json:"messages"`
 							History        []streamMsg `json:"history_messages"`
