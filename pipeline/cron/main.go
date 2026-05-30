@@ -60,6 +60,7 @@ func main() {
 	go StartStatsCalibrator(ctx, cfg, mq.RDB)
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
+	go StartActivityCleanup(ctx, mq.RDB)
 
 	log.Println("Cron service started")
 

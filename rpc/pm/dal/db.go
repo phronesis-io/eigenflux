@@ -114,34 +114,60 @@ func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 // ListConversations retrieves ice-broken conversations (msg_count >= 2) for an agent.
 // Uses UNION ALL on the two indexed columns to avoid OR-based sequential scan.
 func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
+	return ListConversationsFiltered(db, agentID, cursor, limit, "")
+}
+
+func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, originType string) ([]*Conversation, error) {
 	var convs []*Conversation
 	var err error
 
+	originFilter := ""
+	args := make([]interface{}, 0, 8)
+	if originType != "" {
+		originFilter = " AND origin_type = ?"
+	}
+
 	if cursor > 0 {
-		err = db.Raw(
-			`SELECT * FROM (
-				(SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 AND updated_at < ? ORDER BY updated_at DESC LIMIT ?)
-				UNION ALL
-				(SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 AND updated_at < ? ORDER BY updated_at DESC LIMIT ?)
-			) AS c ORDER BY updated_at DESC LIMIT ?`,
-			agentID, cursor, limit,
-			agentID, cursor, limit,
-			limit,
-		).Scan(&convs).Error
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+
+		if originType != "" {
+			args = append(args, agentID, cursor, originType, limit, agentID, cursor, originType, limit, limit)
+		} else {
+			args = append(args, agentID, cursor, limit, agentID, cursor, limit, limit)
+		}
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		err = db.Raw(query, args...).Scan(&convs).Error
 	} else {
-		err = db.Raw(
-			`SELECT * FROM (
-				(SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 ORDER BY updated_at DESC LIMIT ?)
-				UNION ALL
-				(SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 ORDER BY updated_at DESC LIMIT ?)
-			) AS c ORDER BY updated_at DESC LIMIT ?`,
-			agentID, limit,
-			agentID, limit,
-			limit,
-		).Scan(&convs).Error
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+
+		if originType != "" {
+			args = append(args, agentID, originType, limit, agentID, originType, limit, limit)
+		} else {
+			args = append(args, agentID, limit, agentID, limit, limit)
+		}
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		err = db.Raw(query, args...).Scan(&convs).Error
 	}
 
 	return convs, err
+}
+
+// GetLastMessage fetches the most recent message in a conversation.
+func GetLastMessage(db *gorm.DB, convID int64) (*PrivateMessage, error) {
+	var msg PrivateMessage
+	err := db.Where("conv_id = ?", convID).Order("msg_id DESC").First(&msg).Error
+	return &msg, err
+}
+
+// CountUnread counts unread messages for a given agent in a conversation.
+func CountUnread(db *gorm.DB, convID, agentID int64) (int32, error) {
+	var count int64
+	err := db.Model(&PrivateMessage{}).
+		Where("conv_id = ? AND receiver_id = ? AND is_read = false", convID, agentID).
+		Count(&count).Error
+	return int32(count), err
 }
 
 // GetConvMessages retrieves messages for a conversation with cursor pagination (older messages)

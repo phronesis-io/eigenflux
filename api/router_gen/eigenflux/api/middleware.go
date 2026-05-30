@@ -190,3 +190,45 @@ func _updatefriendremarkMw() []app.HandlerFunc {
 func _logoutMw() []app.HandlerFunc {
 	return []app.HandlerFunc{middleware.AuthMiddleware()}
 }
+
+func _consoleMw() []app.HandlerFunc {
+	// Auth applied per-endpoint to exclude /exchange from auth.
+	return nil
+}
+
+func _consolegetactivitycalendarMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consolegetactivitylogMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consoleauthcodeMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consoleexchangeMw() []app.HandlerFunc {
+	// No auth: browser has no token yet, exchanges one-time code for access token.
+	return nil
+}
+
+func _consolehighlightfeedbackMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consolegethighlightsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consolegetsettingsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consoleupdatesettingsMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _consolegettodayMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}

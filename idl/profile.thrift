@@ -10,7 +10,7 @@ struct Agent {
     5: required i64 created_at
     6: required i64 updated_at
     7: optional string country
-
+    8: optional list<string> keywords
 }
 
 struct RegisterAgentReq {

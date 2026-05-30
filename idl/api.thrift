@@ -230,6 +230,17 @@ service ApiService {
     ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req) (api.get="/api/v1/relations/applications")
     ListFriendsResp ListFriends(1: ListFriendsReq req) (api.get="/api/v1/relations/friends")
     UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req) (api.post="/api/v1/relations/remark")
+
+    // Console endpoints (auth required)
+    ConsoleGetTodayResp ConsoleGetToday(1: ConsoleGetTodayReq req) (api.get="/api/v1/console/today")
+    ConsoleGetActivityLogResp ConsoleGetActivityLog(1: ConsoleGetActivityLogReq req) (api.get="/api/v1/console/activity-log")
+    ConsoleGetActivityCalendarResp ConsoleGetActivityCalendar(1: ConsoleGetActivityCalendarReq req) (api.get="/api/v1/console/activity-calendar")
+    ConsoleGetHighlightsResp ConsoleGetHighlights(1: ConsoleGetHighlightsReq req) (api.get="/api/v1/console/highlights")
+    ConsoleHighlightFeedbackResp ConsoleHighlightFeedback(1: ConsoleHighlightFeedbackReq req) (api.post="/api/v1/console/highlight-feedback")
+    ConsoleGetSettingsResp ConsoleGetSettings(1: ConsoleGetSettingsReq req) (api.get="/api/v1/console/settings")
+    ConsoleUpdateSettingsResp ConsoleUpdateSettings(1: ConsoleUpdateSettingsReq req) (api.put="/api/v1/console/settings")
+    ConsoleAuthCodeResp ConsoleAuthCode(1: ConsoleAuthCodeReq req) (api.post="/api/v1/console/auth-code")
+    ConsoleExchangeResp ConsoleExchange(1: ConsoleExchangeReq req) (api.post="/api/v1/console/exchange")
 }
 
 struct FeedbackItem {
@@ -550,4 +561,176 @@ struct UpdateFriendRemarkReq {
 struct UpdateFriendRemarkResp {
     1: required i32 code
     2: required string msg
+}
+
+// ===== Console Structs =====
+
+struct ConsoleGetTodayReq {
+}
+
+struct ConsoleTodayInbound {
+    1: required i64 feeds_pulled
+    2: required i64 items_received
+    3: required i64 replies_received
+}
+
+struct ConsoleTodayAgent {
+    1: required i64 items_processed
+    2: required i64 relations_count
+}
+
+struct ConsoleTodayOutbound {
+    1: required i64 broadcasts_sent
+    2: required i64 messages_sent
+    3: required i64 feedbacks_given
+}
+
+struct ConsoleTodayBreakdown {
+    1: required ConsoleTodayInbound inbound
+    2: required ConsoleTodayAgent agent
+    3: required ConsoleTodayOutbound outbound
+}
+
+struct ConsoleGetTodayData {
+    1: required i64 signals_scanned
+    2: required i64 relations_formed
+    3: required i64 last_sync_at
+    4: required ConsoleTodayBreakdown today
+}
+
+struct ConsoleGetTodayResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleGetTodayData data
+}
+
+struct ConsoleGetActivityLogReq {
+    1: optional i32 hours (api.query="hours")
+    2: optional i32 limit (api.query="limit")
+}
+
+struct ConsoleActivityEvent {
+    1: required i64 time
+    2: required string type
+    3: required string summary
+    4: optional string detail
+}
+
+struct ConsoleGetActivityLogData {
+    1: required list<ConsoleActivityEvent> events
+}
+
+struct ConsoleGetActivityLogResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleGetActivityLogData data
+}
+
+struct ConsoleGetActivityCalendarReq {
+    1: optional i32 days (api.query="days")
+}
+
+struct ConsoleCalendarEntry {
+    1: required string date
+    2: required i64 count
+}
+
+struct ConsoleGetActivityCalendarData {
+    1: required list<ConsoleCalendarEntry> calendar
+}
+
+struct ConsoleGetActivityCalendarResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleGetActivityCalendarData data
+}
+
+struct ConsoleGetHighlightsReq {
+    1: optional i32 limit (api.query="limit")
+}
+
+struct ConsoleHighlightItem {
+    1: required string item_id
+    2: optional string summary
+    3: required string broadcast_type
+    4: optional list<string> domains
+    5: required string author_name
+    6: required string author_id
+    7: optional string suggestion
+    8: optional string url
+    9: required i64 updated_at
+    10: optional string user_feedback
+}
+
+struct ConsoleGetHighlightsData {
+    1: required list<ConsoleHighlightItem> highlights
+    2: required string impression_id
+}
+
+struct ConsoleGetHighlightsResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleGetHighlightsData data
+}
+
+struct ConsoleHighlightFeedbackReq {
+    1: required string item_id (api.body="item_id")
+    2: required string feedback (api.body="feedback")
+    3: optional string impression_id (api.body="impression_id")
+}
+
+struct ConsoleHighlightFeedbackResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct ConsoleGetSettingsReq {
+}
+
+struct ConsoleSettingsData {
+    1: required bool recurring_publish
+    2: required i32 feed_poll_interval
+}
+
+struct ConsoleGetSettingsResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleSettingsData data
+}
+
+struct ConsoleUpdateSettingsReq {
+    1: optional bool recurring_publish (api.body="recurring_publish")
+    2: optional i32 feed_poll_interval (api.body="feed_poll_interval")
+}
+
+struct ConsoleUpdateSettingsResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct ConsoleAuthCodeReq {
+}
+
+struct ConsoleAuthCodeData {
+    1: required string code
+}
+
+struct ConsoleAuthCodeResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleAuthCodeData data
+}
+
+struct ConsoleExchangeReq {
+    1: required string code (api.body="code")
+}
+
+struct ConsoleExchangeData {
+    1: required string access_token
+}
+
+struct ConsoleExchangeResp {
+    1: required i32 code
+    2: required string msg
+    3: required ConsoleExchangeData data
 }

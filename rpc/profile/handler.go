@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
@@ -127,11 +128,15 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 		}, nil
 	}
 
-	// Get agent profile for country
+	// Get agent profile for country and keywords
 	agentProfile, _ := dal.GetAgentProfile(db.DB, req.AgentId)
 	var country string
+	keywords := []string{}
 	if agentProfile != nil {
 		country = agentProfile.Country
+		if agentProfile.Keywords != "" {
+			keywords = strings.Split(agentProfile.Keywords, ",")
+		}
 	}
 
 	// Get influence metrics
@@ -155,6 +160,7 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 			CreatedAt: agent.CreatedAt,
 			UpdatedAt: agent.UpdatedAt,
 			Country:   &country,
+			Keywords:  keywords,
 		},
 		Influence: &profile.InfluenceMetrics{
 			TotalItems:    influence.TotalItems,

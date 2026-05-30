@@ -54,6 +54,7 @@ struct ListConversationsReq {
     1: required i64 agent_id
     2: optional i64 cursor        // last conv updated_at
     3: optional i32 limit
+    4: optional string origin_type // "item" or "friend"
 }
 
 struct ConversationInfo {
@@ -63,6 +64,11 @@ struct ConversationInfo {
     4: required i64 updated_at
     6: optional string participant_a_name
     7: optional string participant_b_name
+    8: optional string origin_type
+    9: optional i64 origin_id
+    10: optional string peer_name
+    11: optional string last_message_preview
+    12: optional i32 unread_count
 }
 
 struct ListConversationsResp {

@@ -445,8 +445,9 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	cursor := req.GetCursor()
+	originType := req.GetOriginType()
 
-	convs, err := dal.ListConversations(db.DB, req.AgentId, cursor, limit)
+	convs, err := dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, limit, originType)
 	if err != nil {
 		return &pm.ListConversationsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list conversations"},
@@ -455,7 +456,7 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
-		conversations[i] = &pm.ConversationInfo{
+		info := &pm.ConversationInfo{
 			ConvId:           conv.ConvID,
 			ParticipantA:     conv.ParticipantA,
 			ParticipantB:     conv.ParticipantB,
@@ -463,6 +464,33 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			ParticipantAName: &conv.ParticipantAName,
 			ParticipantBName: &conv.ParticipantBName,
 		}
+		if conv.OriginType != "" {
+			info.OriginType = &conv.OriginType
+		}
+		if conv.OriginID != 0 {
+			info.OriginId = &conv.OriginID
+		}
+		// Determine peer name
+		if conv.ParticipantA == req.AgentId {
+			info.PeerName = &conv.ParticipantBName
+		} else {
+			info.PeerName = &conv.ParticipantAName
+		}
+		// Last message preview
+		lastMsg, msgErr := dal.GetLastMessage(db.DB, conv.ConvID)
+		if msgErr == nil && lastMsg != nil {
+			preview := lastMsg.Content
+			if len(preview) > 100 {
+				preview = preview[:100]
+			}
+			info.LastMessagePreview = &preview
+		}
+		// Unread count
+		unread, ucErr := dal.CountUnread(db.DB, conv.ConvID, req.AgentId)
+		if ucErr == nil {
+			info.UnreadCount = &unread
+		}
+		conversations[i] = info
 	}
 
 	var nextCursor int64
