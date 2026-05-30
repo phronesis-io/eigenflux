@@ -943,8 +943,179 @@
           "unit": "s"
         }
       }
+    },
+    {
+      "id": 70,
+      "type": "row",
+      "title": "Per-Source Funnel & Ranking",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "collapsed": false
+    },
+    {
+      "id": 71,
+      "title": "Broadcast Rate by Source (top 20)",
+      "type": "bargauge",
+      "description": "Per-source broadcast yield = published / all statuses for that source. The funnel's last stage: which sources convert crawl into broadcast vs. die in extract/dedup/discard. Needs pgc_source_status_count (deployed with the per-source exporter).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 61
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, pgc_source_status_count{job=\"pgc-pipeline\",status=\"published\"} / on(source) group_left() sum by (source)(pgc_source_status_count{job=\"pgc-pipeline\"}))",
+          "legendFormat": "{{source}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "id": 72,
+      "title": "Top Sources by Published (7d)",
+      "type": "timeseries",
+      "description": "Top 15 sources by items broadcast to EigenFlux over the last 7 days. Volume ranking — pairs with Consumed/Heat to tell volume from value.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 61
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(15, pgc_source_published_7d{job=\"pgc-pipeline\"})",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "scheme",
+            "pointSize": 3,
+            "spanNulls": true
+          }
+        }
+      }
+    },
+    {
+      "id": 73,
+      "title": "Top Sources by Consumed (7d)",
+      "type": "timeseries",
+      "description": "Top 15 sources by summed EigenFlux consumed_count over the last 7 days. The demand signal: which sources actually get read downstream, not just which publish most.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 69
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(15, pgc_source_consumed_7d{job=\"pgc-pipeline\"})",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "scheme",
+            "pointSize": 3,
+            "spanNulls": true
+          }
+        }
+      }
+    },
+    {
+      "id": 74,
+      "title": "Avg Heat by Source (top 20, 7d)",
+      "type": "bargauge",
+      "description": "Average local heat (consumed + positive score − discards) per source over 7d. Per-broadcast value density — a low-volume source can rank high here.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 69
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, pgc_source_avg_heat_7d{job=\"pgc-pipeline\"})",
+          "legendFormat": "{{source}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        }
+      }
     }
   ],
   "schemaVersion": 39,
-  "version": 1
+  "version": 2
 }
