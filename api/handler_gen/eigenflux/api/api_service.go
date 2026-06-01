@@ -454,6 +454,9 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		if it.ReplyCount != nil {
 			item["reply_count"] = *it.ReplyCount
 		}
+		if it.Retracted != nil && *it.Retracted {
+			item["retracted"] = true
+		}
 		items = append(items, item)
 	}
 

@@ -86,6 +86,7 @@ struct ItemWithStats {
     9: required i64 total_score
     10: required i64 updated_at
     11: optional i64 reply_count
+    12: optional bool retracted
 }
 
 struct GetMyItemsReq {

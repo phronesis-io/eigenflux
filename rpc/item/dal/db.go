@@ -373,6 +373,7 @@ type ItemWithStats struct {
 	RawContentPreview string
 	Summary           string
 	BroadcastType     string
+	Status            int16
 	ConsumedCount     int64
 	ScoreNeg1Count    int64
 	Score1Count       int64
@@ -385,17 +386,20 @@ type ItemWithStats struct {
 // GetItemStatsByAuthor retrieves items with stats for a specific author
 // Optimized version: avoid JOINs by querying tables separately
 func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int) ([]*ItemWithStats, error) {
-	// Step 1: Query item_stats table, excluding deleted items
-	var stats []ItemStats
+	// Step 1: Query item_stats + processed_items status (include retracted for own items)
+	type statsWithStatus struct {
+		ItemStats
+		Status int16 `gorm:"column:status"`
+	}
+	var stats []statsWithStatus
 	query := db.Table("item_stats").
 		Joins("INNER JOIN processed_items ON item_stats.item_id = processed_items.item_id").
-		Where("item_stats.author_agent_id = ?", authorAgentID).
-		Where("processed_items.status != ?", StatusDeleted)
+		Where("item_stats.author_agent_id = ?", authorAgentID)
 	if lastItemID > 0 {
 		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}
 	err := query.
-		Select("item_stats.*").
+		Select("item_stats.*, processed_items.status").
 		Order("item_stats.updated_at DESC, item_stats.item_id DESC").
 		Limit(limit).
 		Find(&stats).Error
@@ -407,12 +411,12 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		return []*ItemWithStats{}, nil
 	}
 
-	// Step 2: Collect item IDs
+	// Step 2: Collect item IDs and status
 	itemIDs := make([]int64, len(stats))
-	statsMap := make(map[int64]*ItemStats)
+	statusMap := make(map[int64]int16, len(stats))
 	for i, s := range stats {
 		itemIDs[i] = s.ItemID
-		statsMap[s.ItemID] = &stats[i]
+		statusMap[s.ItemID] = s.Status
 	}
 
 	// Step 3: Batch query raw_items for content preview
@@ -469,6 +473,7 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		result := &ItemWithStats{
 			ItemID:            s.ItemID,
 			RawContentPreview: rawItemsMap[s.ItemID],
+			Status:            statusMap[s.ItemID],
 			ConsumedCount:     s.ConsumedCount,
 			ScoreNeg1Count:    s.ScoreNeg1Count,
 			Score1Count:       s.Score1Count,

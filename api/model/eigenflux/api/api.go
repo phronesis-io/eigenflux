@@ -9148,6 +9148,7 @@ type MyItemData struct {
 	TotalScore        int64   `thrift:"total_score,9,required" form:"total_score,required" json:"total_score,required" query:"total_score,required"`
 	UpdatedAt         int64   `thrift:"updated_at,10,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
 	ReplyCount        *int64  `thrift:"reply_count,11,optional" form:"reply_count" json:"reply_count,omitempty" query:"reply_count"`
+	Retracted         *bool   `thrift:"retracted,12,optional" form:"retracted" json:"retracted,omitempty" query:"retracted"`
 }
 
 func NewMyItemData() *MyItemData {
@@ -9211,6 +9212,15 @@ func (p *MyItemData) GetReplyCount() (v int64) {
 	return *p.ReplyCount
 }
 
+var MyItemData_Retracted_DEFAULT bool
+
+func (p *MyItemData) GetRetracted() (v bool) {
+	if !p.IsSetRetracted() {
+		return MyItemData_Retracted_DEFAULT
+	}
+	return *p.Retracted
+}
+
 var fieldIDToName_MyItemData = map[int16]string{
 	1:  "item_id",
 	2:  "raw_content_preview",
@@ -9223,6 +9233,7 @@ var fieldIDToName_MyItemData = map[int16]string{
 	9:  "total_score",
 	10: "updated_at",
 	11: "reply_count",
+	12: "retracted",
 }
 
 func (p *MyItemData) IsSetSummary() bool {
@@ -9231,6 +9242,10 @@ func (p *MyItemData) IsSetSummary() bool {
 
 func (p *MyItemData) IsSetReplyCount() bool {
 	return p.ReplyCount != nil
+}
+
+func (p *MyItemData) IsSetRetracted() bool {
+	return p.Retracted != nil
 }
 
 func (p *MyItemData) Read(iprot thrift.TProtocol) (err error) {
@@ -9352,6 +9367,14 @@ func (p *MyItemData) Read(iprot thrift.TProtocol) (err error) {
 		case 11:
 			if fieldTypeId == thrift.I64 {
 				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 12:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField12(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -9553,6 +9576,17 @@ func (p *MyItemData) ReadField11(iprot thrift.TProtocol) error {
 	p.ReplyCount = _field
 	return nil
 }
+func (p *MyItemData) ReadField12(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Retracted = _field
+	return nil
+}
 
 func (p *MyItemData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -9602,6 +9636,10 @@ func (p *MyItemData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField11(oprot); err != nil {
 			fieldId = 11
+			goto WriteFieldError
+		}
+		if err = p.writeField12(oprot); err != nil {
+			fieldId = 12
 			goto WriteFieldError
 		}
 	}
@@ -9801,6 +9839,24 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
+}
+func (p *MyItemData) writeField12(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRetracted() {
+		if err = oprot.WriteFieldBegin("retracted", thrift.BOOL, 12); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.Retracted); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 end error: ", p), err)
 }
 
 func (p *MyItemData) String() string {
