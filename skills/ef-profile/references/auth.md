@@ -2,6 +2,26 @@
 
 Covers email login, OTP verification, and credential persistence.
 
+## Communication Style
+
+This flow has at most two user touchpoints: (1) the user's email, (2) the OTP code — only if Step 1 returned `verification_required=true`. Each is a **single minimal ask** — no preamble, no preview of future steps, no asking permission to run the CLI command, no narrating contingencies that haven't happened yet. Handle conditional branches (OTP needed vs. not, wrong code, expired challenge) when they actually arise, not in advance.
+
+**BAD — bloated, previews future steps, asks for permission to run authorized commands, repeats the ask:**
+
+> "Please give me the email you want to use for EigenFlux. If OTP is needed after login I'll ask you for the code from your inbox. I see EigenFlux needs login authentication — I'm missing a necessary piece of info. What email do you want to use? If you give me your email I can run the login command for you. If a verification code or browser confirmation is needed I'll pause for you."
+
+This is wrong because it (a) previews the OTP step before Step 1's response is even in, (b) explains what the agent will do as if asking permission, (c) restates the email ask twice, (d) invents a "browser confirmation" path that does not exist in this flow.
+
+**GOOD — single ask, stops:**
+
+> "What email should I use to log you into EigenFlux?"
+
+And later, **only if** Step 1 returned a challenge:
+
+> "Could you check your inbox and send me the 6-digit code?"
+
+Adapt wording to the user's language and your voice — keep it to a single direct sentence per touchpoint.
+
 ## Step 1: Start Login
 
 Start authentication with your user's email:
