@@ -9147,6 +9147,7 @@ type MyItemData struct {
 	Score2Count       int64   `thrift:"score_2_count,8,required" form:"score_2_count,required" json:"score_2_count,required" query:"score_2_count,required"`
 	TotalScore        int64   `thrift:"total_score,9,required" form:"total_score,required" json:"total_score,required" query:"total_score,required"`
 	UpdatedAt         int64   `thrift:"updated_at,10,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
+	ReplyCount        *int64  `thrift:"reply_count,11,optional" form:"reply_count" json:"reply_count,omitempty" query:"reply_count"`
 }
 
 func NewMyItemData() *MyItemData {
@@ -9201,6 +9202,15 @@ func (p *MyItemData) GetUpdatedAt() (v int64) {
 	return p.UpdatedAt
 }
 
+var MyItemData_ReplyCount_DEFAULT int64
+
+func (p *MyItemData) GetReplyCount() (v int64) {
+	if !p.IsSetReplyCount() {
+		return MyItemData_ReplyCount_DEFAULT
+	}
+	return *p.ReplyCount
+}
+
 var fieldIDToName_MyItemData = map[int16]string{
 	1:  "item_id",
 	2:  "raw_content_preview",
@@ -9212,10 +9222,15 @@ var fieldIDToName_MyItemData = map[int16]string{
 	8:  "score_2_count",
 	9:  "total_score",
 	10: "updated_at",
+	11: "reply_count",
 }
 
 func (p *MyItemData) IsSetSummary() bool {
 	return p.Summary != nil
+}
+
+func (p *MyItemData) IsSetReplyCount() bool {
+	return p.ReplyCount != nil
 }
 
 func (p *MyItemData) Read(iprot thrift.TProtocol) (err error) {
@@ -9331,6 +9346,14 @@ func (p *MyItemData) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetUpdatedAt = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 11:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -9519,6 +9542,17 @@ func (p *MyItemData) ReadField10(iprot thrift.TProtocol) error {
 	p.UpdatedAt = _field
 	return nil
 }
+func (p *MyItemData) ReadField11(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ReplyCount = _field
+	return nil
+}
 
 func (p *MyItemData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -9564,6 +9598,10 @@ func (p *MyItemData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField10(oprot); err != nil {
 			fieldId = 10
+			goto WriteFieldError
+		}
+		if err = p.writeField11(oprot); err != nil {
+			fieldId = 11
 			goto WriteFieldError
 		}
 	}
@@ -9745,6 +9783,24 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
+}
+func (p *MyItemData) writeField11(oprot thrift.TProtocol) (err error) {
+	if p.IsSetReplyCount() {
+		if err = oprot.WriteFieldBegin("reply_count", thrift.I64, 11); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.ReplyCount); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
 }
 
 func (p *MyItemData) String() string {
@@ -20105,6 +20161,7 @@ type FriendData struct {
 	AgentName   string  `thrift:"agent_name,2,required" form:"agent_name,required" json:"agent_name,required" query:"agent_name,required"`
 	FriendSince int64   `thrift:"friend_since,3,required" form:"friend_since,required" json:"friend_since,required" query:"friend_since,required"`
 	Remark      *string `thrift:"remark,4,optional" form:"remark" json:"remark,omitempty" query:"remark"`
+	Bio         *string `thrift:"bio,5,optional" form:"bio" json:"bio,omitempty" query:"bio"`
 }
 
 func NewFriendData() *FriendData {
@@ -20135,15 +20192,29 @@ func (p *FriendData) GetRemark() (v string) {
 	return *p.Remark
 }
 
+var FriendData_Bio_DEFAULT string
+
+func (p *FriendData) GetBio() (v string) {
+	if !p.IsSetBio() {
+		return FriendData_Bio_DEFAULT
+	}
+	return *p.Bio
+}
+
 var fieldIDToName_FriendData = map[int16]string{
 	1: "agent_id",
 	2: "agent_name",
 	3: "friend_since",
 	4: "remark",
+	5: "bio",
 }
 
 func (p *FriendData) IsSetRemark() bool {
 	return p.Remark != nil
+}
+
+func (p *FriendData) IsSetBio() bool {
+	return p.Bio != nil
 }
 
 func (p *FriendData) Read(iprot thrift.TProtocol) (err error) {
@@ -20197,6 +20268,14 @@ func (p *FriendData) Read(iprot thrift.TProtocol) (err error) {
 		case 4:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -20291,6 +20370,17 @@ func (p *FriendData) ReadField4(iprot thrift.TProtocol) error {
 	p.Remark = _field
 	return nil
 }
+func (p *FriendData) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Bio = _field
+	return nil
+}
 
 func (p *FriendData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -20312,6 +20402,10 @@ func (p *FriendData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -20397,6 +20491,24 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+func (p *FriendData) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetBio() {
+		if err = oprot.WriteFieldBegin("bio", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Bio); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
 func (p *FriendData) String() string {

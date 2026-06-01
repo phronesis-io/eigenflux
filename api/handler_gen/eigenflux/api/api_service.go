@@ -19,7 +19,6 @@ import (
 
 	"eigenflux_server/api/clients"
 	consoledal "eigenflux_server/api/dal"
-	"eigenflux_server/pkg/activity"
 	apimodel "eigenflux_server/api/model/eigenflux/api"
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
@@ -27,6 +26,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
@@ -450,6 +450,9 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		}
 		if it.Summary != nil {
 			item["summary"] = *it.Summary
+		}
+		if it.ReplyCount != nil {
+			item["reply_count"] = *it.ReplyCount
 		}
 		items = append(items, item)
 	}
@@ -1599,6 +1602,9 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		if f.Remark != nil && *f.Remark != "" {
 			item["remark"] = *f.Remark
 		}
+		if f.Bio != nil && *f.Bio != "" {
+			item["bio"] = *f.Bio
+		}
 		friends = append(friends, item)
 	}
 
@@ -1686,6 +1692,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		relationsCount int64
 		eventCounts    []consoledal.EventCount
 		lastSyncAt     int64
+		broadcastAgg   *consoledal.TodayBroadcastAgg
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -1710,10 +1717,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			return nil // non-fatal
 		}
 		if resp.BaseResp != nil && resp.BaseResp.Code == 0 {
-			// Use NextCursor as a proxy or count from the response
 			relationsCount = int64(len(resp.Friends))
-			// If there might be more, we need the total — for now use list length
-			// A better approach would be a dedicated count RPC
 		}
 		return nil
 	})
@@ -1729,27 +1733,48 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		return nil
 	})
 
+	// Parallel: today's broadcast reach and score stats from item_stats
+	g.Go(func() error {
+		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, todayStartMs)
+		if err != nil {
+			return nil // non-fatal
+		}
+		broadcastAgg = agg
+		return nil
+	})
+
 	_ = g.Wait()
 
 	// Build today breakdown from event counts
-	var feedsPulled, itemsReceived, repliesReceived int64
-	var itemsProcessed, broadcastsSent, messagesSent, feedbacksGiven int64
+	var feedsPulled, itemsScanned, itemsPushed, youMarkedUseful, newRelations int64
+	var broadcastsSent, repliesReceived, messagesSent, feedbacksGiven int64
 	for _, ec := range eventCounts {
 		switch ec.EventType {
 		case "feed_pull":
 			feedsPulled = ec.Count
 		case "broadcast":
 			broadcastsSent = ec.Count
-			itemsProcessed = ec.Count
 		case "reply_received":
 			repliesReceived = ec.Count
 		case "feedback":
 			feedbacksGiven = ec.Count
+			youMarkedUseful = ec.Count // feedback events represent score=2 actions
 		case "message_sent":
 			messagesSent = ec.Count
 		case "friend_added":
-			// counted separately
+			newRelations = ec.Count
+		case "feed_delivered":
+			itemsPushed = ec.Count
 		}
+	}
+	// items_scanned approximated from impression counter (today's portion approximated by feeds_pulled * batch_size)
+	// Use feedsPulled as a proxy; the real total is from signalsScanned (all-time)
+	itemsScanned = feedsPulled * 20 // rough estimate: ~20 items per feed pull
+
+	var totalReach, themMarkedUseful int64
+	if broadcastAgg != nil {
+		totalReach = broadcastAgg.TotalReach
+		themMarkedUseful = broadcastAgg.ThemMarkedUseful
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -1758,18 +1783,19 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"last_sync_at":     lastSyncAt,
 		"today": map[string]interface{}{
 			"inbound": map[string]interface{}{
-				"feeds_pulled":    feedsPulled,
-				"items_received":  itemsReceived,
-				"replies_received": repliesReceived,
-			},
-			"agent": map[string]interface{}{
-				"items_processed": itemsProcessed,
-				"relations_count": relationsCount,
+				"feeds_pulled":      feedsPulled,
+				"items_scanned":     itemsScanned,
+				"items_pushed":      itemsPushed,
+				"you_marked_useful": youMarkedUseful,
+				"new_relations":     newRelations,
 			},
 			"outbound": map[string]interface{}{
-				"broadcasts_sent": broadcastsSent,
-				"messages_sent":   messagesSent,
-				"feedbacks_given": feedbacksGiven,
+				"broadcasts_sent":    broadcastsSent,
+				"total_reach":        totalReach,
+				"replies_received":   repliesReceived,
+				"them_marked_useful": themMarkedUseful,
+				"messages_sent":      messagesSent,
+				"feedbacks_given":    feedbacksGiven,
 			},
 		},
 	})
@@ -1854,15 +1880,42 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 	}
 
 	calendar := make([]map[string]interface{}, 0, len(dateCounts))
+	var activeDays int64
+	var totalPushes int64
 	for _, dc := range dateCounts {
 		calendar = append(calendar, map[string]interface{}{
 			"date":  dc.Date,
 			"count": dc.Count,
 		})
+		if dc.Count > 0 {
+			activeDays++
+		}
+		totalPushes += dc.Count
+	}
+
+	// Calculate current streak: consecutive active days ending today (or yesterday)
+	var streakDays int64
+	dateSet := make(map[string]bool, len(dateCounts))
+	for _, dc := range dateCounts {
+		if dc.Count > 0 {
+			dateSet[dc.Date] = true
+		}
+	}
+	d := time.Now().UTC()
+	// Allow streak to start from today or yesterday
+	if !dateSet[d.Format("2006-01-02")] {
+		d = d.AddDate(0, 0, -1)
+	}
+	for dateSet[d.Format("2006-01-02")] {
+		streakDays++
+		d = d.AddDate(0, 0, -1)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"calendar": calendar,
+		"calendar":           calendar,
+		"active_days_count":  activeDays,
+		"streak_days":        streakDays,
+		"total_pushes_month": totalPushes,
 	})
 }
 
@@ -1900,14 +1953,24 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 
 	highlights := make([]map[string]interface{}, 0, len(resp.Items))
 	for _, it := range resp.Items {
-		// Look up author name
+		// Look up author name and bio
 		authorName := ""
+		authorBio := ""
 		authorIDStr := ""
 		if it.AuthorAgentId != nil {
 			authorIDStr = strconv.FormatInt(*it.AuthorAgentId, 10)
 			agent, err := profiledal.GetAgentByID(db.DB, *it.AuthorAgentId)
 			if err == nil {
 				authorName = agent.AgentName
+				// Use first sentence of bio as description
+				bio := agent.Bio
+				if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
+					bio = bio[:idx]
+				}
+				if len(bio) > 100 {
+					bio = bio[:100]
+				}
+				authorBio = bio
 			}
 		}
 
@@ -1916,6 +1979,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"broadcast_type": it.BroadcastType,
 			"domains":        keywordsOrEmpty(it.Domains),
 			"author_name":    authorName,
+			"author_bio":     authorBio,
 			"author_id":      authorIDStr,
 			"updated_at":     it.UpdatedAt,
 		}

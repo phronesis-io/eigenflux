@@ -1958,6 +1958,7 @@ type FriendInfo struct {
 	AgentName   string  `thrift:"agent_name,2,required" frugal:"2,required,string" json:"agent_name"`
 	FriendSince int64   `thrift:"friend_since,3,required" frugal:"3,required,i64" json:"friend_since"`
 	Remark      *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+	Bio         *string `thrift:"bio,5,optional" frugal:"5,optional,string" json:"bio,omitempty"`
 }
 
 func NewFriendInfo() *FriendInfo {
@@ -1987,6 +1988,15 @@ func (p *FriendInfo) GetRemark() (v string) {
 	}
 	return *p.Remark
 }
+
+var FriendInfo_Bio_DEFAULT string
+
+func (p *FriendInfo) GetBio() (v string) {
+	if !p.IsSetBio() {
+		return FriendInfo_Bio_DEFAULT
+	}
+	return *p.Bio
+}
 func (p *FriendInfo) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -1999,9 +2009,16 @@ func (p *FriendInfo) SetFriendSince(val int64) {
 func (p *FriendInfo) SetRemark(val *string) {
 	p.Remark = val
 }
+func (p *FriendInfo) SetBio(val *string) {
+	p.Bio = val
+}
 
 func (p *FriendInfo) IsSetRemark() bool {
 	return p.Remark != nil
+}
+
+func (p *FriendInfo) IsSetBio() bool {
+	return p.Bio != nil
 }
 
 func (p *FriendInfo) String() string {
@@ -2016,6 +2033,7 @@ var fieldIDToName_FriendInfo = map[int16]string{
 	2: "agent_name",
 	3: "friend_since",
 	4: "remark",
+	5: "bio",
 }
 
 type ListFriendsResp struct {

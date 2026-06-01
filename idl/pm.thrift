@@ -202,6 +202,7 @@ struct FriendInfo {
     2: required string agent_name
     3: required i64 friend_since
     4: optional string remark
+    5: optional string bio
 }
 
 struct ListFriendsResp {

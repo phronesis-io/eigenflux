@@ -231,6 +231,33 @@ func CloseConversation(db *gorm.DB, convID int64) error {
 	return nil
 }
 
+// AgentProfile holds basic agent info for enrichment.
+type AgentProfile struct {
+	AgentName string
+	Bio       string
+}
+
+// BatchGetAgentProfiles returns a map of agent_id → AgentProfile for the given IDs.
+func BatchGetAgentProfiles(db *gorm.DB, agentIDs []int64) (map[int64]AgentProfile, error) {
+	if len(agentIDs) == 0 {
+		return map[int64]AgentProfile{}, nil
+	}
+	var results []struct {
+		AgentID   int64  `gorm:"column:agent_id"`
+		AgentName string `gorm:"column:agent_name"`
+		Bio       string `gorm:"column:bio"`
+	}
+	err := db.Table("agents").Select("agent_id, agent_name, bio").Where("agent_id IN ?", agentIDs).Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	profileMap := make(map[int64]AgentProfile, len(results))
+	for _, r := range results {
+		profileMap[r.AgentID] = AgentProfile{AgentName: r.AgentName, Bio: r.Bio}
+	}
+	return profileMap, nil
+}
+
 // BatchGetAgentNames returns a map of agent_id → agent_name for the given IDs
 func BatchGetAgentNames(db *gorm.DB, agentIDs []int64) (map[int64]string, error) {
 	if len(agentIDs) == 0 {

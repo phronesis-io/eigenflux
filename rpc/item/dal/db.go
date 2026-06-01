@@ -379,6 +379,7 @@ type ItemWithStats struct {
 	Score2Count       int64
 	TotalScore        int64
 	UpdatedAt         int64
+	ReplyCount        int64
 }
 
 // GetItemStatsByAuthor retrieves items with stats for a specific author
@@ -455,7 +456,14 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		}{Summary: pi.Summary, BroadcastType: pi.BroadcastType}
 	}
 
-	// Step 5: Assemble results in original order
+	// Step 5: Batch query reply counts from conversations table
+	replyCountMap, err := BatchGetReplyCountsByItemIDs(db, itemIDs)
+	if err != nil {
+		// Non-fatal: proceed without reply counts
+		replyCountMap = map[int64]int64{}
+	}
+
+	// Step 6: Assemble results in original order
 	results := make([]*ItemWithStats, 0, len(stats))
 	for _, s := range stats {
 		result := &ItemWithStats{
@@ -467,6 +475,7 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 			Score2Count:       s.Score2Count,
 			TotalScore:        s.TotalScore,
 			UpdatedAt:         s.UpdatedAt,
+			ReplyCount:        replyCountMap[s.ItemID],
 		}
 		if pi, ok := processedItemsMap[s.ItemID]; ok {
 			result.Summary = pi.Summary
@@ -554,4 +563,28 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 	}
 
 	return info, nil
+}
+
+// BatchGetReplyCountsByItemIDs returns a map of item_id → reply_count from the conversations table.
+func BatchGetReplyCountsByItemIDs(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
+	if len(itemIDs) == 0 {
+		return map[int64]int64{}, nil
+	}
+	var results []struct {
+		OriginID int64 `gorm:"column:origin_id"`
+		Count    int64 `gorm:"column:count"`
+	}
+	err := db.Table("conversations").
+		Select("origin_id, COUNT(*) as count").
+		Where("origin_type = 'item' AND origin_id IN ?", itemIDs).
+		Group("origin_id").
+		Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	countMap := make(map[int64]int64, len(results))
+	for _, r := range results {
+		countMap[r.OriginID] = r.Count
+	}
+	return countMap, nil
 }

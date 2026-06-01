@@ -1051,6 +1051,9 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 		if f.Remark != "" {
 			info.Remark = &f.Remark
 		}
+		if f.Bio != "" {
+			info.Bio = &f.Bio
+		}
 		result = append(result, info)
 	}
 

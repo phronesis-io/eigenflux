@@ -85,6 +85,7 @@ struct ItemWithStats {
     8: required i64 score_2_count
     9: required i64 total_score
     10: required i64 updated_at
+    11: optional i64 reply_count
 }
 
 struct GetMyItemsReq {
