@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -162,6 +163,12 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 	}
 
 	summary, _ := values["summary"].(string)
+	detail, _ := values["detail"].(string)
+	// detail maps to a JSONB column; an empty string is invalid JSON and would
+	// fail the insert, so default to an empty object.
+	if detail == "" {
+		detail = "{}"
+	}
 
 	logID, err := c.idGen.NextID()
 	if err != nil {
@@ -174,6 +181,7 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 		AgentID:   agentID,
 		EventType: eventType,
 		Summary:   summary,
+		Detail:    detail,
 		CreatedAt: time.Now().UnixMilli(),
 	}
 
@@ -185,13 +193,32 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 		return
 	}
 
-	// Increment impression counter for feed_pull events
+	// Increment the all-time impression counter by the number of signals
+	// delivered in this feed pull (carried in detail). Falls back to 1 if the
+	// count is missing or unparseable.
 	if eventType == "feed_pull" {
-		_ = dal.IncrImpressionCount(ctx, agentID, 1)
+		delta := int64(1)
+		if n := parseDetailInt(detail, "count"); n > 0 {
+			delta = n
+		}
+		_ = dal.IncrImpressionCount(ctx, agentID, delta)
 	}
 
 	metrics.ConsumerMessagesTotal.WithLabelValues("agent:activity", "success").Inc()
 	c.ackMessage(ctx, msgID)
+}
+
+// parseDetailInt extracts an integer field from a JSON detail string.
+// Returns 0 if detail is empty, malformed, or the field is absent.
+func parseDetailInt(detail, field string) int64 {
+	if detail == "" {
+		return 0
+	}
+	var m map[string]int64
+	if err := json.Unmarshal([]byte(detail), &m); err != nil {
+		return 0
+	}
+	return m[field]
 }
 
 func (c *ActivityConsumer) ackMessage(ctx context.Context, msgID string) {

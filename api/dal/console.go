@@ -93,6 +93,23 @@ func TodayEventCounts(db *gorm.DB, agentID int64, todayStartMs int64) ([]EventCo
 	return counts, lastSync, nil
 }
 
+// SumDetailField sums an integer field stored in the JSONB detail column across
+// an agent's events of a given type since sinceMs. Used for quantity metrics
+// (e.g. items delivered, items marked useful) that COUNT(*) cannot express.
+func SumDetailField(db *gorm.DB, agentID int64, eventType, field string, sinceMs int64) (int64, error) {
+	var total int64
+	// A missing key or NULL detail yields NULL from ->>, which SUM ignores; the
+	// COALESCE guards the all-NULL case. detail is always valid JSON ("{}" when
+	// empty), so the ::bigint cast never sees a malformed value.
+	err := db.Raw(
+		`SELECT COALESCE(SUM((detail->>?)::bigint), 0)
+		 FROM agent_activity_log
+		 WHERE agent_id = ? AND event_type = ? AND created_at >= ?`,
+		field, agentID, eventType, sinceMs,
+	).Scan(&total).Error
+	return total, err
+}
+
 // GetSettings returns agent settings, creating defaults if not found.
 func GetSettings(db *gorm.DB, agentID int64) (*AgentSettings, error) {
 	var settings AgentSettings

@@ -731,6 +731,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	logger.Ctx(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
 	processedCount := 0
+	usefulCount := 0
 	skippedReasons := make([]string, 0)
 	batchImpressionID := ""
 	if req.ImpressionID != nil {
@@ -757,6 +758,9 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		processedCount++
+		if it.Score == 2 {
+			usefulCount++
+		}
 	}
 
 	data := map[string]interface{}{
@@ -768,7 +772,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	}
 	writeJSON(c, http.StatusOK, 0, "success", data)
 	if processedCount > 0 {
-		activity.PublishFeedback(ctx, agentID, processedCount)
+		activity.PublishFeedback(ctx, agentID, processedCount, usefulCount)
 	}
 }
 
@@ -903,6 +907,14 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		"conv_id": strconv.FormatInt(resp.ConvId, 10),
 	})
 	activity.PublishMessageSent(ctx, agentID, "")
+	// A reply under a broadcast (item_id present) counts as a reply received by
+	// the broadcast's author. Resolve the author from item_stats and record it on
+	// their timeline, skipping self-replies.
+	if itemIDPtr != nil {
+		if stats, err := itemdal.GetItemStatsByID(db.DB, *itemIDPtr); err == nil && stats.AuthorAgentID != 0 && stats.AuthorAgentID != agentID {
+			activity.PublishReplyReceived(ctx, stats.AuthorAgentID, "")
+		}
+	}
 }
 
 // FetchPM fetches unread private messages
@@ -1691,11 +1703,14 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	todayStartMs := todayStart.UnixMilli()
 
 	var (
-		signalsScanned int64
-		relationsCount int64
-		eventCounts    []consoledal.EventCount
-		lastSyncAt     int64
-		broadcastAgg   *consoledal.TodayBroadcastAgg
+		signalsScanned    int64
+		relationsCount    int64
+		eventCounts       []consoledal.EventCount
+		lastSyncAt        int64
+		broadcastAgg      *consoledal.TodayBroadcastAgg
+		itemsScannedToday int64
+		usefulToday       int64
+		feedbacksToday    int64
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -1712,15 +1727,28 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: friends count via PM RPC
 	g.Go(func() error {
-		resp, err := clients.PMClient.ListFriends(gCtx, &pmrpc.ListFriendsReq{
-			AgentId: agentID,
-			Limit:   func() *int32 { v := int32(1); return &v }(),
-		})
-		if err != nil {
-			return nil // non-fatal
-		}
-		if resp.BaseResp != nil && resp.BaseResp.Code == 0 {
-			relationsCount = int64(len(resp.Friends))
+		// Page through all friends to get the true count. PM caps page size at
+		// 100, so accumulate across pages via the cursor. The 50-page safety cap
+		// (5000 friends) guards against a misbehaving cursor.
+		const pageSize = int32(100)
+		var cursor int64
+		for page := 0; page < 50; page++ {
+			req := &pmrpc.ListFriendsReq{AgentId: agentID}
+			ps := pageSize
+			req.Limit = &ps
+			if cursor > 0 {
+				cur := cursor
+				req.Cursor = &cur
+			}
+			resp, err := clients.PMClient.ListFriends(gCtx, req)
+			if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
+				return nil // non-fatal
+			}
+			relationsCount += int64(len(resp.Friends))
+			if len(resp.Friends) < int(pageSize) {
+				break
+			}
+			cursor = resp.NextCursor
 		}
 		return nil
 	})
@@ -1746,11 +1774,20 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		return nil
 	})
 
+	// Parallel: today's quantity sums from activity-log detail (counts, not events)
+	g.Go(func() error {
+		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", todayStartMs)
+		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", todayStartMs)
+		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", todayStartMs)
+		return nil
+	})
+
 	_ = g.Wait()
 
-	// Build today breakdown from event counts
-	var feedsPulled, itemsScanned, itemsPushed, youMarkedUseful, newRelations int64
-	var broadcastsSent, repliesReceived, messagesSent, feedbacksGiven int64
+	// Build today breakdown. Action frequencies come from event counts; item
+	// quantities (scanned / useful / feedbacks) come from the detail sums above.
+	var feedsPulled, itemsPushed, newRelations int64
+	var broadcastsSent, repliesReceived, messagesSent int64
 	for _, ec := range eventCounts {
 		switch ec.EventType {
 		case "feed_pull":
@@ -1759,9 +1796,6 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			broadcastsSent = ec.Count
 		case "reply_received":
 			repliesReceived = ec.Count
-		case "feedback":
-			feedbacksGiven = ec.Count
-			youMarkedUseful = ec.Count // feedback events represent score=2 actions
 		case "message_sent":
 			messagesSent = ec.Count
 		case "friend_added":
@@ -1770,9 +1804,13 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			itemsPushed = ec.Count
 		}
 	}
-	// items_scanned approximated from impression counter (today's portion approximated by feeds_pulled * batch_size)
-	// Use feedsPulled as a proxy; the real total is from signalsScanned (all-time)
-	itemsScanned = feedsPulled * 20 // rough estimate: ~20 items per feed pull
+	// items_scanned = total signals delivered today (summed from feed_pull detail).
+	itemsScanned := itemsScannedToday
+	// items_pushed (worth-reading subset surfaced to the user) requires the
+	// score aggregation that is not yet built; feed_delivered is never emitted,
+	// so this stays 0 until the worth-reading endpoint lands. See review B-group.
+	youMarkedUseful := usefulToday
+	feedbacksGiven := feedbacksToday
 
 	var totalReach, themMarkedUseful int64
 	if broadcastAgg != nil {
