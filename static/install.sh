@@ -216,6 +216,10 @@ migrate_config() {
 # ── Step 4: Detect and configure AI agents ────────────────────
 
 setup_agents() {
+  # Ensure CLI is up to date before configuring agent plugins.
+  # install_cli is idempotent — skips download when already at latest.
+  install_cli
+
   # `curl | sh` runs in a non-interactive, non-login shell that does not
   # source ~/.zshrc or ~/.zprofile, so Homebrew's bin dirs may be missing
   # from PATH. Add the standard locations so brew-installed tools (openclaw)
