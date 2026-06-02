@@ -206,7 +206,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	})
 	agentFeaturesStr := string(agentFeaturesJSON)
 
-	// Launch kNN recall in parallel with keyword recall
+	// Launch kNN recall and recall sources in parallel with keyword recall
 	var knnItems []sortDal.Item
 	var knnErr error
 	var wg sync.WaitGroup
@@ -220,6 +220,25 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 				logger.Ctx(ctx).Warn("kNN recall failed, continuing with keyword only", "err", knnErr)
 			}
 		}()
+	}
+
+	// Launch all recall sources concurrently
+	type recallResult struct {
+		candidates []recallsource.Candidate
+		name       string
+	}
+	recallResults := make([]recallResult, len(recallSources))
+	for i, src := range recallSources {
+		wg.Add(1)
+		go func(idx int, rs recallsource.RecallSource) {
+			defer wg.Done()
+			candidates, err := rs.Recall(ctx, strconv.FormatInt(req.AgentId, 10), 0)
+			if err != nil {
+				logger.Ctx(ctx).Warn("recall source failed", "source", rs.Name(), "err", err)
+				return
+			}
+			recallResults[idx] = recallResult{candidates: candidates, name: rs.Name()}
+		}(i, src)
 	}
 
 	// Build cache key for search results
@@ -395,6 +414,42 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Info("kNN merge", "knnTotal", len(knnItems), "newItems", added, "mergedTotal", len(esItems))
 	}
 
+	// Merge recall source candidates — collect IDs that need full item data from ES
+	var newRecallIDs []int64
+	{
+		seen := make(map[int64]bool, len(esItems))
+		for _, item := range esItems {
+			seen[item.ID] = true
+		}
+		for _, rr := range recallResults {
+			for _, c := range rr.candidates {
+				sourceMap[c.ItemID] |= c.Source
+				if !seen[c.ItemID] {
+					newRecallIDs = append(newRecallIDs, c.ItemID)
+					seen[c.ItemID] = true
+				}
+			}
+		}
+	}
+
+	// Fetch full item data from ES for new recall IDs
+	if len(newRecallIDs) > 0 {
+		fetchedItems, fetchErr := sortDal.FetchItemsByIDs(ctx, newRecallIDs)
+		if fetchErr != nil {
+			logger.Ctx(ctx).Warn("failed to fetch recall items from ES", "err", fetchErr, "count", len(newRecallIDs))
+		} else {
+			esItems = append(esItems, fetchedItems...)
+			logger.Ctx(ctx).Info("recall source merge", "newIDs", len(newRecallIDs), "fetched", len(fetchedItems), "mergedTotal", len(esItems))
+		}
+	}
+
+	// Record recall source feed composition
+	for _, item := range esItems {
+		for _, name := range recallsource.Names(sourceMap[item.ID]) {
+			metrics.RecallFeedTotal.WithLabelValues(name).Inc()
+		}
+	}
+
 	esItemMap := make(map[int64]sortDal.Item, len(esItems))
 	for _, item := range esItems {
 		esItemMap[item.ID] = item
@@ -466,7 +521,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
-			"recall_source":  int(sourceMap[ri.ItemID]),
+			"recall_source":       int(sourceMap[ri.ItemID]),
+			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()
@@ -553,7 +609,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
-			"recall_source":  int(sourceMap[ri.ItemID]),
+			"recall_source":       int(sourceMap[ri.ItemID]),
+			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 			"filtered":       true,
 		}
 		if item.ExpireTime != nil {

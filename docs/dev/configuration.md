@@ -75,6 +75,12 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `PROFILE_CACHE_TTL` | `60` | User profile cache TTL (seconds) |
 | `MILESTONE_RULE_CACHE_TTL` | `60` | Milestone rule cache TTL (seconds) |
 | `MIN_RELEVANCE_SCORE` | `0` | Score-layer threshold applied after ranking; `0` keeps all ranked groups unless overridden |
+| `ENABLE_HOT_RECALL` | `true` | Enables Redis-backed `hot_recall` offline recall source |
+| `ENABLE_NEW_RECALL` | `true` | Enables Redis-backed `new_recall` offline recall source |
+| `ENABLE_TWO_TOWER_RECALL` | `false` | Enables precomputed two-tower Redis candidates from the offline recall job |
+| `REC_REDIS_NAMESPACE` | `rec` | Namespace prefix for offline recall Redis keys |
+| `TWO_TOWER_RECALL_REDIS_KEY` | `two_tower_recall` | Offline output key for per-user two-tower candidates |
+| `TWO_TOWER_RECALL_K` | `50` | Maximum precomputed two-tower candidates read per user |
 | `FRESHNESS_OFFSET` | `12h` | ES Gaussian decay offset |
 | `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale |
 | `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |

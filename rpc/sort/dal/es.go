@@ -252,6 +252,64 @@ func SearchByEmbedding(ctx context.Context, embedding []float32, filters []inter
 	return items, nil
 }
 
+// FetchItemsByIDs retrieves full item documents from ES using an ids query.
+func FetchItemsByIDs(ctx context.Context, ids []int64) ([]Item, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	strIDs := make([]string, len(ids))
+	for i, id := range ids {
+		strIDs[i] = fmt.Sprintf("%d", id)
+	}
+
+	query := map[string]interface{}{
+		"query": map[string]interface{}{
+			"ids": map[string]interface{}{
+				"values": strIDs,
+			},
+		},
+		"size": len(ids),
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("encode ids query: %w", err)
+	}
+
+	res, err := es.Client.Search(
+		es.Client.Search.WithContext(ctx),
+		es.Client.Search.WithIndex(es.ReadIndexPattern),
+		es.Client.Search.WithBody(&buf),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("execute ids search: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("ES ids search error: %s", res.String())
+	}
+
+	parsed, err := parseSearchResponse(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]Item, 0, len(parsed.Hits.Hits))
+	for _, hit := range parsed.Hits.Hits {
+		item := hit.Source
+		if hit.ID != "" {
+			if id, parseErr := strconv.ParseInt(hit.ID, 10, 64); parseErr == nil {
+				item.ID = id
+			}
+		}
+		item.Score = hit.Score
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 // CountItems returns the total number of items in Elasticsearch
 func CountItems(ctx context.Context) (int64, error) {
 	query := map[string]interface{}{

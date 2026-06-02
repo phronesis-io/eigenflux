@@ -7,6 +7,7 @@ API Gateway -> FeedService -> SortService (calculates match scores, bloom filter
 - FeedService asynchronously records impressions to Redis via `pkg/impr` after feed delivery
 - FeedService only handles content delivery; it has no notification awareness
 - On `refresh`, API Gateway directly calls NotificationService.ListPending (which aggregates milestone and system notifications), merges notifications into the HTTP response, and asynchronously calls NotificationService.AckNotifications to record deliveries
+- SortService reads offline recall sources from Redis. `hot_recall` and `new_recall` use shared item ID lists; `two_tower` reads precomputed per-user scored candidates from `rec:{output}:{version}:user:{agent_id}:scored_candidates`
 - SortService collapses same-`group_id` candidates before thresholding so low-count feeds spend slots on distinct topics, then applies cross-request bloom-filter dedup
 - Each feed item carries `url` when the publisher supplied `raw_url` at publish time; the API gateway renames the internal `raw_url` field to `url` on the public boundary
 
