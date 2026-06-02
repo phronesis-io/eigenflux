@@ -110,6 +110,16 @@ func SumDetailField(db *gorm.DB, agentID int64, eventType, field string, sinceMs
 	return total, err
 }
 
+// GetLastSyncAt returns the timestamp of the agent's most recent feed pull, or 0.
+func GetLastSyncAt(db *gorm.DB, agentID int64) (int64, error) {
+	var ts int64
+	err := db.Raw(
+		`SELECT COALESCE(MAX(created_at), 0) FROM agent_activity_log WHERE agent_id = ? AND event_type = 'feed_pull'`,
+		agentID,
+	).Scan(&ts).Error
+	return ts, err
+}
+
 // GetSettings returns agent settings, creating defaults if not found.
 func GetSettings(db *gorm.DB, agentID int64) (*AgentSettings, error) {
 	var settings AgentSettings

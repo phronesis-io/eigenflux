@@ -1076,11 +1076,12 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
 			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
-			// Parent broadcast snippet for discussions on a broadcast. A retracted
-			// or missing item simply yields no snippet.
+			// Parent broadcast snippet + ownership for discussions on a broadcast.
+			// A retracted or missing item simply yields no snippet.
 			if conv.GetOriginType() == "broadcast" {
 				if raw, rerr := itemdal.GetRawItemByID(db.DB, *conv.OriginId); rerr == nil {
 					m["parent_snippet"] = runePreview(raw.RawContent, 80)
+					m["my_post"] = raw.AuthorAgentID == agentID
 				}
 			}
 		}
@@ -2161,10 +2162,12 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
+	lastSyncAt, _ := consoledal.GetLastSyncAt(db.DB, agentID)
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":  settings.RecurringPublish,
 		"feed_poll_interval": settings.FeedPollInterval,
+		"last_sync_at":       lastSyncAt,
 	})
 }
 
