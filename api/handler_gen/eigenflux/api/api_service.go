@@ -1663,8 +1663,36 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		friends = append(friends, item)
 	}
 
-	// Enrich each friend with their latest broadcast as a "recent activity" line.
-	// One lightweight item lookup per friend, run concurrently.
+	// Enrich each friend with a "recent activity" line = the more recent of their
+	// latest broadcast and our last direct message with them.
+	type recentEntry struct {
+		typ  string
+		time int64
+		text string
+	}
+
+	// Batch: latest DM per friend, keyed by peer agent id, via a single
+	// ListConversations(friend) call (avoids an extra per-friend round trip).
+	dmByPeer := map[int64]recentEntry{}
+	{
+		ft := "friend"
+		limit := int32(200)
+		cresp, cerr := clients.PMClient.ListConversations(ctx, &pmrpc.ListConversationsReq{
+			AgentId: agentID, OriginType: &ft, Limit: &limit,
+		})
+		if cerr == nil && cresp.BaseResp != nil && cresp.BaseResp.Code == 0 {
+			for _, cv := range cresp.Conversations {
+				peer := cv.ParticipantA
+				if peer == agentID {
+					peer = cv.ParticipantB
+				}
+				dmByPeer[peer] = recentEntry{typ: "message", time: cv.UpdatedAt, text: runePreview(cv.GetLastMessagePreview(), 60)}
+			}
+		}
+	}
+
+	// Per-friend: latest broadcast (concurrent, one lightweight lookup each).
+	bcasts := make([]*recentEntry, len(resp.Friends))
 	rg, rgCtx := errgroup.WithContext(ctx)
 	for idx := range resp.Friends {
 		idx := idx
@@ -1680,15 +1708,26 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 			if it.Summary != nil && *it.Summary != "" {
 				text = *it.Summary
 			}
-			friends[idx]["recent"] = map[string]interface{}{
-				"type": "broadcast",
-				"time": it.UpdatedAt,
-				"text": runePreview(text, 60),
-			}
+			bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60)}
 			return nil
 		})
 	}
 	_ = rg.Wait()
+
+	// Merge: pick whichever (broadcast vs DM) is more recent.
+	for idx := range resp.Friends {
+		var typ, text string
+		var ts int64 = -1
+		if b := bcasts[idx]; b != nil {
+			typ, text, ts = b.typ, b.text, b.time
+		}
+		if dm, ok := dmByPeer[resp.Friends[idx].AgentId]; ok && dm.time > ts {
+			typ, text, ts = dm.typ, dm.text, dm.time
+		}
+		if ts >= 0 {
+			friends[idx]["recent"] = map[string]interface{}{"type": typ, "time": ts, "text": text}
+		}
+	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"friends":     friends,
