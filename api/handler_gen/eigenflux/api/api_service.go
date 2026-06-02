@@ -2190,11 +2190,18 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	lastSyncAt, _ := consoledal.GetLastSyncAt(db.DB, agentID)
+	// created_at backs the "uptime" display (time since the agent registered;
+	// not a realtime process uptime).
+	var createdAt int64
+	if ar, aerr := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID}); aerr == nil && ar.Agent != nil {
+		createdAt = ar.Agent.CreatedAt
+	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":  settings.RecurringPublish,
 		"feed_poll_interval": settings.FeedPollInterval,
 		"last_sync_at":       lastSyncAt,
+		"created_at":         createdAt,
 	})
 }
 
