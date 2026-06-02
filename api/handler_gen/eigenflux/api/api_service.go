@@ -385,6 +385,10 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	if resp.Agent.Keywords != nil {
 		profileMap["keywords"] = resp.Agent.Keywords
 	}
+	// Agent-reported feed delivery preference (empty for the common case).
+	if s, sErr := consoledal.GetSettings(db.DB, agentID); sErr == nil {
+		profileMap["feed_delivery_preference"] = s.FeedDeliveryPreference
+	}
 
 	data := map[string]interface{}{
 		"profile": profileMap,
@@ -1778,6 +1782,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		worthAllTime      int64
 		daysActive        int64
 		broadcastCount    int64
+		agentMode         string
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -1856,6 +1861,14 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		return nil
 	})
 
+	// Parallel: agent-reported runtime mode (plugin/skill)
+	g.Go(func() error {
+		if s, e := consoledal.GetSettings(db.DB, agentID); e == nil {
+			agentMode = s.Mode
+		}
+		return nil
+	})
+
 	// Parallel: days active, derived from the agent's created_at
 	g.Go(func() error {
 		resp, err := clients.ProfileClient.GetAgent(gCtx, &profilerpc.GetAgentReq{AgentId: agentID})
@@ -1910,6 +1923,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"days_active":      daysActive,
 		"relations_formed": relationsCount,
 		"broadcast_count":  broadcastCount,
+		"mode":             agentMode,
 		"last_sync_at":     lastSyncAt,
 		"today": map[string]interface{}{
 			"inbound": map[string]interface{}{
@@ -2198,10 +2212,12 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"recurring_publish":  settings.RecurringPublish,
-		"feed_poll_interval": settings.FeedPollInterval,
-		"last_sync_at":       lastSyncAt,
-		"created_at":         createdAt,
+		"recurring_publish":        settings.RecurringPublish,
+		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_delivery_preference": settings.FeedDeliveryPreference,
+		"mode":                     settings.Mode,
+		"last_sync_at":             lastSyncAt,
+		"created_at":               createdAt,
 	})
 }
 
@@ -2221,10 +2237,38 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"recurring_publish":  settings.RecurringPublish,
-		"feed_poll_interval": settings.FeedPollInterval,
-		"updated_at":         settings.UpdatedAt,
+		"recurring_publish":        settings.RecurringPublish,
+		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_delivery_preference": settings.FeedDeliveryPreference,
+		"mode":                     settings.Mode,
+		"updated_at":               settings.UpdatedAt,
 	})
+}
+
+// PutMySettings lets the agent push its own reported fields (feed_delivery_preference,
+// mode) to the backend, authenticated via the agent access token. Only the provided
+// fields are updated; console-owned fields (recurring_publish, feed_poll_interval)
+// are untouched. This is the agent→backend half of settings sync.
+// @router /api/v1/agents/me/settings [PUT]
+func PutMySettings(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		FeedDeliveryPreference *string `json:"feed_delivery_preference"`
+		Mode                   *string `json:"mode"`
+	}
+	raw, _ := c.Body()
+	if err := json.Unmarshal(raw, &body); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
+		return
+	}
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 
 // ConsoleUpdateSettings updates agent runtime settings.

@@ -159,9 +159,10 @@ func main() {
 	// Swagger UI
 	h.GET("/swagger/*any", hertzSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// Agent-authenticated settings read (for local config sync). Registered
+	// Agent-authenticated settings sync (read + agent-reported push). Registered
 	// manually to reuse AuthMiddleware without an IDL/router regen.
 	h.GET("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.GetMySettings)
+	h.PUT("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.PutMySettings)
 
 	// Register generated routes
 	router_gen.GeneratedRegister(h)

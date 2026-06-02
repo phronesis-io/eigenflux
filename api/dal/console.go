@@ -23,15 +23,35 @@ type ActivityLog struct {
 
 func (ActivityLog) TableName() string { return "agent_activity_log" }
 
-// AgentSettings maps to agent_settings table.
+// AgentSettings maps to agent_settings table. recurring_publish / feed_poll_interval
+// are console-owned (set in the UI, pulled by the agent); feed_delivery_preference
+// and mode are agent-reported (pushed up via PUT /agents/me/settings).
 type AgentSettings struct {
-	AgentID           int64 `gorm:"column:agent_id;primaryKey"`
-	RecurringPublish  bool  `gorm:"column:recurring_publish;default:true"`
-	FeedPollInterval  int32 `gorm:"column:feed_poll_interval;default:300"`
-	UpdatedAt         int64 `gorm:"column:updated_at;not null"`
+	AgentID                int64  `gorm:"column:agent_id;primaryKey"`
+	RecurringPublish       bool   `gorm:"column:recurring_publish;default:true"`
+	FeedPollInterval       int32  `gorm:"column:feed_poll_interval;default:300"`
+	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
+	Mode                   string `gorm:"column:mode"`
+	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
 }
 
 func (AgentSettings) TableName() string { return "agent_settings" }
+
+// UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
+// mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string) error {
+	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
+		return err
+	}
+	vals := map[string]interface{}{"updated_at": time.Now().UnixMilli()}
+	if feedPref != nil {
+		vals["feed_delivery_preference"] = *feedPref
+	}
+	if mode != nil {
+		vals["mode"] = *mode
+	}
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
+}
 
 // ListActivityLog returns recent activity events for an agent within a time window.
 func ListActivityLog(db *gorm.DB, agentID int64, sinceMs int64, limit int) ([]ActivityLog, error) {
