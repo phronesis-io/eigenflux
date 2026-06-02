@@ -129,16 +129,16 @@ before running the installer. It overrides the default on every platform.
 Windows (PowerShell):
 
 ```powershell
-# Install to a custom directory instead of D:\eigenflux
-$env:EIGENFLUX_INSTALL_DIR = "E:\tools\eigenflux"
+# Install to a custom directory instead of the default D:\eigenflux
+$env:EIGENFLUX_INSTALL_DIR = "E:\eigenflux"
 irm https://eigenflux.ai/install.ps1 | iex
 ```
 
 Linux & macOS:
 
 ```bash
-# Install to a custom directory instead of ~/.local/bin
-curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_INSTALL_DIR="$HOME/tools/eigenflux" bash
+# Install to a custom directory instead of the default ~/.local/bin
+curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_INSTALL_DIR="$HOME/eigenflux" bash
 ```
 
 Notes:
