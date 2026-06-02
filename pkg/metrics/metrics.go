@@ -78,6 +78,11 @@ var (
 		Name: "recall_impression_total",
 		Help: "Total items impressed (served) by recall source.",
 	}, []string{"source"})
+
+	RecallFeedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "recall_feed_total",
+		Help: "Total items entering feed by recall source (before dedup).",
+	}, []string{"source"})
 )
 
 // LLM call metrics.
@@ -107,7 +112,7 @@ func init() {
 		RPCRequestDuration, RPCRequestsTotal,
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
 		ItemPublishToProcessDuration,
-		RecallImpressionTotal,
+		RecallImpressionTotal, RecallFeedTotal,
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 	)
 }

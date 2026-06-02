@@ -443,6 +443,13 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
+	// Record recall source feed composition
+	for _, item := range esItems {
+		for _, name := range recallsource.Names(sourceMap[item.ID]) {
+			metrics.RecallFeedTotal.WithLabelValues(name).Inc()
+		}
+	}
+
 	esItemMap := make(map[int64]sortDal.Item, len(esItems))
 	for _, item := range esItems {
 		esItemMap[item.ID] = item
@@ -514,7 +521,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
-			"recall_source":  int(sourceMap[ri.ItemID]),
+			"recall_source":       int(sourceMap[ri.ItemID]),
+			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()
@@ -601,7 +609,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			"updated_at":     item.UpdatedAt.UnixMilli(),
 			"created_at":     item.CreatedAt.UnixMilli(),
 			"rank_scores":    ri.Scores,
-			"recall_source":  int(sourceMap[ri.ItemID]),
+			"recall_source":       int(sourceMap[ri.ItemID]),
+			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 			"filtered":       true,
 		}
 		if item.ExpireTime != nil {
