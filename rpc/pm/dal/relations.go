@@ -289,6 +289,14 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 	return friends, nil
 }
 
+// CountFriends returns the exact number of friends for an agent.
+func CountFriends(db *gorm.DB, agentID int64) (int64, error) {
+	var n int64
+	err := db.Model(&UserRelation{}).
+		Where("from_uid = ? AND rel_type = ?", agentID, RelTypeFriend).
+		Count(&n).Error
+	return n, err
+}
 
 // UpdateFriendRemark updates the remark for a friend relation.
 func UpdateFriendRemark(db *gorm.DB, agentID, friendUID int64, remark string) error {

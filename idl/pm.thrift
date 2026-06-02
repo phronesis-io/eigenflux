@@ -208,12 +208,21 @@ struct FriendInfo {
 struct ListFriendsResp {
     1: required list<FriendInfo> friends
     2: required i64 next_cursor
+    3: optional i64 total              // total friend count (exact, not page-limited)
     255: required base.BaseResp base_resp
 }
 
+struct GetUnreadCountReq {
+    1: required i64 agent_id
+}
 
+struct GetUnreadCountResp {
+    1: required i64 count
+    255: required base.BaseResp base_resp
+}
 
 service PMService {
+    GetUnreadCountResp GetUnreadCount(1: GetUnreadCountReq req)
     SendPMResp SendPM(1: SendPMReq req)
     FetchPMResp FetchPM(1: FetchPMReq req)
     FetchPMHistoryResp FetchPMHistory(1: FetchPMHistoryReq req)

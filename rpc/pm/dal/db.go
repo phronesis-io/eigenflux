@@ -170,6 +170,15 @@ func CountUnread(db *gorm.DB, convID, agentID int64) (int32, error) {
 	return int32(count), err
 }
 
+// CountUnreadTotal counts all unread messages received by an agent across conversations.
+func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
+	var count int64
+	err := db.Model(&PrivateMessage{}).
+		Where("receiver_id = ? AND is_read = false", agentID).
+		Count(&count).Error
+	return count, err
+}
+
 // GetConvMessages retrieves messages for a conversation with cursor pagination (older messages)
 func GetConvMessages(db *gorm.DB, convID, cursor int64, limit int) ([]*PrivateMessage, error) {
 	var msgs []*PrivateMessage

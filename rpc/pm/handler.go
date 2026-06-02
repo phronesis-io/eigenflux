@@ -1061,7 +1061,21 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 	if len(friends) > 0 {
 		nextCursor = friends[len(friends)-1].RelationID
 	}
-	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	resp := &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}
+	if total, cErr := dal.CountFriends(db.DB, req.AgentId); cErr == nil {
+		resp.Total = &total
+	}
+	return resp, nil
+}
+
+// GetUnreadCount returns the agent's total unread message count across conversations.
+func (s *PMServiceImpl) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq) (*pm.GetUnreadCountResp, error) {
+	n, err := dal.CountUnreadTotal(db.DB, req.AgentId)
+	if err != nil {
+		logger.Ctx(ctx).Error("GetUnreadCount failed", "agentID", req.AgentId, "err", err)
+		return &pm.GetUnreadCountResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to count"}}, nil
+	}
+	return &pm.GetUnreadCountResp{Count: n, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq) (*pm.UpdateFriendRemarkResp, error) {

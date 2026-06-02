@@ -13,6 +13,13 @@ import (
 var errInvalidMessageType = errors.New("invalid message type for service method handler")
 
 var serviceMethods = map[string]kitex.MethodInfo{
+	"GetUnreadCount": kitex.NewMethodInfo(
+		getUnreadCountHandler,
+		newPMServiceGetUnreadCountArgs,
+		newPMServiceGetUnreadCountResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"SendPM": kitex.NewMethodInfo(
 		sendPMHandler,
 		newPMServiceSendPMArgs,
@@ -175,6 +182,24 @@ func newServiceInfo(hasStreaming bool, keepStreamingMethods bool, keepNonStreami
 		Extra:           extra,
 	}
 	return svcInfo
+}
+
+func getUnreadCountHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceGetUnreadCountArgs)
+	realResult := result.(*pm.PMServiceGetUnreadCountResult)
+	success, err := handler.(pm.PMService).GetUnreadCount(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceGetUnreadCountArgs() interface{} {
+	return pm.NewPMServiceGetUnreadCountArgs()
+}
+
+func newPMServiceGetUnreadCountResult() interface{} {
+	return pm.NewPMServiceGetUnreadCountResult()
 }
 
 func sendPMHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
@@ -437,6 +462,16 @@ func newServiceClient(c client.Client) *kClient {
 	return &kClient{
 		c: c,
 	}
+}
+
+func (p *kClient) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq) (r *pm.GetUnreadCountResp, err error) {
+	var _args pm.PMServiceGetUnreadCountArgs
+	_args.Req = req
+	var _result pm.PMServiceGetUnreadCountResult
+	if err = p.c.Call(ctx, "GetUnreadCount", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
 }
 
 func (p *kClient) SendPM(ctx context.Context, req *pm.SendPMReq) (r *pm.SendPMResp, err error) {

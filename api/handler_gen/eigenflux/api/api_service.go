@@ -1811,6 +1811,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	var (
 		signalsScanned    int64
 		relationsCount    int64
+		unreadCount       int64
 		eventCounts       []consoledal.EventCount
 		lastSyncAt        int64
 		broadcastAgg      *consoledal.TodayBroadcastAgg
@@ -1836,30 +1837,26 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		return nil
 	})
 
-	// Parallel: friends count via PM RPC
+	// Parallel: exact friend count via PM RPC (Total, a cheap COUNT — no paging).
 	g.Go(func() error {
-		// Page through all friends to get the true count. PM caps page size at
-		// 100, so accumulate across pages via the cursor. The 50-page safety cap
-		// (5000 friends) guards against a misbehaving cursor.
-		const pageSize = int32(100)
-		var cursor int64
-		for page := 0; page < 50; page++ {
-			req := &pmrpc.ListFriendsReq{AgentId: agentID}
-			ps := pageSize
-			req.Limit = &ps
-			if cursor > 0 {
-				cur := cursor
-				req.Cursor = &cur
-			}
-			resp, err := clients.PMClient.ListFriends(gCtx, req)
-			if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
-				return nil // non-fatal
-			}
-			relationsCount += int64(len(resp.Friends))
-			if len(resp.Friends) < int(pageSize) {
-				break
-			}
-			cursor = resp.NextCursor
+		one := int32(1)
+		resp, err := clients.PMClient.ListFriends(gCtx, &pmrpc.ListFriendsReq{AgentId: agentID, Limit: &one})
+		if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
+			return nil // non-fatal
+		}
+		if resp.Total != nil {
+			relationsCount = *resp.Total
+		} else {
+			relationsCount = int64(len(resp.Friends))
+		}
+		return nil
+	})
+
+	// Parallel: total unread message count (for the messages nav badge).
+	g.Go(func() error {
+		uresp, err := clients.PMClient.GetUnreadCount(gCtx, &pmrpc.GetUnreadCountReq{AgentId: agentID})
+		if err == nil && uresp.BaseResp != nil && uresp.BaseResp.Code == 0 {
+			unreadCount = uresp.Count
 		}
 		return nil
 	})
@@ -1961,6 +1958,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"worth_reading":    worthAllTime,
 		"days_active":      daysActive,
 		"relations_formed": relationsCount,
+		"unread_count":     unreadCount,
 		"broadcast_count":  broadcastCount,
 		"mode":             agentMode,
 		"last_sync_at":     lastSyncAt,

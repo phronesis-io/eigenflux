@@ -2039,6 +2039,7 @@ var fieldIDToName_FriendInfo = map[int16]string{
 type ListFriendsResp struct {
 	Friends    []*FriendInfo  `thrift:"friends,1,required" frugal:"1,required,list<FriendInfo>" json:"friends"`
 	NextCursor int64          `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	Total      *int64         `thrift:"total,3,optional" frugal:"3,optional,i64" json:"total,omitempty"`
 	BaseResp   *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
@@ -2057,6 +2058,15 @@ func (p *ListFriendsResp) GetNextCursor() (v int64) {
 	return p.NextCursor
 }
 
+var ListFriendsResp_Total_DEFAULT int64
+
+func (p *ListFriendsResp) GetTotal() (v int64) {
+	if !p.IsSetTotal() {
+		return ListFriendsResp_Total_DEFAULT
+	}
+	return *p.Total
+}
+
 var ListFriendsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ListFriendsResp) GetBaseResp() (v *base.BaseResp) {
@@ -2071,8 +2081,15 @@ func (p *ListFriendsResp) SetFriends(val []*FriendInfo) {
 func (p *ListFriendsResp) SetNextCursor(val int64) {
 	p.NextCursor = val
 }
+func (p *ListFriendsResp) SetTotal(val *int64) {
+	p.Total = val
+}
 func (p *ListFriendsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *ListFriendsResp) IsSetTotal() bool {
+	return p.Total != nil
 }
 
 func (p *ListFriendsResp) IsSetBaseResp() bool {
@@ -2089,10 +2106,89 @@ func (p *ListFriendsResp) String() string {
 var fieldIDToName_ListFriendsResp = map[int16]string{
 	1:   "friends",
 	2:   "next_cursor",
+	3:   "total",
+	255: "base_resp",
+}
+
+type GetUnreadCountReq struct {
+	AgentId int64 `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+}
+
+func NewGetUnreadCountReq() *GetUnreadCountReq {
+	return &GetUnreadCountReq{}
+}
+
+func (p *GetUnreadCountReq) InitDefault() {
+}
+
+func (p *GetUnreadCountReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+func (p *GetUnreadCountReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+
+func (p *GetUnreadCountReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetUnreadCountReq(%+v)", *p)
+}
+
+var fieldIDToName_GetUnreadCountReq = map[int16]string{
+	1: "agent_id",
+}
+
+type GetUnreadCountResp struct {
+	Count    int64          `thrift:"count,1,required" frugal:"1,required,i64" json:"count"`
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewGetUnreadCountResp() *GetUnreadCountResp {
+	return &GetUnreadCountResp{}
+}
+
+func (p *GetUnreadCountResp) InitDefault() {
+}
+
+func (p *GetUnreadCountResp) GetCount() (v int64) {
+	return p.Count
+}
+
+var GetUnreadCountResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *GetUnreadCountResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return GetUnreadCountResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *GetUnreadCountResp) SetCount(val int64) {
+	p.Count = val
+}
+func (p *GetUnreadCountResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *GetUnreadCountResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *GetUnreadCountResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetUnreadCountResp(%+v)", *p)
+}
+
+var fieldIDToName_GetUnreadCountResp = map[int16]string{
+	1:   "count",
 	255: "base_resp",
 }
 
 type PMService interface {
+	GetUnreadCount(ctx context.Context, req *GetUnreadCountReq) (r *GetUnreadCountResp, err error)
+
 	SendPM(ctx context.Context, req *SendPMReq) (r *SendPMResp, err error)
 
 	FetchPM(ctx context.Context, req *FetchPMReq) (r *FetchPMResp, err error)
@@ -2120,6 +2216,82 @@ type PMService interface {
 	ListFriends(ctx context.Context, req *ListFriendsReq) (r *ListFriendsResp, err error)
 
 	UpdateFriendRemark(ctx context.Context, req *UpdateFriendRemarkReq) (r *UpdateFriendRemarkResp, err error)
+}
+
+type PMServiceGetUnreadCountArgs struct {
+	Req *GetUnreadCountReq `thrift:"req,1" frugal:"1,default,GetUnreadCountReq" json:"req"`
+}
+
+func NewPMServiceGetUnreadCountArgs() *PMServiceGetUnreadCountArgs {
+	return &PMServiceGetUnreadCountArgs{}
+}
+
+func (p *PMServiceGetUnreadCountArgs) InitDefault() {
+}
+
+var PMServiceGetUnreadCountArgs_Req_DEFAULT *GetUnreadCountReq
+
+func (p *PMServiceGetUnreadCountArgs) GetReq() (v *GetUnreadCountReq) {
+	if !p.IsSetReq() {
+		return PMServiceGetUnreadCountArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceGetUnreadCountArgs) SetReq(val *GetUnreadCountReq) {
+	p.Req = val
+}
+
+func (p *PMServiceGetUnreadCountArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceGetUnreadCountArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceGetUnreadCountArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceGetUnreadCountArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceGetUnreadCountResult struct {
+	Success *GetUnreadCountResp `thrift:"success,0,optional" frugal:"0,optional,GetUnreadCountResp" json:"success,omitempty"`
+}
+
+func NewPMServiceGetUnreadCountResult() *PMServiceGetUnreadCountResult {
+	return &PMServiceGetUnreadCountResult{}
+}
+
+func (p *PMServiceGetUnreadCountResult) InitDefault() {
+}
+
+var PMServiceGetUnreadCountResult_Success_DEFAULT *GetUnreadCountResp
+
+func (p *PMServiceGetUnreadCountResult) GetSuccess() (v *GetUnreadCountResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceGetUnreadCountResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceGetUnreadCountResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GetUnreadCountResp)
+}
+
+func (p *PMServiceGetUnreadCountResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceGetUnreadCountResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceGetUnreadCountResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceGetUnreadCountResult = map[int16]string{
+	0: "success",
 }
 
 type PMServiceSendPMArgs struct {

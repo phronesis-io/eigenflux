@@ -11,6 +11,7 @@ import (
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
+	GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq, callOptions ...callopt.Option) (r *pm.GetUnreadCountResp, err error)
 	SendPM(ctx context.Context, req *pm.SendPMReq, callOptions ...callopt.Option) (r *pm.SendPMResp, err error)
 	FetchPM(ctx context.Context, req *pm.FetchPMReq, callOptions ...callopt.Option) (r *pm.FetchPMResp, err error)
 	FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq, callOptions ...callopt.Option) (r *pm.FetchPMHistoryResp, err error)
@@ -54,6 +55,11 @@ func MustNewClient(destService string, opts ...client.Option) Client {
 
 type kPMServiceClient struct {
 	*kClient
+}
+
+func (p *kPMServiceClient) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq, callOptions ...callopt.Option) (r *pm.GetUnreadCountResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetUnreadCount(ctx, req)
 }
 
 func (p *kPMServiceClient) SendPM(ctx context.Context, req *pm.SendPMReq, callOptions ...callopt.Option) (r *pm.SendPMResp, err error) {
