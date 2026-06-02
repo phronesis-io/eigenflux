@@ -1659,6 +1659,33 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		friends = append(friends, item)
 	}
 
+	// Enrich each friend with their latest broadcast as a "recent activity" line.
+	// One lightweight item lookup per friend, run concurrently.
+	rg, rgCtx := errgroup.WithContext(ctx)
+	for idx := range resp.Friends {
+		idx := idx
+		friendID := resp.Friends[idx].AgentId
+		rg.Go(func() error {
+			one := int32(1)
+			ir, ierr := clients.ItemClient.GetMyItems(rgCtx, &itemrpc.GetMyItemsReq{AuthorAgentId: friendID, Limit: &one})
+			if ierr != nil || ir.BaseResp == nil || ir.BaseResp.Code != 0 || len(ir.Items) == 0 {
+				return nil // non-fatal
+			}
+			it := ir.Items[0]
+			text := it.RawContentPreview
+			if it.Summary != nil && *it.Summary != "" {
+				text = *it.Summary
+			}
+			friends[idx]["recent"] = map[string]interface{}{
+				"type": "broadcast",
+				"time": it.UpdatedAt,
+				"text": runePreview(text, 60),
+			}
+			return nil
+		})
+	}
+	_ = rg.Wait()
+
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"friends":     friends,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
