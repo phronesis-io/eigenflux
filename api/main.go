@@ -23,6 +23,7 @@ import (
 
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
+	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
@@ -157,6 +158,10 @@ func main() {
 
 	// Swagger UI
 	h.GET("/swagger/*any", hertzSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// Agent-authenticated settings read (for local config sync). Registered
+	// manually to reuse AuthMiddleware without an IDL/router regen.
+	h.GET("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.GetMySettings)
 
 	// Register generated routes
 	router_gen.GeneratedRegister(h)

@@ -195,3 +195,22 @@ func GetImpressionCount(ctx context.Context, agentID int64) (int64, error) {
 func IncrImpressionCount(ctx context.Context, agentID int64, delta int64) error {
 	return mq.RDB.IncrBy(ctx, impressionKey(agentID), delta).Err()
 }
+
+func worthKey(agentID int64) string {
+	return fmt.Sprintf("stats:agent:%d:worth", agentID)
+}
+
+// GetWorthCount returns the all-time count of items the agent found worth
+// reading (feedback score>=1).
+func GetWorthCount(ctx context.Context, agentID int64) (int64, error) {
+	val, err := mq.RDB.Get(ctx, worthKey(agentID)).Int64()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return val, err
+}
+
+// IncrWorthCount increments the worth-reading counter by delta.
+func IncrWorthCount(ctx context.Context, agentID int64, delta int64) error {
+	return mq.RDB.IncrBy(ctx, worthKey(agentID), delta).Err()
+}

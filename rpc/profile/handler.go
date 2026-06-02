@@ -132,10 +132,15 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 	agentProfile, _ := dal.GetAgentProfile(db.DB, req.AgentId)
 	var country string
 	keywords := []string{}
+	// last_updated reflects whichever backing table changed most recently.
+	updatedAt := agent.UpdatedAt
 	if agentProfile != nil {
 		country = agentProfile.Country
 		if agentProfile.Keywords != "" {
 			keywords = strings.Split(agentProfile.Keywords, ",")
+		}
+		if agentProfile.UpdatedAt > updatedAt {
+			updatedAt = agentProfile.UpdatedAt
 		}
 	}
 
@@ -158,7 +163,7 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 			AgentName: agent.AgentName,
 			Bio:       agent.Bio,
 			CreatedAt: agent.CreatedAt,
-			UpdatedAt: agent.UpdatedAt,
+			UpdatedAt: updatedAt,
 			Country:   &country,
 			Keywords:  keywords,
 		},

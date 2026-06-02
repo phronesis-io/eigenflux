@@ -204,6 +204,13 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 		_ = dal.IncrImpressionCount(ctx, agentID, delta)
 	}
 
+	// Increment the all-time worth-reading counter by items kept (score>=1).
+	if eventType == "feedback" {
+		if kept := parseDetailInt(detail, "kept"); kept > 0 {
+			_ = dal.IncrWorthCount(ctx, agentID, kept)
+		}
+	}
+
 	metrics.ConsumerMessagesTotal.WithLabelValues("agent:activity", "success").Inc()
 	c.ackMessage(ctx, msgID)
 }

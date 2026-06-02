@@ -48,10 +48,11 @@ func PublishBroadcast(ctx context.Context, agentID int64, itemID int64) {
 
 // PublishFeedback emits a feedback event asynchronously. count is the total
 // items the agent gave feedback on; useful is the subset marked useful
-// (score=2). Both are carried in detail so today's feedbacks_given and
-// you_marked_useful can be summed independently.
-func PublishFeedback(ctx context.Context, agentID int64, count, useful int) {
-	detail := fmt.Sprintf(`{"count":%d,"useful":%d}`, count, useful)
+// (score=2); kept is the subset worth reading (score>=1). All three are carried
+// in detail so feedbacks_given, you_marked_useful and worth_reading can be
+// summed independently.
+func PublishFeedback(ctx context.Context, agentID int64, count, useful, kept int) {
+	detail := fmt.Sprintf(`{"count":%d,"useful":%d,"kept":%d}`, count, useful, kept)
 	go publish(ctx, agentID, "feedback", fmt.Sprintf("Gave feedback on %d broadcasts", count), detail)
 }
 

@@ -688,6 +688,15 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+// runePreview truncates s to at most n runes, appending an ellipsis if cut.
+func runePreview(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func itemdalSplit(raw string) []string {
 	if raw == "" {
 		return []string{}
@@ -732,6 +741,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 
 	processedCount := 0
 	usefulCount := 0
+	keptCount := 0
 	skippedReasons := make([]string, 0)
 	batchImpressionID := ""
 	if req.ImpressionID != nil {
@@ -761,6 +771,9 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		if it.Score == 2 {
 			usefulCount++
 		}
+		if it.Score >= 1 {
+			keptCount++
+		}
 	}
 
 	data := map[string]interface{}{
@@ -772,7 +785,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	}
 	writeJSON(c, http.StatusOK, 0, "success", data)
 	if processedCount > 0 {
-		activity.PublishFeedback(ctx, agentID, processedCount, usefulCount)
+		activity.PublishFeedback(ctx, agentID, processedCount, usefulCount, keptCount)
 	}
 }
 
@@ -1026,11 +1039,18 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		limitPtr = req.Limit
 	}
 
-	resp, err := clients.PMClient.ListConversations(ctx, &pmrpc.ListConversationsReq{
+	// Optional origin_type filter ("item" | "friend"); read directly from the
+	// query so the hz-bound request model needs no IDL change.
+	rpcReq := &pmrpc.ListConversationsReq{
 		AgentId: agentID,
 		Cursor:  cursorPtr,
 		Limit:   limitPtr,
-	})
+	}
+	if originType := strings.TrimSpace(c.Query("origin_type")); originType != "" {
+		rpcReq.OriginType = &originType
+	}
+
+	resp, err := clients.PMClient.ListConversations(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -1042,14 +1062,29 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 
 	conversations := make([]map[string]interface{}, len(resp.Conversations))
 	for i, conv := range resp.Conversations {
-		conversations[i] = map[string]interface{}{
-			"conv_id":            strconv.FormatInt(conv.ConvId, 10),
-			"participant_a":      strconv.FormatInt(conv.ParticipantA, 10),
-			"participant_b":      strconv.FormatInt(conv.ParticipantB, 10),
-			"updated_at":         conv.UpdatedAt,
-			"participant_a_name": conv.GetParticipantAName(),
-			"participant_b_name": conv.GetParticipantBName(),
+		m := map[string]interface{}{
+			"conv_id":              strconv.FormatInt(conv.ConvId, 10),
+			"participant_a":        strconv.FormatInt(conv.ParticipantA, 10),
+			"participant_b":        strconv.FormatInt(conv.ParticipantB, 10),
+			"updated_at":           conv.UpdatedAt,
+			"participant_a_name":   conv.GetParticipantAName(),
+			"participant_b_name":   conv.GetParticipantBName(),
+			"peer_name":            conv.GetPeerName(),
+			"last_message_preview": conv.GetLastMessagePreview(),
+			"unread_count":         conv.GetUnreadCount(),
+			"origin_type":          conv.GetOriginType(),
 		}
+		if conv.OriginId != nil && *conv.OriginId != 0 {
+			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
+			// Parent broadcast snippet for discussions on a broadcast. A retracted
+			// or missing item simply yields no snippet.
+			if conv.GetOriginType() == "broadcast" {
+				if raw, rerr := itemdal.GetRawItemByID(db.DB, *conv.OriginId); rerr == nil {
+					m["parent_snippet"] = runePreview(raw.RawContent, 80)
+				}
+			}
+		}
+		conversations[i] = m
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -1711,6 +1746,9 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		itemsScannedToday int64
 		usefulToday       int64
 		feedbacksToday    int64
+		worthToday        int64
+		worthAllTime      int64
+		daysActive        int64
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -1779,14 +1817,33 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", todayStartMs)
 		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", todayStartMs)
 		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", todayStartMs)
+		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", todayStartMs)
+		return nil
+	})
+
+	// Parallel: all-time worth-reading counter (Redis)
+	g.Go(func() error {
+		worthAllTime, _ = consoledal.GetWorthCount(gCtx, agentID)
+		return nil
+	})
+
+	// Parallel: days active, derived from the agent's created_at
+	g.Go(func() error {
+		resp, err := clients.ProfileClient.GetAgent(gCtx, &profilerpc.GetAgentReq{AgentId: agentID})
+		if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 || resp.Agent == nil {
+			return nil // non-fatal
+		}
+		if resp.Agent.CreatedAt > 0 {
+			daysActive = (now.UnixMilli()-resp.Agent.CreatedAt)/86400000 + 1
+		}
 		return nil
 	})
 
 	_ = g.Wait()
 
 	// Build today breakdown. Action frequencies come from event counts; item
-	// quantities (scanned / useful / feedbacks) come from the detail sums above.
-	var feedsPulled, itemsPushed, newRelations int64
+	// quantities come from the detail sums above.
+	var feedsPulled, newRelations int64
 	var broadcastsSent, repliesReceived, messagesSent int64
 	for _, ec := range eventCounts {
 		switch ec.EventType {
@@ -1800,15 +1857,12 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			messagesSent = ec.Count
 		case "friend_added":
 			newRelations = ec.Count
-		case "feed_delivered":
-			itemsPushed = ec.Count
 		}
 	}
-	// items_scanned = total signals delivered today (summed from feed_pull detail).
+	// items_scanned = signals delivered today; items_pushed = the worth-reading
+	// subset (route b: items kept with feedback score>=1).
 	itemsScanned := itemsScannedToday
-	// items_pushed (worth-reading subset surfaced to the user) requires the
-	// score aggregation that is not yet built; feed_delivered is never emitted,
-	// so this stays 0 until the worth-reading endpoint lands. See review B-group.
+	itemsPushed := worthToday
 	youMarkedUseful := usefulToday
 	feedbacksGiven := feedbacksToday
 
@@ -1820,6 +1874,8 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"signals_scanned":  signalsScanned,
+		"worth_reading":    worthAllTime,
+		"days_active":      daysActive,
 		"relations_formed": relationsCount,
 		"last_sync_at":     lastSyncAt,
 		"today": map[string]interface{}{
@@ -2104,6 +2160,28 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":  settings.RecurringPublish,
 		"feed_poll_interval": settings.FeedPollInterval,
+	})
+}
+
+// GetMySettings returns the agent's runtime settings, authenticated via the
+// agent access token (not a console session). The agent polls this to sync its
+// local config.json with the backend, which is the source of truth. updated_at
+// lets the caller resolve which side is newer.
+// @router /api/v1/agents/me/settings [GET]
+func GetMySettings(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	settings, err := consoledal.GetSettings(db.DB, agentID)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"recurring_publish":  settings.RecurringPublish,
+		"feed_poll_interval": settings.FeedPollInterval,
+		"updated_at":         settings.UpdatedAt,
 	})
 }
 
