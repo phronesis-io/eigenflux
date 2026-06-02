@@ -1749,6 +1749,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		worthToday        int64
 		worthAllTime      int64
 		daysActive        int64
+		broadcastCount    int64
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -1836,6 +1837,9 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		if resp.Agent.CreatedAt > 0 {
 			daysActive = (now.UnixMilli()-resp.Agent.CreatedAt)/86400000 + 1
 		}
+		if resp.Influence != nil {
+			broadcastCount = resp.Influence.TotalItems
+		}
 		return nil
 	})
 
@@ -1877,6 +1881,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"worth_reading":    worthAllTime,
 		"days_active":      daysActive,
 		"relations_formed": relationsCount,
+		"broadcast_count":  broadcastCount,
 		"last_sync_at":     lastSyncAt,
 		"today": map[string]interface{}{
 			"inbound": map[string]interface{}{
