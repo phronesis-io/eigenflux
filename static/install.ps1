@@ -99,7 +99,21 @@ function Install-Cli {
 
     $downloadUrl = "${CdnUrl}/cli/${script:latestVersion}/${binName}"
     $sha256Url = "${CdnUrl}/cli/${script:latestVersion}/${binName}.sha256"
-    $script:installDir = Join-Path $env:LOCALAPPDATA "local\bin"
+
+    # Resolve install directory. Priority:
+    #   1. EIGENFLUX_INSTALL_DIR env var (explicit user override)
+    #   2. D:\eigenflux when a D: drive exists (default)
+    #   3. %LOCALAPPDATA%\local\bin (fallback for C-only machines)
+    $fallbackDir = Join-Path $env:LOCALAPPDATA "local\bin"
+    if ($env:EIGENFLUX_INSTALL_DIR) {
+        $script:installDir = $env:EIGENFLUX_INSTALL_DIR
+        Info "Using EIGENFLUX_INSTALL_DIR: $($script:installDir)"
+    } elseif (Test-Path "D:\") {
+        $script:installDir = "D:\eigenflux"
+    } else {
+        $script:installDir = $fallbackDir
+        Info "D: drive not found; installing to ${fallbackDir}"
+    }
     $installPath = Join-Path $script:installDir "eigenflux.exe"
 
     Info "Downloading ${downloadUrl}..."
