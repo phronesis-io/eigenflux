@@ -920,9 +920,11 @@ var fieldIDToName_ItemWithStats = map[int16]string{
 }
 
 type GetMyItemsReq struct {
-	AuthorAgentId int64  `thrift:"author_agent_id,1,required" frugal:"1,required,i64" json:"author_agent_id"`
-	LastItemId    *int64 `thrift:"last_item_id,2,optional" frugal:"2,optional,i64" json:"last_item_id,omitempty"`
-	Limit         *int32 `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	AuthorAgentId int64   `thrift:"author_agent_id,1,required" frugal:"1,required,i64" json:"author_agent_id"`
+	LastItemId    *int64  `thrift:"last_item_id,2,optional" frugal:"2,optional,i64" json:"last_item_id,omitempty"`
+	Limit         *int32  `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	TimeFrom      *int64  `thrift:"time_from,4,optional" frugal:"4,optional,i64" json:"time_from,omitempty"`
+	ScoreFilter   *string `thrift:"score_filter,5,optional" frugal:"5,optional,string" json:"score_filter,omitempty"`
 }
 
 func NewGetMyItemsReq() *GetMyItemsReq {
@@ -953,6 +955,24 @@ func (p *GetMyItemsReq) GetLimit() (v int32) {
 	}
 	return *p.Limit
 }
+
+var GetMyItemsReq_TimeFrom_DEFAULT int64
+
+func (p *GetMyItemsReq) GetTimeFrom() (v int64) {
+	if !p.IsSetTimeFrom() {
+		return GetMyItemsReq_TimeFrom_DEFAULT
+	}
+	return *p.TimeFrom
+}
+
+var GetMyItemsReq_ScoreFilter_DEFAULT string
+
+func (p *GetMyItemsReq) GetScoreFilter() (v string) {
+	if !p.IsSetScoreFilter() {
+		return GetMyItemsReq_ScoreFilter_DEFAULT
+	}
+	return *p.ScoreFilter
+}
 func (p *GetMyItemsReq) SetAuthorAgentId(val int64) {
 	p.AuthorAgentId = val
 }
@@ -962,6 +982,12 @@ func (p *GetMyItemsReq) SetLastItemId(val *int64) {
 func (p *GetMyItemsReq) SetLimit(val *int32) {
 	p.Limit = val
 }
+func (p *GetMyItemsReq) SetTimeFrom(val *int64) {
+	p.TimeFrom = val
+}
+func (p *GetMyItemsReq) SetScoreFilter(val *string) {
+	p.ScoreFilter = val
+}
 
 func (p *GetMyItemsReq) IsSetLastItemId() bool {
 	return p.LastItemId != nil
@@ -969,6 +995,14 @@ func (p *GetMyItemsReq) IsSetLastItemId() bool {
 
 func (p *GetMyItemsReq) IsSetLimit() bool {
 	return p.Limit != nil
+}
+
+func (p *GetMyItemsReq) IsSetTimeFrom() bool {
+	return p.TimeFrom != nil
+}
+
+func (p *GetMyItemsReq) IsSetScoreFilter() bool {
+	return p.ScoreFilter != nil
 }
 
 func (p *GetMyItemsReq) String() string {
@@ -982,6 +1016,8 @@ var fieldIDToName_GetMyItemsReq = map[int16]string{
 	1: "author_agent_id",
 	2: "last_item_id",
 	3: "limit",
+	4: "time_from",
+	5: "score_filter",
 }
 
 type GetMyItemsResp struct {

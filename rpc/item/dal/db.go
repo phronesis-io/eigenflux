@@ -385,7 +385,7 @@ type ItemWithStats struct {
 
 // GetItemStatsByAuthor retrieves items with stats for a specific author
 // Optimized version: avoid JOINs by querying tables separately
-func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int) ([]*ItemWithStats, error) {
+func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int, timeFrom int64, scoreFilter string) ([]*ItemWithStats, error) {
 	// Step 1: Query item_stats + processed_items status (include retracted for own items)
 	type statsWithStatus struct {
 		ItemStats
@@ -398,9 +398,19 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	if lastItemID > 0 {
 		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}
+	// Server-side filters: publish-time window + score band.
+	if timeFrom > 0 {
+		query = query.Where("item_stats.created_at >= ?", timeFrom)
+	}
+	switch scoreFilter {
+	case "high":
+		query = query.Where("item_stats.total_score > ?", 10)
+	case "low":
+		query = query.Where("item_stats.total_score <= ?", 10)
+	}
 	err := query.
 		Select("item_stats.*, processed_items.status").
-		Order("item_stats.updated_at DESC, item_stats.item_id DESC").
+		Order("item_stats.item_id DESC").
 		Limit(limit).
 		Find(&stats).Error
 	if err != nil {

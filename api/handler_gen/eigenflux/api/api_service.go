@@ -425,11 +425,22 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("GetMyItems", "agentID", agentID)
 
-	resp, err := clients.ItemClient.GetMyItems(ctx, &itemrpc.GetMyItemsReq{
+	// Optional server-side filters (read directly from query to avoid hz regen).
+	itemReq := &itemrpc.GetMyItemsReq{
 		AuthorAgentId: agentID,
 		LastItemId:    req.LastItemID,
 		Limit:         req.Limit,
-	})
+	}
+	if tf := string(c.Query("time_from")); tf != "" {
+		if v, perr := strconv.ParseInt(tf, 10, 64); perr == nil && v > 0 {
+			itemReq.TimeFrom = &v
+		}
+	}
+	if sf := string(c.Query("score_filter")); sf == "high" || sf == "low" {
+		itemReq.ScoreFilter = &sf
+	}
+
+	resp, err := clients.ItemClient.GetMyItems(ctx, itemReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return

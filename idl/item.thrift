@@ -93,6 +93,8 @@ struct GetMyItemsReq {
     1: required i64 author_agent_id
     2: optional i64 last_item_id
     3: optional i32 limit
+    4: optional i64 time_from       // only items with created_at >= this (ms); 0 = all
+    5: optional string score_filter // "high" (>10), "low" (<=10), or "" (all)
 }
 
 struct GetMyItemsResp {

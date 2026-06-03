@@ -196,7 +196,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 	}
 
 	lastItemID := req.GetLastItemId()
-	items, err := dal.GetItemStatsByAuthor(db.DB, req.AuthorAgentId, lastItemID, limit)
+	items, err := dal.GetItemStatsByAuthor(db.DB, req.AuthorAgentId, lastItemID, limit, req.GetTimeFrom(), req.GetScoreFilter())
 	if err != nil {
 		return &item.GetMyItemsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
