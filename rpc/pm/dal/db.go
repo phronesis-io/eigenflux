@@ -170,6 +170,22 @@ func CountUnread(db *gorm.DB, convID, agentID int64) (int32, error) {
 	return int32(count), err
 }
 
+// GetLastFriendDM returns the most recent message in the direct (friend)
+// conversation between two agents, regardless of who sent it. Returns a
+// zero-MsgID message (no error) when there is no friend DM between them.
+func GetLastFriendDM(db *gorm.DB, agentA, agentB int64) (*PrivateMessage, error) {
+	var msg PrivateMessage
+	err := db.Raw(
+		`SELECT pm.* FROM private_messages pm
+		 JOIN conversations c ON pm.conv_id = c.conv_id
+		 WHERE c.origin_type = 'friend'
+		   AND ((c.participant_a = ? AND c.participant_b = ?) OR (c.participant_a = ? AND c.participant_b = ?))
+		 ORDER BY pm.msg_id DESC LIMIT 1`,
+		agentA, agentB, agentB, agentA,
+	).Scan(&msg).Error
+	return &msg, err
+}
+
 // CountUnreadTotal counts all unread messages received by an agent across conversations.
 func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
 	var count int64

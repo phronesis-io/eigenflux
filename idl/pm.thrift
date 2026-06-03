@@ -203,6 +203,8 @@ struct FriendInfo {
     3: required i64 friend_since
     4: optional string remark
     5: optional string bio
+    6: optional string last_dm_preview   // last direct message with this friend
+    7: optional i64 last_dm_time         // its timestamp (ms)
 }
 
 struct ListFriendsResp {

@@ -1054,6 +1054,13 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 		if f.Bio != "" {
 			info.Bio = &f.Bio
 		}
+		// Attach the last direct message with this friend (for relations "recent activity").
+		if dm, derr := dal.GetLastFriendDM(db.DB, req.AgentId, f.AgentID); derr == nil && dm.MsgID != 0 {
+			content := dm.Content
+			ts := dm.CreatedAt
+			info.LastDmPreview = &content
+			info.LastDmTime = &ts
+		}
 		result = append(result, info)
 	}
 

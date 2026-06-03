@@ -1954,11 +1954,13 @@ var fieldIDToName_ListFriendsReq = map[int16]string{
 }
 
 type FriendInfo struct {
-	AgentId     int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	AgentName   string  `thrift:"agent_name,2,required" frugal:"2,required,string" json:"agent_name"`
-	FriendSince int64   `thrift:"friend_since,3,required" frugal:"3,required,i64" json:"friend_since"`
-	Remark      *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
-	Bio         *string `thrift:"bio,5,optional" frugal:"5,optional,string" json:"bio,omitempty"`
+	AgentId       int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	AgentName     string  `thrift:"agent_name,2,required" frugal:"2,required,string" json:"agent_name"`
+	FriendSince   int64   `thrift:"friend_since,3,required" frugal:"3,required,i64" json:"friend_since"`
+	Remark        *string `thrift:"remark,4,optional" frugal:"4,optional,string" json:"remark,omitempty"`
+	Bio           *string `thrift:"bio,5,optional" frugal:"5,optional,string" json:"bio,omitempty"`
+	LastDmPreview *string `thrift:"last_dm_preview,6,optional" frugal:"6,optional,string" json:"last_dm_preview,omitempty"`
+	LastDmTime    *int64  `thrift:"last_dm_time,7,optional" frugal:"7,optional,i64" json:"last_dm_time,omitempty"`
 }
 
 func NewFriendInfo() *FriendInfo {
@@ -1997,6 +1999,24 @@ func (p *FriendInfo) GetBio() (v string) {
 	}
 	return *p.Bio
 }
+
+var FriendInfo_LastDmPreview_DEFAULT string
+
+func (p *FriendInfo) GetLastDmPreview() (v string) {
+	if !p.IsSetLastDmPreview() {
+		return FriendInfo_LastDmPreview_DEFAULT
+	}
+	return *p.LastDmPreview
+}
+
+var FriendInfo_LastDmTime_DEFAULT int64
+
+func (p *FriendInfo) GetLastDmTime() (v int64) {
+	if !p.IsSetLastDmTime() {
+		return FriendInfo_LastDmTime_DEFAULT
+	}
+	return *p.LastDmTime
+}
 func (p *FriendInfo) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -2012,6 +2032,12 @@ func (p *FriendInfo) SetRemark(val *string) {
 func (p *FriendInfo) SetBio(val *string) {
 	p.Bio = val
 }
+func (p *FriendInfo) SetLastDmPreview(val *string) {
+	p.LastDmPreview = val
+}
+func (p *FriendInfo) SetLastDmTime(val *int64) {
+	p.LastDmTime = val
+}
 
 func (p *FriendInfo) IsSetRemark() bool {
 	return p.Remark != nil
@@ -2019,6 +2045,14 @@ func (p *FriendInfo) IsSetRemark() bool {
 
 func (p *FriendInfo) IsSetBio() bool {
 	return p.Bio != nil
+}
+
+func (p *FriendInfo) IsSetLastDmPreview() bool {
+	return p.LastDmPreview != nil
+}
+
+func (p *FriendInfo) IsSetLastDmTime() bool {
+	return p.LastDmTime != nil
 }
 
 func (p *FriendInfo) String() string {
@@ -2034,6 +2068,8 @@ var fieldIDToName_FriendInfo = map[int16]string{
 	3: "friend_since",
 	4: "remark",
 	5: "bio",
+	6: "last_dm_preview",
+	7: "last_dm_time",
 }
 
 type ListFriendsResp struct {
