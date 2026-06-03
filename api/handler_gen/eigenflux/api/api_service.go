@@ -1714,6 +1714,7 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"friends":     friends,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+		"total":       resp.GetTotal(),
 	})
 }
 
