@@ -20,6 +20,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"MarkConvRead": kitex.NewMethodInfo(
+		markConvReadHandler,
+		newPMServiceMarkConvReadArgs,
+		newPMServiceMarkConvReadResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"SendPM": kitex.NewMethodInfo(
 		sendPMHandler,
 		newPMServiceSendPMArgs,
@@ -200,6 +207,24 @@ func newPMServiceGetUnreadCountArgs() interface{} {
 
 func newPMServiceGetUnreadCountResult() interface{} {
 	return pm.NewPMServiceGetUnreadCountResult()
+}
+
+func markConvReadHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceMarkConvReadArgs)
+	realResult := result.(*pm.PMServiceMarkConvReadResult)
+	success, err := handler.(pm.PMService).MarkConvRead(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceMarkConvReadArgs() interface{} {
+	return pm.NewPMServiceMarkConvReadArgs()
+}
+
+func newPMServiceMarkConvReadResult() interface{} {
+	return pm.NewPMServiceMarkConvReadResult()
 }
 
 func sendPMHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
@@ -469,6 +494,16 @@ func (p *kClient) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq)
 	_args.Req = req
 	var _result pm.PMServiceGetUnreadCountResult
 	if err = p.c.Call(ctx, "GetUnreadCount", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) MarkConvRead(ctx context.Context, req *pm.MarkConvReadReq) (r *pm.MarkConvReadResp, err error) {
+	var _args pm.PMServiceMarkConvReadArgs
+	_args.Req = req
+	var _result pm.PMServiceMarkConvReadResult
+	if err = p.c.Call(ctx, "MarkConvRead", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

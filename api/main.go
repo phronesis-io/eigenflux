@@ -163,6 +163,9 @@ func main() {
 	// manually to reuse AuthMiddleware without an IDL/router regen.
 	h.GET("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.GetMySettings)
 	h.PUT("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.PutMySettings)
+	// Messages: total/per-origin unread + mark-conversation-read.
+	h.GET("/api/v1/pm/unread", middleware.AuthMiddleware(), apihandler.GetUnreadBreakdown)
+	h.POST("/api/v1/pm/read", middleware.AuthMiddleware(), apihandler.MarkConvRead)
 
 	// Register generated routes
 	router_gen.GeneratedRegister(h)

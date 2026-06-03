@@ -1076,6 +1076,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"peer_name":            conv.GetPeerName(),
 			"last_message_preview": conv.GetLastMessagePreview(),
 			"unread_count":         conv.GetUnreadCount(),
+			"msg_count":            conv.GetMsgCount(),
 			"origin_type":          conv.GetOriginType(),
 		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
@@ -1176,6 +1177,57 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"messages":    messages,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// MarkConvRead marks a conversation's messages as read for the current agent.
+// Registered manually in main.go. @router /api/v1/pm/read [POST]
+func MarkConvRead(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		ConvID string `json:"conv_id"`
+	}
+	raw, _ := c.Body()
+	if err := json.Unmarshal(raw, &body); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
+		return
+	}
+	convID, err := strconv.ParseInt(body.ConvID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+		return
+	}
+	resp, err := clients.PMClient.MarkConvRead(ctx, &pmrpc.MarkConvReadReq{AgentId: agentID, ConvId: convID})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp != nil && resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// GetUnreadBreakdown returns the agent's unread totals (total + per origin).
+// Registered manually in main.go. @router /api/v1/pm/unread [GET]
+func GetUnreadBreakdown(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	resp, err := clients.PMClient.GetUnreadCount(ctx, &pmrpc.GetUnreadCountReq{AgentId: agentID})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"total":     resp.Count,
+		"broadcast": resp.GetCountBroadcast(),
+		"friend":    resp.GetCountFriend(),
 	})
 }
 

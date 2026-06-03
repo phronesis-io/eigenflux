@@ -195,6 +195,38 @@ func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
 	return count, err
 }
 
+// CountUnreadByOrigin returns the agent's unread message counts split by the
+// conversation origin ("broadcast" discussions vs "friend" direct messages).
+func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcast, friend int64, err error) {
+	type row struct {
+		OriginType string
+		N          int64
+	}
+	var rows []row
+	err = db.Raw(
+		`SELECT c.origin_type AS origin_type, COUNT(*) AS n
+		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
+		 WHERE pm.receiver_id = ? AND pm.is_read = false
+		 GROUP BY c.origin_type`, agentID,
+	).Scan(&rows).Error
+	for _, r := range rows {
+		switch r.OriginType {
+		case "broadcast":
+			broadcast = r.N
+		case "friend":
+			friend = r.N
+		}
+	}
+	return
+}
+
+// MarkConvReadByAgent marks all messages the agent received in a conversation as read.
+func MarkConvReadByAgent(db *gorm.DB, convID, agentID int64) error {
+	return db.Model(&PrivateMessage{}).
+		Where("conv_id = ? AND receiver_id = ? AND is_read = false", convID, agentID).
+		Update("is_read", true).Error
+}
+
 // GetConvMessages retrieves messages for a conversation with cursor pagination (older messages)
 func GetConvMessages(db *gorm.DB, convID, cursor int64, limit int) ([]*PrivateMessage, error) {
 	var msgs []*PrivateMessage

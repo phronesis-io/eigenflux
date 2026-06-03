@@ -69,6 +69,7 @@ struct ConversationInfo {
     10: optional string peer_name
     11: optional string last_message_preview
     12: optional i32 unread_count
+    13: optional i32 msg_count
 }
 
 struct ListConversationsResp {
@@ -220,11 +221,23 @@ struct GetUnreadCountReq {
 
 struct GetUnreadCountResp {
     1: required i64 count
+    2: optional i64 count_broadcast   // unread in broadcast discussions
+    3: optional i64 count_friend      // unread in direct messages
+    255: required base.BaseResp base_resp
+}
+
+struct MarkConvReadReq {
+    1: required i64 agent_id
+    2: required i64 conv_id
+}
+
+struct MarkConvReadResp {
     255: required base.BaseResp base_resp
 }
 
 service PMService {
     GetUnreadCountResp GetUnreadCount(1: GetUnreadCountReq req)
+    MarkConvReadResp MarkConvRead(1: MarkConvReadReq req)
     SendPMResp SendPM(1: SendPMReq req)
     FetchPMResp FetchPM(1: FetchPMReq req)
     FetchPMHistoryResp FetchPMHistory(1: FetchPMHistoryReq req)

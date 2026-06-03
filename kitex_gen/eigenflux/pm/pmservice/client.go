@@ -12,6 +12,7 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq, callOptions ...callopt.Option) (r *pm.GetUnreadCountResp, err error)
+	MarkConvRead(ctx context.Context, req *pm.MarkConvReadReq, callOptions ...callopt.Option) (r *pm.MarkConvReadResp, err error)
 	SendPM(ctx context.Context, req *pm.SendPMReq, callOptions ...callopt.Option) (r *pm.SendPMResp, err error)
 	FetchPM(ctx context.Context, req *pm.FetchPMReq, callOptions ...callopt.Option) (r *pm.FetchPMResp, err error)
 	FetchPMHistory(ctx context.Context, req *pm.FetchPMHistoryReq, callOptions ...callopt.Option) (r *pm.FetchPMHistoryResp, err error)
@@ -60,6 +61,11 @@ type kPMServiceClient struct {
 func (p *kPMServiceClient) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq, callOptions ...callopt.Option) (r *pm.GetUnreadCountResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetUnreadCount(ctx, req)
+}
+
+func (p *kPMServiceClient) MarkConvRead(ctx context.Context, req *pm.MarkConvReadReq, callOptions ...callopt.Option) (r *pm.MarkConvReadResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.MarkConvRead(ctx, req)
 }
 
 func (p *kPMServiceClient) SendPM(ctx context.Context, req *pm.SendPMReq, callOptions ...callopt.Option) (r *pm.SendPMResp, err error) {
