@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -23,6 +24,7 @@ import (
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	itemrpc "eigenflux_server/kitex_gen/eigenflux/item"
+	"eigenflux_server/pipeline/llm"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
@@ -2181,6 +2183,35 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// zh UI: lazily translate non-Chinese summaries on first view and write
+	// the result back to processed_items.summary_zh (shared by all viewers).
+	// Translation failures silently fall back to the original summary.
+	uiLang := string(c.Query("lang"))
+	if uiLang == "zh" {
+		if tc := translateClient(); tc != nil {
+			var wg sync.WaitGroup
+			for i := range rows {
+				it := &rows[i]
+				if it.Lang == "zh" || it.Summary == "" || it.SummaryZh != "" {
+					continue
+				}
+				wg.Add(1)
+				go func(it *consoledal.HighlightItem) {
+					defer wg.Done()
+					zh, terr := tc.TranslateToChinese(ctx, it.Summary)
+					if terr != nil || zh == "" {
+						return
+					}
+					it.SummaryZh = zh
+					if uerr := consoledal.UpdateSummaryZh(db.DB, it.ItemID, zh); uerr != nil {
+						logger.Ctx(ctx).Warn("summary_zh write-back failed", "itemID", it.ItemID, "err", uerr)
+					}
+				}(it)
+			}
+			wg.Wait()
+		}
+	}
+
 	// Derive a one-line push reason from the ranking factors captured at
 	// serve time: keyword hit > semantic affinity > freshness.
 	deriveReason := func(featuresJSON string) (string, string) {
@@ -2256,8 +2287,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"reason_term":    reasonTerm,
 			"feedbacked":     it.FbScore >= 2,
 		}
-		if it.Summary != "" {
-			hl["summary"] = it.Summary
+		summary := it.Summary
+		if uiLang == "zh" && it.SummaryZh != "" {
+			summary = it.SummaryZh
+		}
+		if summary != "" {
+			hl["summary"] = summary
 		}
 		if it.Suggestion != "" {
 			hl["suggestion"] = it.Suggestion
@@ -2271,6 +2306,24 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"highlights": highlights,
 	})
+}
+
+// translateClient lazily builds an LLM client from the pipeline config for
+// on-demand summary translation. Returns nil when LLM_API_KEY is not set,
+// in which case zh users simply see the original-language summary.
+var (
+	translateOnce sync.Once
+	translateLLM  *llm.Client
+)
+
+func translateClient() *llm.Client {
+	translateOnce.Do(func() {
+		cfg := config.Load()
+		if cfg.LLMApiKey != "" {
+			translateLLM = llm.NewClient(cfg, nil)
+		}
+	})
+	return translateLLM
 }
 
 // ConsoleHighlightFeedback submits feedback for a highlight card.

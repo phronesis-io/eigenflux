@@ -86,7 +86,29 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 	return SuggestActionPrompt.Execute(ctx, c, input)
 }
 
+// TranslateToChinese renders the given text into Simplified Chinese for
+// display, keeping technical terms, product names and identifiers as-is.
+// Uses callRaw: translations may legitimately contain brackets, which
+// extractJSON would mangle.
+func (c *Client) TranslateToChinese(ctx context.Context, text string) (string, error) {
+	prompt := "Translate the following content into Simplified Chinese. Keep technical terms, product names, and code identifiers in their original form. Return ONLY the translation with no preamble.\n\n" + text
+	out, err := c.callRaw(ctx, prompt, "translate_zh", "low")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (c *Client) call(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
+	text, err := c.callRaw(ctx, prompt, promptName, effortOverride)
+	if err != nil {
+		return "", err
+	}
+	return extractJSON(text), nil
+}
+
+// callRaw sends the prompt and returns the model's raw text output.
+func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
 	effort := c.reasoningEffort
 	if effortOverride != "" {
 		effort = shared.ReasoningEffort(effortOverride)
@@ -118,7 +140,6 @@ func (c *Client) call(ctx context.Context, prompt string, promptName string, eff
 		return "", fmt.Errorf("no text content in LLM response")
 	}
 
-	text = extractJSON(text)
 	return text, nil
 }
 

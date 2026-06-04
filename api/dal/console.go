@@ -134,6 +134,8 @@ type HighlightItem struct {
 	ItemFeatures  string  `gorm:"column:item_features"`
 	FbScore       int16   `gorm:"column:fb_score"`
 	Summary       string  `gorm:"column:summary"`
+	SummaryZh     string  `gorm:"column:summary_zh"`
+	Lang          string  `gorm:"column:lang"`
 	Suggestion    string  `gorm:"column:suggestion"`
 	Domains       string  `gorm:"column:domains"`
 	Keywords      string  `gorm:"column:keywords"`
@@ -160,6 +162,8 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		           rl.item_features::text        AS item_features,
 		           COALESCE(f.score, -9)         AS fb_score,
 		           COALESCE(p.summary, '')       AS summary,
+		           COALESCE(p.summary_zh, '')    AS summary_zh,
+		           COALESCE(p.lang, '')          AS lang,
 		           COALESCE(p.suggestion, '')    AS suggestion,
 		           COALESCE(p.domains, '')       AS domains,
 		           COALESCE(p.keywords, '')      AS keywords,
@@ -178,6 +182,12 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		agentID, sinceMs, limit,
 	).Scan(&rows).Error
 	return rows, err
+}
+
+// UpdateSummaryZh writes back a lazily-generated Chinese summary so the
+// translation is shared by all future zh-UI viewers of the item.
+func UpdateSummaryZh(db *gorm.DB, itemID int64, zh string) error {
+	return db.Table("processed_items").Where("item_id = ?", itemID).Update("summary_zh", zh).Error
 }
 
 // TodayEventCounts returns event counts grouped by event_type for today.

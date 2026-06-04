@@ -497,12 +497,12 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 		if r, ok := remarks[peerID]; ok {
 			info.Remark = &r
 		}
-		// Last message preview
+		// Last message preview (rune-safe: a byte cut can split a UTF-8 char)
 		lastMsg, msgErr := dal.GetLastMessage(db.DB, conv.ConvID)
 		if msgErr == nil && lastMsg != nil {
 			preview := lastMsg.Content
-			if len(preview) > 100 {
-				preview = preview[:100]
+			if r := []rune(preview); len(r) > 100 {
+				preview = string(r[:100])
 			}
 			info.LastMessagePreview = &preview
 		}
