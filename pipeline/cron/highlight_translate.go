@@ -85,15 +85,19 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 			if summaryZh == "" && it.Summary != "" {
 				if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
 					summaryZh = zh
+				} else if terr != nil {
+					logger.Default().Warn("highlight summary translate failed", "itemID", it.ItemID, "err", terr)
 				}
 			}
 			if titleZh == "" && it.RawContent != "" {
 				if zh, terr := tc.TranslateToChinese(ctx, titlePreview(it.RawContent, 80)); terr == nil && zh != "" {
 					titleZh = zh
+				} else if terr != nil {
+					logger.Default().Warn("highlight title translate failed", "itemID", it.ItemID, "err", terr)
 				}
 			}
 			if summaryZh == it.SummaryZh && titleZh == it.TitleZh {
-				return // nothing new (e.g. LLM errors); retried next tick
+				return // nothing new; retried next tick
 			}
 			if uerr := dal.UpdateZhTranslations(db.DB, it.ItemID, summaryZh, titleZh); uerr != nil {
 				logger.Default().Warn("highlight translate write-back failed", "itemID", it.ItemID, "err", uerr)
