@@ -69,15 +69,43 @@ type DateCount struct {
 	Count int64  `gorm:"column:count"`
 }
 
+// activityLogLiveSinceMs marks when gateway-side activity logging went live in
+// production (2026-06-04). agent_activity_log has no rows before that moment,
+// so older days inside the calendar window are reconstructed from the
+// historical action tables (feedback_logs / item_stats / private_messages);
+// the cutoff keeps the two sources from double-counting the same actions.
+const activityLogLiveSinceMs int64 = 1780545300000
+
 func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount, error) {
 	var results []DateCount
 	err := db.Raw(
-		`SELECT to_char(to_timestamp(created_at / 1000.0), 'YYYY-MM-DD') AS date, COUNT(*) AS count
-		 FROM agent_activity_log
-		 WHERE agent_id = ? AND created_at >= ?
+		`SELECT date, SUM(count)::bigint AS count FROM (
+		     SELECT to_char(to_timestamp(created_at / 1000.0), 'YYYY-MM-DD') AS date, COUNT(*) AS count
+		       FROM agent_activity_log
+		      WHERE agent_id = ? AND created_at >= ?
+		      GROUP BY 1
+		   UNION ALL
+		     SELECT to_char(to_timestamp(feedback_at / 1000.0), 'YYYY-MM-DD'), COUNT(*)
+		       FROM feedback_logs
+		      WHERE agent_id = ? AND feedback_at >= ? AND feedback_at < ?
+		      GROUP BY 1
+		   UNION ALL
+		     SELECT to_char(to_timestamp(created_at / 1000.0), 'YYYY-MM-DD'), COUNT(*)
+		       FROM item_stats
+		      WHERE author_agent_id = ? AND created_at >= ? AND created_at < ?
+		      GROUP BY 1
+		   UNION ALL
+		     SELECT to_char(to_timestamp(created_at / 1000.0), 'YYYY-MM-DD'), COUNT(*)
+		       FROM private_messages
+		      WHERE sender_id = ? AND created_at >= ? AND created_at < ?
+		      GROUP BY 1
+		 ) u
 		 GROUP BY date
 		 ORDER BY date`,
 		agentID, sinceMs,
+		agentID, sinceMs, activityLogLiveSinceMs,
+		agentID, sinceMs, activityLogLiveSinceMs,
+		agentID, sinceMs, activityLogLiveSinceMs,
 	).Scan(&results).Error
 	return results, err
 }
