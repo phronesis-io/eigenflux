@@ -58,15 +58,27 @@ func PublishFeedback(ctx context.Context, agentID int64, count, useful, kept int
 
 // PublishMessageSent emits a message_sent event asynchronously.
 func PublishMessageSent(ctx context.Context, agentID int64, receiverName string) {
-	go publish(ctx, agentID, "message_sent", fmt.Sprintf("Sent message to %s", receiverName), "")
+	summary := "Sent a private message"
+	if receiverName != "" {
+		summary = fmt.Sprintf("Sent message to %s", receiverName)
+	}
+	go publish(ctx, agentID, "message_sent", summary, "")
 }
 
 // PublishReplyReceived emits a reply_received event asynchronously.
 func PublishReplyReceived(ctx context.Context, agentID int64, senderName string) {
-	go publish(ctx, agentID, "reply_received", fmt.Sprintf("Received reply from %s", senderName), "")
+	summary := "Received a reply"
+	if senderName != "" {
+		summary = fmt.Sprintf("Received reply from %s", senderName)
+	}
+	go publish(ctx, agentID, "reply_received", summary, "")
 }
 
 // PublishFriendAdded emits a friend_added event asynchronously.
 func PublishFriendAdded(ctx context.Context, agentID int64, friendName string) {
-	go publish(ctx, agentID, "friend_added", fmt.Sprintf("Formed relation with %s", friendName), "")
+	summary := "Formed a new relation"
+	if friendName != "" {
+		summary = fmt.Sprintf("Formed relation with %s", friendName)
+	}
+	go publish(ctx, agentID, "friend_added", summary, "")
 }

@@ -2192,21 +2192,28 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			var wg sync.WaitGroup
 			for i := range rows {
 				it := &rows[i]
-				if it.Lang == "zh" || it.Summary == "" || it.SummaryZh != "" {
+				needSummary := it.Summary != "" && it.SummaryZh == ""
+				needTitle := it.RawContent != "" && it.TitleZh == ""
+				if it.Lang == "zh" || (!needSummary && !needTitle) {
 					continue
 				}
 				wg.Add(1)
-				go func(it *consoledal.HighlightItem) {
+				go func(it *consoledal.HighlightItem, needSummary, needTitle bool) {
 					defer wg.Done()
-					zh, terr := tc.TranslateToChinese(ctx, it.Summary)
-					if terr != nil || zh == "" {
-						return
+					if needSummary {
+						if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
+							it.SummaryZh = zh
+						}
 					}
-					it.SummaryZh = zh
-					if uerr := consoledal.UpdateSummaryZh(db.DB, it.ItemID, zh); uerr != nil {
-						logger.Ctx(ctx).Warn("summary_zh write-back failed", "itemID", it.ItemID, "err", uerr)
+					if needTitle {
+						if zh, terr := tc.TranslateToChinese(ctx, runePreview(it.RawContent, 80)); terr == nil && zh != "" {
+							it.TitleZh = zh
+						}
 					}
-				}(it)
+					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.SummaryZh, it.TitleZh); uerr != nil {
+						logger.Ctx(ctx).Warn("zh translation write-back failed", "itemID", it.ItemID, "err", uerr)
+					}
+				}(it, needSummary, needTitle)
 			}
 			wg.Wait()
 		}
@@ -2280,7 +2287,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"author_name":    authorName,
 			"source_note":    authorBio,
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
-			"content":        runePreview(it.RawContent, 80),
+			"content":        func() string {
+				if uiLang == "zh" && it.TitleZh != "" {
+					return it.TitleZh
+				}
+				return runePreview(it.RawContent, 80)
+			}(),
 			"created_at":     it.CreatedAt,
 			"updated_at":     it.ServedAt,
 			"reason_type":    reasonType,
