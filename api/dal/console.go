@@ -123,6 +123,54 @@ func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount
 	return results, err
 }
 
+// HighlightItem is one row for the Today highlights: a positively-scored item
+// that actually flowed through the agent's feed, joined with its content.
+type HighlightItem struct {
+	ItemID        int64   `gorm:"column:item_id"`
+	ImpressionID  string  `gorm:"column:impression_id"`
+	Score         int16   `gorm:"column:score"`
+	FeedbackAt    int64   `gorm:"column:feedback_at"`
+	Summary       string  `gorm:"column:summary"`
+	Suggestion    string  `gorm:"column:suggestion"`
+	Domains       string  `gorm:"column:domains"`
+	Keywords      string  `gorm:"column:keywords"`
+	BroadcastType string  `gorm:"column:broadcast_type"`
+	QualityScore  float64 `gorm:"column:quality_score"`
+	RawContent    string  `gorm:"column:raw_content"`
+	RawURL        string  `gorm:"column:raw_url"`
+	AuthorAgentID int64   `gorm:"column:author_agent_id"`
+	CreatedAt     int64   `gorm:"column:created_at"`
+}
+
+// GetHighlightsForAgent returns the agent's top positively-scored feed items
+// since sinceMs — "today's picks" drawn from what actually reached the agent.
+// Read-only: unlike fetching the live feed, this records no impressions.
+func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]HighlightItem, error) {
+	var rows []HighlightItem
+	err := db.Raw(`
+		SELECT * FROM (
+		    SELECT DISTINCT ON (f.item_id)
+		           f.item_id, f.impression_id, f.score, f.feedback_at,
+		           COALESCE(p.summary, '')       AS summary,
+		           COALESCE(p.suggestion, '')    AS suggestion,
+		           COALESCE(p.domains, '')       AS domains,
+		           COALESCE(p.keywords, '')      AS keywords,
+		           p.broadcast_type,
+		           COALESCE(p.quality_score, 0)  AS quality_score,
+		           r.raw_content, r.raw_url, r.author_agent_id, r.created_at
+		      FROM feedback_logs f
+		      JOIN processed_items p ON p.item_id = f.item_id
+		      JOIN raw_items r       ON r.item_id = f.item_id
+		     WHERE f.agent_id = ? AND f.score >= 1 AND f.feedback_at >= ?
+		     ORDER BY f.item_id, f.score DESC
+		) x
+		ORDER BY x.score DESC, x.quality_score DESC, x.feedback_at DESC
+		LIMIT ?`,
+		agentID, sinceMs, limit,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 // TodayEventCounts returns event counts grouped by event_type for today.
 type EventCount struct {
 	EventType string `gorm:"column:event_type"`

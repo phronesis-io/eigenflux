@@ -2161,72 +2161,83 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("ConsoleGetHighlights", "agentID", agentID)
 
-	limit := int32(5)
+	limit := int(5)
 	if req.Limit != nil && *req.Limit > 0 {
-		limit = *req.Limit
+		limit = int(*req.Limit)
 	}
 
-	resp, err := clients.FeedClient.FetchFeed(ctx, &feedrpc.FetchFeedReq{
-		AgentId: agentID,
-		Action:  strPtr("refresh"),
-		Limit:   &limit,
-	})
+	// "Today's picks" = the best items that actually flowed through the
+	// agent's feed (positively scored), read straight from feedback_logs.
+	// Unlike fetching the live feed this records no impressions, so opening
+	// the Today page never eats items the agent has yet to pull. Falls back
+	// to the last 7 days when today has nothing yet.
+	now := time.Now().UnixMilli()
+	rows, err := consoledal.GetHighlightsForAgent(db.DB, agentID, now-86400000, limit)
+	if err == nil && len(rows) == 0 {
+		rows, err = consoledal.GetHighlightsForAgent(db.DB, agentID, now-7*86400000, limit)
+	}
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	if resp.BaseResp.Code != 0 {
-		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
-		return
+
+	splitCSV := func(s string) []string {
+		out := []string{}
+		for _, part := range strings.Split(s, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
 	}
 
-	highlights := make([]map[string]interface{}, 0, len(resp.Items))
-	for _, it := range resp.Items {
+	highlights := make([]map[string]interface{}, 0, len(rows))
+	for _, it := range rows {
 		// Look up author name and bio
 		authorName := ""
 		authorBio := ""
-		authorIDStr := ""
-		if it.AuthorAgentId != nil {
-			authorIDStr = strconv.FormatInt(*it.AuthorAgentId, 10)
-			agent, err := profiledal.GetAgentByID(db.DB, *it.AuthorAgentId)
-			if err == nil {
-				authorName = agent.AgentName
-				// Use first sentence of bio as description
-				bio := agent.Bio
-				if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
-					bio = bio[:idx]
-				}
-				if len(bio) > 100 {
-					bio = bio[:100]
-				}
-				authorBio = bio
+		if agent, aerr := profiledal.GetAgentByID(db.DB, it.AuthorAgentID); aerr == nil {
+			authorName = agent.AgentName
+			// Use first sentence of bio as description
+			bio := agent.Bio
+			if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
+				bio = bio[:idx]
 			}
+			if len(bio) > 100 {
+				bio = bio[:100]
+			}
+			authorBio = bio
 		}
 
 		hl := map[string]interface{}{
-			"item_id":        strconv.FormatInt(it.ItemId, 10),
+			"item_id":        strconv.FormatInt(it.ItemID, 10),
+			"impression_id":  it.ImpressionID,
 			"broadcast_type": it.BroadcastType,
-			"domains":        keywordsOrEmpty(it.Domains),
+			"domains":        splitCSV(it.Domains),
+			"keywords":       splitCSV(it.Keywords),
+			"source":         authorName,
 			"author_name":    authorName,
-			"author_bio":     authorBio,
-			"author_id":      authorIDStr,
-			"updated_at":     it.UpdatedAt,
+			"source_note":    authorBio,
+			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
+			"content":        runePreview(it.RawContent, 80),
+			"created_at":     it.CreatedAt,
+			"updated_at":     it.FeedbackAt,
+			"feedbacked":     it.Score >= 2,
 		}
-		if it.Summary != nil {
-			hl["summary"] = *it.Summary
+		if it.Summary != "" {
+			hl["summary"] = it.Summary
 		}
-		if it.Suggestion != nil {
-			hl["suggestion"] = *it.Suggestion
+		if it.Suggestion != "" {
+			hl["suggestion"] = it.Suggestion
 		}
-		if it.RawUrl != nil && *it.RawUrl != "" {
-			hl["url"] = *it.RawUrl
+		if it.RawURL != "" {
+			hl["url"] = it.RawURL
 		}
 		highlights = append(highlights, hl)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"highlights":    highlights,
-		"impression_id": resp.ImpressionId,
+		"highlights": highlights,
 	})
 }
 
