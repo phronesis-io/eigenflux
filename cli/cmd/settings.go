@@ -24,26 +24,45 @@ const settingsSyncedKey = "_settings_synced"
 // backend (e.g. an offline `config set`); the next sync retries the push.
 const settingsDirtyKey = "_settings_dirty"
 
+// syncedBoolKeys / syncedIntKeys / syncedStringKeys are the config KV entries
+// mirrored to the backend agent_settings row (PUT /agents/me/settings).
+var (
+	syncedBoolKeys   = []string{"recurring_publish", "auto_reply_pm"}
+	syncedIntKeys    = []string{"feed_poll_interval"}
+	syncedStringKeys = []string{"feed_delivery_preference"}
+)
+
 // isSyncedSettingsKey reports whether a config KV key is mirrored to the
-// backend agent_settings row (PUT /agents/me/settings).
+// backend agent_settings row.
 func isSyncedSettingsKey(key string) bool {
-	return key == "recurring_publish" || key == "feed_poll_interval" || key == "feed_delivery_preference"
+	for _, k := range append(append(append([]string{}, syncedBoolKeys...), syncedIntKeys...), syncedStringKeys...) {
+		if key == k {
+			return true
+		}
+	}
+	return false
 }
 
 // syncedSettingsBody builds the PUT body from the local config KV. Only keys
 // with a usable value are included, so absent keys never clobber the backend.
 func syncedSettingsBody(cfg *config.Config) map[string]interface{} {
 	body := map[string]interface{}{}
-	if v := cfg.GetKV("recurring_publish"); v == "true" || v == "false" {
-		body["recurring_publish"] = v == "true"
-	}
-	if v := cfg.GetKV("feed_poll_interval"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			body["feed_poll_interval"] = n
+	for _, k := range syncedBoolKeys {
+		if v := cfg.GetKV(k); v == "true" || v == "false" {
+			body[k] = v == "true"
 		}
 	}
-	if v := cfg.GetKV("feed_delivery_preference"); v != "" {
-		body["feed_delivery_preference"] = v
+	for _, k := range syncedIntKeys {
+		if v := cfg.GetKV(k); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				body[k] = n
+			}
+		}
+	}
+	for _, k := range syncedStringKeys {
+		if v := cfg.GetKV(k); v != "" {
+			body[k] = v
+		}
 	}
 	return body
 }
@@ -81,25 +100,34 @@ func SyncSettings(cfg *config.Config) error {
 	if resp.Code != 0 {
 		return fmt.Errorf("%s", resp.Msg)
 	}
-	var remote struct {
-		RecurringPublish       bool   `json:"recurring_publish"`
-		FeedPollInterval       int    `json:"feed_poll_interval"`
-		FeedDeliveryPreference string `json:"feed_delivery_preference"`
-	}
+	// Generic pull: every scalar setting the backend returns is written to the
+	// local config KV, so new backend settings need no CLI changes. mode and
+	// updated_at are meta, and empty strings never erase a local value that
+	// simply has not been pushed yet (e.g. feed_delivery_preference).
+	var remote map[string]interface{}
 	if err := json.Unmarshal(resp.Data, &remote); err != nil {
 		return err
 	}
-	if err := cfg.SetKV("recurring_publish", strconv.FormatBool(remote.RecurringPublish)); err != nil {
-		return err
-	}
-	if err := cfg.SetKV("feed_poll_interval", strconv.Itoa(remote.FeedPollInterval)); err != nil {
-		return err
-	}
-	// feed_delivery_preference is agent-owned; never let an empty backend
-	// value erase a local preference that simply has not been pushed yet.
-	if remote.FeedDeliveryPreference != "" {
-		if err := cfg.SetKV("feed_delivery_preference", remote.FeedDeliveryPreference); err != nil {
-			return err
+	skip := map[string]bool{"mode": true, "updated_at": true}
+	for k, v := range remote {
+		if skip[k] {
+			continue
+		}
+		switch val := v.(type) {
+		case bool:
+			if err := cfg.SetKV(k, strconv.FormatBool(val)); err != nil {
+				return err
+			}
+		case float64:
+			if err := cfg.SetKV(k, strconv.FormatInt(int64(val), 10)); err != nil {
+				return err
+			}
+		case string:
+			if val != "" {
+				if err := cfg.SetKV(k, val); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return cfg.SetKV(settingsSyncedKey, "1")

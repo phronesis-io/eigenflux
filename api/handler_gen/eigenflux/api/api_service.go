@@ -2298,6 +2298,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       settings.FeedPollInterval,
+		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"last_sync_at":             lastSyncAt,
@@ -2323,6 +2324,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       settings.FeedPollInterval,
+		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"updated_at":               settings.UpdatedAt,
@@ -2346,6 +2348,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// (last writer wins through agent_settings).
 		RecurringPublish *bool  `json:"recurring_publish"`
 		FeedPollInterval *int32 `json:"feed_poll_interval"`
+		AutoReplyPM      *bool  `json:"auto_reply_pm"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -2356,7 +2359,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.AutoReplyPM); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
@@ -2387,12 +2390,20 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Apply updates
+	// Apply updates. auto_reply_pm is parsed from a side struct because the
+	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
+	var extra struct {
+		AutoReplyPM *bool `json:"auto_reply_pm"`
+	}
+	_ = json.Unmarshal(body, &extra)
 	if req.RecurringPublish != nil {
 		current.RecurringPublish = *req.RecurringPublish
 	}
 	if req.FeedPollInterval != nil {
 		current.FeedPollInterval = *req.FeedPollInterval
+	}
+	if extra.AutoReplyPM != nil {
+		current.AutoReplyPM = *extra.AutoReplyPM
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {

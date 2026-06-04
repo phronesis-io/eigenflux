@@ -30,6 +30,7 @@ type AgentSettings struct {
 	AgentID                int64  `gorm:"column:agent_id;primaryKey"`
 	RecurringPublish       bool   `gorm:"column:recurring_publish;default:true"`
 	FeedPollInterval       int32  `gorm:"column:feed_poll_interval;default:300"`
+	AutoReplyPM            bool   `gorm:"column:auto_reply_pm;default:true"`
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
 	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
@@ -39,7 +40,7 @@ func (AgentSettings) TableName() string { return "agent_settings" }
 
 // UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
 // mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32) error {
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, autoReplyPM *bool) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -58,6 +59,9 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 	}
 	if feedPollInterval != nil {
 		vals["feed_poll_interval"] = *feedPollInterval
+	}
+	if autoReplyPM != nil {
+		vals["auto_reply_pm"] = *autoReplyPM
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }
