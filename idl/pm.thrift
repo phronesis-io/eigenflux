@@ -70,6 +70,7 @@ struct ConversationInfo {
     11: optional string last_message_preview
     12: optional i32 unread_count
     13: optional i32 msg_count
+    14: optional string remark    // requester's remark for the peer (from user_relations)
 }
 
 struct ListConversationsResp {

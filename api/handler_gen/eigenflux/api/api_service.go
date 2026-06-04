@@ -1085,6 +1085,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"participant_a_name":   conv.GetParticipantAName(),
 			"participant_b_name":   conv.GetParticipantBName(),
 			"peer_name":            conv.GetPeerName(),
+			"remark":               conv.GetRemark(),
 			"last_message_preview": conv.GetLastMessagePreview(),
 			"unread_count":         conv.GetUnreadCount(),
 			"msg_count":            conv.GetMsgCount(),

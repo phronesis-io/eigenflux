@@ -454,6 +454,20 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 		}, nil
 	}
 
+	// Requester's remarks for all peers in this page, in one query.
+	peerIDs := make([]int64, 0, len(convs))
+	for _, conv := range convs {
+		if conv.ParticipantA == req.AgentId {
+			peerIDs = append(peerIDs, conv.ParticipantB)
+		} else {
+			peerIDs = append(peerIDs, conv.ParticipantA)
+		}
+	}
+	remarks, remErr := dal.GetRemarksByPeer(db.DB, req.AgentId, peerIDs)
+	if remErr != nil {
+		remarks = map[int64]string{} // non-fatal: names just fall back to peer_name
+	}
+
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
 		info := &pm.ConversationInfo{
@@ -472,11 +486,16 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 		}
 		mc := int32(conv.MsgCount)
 		info.MsgCount = &mc
-		// Determine peer name
+		// Determine peer name + requester's remark for the peer
+		peerID := conv.ParticipantA
 		if conv.ParticipantA == req.AgentId {
+			peerID = conv.ParticipantB
 			info.PeerName = &conv.ParticipantBName
 		} else {
 			info.PeerName = &conv.ParticipantAName
+		}
+		if r, ok := remarks[peerID]; ok {
+			info.Remark = &r
 		}
 		// Last message preview
 		lastMsg, msgErr := dal.GetLastMessage(db.DB, conv.ConvID)
