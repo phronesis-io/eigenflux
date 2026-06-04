@@ -2097,8 +2097,8 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 	if req.Days != nil && *req.Days > 0 {
 		days = *req.Days
 	}
-	if days > 90 {
-		days = 90
+	if days > 366 {
+		days = 366
 	}
 
 	sinceMs := time.Now().AddDate(0, 0, -int(days)).UnixMilli()
@@ -2166,11 +2166,11 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 		limit = int(*req.Limit)
 	}
 
-	// "Today's picks" = the best items that actually flowed through the
-	// agent's feed (positively scored), read straight from feedback_logs.
-	// Unlike fetching the live feed this records no impressions, so opening
-	// the Today page never eats items the agent has yet to pull. Falls back
-	// to the last 7 days when today has nothing yet.
+	// "Today's picks" = the top-ranked items from today's GET /feed serving,
+	// read from replay_logs (which preserves every delivery with its rank
+	// score and ranking factors). Unlike fetching the live feed this records
+	// no impressions, so opening the Today page never eats items the agent
+	// has yet to pull. Falls back to the last 7 days when today is empty.
 	now := time.Now().UnixMilli()
 	rows, err := consoledal.GetHighlightsForAgent(db.DB, agentID, now-86400000, limit)
 	if err == nil && len(rows) == 0 {
@@ -2179,6 +2179,35 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
+	}
+
+	// Derive a one-line push reason from the ranking factors captured at
+	// serve time: keyword hit > semantic affinity > freshness.
+	deriveReason := func(featuresJSON string) (string, string) {
+		var f struct {
+			Keywords   []string `json:"keywords"`
+			Domains    []string `json:"domains"`
+			Timeliness string   `json:"timeliness"`
+			RankScores struct {
+				Semantic  float64 `json:"semantic"`
+				Keyword   float64 `json:"keyword"`
+				Freshness float64 `json:"freshness"`
+			} `json:"rank_scores"`
+		}
+		if json.Unmarshal([]byte(featuresJSON), &f) != nil {
+			return "", ""
+		}
+		switch {
+		case f.RankScores.Keyword > 0 && len(f.Keywords) > 0:
+			return "keyword", f.Keywords[0]
+		case f.RankScores.Semantic >= 0.3 && len(f.Domains) > 0:
+			return "semantic", f.Domains[0]
+		case f.RankScores.Freshness >= 0.8 && (f.Timeliness == "breaking" || f.Timeliness == "timely"):
+			return "fresh", f.Timeliness
+		case len(f.Domains) > 0:
+			return "semantic", f.Domains[0]
+		}
+		return "", ""
 	}
 
 	splitCSV := func(s string) []string {
@@ -2209,6 +2238,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			authorBio = bio
 		}
 
+		reasonType, reasonTerm := deriveReason(it.ItemFeatures)
 		hl := map[string]interface{}{
 			"item_id":        strconv.FormatInt(it.ItemID, 10),
 			"impression_id":  it.ImpressionID,
@@ -2221,8 +2251,10 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
 			"content":        runePreview(it.RawContent, 80),
 			"created_at":     it.CreatedAt,
-			"updated_at":     it.FeedbackAt,
-			"feedbacked":     it.Score >= 2,
+			"updated_at":     it.ServedAt,
+			"reason_type":    reasonType,
+			"reason_term":    reasonTerm,
+			"feedbacked":     it.FbScore >= 2,
 		}
 		if it.Summary != "" {
 			hl["summary"] = it.Summary

@@ -123,13 +123,16 @@ func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount
 	return results, err
 }
 
-// HighlightItem is one row for the Today highlights: a positively-scored item
-// that actually flowed through the agent's feed, joined with its content.
+// HighlightItem is one row for the Today highlights: a feed delivery from
+// replay_logs (which preserves the rank score of every served item), joined
+// with its content and the agent's own feedback state.
 type HighlightItem struct {
 	ItemID        int64   `gorm:"column:item_id"`
 	ImpressionID  string  `gorm:"column:impression_id"`
-	Score         int16   `gorm:"column:score"`
-	FeedbackAt    int64   `gorm:"column:feedback_at"`
+	RankScore     float64 `gorm:"column:rank_score"`
+	ServedAt      int64   `gorm:"column:served_at"`
+	ItemFeatures  string  `gorm:"column:item_features"`
+	FbScore       int16   `gorm:"column:fb_score"`
 	Summary       string  `gorm:"column:summary"`
 	Suggestion    string  `gorm:"column:suggestion"`
 	Domains       string  `gorm:"column:domains"`
@@ -142,15 +145,20 @@ type HighlightItem struct {
 	CreatedAt     int64   `gorm:"column:created_at"`
 }
 
-// GetHighlightsForAgent returns the agent's top positively-scored feed items
-// since sinceMs — "today's picks" drawn from what actually reached the agent.
-// Read-only: unlike fetching the live feed, this records no impressions.
+// GetHighlightsForAgent returns the agent's top-ranked feed deliveries since
+// sinceMs — "today's picks" straight from the day's GET /feed ranking
+// (replay_logs keeps every served item with its rank score). Read-only:
+// unlike fetching the live feed, this records no impressions. Retracted
+// items (status 5) are excluded; fb_score carries the agent's own feedback
+// so the UI can pre-light the "useful" state.
 func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]HighlightItem, error) {
 	var rows []HighlightItem
 	err := db.Raw(`
 		SELECT * FROM (
-		    SELECT DISTINCT ON (f.item_id)
-		           f.item_id, f.impression_id, f.score, f.feedback_at,
+		    SELECT DISTINCT ON (rl.item_id)
+		           rl.item_id, rl.impression_id, rl.item_score AS rank_score, rl.served_at,
+		           rl.item_features::text        AS item_features,
+		           COALESCE(f.score, -9)         AS fb_score,
 		           COALESCE(p.summary, '')       AS summary,
 		           COALESCE(p.suggestion, '')    AS suggestion,
 		           COALESCE(p.domains, '')       AS domains,
@@ -158,13 +166,14 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		           p.broadcast_type,
 		           COALESCE(p.quality_score, 0)  AS quality_score,
 		           r.raw_content, r.raw_url, r.author_agent_id, r.created_at
-		      FROM feedback_logs f
-		      JOIN processed_items p ON p.item_id = f.item_id
-		      JOIN raw_items r       ON r.item_id = f.item_id
-		     WHERE f.agent_id = ? AND f.score >= 1 AND f.feedback_at >= ?
-		     ORDER BY f.item_id, f.score DESC
+		      FROM replay_logs rl
+		      JOIN processed_items p ON p.item_id = rl.item_id
+		      JOIN raw_items r       ON r.item_id = rl.item_id
+		      LEFT JOIN feedback_logs f ON f.agent_id = rl.agent_id AND f.item_id = rl.item_id
+		     WHERE rl.agent_id = ? AND rl.served_at >= ? AND p.status <> 5
+		     ORDER BY rl.item_id, rl.item_score DESC, f.score DESC NULLS LAST
 		) x
-		ORDER BY x.score DESC, x.quality_score DESC, x.feedback_at DESC
+		ORDER BY x.rank_score DESC, x.quality_score DESC, x.served_at DESC
 		LIMIT ?`,
 		agentID, sinceMs, limit,
 	).Scan(&rows).Error
