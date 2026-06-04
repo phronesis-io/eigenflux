@@ -86,6 +86,18 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 	return SuggestActionPrompt.Execute(ctx, c, input)
 }
 
+// WithModel returns a shallow copy of the client that uses the given model;
+// an empty model keeps the original. Lets cheap tasks (e.g. display
+// translation) run on a lower tier than the flagship pipeline model.
+func (c *Client) WithModel(model string) *Client {
+	if model == "" {
+		return c
+	}
+	c2 := *c
+	c2.model = model
+	return &c2
+}
+
 // TranslateToChinese renders the given text into Simplified Chinese for
 // display, keeping technical terms, product names and identifiers as-is.
 // Uses callRaw: translations may legitimately contain brackets, which

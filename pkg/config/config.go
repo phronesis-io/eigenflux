@@ -47,6 +47,7 @@ type Config struct {
 	LLMApiKey                  string
 	LLMBaseURL                 string
 	LLMModel                   string
+	LLMTranslateModel          string // cheaper model for display translations; falls back to LLMModel when empty
 	LLMMaxTokens               int
 	LLMReasoningEffort         string
 	EmbeddingProvider          string // "openai" or "ollama"
@@ -165,6 +166,7 @@ func Load() *Config {
 		LLMApiKey:                  getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                   getEnv("LLM_MODEL", "gpt-4o-mini"),
+		LLMTranslateModel:          getEnv("LLM_TRANSLATE_MODEL", ""),
 			LLMMaxTokens:               getEnvInt("LLM_MAX_TOKENS", 4096),
 		LLMReasoningEffort:         getEnv("LLM_REASONING_EFFORT", "low"),
 		EmbeddingProvider:          embeddingProvider,

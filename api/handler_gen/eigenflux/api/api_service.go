@@ -2332,7 +2332,7 @@ func translateClient() *llm.Client {
 	translateOnce.Do(func() {
 		cfg := config.Load()
 		if cfg.LLMApiKey != "" {
-			translateLLM = llm.NewClient(cfg, nil)
+			translateLLM = llm.NewClient(cfg, nil).WithModel(cfg.LLMTranslateModel)
 		}
 	})
 	return translateLLM

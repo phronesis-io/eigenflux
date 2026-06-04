@@ -186,6 +186,46 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 	return rows, err
 }
 
+// UntranslatedItem is a feed item that may surface in someone's highlights
+// and still lacks a Chinese rendering.
+type UntranslatedItem struct {
+	ItemID     int64  `gorm:"column:item_id"`
+	Summary    string `gorm:"column:summary"`
+	RawContent string `gorm:"column:raw_content"`
+	SummaryZh  string `gorm:"column:summary_zh"`
+	TitleZh    string `gorm:"column:title_zh"`
+}
+
+// ListUntranslatedTopItems returns the union of every agent's top-N served
+// items since sinceMs that are not Chinese and still miss summary_zh or
+// title_zh — the candidate set the pre-translation cron warms up.
+func ListUntranslatedTopItems(db *gorm.DB, sinceMs int64, topN, limit int) ([]UntranslatedItem, error) {
+	var rows []UntranslatedItem
+	err := db.Raw(`
+		WITH ranked AS (
+		    SELECT rl.agent_id, rl.item_id,
+		           dense_rank() OVER (PARTITION BY rl.agent_id ORDER BY rl.item_score DESC) AS rnk
+		      FROM replay_logs rl
+		     WHERE rl.served_at >= ?
+		)
+		SELECT DISTINCT p.item_id,
+		       COALESCE(p.summary, '')    AS summary,
+		       r2.raw_content,
+		       COALESCE(p.summary_zh, '') AS summary_zh,
+		       COALESCE(p.title_zh, '')   AS title_zh
+		  FROM ranked rk
+		  JOIN processed_items p ON p.item_id = rk.item_id
+		  JOIN raw_items r2      ON r2.item_id = rk.item_id
+		 WHERE rk.rnk <= ?
+		   AND COALESCE(p.lang, '') <> 'zh'
+		   AND p.status <> 5
+		   AND (COALESCE(p.summary_zh, '') = '' OR COALESCE(p.title_zh, '') = '')
+		 LIMIT ?`,
+		sinceMs, topN, limit,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 // UpdateZhTranslations writes back lazily-generated Chinese renderings so they
 // are shared by all future zh-UI viewers; only non-empty fields are touched.
 func UpdateZhTranslations(db *gorm.DB, itemID int64, summaryZh, titleZh string) error {
