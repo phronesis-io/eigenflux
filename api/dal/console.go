@@ -39,7 +39,7 @@ func (AgentSettings) TableName() string { return "agent_settings" }
 
 // UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
 // mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string) error {
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -49,6 +49,15 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string) err
 	}
 	if mode != nil {
 		vals["mode"] = *mode
+	}
+	// Console-owned fields may also arrive from the agent's CLI write-through
+	// (last writer wins through this table); only explicitly-present fields
+	// are touched.
+	if recurringPublish != nil {
+		vals["recurring_publish"] = *recurringPublish
+	}
+	if feedPollInterval != nil {
+		vals["feed_poll_interval"] = *feedPollInterval
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }

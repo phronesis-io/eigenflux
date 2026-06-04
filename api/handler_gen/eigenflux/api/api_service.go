@@ -2341,13 +2341,21 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	var body struct {
 		FeedDeliveryPreference *string `json:"feed_delivery_preference"`
 		Mode                   *string `json:"mode"`
+		// Console-owned fields, accepted here for the CLI write-through sync
+		// (last writer wins through agent_settings).
+		RecurringPublish *bool  `json:"recurring_publish"`
+		FeedPollInterval *int32 `json:"feed_poll_interval"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
 		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode); err != nil {
+	if body.FeedPollInterval != nil && (*body.FeedPollInterval < 10 || *body.FeedPollInterval > 86400) {
+		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
+		return
+	}
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
