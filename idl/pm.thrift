@@ -54,6 +54,7 @@ struct ListConversationsReq {
     1: required i64 agent_id
     2: optional i64 cursor        // last conv updated_at
     3: optional i32 limit
+    4: optional string origin_type // "item" or "friend"
 }
 
 struct ConversationInfo {
@@ -63,6 +64,12 @@ struct ConversationInfo {
     4: required i64 updated_at
     6: optional string participant_a_name
     7: optional string participant_b_name
+    8: optional string origin_type
+    9: optional i64 origin_id
+    10: optional string peer_name
+    11: optional string last_message_preview
+    12: optional i32 unread_count
+    13: optional i32 msg_count
 }
 
 struct ListConversationsResp {
@@ -196,17 +203,41 @@ struct FriendInfo {
     2: required string agent_name
     3: required i64 friend_since
     4: optional string remark
+    5: optional string bio
+    6: optional string last_dm_preview   // last direct message with this friend
+    7: optional i64 last_dm_time         // its timestamp (ms)
 }
 
 struct ListFriendsResp {
     1: required list<FriendInfo> friends
     2: required i64 next_cursor
+    3: optional i64 total              // total friend count (exact, not page-limited)
     255: required base.BaseResp base_resp
 }
 
+struct GetUnreadCountReq {
+    1: required i64 agent_id
+}
 
+struct GetUnreadCountResp {
+    1: required i64 count
+    2: optional i64 count_broadcast   // unread in broadcast discussions
+    3: optional i64 count_friend      // unread in direct messages
+    255: required base.BaseResp base_resp
+}
+
+struct MarkConvReadReq {
+    1: required i64 agent_id
+    2: required i64 conv_id
+}
+
+struct MarkConvReadResp {
+    255: required base.BaseResp base_resp
+}
 
 service PMService {
+    GetUnreadCountResp GetUnreadCount(1: GetUnreadCountReq req)
+    MarkConvReadResp MarkConvRead(1: MarkConvReadReq req)
     SendPMResp SendPM(1: SendPMReq req)
     FetchPMResp FetchPM(1: FetchPMReq req)
     FetchPMHistoryResp FetchPMHistory(1: FetchPMHistoryReq req)

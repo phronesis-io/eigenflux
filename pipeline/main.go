@@ -106,6 +106,22 @@ func main() {
 		replayConsumer = consumer.NewReplayConsumer(replayIDGen)
 	}
 
+	activityIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+		Endpoints:      etcdEndpoints,
+		WorkerPrefix:   cfg.IDWorkerPrefix,
+		ServiceName:    "activity-log-id",
+		InstanceID:     cfg.IDInstanceID,
+		LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+		EpochMS:        cfg.IDSnowflakeEpoch,
+	})
+	if err != nil {
+		log.Fatalf("failed to init activity log id generator: %v", err)
+	}
+	defer func() {
+		_ = activityIDGen.Close(context.Background())
+	}()
+	activityConsumer := consumer.NewActivityConsumer(activityIDGen)
+
 	go profileConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
@@ -114,12 +130,14 @@ func main() {
 	if replayConsumer != nil {
 		go replayConsumer.Start(ctx)
 	}
+	go activityConsumer.Start(ctx)
 
 	go metrics.StartLagPoller(ctx, mq.RDB, []metrics.StreamGroup{
 		{Stream: "stream:profile:update", Group: "cg:profile:update"},
 		{Stream: "stream:item:publish", Group: "cg:item:publish"},
 		{Stream: "stream:item:stats", Group: "cg:item:stats"},
 		{Stream: "stream:replay:log", Group: "cg:replay:log"},
+		{Stream: "stream:agent:activity", Group: "cg:agent:activity"},
 	}, 10*time.Second)
 
 	log.Println("Pipeline started, waiting for messages...")

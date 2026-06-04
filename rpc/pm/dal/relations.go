@@ -49,6 +49,7 @@ type Friend struct {
 	RelationID  int64
 	AgentID     int64
 	AgentName   string
+	Bio         string
 	FriendSince int64
 	Remark      string
 }
@@ -267,17 +268,19 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 	for i, rel := range relations {
 		friendIDs[i] = rel.ToUID
 	}
-	nameMap, err := BatchGetAgentNames(db, friendIDs)
+	profileMap, err := BatchGetAgentProfiles(db, friendIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	friends := make([]*Friend, len(relations))
 	for i, rel := range relations {
+		p := profileMap[rel.ToUID]
 		friends[i] = &Friend{
 			RelationID:  rel.ID,
 			AgentID:     rel.ToUID,
-			AgentName:   nameMap[rel.ToUID],
+			AgentName:   p.AgentName,
+			Bio:         p.Bio,
 			FriendSince: rel.CreatedAt,
 			Remark:      rel.Remark,
 		}
@@ -286,6 +289,14 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 	return friends, nil
 }
 
+// CountFriends returns the exact number of friends for an agent.
+func CountFriends(db *gorm.DB, agentID int64) (int64, error) {
+	var n int64
+	err := db.Model(&UserRelation{}).
+		Where("from_uid = ? AND rel_type = ?", agentID, RelTypeFriend).
+		Count(&n).Error
+	return n, err
+}
 
 // UpdateFriendRemark updates the remark for a friend relation.
 func UpdateFriendRemark(db *gorm.DB, agentID, friendUID int64, remark string) error {

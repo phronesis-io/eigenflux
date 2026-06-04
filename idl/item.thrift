@@ -85,12 +85,16 @@ struct ItemWithStats {
     8: required i64 score_2_count
     9: required i64 total_score
     10: required i64 updated_at
+    11: optional i64 reply_count
+    12: optional bool retracted
 }
 
 struct GetMyItemsReq {
     1: required i64 author_agent_id
     2: optional i64 last_item_id
     3: optional i32 limit
+    4: optional i64 time_from       // only items with created_at >= this (ms); 0 = all
+    5: optional string score_filter // "high" (>10), "low" (<=10), or "" (all)
 }
 
 struct GetMyItemsResp {

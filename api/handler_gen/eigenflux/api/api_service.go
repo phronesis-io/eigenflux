@@ -13,7 +13,12 @@ import (
 
 	"gorm.io/gorm"
 
+	crypto_rand "crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+
 	"eigenflux_server/api/clients"
+	consoledal "eigenflux_server/api/dal"
 	apimodel "eigenflux_server/api/model/eigenflux/api"
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
@@ -21,6 +26,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
@@ -28,9 +34,11 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
+	profiledal "eigenflux_server/rpc/profile/dal"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
 
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
@@ -363,15 +371,27 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	profileMap := map[string]interface{}{
+		"agent_id":   strconv.FormatInt(resp.Agent.Id, 10),
+		"agent_name": resp.Agent.AgentName,
+		"bio":        resp.Agent.Bio,
+		"email":      resp.Agent.Email,
+		"created_at": resp.Agent.CreatedAt,
+		"updated_at": resp.Agent.UpdatedAt,
+	}
+	if resp.Agent.Country != nil {
+		profileMap["country"] = *resp.Agent.Country
+	}
+	if resp.Agent.Keywords != nil {
+		profileMap["keywords"] = resp.Agent.Keywords
+	}
+	// Agent-reported feed delivery preference (empty for the common case).
+	if s, sErr := consoledal.GetSettings(db.DB, agentID); sErr == nil {
+		profileMap["feed_delivery_preference"] = s.FeedDeliveryPreference
+	}
+
 	data := map[string]interface{}{
-		"profile": map[string]interface{}{
-			"agent_id":   strconv.FormatInt(resp.Agent.Id, 10),
-			"agent_name": resp.Agent.AgentName,
-			"bio":        resp.Agent.Bio,
-			"email":      resp.Agent.Email,
-			"created_at": resp.Agent.CreatedAt,
-			"updated_at": resp.Agent.UpdatedAt,
-		},
+		"profile": profileMap,
 		"influence": map[string]interface{}{
 			"total_items":    resp.Influence.TotalItems,
 			"total_consumed": resp.Influence.TotalConsumed,
@@ -405,11 +425,22 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("GetMyItems", "agentID", agentID)
 
-	resp, err := clients.ItemClient.GetMyItems(ctx, &itemrpc.GetMyItemsReq{
+	// Optional server-side filters (read directly from query to avoid hz regen).
+	itemReq := &itemrpc.GetMyItemsReq{
 		AuthorAgentId: agentID,
 		LastItemId:    req.LastItemID,
 		Limit:         req.Limit,
-	})
+	}
+	if tf := string(c.Query("time_from")); tf != "" {
+		if v, perr := strconv.ParseInt(tf, 10, 64); perr == nil && v > 0 {
+			itemReq.TimeFrom = &v
+		}
+	}
+	if sf := string(c.Query("score_filter")); sf == "high" || sf == "low" {
+		itemReq.ScoreFilter = &sf
+	}
+
+	resp, err := clients.ItemClient.GetMyItems(ctx, itemReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -434,6 +465,12 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		}
 		if it.Summary != nil {
 			item["summary"] = *it.Summary
+		}
+		if it.ReplyCount != nil {
+			item["reply_count"] = *it.ReplyCount
+		}
+		if it.Retracted != nil && *it.Retracted {
+			item["retracted"] = true
 		}
 		items = append(items, item)
 	}
@@ -489,6 +526,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"item_id": strconv.FormatInt(resp.ItemId, 10),
 	})
+	activity.PublishBroadcast(ctx, agentID, resp.ItemId)
 }
 
 // Feed returns personalized feed items
@@ -589,6 +627,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"impression_id": resp.ImpressionId,
 	})
 	ackNotifications(agentID, pendingNotifications)
+	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
 }
 
 // GetItem returns item detail by ID
@@ -664,6 +703,15 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+// runePreview truncates s to at most n runes, appending an ellipsis if cut.
+func runePreview(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func itemdalSplit(raw string) []string {
 	if raw == "" {
 		return []string{}
@@ -707,6 +755,8 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	logger.Ctx(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
 	processedCount := 0
+	usefulCount := 0
+	keptCount := 0
 	skippedReasons := make([]string, 0)
 	batchImpressionID := ""
 	if req.ImpressionID != nil {
@@ -733,6 +783,12 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		processedCount++
+		if it.Score == 2 {
+			usefulCount++
+		}
+		if it.Score >= 1 {
+			keptCount++
+		}
 	}
 
 	data := map[string]interface{}{
@@ -743,6 +799,9 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		data["skipped_reasons"] = skippedReasons
 	}
 	writeJSON(c, http.StatusOK, 0, "success", data)
+	if processedCount > 0 {
+		activity.PublishFeedback(ctx, agentID, processedCount, usefulCount, keptCount)
+	}
 }
 
 // GetWebsiteStats .
@@ -875,6 +934,15 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		"msg_id":  strconv.FormatInt(resp.MsgId, 10),
 		"conv_id": strconv.FormatInt(resp.ConvId, 10),
 	})
+	activity.PublishMessageSent(ctx, agentID, "")
+	// A reply under a broadcast (item_id present) counts as a reply received by
+	// the broadcast's author. Resolve the author from item_stats and record it on
+	// their timeline, skipping self-replies.
+	if itemIDPtr != nil {
+		if stats, err := itemdal.GetItemStatsByID(db.DB, *itemIDPtr); err == nil && stats.AuthorAgentID != 0 && stats.AuthorAgentID != agentID {
+			activity.PublishReplyReceived(ctx, stats.AuthorAgentID, "")
+		}
+	}
 }
 
 // FetchPM fetches unread private messages
@@ -986,11 +1054,18 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		limitPtr = req.Limit
 	}
 
-	resp, err := clients.PMClient.ListConversations(ctx, &pmrpc.ListConversationsReq{
+	// Optional origin_type filter ("item" | "friend"); read directly from the
+	// query so the hz-bound request model needs no IDL change.
+	rpcReq := &pmrpc.ListConversationsReq{
 		AgentId: agentID,
 		Cursor:  cursorPtr,
 		Limit:   limitPtr,
-	})
+	}
+	if originType := strings.TrimSpace(c.Query("origin_type")); originType != "" {
+		rpcReq.OriginType = &originType
+	}
+
+	resp, err := clients.PMClient.ListConversations(ctx, rpcReq)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -1002,14 +1077,31 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 
 	conversations := make([]map[string]interface{}, len(resp.Conversations))
 	for i, conv := range resp.Conversations {
-		conversations[i] = map[string]interface{}{
-			"conv_id":            strconv.FormatInt(conv.ConvId, 10),
-			"participant_a":      strconv.FormatInt(conv.ParticipantA, 10),
-			"participant_b":      strconv.FormatInt(conv.ParticipantB, 10),
-			"updated_at":         conv.UpdatedAt,
-			"participant_a_name": conv.GetParticipantAName(),
-			"participant_b_name": conv.GetParticipantBName(),
+		m := map[string]interface{}{
+			"conv_id":              strconv.FormatInt(conv.ConvId, 10),
+			"participant_a":        strconv.FormatInt(conv.ParticipantA, 10),
+			"participant_b":        strconv.FormatInt(conv.ParticipantB, 10),
+			"updated_at":           conv.UpdatedAt,
+			"participant_a_name":   conv.GetParticipantAName(),
+			"participant_b_name":   conv.GetParticipantBName(),
+			"peer_name":            conv.GetPeerName(),
+			"last_message_preview": conv.GetLastMessagePreview(),
+			"unread_count":         conv.GetUnreadCount(),
+			"msg_count":            conv.GetMsgCount(),
+			"origin_type":          conv.GetOriginType(),
 		}
+		if conv.OriginId != nil && *conv.OriginId != 0 {
+			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
+			// Parent broadcast snippet + ownership for discussions on a broadcast.
+			// A retracted or missing item simply yields no snippet.
+			if conv.GetOriginType() == "broadcast" {
+				if raw, rerr := itemdal.GetRawItemByID(db.DB, *conv.OriginId); rerr == nil {
+					m["parent_snippet"] = runePreview(raw.RawContent, 80)
+					m["my_post"] = raw.AuthorAgentID == agentID
+				}
+			}
+		}
+		conversations[i] = m
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -1096,6 +1188,57 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"messages":    messages,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+	})
+}
+
+// MarkConvRead marks a conversation's messages as read for the current agent.
+// Registered manually in main.go. @router /api/v1/pm/read [POST]
+func MarkConvRead(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		ConvID string `json:"conv_id"`
+	}
+	raw, _ := c.Body()
+	if err := json.Unmarshal(raw, &body); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
+		return
+	}
+	convID, err := strconv.ParseInt(body.ConvID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+		return
+	}
+	resp, err := clients.PMClient.MarkConvRead(ctx, &pmrpc.MarkConvReadReq{AgentId: agentID, ConvId: convID})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp != nil && resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// GetUnreadBreakdown returns the agent's unread totals (total + per origin).
+// Registered manually in main.go. @router /api/v1/pm/unread [GET]
+func GetUnreadBreakdown(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	resp, err := clients.PMClient.GetUnreadCount(ctx, &pmrpc.GetUnreadCountReq{AgentId: agentID})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"total":     resp.Count,
+		"broadcast": resp.GetCountBroadcast(),
+		"friend":    resp.GetCountFriend(),
 	})
 }
 
@@ -1350,6 +1493,9 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", nil)
+	if req.Action == 1 { // ACCEPT
+		activity.PublishFriendAdded(ctx, agentID, "")
+	}
 }
 
 // Unfriend .
@@ -1574,12 +1720,64 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		if f.Remark != nil && *f.Remark != "" {
 			item["remark"] = *f.Remark
 		}
+		if f.Bio != nil && *f.Bio != "" {
+			item["bio"] = *f.Bio
+		}
 		friends = append(friends, item)
+	}
+
+	// Enrich each friend with a "recent activity" line = the more recent of their
+	// latest broadcast and our last direct message with them.
+	type recentEntry struct {
+		typ  string
+		time int64
+		text string
+	}
+
+	// Per-friend: latest broadcast (concurrent, one lightweight lookup each).
+	// The last direct message already rides on each FriendInfo (LastDm*), so no
+	// separate DM round trip is needed.
+	bcasts := make([]*recentEntry, len(resp.Friends))
+	rg, rgCtx := errgroup.WithContext(ctx)
+	for idx := range resp.Friends {
+		idx := idx
+		friendID := resp.Friends[idx].AgentId
+		rg.Go(func() error {
+			one := int32(1)
+			ir, ierr := clients.ItemClient.GetMyItems(rgCtx, &itemrpc.GetMyItemsReq{AuthorAgentId: friendID, Limit: &one})
+			if ierr != nil || ir.BaseResp == nil || ir.BaseResp.Code != 0 || len(ir.Items) == 0 {
+				return nil // non-fatal
+			}
+			it := ir.Items[0]
+			text := it.RawContentPreview
+			if it.Summary != nil && *it.Summary != "" {
+				text = *it.Summary
+			}
+			bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60)}
+			return nil
+		})
+	}
+	_ = rg.Wait()
+
+	// Merge: pick whichever (broadcast vs DM) is more recent.
+	for idx := range resp.Friends {
+		var typ, text string
+		var ts int64 = -1
+		if b := bcasts[idx]; b != nil {
+			typ, text, ts = b.typ, b.text, b.time
+		}
+		if f := resp.Friends[idx]; f.LastDmTime != nil && *f.LastDmTime > ts {
+			typ, text, ts = "message", runePreview(f.GetLastDmPreview(), 60), *f.LastDmTime
+		}
+		if ts >= 0 {
+			friends[idx]["recent"] = map[string]interface{}{"type": typ, "time": ts, "text": text}
+		}
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"friends":     friends,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
+		"total":       resp.GetTotal(),
 	})
 }
 
@@ -1640,4 +1838,631 @@ func Logout(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+}
+
+// ConsoleGetToday returns today's aggregated dashboard data.
+// @router /api/v1/console/today [GET]
+func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetToday", "agentID", agentID)
+
+	// Calculate today start in UTC milliseconds
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	todayStartMs := todayStart.UnixMilli()
+
+	var (
+		signalsScanned    int64
+		relationsCount    int64
+		unreadCount       int64
+		eventCounts       []consoledal.EventCount
+		lastSyncAt        int64
+		broadcastAgg      *consoledal.TodayBroadcastAgg
+		itemsScannedToday int64
+		usefulToday       int64
+		feedbacksToday    int64
+		worthToday        int64
+		worthAllTime      int64
+		daysActive        int64
+		broadcastCount    int64
+		agentMode         string
+	)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	// Parallel: Redis impression counter
+	g.Go(func() error {
+		val, err := consoledal.GetImpressionCount(gCtx, agentID)
+		if err != nil {
+			return nil // non-fatal
+		}
+		signalsScanned = val
+		return nil
+	})
+
+	// Parallel: exact friend count via PM RPC (Total, a cheap COUNT — no paging).
+	g.Go(func() error {
+		one := int32(1)
+		resp, err := clients.PMClient.ListFriends(gCtx, &pmrpc.ListFriendsReq{AgentId: agentID, Limit: &one})
+		if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
+			return nil // non-fatal
+		}
+		if resp.Total != nil {
+			relationsCount = *resp.Total
+		} else {
+			relationsCount = int64(len(resp.Friends))
+		}
+		return nil
+	})
+
+	// Parallel: total unread message count (for the messages nav badge).
+	g.Go(func() error {
+		uresp, err := clients.PMClient.GetUnreadCount(gCtx, &pmrpc.GetUnreadCountReq{AgentId: agentID})
+		if err == nil && uresp.BaseResp != nil && uresp.BaseResp.Code == 0 {
+			unreadCount = uresp.Count
+		}
+		return nil
+	})
+
+	// Parallel: activity log aggregation
+	g.Go(func() error {
+		counts, syncAt, err := consoledal.TodayEventCounts(db.DB, agentID, todayStartMs)
+		if err != nil {
+			return nil // non-fatal
+		}
+		eventCounts = counts
+		lastSyncAt = syncAt
+		return nil
+	})
+
+	// Parallel: today's broadcast reach and score stats from item_stats
+	g.Go(func() error {
+		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, todayStartMs)
+		if err != nil {
+			return nil // non-fatal
+		}
+		broadcastAgg = agg
+		return nil
+	})
+
+	// Parallel: today's quantity sums from activity-log detail (counts, not events)
+	g.Go(func() error {
+		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", todayStartMs)
+		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", todayStartMs)
+		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", todayStartMs)
+		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", todayStartMs)
+		return nil
+	})
+
+	// Parallel: all-time worth-reading counter (Redis)
+	g.Go(func() error {
+		worthAllTime, _ = consoledal.GetWorthCount(gCtx, agentID)
+		return nil
+	})
+
+	// Parallel: agent-reported runtime mode (plugin/skill)
+	g.Go(func() error {
+		if s, e := consoledal.GetSettings(db.DB, agentID); e == nil {
+			agentMode = s.Mode
+		}
+		return nil
+	})
+
+	// Parallel: days active, derived from the agent's created_at
+	g.Go(func() error {
+		resp, err := clients.ProfileClient.GetAgent(gCtx, &profilerpc.GetAgentReq{AgentId: agentID})
+		if err != nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 || resp.Agent == nil {
+			return nil // non-fatal
+		}
+		if resp.Agent.CreatedAt > 0 {
+			daysActive = (now.UnixMilli()-resp.Agent.CreatedAt)/86400000 + 1
+		}
+		if resp.Influence != nil {
+			broadcastCount = resp.Influence.TotalItems
+		}
+		return nil
+	})
+
+	_ = g.Wait()
+
+	// Build today breakdown. Action frequencies come from event counts; item
+	// quantities come from the detail sums above.
+	var feedsPulled, newRelations int64
+	var broadcastsSent, repliesReceived, messagesSent int64
+	for _, ec := range eventCounts {
+		switch ec.EventType {
+		case "feed_pull":
+			feedsPulled = ec.Count
+		case "broadcast":
+			broadcastsSent = ec.Count
+		case "reply_received":
+			repliesReceived = ec.Count
+		case "message_sent":
+			messagesSent = ec.Count
+		case "friend_added":
+			newRelations = ec.Count
+		}
+	}
+	// items_scanned = signals delivered today; items_pushed = the worth-reading
+	// subset (route b: items kept with feedback score>=1).
+	itemsScanned := itemsScannedToday
+	itemsPushed := worthToday
+	youMarkedUseful := usefulToday
+	feedbacksGiven := feedbacksToday
+
+	var totalReach, themMarkedUseful int64
+	if broadcastAgg != nil {
+		totalReach = broadcastAgg.TotalReach
+		themMarkedUseful = broadcastAgg.ThemMarkedUseful
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"signals_scanned":  signalsScanned,
+		"worth_reading":    worthAllTime,
+		"days_active":      daysActive,
+		"relations_formed": relationsCount,
+		"unread_count":     unreadCount,
+		"broadcast_count":  broadcastCount,
+		"mode":             agentMode,
+		"last_sync_at":     lastSyncAt,
+		"today": map[string]interface{}{
+			"inbound": map[string]interface{}{
+				"feeds_pulled":      feedsPulled,
+				"items_scanned":     itemsScanned,
+				"items_pushed":      itemsPushed,
+				"you_marked_useful": youMarkedUseful,
+				"new_relations":     newRelations,
+			},
+			"outbound": map[string]interface{}{
+				"broadcasts_sent":    broadcastsSent,
+				"total_reach":        totalReach,
+				"replies_received":   repliesReceived,
+				"them_marked_useful": themMarkedUseful,
+				"messages_sent":      messagesSent,
+				"feedbacks_given":    feedbacksGiven,
+			},
+		},
+	})
+}
+
+// ConsoleGetActivityLog returns recent activity events.
+// @router /api/v1/console/activity-log [GET]
+func ConsoleGetActivityLog(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ConsoleGetActivityLogReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetActivityLog", "agentID", agentID)
+
+	hours := int32(2)
+	if req.Hours != nil && *req.Hours > 0 {
+		hours = *req.Hours
+	}
+	limit := int(50)
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = int(*req.Limit)
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	sinceMs := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
+	logs, err := consoledal.ListActivityLog(db.DB, agentID, sinceMs, limit)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+
+	events := make([]map[string]interface{}, 0, len(logs))
+	for _, l := range logs {
+		event := map[string]interface{}{
+			"time":    l.CreatedAt,
+			"type":    l.EventType,
+			"summary": l.Summary,
+		}
+		if l.Detail != "" && l.Detail != "{}" {
+			event["detail"] = l.Detail
+		}
+		events = append(events, event)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"events": events,
+	})
+}
+
+// ConsoleGetActivityCalendar returns 30-day activity heatmap data.
+// @router /api/v1/console/activity-calendar [GET]
+func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ConsoleGetActivityCalendarReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetActivityCalendar", "agentID", agentID)
+
+	days := int32(30)
+	if req.Days != nil && *req.Days > 0 {
+		days = *req.Days
+	}
+	if days > 90 {
+		days = 90
+	}
+
+	sinceMs := time.Now().AddDate(0, 0, -int(days)).UnixMilli()
+	dateCounts, err := consoledal.CountActivityByDate(db.DB, agentID, sinceMs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+
+	calendar := make([]map[string]interface{}, 0, len(dateCounts))
+	var activeDays int64
+	var totalPushes int64
+	for _, dc := range dateCounts {
+		calendar = append(calendar, map[string]interface{}{
+			"date":  dc.Date,
+			"count": dc.Count,
+		})
+		if dc.Count > 0 {
+			activeDays++
+		}
+		totalPushes += dc.Count
+	}
+
+	// Calculate current streak: consecutive active days ending today (or yesterday)
+	var streakDays int64
+	dateSet := make(map[string]bool, len(dateCounts))
+	for _, dc := range dateCounts {
+		if dc.Count > 0 {
+			dateSet[dc.Date] = true
+		}
+	}
+	d := time.Now().UTC()
+	// Allow streak to start from today or yesterday
+	if !dateSet[d.Format("2006-01-02")] {
+		d = d.AddDate(0, 0, -1)
+	}
+	for dateSet[d.Format("2006-01-02")] {
+		streakDays++
+		d = d.AddDate(0, 0, -1)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"calendar":           calendar,
+		"active_days_count":  activeDays,
+		"streak_days":        streakDays,
+		"total_pushes_month": totalPushes,
+	})
+}
+
+// ConsoleGetHighlights returns today's top feed items.
+// @router /api/v1/console/highlights [GET]
+func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ConsoleGetHighlightsReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetHighlights", "agentID", agentID)
+
+	limit := int32(5)
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = *req.Limit
+	}
+
+	resp, err := clients.FeedClient.FetchFeed(ctx, &feedrpc.FetchFeedReq{
+		AgentId: agentID,
+		Action:  strPtr("refresh"),
+		Limit:   &limit,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	highlights := make([]map[string]interface{}, 0, len(resp.Items))
+	for _, it := range resp.Items {
+		// Look up author name and bio
+		authorName := ""
+		authorBio := ""
+		authorIDStr := ""
+		if it.AuthorAgentId != nil {
+			authorIDStr = strconv.FormatInt(*it.AuthorAgentId, 10)
+			agent, err := profiledal.GetAgentByID(db.DB, *it.AuthorAgentId)
+			if err == nil {
+				authorName = agent.AgentName
+				// Use first sentence of bio as description
+				bio := agent.Bio
+				if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
+					bio = bio[:idx]
+				}
+				if len(bio) > 100 {
+					bio = bio[:100]
+				}
+				authorBio = bio
+			}
+		}
+
+		hl := map[string]interface{}{
+			"item_id":        strconv.FormatInt(it.ItemId, 10),
+			"broadcast_type": it.BroadcastType,
+			"domains":        keywordsOrEmpty(it.Domains),
+			"author_name":    authorName,
+			"author_bio":     authorBio,
+			"author_id":      authorIDStr,
+			"updated_at":     it.UpdatedAt,
+		}
+		if it.Summary != nil {
+			hl["summary"] = *it.Summary
+		}
+		if it.Suggestion != nil {
+			hl["suggestion"] = *it.Suggestion
+		}
+		if it.RawUrl != nil && *it.RawUrl != "" {
+			hl["url"] = *it.RawUrl
+		}
+		highlights = append(highlights, hl)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"highlights":    highlights,
+		"impression_id": resp.ImpressionId,
+	})
+}
+
+// ConsoleHighlightFeedback submits feedback for a highlight card.
+// @router /api/v1/console/highlight-feedback [POST]
+func ConsoleHighlightFeedback(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ConsoleHighlightFeedbackReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleHighlightFeedback", "agentID", agentID, "itemID", req.ItemID)
+
+	itemID, err := strconv.ParseInt(req.ItemID, 10, 64)
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid item_id", nil)
+		return
+	}
+
+	// Map feedback to score: "useful" → 2, "skip" → 0
+	score := 0
+	switch req.Feedback {
+	case "useful":
+		score = 2
+	case "skip":
+		score = 0
+	default:
+		writeJSON(c, http.StatusBadRequest, 400, "feedback must be 'useful' or 'skip'", nil)
+		return
+	}
+
+	impressionID := ""
+	if req.ImpressionID != nil {
+		impressionID = *req.ImpressionID
+	}
+
+	if _, err := itemstats.PublishFeedback(ctx, agentID, itemID, score, impressionID); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "ok", nil)
+}
+
+// ConsoleGetSettings returns agent runtime settings.
+// @router /api/v1/console/settings [GET]
+func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetSettings", "agentID", agentID)
+
+	settings, err := consoledal.GetSettings(db.DB, agentID)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	lastSyncAt, _ := consoledal.GetLastSyncAt(db.DB, agentID)
+	// created_at backs the "uptime" display (time since the agent registered;
+	// not a realtime process uptime).
+	var createdAt int64
+	if ar, aerr := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID}); aerr == nil && ar.Agent != nil {
+		createdAt = ar.Agent.CreatedAt
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"recurring_publish":        settings.RecurringPublish,
+		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_delivery_preference": settings.FeedDeliveryPreference,
+		"mode":                     settings.Mode,
+		"last_sync_at":             lastSyncAt,
+		"created_at":               createdAt,
+	})
+}
+
+// GetMySettings returns the agent's runtime settings, authenticated via the
+// agent access token (not a console session). The agent polls this to sync its
+// local config.json with the backend, which is the source of truth. updated_at
+// lets the caller resolve which side is newer.
+// @router /api/v1/agents/me/settings [GET]
+func GetMySettings(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	settings, err := consoledal.GetSettings(db.DB, agentID)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"recurring_publish":        settings.RecurringPublish,
+		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_delivery_preference": settings.FeedDeliveryPreference,
+		"mode":                     settings.Mode,
+		"updated_at":               settings.UpdatedAt,
+	})
+}
+
+// PutMySettings lets the agent push its own reported fields (feed_delivery_preference,
+// mode) to the backend, authenticated via the agent access token. Only the provided
+// fields are updated; console-owned fields (recurring_publish, feed_poll_interval)
+// are untouched. This is the agent→backend half of settings sync.
+// @router /api/v1/agents/me/settings [PUT]
+func PutMySettings(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		FeedDeliveryPreference *string `json:"feed_delivery_preference"`
+		Mode                   *string `json:"mode"`
+	}
+	raw, _ := c.Body()
+	if err := json.Unmarshal(raw, &body); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
+		return
+	}
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// ConsoleUpdateSettings updates agent runtime settings.
+// @router /api/v1/console/settings [PUT]
+func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
+	// Use json.Unmarshal instead of BindAndValidate because Hertz's binder
+	// treats *bool with false as zero-value and skips it, leaving the pointer nil.
+	var req apimodel.ConsoleUpdateSettingsReq
+	body, _ := c.Body()
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, err.Error(), nil)
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ConsoleUpdateSettings", "agentID", agentID)
+
+	// Get current settings first
+	current, err := consoledal.GetSettings(db.DB, agentID)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+
+	// Apply updates
+	if req.RecurringPublish != nil {
+		current.RecurringPublish = *req.RecurringPublish
+	}
+	if req.FeedPollInterval != nil {
+		current.FeedPollInterval = *req.FeedPollInterval
+	}
+
+	if err := consoledal.UpsertSettings(db.DB, current); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// ConsoleAuthCode generates a one-time code for CLI → browser handoff.
+// @router /api/v1/console/auth-code [POST]
+func ConsoleAuthCode(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("ConsoleAuthCode", "agentID", agentID)
+
+	// Extract the access token from the Authorization header
+	header := string(c.GetHeader("Authorization"))
+	accessToken := strings.TrimPrefix(header, "Bearer ")
+
+	// Generate one-time code using crypto/rand
+	b := make([]byte, 24)
+	if _, err := crypto_rand.Read(b); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to generate auth code", nil)
+		return
+	}
+	code := "cx_" + hex.EncodeToString(b)
+
+	// Store in Redis: console:code:{code} = {agent_id}:{access_token} with 60s TTL
+	redisKey := "console:code:" + code
+	redisVal := fmt.Sprintf("%d:%s", agentID, accessToken)
+	if err := mq.RDB.Set(ctx, redisKey, redisVal, 60*time.Second).Err(); err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to generate auth code", nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"code": code,
+	})
+}
+
+// ConsoleExchange exchanges a one-time code for an access token.
+// @router /api/v1/console/exchange [POST]
+func ConsoleExchange(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ConsoleExchangeReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	logger.Ctx(ctx).Info("ConsoleExchange", "code", req.Code)
+
+	// Redis GETDEL: atomic read + delete
+	redisKey := "console:code:" + req.Code
+	val, err := mq.RDB.GetDel(ctx, redisKey).Result()
+	if err == redis.Nil || val == "" {
+		writeJSON(c, http.StatusOK, 400, "invalid or expired code", nil)
+		return
+	}
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to validate code", nil)
+		return
+	}
+
+	// Parse "agent_id:access_token"
+	parts := strings.SplitN(val, ":", 2)
+	if len(parts) != 2 {
+		writeJSON(c, http.StatusInternalServerError, 500, "corrupted code data", nil)
+		return
+	}
+
+	accessToken := parts[1]
+	if accessToken == "" {
+		writeJSON(c, http.StatusInternalServerError, 500, "corrupted code data", nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"access_token": accessToken,
+	})
 }

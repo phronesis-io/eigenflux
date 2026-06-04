@@ -373,29 +373,44 @@ type ItemWithStats struct {
 	RawContentPreview string
 	Summary           string
 	BroadcastType     string
+	Status            int16
 	ConsumedCount     int64
 	ScoreNeg1Count    int64
 	Score1Count       int64
 	Score2Count       int64
 	TotalScore        int64
 	UpdatedAt         int64
+	ReplyCount        int64
 }
 
 // GetItemStatsByAuthor retrieves items with stats for a specific author
 // Optimized version: avoid JOINs by querying tables separately
-func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int) ([]*ItemWithStats, error) {
-	// Step 1: Query item_stats table, excluding deleted items
-	var stats []ItemStats
+func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit int, timeFrom int64, scoreFilter string) ([]*ItemWithStats, error) {
+	// Step 1: Query item_stats + processed_items status (include retracted for own items)
+	type statsWithStatus struct {
+		ItemStats
+		Status int16 `gorm:"column:status"`
+	}
+	var stats []statsWithStatus
 	query := db.Table("item_stats").
 		Joins("INNER JOIN processed_items ON item_stats.item_id = processed_items.item_id").
-		Where("item_stats.author_agent_id = ?", authorAgentID).
-		Where("processed_items.status != ?", StatusDeleted)
+		Where("item_stats.author_agent_id = ?", authorAgentID)
 	if lastItemID > 0 {
 		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}
+	// Server-side filters: publish-time window + score band.
+	if timeFrom > 0 {
+		query = query.Where("item_stats.created_at >= ?", timeFrom)
+	}
+	switch scoreFilter {
+	case "high":
+		query = query.Where("item_stats.total_score > ?", 10)
+	case "low":
+		query = query.Where("item_stats.total_score <= ?", 10)
+	}
 	err := query.
-		Select("item_stats.*").
-		Order("item_stats.updated_at DESC, item_stats.item_id DESC").
+		Select("item_stats.*, processed_items.status").
+		Order("item_stats.item_id DESC").
 		Limit(limit).
 		Find(&stats).Error
 	if err != nil {
@@ -406,12 +421,12 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		return []*ItemWithStats{}, nil
 	}
 
-	// Step 2: Collect item IDs
+	// Step 2: Collect item IDs and status
 	itemIDs := make([]int64, len(stats))
-	statsMap := make(map[int64]*ItemStats)
+	statusMap := make(map[int64]int16, len(stats))
 	for i, s := range stats {
 		itemIDs[i] = s.ItemID
-		statsMap[s.ItemID] = &stats[i]
+		statusMap[s.ItemID] = s.Status
 	}
 
 	// Step 3: Batch query raw_items for content preview
@@ -455,18 +470,27 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		}{Summary: pi.Summary, BroadcastType: pi.BroadcastType}
 	}
 
-	// Step 5: Assemble results in original order
+	// Step 5: Batch query reply counts from conversations table
+	replyCountMap, err := BatchGetReplyCountsByItemIDs(db, itemIDs)
+	if err != nil {
+		// Non-fatal: proceed without reply counts
+		replyCountMap = map[int64]int64{}
+	}
+
+	// Step 6: Assemble results in original order
 	results := make([]*ItemWithStats, 0, len(stats))
 	for _, s := range stats {
 		result := &ItemWithStats{
 			ItemID:            s.ItemID,
 			RawContentPreview: rawItemsMap[s.ItemID],
+			Status:            statusMap[s.ItemID],
 			ConsumedCount:     s.ConsumedCount,
 			ScoreNeg1Count:    s.ScoreNeg1Count,
 			Score1Count:       s.Score1Count,
 			Score2Count:       s.Score2Count,
 			TotalScore:        s.TotalScore,
 			UpdatedAt:         s.UpdatedAt,
+			ReplyCount:        replyCountMap[s.ItemID],
 		}
 		if pi, ok := processedItemsMap[s.ItemID]; ok {
 			result.Summary = pi.Summary
@@ -554,4 +578,28 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 	}
 
 	return info, nil
+}
+
+// BatchGetReplyCountsByItemIDs returns a map of item_id → reply_count from the conversations table.
+func BatchGetReplyCountsByItemIDs(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
+	if len(itemIDs) == 0 {
+		return map[int64]int64{}, nil
+	}
+	var results []struct {
+		OriginID int64 `gorm:"column:origin_id"`
+		Count    int64 `gorm:"column:count"`
+	}
+	err := db.Table("conversations").
+		Select("origin_id, COUNT(*) as count").
+		Where("origin_type = 'item' AND origin_id IN ?", itemIDs).
+		Group("origin_id").
+		Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	countMap := make(map[int64]int64, len(results))
+	for _, r := range results {
+		countMap[r.OriginID] = r.Count
+	}
+	return countMap, nil
 }

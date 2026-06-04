@@ -445,8 +445,9 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	cursor := req.GetCursor()
+	originType := req.GetOriginType()
 
-	convs, err := dal.ListConversations(db.DB, req.AgentId, cursor, limit)
+	convs, err := dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, limit, originType)
 	if err != nil {
 		return &pm.ListConversationsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list conversations"},
@@ -455,7 +456,7 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
-		conversations[i] = &pm.ConversationInfo{
+		info := &pm.ConversationInfo{
 			ConvId:           conv.ConvID,
 			ParticipantA:     conv.ParticipantA,
 			ParticipantB:     conv.ParticipantB,
@@ -463,6 +464,35 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			ParticipantAName: &conv.ParticipantAName,
 			ParticipantBName: &conv.ParticipantBName,
 		}
+		if conv.OriginType != "" {
+			info.OriginType = &conv.OriginType
+		}
+		if conv.OriginID != 0 {
+			info.OriginId = &conv.OriginID
+		}
+		mc := int32(conv.MsgCount)
+		info.MsgCount = &mc
+		// Determine peer name
+		if conv.ParticipantA == req.AgentId {
+			info.PeerName = &conv.ParticipantBName
+		} else {
+			info.PeerName = &conv.ParticipantAName
+		}
+		// Last message preview
+		lastMsg, msgErr := dal.GetLastMessage(db.DB, conv.ConvID)
+		if msgErr == nil && lastMsg != nil {
+			preview := lastMsg.Content
+			if len(preview) > 100 {
+				preview = preview[:100]
+			}
+			info.LastMessagePreview = &preview
+		}
+		// Unread count
+		unread, ucErr := dal.CountUnread(db.DB, conv.ConvID, req.AgentId)
+		if ucErr == nil {
+			info.UnreadCount = &unread
+		}
+		conversations[i] = info
 	}
 
 	var nextCursor int64
@@ -1023,6 +1053,16 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 		if f.Remark != "" {
 			info.Remark = &f.Remark
 		}
+		if f.Bio != "" {
+			info.Bio = &f.Bio
+		}
+		// Attach the last direct message with this friend (for relations "recent activity").
+		if dm, derr := dal.GetLastFriendDM(db.DB, req.AgentId, f.AgentID); derr == nil && dm.MsgID != 0 {
+			content := dm.Content
+			ts := dm.CreatedAt
+			info.LastDmPreview = &content
+			info.LastDmTime = &ts
+		}
 		result = append(result, info)
 	}
 
@@ -1030,7 +1070,31 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 	if len(friends) > 0 {
 		nextCursor = friends[len(friends)-1].RelationID
 	}
-	return &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	resp := &pm.ListFriendsResp{Friends: result, NextCursor: nextCursor, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}
+	if total, cErr := dal.CountFriends(db.DB, req.AgentId); cErr == nil {
+		resp.Total = &total
+	}
+	return resp, nil
+}
+
+// GetUnreadCount returns the agent's total unread message count across conversations.
+func (s *PMServiceImpl) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCountReq) (*pm.GetUnreadCountResp, error) {
+	n, err := dal.CountUnreadTotal(db.DB, req.AgentId)
+	if err != nil {
+		logger.Ctx(ctx).Error("GetUnreadCount failed", "agentID", req.AgentId, "err", err)
+		return &pm.GetUnreadCountResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to count"}}, nil
+	}
+	bc, fr, _ := dal.CountUnreadByOrigin(db.DB, req.AgentId)
+	return &pm.GetUnreadCountResp{Count: n, CountBroadcast: &bc, CountFriend: &fr, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+// MarkConvRead marks all messages the agent received in a conversation as read.
+func (s *PMServiceImpl) MarkConvRead(ctx context.Context, req *pm.MarkConvReadReq) (*pm.MarkConvReadResp, error) {
+	if err := dal.MarkConvReadByAgent(db.DB, req.ConvId, req.AgentId); err != nil {
+		logger.Ctx(ctx).Error("MarkConvRead failed", "agentID", req.AgentId, "convID", req.ConvId, "err", err)
+		return &pm.MarkConvReadResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to mark read"}}, nil
+	}
+	return &pm.MarkConvReadResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 func (s *PMServiceImpl) UpdateFriendRemark(ctx context.Context, req *pm.UpdateFriendRemarkReq) (*pm.UpdateFriendRemarkResp, error) {

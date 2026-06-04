@@ -114,34 +114,117 @@ func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 // ListConversations retrieves ice-broken conversations (msg_count >= 2) for an agent.
 // Uses UNION ALL on the two indexed columns to avoid OR-based sequential scan.
 func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
+	return ListConversationsFiltered(db, agentID, cursor, limit, "")
+}
+
+func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, originType string) ([]*Conversation, error) {
 	var convs []*Conversation
 	var err error
 
+	originFilter := ""
+	args := make([]interface{}, 0, 8)
+	if originType != "" {
+		originFilter = " AND origin_type = ?"
+	}
+
 	if cursor > 0 {
-		err = db.Raw(
-			`SELECT * FROM (
-				(SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 AND updated_at < ? ORDER BY updated_at DESC LIMIT ?)
-				UNION ALL
-				(SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 AND updated_at < ? ORDER BY updated_at DESC LIMIT ?)
-			) AS c ORDER BY updated_at DESC LIMIT ?`,
-			agentID, cursor, limit,
-			agentID, cursor, limit,
-			limit,
-		).Scan(&convs).Error
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+
+		if originType != "" {
+			args = append(args, agentID, cursor, originType, limit, agentID, cursor, originType, limit, limit)
+		} else {
+			args = append(args, agentID, cursor, limit, agentID, cursor, limit, limit)
+		}
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		err = db.Raw(query, args...).Scan(&convs).Error
 	} else {
-		err = db.Raw(
-			`SELECT * FROM (
-				(SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 ORDER BY updated_at DESC LIMIT ?)
-				UNION ALL
-				(SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 ORDER BY updated_at DESC LIMIT ?)
-			) AS c ORDER BY updated_at DESC LIMIT ?`,
-			agentID, limit,
-			agentID, limit,
-			limit,
-		).Scan(&convs).Error
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+
+		if originType != "" {
+			args = append(args, agentID, originType, limit, agentID, originType, limit, limit)
+		} else {
+			args = append(args, agentID, limit, agentID, limit, limit)
+		}
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		err = db.Raw(query, args...).Scan(&convs).Error
 	}
 
 	return convs, err
+}
+
+// GetLastMessage fetches the most recent message in a conversation.
+func GetLastMessage(db *gorm.DB, convID int64) (*PrivateMessage, error) {
+	var msg PrivateMessage
+	err := db.Where("conv_id = ?", convID).Order("msg_id DESC").First(&msg).Error
+	return &msg, err
+}
+
+// CountUnread counts unread messages for a given agent in a conversation.
+func CountUnread(db *gorm.DB, convID, agentID int64) (int32, error) {
+	var count int64
+	err := db.Model(&PrivateMessage{}).
+		Where("conv_id = ? AND receiver_id = ? AND is_read = false", convID, agentID).
+		Count(&count).Error
+	return int32(count), err
+}
+
+// GetLastFriendDM returns the most recent message in the direct (friend)
+// conversation between two agents, regardless of who sent it. Returns a
+// zero-MsgID message (no error) when there is no friend DM between them.
+func GetLastFriendDM(db *gorm.DB, agentA, agentB int64) (*PrivateMessage, error) {
+	var msg PrivateMessage
+	err := db.Raw(
+		`SELECT pm.* FROM private_messages pm
+		 JOIN conversations c ON pm.conv_id = c.conv_id
+		 WHERE c.origin_type = 'friend'
+		   AND ((c.participant_a = ? AND c.participant_b = ?) OR (c.participant_a = ? AND c.participant_b = ?))
+		 ORDER BY pm.msg_id DESC LIMIT 1`,
+		agentA, agentB, agentB, agentA,
+	).Scan(&msg).Error
+	return &msg, err
+}
+
+// CountUnreadTotal counts all unread messages received by an agent across conversations.
+func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
+	var count int64
+	err := db.Model(&PrivateMessage{}).
+		Where("receiver_id = ? AND is_read = false", agentID).
+		Count(&count).Error
+	return count, err
+}
+
+// CountUnreadByOrigin returns the agent's unread message counts split by the
+// conversation origin ("broadcast" discussions vs "friend" direct messages).
+func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcast, friend int64, err error) {
+	type row struct {
+		OriginType string
+		N          int64
+	}
+	var rows []row
+	err = db.Raw(
+		`SELECT c.origin_type AS origin_type, COUNT(*) AS n
+		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
+		 WHERE pm.receiver_id = ? AND pm.is_read = false
+		 GROUP BY c.origin_type`, agentID,
+	).Scan(&rows).Error
+	for _, r := range rows {
+		switch r.OriginType {
+		case "broadcast":
+			broadcast = r.N
+		case "friend":
+			friend = r.N
+		}
+	}
+	return
+}
+
+// MarkConvReadByAgent marks all messages the agent received in a conversation as read.
+func MarkConvReadByAgent(db *gorm.DB, convID, agentID int64) error {
+	return db.Model(&PrivateMessage{}).
+		Where("conv_id = ? AND receiver_id = ? AND is_read = false", convID, agentID).
+		Update("is_read", true).Error
 }
 
 // GetConvMessages retrieves messages for a conversation with cursor pagination (older messages)
@@ -203,6 +286,33 @@ func CloseConversation(db *gorm.DB, convID int64) error {
 	}
 
 	return nil
+}
+
+// AgentProfile holds basic agent info for enrichment.
+type AgentProfile struct {
+	AgentName string
+	Bio       string
+}
+
+// BatchGetAgentProfiles returns a map of agent_id → AgentProfile for the given IDs.
+func BatchGetAgentProfiles(db *gorm.DB, agentIDs []int64) (map[int64]AgentProfile, error) {
+	if len(agentIDs) == 0 {
+		return map[int64]AgentProfile{}, nil
+	}
+	var results []struct {
+		AgentID   int64  `gorm:"column:agent_id"`
+		AgentName string `gorm:"column:agent_name"`
+		Bio       string `gorm:"column:bio"`
+	}
+	err := db.Table("agents").Select("agent_id, agent_name, bio").Where("agent_id IN ?", agentIDs).Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	profileMap := make(map[int64]AgentProfile, len(results))
+	for _, r := range results {
+		profileMap[r.AgentID] = AgentProfile{AgentName: r.AgentName, Bio: r.Bio}
+	}
+	return profileMap, nil
 }
 
 // BatchGetAgentNames returns a map of agent_id → agent_name for the given IDs

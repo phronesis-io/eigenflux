@@ -196,7 +196,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 	}
 
 	lastItemID := req.GetLastItemId()
-	items, err := dal.GetItemStatsByAuthor(db.DB, req.AuthorAgentId, lastItemID, limit)
+	items, err := dal.GetItemStatsByAuthor(db.DB, req.AuthorAgentId, lastItemID, limit, req.GetTimeFrom(), req.GetScoreFilter())
 	if err != nil {
 		return &item.GetMyItemsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
@@ -206,6 +206,8 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 	var respItems []*item.ItemWithStats
 	var nextCursor int64
 	for _, it := range items {
+		replyCount := it.ReplyCount
+		retracted := it.Status == dal.StatusDeleted
 		respItems = append(respItems, &item.ItemWithStats{
 			ItemId:            it.ItemID,
 			RawContentPreview: it.RawContentPreview,
@@ -217,6 +219,8 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 			Score_2Count:      it.Score2Count,
 			TotalScore:        it.TotalScore,
 			UpdatedAt:         it.UpdatedAt,
+			ReplyCount:        &replyCount,
+			Retracted:         &retracted,
 		})
 		nextCursor = it.ItemID
 	}
