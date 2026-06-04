@@ -777,6 +777,7 @@ type ItemWithStats struct {
 	UpdatedAt         int64   `thrift:"updated_at,10,required" frugal:"10,required,i64" json:"updated_at"`
 	ReplyCount        *int64  `thrift:"reply_count,11,optional" frugal:"11,optional,i64" json:"reply_count,omitempty"`
 	Retracted         *bool   `thrift:"retracted,12,optional" frugal:"12,optional,bool" json:"retracted,omitempty"`
+	CreatedAt         *int64  `thrift:"created_at,13,optional" frugal:"13,optional,i64" json:"created_at,omitempty"`
 }
 
 func NewItemWithStats() *ItemWithStats {
@@ -848,6 +849,15 @@ func (p *ItemWithStats) GetRetracted() (v bool) {
 	}
 	return *p.Retracted
 }
+
+var ItemWithStats_CreatedAt_DEFAULT int64
+
+func (p *ItemWithStats) GetCreatedAt() (v int64) {
+	if !p.IsSetCreatedAt() {
+		return ItemWithStats_CreatedAt_DEFAULT
+	}
+	return *p.CreatedAt
+}
 func (p *ItemWithStats) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -884,6 +894,9 @@ func (p *ItemWithStats) SetReplyCount(val *int64) {
 func (p *ItemWithStats) SetRetracted(val *bool) {
 	p.Retracted = val
 }
+func (p *ItemWithStats) SetCreatedAt(val *int64) {
+	p.CreatedAt = val
+}
 
 func (p *ItemWithStats) IsSetSummary() bool {
 	return p.Summary != nil
@@ -895,6 +908,10 @@ func (p *ItemWithStats) IsSetReplyCount() bool {
 
 func (p *ItemWithStats) IsSetRetracted() bool {
 	return p.Retracted != nil
+}
+
+func (p *ItemWithStats) IsSetCreatedAt() bool {
+	return p.CreatedAt != nil
 }
 
 func (p *ItemWithStats) String() string {
@@ -917,6 +934,7 @@ var fieldIDToName_ItemWithStats = map[int16]string{
 	10: "updated_at",
 	11: "reply_count",
 	12: "retracted",
+	13: "created_at",
 }
 
 type GetMyItemsReq struct {

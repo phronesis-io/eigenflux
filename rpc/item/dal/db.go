@@ -379,6 +379,7 @@ type ItemWithStats struct {
 	Score1Count       int64
 	Score2Count       int64
 	TotalScore        int64
+	CreatedAt         int64
 	UpdatedAt         int64
 	ReplyCount        int64
 }
@@ -489,6 +490,7 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 			Score1Count:       s.Score1Count,
 			Score2Count:       s.Score2Count,
 			TotalScore:        s.TotalScore,
+			CreatedAt:         s.CreatedAt,
 			UpdatedAt:         s.UpdatedAt,
 			ReplyCount:        replyCountMap[s.ItemID],
 		}

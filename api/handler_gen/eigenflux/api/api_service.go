@@ -461,6 +461,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 			"score_1_count":       it.Score_1Count,
 			"score_2_count":       it.Score_2Count,
 			"total_score":         it.TotalScore,
+			"created_at":          it.GetCreatedAt(),
 			"updated_at":          it.UpdatedAt,
 		}
 		if it.Summary != nil {
