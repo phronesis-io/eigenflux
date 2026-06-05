@@ -21,7 +21,9 @@ type ServedItem struct {
 	Position     int     `json:"position"`
 }
 
-func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatures string, servedItems []ServedItem) error {
+// delivered distinguishes items actually returned to the agent (true) from
+// below-threshold items logged for offline analysis only (false).
+func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatures string, servedItems []ServedItem, delivered bool) error {
 	if mq.RDB == nil || len(servedItems) == 0 {
 		return nil
 	}
@@ -31,12 +33,18 @@ func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatu
 		return err
 	}
 
+	deliveredFlag := "0"
+	if delivered {
+		deliveredFlag = "1"
+	}
+
 	_, err = mq.Publish(ctx, StreamName, map[string]interface{}{
 		"impression_id":  impressionID,
 		"agent_id":       strconv.FormatInt(agentID, 10),
 		"agent_features": agentFeatures,
 		"served_at":      strconv.FormatInt(time.Now().UnixMilli(), 10),
 		"items":          string(itemsJSON),
+		"delivered":      deliveredFlag,
 	})
 	return err
 }
