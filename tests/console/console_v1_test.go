@@ -102,28 +102,31 @@ func TestConsoleTodayReturnsValidStructure(t *testing.T) {
 	assertCode(t, result, 0)
 
 	data := result["data"].(map[string]interface{})
-	requireKey(t, data, "signals_scanned")
-	requireKey(t, data, "relations_formed")
-	requireKey(t, data, "last_sync_at")
+	for _, key := range []string{
+		"signals_scanned", "worth_reading", "days_active", "relations_formed",
+		"unread_count", "broadcast_count", "mode", "last_sync_at",
+	} {
+		requireKey(t, data, key)
+	}
 
 	today := data["today"].(map[string]interface{})
 	requireKey(t, today, "inbound")
-	requireKey(t, today, "agent")
 	requireKey(t, today, "outbound")
 
 	inbound := today["inbound"].(map[string]interface{})
-	requireKey(t, inbound, "feeds_pulled")
-	requireKey(t, inbound, "items_received")
-	requireKey(t, inbound, "replies_received")
-
-	agent := today["agent"].(map[string]interface{})
-	requireKey(t, agent, "items_processed")
-	requireKey(t, agent, "relations_count")
+	for _, key := range []string{
+		"feeds_pulled", "items_scanned", "items_pushed", "you_marked_useful", "new_relations",
+	} {
+		requireKey(t, inbound, key)
+	}
 
 	outbound := today["outbound"].(map[string]interface{})
-	requireKey(t, outbound, "broadcasts_sent")
-	requireKey(t, outbound, "feedbacks_given")
-	requireKey(t, outbound, "messages_sent")
+	for _, key := range []string{
+		"broadcasts_sent", "total_reach", "replies_received",
+		"them_marked_useful", "messages_sent", "feedbacks_given",
+	} {
+		requireKey(t, outbound, key)
+	}
 }
 
 // ---------- Activity Log ----------
@@ -218,11 +221,18 @@ func TestConsoleHighlightsReturnsItems(t *testing.T) {
 	assertCode(t, result, 0)
 
 	data := result["data"].(map[string]interface{})
-	if _, ok := data["highlights"].([]interface{}); !ok {
+	highlights, ok := data["highlights"].([]interface{})
+	if !ok {
 		t.Fatal("expected highlights array")
 	}
-	if _, ok := data["impression_id"].(string); !ok {
-		t.Fatal("expected impression_id string")
+	// impression_id lives on each highlight (per-delivery), not at the top level.
+	for i, h := range highlights {
+		hl := h.(map[string]interface{})
+		requireKey(t, hl, "item_id")
+		requireKey(t, hl, "impression_id")
+		if i >= 2 {
+			break
+		}
 	}
 }
 
