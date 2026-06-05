@@ -36,6 +36,7 @@ type AgentSettings struct {
 	AutoReplyPM            bool   `gorm:"column:auto_reply_pm;default:true"`
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
+	ClientHost             string `gorm:"column:client_host"`
 	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
 }
 
@@ -67,6 +68,20 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 		vals["auto_reply_pm"] = *autoReplyPM
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
+}
+
+// UpdateDerivedRuntime persists the runtime identity derived from request
+// metadata (X-Client-Host): the mode plus the raw host string for display.
+func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host string) error {
+	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
+		return err
+	}
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
+		Updates(map[string]interface{}{
+			"mode":        mode,
+			"client_host": host,
+			"updated_at":  time.Now().UnixMilli(),
+		}).Error
 }
 
 // ListActivityLog returns recent activity events for an agent within a time window.

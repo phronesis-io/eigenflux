@@ -640,16 +640,16 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	// needed. Bare-CLI skill runtimes send the "terminal" default and keep
 	// reporting via `settings push --mode skill` (heartbeat template step).
 	if host := reqinfo.ClientFromContext(ctx).Host; host != "" && host != "terminal" {
-		go func(agentID int64) {
+		go func(agentID int64, host string) {
 			mode := "plugin"
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
-			if gerr != nil || cur.Mode == mode {
+			if gerr != nil || (cur.Mode == mode && cur.ClientHost == host) {
 				return
 			}
-			if uerr := consoledal.UpdateAgentReported(db.DB, agentID, nil, &mode, nil, nil, nil); uerr != nil {
-				logger.Default().Warn("derived mode write failed", "agentID", agentID, "err", uerr)
+			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, host); uerr != nil {
+				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
 			}
-		}(agentID)
+		}(agentID, host)
 	}
 }
 
@@ -2443,6 +2443,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
+		"client_host":              settings.ClientHost,
 		"last_sync_at":             lastSyncAt,
 		"created_at":               createdAt,
 	})
