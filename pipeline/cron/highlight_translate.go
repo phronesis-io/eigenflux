@@ -81,16 +81,25 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem }()
+			// Per-field language check: the pipeline may emit an English
+			// summary for a Chinese source item (and vice versa). Fields that
+			// are already Chinese are copied into the zh column so they leave
+			// the candidate set.
 			summaryZh, titleZh := it.SummaryZh, it.TitleZh
 			if summaryZh == "" && it.Summary != "" {
-				if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
+				if dal.IsLikelyChinese(it.Summary) {
+					summaryZh = it.Summary
+				} else if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
 					summaryZh = zh
 				} else if terr != nil {
 					logger.Default().Warn("highlight summary translate failed", "itemID", it.ItemID, "err", terr)
 				}
 			}
 			if titleZh == "" && it.RawContent != "" {
-				if zh, terr := tc.TranslateToChinese(ctx, titlePreview(it.RawContent, 80)); terr == nil && zh != "" {
+				preview := titlePreview(it.RawContent, 80)
+				if dal.IsLikelyChinese(preview) {
+					titleZh = preview
+				} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
 					titleZh = zh
 				} else if terr != nil {
 					logger.Default().Warn("highlight title translate failed", "itemID", it.ItemID, "err", terr)

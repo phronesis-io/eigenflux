@@ -2192,22 +2192,35 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			var wg sync.WaitGroup
 			for i := range rows {
 				it := &rows[i]
+				// Per-field language check: the pipeline may emit an English
+				// summary for a Chinese source item, so processed_items.lang
+				// alone is not a reliable gate. Already-Chinese fields are
+				// copied into the zh column (terminates re-processing).
 				needSummary := it.Summary != "" && it.SummaryZh == ""
 				needTitle := it.RawContent != "" && it.TitleZh == ""
-				if it.Lang == "zh" || (!needSummary && !needTitle) {
+				if !needSummary && !needTitle {
 					continue
 				}
 				wg.Add(1)
 				go func(it *consoledal.HighlightItem, needSummary, needTitle bool) {
 					defer wg.Done()
 					if needSummary {
-						if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
+						if consoledal.IsLikelyChinese(it.Summary) {
+							it.SummaryZh = it.Summary
+						} else if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
 							it.SummaryZh = zh
+						} else if terr != nil {
+							logger.Ctx(ctx).Warn("summary translate failed", "itemID", it.ItemID, "err", terr)
 						}
 					}
 					if needTitle {
-						if zh, terr := tc.TranslateToChinese(ctx, runePreview(it.RawContent, 80)); terr == nil && zh != "" {
+						preview := runePreview(it.RawContent, 80)
+						if consoledal.IsLikelyChinese(preview) {
+							it.TitleZh = preview
+						} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
 							it.TitleZh = zh
+						} else if terr != nil {
+							logger.Ctx(ctx).Warn("title translate failed", "itemID", it.ItemID, "err", terr)
 						}
 					}
 					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.SummaryZh, it.TitleZh); uerr != nil {

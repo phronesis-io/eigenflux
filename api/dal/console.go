@@ -186,6 +186,26 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 	return rows, err
 }
 
+// IsLikelyChinese reports whether the text already reads as Chinese (≥20% Han
+// runes, or a solid run of them). Used instead of processed_items.lang because
+// the pipeline may emit an English summary for a Chinese source item.
+func IsLikelyChinese(s string) bool {
+	han, total := 0, 0
+	for _, r := range s {
+		if r == ' ' || r == '\n' || r == '\t' {
+			continue
+		}
+		total++
+		if r >= 0x4E00 && r <= 0x9FFF {
+			han++
+		}
+	}
+	if total == 0 {
+		return false
+	}
+	return han*5 >= total || han >= 20
+}
+
 // UntranslatedItem is a feed item that may surface in someone's highlights
 // and still lacks a Chinese rendering.
 type UntranslatedItem struct {
@@ -217,7 +237,6 @@ func ListUntranslatedTopItems(db *gorm.DB, sinceMs int64, topN, limit int) ([]Un
 		  JOIN processed_items p ON p.item_id = rk.item_id
 		  JOIN raw_items r2      ON r2.item_id = rk.item_id
 		 WHERE rk.rnk <= ?
-		   AND COALESCE(p.lang, '') <> 'zh'
 		   AND p.status <> 5
 		   AND (COALESCE(p.summary_zh, '') = '' OR COALESCE(p.title_zh, '') = '')
 		 LIMIT ?`,
