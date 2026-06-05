@@ -32,6 +32,25 @@ type UserRelation struct {
 
 func (UserRelation) TableName() string { return "user_relations" }
 
+// GetRemarksByPeer returns the requester's remarks keyed by peer uid for the
+// given peers; only non-empty remarks are included.
+func GetRemarksByPeer(db *gorm.DB, fromUID int64, toUIDs []int64) (map[int64]string, error) {
+	remarks := make(map[int64]string, len(toUIDs))
+	if len(toUIDs) == 0 {
+		return remarks, nil
+	}
+	var rels []UserRelation
+	if err := db.Where("from_uid = ? AND to_uid IN ?", fromUID, toUIDs).Find(&rels).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rels {
+		if r.Remark != "" {
+			remarks[r.ToUID] = r.Remark
+		}
+	}
+	return remarks, nil
+}
+
 type FriendRequest struct {
 	ID        int64  `gorm:"column:id;primaryKey"`
 	FromUID   int64  `gorm:"column:from_uid;not null"`

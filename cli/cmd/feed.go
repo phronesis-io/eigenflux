@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -56,6 +57,12 @@ Examples:
 		if srv := activeServerName(); srv != "" {
 			cache.SaveFeedResponse(srv, resp.Data)
 			cache.Cleanup(srv, "broadcasts")
+		}
+		// Reconcile settings on the poll heartbeat — this is how console-side
+		// edits (recurring_publish, feed_poll_interval) reach the agent.
+		// Best-effort: a sync failure must never break the poll itself.
+		if cfg, err := config.Load(); err == nil {
+			_ = SyncSettings(cfg)
 		}
 		return nil
 	},

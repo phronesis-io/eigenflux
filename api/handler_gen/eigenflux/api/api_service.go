@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -24,6 +25,7 @@ import (
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	itemrpc "eigenflux_server/kitex_gen/eigenflux/item"
+	"eigenflux_server/pipeline/llm"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
@@ -33,6 +35,7 @@ import (
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -462,6 +465,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 			"score_1_count":       it.Score_1Count,
 			"score_2_count":       it.Score_2Count,
 			"total_score":         it.TotalScore,
+			"created_at":          it.GetCreatedAt(),
 			"updated_at":          it.UpdatedAt,
 		}
 		if it.Summary != nil {
@@ -629,6 +633,23 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	})
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
+
+	// Derive the runtime mode from X-Client-Host: the OpenClaw plugin launches
+	// the CLI with EIGENFLUX_HOST=openclaw/<ver>, so its polls identify the
+	// host on every request — no agent-side report needed. Skill runtimes keep
+	// reporting via `settings push --mode skill` (heartbeat template step).
+	if host := reqinfo.ClientFromContext(ctx).Host; strings.HasPrefix(host, "openclaw/") {
+		go func(agentID int64) {
+			mode := "plugin"
+			cur, gerr := consoledal.GetSettings(db.DB, agentID)
+			if gerr != nil || cur.Mode == mode {
+				return
+			}
+			if uerr := consoledal.UpdateAgentReported(db.DB, agentID, nil, &mode, nil, nil, nil); uerr != nil {
+				logger.Default().Warn("derived mode write failed", "agentID", agentID, "err", uerr)
+			}
+		}(agentID)
+	}
 }
 
 // GetItem returns item detail by ID
@@ -1086,6 +1107,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"participant_a_name":   conv.GetParticipantAName(),
 			"participant_b_name":   conv.GetParticipantBName(),
 			"peer_name":            conv.GetPeerName(),
+			"remark":               conv.GetRemark(),
 			"last_message_preview": conv.GetLastMessagePreview(),
 			"unread_count":         conv.GetUnreadCount(),
 			"msg_count":            conv.GetMsgCount(),
@@ -2096,8 +2118,8 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 	if req.Days != nil && *req.Days > 0 {
 		days = *req.Days
 	}
-	if days > 90 {
-		days = 90
+	if days > 366 {
+		days = 366
 	}
 
 	sinceMs := time.Now().AddDate(0, 0, -int(days)).UnixMilli()
@@ -2160,73 +2182,192 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("ConsoleGetHighlights", "agentID", agentID)
 
-	limit := int32(5)
+	limit := int(5)
 	if req.Limit != nil && *req.Limit > 0 {
-		limit = *req.Limit
+		limit = int(*req.Limit)
 	}
 
-	resp, err := clients.FeedClient.FetchFeed(ctx, &feedrpc.FetchFeedReq{
-		AgentId: agentID,
-		Action:  strPtr("refresh"),
-		Limit:   &limit,
-	})
+	// "Today's picks" = the top-ranked items from today's GET /feed serving,
+	// read from replay_logs (which preserves every delivery with its rank
+	// score and ranking factors). Unlike fetching the live feed this records
+	// no impressions, so opening the Today page never eats items the agent
+	// has yet to pull. Falls back to the last 7 days when today is empty.
+	now := time.Now().UnixMilli()
+	rows, err := consoledal.GetHighlightsForAgent(db.DB, agentID, now-86400000, limit)
+	if err == nil && len(rows) == 0 {
+		rows, err = consoledal.GetHighlightsForAgent(db.DB, agentID, now-7*86400000, limit)
+	}
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	if resp.BaseResp.Code != 0 {
-		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
-		return
+
+	// zh UI: lazily translate non-Chinese summaries on first view and write
+	// the result back to processed_items.summary_zh (shared by all viewers).
+	// Translation failures silently fall back to the original summary.
+	uiLang := string(c.Query("lang"))
+	if uiLang == "zh" {
+		if tc := translateClient(); tc != nil {
+			var wg sync.WaitGroup
+			for i := range rows {
+				it := &rows[i]
+				// Per-field language check: the pipeline may emit an English
+				// summary for a Chinese source item, so processed_items.lang
+				// alone is not a reliable gate. Already-Chinese fields are
+				// copied into the zh column (terminates re-processing).
+				needSummary := it.Summary != "" && it.SummaryZh == ""
+				needTitle := it.RawContent != "" && it.TitleZh == ""
+				if !needSummary && !needTitle {
+					continue
+				}
+				wg.Add(1)
+				go func(it *consoledal.HighlightItem, needSummary, needTitle bool) {
+					defer wg.Done()
+					if needSummary {
+						if consoledal.IsLikelyChinese(it.Summary) {
+							it.SummaryZh = it.Summary
+						} else if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
+							it.SummaryZh = zh
+						} else if terr != nil {
+							logger.Ctx(ctx).Warn("summary translate failed", "itemID", it.ItemID, "err", terr)
+						}
+					}
+					if needTitle {
+						preview := runePreview(it.RawContent, 80)
+						if consoledal.IsLikelyChinese(preview) {
+							it.TitleZh = preview
+						} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
+							it.TitleZh = zh
+						} else if terr != nil {
+							logger.Ctx(ctx).Warn("title translate failed", "itemID", it.ItemID, "err", terr)
+						}
+					}
+					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.SummaryZh, it.TitleZh); uerr != nil {
+						logger.Ctx(ctx).Warn("zh translation write-back failed", "itemID", it.ItemID, "err", uerr)
+					}
+				}(it, needSummary, needTitle)
+			}
+			wg.Wait()
+		}
 	}
 
-	highlights := make([]map[string]interface{}, 0, len(resp.Items))
-	for _, it := range resp.Items {
+	// Derive a one-line push reason from the ranking factors captured at
+	// serve time: keyword hit > semantic affinity > freshness.
+	deriveReason := func(featuresJSON string) (string, string) {
+		var f struct {
+			Keywords   []string `json:"keywords"`
+			Domains    []string `json:"domains"`
+			Timeliness string   `json:"timeliness"`
+			RankScores struct {
+				Semantic  float64 `json:"semantic"`
+				Keyword   float64 `json:"keyword"`
+				Freshness float64 `json:"freshness"`
+			} `json:"rank_scores"`
+		}
+		if json.Unmarshal([]byte(featuresJSON), &f) != nil {
+			return "", ""
+		}
+		switch {
+		case f.RankScores.Keyword > 0 && len(f.Keywords) > 0:
+			return "keyword", f.Keywords[0]
+		case f.RankScores.Semantic >= 0.3 && len(f.Domains) > 0:
+			return "semantic", f.Domains[0]
+		case f.RankScores.Freshness >= 0.8 && (f.Timeliness == "breaking" || f.Timeliness == "timely"):
+			return "fresh", f.Timeliness
+		case len(f.Domains) > 0:
+			return "semantic", f.Domains[0]
+		}
+		return "", ""
+	}
+
+	splitCSV := func(s string) []string {
+		out := []string{}
+		for _, part := range strings.Split(s, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+
+	highlights := make([]map[string]interface{}, 0, len(rows))
+	for _, it := range rows {
 		// Look up author name and bio
 		authorName := ""
 		authorBio := ""
-		authorIDStr := ""
-		if it.AuthorAgentId != nil {
-			authorIDStr = strconv.FormatInt(*it.AuthorAgentId, 10)
-			agent, err := profiledal.GetAgentByID(db.DB, *it.AuthorAgentId)
-			if err == nil {
-				authorName = agent.AgentName
-				// Use first sentence of bio as description
-				bio := agent.Bio
-				if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
-					bio = bio[:idx]
-				}
-				if len(bio) > 100 {
-					bio = bio[:100]
-				}
-				authorBio = bio
+		if agent, aerr := profiledal.GetAgentByID(db.DB, it.AuthorAgentID); aerr == nil {
+			authorName = agent.AgentName
+			// Use first sentence of bio as description
+			bio := agent.Bio
+			if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
+				bio = bio[:idx]
 			}
+			if len(bio) > 100 {
+				bio = bio[:100]
+			}
+			authorBio = bio
 		}
 
+		reasonType, reasonTerm := deriveReason(it.ItemFeatures)
 		hl := map[string]interface{}{
-			"item_id":        strconv.FormatInt(it.ItemId, 10),
+			"item_id":        strconv.FormatInt(it.ItemID, 10),
+			"impression_id":  it.ImpressionID,
 			"broadcast_type": it.BroadcastType,
-			"domains":        keywordsOrEmpty(it.Domains),
+			"domains":        splitCSV(it.Domains),
+			"keywords":       splitCSV(it.Keywords),
+			"source":         authorName,
 			"author_name":    authorName,
-			"author_bio":     authorBio,
-			"author_id":      authorIDStr,
-			"updated_at":     it.UpdatedAt,
+			"source_note":    authorBio,
+			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
+			"content":        func() string {
+				if uiLang == "zh" && it.TitleZh != "" {
+					return it.TitleZh
+				}
+				return runePreview(it.RawContent, 80)
+			}(),
+			"created_at":     it.CreatedAt,
+			"updated_at":     it.ServedAt,
+			"reason_type":    reasonType,
+			"reason_term":    reasonTerm,
+			"feedbacked":     it.FbScore >= 2,
 		}
-		if it.Summary != nil {
-			hl["summary"] = *it.Summary
+		summary := it.Summary
+		if uiLang == "zh" && it.SummaryZh != "" {
+			summary = it.SummaryZh
 		}
-		if it.Suggestion != nil {
-			hl["suggestion"] = *it.Suggestion
+		if summary != "" {
+			hl["summary"] = summary
 		}
-		if it.RawUrl != nil && *it.RawUrl != "" {
-			hl["url"] = *it.RawUrl
+		if it.Suggestion != "" {
+			hl["suggestion"] = it.Suggestion
+		}
+		if it.RawURL != "" {
+			hl["url"] = it.RawURL
 		}
 		highlights = append(highlights, hl)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"highlights":    highlights,
-		"impression_id": resp.ImpressionId,
+		"highlights": highlights,
 	})
+}
+
+// translateClient lazily builds an LLM client from the pipeline config for
+// on-demand summary translation. Returns nil when LLM_API_KEY is not set,
+// in which case zh users simply see the original-language summary.
+var (
+	translateOnce sync.Once
+	translateLLM  *llm.Client
+)
+
+func translateClient() *llm.Client {
+	translateOnce.Do(func() {
+		cfg := config.Load()
+		if cfg.LLMApiKey != "" {
+			translateLLM = llm.NewClient(cfg, nil).WithModel(cfg.LLMTranslateModel)
+		}
+	})
+	return translateLLM
 }
 
 // ConsoleHighlightFeedback submits feedback for a highlight card.
@@ -2298,6 +2439,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       settings.FeedPollInterval,
+		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"last_sync_at":             lastSyncAt,
@@ -2323,6 +2465,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       settings.FeedPollInterval,
+		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"updated_at":               settings.UpdatedAt,
@@ -2342,13 +2485,22 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	var body struct {
 		FeedDeliveryPreference *string `json:"feed_delivery_preference"`
 		Mode                   *string `json:"mode"`
+		// Console-owned fields, accepted here for the CLI write-through sync
+		// (last writer wins through agent_settings).
+		RecurringPublish *bool  `json:"recurring_publish"`
+		FeedPollInterval *int32 `json:"feed_poll_interval"`
+		AutoReplyPM      *bool  `json:"auto_reply_pm"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
 		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode); err != nil {
+	if body.FeedPollInterval != nil && (*body.FeedPollInterval < 10 || *body.FeedPollInterval > 86400) {
+		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
+		return
+	}
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.AutoReplyPM); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
@@ -2506,12 +2658,20 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Apply updates
+	// Apply updates. auto_reply_pm is parsed from a side struct because the
+	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
+	var extra struct {
+		AutoReplyPM *bool `json:"auto_reply_pm"`
+	}
+	_ = json.Unmarshal(body, &extra)
 	if req.RecurringPublish != nil {
 		current.RecurringPublish = *req.RecurringPublish
 	}
 	if req.FeedPollInterval != nil {
 		current.FeedPollInterval = *req.FeedPollInterval
+	}
+	if extra.AutoReplyPM != nil {
+		current.AutoReplyPM = *extra.AutoReplyPM
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {

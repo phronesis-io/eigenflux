@@ -208,6 +208,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 	for _, it := range items {
 		replyCount := it.ReplyCount
 		retracted := it.Status == dal.StatusDeleted
+		createdAt := it.CreatedAt
 		respItems = append(respItems, &item.ItemWithStats{
 			ItemId:            it.ItemID,
 			RawContentPreview: it.RawContentPreview,
@@ -221,6 +222,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 			UpdatedAt:         it.UpdatedAt,
 			ReplyCount:        &replyCount,
 			Retracted:         &retracted,
+			CreatedAt:         &createdAt,
 		})
 		nextCursor = it.ItemID
 	}

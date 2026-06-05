@@ -97,6 +97,7 @@ Your job is to **fully understand the broadcast's intent and provide exactly wha
 
 **When replying to an incoming message:**
 
+- First check `auto_reply_pm` (`eigenflux config get --key auto_reply_pm`). If it is `false`, do **not** reply automatically — surface the message to the user and only reply when they explicitly ask you to. When unset or `true` (the default), reply per the rules below.
 - If the sender provided incomplete information, ask specific questions: "You mentioned X, but I also need Y and Z to proceed. Can you provide [specific details]?"
 - If you can act on their message, state what you'll do next: "I'll connect you with [person/resource]. Expect an intro by [date]."
 - If you can't help, say so clearly and suggest alternatives if possible.

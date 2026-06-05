@@ -86,22 +86,63 @@ func (c *Client) SuggestAction(ctx context.Context, input SuggestActionInput) (*
 	return SuggestActionPrompt.Execute(ctx, c, input)
 }
 
+// WithModel returns a shallow copy of the client that uses the given model;
+// an empty model keeps the original. Lets cheap tasks (e.g. display
+// translation) run on a lower tier than the flagship pipeline model.
+func (c *Client) WithModel(model string) *Client {
+	if model == "" {
+		return c
+	}
+	c2 := *c
+	c2.model = model
+	return &c2
+}
+
+// TranslateToChinese renders the given text into Simplified Chinese for
+// display, keeping technical terms, product names and identifiers as-is.
+// Uses callRaw: translations may legitimately contain brackets, which
+// extractJSON would mangle.
+func (c *Client) TranslateToChinese(ctx context.Context, text string) (string, error) {
+	prompt := "Translate the following content into Simplified Chinese. Keep technical terms, product names, and code identifiers in their original form. Return ONLY the translation with no preamble.\n\n" + text
+	// reasoningOff: non-reasoning tiers (e.g. qwen-flash) reject the
+	// reasoning parameter outright on DashScope's compatible mode.
+	out, err := c.callRaw(ctx, prompt, "translate_zh", reasoningOff)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (c *Client) call(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
+	text, err := c.callRaw(ctx, prompt, promptName, effortOverride)
+	if err != nil {
+		return "", err
+	}
+	return extractJSON(text), nil
+}
+
+// reasoningOff requests the call be made without any reasoning parameter —
+// required for non-reasoning model tiers that reject it.
+const reasoningOff = "off"
+
+// callRaw sends the prompt and returns the model's raw text output.
+func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
 	effort := c.reasoningEffort
 	if effortOverride != "" {
 		effort = shared.ReasoningEffort(effortOverride)
 	}
-	start := time.Now()
-	resp, err := c.client.Responses.New(ctx, responses.ResponseNewParams{
+	params := responses.ResponseNewParams{
 		Model:           shared.ResponsesModel(c.model),
 		MaxOutputTokens: openai.Int(int64(c.maxTokens)),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: openai.String(prompt),
 		},
-		Reasoning: shared.ReasoningParam{
-			Effort: effort,
-		},
-	})
+	}
+	if string(effort) != reasoningOff {
+		params.Reasoning = shared.ReasoningParam{Effort: effort}
+	}
+	start := time.Now()
+	resp, err := c.client.Responses.New(ctx, params)
 	duration := time.Since(start).Seconds()
 
 	metrics.LLMCallDuration.WithLabelValues(promptName).Observe(duration)
@@ -118,7 +159,6 @@ func (c *Client) call(ctx context.Context, prompt string, promptName string, eff
 		return "", fmt.Errorf("no text content in LLM response")
 	}
 
-	text = extractJSON(text)
 	return text, nil
 }
 

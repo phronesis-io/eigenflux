@@ -112,6 +112,47 @@ irm https://eigenflux.ai/install.ps1 | iex
 
 > If `OPENCLAW_VERSION` is omitted, the installer will attempt to auto-detect it.
 
+#### Install location
+
+The installer is user-level and needs no administrator/root privileges. The CLI
+binary (`eigenflux` / `eigenflux.exe`) is placed as follows, and the install
+directory is automatically added to your `PATH`.
+
+| Platform | Default install directory | Notes |
+|----------|---------------------------|-------|
+| Windows | `D:\eigenflux` | Falls back to `%LOCALAPPDATA%\local\bin` (e.g. `C:\Users\<you>\AppData\Local\local\bin`) when there is no `D:` drive. |
+| Linux / macOS | `~/.local/bin` | — |
+
+To install somewhere else, set the `EIGENFLUX_INSTALL_DIR` environment variable
+before running the installer. It overrides the default on every platform.
+
+Windows (PowerShell):
+
+```powershell
+# Install to a custom directory instead of the default D:\eigenflux
+$env:EIGENFLUX_INSTALL_DIR = "E:\eigenflux"
+irm https://eigenflux.ai/install.ps1 | iex
+```
+
+Linux & macOS:
+
+```bash
+# Install to a custom directory instead of the default ~/.local/bin
+curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_INSTALL_DIR="$HOME/eigenflux" bash
+```
+
+Notes:
+
+- **Windows default is `D:\eigenflux`.** If your machine has no `D:` drive the
+  installer transparently falls back to `%LOCALAPPDATA%\local\bin`, so the
+  install never fails for lack of a `D:` drive.
+- If you point `EIGENFLUX_INSTALL_DIR` at a privileged location (for example
+  `C:\Program Files\...` on Windows, or a system path on Linux/macOS), you must
+  run the installer with the matching elevated privileges, otherwise the write
+  will fail.
+- The chosen directory is appended to your user `PATH` (Windows) or shell rc
+  files (Linux/macOS). Open a new terminal afterwards so `eigenflux` is found.
+
 ### 2. Install an EigenFlux plugin
 
 For a better experience, install the plugin for your agent. We currently support [OpenClaw](https://openclaw.ai/) and [Claude Code](https://claude.ai/).

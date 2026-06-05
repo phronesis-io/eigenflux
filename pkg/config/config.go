@@ -47,6 +47,7 @@ type Config struct {
 	LLMApiKey                  string
 	LLMBaseURL                 string
 	LLMModel                   string
+	LLMTranslateModel          string // cheaper model for display translations; falls back to LLMModel when empty
 	LLMMaxTokens               int
 	LLMReasoningEffort         string
 	EmbeddingProvider          string // "openai" or "ollama"
@@ -98,11 +99,18 @@ type Config struct {
 	ExplorationSlots     int
 
 	// Recall & ranking
-	MinRelevanceScore   float64 // items below this total score are dropped from feed (default 0)
-	KeywordRecallSize   int     // number of keyword recall candidates from ES (default 200)
-	EnableKNNRecall     bool
-	KNNRecallK          int
-	KNNRecallCandidates int
+	MinRelevanceScore        float64 // items below this total score are dropped from feed (default 0)
+	KeywordRecallSize        int     // number of keyword recall candidates from ES (default 200)
+	EnableKNNRecall          bool
+	KNNRecallK               int
+	KNNRecallCandidates      int
+	EnableHotRecall          bool   // Enable hot_recall from Redis (default: true)
+	EnableNewRecall          bool   // Enable new_recall from Redis (default: true)
+	EnableTwoTowerRecall     bool   // Enable precomputed two_tower recall from Redis (default: false)
+	RecallRedisNamespace     string // Redis key namespace for recall indices (default: "rec")
+	TwoTowerRecallRedisKey   string // Redis recall output key for two_tower candidates (default: "two_tower_recall")
+	TwoTowerRecallK          int    // Top-K for two-tower Redis candidates (default: 50)
+	TwoTowerRecallCandidates int    // Deprecated; retained for env compatibility
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -158,6 +166,7 @@ func Load() *Config {
 		LLMApiKey:                  getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                   getEnv("LLM_MODEL", "gpt-4o-mini"),
+		LLMTranslateModel:          getEnv("LLM_TRANSLATE_MODEL", ""),
 			LLMMaxTokens:               getEnvInt("LLM_MAX_TOKENS", 4096),
 		LLMReasoningEffort:         getEnv("LLM_REASONING_EFFORT", "low"),
 		EmbeddingProvider:          embeddingProvider,
@@ -187,35 +196,42 @@ func Load() *Config {
 		SuggestionBackfillInterval:  getEnv("SUGGESTION_BACKFILL_INTERVAL", "10m"),
 		SuggestionBackfillWorkers:   getEnvInt("SUGGESTION_BACKFILL_WORKERS", 2),
 		SuggestionBackfillPauseMs:   getEnvInt("SUGGESTION_BACKFILL_PAUSE_MS", 500),
-		FreshnessOffset:            getEnv("FRESHNESS_OFFSET", "12h"),
-		FreshnessScale:             getEnv("FRESHNESS_SCALE", "7d"),
-		FreshnessDecay:             getEnvFloat("FRESHNESS_DECAY", 0.8),
-		MockOTPEmailSuffixes:       getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
-		MockOTPIPWhitelist:         getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
-		MonitorEnabled:             getEnvBool("MONITOR_ENABLED", false),
-		OtelExporterEndpoint:       getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
-		LokiURL:                    getEnv("LOKI_URL", "http://localhost:3122"),
-		LogLevel:                   getEnv("LOG_LEVEL", "debug"),
-		EnableReplayLog:            getEnvBool("ENABLE_REPLAY_LOG", true),
-		ScoreWeightSemantic:        getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
-		ScoreWeightKeyword:         getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
-		ScoreWeightFreshness:       getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
-		ScoreWeightDiversity:       getEnvFloat("SCORE_WEIGHT_DIVERSITY", 0.1),
-		UrgencyBoost:               getEnvFloat("URGENCY_BOOST", 0.5),
-		UrgencyWindow:              getEnv("URGENCY_WINDOW", "24h"),
-		MMRLambda:                  getEnvFloat("MMR_LAMBDA", 0.7),
-		ExplorationSlots:           getEnvInt("EXPLORATION_SLOTS", 0),
-		MinRelevanceScore:          getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
-		KeywordRecallSize:          getEnvInt("KEYWORD_RECALL_SIZE", 200),
-		EnableKNNRecall:            getEnvBool("ENABLE_KNN_RECALL", true),
-		KNNRecallK:                 getEnvInt("KNN_RECALL_K", 80),
-		KNNRecallCandidates:        getEnvInt("KNN_RECALL_CANDIDATES", 300),
-		FreshnessAlertOffset:       getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
-		FreshnessAlertScale:        getEnv("FRESHNESS_ALERT_SCALE", "12h"),
-		FreshnessAlertDecay:        getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),
-		FreshnessSupplyOffset:      getEnv("FRESHNESS_SUPPLY_OFFSET", "48h"),
-		FreshnessSupplyScale:       getEnv("FRESHNESS_SUPPLY_SCALE", "30d"),
-		FreshnessSupplyDecay:       getEnvFloat("FRESHNESS_SUPPLY_DECAY", 0.9),
+		FreshnessOffset:             getEnv("FRESHNESS_OFFSET", "12h"),
+		FreshnessScale:              getEnv("FRESHNESS_SCALE", "7d"),
+		FreshnessDecay:              getEnvFloat("FRESHNESS_DECAY", 0.8),
+		MockOTPEmailSuffixes:        getEnvStringList("MOCK_OTP_EMAIL_SUFFIXES", nil),
+		MockOTPIPWhitelist:          getEnvStringList("MOCK_OTP_IP_WHITELIST", nil),
+		MonitorEnabled:              getEnvBool("MONITOR_ENABLED", false),
+		OtelExporterEndpoint:        getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		LokiURL:                     getEnv("LOKI_URL", "http://localhost:3122"),
+		LogLevel:                    getEnv("LOG_LEVEL", "debug"),
+		EnableReplayLog:             getEnvBool("ENABLE_REPLAY_LOG", true),
+		ScoreWeightSemantic:         getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
+		ScoreWeightKeyword:          getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
+		ScoreWeightFreshness:        getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
+		ScoreWeightDiversity:        getEnvFloat("SCORE_WEIGHT_DIVERSITY", 0.1),
+		UrgencyBoost:                getEnvFloat("URGENCY_BOOST", 0.5),
+		UrgencyWindow:               getEnv("URGENCY_WINDOW", "24h"),
+		MMRLambda:                   getEnvFloat("MMR_LAMBDA", 0.7),
+		ExplorationSlots:            getEnvInt("EXPLORATION_SLOTS", 0),
+		MinRelevanceScore:           getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
+		KeywordRecallSize:           getEnvInt("KEYWORD_RECALL_SIZE", 200),
+		EnableKNNRecall:             getEnvBool("ENABLE_KNN_RECALL", true),
+		KNNRecallK:                  getEnvInt("KNN_RECALL_K", 80),
+		KNNRecallCandidates:         getEnvInt("KNN_RECALL_CANDIDATES", 300),
+		EnableHotRecall:             getEnvBool("ENABLE_HOT_RECALL", true),
+		EnableNewRecall:             getEnvBool("ENABLE_NEW_RECALL", true),
+		EnableTwoTowerRecall:        getEnvBool("ENABLE_TWO_TOWER_RECALL", false),
+		RecallRedisNamespace:        getEnv("REC_REDIS_NAMESPACE", "rec"),
+		TwoTowerRecallRedisKey:      getEnv("TWO_TOWER_RECALL_REDIS_KEY", "two_tower_recall"),
+		TwoTowerRecallK:             getEnvInt("TWO_TOWER_RECALL_K", 50),
+		TwoTowerRecallCandidates:    getEnvInt("TWO_TOWER_RECALL_CANDIDATES", 200),
+		FreshnessAlertOffset:        getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
+		FreshnessAlertScale:         getEnv("FRESHNESS_ALERT_SCALE", "12h"),
+		FreshnessAlertDecay:         getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),
+		FreshnessSupplyOffset:       getEnv("FRESHNESS_SUPPLY_OFFSET", "48h"),
+		FreshnessSupplyScale:        getEnv("FRESHNESS_SUPPLY_SCALE", "30d"),
+		FreshnessSupplyDecay:        getEnvFloat("FRESHNESS_SUPPLY_DECAY", 0.9),
 	}
 }
 

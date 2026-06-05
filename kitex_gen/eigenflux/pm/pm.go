@@ -626,6 +626,7 @@ type ConversationInfo struct {
 	LastMessagePreview *string `thrift:"last_message_preview,11,optional" frugal:"11,optional,string" json:"last_message_preview,omitempty"`
 	UnreadCount        *int32  `thrift:"unread_count,12,optional" frugal:"12,optional,i32" json:"unread_count,omitempty"`
 	MsgCount           *int32  `thrift:"msg_count,13,optional" frugal:"13,optional,i32" json:"msg_count,omitempty"`
+	Remark             *string `thrift:"remark,14,optional" frugal:"14,optional,string" json:"remark,omitempty"`
 }
 
 func NewConversationInfo() *ConversationInfo {
@@ -722,6 +723,15 @@ func (p *ConversationInfo) GetMsgCount() (v int32) {
 	}
 	return *p.MsgCount
 }
+
+var ConversationInfo_Remark_DEFAULT string
+
+func (p *ConversationInfo) GetRemark() (v string) {
+	if !p.IsSetRemark() {
+		return ConversationInfo_Remark_DEFAULT
+	}
+	return *p.Remark
+}
 func (p *ConversationInfo) SetConvId(val int64) {
 	p.ConvId = val
 }
@@ -758,6 +768,9 @@ func (p *ConversationInfo) SetUnreadCount(val *int32) {
 func (p *ConversationInfo) SetMsgCount(val *int32) {
 	p.MsgCount = val
 }
+func (p *ConversationInfo) SetRemark(val *string) {
+	p.Remark = val
+}
 
 func (p *ConversationInfo) IsSetParticipantAName() bool {
 	return p.ParticipantAName != nil
@@ -791,6 +804,10 @@ func (p *ConversationInfo) IsSetMsgCount() bool {
 	return p.MsgCount != nil
 }
 
+func (p *ConversationInfo) IsSetRemark() bool {
+	return p.Remark != nil
+}
+
 func (p *ConversationInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -811,6 +828,7 @@ var fieldIDToName_ConversationInfo = map[int16]string{
 	11: "last_message_preview",
 	12: "unread_count",
 	13: "msg_count",
+	14: "remark",
 }
 
 type ListConversationsResp struct {

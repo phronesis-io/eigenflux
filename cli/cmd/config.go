@@ -63,6 +63,17 @@ Examples:
 			return err
 		}
 		output.PrintMessage("%s = %s", key, value)
+		// Write-through for backend-mirrored settings so the console and the
+		// agent stay in sync (last writer wins). A failed push is retried on
+		// the next sync via the dirty marker.
+		if isSyncedSettingsKey(key) {
+			if err := cfg.SetKV(settingsDirtyKey, "1"); err != nil {
+				return err
+			}
+			if err := SyncSettings(cfg); err != nil {
+				output.PrintMessage("(backend sync deferred: %v)", err)
+			}
+		}
 		return nil
 	},
 }

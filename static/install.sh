@@ -69,7 +69,8 @@ install_cli() {
   curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
   chmod +x "$TMP_FILE"
 
-  INSTALL_DIR="$HOME/.local/bin"
+  # Honor EIGENFLUX_INSTALL_DIR override; default to ~/.local/bin.
+  INSTALL_DIR="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}"
   mkdir -p "$INSTALL_DIR"
   mv "$TMP_FILE" "$INSTALL_DIR/eigenflux"
 
@@ -96,7 +97,7 @@ persist_path() {
     fi
     {
       printf '\n%s\n' "$marker"
-      printf 'export PATH="$HOME/.local/bin:$PATH"\n'
+      printf 'export PATH="%s:$PATH"\n' "$target_dir"
     } >> "$rc"
     info "Added ${target_dir} to PATH in ${rc}"
     UPDATED_RC="$rc"
@@ -142,7 +143,7 @@ persist_path() {
     info "Open a new terminal or run: source ${UPDATED_RC}"
   else
     info "Note: ${target_dir} is not in your PATH. Add it with:"
-    info "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    info "  export PATH=\"${target_dir}:\$PATH\""
   fi
 }
 
@@ -192,7 +193,7 @@ install_skills() {
 # writes to the right place regardless of the current shell's env.
 
 migrate_config() {
-  INSTALL_DIR="$HOME/.local/bin"
+  INSTALL_DIR="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}"
   OPENCLAW_STATEDIR="$HOME/.openclaw"
   MIGRATE_ARGS=""
 

@@ -87,6 +87,7 @@ struct ItemWithStats {
     10: required i64 updated_at
     11: optional i64 reply_count
     12: optional bool retracted
+    13: optional i64 created_at   // publish time (item_stats.created_at); updated_at moves on stat recalcs
 }
 
 struct GetMyItemsReq {
