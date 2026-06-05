@@ -154,8 +154,11 @@ type HighlightItem struct {
 // sinceMs — "today's picks" straight from the day's GET /feed ranking
 // (replay_logs keeps every served item with its rank score). Read-only:
 // unlike fetching the live feed, this records no impressions. Retracted
-// items (status 5) are excluded; fb_score carries the agent's own feedback
-// so the UI can pre-light the "useful" state.
+// items (status 5) and rows known to be filtered-only (delivered = FALSE,
+// below-threshold items logged for offline analysis that the agent never
+// received) are excluded; NULL-delivered legacy rows are kept. fb_score
+// carries the agent's own feedback so the UI can pre-light the "useful"
+// state.
 func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]HighlightItem, error) {
 	var rows []HighlightItem
 	err := db.Raw(`
@@ -178,7 +181,8 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		      JOIN processed_items p ON p.item_id = rl.item_id
 		      JOIN raw_items r       ON r.item_id = rl.item_id
 		      LEFT JOIN feedback_logs f ON f.agent_id = rl.agent_id AND f.item_id = rl.item_id
-		     WHERE rl.agent_id = ? AND rl.served_at >= ? AND p.status <> 5
+		     WHERE rl.agent_id = ? AND rl.served_at >= ?
+	       AND rl.delivered IS DISTINCT FROM FALSE AND p.status <> 5
 		     ORDER BY rl.item_id, rl.item_score DESC, f.score DESC NULLS LAST
 		) x
 		ORDER BY x.rank_score DESC, x.quality_score DESC, x.served_at DESC
