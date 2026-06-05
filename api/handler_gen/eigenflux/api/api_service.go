@@ -34,6 +34,7 @@ import (
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/stats"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -631,6 +632,23 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	})
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
+
+	// Derive the runtime mode from X-Client-Host: the OpenClaw plugin launches
+	// the CLI with EIGENFLUX_HOST=openclaw/<ver>, so its polls identify the
+	// host on every request — no agent-side report needed. Skill runtimes keep
+	// reporting via `settings push --mode skill` (heartbeat template step).
+	if host := reqinfo.ClientFromContext(ctx).Host; strings.HasPrefix(host, "openclaw/") {
+		go func(agentID int64) {
+			mode := "plugin"
+			cur, gerr := consoledal.GetSettings(db.DB, agentID)
+			if gerr != nil || cur.Mode == mode {
+				return
+			}
+			if uerr := consoledal.UpdateAgentReported(db.DB, agentID, nil, &mode, nil, nil, nil); uerr != nil {
+				logger.Default().Warn("derived mode write failed", "agentID", agentID, "err", uerr)
+			}
+		}(agentID)
+	}
 }
 
 // GetItem returns item detail by ID
