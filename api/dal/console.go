@@ -2,7 +2,9 @@ package dal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"eigenflux_server/pkg/mq"
@@ -204,6 +206,165 @@ func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*Toda
 		agentID, todayStartMs,
 	).Scan(&result).Error
 	return &result, err
+}
+
+// Beat coverage queries: per-keyword counts over a time window. An item's tag
+// set is its keywords ∪ domains (split, trim, lower); a beat keyword matches
+// an item when it is in that set — the same lowercase exact-overlap notion the
+// feed recall uses.
+
+// BeatItemTags is one item's topic tags (comma-separated columns).
+type BeatItemTags struct {
+	Keywords string `gorm:"column:keywords"`
+	Domains  string `gorm:"column:domains"`
+}
+
+// TagSet returns the item's deduplicated lowercase tag set.
+func (t BeatItemTags) TagSet() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, raw := range []string{t.Keywords, t.Domains} {
+		for _, tag := range strings.Split(raw, ",") {
+			tag = strings.TrimSpace(strings.ToLower(tag))
+			if tag != "" {
+				set[tag] = struct{}{}
+			}
+		}
+	}
+	return set
+}
+
+// CountBeatMatches returns, per beat keyword (already lowercased), how many
+// rows contain it in their tag set.
+func CountBeatMatches(rows []BeatItemTags, beats []string) map[string]int64 {
+	counts := make(map[string]int64, len(beats))
+	for _, row := range rows {
+		set := row.TagSet()
+		for _, beat := range beats {
+			if _, ok := set[beat]; ok {
+				counts[beat]++
+			}
+		}
+	}
+	return counts
+}
+
+// BeatSignalAgg is the network-wide signal aggregation for one window: per-tag
+// item counts plus the total number of items published in the window.
+type BeatSignalAgg struct {
+	Total  int64            `json:"total"`
+	Counts map[string]int64 `json:"counts"`
+}
+
+const beatSignalsCacheTTL = 5 * time.Minute
+
+func beatSignalsCacheKey(window string) string {
+	return "cache:beat_signals:" + window
+}
+
+// GetNetworkSignalAgg aggregates published items network-wide since sinceMs.
+// The result is agent-independent, so it is cached in Redis per window and
+// shared by all agents. processed_items has no created_at, so the publish
+// time comes from raw_items (idx_raw_items_created_at).
+func GetNetworkSignalAgg(ctx context.Context, db *gorm.DB, window string, sinceMs int64) (*BeatSignalAgg, error) {
+	cacheKey := beatSignalsCacheKey(window)
+	if mq.RDB != nil {
+		if raw, err := mq.RDB.Get(ctx, cacheKey).Result(); err == nil && raw != "" {
+			var agg BeatSignalAgg
+			if json.Unmarshal([]byte(raw), &agg) == nil {
+				return &agg, nil
+			}
+		}
+	}
+
+	var rows []BeatItemTags
+	if err := db.Raw(
+		`SELECT pi.keywords, pi.domains
+		 FROM processed_items pi
+		 JOIN raw_items ri ON pi.item_id = ri.item_id
+		 WHERE pi.status = 3 AND ri.created_at >= ?`,
+		sinceMs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	agg := &BeatSignalAgg{Total: int64(len(rows)), Counts: make(map[string]int64)}
+	for _, row := range rows {
+		for tag := range row.TagSet() {
+			agg.Counts[tag]++
+		}
+	}
+
+	if mq.RDB != nil {
+		if raw, err := json.Marshal(agg); err == nil {
+			mq.RDB.Set(ctx, cacheKey, raw, beatSignalsCacheTTL)
+		}
+	}
+	return agg, nil
+}
+
+// ListDeliveredItemTags returns the tags of items actually delivered to the
+// agent since sinceMs (indexed by idx_replay_logs_agent_served), deduplicated
+// by item_id: replay_logs has no (agent, item) uniqueness, so the same item
+// can recur across impressions. delivered = TRUE excludes filtered-only rows
+// and pre-column history (NULL).
+func ListDeliveredItemTags(db *gorm.DB, agentID int64, sinceMs int64) ([]BeatItemTags, error) {
+	var rows []struct {
+		ItemID   int64  `gorm:"column:item_id"`
+		Keywords string `gorm:"column:keywords"`
+		Domains  string `gorm:"column:domains"`
+	}
+	if err := db.Raw(
+		`SELECT pi.keywords, pi.domains, r.item_id
+		 FROM replay_logs r
+		 JOIN processed_items pi ON r.item_id = pi.item_id
+		 WHERE r.agent_id = ? AND r.served_at >= ? AND r.delivered = TRUE`,
+		agentID, sinceMs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	seen := make(map[int64]struct{}, len(rows))
+	tags := make([]BeatItemTags, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := seen[row.ItemID]; ok {
+			continue
+		}
+		seen[row.ItemID] = struct{}{}
+		tags = append(tags, BeatItemTags{Keywords: row.Keywords, Domains: row.Domains})
+	}
+	return tags, nil
+}
+
+// ListKeptItemTags returns the tags of items the agent scored >=1 ("worth
+// forwarding to human", same notion as BatchFeedback's keptCount) since
+// sinceMs, deduplicated by item_id: feedback_logs is only unique per stream
+// message, so the same agent can score the same item more than once.
+func ListKeptItemTags(db *gorm.DB, agentID int64, sinceMs int64) ([]BeatItemTags, error) {
+	var rows []struct {
+		ItemID   int64  `gorm:"column:item_id"`
+		Keywords string `gorm:"column:keywords"`
+		Domains  string `gorm:"column:domains"`
+	}
+	if err := db.Raw(
+		`SELECT pi.keywords, pi.domains, fl.item_id
+		 FROM feedback_logs fl
+		 JOIN processed_items pi ON fl.item_id = pi.item_id
+		 WHERE fl.agent_id = ? AND fl.score >= 1 AND fl.feedback_at >= ?`,
+		agentID, sinceMs,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	seen := make(map[int64]struct{}, len(rows))
+	tags := make([]BeatItemTags, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := seen[row.ItemID]; ok {
+			continue
+		}
+		seen[row.ItemID] = struct{}{}
+		tags = append(tags, BeatItemTags{Keywords: row.Keywords, Domains: row.Domains})
+	}
+	return tags, nil
 }
 
 // Redis impression counter helpers
