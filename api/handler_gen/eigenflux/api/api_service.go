@@ -641,9 +641,19 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	// reporting via `settings push --mode skill` (heartbeat template step).
 	if host := reqinfo.ClientFromContext(ctx).Host; host != "" && host != "terminal" {
 		go func(agentID int64, host string) {
-			mode := "plugin"
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
-			if gerr != nil || (cur.Mode == mode && cur.ClientHost == host) {
+			if gerr != nil {
+				return
+			}
+			// Fill-only: never override an explicitly reported mode — a skill
+			// runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis") and its
+			// heartbeat-reported "skill" must win. client_host stays a pure
+			// observability field and refreshes on change.
+			mode := cur.Mode
+			if mode == "" {
+				mode = "plugin"
+			}
+			if cur.Mode == mode && cur.ClientHost == host {
 				return
 			}
 			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, host); uerr != nil {
