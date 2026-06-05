@@ -53,6 +53,7 @@ Captures ranking context at feed serve time for offline training. Records what w
 - **Write path**: FeedService → `stream:replay:log` (Redis Stream) → `ReplayConsumer` (pipeline) → `replay_logs` (PostgreSQL)
 - **Toggle**: `ENABLE_REPLAY_LOG` env var (default `true`). When `false`, FeedService skips publishing
 - **Data captured per served item**: agent features (keywords, domains, geo), item features (domains, keywords, broadcast_type, quality_score, etc.), ES `_score`, position in feed
+- **Delivered flag**: `delivered` BOOLEAN column distinguishes items actually returned to the agent (`TRUE`, both fresh-sort and cache-hit paths) from below-threshold items logged for offline analysis only (`FALSE`, `publishFilteredReplayLog`). NULL for rows predating the column or events from pre-upgrade feed binaries — such rows are excluded from the beat-coverage "pushed" counter
 - **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `request_id` groups items from the same feed request
 - **SortService extension**: `SortItemsResp.sorted_items` carries per-item `SortedItem{item_id, score, agent_features, item_features}` from SortService to FeedService
 - **Consumer**: `pipeline/consumer/replay_consumer.go` — 5 workers, snowflake ID generation via etcd-managed generator (`replay-log-id` service name), batch INSERT to PG
