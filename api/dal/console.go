@@ -3,6 +3,8 @@ package dal
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"eigenflux_server/pkg/mq"
@@ -184,6 +186,33 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		agentID, sinceMs, limit,
 	).Scan(&rows).Error
 	return rows, err
+}
+
+var (
+	mdImage   = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	mdLink    = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
+	mdHeading = regexp.MustCompile(`(?m)^\s{0,3}#{1,6}\s*`)
+	mdQuote   = regexp.MustCompile(`(?m)^\s{0,3}>\s?`)
+	mdEmph    = regexp.MustCompile("[*_`]{1,3}")
+	wsRun     = regexp.MustCompile(`\s+`)
+)
+
+// PlainPreview strips lightweight Markdown markers, collapses whitespace and
+// returns the first n runes. Broadcast raw content is often Markdown; without
+// this, highlight titles render (and get translated) with literal "##"/"**"
+// markers, truncated mid-syntax.
+func PlainPreview(s string, n int) string {
+	s = mdImage.ReplaceAllString(s, "$1")
+	s = mdLink.ReplaceAllString(s, "$1")
+	s = mdHeading.ReplaceAllString(s, "")
+	s = mdQuote.ReplaceAllString(s, "")
+	s = mdEmph.ReplaceAllString(s, "")
+	s = strings.TrimSpace(wsRun.ReplaceAllString(s, " "))
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // IsLikelyChinese reports whether the text already reads as Chinese (≥20% Han

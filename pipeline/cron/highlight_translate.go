@@ -96,7 +96,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 				}
 			}
 			if titleZh == "" && it.RawContent != "" {
-				preview := titlePreview(it.RawContent, 80)
+				preview := dal.PlainPreview(it.RawContent, 80)
 				if dal.IsLikelyChinese(preview) {
 					titleZh = preview
 				} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
@@ -120,13 +120,4 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 	}
 
 	logger.Default().Info("highlight translate completed", "candidates", len(items), "processed", done)
-}
-
-// titlePreview returns the first n runes (the highlight card title source).
-func titlePreview(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }
