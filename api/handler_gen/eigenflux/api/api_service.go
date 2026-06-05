@@ -633,11 +633,12 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
 
-	// Derive the runtime mode from X-Client-Host: the OpenClaw plugin launches
-	// the CLI with EIGENFLUX_HOST=openclaw/<ver>, so its polls identify the
-	// host on every request — no agent-side report needed. Skill runtimes keep
+	// Derive the runtime mode from X-Client-Host. Host plugins launch the CLI
+	// with EIGENFLUX_HOST set ("openclaw/<ver>", "claude-code/<ver>", …), so
+	// any non-default host means a plugin runtime — no agent-side report
+	// needed. Bare-CLI skill runtimes send the "terminal" default and keep
 	// reporting via `settings push --mode skill` (heartbeat template step).
-	if host := reqinfo.ClientFromContext(ctx).Host; strings.HasPrefix(host, "openclaw/") {
+	if host := reqinfo.ClientFromContext(ctx).Host; host != "" && host != "terminal" {
 		go func(agentID int64) {
 			mode := "plugin"
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
