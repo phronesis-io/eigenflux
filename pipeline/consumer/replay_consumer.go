@@ -169,6 +169,14 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 	servedAtStr, _ := values["served_at"].(string)
 	servedAt, _ := strconv.ParseInt(servedAtStr, 10, 64)
 
+	// delivered is absent on events from pre-upgrade feed binaries (rolling
+	// deploy); leave it NULL so those rows never count as delivered.
+	var delivered *bool
+	if deliveredStr, ok := values["delivered"].(string); ok && deliveredStr != "" {
+		flag := deliveredStr == "1"
+		delivered = &flag
+	}
+
 	itemsStr, _ := values["items"].(string)
 	var servedItems []replaylog.ServedItem
 	if err := json.Unmarshal([]byte(itemsStr), &servedItems); err != nil {
@@ -209,6 +217,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 			Position:      si.Position,
 			ServedAt:      servedAt,
 			CreatedAt:     now,
+			Delivered:     delivered,
 		})
 	}
 

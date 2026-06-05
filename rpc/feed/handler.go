@@ -507,7 +507,7 @@ func (s *FeedServiceImpl) publishReplayLog(ctx context.Context, impressionID str
 		served = append(served, si)
 	}
 
-	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served, true); err != nil {
 		logger.Default().Warn("failed to publish replay log", "err", err)
 	}
 }
@@ -542,7 +542,7 @@ func (s *FeedServiceImpl) publishFilteredReplayLog(ctx context.Context, impressi
 		})
 	}
 
-	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, agentID, agentFeatures, served, false); err != nil {
 		logger.Default().Warn("failed to publish filtered replay log", "err", err)
 	}
 }

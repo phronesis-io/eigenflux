@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2505,6 +2506,133 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// beatTier buckets a beat by its signal share of the agent's busiest beat.
+func beatTier(signals, maxSignals int64) string {
+	if maxSignals <= 0 {
+		return "cold"
+	}
+	ratio := float64(signals) / float64(maxSignals)
+	switch {
+	case ratio >= 0.7:
+		return "hot"
+	case ratio >= 0.45:
+		return "active"
+	case ratio >= 0.25:
+		return "warm"
+	default:
+		return "cold"
+	}
+}
+
+// GetBeatCoverage returns coverage stats for the agent's profile keywords
+// ("beats") within a window: network-wide signal volume per beat, items
+// delivered to this agent (replay_logs with delivered=TRUE, deduplicated by
+// item_id), and items the agent kept
+// (feedback score>=1). total_scanned is the network-wide item count for the
+// window; an item with multiple keywords counts toward each matching beat, so
+// summing beat signals can exceed it by design. Agent token auth, registered
+// manually like GetMySettings.
+// @router /api/v1/agents/me/beat_coverage [GET]
+func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	// window=Nd, clamped to [1, 30] days, default 7.
+	days := 7
+	if w := string(c.Query("window")); w != "" {
+		if v, perr := strconv.Atoi(strings.TrimSuffix(w, "d")); perr == nil {
+			days = v
+		}
+	}
+	if days < 1 {
+		days = 1
+	} else if days > 30 {
+		days = 30
+	}
+	window := fmt.Sprintf("%dd", days)
+	sinceMs := time.Now().AddDate(0, 0, -days).UnixMilli()
+	logger.Ctx(ctx).Debug("GetBeatCoverage", "agentID", agentID, "window", window)
+
+	resp, err := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	// Beat names are the agent's profile keywords, lowercased and deduplicated.
+	beatNames := make([]string, 0, len(resp.Agent.Keywords))
+	seen := make(map[string]bool, len(resp.Agent.Keywords))
+	for _, kw := range resp.Agent.Keywords {
+		kw = strings.TrimSpace(strings.ToLower(kw))
+		if kw == "" || seen[kw] {
+			continue
+		}
+		seen[kw] = true
+		beatNames = append(beatNames, kw)
+	}
+	if len(beatNames) == 0 {
+		writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+			"window":        window,
+			"total_scanned": 0,
+			"beats":         []map[string]interface{}{},
+		})
+		return
+	}
+
+	signalAgg, err := consoledal.GetNetworkSignalAgg(ctx, db.DB, window, sinceMs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	deliveredRows, err := consoledal.ListDeliveredItemTags(db.DB, agentID, sinceMs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	keptRows, err := consoledal.ListKeptItemTags(db.DB, agentID, sinceMs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	pushed := consoledal.CountBeatMatches(deliveredRows, beatNames)
+	kept := consoledal.CountBeatMatches(keptRows, beatNames)
+
+	var maxSignals int64
+	for _, name := range beatNames {
+		if s := signalAgg.Counts[name]; s > maxSignals {
+			maxSignals = s
+		}
+	}
+
+	beats := make([]map[string]interface{}, 0, len(beatNames))
+	for _, name := range beatNames {
+		signals := signalAgg.Counts[name]
+		beats = append(beats, map[string]interface{}{
+			"key":     name,
+			"name":    name,
+			"tier":    beatTier(signals, maxSignals),
+			"signals": signals,
+			"pushed":  pushed[name],
+			"kept":    kept[name],
+		})
+	}
+	sort.SliceStable(beats, func(i, j int) bool {
+		return beats[i]["signals"].(int64) > beats[j]["signals"].(int64)
+	})
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"window":        window,
+		"total_scanned": signalAgg.Total,
+		"beats":         beats,
+	})
 }
 
 // ConsoleUpdateSettings updates agent runtime settings.
