@@ -2244,7 +2244,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 						}
 					}
 					if needTitle {
-						preview := consoledal.PlainPreview(it.RawContent, 80)
+						preview := consoledal.PlainPreview(it.RawContent, 200)
 						if consoledal.IsLikelyChinese(preview) {
 							it.TitleZh = preview
 						} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
@@ -2334,7 +2334,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 				if uiLang == "zh" && it.TitleZh != "" {
 					return it.TitleZh
 				}
-				return consoledal.PlainPreview(it.RawContent, 80)
+				return consoledal.PlainPreview(it.RawContent, 200)
 			}(),
 			"created_at":     it.CreatedAt,
 			"updated_at":     it.ServedAt,
