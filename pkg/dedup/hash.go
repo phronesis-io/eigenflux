@@ -34,8 +34,8 @@ func CheckHashExists(ctx context.Context, rdb *redis.Client, hash string) (bool,
 	return true, groupID, nil
 }
 
-// SaveHash saves hash and corresponding group_id, TTL 48 hours
+// SaveHash saves hash and corresponding group_id, TTL 30 days
 func SaveHash(ctx context.Context, rdb *redis.Client, hash string, groupID int64) error {
 	key := fmt.Sprintf("dedup:hash:%s", hash)
-	return rdb.Set(ctx, key, groupID, 48*time.Hour).Err()
+	return rdb.Set(ctx, key, groupID, 30*24*time.Hour).Err()
 }

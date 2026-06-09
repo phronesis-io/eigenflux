@@ -109,18 +109,18 @@ func TestSearchCache_BuildCacheKey(t *testing.T) {
 	sc := NewSearchCache(client, 2*time.Second, 2*time.Second)
 
 	// Test consistent hashing
-	key1 := sc.BuildCacheKey([]string{"tech", "ai"}, []string{"ml", "nlp"}, "US")
-	key2 := sc.BuildCacheKey([]string{"ai", "tech"}, []string{"nlp", "ml"}, "US")
+	key1 := sc.BuildCacheKey([]string{"tech", "ai"}, []string{"ml", "nlp"}, "US", 0)
+	key2 := sc.BuildCacheKey([]string{"ai", "tech"}, []string{"nlp", "ml"}, "US", 0)
 	assert.Equal(t, key1, key2, "Keys should be identical regardless of order")
 
 	// Test different parameters produce different keys
-	key3 := sc.BuildCacheKey([]string{"tech"}, []string{"ml"}, "US")
+	key3 := sc.BuildCacheKey([]string{"tech"}, []string{"ml"}, "US", 0)
 	assert.NotEqual(t, key1, key3, "Different parameters should produce different keys")
 
 	// Test case-insensitive caching
-	keyUpperCase := sc.BuildCacheKey([]string{"AI", "Tech"}, []string{"ML", "NLP"}, "US")
-	keyLowerCase := sc.BuildCacheKey([]string{"ai", "tech"}, []string{"ml", "nlp"}, "US")
-	keyMixedCase := sc.BuildCacheKey([]string{"Ai", "TECH"}, []string{"Ml", "nlp"}, "US")
+	keyUpperCase := sc.BuildCacheKey([]string{"AI", "Tech"}, []string{"ML", "NLP"}, "US", 0)
+	keyLowerCase := sc.BuildCacheKey([]string{"ai", "tech"}, []string{"ml", "nlp"}, "US", 0)
+	keyMixedCase := sc.BuildCacheKey([]string{"Ai", "TECH"}, []string{"Ml", "nlp"}, "US", 0)
 	assert.Equal(t, keyLowerCase, keyUpperCase, "Keys should be identical regardless of case")
 	assert.Equal(t, keyLowerCase, keyMixedCase, "Keys should be identical regardless of case")
 }
@@ -158,7 +158,7 @@ func TestSearchCache_SetAndGet(t *testing.T) {
 		},
 	}
 
-	key := sc.BuildCacheKey([]string{"tech"}, []string{"ai", "ml"}, "US")
+	key := sc.BuildCacheKey([]string{"tech"}, []string{"ai", "ml"}, "US", 0)
 
 	// Set
 	err := sc.Set(ctx, key, items)

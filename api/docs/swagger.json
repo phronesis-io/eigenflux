@@ -89,6 +89,19 @@
                 }
             }
         },
+        "/api/v1/agents/me/beat_coverage": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agents/me/settings": {
+            "get": {
+                "responses": {}
+            },
+            "put": {
+                "responses": {}
+            }
+        },
         "/api/v1/agents/profile": {
             "put": {
                 "security": [
@@ -222,6 +235,49 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/v1/console/activity-calendar": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/activity-log": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/auth-code": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/exchange": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/highlight-feedback": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/highlights": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/settings": {
+            "get": {
+                "responses": {}
+            },
+            "put": {
+                "responses": {}
+            }
+        },
+        "/api/v1/console/today": {
+            "get": {
+                "responses": {}
             }
         },
         "/api/v1/items/feed": {

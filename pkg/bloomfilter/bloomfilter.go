@@ -11,8 +11,10 @@ import (
 const (
 	// BloomFilterKeyPrefix is the prefix for bloom filter keys
 	BloomFilterKeyPrefix = "bf:global:"
-	// BloomFilterTTL is the TTL for bloom filter keys (7 days)
-	BloomFilterTTL = 7 * 24 * time.Hour
+	// BloomFilterTTL is the TTL for bloom filter keys (30 days)
+	BloomFilterTTL = 30 * 24 * time.Hour
+	// BloomFilterLookbackDays is the number of daily buckets CheckExists scans
+	BloomFilterLookbackDays = 30
 	// BloomFilterErrorRate is the target false positive rate
 	BloomFilterErrorRate = 0.01
 	// BloomFilterCapacity is the expected number of items
@@ -54,7 +56,7 @@ func (bf *BloomFilter) Add(ctx context.Context, agentID int64, groupIDs []int64)
 	return err
 }
 
-// CheckExists checks if items exist in any of the last 7 days' bloom filters
+// CheckExists checks if items exist in any of the last BloomFilterLookbackDays days' bloom filters
 func (bf *BloomFilter) CheckExists(ctx context.Context, agentID int64, groupIDs []int64) (map[int64]bool, error) {
 	if len(groupIDs) == 0 {
 		return make(map[int64]bool), nil
@@ -76,11 +78,11 @@ func (bf *BloomFilter) CheckExists(ctx context.Context, agentID int64, groupIDs 
 		values[i] = fmt.Sprintf("%d:%d", agentID, gid)
 	}
 
-	// Pipeline: 7 days × 1 SMIsMember each → 1 RTT, 7 commands
+	// Pipeline: BloomFilterLookbackDays days × 1 SMIsMember each → 1 RTT
 	now := time.Now()
 	pipe := bf.rdb.Pipeline()
-	cmds := make([]*redis.BoolSliceCmd, 7)
-	for i := 0; i < 7; i++ {
+	cmds := make([]*redis.BoolSliceCmd, BloomFilterLookbackDays)
+	for i := 0; i < BloomFilterLookbackDays; i++ {
 		date := now.AddDate(0, 0, -i)
 		key := GetKeyForDate(date)
 		cmds[i] = pipe.SMIsMember(ctx, key, values...)

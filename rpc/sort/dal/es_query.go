@@ -80,6 +80,30 @@ func BuildRecallFilters(geoCountry string, now time.Time) []interface{} {
 	return filters
 }
 
+// buildAuthorExcludeFilter returns a clause that excludes items authored by the
+// given agent. Used to keep users from seeing their own posts in their feed.
+func buildAuthorExcludeFilter(agentID int64) map[string]interface{} {
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"must_not": map[string]interface{}{
+				"term": map[string]interface{}{
+					"author_agent_id": agentID,
+				},
+			},
+		},
+	}
+}
+
+// BuildRecallFiltersWithExclude is BuildRecallFilters plus an optional
+// author-exclude clause for kNN/recall paths.
+func BuildRecallFiltersWithExclude(geoCountry string, now time.Time, excludeAuthorAgentID int64) []interface{} {
+	filters := BuildRecallFilters(geoCountry, now)
+	if excludeAuthorAgentID > 0 {
+		filters = append(filters, buildAuthorExcludeFilter(excludeAuthorAgentID))
+	}
+	return filters
+}
+
 // buildSearchQuery builds the Elasticsearch query based on search parameters
 func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 	logger.Default().Debug("building ES query", "domains", req.Domains, "keywords", req.Keywords, "geo", req.Geo)
@@ -106,6 +130,11 @@ func buildSearchQuery(req *SearchItemsRequest) map[string]interface{} {
 	// 2. Geo country hard filter
 	if req.GeoCountry != "" {
 		mustClauses = append(mustClauses, buildGeoCountryFilter(req.GeoCountry))
+	}
+
+	// 2b. Self-author exclusion — never surface a user's own posts in their feed.
+	if req.ExcludeAuthorAgentID > 0 {
+		mustClauses = append(mustClauses, buildAuthorExcludeFilter(req.ExcludeAuthorAgentID))
 	}
 
 	// 3. domains, keywords, geo filtering (using query context for relevance scoring)

@@ -48,9 +48,11 @@ func TestSortService(t *testing.T) {
 	t.Log("=== Setup: Creating test agents ===")
 	techEmail := fmt.Sprintf("sort_tech_%d@test.com", ts)
 	bizEmail := fmt.Sprintf("sort_biz_%d@test.com", ts)
+	publisherEmail := fmt.Sprintf("sort_pub_%d@test.com", ts)
 
 	techAgent := createTestAgent(t, techEmail, "Tech User", "Interested in AI, blockchain, and cloud computing")
 	bizAgent := createTestAgent(t, bizEmail, "Business User", "Focus on startup, investment, and market trends")
+	publisherAgent := createTestAgent(t, publisherEmail, "Publisher", "Posts content for others")
 
 	createTestProfile(t, techAgent.AgentID, []string{"AI", "blockchain", "cloud computing", "technology"})
 	createTestProfile(t, bizAgent.AgentID, []string{"startup", "investment", "business", "market"})
@@ -85,7 +87,7 @@ func TestSortService(t *testing.T) {
 	}
 
 	for _, item := range testItems {
-		createTestItem(t, ctx, ts, techAgent.AgentID, item.content, item.keywords, item.domains)
+		createTestItem(t, ctx, ts, publisherAgent.AgentID, item.content, item.keywords, item.domains)
 	}
 
 	// Force ES refresh instead of sleeping
@@ -179,7 +181,52 @@ func TestSortService(t *testing.T) {
 
 	// Cleanup
 	t.Cleanup(func() {
-		testutil.CleanupTestEmails(t, techEmail, bizEmail)
+		testutil.CleanupTestEmails(t, techEmail, bizEmail, publisherEmail)
+	})
+}
+
+func TestSortService_FiltersSelfAuthored(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping in short mode")
+	}
+
+	cfg := config.Load()
+	db.Init(cfg.PgDSN)
+	require.NoError(t, es.InitES(cfg.EmbeddingDimensions))
+	ctx := context.Background()
+	testutil.CleanTestData(t)
+
+	ts := time.Now().UnixNano()
+	selfEmail := fmt.Sprintf("sort_self_%d@test.com", ts)
+	otherEmail := fmt.Sprintf("sort_other_%d@test.com", ts)
+
+	selfAgent := createTestAgent(t, selfEmail, "Self Author", "Posts AI content")
+	otherAgent := createTestAgent(t, otherEmail, "Other Author", "Posts AI content")
+	createTestProfile(t, selfAgent.AgentID, []string{"AI", "machine learning", "technology"})
+
+	selfItemID := createTestItem(t, ctx, ts, selfAgent.AgentID, "My own AI post should not appear in my feed", []string{"AI", "technology"}, []string{"tech", "AI"})
+	otherItemID := createTestItem(t, ctx, ts+1, otherAgent.AgentID, "Someone else's AI post should appear", []string{"AI", "machine learning"}, []string{"tech", "AI"})
+
+	testutil.RefreshES(t)
+
+	results := callSortService(t, cfg, selfAgent.AgentID)
+	t.Logf("Self-author filter: got %d items, selfItemID=%d, otherItemID=%d", len(results), selfItemID, otherItemID)
+
+	for _, id := range results {
+		assert.NotEqual(t, selfItemID, id, "Self-authored item should not appear in own feed")
+	}
+
+	foundOther := false
+	for _, id := range results {
+		if id == otherItemID {
+			foundOther = true
+			break
+		}
+	}
+	assert.True(t, foundOther, "Other author's item should still appear")
+
+	t.Cleanup(func() {
+		testutil.CleanupTestEmails(t, selfEmail, otherEmail)
 	})
 }
 
@@ -195,14 +242,17 @@ func TestSortService_SemanticRanking(t *testing.T) {
 	testutil.CleanTestData(t)
 
 	// Create agent with profile
-	email := fmt.Sprintf("sort_semantic_%d@test.com", time.Now().UnixNano())
+	ts := time.Now().UnixNano()
+	email := fmt.Sprintf("sort_semantic_%d@test.com", ts)
+	publisherEmail := fmt.Sprintf("sort_semantic_pub_%d@test.com", ts)
 	agent := createTestAgent(t, email, "Semantic User", "Expert in machine learning and neural networks")
+	publisher := createTestAgent(t, publisherEmail, "Semantic Publisher", "Posts ML and lifestyle content")
 	createTestProfile(t, agent.AgentID, []string{"machine learning", "neural networks", "AI"})
 
 	// Create items — one matching profile keywords, one not
 	now := time.Now()
-	createTestItem(t, ctx, now.UnixNano(), agent.AgentID, "Deep learning advances in computer vision", []string{"AI", "deep learning", "machine learning"}, []string{"tech", "AI"})
-	createTestItem(t, ctx, now.UnixNano(), agent.AgentID, "Cooking recipes for beginners", []string{"cooking", "recipes"}, []string{"food", "lifestyle"})
+	createTestItem(t, ctx, now.UnixNano(), publisher.AgentID, "Deep learning advances in computer vision", []string{"AI", "deep learning", "machine learning"}, []string{"tech", "AI"})
+	createTestItem(t, ctx, now.UnixNano(), publisher.AgentID, "Cooking recipes for beginners", []string{"cooking", "recipes"}, []string{"food", "lifestyle"})
 
 	testutil.RefreshES(t)
 
@@ -229,7 +279,7 @@ func TestSortService_SemanticRanking(t *testing.T) {
 	assert.True(t, hasMLMatch, "First item should be ML-related due to keyword overlap with profile")
 
 	t.Cleanup(func() {
-		testutil.CleanupTestEmails(t, email)
+		testutil.CleanupTestEmails(t, email, publisherEmail)
 	})
 }
 
@@ -295,15 +345,16 @@ func createTestItem(t *testing.T, ctx context.Context, ts int64, authorID int64,
 
 	now := time.Now()
 	esItem := &sortDal.Item{
-		ID:        itemID,
-		Content:   content,
-		Summary:   content,
-		Type:      "info",
-		Keywords:  keywords,
-		Domains:   domains,
-		GroupID:   groupID,
-		UpdatedAt: now,
-		CreatedAt: now,
+		ID:            itemID,
+		AuthorAgentID: authorID,
+		Content:       content,
+		Summary:       content,
+		Type:          "info",
+		Keywords:      keywords,
+		Domains:       domains,
+		GroupID:       groupID,
+		UpdatedAt:     now,
+		CreatedAt:     now,
 	}
 	err = sortDal.IndexItem(ctx, esItem)
 	require.NoError(t, err, "Failed to index item to ES")

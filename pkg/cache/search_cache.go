@@ -31,6 +31,7 @@ func NewSearchCache(client *redis.Client, bucketSize, ttl time.Duration) *Search
 // CachedItem represents a cached search result item
 type CachedItem struct {
 	ItemID        string   `json:"item_id"`
+	AuthorAgentID int64    `json:"author_agent_id,omitempty"`
 	Content       string   `json:"content"`
 	Summary       string   `json:"summary"`
 	BroadcastType string   `json:"broadcast_type"`
@@ -50,9 +51,11 @@ type CachedItem struct {
 	Score         float64  `json:"score"`
 }
 
-// BuildCacheKey generates a cache key from search parameters
-// Format: cache:search:{hash}:{time_bucket}
-func (sc *SearchCache) BuildCacheKey(domains, keywords []string, geo string) string {
+// BuildCacheKey generates a cache key from search parameters.
+// excludeAuthorAgentID partitions the cache per requester so the self-author
+// ES filter doesn't poison results for other users sharing the same domains/keywords/geo.
+// Format: cache:search:{hash}:{exclude_author}:{time_bucket}
+func (sc *SearchCache) BuildCacheKey(domains, keywords []string, geo string, excludeAuthorAgentID int64) string {
 	// Normalize to lowercase for case-insensitive caching
 	normalizedDomains := make([]string, len(domains))
 	for i, d := range domains {
@@ -83,7 +86,7 @@ func (sc *SearchCache) BuildCacheKey(domains, keywords []string, geo string) str
 	now := time.Now()
 	bucket := now.Unix() / int64(sc.bucketSize.Seconds())
 
-	return fmt.Sprintf("cache:search:%s:%d", hashStr, bucket)
+	return fmt.Sprintf("cache:search:%s:%d:%d", hashStr, excludeAuthorAgentID, bucket)
 }
 
 // Get retrieves cached search results

@@ -24,7 +24,7 @@ The beat-coverage "pushed" counter (`GET /api/v1/agents/me/beat_coverage`) reuse
 
 - Implementation in `pkg/impr/impr.go`, pure library functions, receives `*redis.Client` parameter
 - Redis Key convention: `impr:agent:{agent_id}:items` (SET, stores item_id), `impr:agent:{agent_id}:groups` (SET, stores group_id), `impr:agent:{agent_id}:urls` (SET, stores url)
-- TTL: 24 hours, refreshed on each write
+- TTL: 30 days, refreshed on each write
 - FeedService calls `impr.RecordImpressions` in fire-and-forget goroutine after feed delivery
 - Console reads impression records via `impr.GetSeenItems`
 - Primary deduplication done by bloom filter (SortService), impr_record only for feedback validation and console queries
@@ -42,8 +42,8 @@ System implements multi-level caching to optimize Elasticsearch load under high-
 
 2. **L2: SearchCache (Redis Search Result Cache)**
    - Caches ES search results, TTL default 2 seconds (configurable)
-   - Uses time-bucketed cache keys: `cache:search:{hash}:{time_bucket}`
-   - Hash based on `domains + keywords + geo` (excludes `last_fetch_time` to improve hit rate)
+   - Uses time-bucketed cache keys: `cache:search:{hash}:{exclude_author}:{time_bucket}`
+   - Hash based on `domains + keywords + geo`, partitioned by requester `agent_id` so the self-author ES filter doesn't poison the shared cache (excludes `last_fetch_time` to improve hit rate)
    - Client-side timestamp filtering, supports cache sharing across clients with different cursors
 
 3. **L3: ProfileCache (Redis User Profile Cache)**

@@ -11,7 +11,7 @@ import (
 
 const (
 	// ImprTTL is the TTL for impression records (used for feedback validation only).
-	ImprTTL = 24 * time.Hour
+	ImprTTL = 30 * 24 * time.Hour
 
 	KeyItemIDs  = "impr:agent:%d:items"
 	KeyGroupIDs = "impr:agent:%d:groups"

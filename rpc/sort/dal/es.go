@@ -66,15 +66,16 @@ func IndexItem(ctx context.Context, item *Item) error {
 
 // SearchItemsRequest represents the search request parameters
 type SearchItemsRequest struct {
-	Domains         []string  // Domain tags matching
-	Keywords        []string  // Keyword matching
-	Geo             string    // Geographic range fuzzy matching
-	GeoCountry      string    // ISO 3166-1 alpha-2 for hard filtering
-	Limit           int       // Number of results to return
-	FreshnessOffset string    // Gaussian decay offset (e.g. "12h")
-	FreshnessScale  string    // Gaussian decay scale (e.g. "7d")
-	FreshnessDecay  float64   // Gaussian decay factor (e.g. 0.8)
-	Now             time.Time // Simulated current time; defaults to time.Now() when zero
+	Domains              []string  // Domain tags matching
+	Keywords             []string  // Keyword matching
+	Geo                  string    // Geographic range fuzzy matching
+	GeoCountry           string    // ISO 3166-1 alpha-2 for hard filtering
+	Limit                int       // Number of results to return
+	FreshnessOffset      string    // Gaussian decay offset (e.g. "12h")
+	FreshnessScale       string    // Gaussian decay scale (e.g. "7d")
+	FreshnessDecay       float64   // Gaussian decay factor (e.g. 0.8)
+	ExcludeAuthorAgentID int64     // If > 0, hide items authored by this agent (self-author filter)
+	Now                  time.Time // Simulated current time; defaults to time.Now() when zero
 }
 
 // SearchItemsResponse represents the search response

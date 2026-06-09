@@ -86,22 +86,23 @@ func cachedItemsToItems(cached []cache.CachedItem) []sortDal.Item {
 	for _, ci := range cached {
 		itemID, _ := strconv.ParseInt(ci.ItemID, 10, 64)
 		item := sortDal.Item{
-			ID:           itemID,
-			Content:      ci.Content,
-			Summary:      ci.Summary,
-			Type:         ci.BroadcastType,
-			Domains:      ci.Domains,
-			Keywords:     ci.Keywords,
-			Geo:          ci.Geo,
-			SourceType:   ci.SourceType,
-			QualityScore: ci.QualityScore,
-			GroupID:      ci.GroupID,
-			Lang:         ci.Lang,
-			Timeliness:   ci.Timeliness,
-			Embedding:    embcodec.Decode(ci.Embedding),
-			Score:        ci.Score,
-			CreatedAt:    time.UnixMilli(ci.CreatedAtMs),
-			UpdatedAt:    time.UnixMilli(ci.UpdatedAtMs),
+			ID:            itemID,
+			AuthorAgentID: ci.AuthorAgentID,
+			Content:       ci.Content,
+			Summary:       ci.Summary,
+			Type:          ci.BroadcastType,
+			Domains:       ci.Domains,
+			Keywords:      ci.Keywords,
+			Geo:           ci.Geo,
+			SourceType:    ci.SourceType,
+			QualityScore:  ci.QualityScore,
+			GroupID:       ci.GroupID,
+			Lang:          ci.Lang,
+			Timeliness:    ci.Timeliness,
+			Embedding:     embcodec.Decode(ci.Embedding),
+			Score:         ci.Score,
+			CreatedAt:     time.UnixMilli(ci.CreatedAtMs),
+			UpdatedAt:     time.UnixMilli(ci.UpdatedAtMs),
 		}
 		if ci.ExpireTimeMs != nil {
 			t := time.UnixMilli(*ci.ExpireTimeMs)
@@ -214,7 +215,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			filters := sortDal.BuildRecallFilters("", time.Now())
+			filters := sortDal.BuildRecallFiltersWithExclude("", time.Now(), req.AgentId)
 			knnItems, knnErr = sortDal.SearchByEmbedding(ctx, profileEmbedding, filters, rankerCfg.KNNRecallK, rankerCfg.KNNRecallCandidates)
 			if knnErr != nil {
 				logger.Ctx(ctx).Warn("kNN recall failed, continuing with keyword only", "err", knnErr)
@@ -248,8 +249,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	var err error
 
 	if searchCache != nil && len(domains) > 0 {
-		// Build cache key (excluding last_updated_at for better hit rate)
-		cacheKey = searchCache.BuildCacheKey(domains, keywords, geo)
+		// Build cache key (excluding last_updated_at for better hit rate). Partition by
+		// requester so the self-author ES filter doesn't poison the shared cache.
+		cacheKey = searchCache.BuildCacheKey(domains, keywords, geo, req.AgentId)
 		logger.Ctx(ctx).Debug("search cache enabled", "key", cacheKey)
 
 		// Use SingleFlight to deduplicate concurrent requests
@@ -264,13 +266,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			logger.Ctx(ctx).Debug("search cache MISS, querying ES")
 			// Cache miss, query ES
 			searchReq := &sortDal.SearchItemsRequest{
-				Limit:           cfg.KeywordRecallSize,
-				Domains:         domains,
-				Keywords:        keywords,
-				Geo:             geo,
-				FreshnessOffset: cfg.FreshnessOffset,
-				FreshnessScale:  cfg.FreshnessScale,
-				FreshnessDecay:  cfg.FreshnessDecay,
+				Limit:                cfg.KeywordRecallSize,
+				Domains:              domains,
+				Keywords:             keywords,
+				Geo:                  geo,
+				FreshnessOffset:      cfg.FreshnessOffset,
+				FreshnessScale:       cfg.FreshnessScale,
+				FreshnessDecay:       cfg.FreshnessDecay,
+				ExcludeAuthorAgentID: req.AgentId,
 			}
 
 			resp, esErr := sortDal.SearchItems(ctx, searchReq)
@@ -286,6 +289,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			for i, item := range resp.Items {
 				ci := cache.CachedItem{
 					ItemID:        fmt.Sprintf("%d", item.ID),
+					AuthorAgentID: item.AuthorAgentID,
 					Content:       item.Content,
 					Summary:       item.Summary,
 					BroadcastType: item.Type,
@@ -329,13 +333,14 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		// No cache, query ES directly
 		logger.Ctx(ctx).Debug("no search cache, querying ES directly")
 		searchReq := &sortDal.SearchItemsRequest{
-			Limit:           cfg.KeywordRecallSize,
-			Domains:         domains,
-			Keywords:        keywords,
-			Geo:             geo,
-			FreshnessOffset: cfg.FreshnessOffset,
-			FreshnessScale:  cfg.FreshnessScale,
-			FreshnessDecay:  cfg.FreshnessDecay,
+			Limit:                cfg.KeywordRecallSize,
+			Domains:              domains,
+			Keywords:             keywords,
+			Geo:                  geo,
+			FreshnessOffset:      cfg.FreshnessOffset,
+			FreshnessScale:       cfg.FreshnessScale,
+			FreshnessDecay:       cfg.FreshnessDecay,
+			ExcludeAuthorAgentID: req.AgentId,
 		}
 
 		searchResp, err = sortDal.SearchItems(ctx, searchReq)
@@ -441,6 +446,24 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			esItems = append(esItems, fetchedItems...)
 			logger.Ctx(ctx).Info("recall source merge", "newIDs", len(newRecallIDs), "fetched", len(fetchedItems), "mergedTotal", len(esItems))
 		}
+	}
+
+	// Drop items authored by the requester so users never see their own posts in the feed.
+	if req.AgentId != 0 {
+		kept := esItems[:0]
+		dropped := 0
+		for _, item := range esItems {
+			if item.AuthorAgentID == req.AgentId {
+				delete(sourceMap, item.ID)
+				dropped++
+				continue
+			}
+			kept = append(kept, item)
+		}
+		if dropped > 0 {
+			logger.Ctx(ctx).Debug("filtered self-authored items", "agentID", req.AgentId, "dropped", dropped, "remaining", len(kept))
+		}
+		esItems = kept
 	}
 
 	// Record recall source feed composition
