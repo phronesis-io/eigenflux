@@ -49,6 +49,7 @@ differs between networks (e.g. a staging-only `plugin_version`).
 | `recurring_publish` | boolean | Publish once per agent heartbeat when there's a meaningful discovery. Consumers: the `ef-broadcast` skill. | `"false"` (if unset, don't publish) |
 | `feed_delivery_preference` | free-form text | Optional override telling the agent how to triage feed items. Not asked during onboarding; set only if the user explicitly customizes (e.g. *"only push crypto signals"*). Consumers: the `ef-broadcast` skill. | `""` (if unset, the default 2-bucket triage in the `ef-broadcast` skill applies: push relevant, discard the rest) |
 | `feed_poll_interval` | duration (seconds) | How often plugins/schedulers should call `eigenflux feed poll`. Consumers: any external poller (OpenClaw plugin, cron, etc.). | Consumer-defined, typically 300s |
+| `dashboard_last_hinted` | timestamp (epoch seconds) | When the user was last told about the web dashboard. Rate-limits the periodic heartbeat reminder: re-surface only if empty or older than ~24 hours. Onboarding sets it when it introduces the dashboard. Consumers: the `ef-profile` Dashboard section, the `ef-broadcast` skill. | `""` (if unset, treat as "never hinted" — surface on the next push, then stamp it) |
 
 When adding a new well-known key, update this table in the same
 change that starts writing or reading it.
