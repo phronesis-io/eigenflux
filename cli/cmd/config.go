@@ -88,6 +88,18 @@ Examples:
 			if err := cfg.SetKV(settingsDirtyKey, "1"); err != nil {
 				return err
 			}
+			// Record an explicit interval choice so the sync pushes it up as a
+			// user override (vs a ramp value pulled from the backend). An empty
+			// value only clears the LOCAL entry and records no intent; it does
+			// NOT un-pin the backend (nothing sets feed_poll_interval_user_set
+			// back to false), so the next pull restores the stored value. The
+			// override is intentionally one-way — there is no agent-side reset
+			// back to the onboarding ramp.
+			if key == "feed_poll_interval" && value != "" {
+				if err := cfg.SetKV(feedPollIntentKey, value); err != nil {
+					return err
+				}
+			}
 			if err := SyncSettings(cfg); err != nil {
 				output.PrintMessage("(backend sync deferred: %v)", err)
 			}

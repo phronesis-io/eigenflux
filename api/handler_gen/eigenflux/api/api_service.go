@@ -2466,10 +2466,52 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+// feedPollInterval onboarding ramp: brand-new agents poll slowly so their first
+// days aren't flooded, then speed up to the steady cadence automatically.
+const (
+	feedPollRampWindowMs  int64 = 3 * 24 * 60 * 60 * 1000 // first 3 days after registration
+	feedPollRampNewSec    int32 = 3600                    // cadence during the ramp window
+	feedPollRampSteadySec int32 = 300                     // cadence afterward (also the offline fallback)
+)
+
+// feedPollRampSec returns the onboarding-ramp poll interval for an agent that
+// has not explicitly chosen feed_poll_interval: 3600s for the first 3 days
+// after registration, then 300s. The registration time is read from the
+// already-loaded settings row; when it isn't cached yet (0) it is resolved once
+// from the profile service and persisted, so steady-state polls (the whole
+// non-overriding fleet, every cycle) need no RPC. Falls back to the steady 300s
+// when created_at can't be resolved, so a profile-service hiccup never strands a
+// poller on the slow cadence.
+func feedPollRampSec(ctx context.Context, agentID int64, settings *consoledal.AgentSettings) int32 {
+	createdAtMs := settings.AgentCreatedAtMs
+	if createdAtMs <= 0 {
+		resp, err := clients.ProfileClient.GetAgent(ctx, &profilerpc.GetAgentReq{AgentId: agentID})
+		if err == nil && resp.BaseResp != nil && resp.BaseResp.Code == 0 && resp.Agent != nil && resp.Agent.CreatedAt > 0 {
+			createdAtMs = resp.Agent.CreatedAt
+			// Cache on the settings row so later polls skip this RPC entirely.
+			_ = consoledal.SetAgentCreatedAt(db.DB, agentID, createdAtMs)
+		}
+	}
+	return feedPollRampForCreatedAt(createdAtMs, time.Now().UnixMilli())
+}
+
+// feedPollRampForCreatedAt is the pure ramp decision: 3600s while the agent is
+// within its first 3 days, 300s afterward, and 300s when created_at is unknown.
+func feedPollRampForCreatedAt(createdAtMs, nowMs int64) int32 {
+	if createdAtMs <= 0 {
+		return feedPollRampSteadySec
+	}
+	if nowMs-createdAtMs < feedPollRampWindowMs {
+		return feedPollRampNewSec
+	}
+	return feedPollRampSteadySec
+}
+
 // GetMySettings returns the agent's runtime settings, authenticated via the
 // agent access token (not a console session). The agent polls this to sync its
 // local config.json with the backend, which is the source of truth. updated_at
-// lets the caller resolve which side is newer.
+// lets the caller resolve which side is newer. feed_poll_interval reflects the
+// onboarding ramp until the user explicitly overrides it (see feedPollRampSec).
 // @router /api/v1/agents/me/settings [GET]
 func GetMySettings(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := currentAgentID(c)
@@ -2481,9 +2523,13 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
+	feedPollInterval := settings.FeedPollInterval
+	if !settings.FeedPollIntervalUserSet {
+		feedPollInterval = feedPollRampSec(ctx, agentID, settings)
+	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
-		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_poll_interval":       feedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
@@ -2515,7 +2561,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
 		return
 	}
-	if body.FeedPollInterval != nil && (*body.FeedPollInterval < 10 || *body.FeedPollInterval > 86400) {
+	if body.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*body.FeedPollInterval) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
@@ -2683,11 +2729,17 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 		AutoReplyPM *bool `json:"auto_reply_pm"`
 	}
 	_ = json.Unmarshal(body, &extra)
+	if req.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*req.FeedPollInterval) {
+		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
+		return
+	}
 	if req.RecurringPublish != nil {
 		current.RecurringPublish = *req.RecurringPublish
 	}
 	if req.FeedPollInterval != nil {
 		current.FeedPollInterval = *req.FeedPollInterval
+		// Explicit console edit is a user override: stop the onboarding ramp.
+		current.FeedPollIntervalUserSet = true
 	}
 	if extra.AutoReplyPM != nil {
 		current.AutoReplyPM = *extra.AutoReplyPM

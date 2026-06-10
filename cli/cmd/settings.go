@@ -24,6 +24,14 @@ const settingsSyncedKey = "_settings_synced"
 // backend (e.g. an offline `config set`); the next sync retries the push.
 const settingsDirtyKey = "_settings_dirty"
 
+// feedPollIntentKey records the value the user explicitly set for
+// feed_poll_interval via `config set`. Only an intent stored here is pushed up
+// as a user override; the value pulled down from the backend onboarding ramp
+// also lives in the KV (so pollers can read it) but must never be echoed back
+// up, or the ramp would freeze the moment any other synced setting changes.
+// Cleared after a successful push.
+const feedPollIntentKey = "_feed_poll_interval_intent"
+
 // syncedBoolKeys / syncedIntKeys / syncedStringKeys are the config KV entries
 // mirrored to the backend agent_settings row (PUT /agents/me/settings).
 var (
@@ -53,7 +61,13 @@ func syncedSettingsBody(cfg *config.Config) map[string]interface{} {
 		}
 	}
 	for _, k := range syncedIntKeys {
-		if v := cfg.GetKV(k); v != "" {
+		v := cfg.GetKV(k)
+		if k == "feed_poll_interval" {
+			// Push only an explicit user intent, never a ramp value pulled down
+			// from the backend (which sits in the KV under the same key).
+			v = cfg.GetKV(feedPollIntentKey)
+		}
+		if v != "" {
 			if n, err := strconv.Atoi(v); err == nil {
 				body[k] = n
 			}
@@ -88,6 +102,11 @@ func SyncSettings(cfg *config.Config) error {
 			}
 		}
 		if err := cfg.SetKV(settingsDirtyKey, ""); err != nil {
+			return err
+		}
+		// The intent has been pushed (or there was none); clear it so a later
+		// push triggered by a different setting doesn't resend a stale value.
+		if err := cfg.SetKV(feedPollIntentKey, ""); err != nil {
 			return err
 		}
 		return cfg.SetKV(settingsSyncedKey, "1")

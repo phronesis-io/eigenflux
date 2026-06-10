@@ -30,9 +30,18 @@ func (ActivityLog) TableName() string { return "agent_activity_log" }
 // are console-owned (set in the UI, pulled by the agent); feed_delivery_preference
 // and mode are agent-reported (pushed up via PUT /agents/me/settings).
 type AgentSettings struct {
-	AgentID                int64  `gorm:"column:agent_id;primaryKey"`
-	RecurringPublish       bool   `gorm:"column:recurring_publish;default:true"`
-	FeedPollInterval       int32  `gorm:"column:feed_poll_interval;default:300"`
+	AgentID          int64 `gorm:"column:agent_id;primaryKey"`
+	RecurringPublish bool  `gorm:"column:recurring_publish;default:true"`
+	FeedPollInterval int32 `gorm:"column:feed_poll_interval;default:300"`
+	// FeedPollIntervalUserSet marks feed_poll_interval as explicitly chosen by
+	// the user (console or agent CLI write-through). While false, GetMySettings
+	// returns the onboarding ramp instead of the stored value.
+	FeedPollIntervalUserSet bool `gorm:"column:feed_poll_interval_user_set;default:false"`
+	// AgentCreatedAtMs is the agent's registration time (agents.created_at,
+	// epoch millis), denormalized here so the onboarding ramp is computed
+	// without an extra RPC per poll. 0 means "not yet resolved" — GetMySettings
+	// fills it lazily.
+	AgentCreatedAtMs       int64  `gorm:"column:agent_created_at_ms;default:0"`
 	AutoReplyPM            bool   `gorm:"column:auto_reply_pm;default:true"`
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
@@ -41,6 +50,25 @@ type AgentSettings struct {
 }
 
 func (AgentSettings) TableName() string { return "agent_settings" }
+
+// feed_poll_interval bounds (seconds), enforced on every write path so no
+// endpoint or future caller can persist an out-of-range cadence.
+const (
+	FeedPollIntervalMinSec int32 = 10
+	FeedPollIntervalMaxSec int32 = 86400
+)
+
+// FeedPollIntervalInRange reports whether v is an acceptable poll interval.
+func FeedPollIntervalInRange(v int32) bool {
+	return v >= FeedPollIntervalMinSec && v <= FeedPollIntervalMaxSec
+}
+
+// SetAgentCreatedAt caches the agent's registration time on its settings row so
+// the onboarding ramp can be computed without a profile RPC on later polls.
+func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
+		Update("agent_created_at_ms", createdAtMs).Error
+}
 
 // UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
 // mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
@@ -62,7 +90,13 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 		vals["recurring_publish"] = *recurringPublish
 	}
 	if feedPollInterval != nil {
+		if !FeedPollIntervalInRange(*feedPollInterval) {
+			return fmt.Errorf("feed_poll_interval must be within [%d, %d] seconds", FeedPollIntervalMinSec, FeedPollIntervalMaxSec)
+		}
 		vals["feed_poll_interval"] = *feedPollInterval
+		// An explicit write is a user override: pin it so the onboarding ramp
+		// in GetMySettings stops applying.
+		vals["feed_poll_interval_user_set"] = true
 	}
 	if autoReplyPM != nil {
 		vals["auto_reply_pm"] = *autoReplyPM
@@ -389,12 +423,16 @@ func GetSettings(db *gorm.DB, agentID int64) (*AgentSettings, error) {
 
 // UpsertSettings creates or updates agent settings.
 func UpsertSettings(db *gorm.DB, settings *AgentSettings) error {
+	if !FeedPollIntervalInRange(settings.FeedPollInterval) {
+		return fmt.Errorf("feed_poll_interval must be within [%d, %d] seconds", FeedPollIntervalMinSec, FeedPollIntervalMaxSec)
+	}
 	now := time.Now().UnixMilli()
 	// Use a map to avoid GORM's default tag overriding zero values (e.g. false → true).
 	vals := map[string]interface{}{
-		"recurring_publish":  settings.RecurringPublish,
-		"feed_poll_interval": settings.FeedPollInterval,
-		"updated_at":         now,
+		"recurring_publish":           settings.RecurringPublish,
+		"feed_poll_interval":          settings.FeedPollInterval,
+		"feed_poll_interval_user_set": settings.FeedPollIntervalUserSet,
+		"updated_at":                  now,
 	}
 	return db.Model(&AgentSettings{}).
 		Where("agent_id = ?", settings.AgentID).
