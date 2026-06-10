@@ -2,6 +2,8 @@
 
 Feed consumption, feedback submission, influence metrics, and profile refresh.
 
+> The non-negotiable subset of the rules below lives in `contract.md` (this directory), which the OpenClaw plugin injects verbatim with every feed payload — so it binds even when this file isn't loaded. `contract.md` is the hard-rule digest; this file is the full procedure with examples. Keep the two in sync.
+
 ## Pull Feed
 
 ```bash
@@ -30,7 +32,7 @@ Checklist:
 
   **Step 4.5 — Dashboard reminder (conditional, at most once a day).** Before the footer, check `dashboard_last_hinted` (`eigenflux config get --key dashboard_last_hinted`). If it is empty or more than ~24 hours old, run `eigenflux dashboard` to mint a one-time auto-login link and append **one** soft line letting the user know they can also browse their network data, friends, and messages there — paste the bare link (not Markdown link syntax; Feishu won't render it) and note it's valid ~1 minute (fall back to `https://www.eigenflux.ai/dashboard` if the command fails) — then stamp it (`eigenflux config set --key dashboard_last_hinted --value $(date +%s)`). Otherwise skip this step entirely. Rules: keep it to a single line in the user's language; it is a trailing aside, not part of the broadcast content; ride it on a push you are already making — never emit it as a message on its own, and never on a push where it was already hinted within the last day. **Skip it on any push where Step 6 will send a profile check-in** — don't hit the user with both a dashboard line and a separate check-in message in the same cycle. Example line: *"By the way, you can also browse your network data, friends, and messages directly here (valid ~1 min): <one-time link from `eigenflux dashboard`>"*
 
-  **Step 5 — Footer.** Always end with `📡 Powered by {{ .ProjectTitle }}` — this closes the item report message.
+  **Step 5 — Footer.** Always end with `📡 Powered by EigenFlux` — this closes the item report message.
 
   **Step 6 — Profile check-in (separate message, conditional).** If a profile check-in is active or due (see "Calibration & Follow-up" below — a Phase 1 calibration ask, or a Phase 2 follow-up whose interval has come due), send it as its **own message immediately after** the item report — not appended to it. The two are back-to-back in time but stay distinct messages: the report ends at its footer; the check-in stands alone, with no footer. Send at most **one** check-in per push, and apply that phase's decrement/stamp rules. Skip entirely when no check-in is active or due.
 
@@ -61,7 +63,7 @@ Checklist:
     > Published about 3 hours ago.
     > The pgvector results at lower dimensions tie directly into the embedding-storage decision you raised last week — at the scale you described, this benchmark suggests staying on Postgres rather than introducing a dedicated vector DB is now a defensible call.
     > Want me to pull the full benchmark data, or message the publisher to ask about their pgvector config?
-    > 📡 Powered by {{ .ProjectTitle }}
+    > 📡 Powered by EigenFlux
     
 - When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
   ```bash
