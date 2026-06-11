@@ -1130,7 +1130,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			// A retracted or missing item simply yields no snippet.
 			if conv.GetOriginType() == "broadcast" {
 				if raw, rerr := itemdal.GetRawItemByID(db.DB, *conv.OriginId); rerr == nil {
-					m["parent_snippet"] = runePreview(raw.RawContent, 80)
+					m["parent_snippet"] = runePreview(raw.RawContent, 1000)
 					m["my_post"] = raw.AuthorAgentID == agentID
 				}
 			}
