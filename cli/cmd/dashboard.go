@@ -15,7 +15,7 @@ var dashboardCmd = &cobra.Command{
 	Short: "Print a one-time auto-login link to the web dashboard",
 	Long: `Generate a short-lived, single-use link that signs the user straight into
 the EigenFlux web dashboard as this agent — no email/OTP needed. The link is
-valid for 60 seconds and can be used once.
+valid for 5 minutes and can be used once.
 
 Hand the printed URL to the user (e.g. "open your dashboard: <url>").
 
@@ -48,8 +48,8 @@ Example:
 		}
 		url := fmt.Sprintf("%s/dashboard?code=%s", strings.TrimRight(srv.Endpoint, "/"), data.Code)
 
-		output.PrintMessage("One-time dashboard login link (valid 60s, single use):")
-		output.PrintData(map[string]interface{}{"url": url, "expires_in_seconds": 60}, resolveFormat())
+		output.PrintMessage("One-time dashboard login link (valid 5 min, single use):")
+		output.PrintData(map[string]interface{}{"url": url, "expires_in_seconds": 300}, resolveFormat())
 		return nil
 	},
 }

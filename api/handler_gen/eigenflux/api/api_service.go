@@ -2715,10 +2715,10 @@ func ConsoleAuthCode(ctx context.Context, c *app.RequestContext) {
 	}
 	code := "cx_" + hex.EncodeToString(b)
 
-	// Store in Redis: console:code:{code} = {agent_id}:{access_token} with 60s TTL
+	// Store in Redis: console:code:{code} = {agent_id}:{access_token} with 5min TTL
 	redisKey := "console:code:" + code
 	redisVal := fmt.Sprintf("%d:%s", agentID, accessToken)
-	if err := mq.RDB.Set(ctx, redisKey, redisVal, 60*time.Second).Err(); err != nil {
+	if err := mq.RDB.Set(ctx, redisKey, redisVal, 5*time.Minute).Err(); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to generate auth code", nil)
 		return
 	}
