@@ -152,6 +152,7 @@ struct FeedData {
     2: required bool has_more
     3: required list<FeedNotification> notifications
     4: required string impression_id
+    5: optional string output_contract
 }
 
 struct FeedResp {

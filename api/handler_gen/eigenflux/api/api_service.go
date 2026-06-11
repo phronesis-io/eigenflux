@@ -25,10 +25,10 @@ import (
 	authrpc "eigenflux_server/kitex_gen/eigenflux/auth"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	itemrpc "eigenflux_server/kitex_gen/eigenflux/item"
-	"eigenflux_server/pipeline/llm"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	pmrpc "eigenflux_server/kitex_gen/eigenflux/pm"
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
@@ -626,10 +626,11 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"items":         items,
-		"has_more":      resp.HasMore,
-		"notifications": notifications,
-		"impression_id": resp.ImpressionId,
+		"items":           items,
+		"has_more":        resp.HasMore,
+		"notifications":   notifications,
+		"impression_id":   resp.ImpressionId,
+		"output_contract": feedOutputContract(),
 	})
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
@@ -2330,17 +2331,17 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"author_name":    authorName,
 			"source_note":    authorBio,
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
-			"content":        func() string {
+			"content": func() string {
 				if uiLang == "zh" && it.TitleZh != "" {
 					return it.TitleZh
 				}
 				return consoledal.PlainPreview(it.RawContent, 200)
 			}(),
-			"created_at":     it.CreatedAt,
-			"updated_at":     it.ServedAt,
-			"reason_type":    reasonType,
-			"reason_term":    reasonTerm,
-			"feedbacked":     it.FbScore >= 2,
+			"created_at":  it.CreatedAt,
+			"updated_at":  it.ServedAt,
+			"reason_type": reasonType,
+			"reason_term": reasonTerm,
+			"feedbacked":  it.FbScore >= 2,
 		}
 		summary := it.Summary
 		if uiLang == "zh" && it.SummaryZh != "" {
