@@ -127,9 +127,21 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 		originFilter = " AND origin_type = ?"
 	}
 
+	// Listing threshold by origin: friend conversations surface as soon as there
+	// is any message (the two sides are already friends — no ice-breaking), while
+	// broadcast/other conversations still require an ice-broken exchange (>= 2).
+	// With no origin filter, apply each rule per origin_type.
+	countCond := "msg_count >= 2"
+	switch originType {
+	case "friend":
+		countCond = "msg_count >= 1"
+	case "":
+		countCond = "((origin_type = 'friend' AND msg_count >= 1) OR (origin_type <> 'friend' AND msg_count >= 2))"
+	}
+
 	if cursor > 0 {
-		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
-		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2 AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 
 		if originType != "" {
 			args = append(args, agentID, cursor, originType, limit, agentID, cursor, originType, limit, limit)
@@ -139,8 +151,8 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
 		err = db.Raw(query, args...).Scan(&convs).Error
 	} else {
-		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
-		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 2" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 
 		if originType != "" {
 			args = append(args, agentID, originType, limit, agentID, originType, limit, limit)

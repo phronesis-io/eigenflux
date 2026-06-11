@@ -1,0 +1,2916 @@
+{
+  "_comment": "生活化两难场景题库（100 题）。机制不变：server 每次随机抽 pickCount 道。选项元数据 energy(-2..2)/polite/rare，key=关键题。要扩题直接往 items 加即可。",
+  "pickCount": 10,
+  "items": [
+    {
+      "id": "q_001",
+      "dimension": "study",
+      "key": true,
+      "text": "快考试了，学校规定必须上晚自习、请假扣分，但今晚你约了女/男神一起玩《绝地求生》。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "果断翘课赴约，分扣就扣，机会不等人",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "乖乖上晚自习，约改天",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "上半节意思一下，溜出去开黑",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "纠结到最后两边都没爽到",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_002",
+      "dimension": "love",
+      "text": "恋爱后对象非常黏人，时刻要回应。你作何感想：",
+      "options": [
+        {
+          "key": "A",
+          "label": "超甜，巴不得更黏",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "有点窒息，需要自己的空间",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "看心情，忙起来会嫌烦",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "嘴上说享受，心里悄悄累",
+          "energy": 0,
+          "polite": true
+        }
+      ]
+    },
+    {
+      "id": "q_003",
+      "dimension": "self",
+      "key": true,
+      "text": "你明明对一件事有不同的、负面的看法，但最后没说出来。多数情况是因为：",
+      "options": [
+        {
+          "key": "A",
+          "label": "怕伤感情、顾及关系",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "懒得争，说了也改变不了啥",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "不太确定自己是不是对的",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "其实我很少憋着，基本会直说",
+          "energy": 2
+        }
+      ]
+    },
+    {
+      "id": "q_004",
+      "dimension": "money",
+      "text": "发了笔意外奖金，必须今天花掉。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "买惦记很久的大件",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "拉一帮朋友吃顿好的",
+          "energy": 2
+        },
+        {
+          "key": "C",
+          "label": "偷偷存/投，别乱花",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "D",
+          "label": "一半送爸妈一半捐了",
+          "energy": 0,
+          "polite": true,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_005",
+      "dimension": "travel",
+      "text": "临时多出三天假，钱包也够。你的第一反应：",
+      "options": [
+        {
+          "key": "A",
+          "label": "立刻订票，说走就走",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "在家躺平补觉打游戏",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "做个详细攻略下周再走",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "D",
+          "label": "纠结到假期结束也没动",
+          "energy": -2,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_006",
+      "dimension": "work",
+      "key": true,
+      "text": "老板把一个明显是别人的锅甩给你，当众。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "当场怼回去，分清责任",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "先忍，私下找老板说清",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "认了，多一事不如少一事",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "表面认，背地里到处吐槽",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_007",
+      "dimension": "social",
+      "text": "朋友聚会全是你不认识的人。你大概率：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动出击，半小时混熟全场",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "找个角落安静当背景板",
+          "energy": -2
+        },
+        {
+          "key": "C",
+          "label": "全程黏着唯一认识的那个人",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "假装接电话出去放风",
+          "energy": 0,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_008",
+      "dimension": "food",
+      "text": "点了份超难吃的外卖，吃不下又心疼钱。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "差评+退款一条龙",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "捏着鼻子吃完不浪费",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "倒了，重新点一份爱吃的",
+          "energy": 1
+        },
+        {
+          "key": "D",
+          "label": "放冰箱骗自己明天还能吃",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_009",
+      "dimension": "risk",
+      "text": "游戏/投资里你更偏向：",
+      "options": [
+        {
+          "key": "A",
+          "label": "梭哈搏一把大的",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "稳扎稳打细水长流",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "小赌怡情见好就收",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "光看不上手，过过眼瘾",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_010",
+      "dimension": "decision",
+      "text": "两家店纠结吃哪个，已经站门口 10 分钟。最后你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "凭直觉一秒拍板",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "打开点评对比评分价格",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "让对方/朋友替你定",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "干脆两家都不吃了",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_011",
+      "dimension": "family",
+      "text": "过年回家，亲戚又问工资多少、对象有没有。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直接报数/直说，没啥不能讲",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "打太极含糊过去",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "反问把话题甩回去",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "尴尬陪笑，心里翻白眼",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_012",
+      "dimension": "emotion",
+      "text": "今天被狠狠惹毛了，回到家你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "找人吐槽到深夜",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "一个人安静消化",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "打游戏/刷剧转移注意力",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "直接发作，谁碰谁倒霉",
+          "energy": 2,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_013",
+      "dimension": "study",
+      "text": "小组作业里有人全程划水，最后却要平分功劳。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "当面挑明，该谁的谁担",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "算了，自己多做点省心",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "偷偷跟老师反映",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "记小本本上，下次绝交",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_014",
+      "dimension": "love",
+      "key": true,
+      "text": "暧昧对象迟迟不表态，你已经等了俩月。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动挑明，要个答案",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "继续等，水到渠成",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "开始冷处理，看 TA 急不急",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "内耗到失眠也不敢问",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_015",
+      "dimension": "money",
+      "text": "看中一件有点超预算的东西，犹豫中。你的做法：",
+      "options": [
+        {
+          "key": "A",
+          "label": "买！喜欢最重要",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "加购物车冷静三天",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "找平替/等打折",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "截图发群让大家帮我决定",
+          "energy": 0,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_016",
+      "dimension": "social",
+      "text": "群里发了条消息，半天没人回。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "再追一条，主动拉回话题",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "默默撤回，当无事发生",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "无所谓，该说的说完了",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "开始脑补是不是说错话了",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_017",
+      "dimension": "work",
+      "text": "下班点到了，活没干完但也不急。你通常：",
+      "options": [
+        {
+          "key": "A",
+          "label": "准点跑路，明天再说",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "干完再走，今日事今日毕",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "看同事，没人走我也不好走",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "磨蹭刷手机，假装很忙",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_018",
+      "dimension": "value",
+      "text": "朋友创业拉你入伙，机会诱人但风险不小。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "热血上头，干就完了",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "理性评估，大概率劝退",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "小额参与，不全押",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "口头支持，钱包诚实",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_019",
+      "dimension": "life",
+      "text": "周末早上自然醒，一天空着。理想安排：",
+      "options": [
+        {
+          "key": "A",
+          "label": "约满局，把一天塞得满满当当",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "彻底躺平，啥也不干",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "一半计划一半随性",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "D",
+          "label": "想做很多最后啥也没做",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_020",
+      "dimension": "moral",
+      "text": "便利店店员多找了你 20 块，已经走出门了。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "回去还给人家",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "算了，就当今天运气好",
+          "energy": 1
+        },
+        {
+          "key": "C",
+          "label": "纠结半天还是还了",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "下次去这家多消费当补偿",
+          "energy": 0,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_021",
+      "dimension": "emotion",
+      "text": "朋友跟你倾诉烦恼，其实只是想被安慰。你常常：",
+      "options": [
+        {
+          "key": "A",
+          "label": "耐心共情，先接住情绪",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "理性分析，直接给解决方案",
+          "energy": 1
+        },
+        {
+          "key": "C",
+          "label": "陪着就行，不太会说话",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "感同身受到比 TA 还激动",
+          "energy": 2,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_022",
+      "dimension": "risk",
+      "text": "体检报告有个小指标异常，医生说问题不大。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "立刻挂专家号查个底朝天",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "先观察，复查再说",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "上网搜到把自己吓个半死",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "假装没看见，该吃吃该喝喝",
+          "energy": 1
+        }
+      ]
+    },
+    {
+      "id": "q_023",
+      "dimension": "social",
+      "text": "朋友发来九宫格自拍问好不好看，其实一般。你回：",
+      "options": [
+        {
+          "key": "A",
+          "label": "实话实说，挑张最好的夸",
+          "energy": 0
+        },
+        {
+          "key": "B",
+          "label": "统统夸爆，姐妹/兄弟情第一",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "只发表情包不评价",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "已读，假装没看到",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_024",
+      "dimension": "study",
+      "key": true,
+      "text": "明天要交的报告还没动，今晚有部超想看的新剧。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "先看剧，报告通宵肝",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "忍住不看，先把活干完",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "边看边写，效率减半",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "两个都没干好，焦虑到睡着",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_025",
+      "dimension": "love",
+      "text": "约会 AA 还是请客？第一次见面你倾向：",
+      "options": [
+        {
+          "key": "A",
+          "label": "抢着全请，大方点",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "默契 AA，谁也不欠谁",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "看感觉，TA 主动就 TA 来",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "心里算账，嘴上无所谓",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_026",
+      "dimension": "work",
+      "text": "同事天天找你帮小忙，开始影响你自己进度。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直接拒绝，划清界限",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "找机会委婉说明",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "继续帮，抹不开面子",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "帮，但开始消极怠工",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_027",
+      "dimension": "money",
+      "key": true,
+      "text": "朋友借钱，数目不小，关系一般。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "爽快借，朋友为重",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "婉拒，钱伤感情",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "借一部分，意思到了",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "假装没看到消息",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_028",
+      "dimension": "life",
+      "text": "搬新家，第一件想搞定的是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "音响/游戏机，娱乐先行",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "床和厨房，先把生活安顿好",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "一堆装饰品，氛围最重要",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "网络/路由器，断网会死",
+          "energy": 1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_029",
+      "dimension": "social",
+      "text": "聚餐结账，大家都不吭声看手机。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动买单，气氛重要",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "提议 AA，理性最舒服",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "等别人先动，实在不行再说",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "假装系鞋带拖时间",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_030",
+      "dimension": "value",
+      "key": true,
+      "text": "工作选高薪但无聊，还是低薪但热爱？你倾向：",
+      "options": [
+        {
+          "key": "A",
+          "label": "热爱优先，开心最重要",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "钱多优先，现实第一",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "骑驴找马，先拿钱再说",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "纠结到两个 offer 都黄了",
+          "energy": -2
+        }
+      ]
+    },
+    {
+      "id": "q_031",
+      "dimension": "emotion",
+      "text": "和好朋友吵架了，谁也没先低头。三天后你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动找 TA 和好",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "等 TA 先开口",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "发个梗图试探一下",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "冷战到一方先扛不住",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_032",
+      "dimension": "risk",
+      "text": "蹦极/跳伞这类项目，朋友怂恿你试。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "冲！这辈子总得试一次",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "打死不跳，命要紧",
+          "energy": -2,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "看别人跳完没事我再说",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "报名了，排到自己又怂了",
+          "energy": 0,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_033",
+      "dimension": "study",
+      "text": "老师问\"有没有问题\"，你其实没听懂。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "举手问，不懂装懂更亏",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "憋着，下课偷偷问/自己搜",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "假装懂了点头微笑",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "摆烂，听天由命",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_034",
+      "dimension": "love",
+      "text": "对象忘了你们的纪念日。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直接表达不开心",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "嘴上说没事，行动上摆脸",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "真不在意，仪式感无所谓",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "自己默默买好礼物提醒 TA",
+          "energy": -1,
+          "polite": true
+        }
+      ]
+    },
+    {
+      "id": "q_035",
+      "dimension": "food",
+      "text": "减肥期，朋友点了一桌你最爱的炸鸡火锅。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "今天先吃，明天再减",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "坚定只吃青菜，意志力拉满",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "尝两口意思一下",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "全吃完然后发誓明天一定动",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_036",
+      "dimension": "social",
+      "text": "认识的人在路对面，但你不确定要不要打招呼。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "大方招手喊名字",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "低头装没看见",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "假装看手机擦肩而过",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "纠结到 TA 已经走远",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_037",
+      "dimension": "work",
+      "key": true,
+      "text": "团队方案你觉得有大问题，但所有人都说好。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "逆风发言，把顾虑讲透",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "私下提醒负责人",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "随大流，少数服从多数",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "保留意见，出事别赖我",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_038",
+      "dimension": "money",
+      "text": "直播间限时秒杀，便宜得离谱但你不太需要。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "先抢了再说，错过血亏",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "理智关掉，需要再买",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "加购物车冷静一下",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "抢完就后悔，懒得退",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_039",
+      "dimension": "value",
+      "text": "别人眼里的成功和你想要的不一样时，你更看重：",
+      "options": [
+        {
+          "key": "A",
+          "label": "自己怎么想，活给自己看",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "也得顾及现实和他人眼光",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "两者平衡，别太极端",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "嘴上不在乎，其实很在意",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_040",
+      "dimension": "life",
+      "text": "手机突然只剩 5% 电，又没带充电宝。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "淡定，没电就没电",
+          "energy": 0
+        },
+        {
+          "key": "B",
+          "label": "立刻找插座/借充电宝",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "疯狂关后台省着用",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "焦虑到啥也干不下去",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_041",
+      "dimension": "emotion",
+      "key": true,
+      "text": "收到不太想去的邀约，但拒绝会让对方失望。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直接婉拒，诚实最好",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "勉强答应，去了再说",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "找个理由委婉推掉",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "拖着不回，拖到不了了之",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_042",
+      "dimension": "risk",
+      "text": "创业/换赛道的念头冒出来好久了。你目前：",
+      "options": [
+        {
+          "key": "A",
+          "label": "已经在行动，边干边想",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "想等更稳妥的时机",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "只在深夜想想，白天照旧",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "怕失败，迟迟不敢迈步",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_043",
+      "dimension": "social",
+      "text": "微信好友想清一清，有个许久不联系的人。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "果断删，没必要留",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "留着吧，万一以后有用",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "屏蔽朋友圈，不删不联系",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "纠结半天最后谁也没动",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_044",
+      "dimension": "study",
+      "text": "考试有道题不确定，改了又想改回原答案。你通常：",
+      "options": [
+        {
+          "key": "A",
+          "label": "相信第一直觉，不改",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "反复权衡改成更\"稳\"的",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "纠结到交卷铃响",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "蒙一个就不管了",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_045",
+      "dimension": "love",
+      "text": "理想的恋爱相处模式更接近：",
+      "options": [
+        {
+          "key": "A",
+          "label": "黏在一起，恨不得共享一切",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "亲密有间，各有各的空间",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "平时各忙各的，需要时秒到",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "说不清，看遇到谁",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_046",
+      "dimension": "work",
+      "text": "领导画大饼让你加班冲业绩，没说加钱。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直接问清楚回报再说",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "先干着，表现好自然有回报",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "象征性加会儿，量力而行",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "人在工位心在下班",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_047",
+      "dimension": "food",
+      "text": "一群人点菜，没人敢拍板。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "接过菜单一手包办",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "只报自己想吃的，其余随意",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "全程\"我都行\"",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "偷偷期待有人点错好吐槽",
+          "energy": 0,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_048",
+      "dimension": "value",
+      "text": "帮了人却没被感谢，甚至被当理所当然。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "下次不帮了，拎得清",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "算了，帮人图的不是回报",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "嘴上不说，心里记下",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "直接表达不满",
+          "energy": 2
+        }
+      ]
+    },
+    {
+      "id": "q_049",
+      "dimension": "life",
+      "text": "闹钟响了，但被窝太香。你大概率：",
+      "options": [
+        {
+          "key": "A",
+          "label": "一个鲤鱼打挺起床",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "再睡五分钟……结果迟到",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "赖床刷会儿手机再起",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "直接关掉重睡，今天爱咋咋",
+          "energy": -2
+        }
+      ]
+    },
+    {
+      "id": "q_050",
+      "dimension": "social",
+      "text": "聚会上有人开了个让你不舒服的玩笑。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "当场表明不喜欢",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "陪笑带过，别扫兴",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "冷处理，气氛降到冰点",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "回家越想越气",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_051",
+      "dimension": "money",
+      "text": "攒钱 vs 享受当下，你更偏：",
+      "options": [
+        {
+          "key": "A",
+          "label": "及时行乐，钱是赚来花的",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "存钱第一，安全感无价",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "大头存、小钱随意",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "月初享受月底吃土",
+          "energy": 1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_052",
+      "dimension": "emotion",
+      "text": "难过的时候，你更希望别人：",
+      "options": [
+        {
+          "key": "A",
+          "label": "陪我聊聊、抱抱我",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "给我空间，自己缓缓",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "拉我出去吃喝玩转移注意",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "别人不知道最好，我自己扛",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_053",
+      "dimension": "study",
+      "text": "老师让自愿上台展示，加分但要出风头。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动报名，机会难得",
+          "energy": 2,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "能不上就不上，太社死",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "等没人上时勉强顶上",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "想上又怂，举手又放下",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_054",
+      "dimension": "love",
+      "key": true,
+      "text": "对象和异性朋友走得近，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "直说我介意，把话摊开",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "信任 TA，不多想",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "嘴上没事，偷偷观察",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "装大度，内心小剧场拉满",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_055",
+      "dimension": "risk",
+      "text": "走在岔路口，一条熟路一条没走过的近道。你选：",
+      "options": [
+        {
+          "key": "A",
+          "label": "试试新路，探险一下",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "走熟路，稳妥不迷路",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "导航说哪条听哪条",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "站原地纠结好久",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_056",
+      "dimension": "work",
+      "text": "同事抢了你的功劳在领导面前邀功。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "当场补充澄清事实",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "找机会让领导知道真相",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "忍了，清者自清",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "从此防着 TA，暗暗较劲",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_057",
+      "dimension": "social",
+      "text": "被拉进一个不太熟的群，天天几百条消息。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "积极冒泡，混个脸熟",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "免打扰，潜水到底",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "看心情偶尔搭话",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "想退又怕尴尬，留着堵心",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_058",
+      "dimension": "value",
+      "text": "一夜暴富 vs 慢慢变好，让你选你更想要：",
+      "options": [
+        {
+          "key": "A",
+          "label": "暴富！谁不想一步到位",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "踏实积累，怕福气压不住",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "小富即安就挺好",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "嘴上要暴富，行动很佛",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_059",
+      "dimension": "life",
+      "text": "新买的东西出了点小毛病，不影响用但膈应。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "立刻退换，必须完美",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "将就用，懒得折腾",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "研究半天能不能自己修",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "放着生气，又不去处理",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_060",
+      "dimension": "food",
+      "text": "约饭时间，朋友放你鸽子说临时有事。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "一个人也吃得香",
+          "energy": 0
+        },
+        {
+          "key": "B",
+          "label": "有点失落，改天再约",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "立刻喊别人补位",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "嘴上没事，心里扣分",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_061",
+      "dimension": "emotion",
+      "text": "压力大到爆的时候，你的解压方式更接近：",
+      "options": [
+        {
+          "key": "A",
+          "label": "约朋友嗨/运动发泄",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "一个人睡觉/发呆",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "疯狂购物或吃东西",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "憋着，等它自己过去",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_062",
+      "dimension": "study",
+      "key": true,
+      "text": "保研/考公/工作三条路摆面前，家人各有想法。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "自己拿主意，先斩后奏",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "充分沟通，尽量取得理解",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "听家人的，少操心",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "拖着不选，让时间替我决定",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_063",
+      "dimension": "love",
+      "text": "吵架时对方说\"随便你\"，你会理解为：",
+      "options": [
+        {
+          "key": "A",
+          "label": "字面意思，那我真随便了",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "TA 在气头上，得哄",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "危险信号，赶紧服软",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "开始猜 TA 到底啥意思",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_064",
+      "dimension": "work",
+      "text": "入职新公司，同事们已经有小圈子。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动出击融入，请客约饭",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "做好本职，慢慢自然熟",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "保持礼貌距离，不强融",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "下班即消失，社交绝缘",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_065",
+      "dimension": "money",
+      "text": "中了张小额彩票，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "再加注买一批，说不定中大的",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "见好就收，落袋为安",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "请朋友喝杯奶茶分享喜悦",
+          "energy": 1
+        },
+        {
+          "key": "D",
+          "label": "存起来，蚊子腿也是肉",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_066",
+      "dimension": "social",
+      "text": "在电梯里遇到只见过一面的人。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "热情寒暄几句",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "点头微笑就够了",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "低头看手机当没看见",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "尴尬到想抠出三室一厅",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_067",
+      "dimension": "value",
+      "text": "\"做喜欢的事会穷\" vs \"做赚钱的事会累\"，你更接受：",
+      "options": [
+        {
+          "key": "A",
+          "label": "宁可累，先有钱再谈喜欢",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "宁可穷，开心比啥都强",
+          "energy": 1
+        },
+        {
+          "key": "C",
+          "label": "想办法把喜欢的做成赚钱的",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "两个都怕，原地纠结",
+          "energy": -2
+        }
+      ]
+    },
+    {
+      "id": "q_068",
+      "dimension": "life",
+      "text": "出门旅游，你的行李风格是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "轻装上阵，缺啥当地买",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "面面俱到，啥都带上",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "列清单按表打包",
+          "energy": 0,
+          "polite": true,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "最后一晚才慌忙乱塞",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_069",
+      "dimension": "emotion",
+      "text": "别人对你好，你的第一反应通常是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "开心收下，礼尚往来",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "受宠若惊，想立刻还回去",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "警惕，是不是有所图",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "坦然享受，本该如此",
+          "energy": 1
+        }
+      ]
+    },
+    {
+      "id": "q_070",
+      "dimension": "study",
+      "key": true,
+      "text": "同桌考试想抄你的卷子，关系还不错。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "不给，原则问题",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "睁只眼闭只眼，挡一下",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "给看，朋友义气",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "假装没注意，蒙混过去",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_071",
+      "dimension": "risk",
+      "text": "一个机会窗口很短，信息还不全。你倾向：",
+      "options": [
+        {
+          "key": "A",
+          "label": "边跑边看，先上车再说",
+          "energy": 2
+        },
+        {
+          "key": "B",
+          "label": "宁可错过，也要想清楚",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "快速问几个人再定",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "犹豫到窗口关闭",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_072",
+      "dimension": "love",
+      "text": "表白被发好人卡后，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "洒脱放下，下一个更好",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "尊重选择，默默退场",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "还想再争取一下",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "反复回看聊天记录内耗",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_073",
+      "dimension": "work",
+      "text": "远程办公，没人管你。你的状态：",
+      "options": [
+        {
+          "key": "A",
+          "label": "自律满满，效率比在公司高",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "床和工位无缝切换，边躺边干",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "上午摸鱼下午救火",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "钉钉一响才动一下",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_074",
+      "dimension": "money",
+      "text": "朋友拉你进一个\"稳赚不赔\"的项目。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "试试水，小钱搏机会",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "天上不掉馅饼，礼貌拒绝",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "先观望，看别人赚不赚",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "直接劝朋友也别碰",
+          "energy": 1
+        }
+      ]
+    },
+    {
+      "id": "q_075",
+      "dimension": "social",
+      "text": "朋友圈想发条状态又怕没人点赞。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "想发就发，管别人干嘛",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "纠结半天最后设了仅自己可见",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "精修文案掐点发",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "D",
+          "label": "干脆不发，免得尴尬",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_076",
+      "dimension": "emotion",
+      "text": "一个人待着久了，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "憋得慌，赶紧找人",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "舒服自在，求之不得",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "还行，偶尔想找人说话",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "开始胡思乱想emo",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_077",
+      "dimension": "value",
+      "text": "面对规则，你更接近：",
+      "options": [
+        {
+          "key": "A",
+          "label": "规则是死的，能变通就变通",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "按规矩来，踏实",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "大原则守住，小事灵活",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "看人下菜碟，对己宽对人严",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_078",
+      "dimension": "life",
+      "text": "房间乱到一定程度，你才会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "忍不了，定期大扫除",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "乱中有序，我知道东西在哪",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "C",
+          "label": "来客人前突击收拾",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "眼不见为净，继续乱",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_079",
+      "dimension": "study",
+      "text": "兴趣班/技能学到一半觉得没那么有趣了。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "果断弃坑，及时止损",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "咬牙学完，有始有终",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "三天打鱼两天晒网",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "报名时热情，学时拖延",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_080",
+      "dimension": "love",
+      "text": "另一半送了个你不喜欢的礼物。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "坦白说不喜欢，下次别买这个",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "开心收下，心意最重要",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "假装喜欢，转手闲置/送人",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "旁敲侧击暗示真实喜好",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_081",
+      "dimension": "work",
+      "text": "会议上你的好点子被无视，散会后才有人觉得不错。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "下次开会更大声地讲",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "把想法写成文档正式提",
+          "energy": 0,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "算了，懒得再争",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "心里记下，再也不主动出点子",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_082",
+      "dimension": "money",
+      "text": "商场抽奖说你中了\"一等奖\"要去领。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "去看看，万一是真的",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "一看就是套路，直接无视",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "拍照发群让大家鉴定",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "心动了但又怕被骗，纠结",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_083",
+      "dimension": "social",
+      "key": true,
+      "text": "答应了的事临时不想去了。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "如实说不想去了，抱歉",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "硬着头皮去，答应了就别放鸽子",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "编个合理的理由推掉",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "拖到最后一刻才说",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_084",
+      "dimension": "emotion",
+      "text": "看到别人过得比自己好，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "化为动力，向 TA 学习",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "真心替 TA 高兴",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "酸一下，然后继续躺",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "表面祝福，内心拧巴",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_085",
+      "dimension": "risk",
+      "text": "点菜时，你更可能：",
+      "options": [
+        {
+          "key": "A",
+          "label": "点没吃过的新菜尝鲜",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "点熟悉的，不会踩雷",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "看别桌点啥跟着点",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "纠结到服务员催第三遍",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_086",
+      "dimension": "value",
+      "text": "如果可以，你更想要哪种人生：",
+      "options": [
+        {
+          "key": "A",
+          "label": "轰轰烈烈，宁愿短也要燃",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "平平稳稳，细水长流",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "有起伏但能掌控",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "别太累就行，怎样都成",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_087",
+      "dimension": "life",
+      "text": "突然停电一整晚，啥电子设备都用不了。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "点蜡烛找乐子，难得",
+          "energy": 1,
+          "rare": true
+        },
+        {
+          "key": "B",
+          "label": "早早睡觉，正好",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "坐立不安，反复刷没信号的手机",
+          "energy": -1
+        },
+        {
+          "key": "D",
+          "label": "跑出门找有电的地方",
+          "energy": 1
+        }
+      ]
+    },
+    {
+      "id": "q_088",
+      "dimension": "study",
+      "text": "查到成绩比预期差很多。你第一反应：",
+      "options": [
+        {
+          "key": "A",
+          "label": "分析哪错了，下次补回来",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "先难过一会儿再说",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "找客观原因安慰自己",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "假装无所谓，其实很在意",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_089",
+      "dimension": "love",
+      "text": "在一起久了激情褪去，你觉得：",
+      "options": [
+        {
+          "key": "A",
+          "label": "正常，转成亲情更踏实",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "要主动制造新鲜感",
+          "energy": 1
+        },
+        {
+          "key": "C",
+          "label": "有点慌，开始怀疑",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "顺其自然，到哪步算哪步",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_090",
+      "dimension": "work",
+      "text": "同时接到两个都很赶的任务。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "先冲优先级高的，另一个硬扛",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "立刻找领导/同事协调资源",
+          "energy": 0
+        },
+        {
+          "key": "C",
+          "label": "两个一起开，结果都拖",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "先做容易的找点成就感",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_091",
+      "dimension": "money",
+      "text": "钱包/手机丢了，里面东西不少。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "立刻挂失、报警、补办，雷厉风行",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "先崩溃一会儿再处理",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "安慰自己破财消灾",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "到处问还抱有侥幸找回",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_092",
+      "dimension": "social",
+      "text": "别人夸你，你的反应通常是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "大方收下，谢谢夸奖",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "赶紧谦虚否认\"没有没有\"",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "怀疑是不是在客套",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "开心但嘴上还要凡尔赛一下",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_093",
+      "dimension": "emotion",
+      "key": true,
+      "text": "答应别人的承诺没做到，你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "主动认错并补救",
+          "energy": 1,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "内疚很久，反复自责",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "找理由解释，淡化处理",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "假装这事没发生过",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_094",
+      "dimension": "value",
+      "text": "\"过程\"和\"结果\"，你更看重：",
+      "options": [
+        {
+          "key": "A",
+          "label": "结果导向，赢了再说",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "享受过程，问心无愧就行",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "都重要，缺一不可",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "看心情，赢了看结果输了看过程",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_095",
+      "dimension": "life",
+      "text": "看到一条很想转发的有趣内容。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "秒转+配文安利全世界",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "只发给特定一两个人",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "自己收藏，不公开",
+          "energy": 0,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "想转又怕被觉得无聊，作罢",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_096",
+      "dimension": "risk",
+      "text": "团队需要有人挑头担责，没人吭声。你：",
+      "options": [
+        {
+          "key": "A",
+          "label": "我来！机会也是责任",
+          "energy": 2,
+          "polite": true
+        },
+        {
+          "key": "B",
+          "label": "能不出头就不出头",
+          "energy": -1
+        },
+        {
+          "key": "C",
+          "label": "被点到才勉强接",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "心里想上嘴上不敢",
+          "energy": 0
+        }
+      ]
+    },
+    {
+      "id": "q_097",
+      "dimension": "love",
+      "text": "理想型出现了但你刚结束一段感情。你会：",
+      "options": [
+        {
+          "key": "A",
+          "label": "把握当下，先认识看看",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "先调整好自己再开始",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "怕重蹈覆辙，回避",
+          "energy": -1,
+          "rare": true
+        },
+        {
+          "key": "D",
+          "label": "犹豫到对方被别人追走",
+          "energy": -1
+        }
+      ]
+    },
+    {
+      "id": "q_098",
+      "dimension": "food",
+      "text": "吃自助餐，你的策略是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "专挑贵的猛炫，回本第一",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "适量取用，吃饱不浪费",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "样样尝一点，重在体验",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "眼大肚小，拿多了吃不完",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_099",
+      "dimension": "work",
+      "text": "工作和生活的边界，你更接近：",
+      "options": [
+        {
+          "key": "A",
+          "label": "下班绝不碰工作消息",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "随时在线，有事秒回",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "分情况，紧急的才回",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "想划界但总忍不住看",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    },
+    {
+      "id": "q_100",
+      "dimension": "value",
+      "text": "面对未知的明天，你心里更多是：",
+      "options": [
+        {
+          "key": "A",
+          "label": "兴奋，谁知道有啥惊喜",
+          "energy": 1
+        },
+        {
+          "key": "B",
+          "label": "踏实规划，尽在掌握",
+          "energy": -1,
+          "polite": true
+        },
+        {
+          "key": "C",
+          "label": "顺其自然，走着瞧",
+          "energy": 0
+        },
+        {
+          "key": "D",
+          "label": "隐隐焦虑，怕掌控不了",
+          "energy": -1,
+          "rare": true
+        }
+      ]
+    }
+  ]
+}
