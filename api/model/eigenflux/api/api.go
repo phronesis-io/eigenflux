@@ -5912,11 +5912,10 @@ func (p *FeedNotification) String() string {
 }
 
 type FeedData struct {
-	Items          []*FeedItem         `thrift:"items,1,required" form:"items,required" json:"items,required" query:"items,required"`
-	HasMore        bool                `thrift:"has_more,2,required" form:"has_more,required" json:"has_more,required" query:"has_more,required"`
-	Notifications  []*FeedNotification `thrift:"notifications,3,required" form:"notifications,required" json:"notifications,required" query:"notifications,required"`
-	ImpressionID   string              `thrift:"impression_id,4,required" form:"impression_id,required" json:"impression_id,required" query:"impression_id,required"`
-	OutputContract string              `thrift:"output_contract,5,optional" form:"output_contract" json:"output_contract,omitempty" query:"output_contract"`
+	Items         []*FeedItem         `thrift:"items,1,required" form:"items,required" json:"items,required" query:"items,required"`
+	HasMore       bool                `thrift:"has_more,2,required" form:"has_more,required" json:"has_more,required" query:"has_more,required"`
+	Notifications []*FeedNotification `thrift:"notifications,3,required" form:"notifications,required" json:"notifications,required" query:"notifications,required"`
+	ImpressionID  string              `thrift:"impression_id,4,required" form:"impression_id,required" json:"impression_id,required" query:"impression_id,required"`
 }
 
 func NewFeedData() *FeedData {

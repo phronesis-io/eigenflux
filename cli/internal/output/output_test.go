@@ -94,3 +94,19 @@ func TestPrintFeedForAgentWithoutContractStillRenders(t *testing.T) {
 		t.Fatalf("payload missing:\n%s", out)
 	}
 }
+
+func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {
+	// A non-object top-level payload must be passed through, not dropped to "{}".
+	data := json.RawMessage(`["raw","array","payload"]`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+	out := buf.String()
+
+	if !strings.Contains(out, `"raw"`) || !strings.Contains(out, `"payload"`) {
+		t.Fatalf("non-object payload should be echoed verbatim, got:\n%s", out)
+	}
+	if strings.Contains(out, "{}") {
+		t.Fatalf("payload was dropped to empty object:\n%s", out)
+	}
+}

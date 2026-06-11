@@ -625,13 +625,19 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		pendingNotifications, notifications = fetchPendingNotifications(ctx, agentID)
 	}
 
-	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"items":           items,
-		"has_more":        resp.HasMore,
-		"notifications":   notifications,
-		"impression_id":   resp.ImpressionId,
-		"output_contract": feedOutputContract(),
-	})
+	feedPayload := map[string]interface{}{
+		"items":         items,
+		"has_more":      resp.HasMore,
+		"notifications": notifications,
+		"impression_id": resp.ImpressionId,
+	}
+	// Only deliver the contract when we actually have it, so a missing static
+	// asset yields an absent field (clients fall back to their bundled copy)
+	// rather than an empty string masquerading as a real contract.
+	if contract := feedOutputContract(); contract != "" {
+		feedPayload["output_contract"] = contract
+	}
+	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
 

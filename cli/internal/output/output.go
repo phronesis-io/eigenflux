@@ -57,11 +57,18 @@ func PrintFeedForAgent(data json.RawMessage) {
 
 func PrintFeedForAgentTo(w io.Writer, data json.RawMessage) {
 	contract := ""
+	// Default to echoing the payload untouched; only substitute the stripped
+	// re-marshal when the data actually parses, so malformed or non-object
+	// payloads are passed through verbatim rather than silently dropped.
+	payload := []byte(data)
 	rest := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data, &rest); err == nil {
 		if raw, ok := rest["output_contract"]; ok {
 			_ = json.Unmarshal(raw, &contract)
 			delete(rest, "output_contract")
+		}
+		if b, err := json.MarshalIndent(rest, "", "  "); err == nil {
+			payload = b
 		}
 	}
 
@@ -71,10 +78,6 @@ func PrintFeedForAgentTo(w io.Writer, data json.RawMessage) {
 	}
 	fmt.Fprintln(w, "\nPayload:")
 	fmt.Fprintln(w, "```json")
-	payload := []byte(data)
-	if b, err := json.MarshalIndent(rest, "", "  "); err == nil {
-		payload = b
-	}
 	w.Write(payload)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "```")
