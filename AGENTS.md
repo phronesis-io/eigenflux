@@ -43,7 +43,7 @@ Read the relevant module doc before modifying that area:
 | `feed_and_cache.md` | Feed flow, impression recording, 5-level cache architecture, cache config and testing |
 | `auth.md` | Authentication flow, OTP, security mechanisms, mock OTP whitelist |
 | `notification.md` | Notification service DAL, Redis keys, delivery dedup, audience expressions |
-| `api_endpoints.md` | Gateway API endpoints, skill document structure, Swagger |
+| `api_endpoints.md` | Gateway API endpoints, skill document structure, Swagger, feed `output_contract` delivery |
 | `configuration.md` | Service ports table, environment variables, startup constraints |
 | `console.md` | Console build/start, directory structure, API endpoints, frontend dev |
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |

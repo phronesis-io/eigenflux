@@ -12,6 +12,10 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.."; pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 
+# Sync the feed output contract digest from the canonical skill source into the
+# API static assets before building, so the served copy never drifts.
+bash "$PROJECT_ROOT/scripts/common/sync-feed-contract.sh"
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'

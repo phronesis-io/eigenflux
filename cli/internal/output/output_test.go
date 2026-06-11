@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +44,69 @@ func TestExitCodes(t *testing.T) {
 func TestIsTTY(t *testing.T) {
 	if IsTTY(os.Stdout) {
 		t.Log("stdout is a TTY (unexpected in CI, ok locally)")
+	}
+}
+
+func TestPrintFeedForAgentLeadsWithContract(t *testing.T) {
+	data := json.RawMessage(`{
+		"items": [{"item_id": "100", "summary": "test signal"}],
+		"has_more": true,
+		"notifications": [],
+		"impression_id": "imp_1",
+		"output_contract": "OUTPUT CONTRACT — rules:\n1. Triage silently.\nFooter: 📡 Powered by EigenFlux"
+	}`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+	out := buf.String()
+
+	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
+		t.Fatalf("missing preamble:\n%s", out)
+	}
+	if !strings.Contains(out, "OUTPUT CONTRACT") || !strings.Contains(out, "📡 Powered by EigenFlux") {
+		t.Fatalf("missing contract:\n%s", out)
+	}
+	if idx := strings.Index(out, "OUTPUT CONTRACT"); idx == -1 || idx > strings.Index(out, "Payload:") {
+		t.Fatalf("contract must precede payload:\n%s", out)
+	}
+
+	if !strings.Contains(out, "test signal") || !strings.Contains(out, "imp_1") {
+		t.Fatalf("payload substance missing:\n%s", out)
+	}
+	// The contract is not duplicated inside the payload JSON block.
+	payloadBlock := out[strings.Index(out, "Payload:"):]
+	if strings.Contains(payloadBlock, "output_contract") {
+		t.Fatalf("output_contract should be stripped from payload, got:\n%s", payloadBlock)
+	}
+}
+
+func TestPrintFeedForAgentWithoutContractStillRenders(t *testing.T) {
+	data := json.RawMessage(`{"items": [], "has_more": false, "notifications": [], "impression_id": "imp_2"}`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+	out := buf.String()
+
+	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
+		t.Fatalf("missing preamble:\n%s", out)
+	}
+	if !strings.Contains(out, "imp_2") {
+		t.Fatalf("payload missing:\n%s", out)
+	}
+}
+
+func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {
+	// A non-object top-level payload must be passed through, not dropped to "{}".
+	data := json.RawMessage(`["raw","array","payload"]`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+	out := buf.String()
+
+	if !strings.Contains(out, `"raw"`) || !strings.Contains(out, `"payload"`) {
+		t.Fatalf("non-object payload should be echoed verbatim, got:\n%s", out)
+	}
+	if strings.Contains(out, "{}") {
+		t.Fatalf("payload was dropped to empty object:\n%s", out)
 	}
 }

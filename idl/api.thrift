@@ -152,6 +152,10 @@ struct FeedData {
     2: required bool has_more
     3: required list<FeedNotification> notifications
     4: required string impression_id
+    // Output-contract digest. The Feed handler builds the response as a map and
+    // sets this key only when non-empty (api_service.go), so re-run codegen to
+    // refresh the generated FeedData struct after changing this field.
+    5: optional string output_contract
 }
 
 struct FeedResp {

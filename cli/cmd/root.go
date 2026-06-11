@@ -56,7 +56,7 @@ Examples:
 func init() {
 	rootCmd.PersistentFlags().StringVar(&homeDirFlag, "homedir", "", "data directory (default: $EIGENFLUX_HOME or ~/.eigenflux)")
 	rootCmd.PersistentFlags().StringVarP(&serverFlag, "server", "s", "", "target server name (default: current server)")
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table (default: json in non-TTY, table in TTY)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table, or agent (feed poll only: contract preamble + payload). Default: json in non-TTY, table in TTY")
 	rootCmd.PersistentFlags().BoolVar(&noInteract, "no-interactive", false, "skip all interactive prompts")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose stderr logging")
 

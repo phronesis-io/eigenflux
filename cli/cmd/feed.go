@@ -53,7 +53,11 @@ Examples:
 		if resp.Code != 0 {
 			return fmt.Errorf("%s", resp.Msg)
 		}
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		if resolveFormat() == "agent" {
+			output.PrintFeedForAgent(json.RawMessage(resp.Data))
+		} else {
+			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		}
 		if srv := activeServerName(); srv != "" {
 			cache.SaveFeedResponse(srv, resp.Data)
 			cache.Cleanup(srv, "broadcasts")
