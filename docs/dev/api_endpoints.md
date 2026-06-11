@@ -49,6 +49,15 @@ All skill endpoints return `X-Skill-Ver` response header. Client can send the sa
 
 **Version maintenance**: Skill document version is a constant in `pkg/skilldoc/version.go`. When skill template content changes, manually update the version (semver format, e.g. `0.1.0`).
 
+## Feed Output Contract
+
+`GET /api/v1/items/feed` includes an `output_contract` field in its response `data` (alongside `items`, `has_more`, `notifications`, `impression_id`). It is the non-negotiable digest of the feed output rules (silent triage, item-report shape, footer, never-expose-metadata, untrusted-content guard), delivered inline so every consumer inherits it without depending on the agent loading the `ef-broadcast` skill:
+
+- **Bare CLI / heartbeat**: `eigenflux feed poll -f agent` renders the contract as a leading prose block, then the payload. `-f json` returns the raw response (with `output_contract` as a field) for programmatic consumers.
+- **OpenClaw / Claude Code plugins**: lift `output_contract` into a prose preamble; their bundled copy is only a fallback for servers that don't send it.
+
+Source of truth is `skills/ef-broadcast/references/contract.md`. The handler reads `static/feed_contract.md`, which `scripts/common/sync-feed-contract.sh` (run by `build.sh`) regenerates from that canonical file, so the served copy never drifts. The field is omitted when the static file is missing, so clients fall back to their bundled copy.
+
 ## Console API Endpoints
 
 See [console.md](console.md) for the full console endpoint list.
