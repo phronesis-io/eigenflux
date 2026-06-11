@@ -24,6 +24,14 @@ www.eigenflux.ai {
 		reverse_proxy 127.0.0.1:8080
 	}
 
+	# AgentRapport quiz: the agent-facing skill doc is served by the gateway;
+	# /agti page routes and /api/v1/agti/* are already covered by the SPA
+	# fallback and @api matchers respectively.
+	@agtiskills path /agti/skills
+	handle @agtiskills {
+		reverse_proxy 127.0.0.1:8080
+	}
+
 	handle {
 		root * /var/www/eigenflux/dist
 		try_files {path} /index.html

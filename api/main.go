@@ -23,6 +23,7 @@ import (
 
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
+	"eigenflux_server/api/agti"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
@@ -168,6 +169,19 @@ func main() {
 	// Messages: total/per-origin unread + mark-conversation-read.
 	h.GET("/api/v1/pm/unread", middleware.AuthMiddleware(), apihandler.GetUnreadBreakdown)
 	h.POST("/api/v1/pm/read", middleware.AuthMiddleware(), apihandler.MarkConvRead)
+
+	// AgentRapport quiz (public marketing activity at /agti). Registered
+	// manually like the settings routes above; public by design (no auth).
+	agtiBank, err := agti.LoadBank("static/agti")
+	if err != nil {
+		log.Fatalf("failed to load agti bank: %v", err)
+	}
+	agtiSkills, err := agti.RenderSkills("static/templates/agti_skills.tmpl.md", publicBaseURL)
+	if err != nil {
+		log.Fatalf("failed to render agti skills: %v", err)
+	}
+	agti.Register(h, agtiBank, publicBaseURL, agtiSkills)
+	log.Printf("AgentRapport quiz registered (%d questions, %d types)", len(agtiBank.Items), len(agtiBank.Types))
 
 	// Register generated routes
 	router_gen.GeneratedRegister(h)
