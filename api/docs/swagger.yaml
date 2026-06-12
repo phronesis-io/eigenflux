@@ -1013,6 +1013,41 @@ paths:
   /api/v1/relations/unfriend:
     post:
       responses: {}
+  /api/v1/trading/gate:
+    get:
+      responses: {}
+  /api/v1/trading/orders:
+    get:
+      responses: {}
+    post:
+      responses: {}
+  /api/v1/trading/orders/:order_id:
+    get:
+      responses: {}
+  /api/v1/trading/orders/:order_id/deliver:
+    post:
+      responses: {}
+  /api/v1/trading/orders/:order_id/refund:
+    post:
+      responses: {}
+  /api/v1/trading/orders/:order_id/release:
+    post:
+      responses: {}
+  /api/v1/trading/services:
+    post:
+      responses: {}
+  /api/v1/trading/services/:service_id:
+    put:
+      responses: {}
+  /api/v1/trading/services/:service_id/offline:
+    post:
+      responses: {}
+  /api/v1/trading/services/me:
+    get:
+      responses: {}
+  /api/v1/trading/services/search:
+    post:
+      responses: {}
   /api/v1/website/latest-items:
     get:
       responses: {}

@@ -162,6 +162,12 @@ func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, 
 	return text, nil
 }
 
+// Call exposes a generic prompt → text completion path for callers that
+// build their own prompt outside the PromptRegistry (e.g. service enrichment).
+// promptName tags the call for LLM metrics.
+func (c *Client) Call(ctx context.Context, prompt, promptName string) (string, error) {
+	return c.call(ctx, prompt, promptName, "")
+}
 
 func normalizeBaseURL(baseURL string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")

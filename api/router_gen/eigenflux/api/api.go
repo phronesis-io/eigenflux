@@ -75,6 +75,27 @@ func Register(r *server.Hertz) {
 				_relations.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
 			}
 			{
+				_trading := _v1.Group("/trading", _tradingMw()...)
+				_trading.GET("/gate", append(_gettradegatestatusMw(), api.GetTradeGateStatus)...)
+				_trading.GET("/orders", append(_listtradeordersMw(), api.ListTradeOrders)...)
+				_trading.POST("/orders", append(_createtradeorderMw(), api.CreateTradeOrder)...)
+				_orders := _trading.Group("/orders", _ordersMw()...)
+				_orders.GET("/:order_id", append(_gettradeorderMw(), api.GetTradeOrder)...)
+				{
+					_order_id := _orders.Group("/:order_id", _order_idMw()...)
+					_order_id.POST("/deliver", append(_delivertradeorderMw(), api.DeliverTradeOrder)...)
+					_order_id.POST("/refund", append(_refundtradeorderMw(), api.RefundTradeOrder)...)
+					_order_id.POST("/release", append(_releasetradeorderMw(), api.ReleaseTradeOrder)...)
+				}
+				_trading.POST("/services", append(_publishtradingserviceMw(), api.PublishTradingService)...)
+				_services := _trading.Group("/services", _servicesMw()...)
+				_services.GET("/me", append(_getmytradingservicesMw(), api.GetMyTradingServices)...)
+				_services.POST("/search", append(_searchtradingservicesMw(), api.SearchTradingServices)...)
+				_services.PUT("/:service_id", append(_updatetradingserviceMw(), api.UpdateTradingService)...)
+				_service_id := _services.Group("/:service_id", _service_idMw()...)
+				_service_id.POST("/offline", append(_offlinetradingserviceMw(), api.OfflineTradingService)...)
+			}
+			{
 				_website := _v1.Group("/website", _websiteMw()...)
 				_website.GET("/latest-items", append(_getlatestitemsMw(), api.GetLatestItems)...)
 				_website.GET("/stats", append(_getwebsitestatsMw(), api.GetWebsiteStats)...)

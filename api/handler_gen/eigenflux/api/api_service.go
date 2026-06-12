@@ -30,6 +30,8 @@ import (
 	profilerpc "eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/activity"
+	sortrpc "eigenflux_server/kitex_gen/eigenflux/sort"
+	traderpc "eigenflux_server/kitex_gen/eigenflux/trade"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemstats"
@@ -2771,5 +2773,586 @@ func ConsoleExchange(ctx context.Context, c *app.RequestContext) {
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"access_token": accessToken,
+	})
+}
+
+func tradingServiceToJSON(svc *traderpc.TradingService) map[string]interface{} {
+	if svc == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"service_id":           strconv.FormatInt(svc.ServiceId, 10),
+		"seller_agent_id":      strconv.FormatInt(svc.SellerAgentId, 10),
+		"title":                svc.Title,
+		"capability_desc":      svc.CapabilityDesc,
+		"call_spec_text":       svc.CallSpecText,
+		"call_spec_schema":     svc.CallSpecSchema,
+		"price_text":           svc.PriceText,
+		"amount_atomic":        svc.AmountAtomic,
+		"asset":                svc.Asset,
+		"delivery_deadline_ms": svc.DeliveryDeadlineMs,
+		"status":               svc.Status,
+		"success_rate":         svc.SuccessRate,
+		"avg_latency_ms":       svc.AvgLatencyMs,
+		"order_count":          svc.OrderCount,
+		"created_at":           svc.CreatedAt,
+		"updated_at":           svc.UpdatedAt,
+	}
+}
+
+func tradeOrderToJSON(o *traderpc.TradeOrder) map[string]interface{} {
+	if o == nil {
+		return nil
+	}
+	m := map[string]interface{}{
+		"order_id":                    strconv.FormatInt(o.OrderId, 10),
+		"service_id":                  strconv.FormatInt(o.ServiceId, 10),
+		"buyer_agent_id":              strconv.FormatInt(o.BuyerAgentId, 10),
+		"seller_agent_id":             strconv.FormatInt(o.SellerAgentId, 10),
+		"status":                      o.Status,
+		"transfer_id":                 o.TransferId,
+		"transfer_state":              o.TransferState,
+		"frozen_title":                o.FrozenTitle,
+		"frozen_amount_atomic":        o.FrozenAmountAtomic,
+		"frozen_asset":                o.FrozenAsset,
+		"frozen_delivery_deadline_ms": o.FrozenDeliveryDeadlineMs,
+		"buyer_input":                 o.BuyerInput,
+		"delivery_payload":            o.DeliveryPayload,
+		"created_at":                  o.CreatedAt,
+		"deadline_at":                 o.DeadlineAt,
+	}
+	if o.PaidAt != 0 {
+		m["paid_at"] = o.PaidAt
+	}
+	if o.DeliveredAt != 0 {
+		m["delivered_at"] = o.DeliveredAt
+	}
+	if o.ReleasedAt != 0 {
+		m["released_at"] = o.ReleasedAt
+	}
+	if o.RefundedAt != 0 {
+		m["refunded_at"] = o.RefundedAt
+	}
+	if o.ClosedAt != 0 {
+		m["closed_at"] = o.ClosedAt
+	}
+	return m
+}
+
+// PublishTradingService .
+// @router /api/v1/trading/services [POST]
+func PublishTradingService(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.PublishTradingServiceReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("PublishTradingService", "agentID", agentID)
+
+	rpcReq := &traderpc.PublishServiceReq{
+		SellerAgentId:      agentID,
+		Title:              req.Title,
+		AmountAtomic:       req.AmountAtomic,
+		DeliveryDeadlineMs: req.DeliveryDeadlineMs,
+	}
+	if req.CapabilityDesc != nil {
+		rpcReq.CapabilityDesc = *req.CapabilityDesc
+	}
+	if req.CallSpecText != nil {
+		rpcReq.CallSpecText = *req.CallSpecText
+	}
+	if req.CallSpecSchema != nil {
+		rpcReq.CallSpecSchema = *req.CallSpecSchema
+	}
+	if req.PriceText != nil {
+		rpcReq.PriceText = *req.PriceText
+	}
+	if req.Asset != nil {
+		rpcReq.Asset = *req.Asset
+	}
+
+	resp, err := clients.TradeClient.PublishService(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"service_id": strconv.FormatInt(resp.ServiceId, 10),
+	})
+}
+
+// UpdateTradingService .
+// @router /api/v1/trading/services/:service_id [PUT]
+func UpdateTradingService(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UpdateTradingServiceReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("UpdateTradingService", "agentID", agentID, "serviceID", req.ServiceID)
+
+	rpcReq := &traderpc.UpdateServiceReq{
+		ServiceId:     req.ServiceID,
+		SellerAgentId: agentID,
+	}
+	if req.Title != nil {
+		rpcReq.Title = *req.Title
+	}
+	if req.CapabilityDesc != nil {
+		rpcReq.CapabilityDesc = *req.CapabilityDesc
+	}
+	if req.CallSpecText != nil {
+		rpcReq.CallSpecText = *req.CallSpecText
+	}
+	if req.CallSpecSchema != nil {
+		rpcReq.CallSpecSchema = *req.CallSpecSchema
+	}
+	if req.PriceText != nil {
+		rpcReq.PriceText = *req.PriceText
+	}
+	if req.AmountAtomic != nil {
+		rpcReq.AmountAtomic = *req.AmountAtomic
+	}
+	if req.Asset != nil {
+		rpcReq.Asset = *req.Asset
+	}
+	if req.DeliveryDeadlineMs != nil {
+		rpcReq.DeliveryDeadlineMs = *req.DeliveryDeadlineMs
+	}
+
+	resp, err := clients.TradeClient.UpdateService(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// OfflineTradingService .
+// @router /api/v1/trading/services/:service_id/offline [POST]
+func OfflineTradingService(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.OfflineTradingServiceReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("OfflineTradingService", "agentID", agentID, "serviceID", req.ServiceID)
+
+	resp, err := clients.TradeClient.OfflineService(ctx, &traderpc.OfflineServiceReq{
+		ServiceId:     req.ServiceID,
+		SellerAgentId: agentID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// GetMyTradingServices .
+// @router /api/v1/trading/services/me [GET]
+func GetMyTradingServices(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.GetMyTradingServicesReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("GetMyTradingServices", "agentID", agentID)
+
+	rpcReq := &traderpc.GetMyServicesReq{
+		SellerAgentId: agentID,
+	}
+	if req.Limit != nil {
+		rpcReq.Limit = *req.Limit
+	}
+	if req.Cursor != nil {
+		rpcReq.Cursor = *req.Cursor
+	}
+
+	resp, err := clients.TradeClient.GetMyServices(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	services := make([]map[string]interface{}, 0, len(resp.Services))
+	for _, svc := range resp.Services {
+		services = append(services, tradingServiceToJSON(svc))
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"services":    services,
+		"next_cursor": resp.NextCursor,
+	})
+}
+
+// SearchTradingServices .
+// @router /api/v1/trading/services/search [POST]
+func SearchTradingServices(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.SearchTradingServicesReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	if req.RawQuery == "" {
+		writeJSON(c, http.StatusBadRequest, 400, "raw_query required", nil)
+		return
+	}
+
+	rpcReq := &sortrpc.SearchServicesReq{
+		RawQuery: req.RawQuery,
+	}
+	for _, si := range req.SubIntents {
+		rpcReq.SubIntents = append(rpcReq.SubIntents, &sortrpc.SubIntent{
+			Name:       si.Name,
+			QueryText:  si.QueryText,
+			Importance: si.Importance,
+		})
+	}
+	if req.Limit != nil {
+		rpcReq.Limit = req.Limit
+	}
+	if req.Filters != nil {
+		rpcReq.Filters = &sortrpc.SearchFilters{
+			MaxPriceAtomic: req.Filters.MaxPriceAtomic,
+			DeadlineMsMax:  req.Filters.DeadlineMsMax,
+		}
+	}
+
+	resp, err := clients.SortClient.SearchServices(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	results := make([]map[string]interface{}, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		results = append(results, map[string]interface{}{
+			"service_id":           strconv.FormatInt(r.ServiceId, 10),
+			"title":                r.Title,
+			"seller_agent_id":      strconv.FormatInt(r.SellerAgentId, 10),
+			"amount_atomic":        r.AmountAtomic,
+			"asset":                r.Asset,
+			"delivery_deadline_ms": r.DeliveryDeadlineMs,
+			"score":                r.Score,
+			"matched_intents":      r.MatchedIntents,
+			"winning_intent":       r.WinningIntent,
+			"score_breakdown":      r.ScoreBreakdown,
+			"stats":                r.Stats,
+		})
+	}
+
+	debug := map[string]interface{}{
+		"sub_intents_source":    "",
+		"effective_sub_intents": []map[string]interface{}{},
+	}
+	if resp.Debug != nil {
+		effective := make([]map[string]interface{}, 0, len(resp.Debug.EffectiveSubIntents))
+		for _, si := range resp.Debug.EffectiveSubIntents {
+			entry := map[string]interface{}{
+				"name":       si.Name,
+				"query_text": si.QueryText,
+			}
+			if si.Importance != nil {
+				entry["importance"] = *si.Importance
+			}
+			effective = append(effective, entry)
+		}
+		debug["sub_intents_source"] = resp.Debug.SubIntentsSource
+		debug["effective_sub_intents"] = effective
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"results": results,
+		"debug":   debug,
+	})
+}
+
+// CreateTradeOrder .
+// @router /api/v1/trading/orders [POST]
+func CreateTradeOrder(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.CreateTradeOrderReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("CreateTradeOrder", "agentID", agentID, "serviceID", req.ServiceID)
+
+	rpcReq := &traderpc.CreateOrderReq{
+		BuyerAgentId: agentID,
+		ServiceId:    req.ServiceID,
+	}
+	if req.BuyerInput != nil {
+		rpcReq.BuyerInput = *req.BuyerInput
+	}
+
+	resp, err := clients.TradeClient.CreateOrder(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"order_id": strconv.FormatInt(resp.OrderId, 10),
+	})
+}
+
+// DeliverTradeOrder .
+// @router /api/v1/trading/orders/:order_id/deliver [POST]
+func DeliverTradeOrder(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.DeliverTradeOrderReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("DeliverTradeOrder", "agentID", agentID, "orderID", req.OrderID)
+
+	resp, err := clients.TradeClient.DeliverOrder(ctx, &traderpc.DeliverOrderReq{
+		OrderId:         req.OrderID,
+		SellerAgentId:   agentID,
+		DeliveryPayload: req.DeliveryPayload,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// ReleaseTradeOrder .
+// @router /api/v1/trading/orders/:order_id/release [POST]
+func ReleaseTradeOrder(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ReleaseTradeOrderReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("ReleaseTradeOrder", "agentID", agentID, "orderID", req.OrderID)
+
+	resp, err := clients.TradeClient.ReleaseOrder(ctx, &traderpc.ReleaseOrderReq{
+		OrderId:      req.OrderID,
+		BuyerAgentId: req.BuyerAgentID,
+		TransferId:   req.TransferID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// RefundTradeOrder .
+// @router /api/v1/trading/orders/:order_id/refund [POST]
+func RefundTradeOrder(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.RefundTradeOrderReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Info("RefundTradeOrder", "agentID", agentID, "orderID", req.OrderID)
+
+	resp, err := clients.TradeClient.RefundOrder(ctx, &traderpc.RefundOrderReq{
+		OrderId:      req.OrderID,
+		ActorAgentId: agentID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", nil)
+}
+
+// GetTradeOrder .
+// @router /api/v1/trading/orders/:order_id [GET]
+func GetTradeOrder(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.GetTradeOrderReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("GetTradeOrder", "agentID", agentID, "orderID", req.OrderID)
+
+	resp, err := clients.TradeClient.GetOrder(ctx, &traderpc.GetOrderReq{
+		OrderId: req.OrderID,
+		AgentId: agentID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	events := make([]map[string]interface{}, 0, len(resp.Events))
+	for _, ev := range resp.Events {
+		evJSON := map[string]interface{}{
+			"event_id":       strconv.FormatInt(ev.EventId, 10),
+			"order_id":       strconv.FormatInt(ev.OrderId, 10),
+			"event_type":     ev.EventType,
+			"actor_agent_id": strconv.FormatInt(ev.ActorAgentId, 10),
+			"created_at":     ev.CreatedAt,
+		}
+		if ev.PayloadJson != "" {
+			evJSON["payload_json"] = ev.PayloadJson
+		}
+		events = append(events, evJSON)
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"order":  tradeOrderToJSON(resp.Order),
+		"events": events,
+	})
+}
+
+// ListTradeOrders .
+// @router /api/v1/trading/orders [GET]
+func ListTradeOrders(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.ListTradeOrdersReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("ListTradeOrders", "agentID", agentID)
+
+	rpcReq := &traderpc.ListOrdersReq{
+		AgentId: agentID,
+	}
+	if req.Role != nil {
+		rpcReq.Role = *req.Role
+	}
+	if req.StatusFilter != nil {
+		rpcReq.StatusFilter = *req.StatusFilter
+	}
+	if req.Limit != nil {
+		rpcReq.Limit = *req.Limit
+	}
+	if req.Cursor != nil {
+		rpcReq.Cursor = *req.Cursor
+	}
+
+	resp, err := clients.TradeClient.ListOrders(ctx, rpcReq)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	orders := make([]map[string]interface{}, 0, len(resp.Orders))
+	for _, o := range resp.Orders {
+		orders = append(orders, tradeOrderToJSON(o))
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"orders":      orders,
+		"next_cursor": resp.NextCursor,
+	})
+}
+
+// GetTradeGateStatus .
+// @router /api/v1/trading/gate [GET]
+func GetTradeGateStatus(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.GetTradeGateStatusReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	logger.Ctx(ctx).Debug("GetTradeGateStatus", "agentID", agentID)
+
+	resp, err := clients.TradeClient.GetGateStatus(ctx, &traderpc.GetGateStatusReq{
+		BuyerAgentId: agentID,
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"can_create_order":    resp.CanCreateOrder,
+		"active_order_count":  resp.ActiveOrderCount,
+		"max_active_orders":   resp.MaxActiveOrders,
+		"has_pending_release": resp.HasPendingRelease,
 	})
 }

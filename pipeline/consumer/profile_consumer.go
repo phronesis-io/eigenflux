@@ -2,17 +2,14 @@ package consumer
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
@@ -22,9 +19,11 @@ import (
 )
 
 const (
-	profileStream = "stream:profile:update"
-	profileGroup  = "cg:profile:update"
-	maxRetries    = 3
+	profileStream       = "stream:profile:update"
+	profileGroup        = "cg:profile:update"
+	profileConsumerName = "profile-worker-1"
+	profileMetricsLabel = "profile:update"
+	maxRetries          = 3
 )
 
 type ProfileConsumer struct {
@@ -32,17 +31,27 @@ type ProfileConsumer struct {
 	embeddingClient *embedding.Client
 	profileCache    *cache.ProfileCache
 	embeddingCache  *cache.EmbeddingCache
-	maxWorkers      int
+	runner          *StreamConsumer
 }
 
 func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ProfileConsumer {
-	return &ProfileConsumer{
+	c := &ProfileConsumer{
 		llmClient:       llm.NewClient(cfg, prompts),
 		embeddingClient: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		profileCache:    cache.NewProfileCache(mq.RDB, time.Duration(cfg.ProfileCacheTTL)*time.Second),
 		embeddingCache:  cache.NewEmbeddingCache(mq.RDB, 24*time.Hour),
-		maxWorkers:      10, // Fixed concurrency level
 	}
+	c.runner = &StreamConsumer{
+		Name:                    "ProfileConsumer",
+		Stream:                  profileStream,
+		Group:                   profileGroup,
+		ConsumerName:            profileConsumerName,
+		MetricsLabel:            profileMetricsLabel,
+		Workers:                 10,
+		FatalOnGroupCreateError: true,
+		Handle:                  c.handle,
+	}
+	return c
 }
 
 func buildCachedProfile(agentID int64, keywords []string, country string) *cache.CachedProfile {
@@ -55,94 +64,19 @@ func buildCachedProfile(agentID int64, keywords []string, country string) *cache
 	}
 }
 
-func (c *ProfileConsumer) Start(ctx context.Context) {
-	logger.Default().Info("ProfileConsumer starting", "workers", c.maxWorkers)
+func (c *ProfileConsumer) Start(ctx context.Context) { c.runner.Run(ctx) }
 
-	if err := mq.EnsureConsumerGroup(ctx, profileStream, profileGroup); err != nil {
-		logger.Default().Error("ProfileConsumer failed to create consumer group", "err", err)
-		os.Exit(1)
-	}
-
-	// Create message channel for worker pool
-	type msgTask struct {
-		id     string
-		values map[string]interface{}
-	}
-	msgChan := make(chan msgTask, c.maxWorkers*2)
-	var wg sync.WaitGroup
-
-	// Start worker pool
-	for i := 0; i < c.maxWorkers; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			logger.Default().Info("ProfileConsumer worker started", "workerID", workerID)
-			for task := range msgChan {
-				start := time.Now()
-				c.processMessage(ctx, task.id, task.values)
-				metrics.ConsumerMessageDuration.WithLabelValues("profile:update").Observe(time.Since(start).Seconds())
-			}
-			logger.Default().Info("ProfileConsumer worker stopped", "workerID", workerID)
-		}(i)
-	}
-
-	// Main loop: fetch messages and distribute to workers
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				logger.Default().Info("ProfileConsumer context cancelled, closing message channel")
-				close(msgChan)
-				return
-			default:
-			}
-
-			msgs, err := mq.Consume(ctx, profileStream, profileGroup, "profile-worker-1", 10)
-			if err != nil {
-				logger.Default().Error("ProfileConsumer consume error", "err", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			for _, msg := range msgs {
-				task := msgTask{
-					id:     msg.ID,
-					values: msg.Values,
-				}
-				select {
-				case msgChan <- task:
-					// Message sent to worker
-				case <-ctx.Done():
-					logger.Default().Info("ProfileConsumer context cancelled while sending message")
-					close(msgChan)
-					return
-				}
-			}
-		}
-	}()
-
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Default().Info("ProfileConsumer shutting down, waiting for workers to finish...")
-	wg.Wait()
-	logger.Default().Info("ProfileConsumer all workers stopped")
-}
-
-func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
+func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[string]any) HandleResult {
 	agentIDStr, ok := values["agent_id"].(string)
 	if !ok {
 		logger.Default().Warn("ProfileConsumer invalid message: missing agent_id")
-		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
-		mq.Ack(ctx, profileStream, profileGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ProfileConsumer invalid agent_id", "agentID", agentIDStr)
-		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
-		mq.Ack(ctx, profileStream, profileGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	logger.Default().Info("ProfileConsumer processing agent", "agentID", agentID)
@@ -155,16 +89,13 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	if err != nil {
 		logger.Default().Warn("ProfileConsumer agent not found", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
-		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
-		mq.Ack(ctx, profileStream, profileGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	if agent.Bio == "" {
 		logger.Default().Debug("ProfileConsumer agent has empty bio, skipping", "agentID", agentID)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 3) // done with no keywords
-		mq.Ack(ctx, profileStream, profileGroup, msgID)
-		return
+		return HandleSuccess
 	}
 
 	// Call LLM to extract keywords with retries
@@ -182,9 +113,7 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 	if err != nil {
 		logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
-		metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "failure").Inc()
-		mq.Ack(ctx, profileStream, profileGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	// Update keywords, country and status to done (3)
@@ -232,6 +161,5 @@ func (c *ProfileConsumer) processMessage(ctx context.Context, msgID string, valu
 		}
 	}
 
-	metrics.ConsumerMessagesTotal.WithLabelValues("profile:update", "success").Inc()
-	mq.Ack(ctx, profileStream, profileGroup, msgID)
+	return HandleSuccess
 }
