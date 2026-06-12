@@ -483,9 +483,9 @@ func publishSearchReplay(ctx context.Context, req *sort.SearchServicesReq, sourc
 		return
 	}
 	agentFeatures := map[string]interface{}{
-		"surface":             "search_services",
-		"raw_query":           req.RawQuery,
-		"sub_intents_source":  source,
+		"surface":               "search_services",
+		"raw_query":             req.RawQuery,
+		"sub_intents_source":    source,
 		"effective_sub_intents": effective,
 	}
 	if req.Filters != nil {
@@ -504,7 +504,7 @@ func publishSearchReplay(ctx context.Context, req *sort.SearchServicesReq, sourc
 		return
 	}
 	impressionID := fmt.Sprintf("imp_search_%d", time.Now().UnixNano())
-	if err := replaylog.Publish(ctx, impressionID, 0, string(agentFeaturesJSON), served); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, 0, string(agentFeaturesJSON), served, true); err != nil {
 		logger.Default().Warn("SearchServices replay publish failed", "err", err)
 	}
 }

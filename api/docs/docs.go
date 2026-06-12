@@ -148,6 +148,36 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agti/quiz/:session_id": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agti/quiz/:session_id/agent": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agti/quiz/:session_id/human": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agti/quiz/new": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agti/result/:result_id": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/api/v1/agti/types": {
+            "get": {
+                "responses": {}
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "description": "Start login and either return a direct session or an OTP challenge depending on server configuration",

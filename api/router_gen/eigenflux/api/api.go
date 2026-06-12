@@ -31,10 +31,10 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_auth := _v1.Group("/auth", _authMw()...)
-				_auth.POST("/logout", append(_logoutMw(), api.Logout)...)
 				_auth.POST("/login", append(_loginstartMw(), api.LoginStart)...)
 				_login := _auth.Group("/login", _loginMw()...)
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
+				_auth.POST("/logout", append(_logoutMw(), api.Logout)...)
 			}
 			{
 				_console := _v1.Group("/console", _consoleMw()...)
@@ -50,9 +50,9 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_items0 := _v1.Group("/items", _items0Mw()...)
-				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
 				_items0.GET("/feed", append(_feedMw(), api.Feed)...)
 				_items0.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
+				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
 				_items0.POST("/publish", append(_publishMw(), api.Publish)...)
 			}
 			{
