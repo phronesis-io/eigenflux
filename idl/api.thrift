@@ -245,6 +245,20 @@ service ApiService {
     ConsoleUpdateSettingsResp ConsoleUpdateSettings(1: ConsoleUpdateSettingsReq req) (api.put="/api/v1/console/settings")
     ConsoleAuthCodeResp ConsoleAuthCode(1: ConsoleAuthCodeReq req) (api.post="/api/v1/console/auth-code")
     ConsoleExchangeResp ConsoleExchange(1: ConsoleExchangeReq req) (api.post="/api/v1/console/exchange")
+
+    // Trading endpoints (auth required)
+    PublishTradingServiceResp PublishTradingService(1: PublishTradingServiceReq req) (api.post="/api/v1/trading/services")
+    UpdateTradingServiceResp UpdateTradingService(1: UpdateTradingServiceReq req) (api.put="/api/v1/trading/services/:service_id")
+    OfflineTradingServiceResp OfflineTradingService(1: OfflineTradingServiceReq req) (api.post="/api/v1/trading/services/:service_id/offline")
+    GetMyTradingServicesResp GetMyTradingServices(1: GetMyTradingServicesReq req) (api.get="/api/v1/trading/services/me")
+    SearchTradingServicesResp SearchTradingServices(1: SearchTradingServicesReq req) (api.post="/api/v1/trading/services/search")
+    CreateTradeOrderResp CreateTradeOrder(1: CreateTradeOrderReq req) (api.post="/api/v1/trading/orders")
+    DeliverTradeOrderResp DeliverTradeOrder(1: DeliverTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/deliver")
+    ReleaseTradeOrderResp ReleaseTradeOrder(1: ReleaseTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/release")
+    RefundTradeOrderResp RefundTradeOrder(1: RefundTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/refund")
+    GetTradeOrderResp GetTradeOrder(1: GetTradeOrderReq req) (api.get="/api/v1/trading/orders/:order_id")
+    ListTradeOrdersResp ListTradeOrders(1: ListTradeOrdersReq req) (api.get="/api/v1/trading/orders")
+    GetTradeGateStatusResp GetTradeGateStatus(1: GetTradeGateStatusReq req) (api.get="/api/v1/trading/gate")
 }
 
 struct FeedbackItem {
@@ -740,4 +754,262 @@ struct ConsoleExchangeResp {
     1: required i32 code
     2: required string msg
     3: required ConsoleExchangeData data
+}
+
+// ===== Trading Structs =====
+
+struct PublishTradingServiceReq {
+    1: required string title (api.body="title")
+    2: optional string capability_desc (api.body="capability_desc")
+    3: optional string call_spec_text (api.body="call_spec_text")
+    4: optional string call_spec_schema (api.body="call_spec_schema")
+    5: optional string price_text (api.body="price_text")
+    6: required i64 amount_atomic (api.body="amount_atomic")
+    7: optional string asset (api.body="asset")
+    8: required i64 delivery_deadline_ms (api.body="delivery_deadline_ms")
+}
+
+struct PublishTradingServiceData {
+    1: required string service_id
+}
+
+struct PublishTradingServiceResp {
+    1: required i32 code
+    2: required string msg
+    3: required PublishTradingServiceData data
+}
+
+struct UpdateTradingServiceReq {
+    1: required i64 service_id (api.path="service_id")
+    2: optional string title (api.body="title")
+    3: optional string capability_desc (api.body="capability_desc")
+    4: optional string call_spec_text (api.body="call_spec_text")
+    5: optional string call_spec_schema (api.body="call_spec_schema")
+    6: optional string price_text (api.body="price_text")
+    7: optional i64 amount_atomic (api.body="amount_atomic")
+    8: optional string asset (api.body="asset")
+    9: optional i64 delivery_deadline_ms (api.body="delivery_deadline_ms")
+}
+
+struct UpdateTradingServiceResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct OfflineTradingServiceReq {
+    1: required i64 service_id (api.path="service_id")
+}
+
+struct OfflineTradingServiceResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct GetMyTradingServicesReq {
+    1: optional i32 limit (api.query="limit")
+    2: optional string cursor (api.query="cursor")
+}
+
+struct TradingServiceInfo {
+    1: required string service_id
+    2: required string seller_agent_id
+    3: required string title
+    4: required string capability_desc
+    5: required string call_spec_text
+    6: optional string call_spec_schema
+    7: required string price_text
+    8: required i64 amount_atomic
+    9: required string asset
+    10: required i64 delivery_deadline_ms
+    11: required i16 status
+    12: required double success_rate
+    13: required i64 avg_latency_ms
+    14: required i32 order_count
+    15: required i64 created_at
+    16: required i64 updated_at
+}
+
+struct GetMyTradingServicesData {
+    1: required list<TradingServiceInfo> services
+    2: required string next_cursor
+}
+
+struct GetMyTradingServicesResp {
+    1: required i32 code
+    2: required string msg
+    3: required GetMyTradingServicesData data
+}
+
+struct SubIntent {
+    1: required string name (api.body="name")
+    2: required string query_text (api.body="query_text")
+    3: optional double importance (api.body="importance")
+}
+
+struct SearchFilters {
+    1: optional i64 max_price_atomic (api.body="max_price_atomic")
+    2: optional i64 deadline_ms_max (api.body="deadline_ms_max")
+}
+
+struct SearchTradingServicesReq {
+    1: required string raw_query (api.body="raw_query")
+    2: optional list<SubIntent> sub_intents (api.body="sub_intents")
+    3: optional i32 limit (api.body="limit")
+    4: optional SearchFilters filters (api.body="filters")
+}
+
+struct SearchedServiceInfo {
+    1: required string service_id
+    2: required string title
+    3: required string seller_agent_id
+    4: required i64 amount_atomic
+    5: required string asset
+    6: required i64 delivery_deadline_ms
+    7: required double score
+    8: required list<string> matched_intents
+    9: required string winning_intent
+    10: required map<string, double> score_breakdown
+    11: required map<string, double> stats
+}
+
+struct SearchTradingServicesDebug {
+    1: required string sub_intents_source
+    2: required list<SubIntent> effective_sub_intents
+}
+
+struct SearchTradingServicesData {
+    1: required list<SearchedServiceInfo> results
+    2: required SearchTradingServicesDebug debug
+}
+
+struct SearchTradingServicesResp {
+    1: required i32 code
+    2: required string msg
+    3: required SearchTradingServicesData data
+}
+
+struct CreateTradeOrderReq {
+    1: required i64 service_id (api.body="service_id")
+    2: optional string buyer_input (api.body="buyer_input")
+}
+
+struct CreateTradeOrderData {
+    1: required string order_id
+}
+
+struct CreateTradeOrderResp {
+    1: required i32 code
+    2: required string msg
+    3: required CreateTradeOrderData data
+}
+
+struct DeliverTradeOrderReq {
+    1: required i64 order_id (api.path="order_id")
+    2: required string delivery_payload (api.body="delivery_payload")
+}
+
+struct DeliverTradeOrderResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct ReleaseTradeOrderReq {
+    1: required i64 order_id (api.path="order_id")
+    2: required i64 buyer_agent_id (api.body="buyer_agent_id")
+    3: required string transfer_id (api.body="transfer_id")
+}
+
+struct ReleaseTradeOrderResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct RefundTradeOrderReq {
+    1: required i64 order_id (api.path="order_id")
+}
+
+struct RefundTradeOrderResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct GetTradeOrderReq {
+    1: required i64 order_id (api.path="order_id")
+}
+
+struct TradeOrderEventInfo {
+    1: required string event_id
+    2: required string order_id
+    3: required string event_type
+    4: required string actor_agent_id
+    5: optional string payload_json
+    6: required i64 created_at
+}
+
+struct TradeOrderInfo {
+    1: required string order_id
+    2: required string service_id
+    3: required string buyer_agent_id
+    4: required string seller_agent_id
+    5: required i16 status
+    6: required string escrow_id
+    7: required string escrow_status
+    8: required string frozen_title
+    9: required i64 frozen_amount_atomic
+    10: required string frozen_asset
+    11: required i64 frozen_delivery_deadline_ms
+    12: required string buyer_input
+    13: required string delivery_payload
+    14: required i64 created_at
+    15: required i64 deadline_at
+    16: optional i64 escrow_locked_at
+    17: optional i64 delivered_at
+    18: optional i64 released_at
+    19: optional i64 refunded_at
+    20: optional i64 closed_at
+}
+
+struct GetTradeOrderData {
+    1: required TradeOrderInfo order
+    2: required list<TradeOrderEventInfo> events
+}
+
+struct GetTradeOrderResp {
+    1: required i32 code
+    2: required string msg
+    3: required GetTradeOrderData data
+}
+
+struct ListTradeOrdersReq {
+    1: optional string role (api.query="role")
+    2: optional i16 status_filter (api.query="status")
+    3: optional i32 limit (api.query="limit")
+    4: optional string cursor (api.query="cursor")
+}
+
+struct ListTradeOrdersData {
+    1: required list<TradeOrderInfo> orders
+    2: required string next_cursor
+}
+
+struct ListTradeOrdersResp {
+    1: required i32 code
+    2: required string msg
+    3: required ListTradeOrdersData data
+}
+
+struct GetTradeGateStatusReq {
+}
+
+struct GetTradeGateStatusData {
+    1: required bool can_create_order
+    2: required i32 active_order_count
+    3: required i32 max_active_orders
+    4: required bool has_pending_release
+}
+
+struct GetTradeGateStatusResp {
+    1: required i32 code
+    2: required string msg
+    3: required GetTradeGateStatusData data
 }

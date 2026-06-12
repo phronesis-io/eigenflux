@@ -63,6 +63,9 @@ func InitES(expectedEmbeddingDims int) error {
 	if err := SetupILM(context.Background(), expectedEmbeddingDims); err != nil {
 		return fmt.Errorf("failed to setup ILM: %w", err)
 	}
+	if err := SetupServicesILM(context.Background(), expectedEmbeddingDims); err != nil {
+		return fmt.Errorf("failed to setup services ILM: %w", err)
+	}
 	if _, err := ValidateReadIndexEmbeddingDimensions(context.Background(), expectedEmbeddingDims); err != nil {
 		return fmt.Errorf("failed to validate embedding dimensions: %w", err)
 	}

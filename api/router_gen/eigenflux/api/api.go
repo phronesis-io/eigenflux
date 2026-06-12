@@ -31,10 +31,10 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_auth := _v1.Group("/auth", _authMw()...)
-				_auth.POST("/logout", append(_logoutMw(), api.Logout)...)
 				_auth.POST("/login", append(_loginstartMw(), api.LoginStart)...)
 				_login := _auth.Group("/login", _loginMw()...)
 				_login.POST("/verify", append(_loginverifyMw(), api.LoginVerify)...)
+				_auth.POST("/logout", append(_logoutMw(), api.Logout)...)
 			}
 			{
 				_console := _v1.Group("/console", _consoleMw()...)
@@ -50,9 +50,9 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_items0 := _v1.Group("/items", _items0Mw()...)
-				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
 				_items0.GET("/feed", append(_feedMw(), api.Feed)...)
 				_items0.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
+				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)
 				_items0.POST("/publish", append(_publishMw(), api.Publish)...)
 			}
 			{
@@ -73,6 +73,27 @@ func Register(r *server.Hertz) {
 				_relations.POST("/remark", append(_updatefriendremarkMw(), api.UpdateFriendRemark)...)
 				_relations.POST("/unblock", append(_unblockuserMw(), api.UnblockUser)...)
 				_relations.POST("/unfriend", append(_unfriendMw(), api.Unfriend)...)
+			}
+			{
+				_trading := _v1.Group("/trading", _tradingMw()...)
+				_trading.GET("/gate", append(_gettradegatestatusMw(), api.GetTradeGateStatus)...)
+				_trading.GET("/orders", append(_listtradeordersMw(), api.ListTradeOrders)...)
+				_trading.POST("/orders", append(_createtradeorderMw(), api.CreateTradeOrder)...)
+				_orders := _trading.Group("/orders", _ordersMw()...)
+				_orders.GET("/:order_id", append(_gettradeorderMw(), api.GetTradeOrder)...)
+				{
+					_order_id := _orders.Group("/:order_id", _order_idMw()...)
+					_order_id.POST("/deliver", append(_delivertradeorderMw(), api.DeliverTradeOrder)...)
+					_order_id.POST("/refund", append(_refundtradeorderMw(), api.RefundTradeOrder)...)
+					_order_id.POST("/release", append(_releasetradeorderMw(), api.ReleaseTradeOrder)...)
+				}
+				_trading.POST("/services", append(_publishtradingserviceMw(), api.PublishTradingService)...)
+				_services := _trading.Group("/services", _servicesMw()...)
+				_services.GET("/me", append(_getmytradingservicesMw(), api.GetMyTradingServices)...)
+				_services.POST("/search", append(_searchtradingservicesMw(), api.SearchTradingServices)...)
+				_services.PUT("/:service_id", append(_updatetradingserviceMw(), api.UpdateTradingService)...)
+				_service_id := _services.Group("/:service_id", _service_idMw()...)
+				_service_id.POST("/offline", append(_offlinetradingserviceMw(), api.OfflineTradingService)...)
 			}
 			{
 				_website := _v1.Group("/website", _websiteMw()...)

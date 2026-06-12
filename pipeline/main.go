@@ -86,6 +86,8 @@ func main() {
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
+	serviceConsumer := consumer.NewServiceConsumer(cfg, prompts)
+	orderEventConsumer := consumer.NewOrderEventConsumer()
 
 	var replayConsumer *consumer.ReplayConsumer
 	if cfg.EnableReplayLog {
@@ -125,6 +127,8 @@ func main() {
 	go profileConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
+	go serviceConsumer.Start(ctx)
+	go orderEventConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)
 	go runMilestoneRuleInvalidationSubscriber(ctx, milestoneSvc)
 	if replayConsumer != nil {
@@ -138,6 +142,8 @@ func main() {
 		{Stream: "stream:item:stats", Group: "cg:item:stats"},
 		{Stream: "stream:replay:log", Group: "cg:replay:log"},
 		{Stream: "stream:agent:activity", Group: "cg:agent:activity"},
+		{Stream: "stream:trade:service", Group: "cg:trade:service"},
+		{Stream: "stream:trade:order-event", Group: "cg:trade:order-event"},
 	}, 10*time.Second)
 
 	log.Println("Pipeline started, waiting for messages...")

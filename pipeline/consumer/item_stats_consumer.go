@@ -3,13 +3,10 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"os"
-	"sync"
 	"time"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/milestone"
@@ -28,6 +25,12 @@ const (
 	itemStatsReadBlock         = 500 * time.Millisecond
 )
 
+// ItemStatsConsumer uses retry-aware mode: failures keep the message pending
+// so it can be reclaimed on the next pass, up to maxRetries times.
+//
+// The tunable fields (consumerName, readBlock, retryMinIdle, maxRetries,
+// handleEvent) are kept on the consumer struct so existing miniredis-based
+// tests can override them between NewItemStatsConsumer and Start.
 type ItemStatsConsumer struct {
 	maxWorkers   int
 	milestoneSvc *milestone.Service
@@ -52,134 +55,38 @@ func NewItemStatsConsumer(cfg *config.Config, milestoneSvc *milestone.Service) *
 }
 
 func (c *ItemStatsConsumer) Start(ctx context.Context) {
-	logger.Default().Info("ItemStatsConsumer starting", "workers", c.maxWorkers)
-
-	if err := mq.EnsureConsumerGroup(ctx, itemstats.StreamName, itemstats.GroupName); err != nil {
-		logger.Default().Error("ItemStatsConsumer failed to create consumer group", "err", err)
-		os.Exit(1)
+	runner := &StreamConsumer{
+		Name:                    "ItemStatsConsumer",
+		Stream:                  itemstats.StreamName,
+		Group:                   itemstats.GroupName,
+		ConsumerName:            c.consumerName,
+		MetricsLabel:            "item:stats",
+		Workers:                 c.maxWorkers,
+		BatchSize:               itemStatsBatchSize,
+		MaxRetries:              c.maxRetries,
+		RetryMinIdle:            c.retryMinIdle,
+		PollInterval:            itemStatsRetryPollInterval,
+		ReadBlock:               c.readBlock,
+		FatalOnGroupCreateError: true,
+		Handle:                  c.handle,
 	}
-
-	type msgTask struct {
-		id     string
-		values map[string]interface{}
-	}
-	msgChan := make(chan msgTask, c.maxWorkers*2)
-	var wg sync.WaitGroup
-
-	for i := 0; i < c.maxWorkers; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			logger.Default().Info("ItemStatsConsumer worker started", "workerID", workerID)
-			for task := range msgChan {
-				start := time.Now()
-				c.processMessage(ctx, task.id, task.values)
-				metrics.ConsumerMessageDuration.WithLabelValues("item:stats").Observe(time.Since(start).Seconds())
-			}
-			logger.Default().Info("ItemStatsConsumer worker stopped", "workerID", workerID)
-		}(i)
-	}
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				logger.Default().Info("ItemStatsConsumer context cancelled, closing message channel")
-				close(msgChan)
-				return
-			default:
-			}
-
-			msgs, err := c.nextBatch(ctx)
-			if err != nil {
-				logger.Default().Error("ItemStatsConsumer consume error", "err", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			for _, msg := range msgs {
-				task := msgTask{id: msg.Message.ID, values: msg.Message.Values}
-				select {
-				case msgChan <- task:
-				case <-ctx.Done():
-					logger.Default().Info("ItemStatsConsumer context cancelled while sending message")
-					close(msgChan)
-					return
-				}
-			}
-		}
-	}()
-
-	<-ctx.Done()
-	logger.Default().Info("ItemStatsConsumer shutting down, waiting for workers to finish...")
-	wg.Wait()
-	logger.Default().Info("ItemStatsConsumer all workers stopped")
+	runner.Run(ctx)
 }
 
-func (c *ItemStatsConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, error) {
-	reclaimed, err := mq.ConsumePending(ctx, itemstats.StreamName, itemstats.GroupName, c.consumerName, itemStatsBatchSize, c.retryMinIdle)
-	if err != nil {
-		return nil, err
-	}
-	if len(reclaimed) > 0 {
-		msgs := make([]mq.PendingMessage, 0, len(reclaimed))
-		for _, pending := range reclaimed {
-			if pending.RetryCount >= c.maxRetries {
-				logger.Default().Warn("ItemStatsConsumer dropping message after failed attempts", "msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
-				metrics.ConsumerRetryTotal.WithLabelValues("item:stats").Inc()
-				c.ackMessage(ctx, pending.Message.ID)
-				continue
-			}
-			msgs = append(msgs, pending)
-		}
-		if len(msgs) > 0 {
-			return msgs, nil
-		}
-	}
-
-	pendingCount, err := mq.PendingCount(ctx, itemstats.StreamName, itemstats.GroupName)
-	if err != nil {
-		return nil, err
-	}
-	if pendingCount > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(itemStatsRetryPollInterval):
-			return nil, nil
-		}
-	}
-
-	messages, err := mq.ConsumeWithBlock(ctx, itemstats.StreamName, itemstats.GroupName, c.consumerName, itemStatsBatchSize, c.readBlock)
-	if err != nil {
-		return nil, err
-	}
-
-	msgs := make([]mq.PendingMessage, 0, len(messages))
-	for _, message := range messages {
-		msgs = append(msgs, mq.PendingMessage{Message: message})
-	}
-	return msgs, nil
-}
-
-func (c *ItemStatsConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
+func (c *ItemStatsConsumer) handle(ctx context.Context, msgID string, values map[string]any) HandleResult {
 	event, err := itemstats.ParseEvent(values)
 	if err != nil {
 		logger.Default().Warn("ItemStatsConsumer invalid message", "err", err)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "failure").Inc()
-		c.ackMessage(ctx, msgID)
-		return
+		return HandleFailure
 	}
 
 	if err := c.handleEvent(ctx, msgID, event); err != nil {
 		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "failure").Inc()
-		return
+		return HandleRetry
 	}
 
 	logger.Default().Info("ItemStatsConsumer processed event", "eventType", event.EventType, "itemID", event.ItemID)
-	metrics.ConsumerMessagesTotal.WithLabelValues("item:stats", "success").Inc()
-	c.ackMessage(ctx, msgID)
+	return HandleSuccess
 }
 
 func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, msgID string, event itemstats.Event) error {
@@ -255,12 +162,6 @@ func (c *ItemStatsConsumer) persistFeedbackEvent(msgID string, event itemstats.E
 		return false, err
 	}
 	return inserted, nil
-}
-
-func (c *ItemStatsConsumer) ackMessage(ctx context.Context, msgID string) {
-	if err := mq.Ack(ctx, itemstats.StreamName, itemstats.GroupName, msgID); err != nil {
-		logger.Default().Warn("ItemStatsConsumer failed to ack message", "msgID", msgID, "err", err)
-	}
 }
 
 func (c *ItemStatsConsumer) checkMilestone(ctx context.Context, itemID int64, metricKey string, currentCount func(*itemdal.ItemStats) int64) error {

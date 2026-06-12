@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
-	"eigenflux_server/pkg/metrics"
-	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/replaylog"
 )
 
@@ -38,127 +35,36 @@ func NewReplayConsumer(idGen *idgen.ManagedGenerator) *ReplayConsumer {
 }
 
 func (c *ReplayConsumer) Start(ctx context.Context) {
-	logger.Default().Info("ReplayConsumer starting", "workers", replayMaxWorkers)
-
-	if err := mq.EnsureConsumerGroup(ctx, replaylog.StreamName, replaylog.GroupName); err != nil {
-		logger.Default().Error("ReplayConsumer failed to create consumer group", "err", err)
-		return
+	runner := &StreamConsumer{
+		Name:                    "ReplayConsumer",
+		Stream:                  replaylog.StreamName,
+		Group:                   replaylog.GroupName,
+		ConsumerName:            c.consumerName,
+		MetricsLabel:            "replay:log",
+		Workers:                 replayMaxWorkers,
+		BatchSize:               replayBatchSize,
+		MaxRetries:              replayMaxRetryCount,
+		RetryMinIdle:            replayRetryMinIdle,
+		PollInterval:            replayRetryPollInterval,
+		ReadBlock:               replayReadBlock,
+		FatalOnGroupCreateError: false, // log-and-return; matches prior behavior
+		Handle:                  c.handle,
 	}
-
-	type msgTask struct {
-		id     string
-		values map[string]interface{}
-	}
-	msgChan := make(chan msgTask, replayMaxWorkers*2)
-	var wg sync.WaitGroup
-
-	for i := 0; i < replayMaxWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for task := range msgChan {
-				start := time.Now()
-				c.processMessage(ctx, task.id, task.values)
-				metrics.ConsumerMessageDuration.WithLabelValues("replay:log").Observe(time.Since(start).Seconds())
-			}
-		}()
-	}
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				close(msgChan)
-				return
-			default:
-			}
-
-			msgs, err := c.nextBatch(ctx)
-			if err != nil {
-				logger.Default().Error("ReplayConsumer consume error", "err", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			for _, msg := range msgs {
-				task := msgTask{id: msg.Message.ID, values: msg.Message.Values}
-				select {
-				case msgChan <- task:
-				case <-ctx.Done():
-					close(msgChan)
-					return
-				}
-			}
-		}
-	}()
-
-	<-ctx.Done()
-	logger.Default().Info("ReplayConsumer shutting down, waiting for workers...")
-	wg.Wait()
-	logger.Default().Info("ReplayConsumer all workers stopped")
+	runner.Run(ctx)
 }
 
-func (c *ReplayConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, error) {
-	reclaimed, err := mq.ConsumePending(ctx, replaylog.StreamName, replaylog.GroupName, c.consumerName, replayBatchSize, replayRetryMinIdle)
-	if err != nil {
-		return nil, err
-	}
-	if len(reclaimed) > 0 {
-		msgs := make([]mq.PendingMessage, 0, len(reclaimed))
-		for _, pending := range reclaimed {
-			if pending.RetryCount >= replayMaxRetryCount {
-				logger.Default().Warn("ReplayConsumer dropping message after max retries", "msgID", pending.Message.ID, "retryCount", pending.RetryCount)
-				c.ackMessage(ctx, pending.Message.ID)
-				continue
-			}
-			msgs = append(msgs, pending)
-		}
-		if len(msgs) > 0 {
-			return msgs, nil
-		}
-	}
-
-	pendingCount, err := mq.PendingCount(ctx, replaylog.StreamName, replaylog.GroupName)
-	if err != nil {
-		return nil, err
-	}
-	if pendingCount > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(replayRetryPollInterval):
-			return nil, nil
-		}
-	}
-
-	messages, err := mq.ConsumeWithBlock(ctx, replaylog.StreamName, replaylog.GroupName, c.consumerName, replayBatchSize, replayReadBlock)
-	if err != nil {
-		return nil, err
-	}
-
-	msgs := make([]mq.PendingMessage, 0, len(messages))
-	for _, message := range messages {
-		msgs = append(msgs, mq.PendingMessage{Message: message})
-	}
-	return msgs, nil
-}
-
-func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
+func (c *ReplayConsumer) handle(_ context.Context, msgID string, values map[string]any) HandleResult {
 	agentIDStr, _ := values["agent_id"].(string)
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ReplayConsumer invalid agent_id", "raw", agentIDStr, "err", err)
-		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
-		c.ackMessage(ctx, msgID)
-		return
+		return HandleFailure
 	}
 
 	impressionID, _ := values["impression_id"].(string)
 	if impressionID == "" {
 		logger.Default().Warn("ReplayConsumer invalid impression_id", "msgID", msgID)
-		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
-		c.ackMessage(ctx, msgID)
-		return
+		return HandleFailure
 	}
 
 	agentFeatures, _ := values["agent_features"].(string)
@@ -181,14 +87,11 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 	var servedItems []replaylog.ServedItem
 	if err := json.Unmarshal([]byte(itemsStr), &servedItems); err != nil {
 		logger.Default().Warn("ReplayConsumer invalid items JSON", "err", err)
-		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
-		c.ackMessage(ctx, msgID)
-		return
+		return HandleFailure
 	}
 
 	if len(servedItems) == 0 {
-		c.ackMessage(ctx, msgID)
-		return
+		return HandleSuccess
 	}
 
 	now := nowMs()
@@ -197,7 +100,7 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 		rowID, err := c.idGen.NextID()
 		if err != nil {
 			logger.Default().Error("ReplayConsumer failed to generate row id", "err", err)
-			return
+			return HandleRetry
 		}
 
 		itemFeatures := si.ItemFeatures
@@ -223,17 +126,9 @@ func (c *ReplayConsumer) processMessage(ctx context.Context, msgID string, value
 
 	if err := batchInsertReplayLogs(db.DB, logs); err != nil {
 		logger.Default().Error("ReplayConsumer failed to insert replay logs", "err", err, "count", len(logs))
-		metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "failure").Inc()
-		return
+		return HandleRetry
 	}
 
 	logger.Default().Info("ReplayConsumer inserted replay logs", "impressionID", impressionID, "count", len(logs))
-	metrics.ConsumerMessagesTotal.WithLabelValues("replay:log", "success").Inc()
-	c.ackMessage(ctx, msgID)
-}
-
-func (c *ReplayConsumer) ackMessage(ctx context.Context, msgID string) {
-	if err := mq.Ack(ctx, replaylog.StreamName, replaylog.GroupName, msgID); err != nil {
-		logger.Default().Warn("ReplayConsumer failed to ack", "msgID", msgID, "err", err)
-	}
+	return HandleSuccess
 }

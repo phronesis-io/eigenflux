@@ -19,6 +19,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recallsource"
+	"eigenflux_server/pkg/reqinfo"
 	profileDal "eigenflux_server/rpc/profile/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
 	"eigenflux_server/rpc/sort/ranker"
@@ -200,11 +201,15 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
-	agentFeaturesJSON, _ := json.Marshal(map[string]interface{}{
+	agentFeaturesMap := map[string]interface{}{
 		"keywords": keywords,
 		"domains":  domains,
 		"geo":      geo,
-	})
+	}
+	if ctxFeat := buildContextFeatures(reqinfo.ClientFromContext(ctx)); ctxFeat != nil {
+		agentFeaturesMap["context"] = ctxFeat
+	}
+	agentFeaturesJSON, _ := json.Marshal(agentFeaturesMap)
 	agentFeaturesStr := string(agentFeaturesJSON)
 
 	// Launch kNN recall and recall sources in parallel with keyword recall
@@ -466,6 +471,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		esItems = kept
 	}
 
+	esItems = applyItemRerankPolicies(ctx, esItems, sourceMap)
+
 	// Record recall source feed composition
 	for _, item := range esItems {
 		for _, name := range recallsource.Names(sourceMap[item.ID]) {
@@ -532,18 +539,18 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		feat := map[string]interface{}{
-			"broadcast_type": item.Type,
-			"domains":        item.Domains,
-			"keywords":       item.Keywords,
-			"geo":            item.Geo,
-			"source_type":    item.SourceType,
-			"quality_score":  item.QualityScore,
-			"group_id":       item.GroupID,
-			"lang":           item.Lang,
-			"timeliness":     item.Timeliness,
-			"updated_at":     item.UpdatedAt.UnixMilli(),
-			"created_at":     item.CreatedAt.UnixMilli(),
-			"rank_scores":    ri.Scores,
+			"broadcast_type":      item.Type,
+			"domains":             item.Domains,
+			"keywords":            item.Keywords,
+			"geo":                 item.Geo,
+			"source_type":         item.SourceType,
+			"quality_score":       item.QualityScore,
+			"group_id":            item.GroupID,
+			"lang":                item.Lang,
+			"timeliness":          item.Timeliness,
+			"updated_at":          item.UpdatedAt.UnixMilli(),
+			"created_at":          item.CreatedAt.UnixMilli(),
+			"rank_scores":         ri.Scores,
 			"recall_source":       int(sourceMap[ri.ItemID]),
 			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 		}
@@ -620,21 +627,21 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		feat := map[string]interface{}{
-			"broadcast_type": item.Type,
-			"domains":        item.Domains,
-			"keywords":       item.Keywords,
-			"geo":            item.Geo,
-			"source_type":    item.SourceType,
-			"quality_score":  item.QualityScore,
-			"group_id":       item.GroupID,
-			"lang":           item.Lang,
-			"timeliness":     item.Timeliness,
-			"updated_at":     item.UpdatedAt.UnixMilli(),
-			"created_at":     item.CreatedAt.UnixMilli(),
-			"rank_scores":    ri.Scores,
+			"broadcast_type":      item.Type,
+			"domains":             item.Domains,
+			"keywords":            item.Keywords,
+			"geo":                 item.Geo,
+			"source_type":         item.SourceType,
+			"quality_score":       item.QualityScore,
+			"group_id":            item.GroupID,
+			"lang":                item.Lang,
+			"timeliness":          item.Timeliness,
+			"updated_at":          item.UpdatedAt.UnixMilli(),
+			"created_at":          item.CreatedAt.UnixMilli(),
+			"rank_scores":         ri.Scores,
 			"recall_source":       int(sourceMap[ri.ItemID]),
 			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
-			"filtered":       true,
+			"filtered":            true,
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()
@@ -657,6 +664,23 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	} else if len(cachedItems) > 0 && len(cachedItems) >= cfg.KeywordRecallSize {
 		// If cache is full, use last item's timestamp as cursor
 		nextCursor = cachedItems[len(cachedItems)-1].UpdatedAt
+	}
+
+	// Mix trading services into the top-N when enabled. The rerank chain
+	// guarantees at least one service appears inside the limit window via
+	// BoundsPolicy.Floor on the service type.
+	if cfg.EnableServiceMix {
+		// The served slice may contain pre-truncation + below-threshold replay
+		// padding. Mix only over the served prefix (first len(itemIDs)
+		// entries) and append the remaining replay-padded items unchanged.
+		servedSorted := sortedItems
+		var tail []*sort.SortedItem
+		if len(sortedItems) > len(itemIDs) {
+			servedSorted = sortedItems[:len(itemIDs)]
+			tail = sortedItems[len(itemIDs):]
+		}
+		itemIDs, servedSorted = mixServicesIntoFeed(ctx, itemIDs, servedSorted, keywords, domains, agentFeaturesStr, limit, cfg.ServiceMixRecallSize)
+		sortedItems = append(servedSorted, tail...)
 	}
 
 	return &sort.SortItemsResp{

@@ -4,19 +4,17 @@ import (
 	"context"
 	"eigenflux_server/pkg/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/dedup"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/stats"
 	itemDal "eigenflux_server/rpc/item/dal"
@@ -25,8 +23,10 @@ import (
 )
 
 const (
-	itemStream = "stream:item:publish"
-	itemGroup  = "cg:item:publish"
+	itemStream          = "stream:item:publish"
+	itemGroup           = "cg:item:publish"
+	itemConsumerName    = "item-worker-1"
+	itemMetricsLabel    = "item:publish"
 )
 
 var (
@@ -39,106 +39,44 @@ type ItemConsumer struct {
 	llmClient        *llm.Client
 	embeddingClient  *embedding.Client
 	qualityThreshold float64
-	maxWorkers       int
+	runner           *StreamConsumer
 }
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
-	return &ItemConsumer{
+	c := &ItemConsumer{
 		llmClient:        llm.NewClient(cfg, prompts),
 		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		qualityThreshold: cfg.QualityThreshold,
-		maxWorkers:       cfg.ItemConsumerWorkers,
 	}
+	c.runner = &StreamConsumer{
+		Name:                    "ItemConsumer",
+		Stream:                  itemStream,
+		Group:                   itemGroup,
+		ConsumerName:            itemConsumerName,
+		MetricsLabel:            itemMetricsLabel,
+		Workers:                 cfg.ItemConsumerWorkers,
+		FatalOnGroupCreateError: true,
+		Handle:                  c.handle,
+	}
+	return c
 }
 
 func (c *ItemConsumer) Start(ctx context.Context) {
-	logger.Default().Info("ItemConsumer starting", "workers", c.maxWorkers, "qualityThreshold", c.qualityThreshold)
-
-	if err := mq.EnsureConsumerGroup(ctx, itemStream, itemGroup); err != nil {
-		logger.Default().Error("ItemConsumer failed to create consumer group", "err", err)
-		os.Exit(1)
-	}
-
-	// Create message channel for worker pool
-	type msgTask struct {
-		id     string
-		values map[string]interface{}
-	}
-	msgChan := make(chan msgTask, c.maxWorkers*2)
-	var wg sync.WaitGroup
-
-	// Start worker pool
-	for i := 0; i < c.maxWorkers; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			logger.Default().Info("ItemConsumer worker started", "workerID", workerID)
-			for task := range msgChan {
-				start := time.Now()
-				c.processMessage(ctx, task.id, task.values)
-				metrics.ConsumerMessageDuration.WithLabelValues("item:publish").Observe(time.Since(start).Seconds())
-			}
-			logger.Default().Info("ItemConsumer worker stopped", "workerID", workerID)
-		}(i)
-	}
-
-	// Main loop: fetch messages and distribute to workers
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				logger.Default().Info("ItemConsumer context cancelled, closing message channel")
-				close(msgChan)
-				return
-			default:
-			}
-
-			msgs, err := mq.Consume(ctx, itemStream, itemGroup, "item-worker-1", 10)
-			if err != nil {
-				logger.Default().Error("ItemConsumer consume error", "err", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			for _, msg := range msgs {
-				task := msgTask{
-					id:     msg.ID,
-					values: msg.Values,
-				}
-				select {
-				case msgChan <- task:
-					// Message sent to worker
-				case <-ctx.Done():
-					logger.Default().Info("ItemConsumer context cancelled while sending message")
-					close(msgChan)
-					return
-				}
-			}
-		}
-	}()
-
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Default().Info("ItemConsumer shutting down, waiting for workers to finish...")
-	wg.Wait()
-	logger.Default().Info("ItemConsumer all workers stopped")
+	logger.Default().Info("ItemConsumer starting", "qualityThreshold", c.qualityThreshold)
+	c.runner.Run(ctx)
 }
 
-func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values map[string]interface{}) {
+func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[string]any) HandleResult {
 	itemIDStr, ok := values["item_id"].(string)
 	if !ok {
 		logger.Default().Warn("ItemConsumer invalid message: missing item_id")
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil {
 		logger.Default().Warn("ItemConsumer invalid item_id", "itemID", itemIDStr)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	logger.Default().Info("ItemConsumer processing item", "itemID", itemID)
@@ -154,9 +92,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Warn("raw item not found", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	// Check blacklist keywords (cheap string match — run first)
@@ -164,10 +100,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return
+			return HandleRetry
 		}
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleSuccess
 	}
 
 	// --- Dedup phase (cheap gates before expensive LLM calls) ---
@@ -180,10 +115,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		logger.Default().Info("ItemConsumer exact duplicate (hash match), discarding", "itemID", itemID)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return
+			return HandleRetry
 		}
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleSuccess
 	} else if err != nil {
 		logger.Default().Warn("ItemConsumer Redis hash check failed, continuing", "itemID", itemID, "err", err)
 	}
@@ -253,18 +187,15 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Error("ItemConsumer safety check all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleFailure
 	}
 	if !safetyResult.Safe {
 		logger.Default().Info("item flagged by safety check", "itemID", itemID, "flag", safetyResult.Flag, "reason", safetyResult.Reason)
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return
+			return HandleRetry
 		}
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleSuccess
 	}
 
 	// --- Draft Indexing: make item discoverable immediately after safety check ---
@@ -297,9 +228,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 	if err != nil {
 		logger.Default().Error("all retries failed", "itemID", itemID, "err", err)
 		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
-		metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "failure").Inc()
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleFailure
 	}
 
 	// Check discard flag
@@ -310,10 +239,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return
+			return HandleRetry
 		}
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleSuccess
 	}
 
 	// Check quality threshold
@@ -324,10 +252,9 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}
 		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return
+			return HandleRetry
 		}
-		mq.Ack(ctx, itemStream, itemGroup, msgID)
-		return
+		return HandleSuccess
 	}
 
 	logger.Default().Info("ItemConsumer item passed quality check", "itemID", itemID, "quality", result.Quality, "lang", result.Lang, "timeliness", result.Timeliness)
@@ -388,7 +315,7 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 
 	// Update processed item with LLM results
 	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID, suggestion) {
-		return
+		return HandleFailure
 	}
 
 	// Index processed item to Elasticsearch
@@ -489,9 +416,8 @@ func (c *ItemConsumer) processMessage(ctx context.Context, msgID string, values 
 		}()
 	}
 
-	metrics.ConsumerMessagesTotal.WithLabelValues("item:publish", "success").Inc()
 	metrics.ItemPublishToProcessDuration.Observe(float64(time.Now().UnixMilli()-raw.CreatedAt) / 1000.0)
-	mq.Ack(ctx, itemStream, itemGroup, msgID)
+	return HandleSuccess
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {

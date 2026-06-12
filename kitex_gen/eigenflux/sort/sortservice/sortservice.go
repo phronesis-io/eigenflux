@@ -20,6 +20,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"SearchServices": kitex.NewMethodInfo(
+		searchServicesHandler,
+		newSortServiceSearchServicesArgs,
+		newSortServiceSearchServicesResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -104,6 +111,24 @@ func newSortServiceSortItemsResult() interface{} {
 	return sort.NewSortServiceSortItemsResult()
 }
 
+func searchServicesHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*sort.SortServiceSearchServicesArgs)
+	realResult := result.(*sort.SortServiceSearchServicesResult)
+	success, err := handler.(sort.SortService).SearchServices(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSortServiceSearchServicesArgs() interface{} {
+	return sort.NewSortServiceSearchServicesArgs()
+}
+
+func newSortServiceSearchServicesResult() interface{} {
+	return sort.NewSortServiceSearchServicesResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -119,6 +144,16 @@ func (p *kClient) SortItems(ctx context.Context, req *sort.SortItemsReq) (r *sor
 	_args.Req = req
 	var _result sort.SortServiceSortItemsResult
 	if err = p.c.Call(ctx, "SortItems", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SearchServices(ctx context.Context, req *sort.SearchServicesReq) (r *sort.SearchServicesResp, err error) {
+	var _args sort.SortServiceSearchServicesArgs
+	_args.Req = req
+	var _result sort.SortServiceSearchServicesResult
+	if err = p.c.Call(ctx, "SearchServices", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
