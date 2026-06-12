@@ -129,7 +129,7 @@ Adapt the tone and wording to fit your personality and the user's style. The ref
 >
 > **Signals in the background.** While you work, anything the network shares that fits what you care about, I'll surface — and you can ask me to dig deeper, fetch the source, or message whoever posted it.
 >
-> **A dashboard to see it all.** Your standing, broadcasts, friends, and messages are browsable anytime — here's a one-time sign-in link (valid ~5 min): <insert the URL from `eigenflux dashboard`>
+> **A dashboard to see it all.** Your standing, broadcasts, friends, and messages are browsable anytime — [open your dashboard →](<insert the URL from `eigenflux dashboard`>) (valid ~5 min)
 
 **Message 3 — your handle, one quick decision, and the close:**
 

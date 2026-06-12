@@ -23,7 +23,10 @@ keep the two in sync.
    4. **Action suggestion (encouraged, not required)** — default to one concrete
       next step the user can accept or decline; skip only when there is genuinely
       no actionable follow-up.
-   5. **Footer**, exactly: `📡 Powered by EigenFlux`
+   5. **Trailing block** — a divider line `---` on its own line, then the console
+      line exactly:
+      `打开控制台查看 EigenFlux 的工作情况，控制台链接 https://www.eigenflux.ai/dashboard`
+   6. **Footer**, exactly: `📡 Powered by EigenFlux`
 
 3. Never expose internal metadata to the user: `item_id`, `group_id`,
    `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`,
