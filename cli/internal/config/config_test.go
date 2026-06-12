@@ -258,3 +258,44 @@ func TestKV_ServerScopedWithFallback(t *testing.T) {
 		t.Errorf("after per-server delete, staging/shared = %q, want global fallback", v)
 	}
 }
+
+func TestClearServerScopedKV(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+
+	cfg, _ := Load()
+	if err := cfg.AddServerFull("staging", "https://staging.example", ""); err != nil {
+		t.Fatal(err)
+	}
+	// Same key stranded under two server scopes plus a global value.
+	if err := cfg.SetKV("feed_delivery_preference", "global-pref"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetServerKV("staging", "feed_delivery_preference", "staging-pref"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetServerKV("eigenflux", "feed_delivery_preference", "eigenflux-pref"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.ClearServerScopedKV("feed_delivery_preference"); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, _ := Load()
+	// Every server-scoped copy is gone (inspect the server KV map directly,
+	// without GetServerKV's global fallback)...
+	for i := range reloaded.Servers {
+		if _, ok := reloaded.Servers[i].KV["feed_delivery_preference"]; ok {
+			t.Errorf("server %q still has a server-scoped copy after clear", reloaded.Servers[i].Name)
+		}
+	}
+	// ...but the global value survives.
+	if got := reloaded.GetKV("feed_delivery_preference"); got != "global-pref" {
+		t.Errorf("global value = %q, want %q (must be untouched)", got, "global-pref")
+	}
+	// Idempotent: clearing again when absent is a no-op without error.
+	if err := reloaded.ClearServerScopedKV("feed_delivery_preference"); err != nil {
+		t.Errorf("second clear should be a no-op, got err: %v", err)
+	}
+}

@@ -184,29 +184,42 @@ func TestConfigKV(t *testing.T) {
 
 	mustRunCLI(t, "config", "set", "--key", "feed_delivery_preference", "--value", "push urgent signals")
 
-	// Per-server set overrides global on reads with --server; reads without
-	// --server still see the global value.
-	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "false", "--server", "local")
-	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
-	if strings.TrimSpace(out) != "false" {
-		t.Errorf("per-server recurring_publish = %q, want \"false\"", strings.TrimSpace(out))
+	// Per-server scope (server-first read, global fallback) applies to ordinary
+	// free-form keys. plugin_version is NOT backend-synced, so --server is honored.
+	mustRunCLI(t, "config", "set", "--key", "plugin_version", "--value", "1.0.0")
+	mustRunCLI(t, "config", "set", "--key", "plugin_version", "--value", "1.2.0", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "plugin_version", "--server", "local")
+	if strings.TrimSpace(out) != "1.2.0" {
+		t.Errorf("per-server plugin_version = %q, want \"1.2.0\"", strings.TrimSpace(out))
 	}
-	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish")
-	if strings.TrimSpace(out) != "true" {
-		t.Errorf("global recurring_publish = %q, want \"true\"", strings.TrimSpace(out))
+	out = mustRunCLI(t, "config", "get", "--key", "plugin_version")
+	if strings.TrimSpace(out) != "1.0.0" {
+		t.Errorf("global plugin_version = %q, want \"1.0.0\"", strings.TrimSpace(out))
 	}
 
 	// Unset a per-server key → reads with --server fall back to global.
-	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "", "--server", "local")
-	out = mustRunCLI(t, "config", "get", "--key", "recurring_publish", "--server", "local")
-	if strings.TrimSpace(out) != "true" {
-		t.Errorf("after per-server unset, fallback = %q, want \"true\"", strings.TrimSpace(out))
+	mustRunCLI(t, "config", "set", "--key", "plugin_version", "--value", "", "--server", "local")
+	out = mustRunCLI(t, "config", "get", "--key", "plugin_version", "--server", "local")
+	if strings.TrimSpace(out) != "1.0.0" {
+		t.Errorf("after per-server unset, fallback = %q, want \"1.0.0\"", strings.TrimSpace(out))
 	}
 
-	// show returns {server, server_kv, kv}.
-	out = mustRunCLI(t, "config", "show", "--format", "json")
+	// Backend-synced keys are account-level: --server is ignored and the value
+	// is forced into the GLOBAL kv (the sync layer reads global-only), with any
+	// stray per-server copy scrubbed. Setting auto_reply_pm with --server local
+	// must land in global kv, not server_kv.
+	mustRunCLI(t, "config", "set", "--key", "auto_reply_pm", "--value", "true", "--server", "local")
+	out = mustRunCLI(t, "config", "show", "--server", "local", "--format", "json")
 	v := parseJSON(t, out)
 	kv, _ := v["kv"].(map[string]interface{})
+	if kv["auto_reply_pm"] != "true" {
+		t.Errorf("synced key set with --server must land in global kv; show.kv.auto_reply_pm = %v, want \"true\"", kv["auto_reply_pm"])
+	}
+	if serverKV, _ := v["server_kv"].(map[string]interface{}); serverKV != nil {
+		if _, ok := serverKV["auto_reply_pm"]; ok {
+			t.Errorf("synced key must not be stored under server_kv; got server_kv.auto_reply_pm = %v", serverKV["auto_reply_pm"])
+		}
+	}
 	if kv["recurring_publish"] != "true" {
 		t.Errorf("show.kv.recurring_publish = %v, want \"true\"", kv["recurring_publish"])
 	}

@@ -38,6 +38,11 @@ var configSetCmd = &cobra.Command{
   - --server NAME: stored under that server.
 An empty value deletes the entry.
 
+Backend-synced settings (feed_delivery_preference, recurring_publish,
+auto_reply_pm, feed_poll_interval) are account-level and always stored
+globally; --server is ignored for them (and any stray per-server copy is
+cleared) so they reliably reach the backend.
+
 Examples:
   eigenflux config set --key recurring_publish --value true
   eigenflux config set --key plugin_version --value 1.2.0
@@ -52,12 +57,25 @@ Examples:
 		if err != nil {
 			return err
 		}
-		if serverFlag != "" {
+		synced := isSyncedSettingsKey(key)
+		// Backend-synced settings are account-level and live only in the
+		// global KV: the sync layer (settings push / sync) reads global-only,
+		// so a per-server copy would never reach the backend — it would just
+		// shadow reads via GetServerKV's fallback and look applied. Force them
+		// global regardless of --server, and scrub any stray server-scoped
+		// copy so a previously misplaced value can self-heal.
+		if serverFlag != "" && !synced {
 			if err := cfg.SetServerKV(serverFlag, key, value); err != nil {
 				return err
 			}
 			output.PrintMessage("%s = %s (server %q)", key, value, serverFlag)
 			return nil
+		}
+		if serverFlag != "" && synced {
+			output.PrintMessage("note: %q is a backend-synced setting; stored globally (--server %q ignored)", key, serverFlag)
+			if err := cfg.ClearServerScopedKV(key); err != nil {
+				return err
+			}
 		}
 		if err := cfg.SetKV(key, value); err != nil {
 			return err
@@ -66,7 +84,7 @@ Examples:
 		// Write-through for backend-mirrored settings so the console and the
 		// agent stay in sync (last writer wins). A failed push is retried on
 		// the next sync via the dirty marker.
-		if isSyncedSettingsKey(key) {
+		if synced {
 			if err := cfg.SetKV(settingsDirtyKey, "1"); err != nil {
 				return err
 			}

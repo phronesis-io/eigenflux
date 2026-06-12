@@ -267,3 +267,23 @@ func (c *Config) SetServerKV(serverName, key, value string) error {
 	}
 	return c.Save()
 }
+
+// ClearServerScopedKV removes key from every server's KV map (leaving the
+// global Config.KV untouched) and persists once. Used to self-heal
+// backend-synced settings that were mistakenly stored under a per-server
+// scope: the sync layer reads global-only, so a server-scoped copy would
+// silently never reach the backend while still shadowing reads via
+// GetServerKV's fallback. No-op if the key is absent everywhere.
+func (c *Config) ClearServerScopedKV(key string) error {
+	changed := false
+	for i := range c.Servers {
+		if _, ok := c.Servers[i].KV[key]; ok {
+			delete(c.Servers[i].KV, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return c.Save()
+}
