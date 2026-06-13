@@ -72,7 +72,15 @@ func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
 
 // UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
 // mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, autoReplyPM *bool) error {
+//
+// feed_poll_interval and its user_set flag are independent: a client may push a
+// value (e.g. mirroring its local config) without claiming it as a user
+// override. user_set is written ONLY from the explicit feedPollIntervalUserSet
+// argument, never inferred from the value's presence — otherwise any client
+// that echoes its default interval would silently pin the row and disable the
+// onboarding ramp. The CLI pairs the two (value + user_set=true) when it pushes
+// a genuine override.
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -94,9 +102,11 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 			return fmt.Errorf("feed_poll_interval must be within [%d, %d] seconds", FeedPollIntervalMinSec, FeedPollIntervalMaxSec)
 		}
 		vals["feed_poll_interval"] = *feedPollInterval
-		// An explicit write is a user override: pin it so the onboarding ramp
-		// in GetMySettings stops applying.
-		vals["feed_poll_interval_user_set"] = true
+	}
+	if feedPollIntervalUserSet != nil {
+		// Explicit override claim from the caller; the onboarding ramp in
+		// GetMySettings stops applying once this is true.
+		vals["feed_poll_interval_user_set"] = *feedPollIntervalUserSet
 	}
 	if autoReplyPM != nil {
 		vals["auto_reply_pm"] = *autoReplyPM

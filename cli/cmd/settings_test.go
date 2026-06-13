@@ -53,6 +53,15 @@ func TestSyncedSettingsBody_FeedPollIntentGuard(t *testing.T) {
 			if tt.wantKey && v.(int) != tt.wantValue {
 				t.Fatalf("feed_poll_interval = %v, want %d", v, tt.wantValue)
 			}
+			// The user_set override flag must travel with the value and never
+			// without it, so the backend pins only genuine intents.
+			flag, hasFlag := body["feed_poll_interval_user_set"]
+			if hasFlag != tt.wantKey {
+				t.Fatalf("feed_poll_interval_user_set present = %v, want %v (body=%v)", hasFlag, tt.wantKey, body)
+			}
+			if tt.wantKey && flag != true {
+				t.Fatalf("feed_poll_interval_user_set = %v, want true", flag)
+			}
 		})
 	}
 }
@@ -74,5 +83,10 @@ func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
 	}
 	if body["feed_delivery_preference"] != "Push urgent signals" {
 		t.Errorf("feed_delivery_preference = %v", body["feed_delivery_preference"])
+	}
+	// The override flag is scoped to feed_poll_interval and must not leak in
+	// when no interval intent is being pushed.
+	if _, ok := body["feed_poll_interval_user_set"]; ok {
+		t.Errorf("feed_poll_interval_user_set present without an interval intent (body=%v)", body)
 	}
 }

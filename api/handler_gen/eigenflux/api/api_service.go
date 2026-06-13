@@ -2554,7 +2554,12 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// (last writer wins through agent_settings).
 		RecurringPublish *bool  `json:"recurring_publish"`
 		FeedPollInterval *int32 `json:"feed_poll_interval"`
-		AutoReplyPM      *bool  `json:"auto_reply_pm"`
+		// FeedPollIntervalUserSet must be sent explicitly to pin feed_poll_interval
+		// as a user override; a value without this flag updates the stored cadence
+		// but leaves the onboarding ramp in effect (so a client echoing its default
+		// can never silently disable the ramp).
+		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
+		AutoReplyPM             *bool `json:"auto_reply_pm"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -2565,7 +2570,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.AutoReplyPM); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}

@@ -70,6 +70,12 @@ func syncedSettingsBody(cfg *config.Config) map[string]interface{} {
 		if v != "" {
 			if n, err := strconv.Atoi(v); err == nil {
 				body[k] = n
+				if k == "feed_poll_interval" {
+					// Pair the value with an explicit override claim so the
+					// backend pins it; without this flag the server keeps the
+					// onboarding ramp in effect.
+					body["feed_poll_interval_user_set"] = true
+				}
 			}
 		}
 	}
