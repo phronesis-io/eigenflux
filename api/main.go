@@ -21,9 +21,9 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 	swaggerFiles "github.com/swaggo/files"
 
+	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
-	"eigenflux_server/api/agti"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
@@ -34,9 +34,9 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/pkg/config"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/publicurl"
 	"eigenflux_server/pkg/rpcx"
@@ -163,7 +163,10 @@ func main() {
 	// Agent-authenticated settings sync (read + agent-reported push). Registered
 	// manually to reuse AuthMiddleware without an IDL/router regen.
 	h.GET("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.GetMySettings)
-	h.PUT("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.PutMySettings)
+	// ClientInfoMiddleware parses X-Client-Model (and friends) into ctx so the
+	// agent's reported runtime model is persisted. Generated routes get this via
+	// rootMw, but this route is hand-registered, so attach it explicitly.
+	h.PUT("/api/v1/agents/me/settings", middleware.ClientInfoMiddleware(), middleware.AuthMiddleware(), apihandler.PutMySettings)
 	// Beat coverage: per-keyword signal/push/keep stats for the Profile page.
 	h.GET("/api/v1/agents/me/beat_coverage", middleware.AuthMiddleware(), apihandler.GetBeatCoverage)
 	// Messages: total/per-origin unread + mark-conversation-read.
