@@ -46,6 +46,7 @@ type AgentSettings struct {
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
+	Model                  string `gorm:"column:model"`
 	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
 }
 
@@ -115,16 +116,39 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 }
 
 // UpdateDerivedRuntime persists the runtime identity derived from request
-// metadata (X-Client-Host): the mode plus the raw host string for display.
-func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host string) error {
+// metadata: the mode, the raw host string (X-Client-Host), and the model
+// (X-Client-Model), all for display. An empty model leaves the column
+// untouched so a request that omits the header never clobbers a known model.
+func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model string) error {
+	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
+		return err
+	}
+	vals := map[string]interface{}{
+		"mode":        mode,
+		"client_host": host,
+		"updated_at":  time.Now().UnixMilli(),
+	}
+	if model != "" {
+		vals["model"] = model
+	}
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
+		Updates(vals).Error
+}
+
+// UpdateAgentModel persists the agent's reported runtime model (X-Client-Model).
+// A no-op when model is empty so a request without the header never clobbers a
+// previously reported model. Ensures the settings row exists first.
+func UpdateAgentModel(db *gorm.DB, agentID int64, model string) error {
+	if model == "" {
+		return nil
+	}
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
 		Updates(map[string]interface{}{
-			"mode":        mode,
-			"client_host": host,
-			"updated_at":  time.Now().UnixMilli(),
+			"model":      model,
+			"updated_at": time.Now().UnixMilli(),
 		}).Error
 }
 

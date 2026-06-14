@@ -161,12 +161,12 @@ func SyncSettings(cfg *config.Config) error {
 // pushReported sends the agent-reported fields (mode, feed_delivery_preference)
 // to the backend, skipping the request when nothing changed since the last
 // successful push.
-func pushReported(cfg *config.Config, mode string, force bool) error {
+func pushReported(cfg *config.Config, mode, model string, force bool) error {
 	feedPref := cfg.GetKV("feed_delivery_preference")
 
 	// Canonical snapshot of the agent-reported fields. \x1f (unit separator)
 	// cannot appear in these values, so it is a safe delimiter.
-	snapshot := mode + "\x1f" + feedPref
+	snapshot := mode + "\x1f" + feedPref + "\x1f" + model
 	if !force && snapshot == cfg.GetKV(settingsReportedKey) {
 		output.PrintMessage("settings unchanged; nothing to report")
 		return nil
@@ -180,7 +180,13 @@ func pushReported(cfg *config.Config, mode string, force bool) error {
 	}
 
 	c := newClient()
-	resp, err := c.Put("/agents/me/settings", body)
+	// model is carried as a header (X-Client-Model) so the server stores it
+	// alongside the derived runtime, consistent with X-Client-Host.
+	headers := map[string]string{}
+	if model != "" {
+		headers["X-Client-Model"] = model
+	}
+	resp, err := c.PutWithHeaders("/agents/me/settings", body, headers)
 	if err != nil {
 		return err
 	}
@@ -218,13 +224,14 @@ Examples:
   eigenflux settings push --mode skill --force`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mode, _ := cmd.Flags().GetString("mode")
+		model, _ := cmd.Flags().GetString("model")
 		force, _ := cmd.Flags().GetBool("force")
 
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		return pushReported(cfg, mode, force)
+		return pushReported(cfg, mode, model, force)
 	},
 }
 
@@ -253,8 +260,10 @@ Examples:
 			return err
 		}
 		output.PrintMessage("settings synced")
-		if mode, _ := cmd.Flags().GetString("mode"); mode != "" {
-			return pushReported(cfg, mode, false)
+		mode, _ := cmd.Flags().GetString("mode")
+		model, _ := cmd.Flags().GetString("model")
+		if mode != "" || model != "" {
+			return pushReported(cfg, mode, model, false)
 		}
 		return nil
 	},
@@ -262,8 +271,10 @@ Examples:
 
 func init() {
 	settingsPushCmd.Flags().String("mode", "", "runtime mode reported to the backend (plugin|skill)")
+	settingsPushCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
 	settingsPushCmd.Flags().Bool("force", false, "report even if unchanged")
 	settingsSyncCmd.Flags().String("mode", "", "runtime mode reported to the backend (plugin|skill)")
+	settingsSyncCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
 	settingsCmd.AddCommand(settingsPushCmd)
 	settingsCmd.AddCommand(settingsSyncCmd)
 	rootCmd.AddCommand(settingsCmd)

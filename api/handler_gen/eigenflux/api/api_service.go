@@ -646,27 +646,28 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	// any non-default host means a plugin runtime — no agent-side report
 	// needed. Bare-CLI skill runtimes send the "terminal" default and keep
 	// reporting via `settings push --mode skill` (heartbeat template step).
-	if host := reqinfo.ClientFromContext(ctx).Host; host != "" && host != "terminal" {
-		go func(agentID int64, host string) {
+	ci := reqinfo.ClientFromContext(ctx)
+	if host := ci.Host; host != "" && host != "terminal" {
+		go func(agentID int64, host, model string) {
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
 			if gerr != nil {
 				return
 			}
 			// Fill-only: never override an explicitly reported mode — a skill
 			// runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis") and its
-			// heartbeat-reported "skill" must win. client_host stays a pure
-			// observability field and refreshes on change.
+			// heartbeat-reported "skill" must win. client_host / model stay pure
+			// observability fields and refresh on change.
 			mode := cur.Mode
 			if mode == "" {
 				mode = "plugin"
 			}
-			if cur.Mode == mode && cur.ClientHost == host {
+			if cur.Mode == mode && cur.ClientHost == host && (model == "" || cur.Model == model) {
 				return
 			}
-			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, host); uerr != nil {
+			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, host, model); uerr != nil {
 				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
 			}
-		}(agentID, host)
+		}(agentID, host, ci.Model)
 	}
 }
 
@@ -2573,6 +2574,13 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
+	}
+	// Persist the agent's reported model (X-Client-Model) when supplied — this is
+	// how the nightly `settings push --model <model>` lands the runtime model.
+	if model := reqinfo.ClientFromContext(ctx).Model; model != "" {
+		if merr := consoledal.UpdateAgentModel(db.DB, agentID, model); merr != nil {
+			logger.Default().Warn("model write failed", "agentID", agentID, "err", merr)
+		}
 	}
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

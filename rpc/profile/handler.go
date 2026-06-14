@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/reqinfo"
 	itemdal "eigenflux_server/rpc/item/dal"
 	"eigenflux_server/rpc/profile/dal"
 )
@@ -111,6 +112,26 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 	// Reset profile status if bio changed (trigger reprocessing)
 	if bioChanged {
 		dal.UpdateAgentProfileStatus(db.DB, req.AgentId, 0)
+	}
+
+	// Record bio history only on a real change (not a no-op re-submit). This is
+	// both the daily bio history and the authoritative layer-2 telemetry that an
+	// automated refresh actually took effect. prov.Source / prov.Note are the
+	// agent's self-reported provenance (memory/session/broadcast), empty for a
+	// manual update.
+	if bioChanged && finalBio != agent.Bio {
+		prov := reqinfo.BioProvenanceFromContext(ctx)
+		if herr := dal.InsertBioHistory(db.DB, req.AgentId, agent.Bio, finalBio, prov.Source, prov.Note); herr != nil {
+			logger.Ctx(ctx).Warn("bio history insert failed", "agentID", req.AgentId, "err", herr)
+		} else {
+			logger.Ctx(ctx).Info("bio_history_recorded",
+				"agentID", req.AgentId,
+				"source", prov.Source,
+				"note", prov.Note,
+				"prev_len", len(agent.Bio),
+				"new_len", len(finalBio),
+			)
+		}
 	}
 
 	return &profile.UpdateProfileResp{

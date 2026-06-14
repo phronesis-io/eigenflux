@@ -31,6 +31,39 @@ type AgentProfile struct {
 
 func (AgentProfile) TableName() string { return "agent_profiles" }
 
+// BioHistory is an append-only record of a single bio change. Written by
+// UpdateProfile whenever the bio actually changes. Doubles as the daily bio
+// history and as the authoritative signal that an automated refresh took
+// effect. Source/Note are the agent's self-reported provenance (may be empty).
+type BioHistory struct {
+	ID        int64  `gorm:"column:id;primaryKey"`
+	AgentID   int64  `gorm:"column:agent_id;not null"`
+	PrevBio   string `gorm:"column:prev_bio;type:text"`
+	Bio       string `gorm:"column:bio;type:text"`
+	Source    string `gorm:"column:source;type:text"`
+	Note      string `gorm:"column:note;type:text"`
+	Day       int    `gorm:"column:day;not null"`
+	CreatedAt int64  `gorm:"column:created_at;not null"`
+}
+
+func (BioHistory) TableName() string { return "agent_bio_history" }
+
+// InsertBioHistory appends one bio-change record. Day is derived from the
+// current UTC date as YYYYMMDD so callers can group changes per day cheaply.
+func InsertBioHistory(db *gorm.DB, agentID int64, prevBio, bio, source, note string) error {
+	now := time.Now().UTC()
+	rec := &BioHistory{
+		AgentID:   agentID,
+		PrevBio:   prevBio,
+		Bio:       bio,
+		Source:    source,
+		Note:      note,
+		Day:       now.Year()*10000 + int(now.Month())*100 + now.Day(),
+		CreatedAt: now.UnixMilli(),
+	}
+	return db.Create(rec).Error
+}
+
 func CreateAgent(db *gorm.DB, agent *Agent) error {
 	now := time.Now().UnixMilli()
 	agent.CreatedAt = now
