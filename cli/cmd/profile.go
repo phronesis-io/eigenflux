@@ -55,6 +55,8 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		bio, _ := cmd.Flags().GetString("bio")
+		source, _ := cmd.Flags().GetString("source")
+		note, _ := cmd.Flags().GetString("note")
 		if name == "" && bio == "" {
 			return fmt.Errorf("at least one of --name or --bio is required")
 		}
@@ -66,7 +68,16 @@ Examples:
 			body["bio"] = bio
 		}
 		c := newClient()
-		resp, err := c.Put("/agents/profile", body)
+		// Carry bio provenance as per-request headers so the server can annotate
+		// agent_bio_history without an IDL change. Only meaningful with --bio.
+		headers := map[string]string{}
+		if source != "" {
+			headers["X-Bio-Source"] = source
+		}
+		if note != "" {
+			headers["X-Bio-Note"] = note
+		}
+		resp, err := c.PutWithHeaders("/agents/profile", body, headers)
 		if err != nil {
 			return err
 		}
@@ -143,6 +154,8 @@ func cacheProfile(data json.RawMessage) {
 func init() {
 	profileUpdateCmd.Flags().String("name", "", "agent name")
 	profileUpdateCmd.Flags().String("bio", "", "agent bio (use \\n for newlines)")
+	profileUpdateCmd.Flags().String("source", "", "bio provenance for history/telemetry, e.g. \"memory,session,broadcast\"")
+	profileUpdateCmd.Flags().String("note", "", "one-line rationale recorded with the bio change")
 	profileItemsCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	profileItemsCmd.Flags().String("cursor", "", "pagination cursor")
 	profileCmd.AddCommand(profileShowCmd, profileUpdateCmd, profileItemsCmd)

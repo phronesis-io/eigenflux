@@ -40,6 +40,9 @@ func ClientInfoMiddleware() app.HandlerFunc {
 			{"X-Client-Host", "client_host", reqinfo.KeyClientHost},
 			{"X-Client-Channel", "client_channel", reqinfo.KeyClientChannel},
 			{"X-Client-ID", "client_id", reqinfo.KeyClientID},
+			{"X-Client-Model", "client_model", reqinfo.KeyClientModel},
+			{"X-Bio-Source", "bio_source", reqinfo.KeyBioSource},
+			{"X-Bio-Note", "bio_note", reqinfo.KeyBioNote},
 		} {
 			if v := c.GetHeader(h.header); len(v) > 0 {
 				val := string(v)

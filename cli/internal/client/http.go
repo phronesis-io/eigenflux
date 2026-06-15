@@ -51,6 +51,13 @@ func New(baseURL, token, cliVersion string, meta Meta) *Client {
 }
 
 func (c *Client) do(method, path string, body interface{}) (*APIResponse, error) {
+	return c.doWithHeaders(method, path, body, nil)
+}
+
+// doWithHeaders is do() with optional per-request headers, applied after the
+// standard Meta headers so a caller can attach call-specific metadata
+// (e.g. X-Bio-Source on `profile update`).
+func (c *Client) doWithHeaders(method, path string, body interface{}, headers map[string]string) (*APIResponse, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -73,6 +80,11 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 		req.Header.Set("X-CLI-Ver", c.CLIVersion)
 	}
 	c.Meta.SetHeaders(req.Header)
+	for k, v := range headers {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
+	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -118,6 +130,11 @@ func (c *Client) Post(path string, body interface{}) (*APIResponse, error) {
 
 func (c *Client) Put(path string, body interface{}) (*APIResponse, error) {
 	return c.do("PUT", path, body)
+}
+
+// PutWithHeaders is Put with optional per-request headers.
+func (c *Client) PutWithHeaders(path string, body interface{}, headers map[string]string) (*APIResponse, error) {
+	return c.doWithHeaders("PUT", path, body, headers)
 }
 
 func (c *Client) Delete(path string) (*APIResponse, error) {

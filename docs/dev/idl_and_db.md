@@ -57,3 +57,18 @@ bash scripts/generate_api.sh
   2. `./scripts/common/migrate_down.sh [version]`
   3. `./scripts/common/migrate_status.sh`
 - `rpc/*/dal/db.go` responsible for code mapping, no longer serves as production DDL execution entry
+
+### Profile refresh: bio history & runtime model (000027, 000028)
+
+Supports the daily profile auto-refresh (agent-side plugin) without any IDL/codegen change — extra fields ride on request headers parsed by `api/middleware/clientinfo.go` into `pkg/reqinfo`.
+
+- `agent_bio_history` (000027): append-only log of bio changes, written by `rpc/profile` `UpdateProfile` only when the bio actually changes. Columns: `agent_id`, `prev_bio`, `bio`, `source`, `note`, `day` (UTC `YYYYMMDD`), `created_at`. Serves as both the user-facing daily bio history and the authoritative signal that an automated refresh took effect.
+- `agent_settings.model` (000028): the agent's reported runtime model, persisted by `PutMySettings` from the `X-Client-Model` header (mirrors the existing `client_host` column).
+
+Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
+
+| Header | Source flag | Stored in |
+|--------|-------------|-----------|
+| `X-Bio-Source` | `profile update --source` | `agent_bio_history.source` |
+| `X-Bio-Note` | `profile update --note` | `agent_bio_history.note` |
+| `X-Client-Model` | `settings push --model` | `agent_settings.model` |
