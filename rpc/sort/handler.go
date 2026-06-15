@@ -471,6 +471,8 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		esItems = kept
 	}
 
+	esItems = applyItemRerankPolicies(ctx, esItems, sourceMap)
+
 	// Record recall source feed composition
 	for _, item := range esItems {
 		for _, name := range recallsource.Names(sourceMap[item.ID]) {
@@ -537,18 +539,18 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		feat := map[string]interface{}{
-			"broadcast_type": item.Type,
-			"domains":        item.Domains,
-			"keywords":       item.Keywords,
-			"geo":            item.Geo,
-			"source_type":    item.SourceType,
-			"quality_score":  item.QualityScore,
-			"group_id":       item.GroupID,
-			"lang":           item.Lang,
-			"timeliness":     item.Timeliness,
-			"updated_at":     item.UpdatedAt.UnixMilli(),
-			"created_at":     item.CreatedAt.UnixMilli(),
-			"rank_scores":    ri.Scores,
+			"broadcast_type":      item.Type,
+			"domains":             item.Domains,
+			"keywords":            item.Keywords,
+			"geo":                 item.Geo,
+			"source_type":         item.SourceType,
+			"quality_score":       item.QualityScore,
+			"group_id":            item.GroupID,
+			"lang":                item.Lang,
+			"timeliness":          item.Timeliness,
+			"updated_at":          item.UpdatedAt.UnixMilli(),
+			"created_at":          item.CreatedAt.UnixMilli(),
+			"rank_scores":         ri.Scores,
 			"recall_source":       int(sourceMap[ri.ItemID]),
 			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
 		}
@@ -625,21 +627,21 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		feat := map[string]interface{}{
-			"broadcast_type": item.Type,
-			"domains":        item.Domains,
-			"keywords":       item.Keywords,
-			"geo":            item.Geo,
-			"source_type":    item.SourceType,
-			"quality_score":  item.QualityScore,
-			"group_id":       item.GroupID,
-			"lang":           item.Lang,
-			"timeliness":     item.Timeliness,
-			"updated_at":     item.UpdatedAt.UnixMilli(),
-			"created_at":     item.CreatedAt.UnixMilli(),
-			"rank_scores":    ri.Scores,
+			"broadcast_type":      item.Type,
+			"domains":             item.Domains,
+			"keywords":            item.Keywords,
+			"geo":                 item.Geo,
+			"source_type":         item.SourceType,
+			"quality_score":       item.QualityScore,
+			"group_id":            item.GroupID,
+			"lang":                item.Lang,
+			"timeliness":          item.Timeliness,
+			"updated_at":          item.UpdatedAt.UnixMilli(),
+			"created_at":          item.CreatedAt.UnixMilli(),
+			"rank_scores":         ri.Scores,
 			"recall_source":       int(sourceMap[ri.ItemID]),
 			"recall_source_names": recallsource.Names(sourceMap[ri.ItemID]),
-			"filtered":       true,
+			"filtered":            true,
 		}
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()

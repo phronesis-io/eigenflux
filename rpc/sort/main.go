@@ -33,6 +33,7 @@ var searchCache *cache.SearchCache
 var profileCache *cache.ProfileCache
 var rankerInstance *ranker.Ranker
 var rankerCfg *ranker.RankerConfig
+var itemRerankPolicies *rerankPolicySet
 var serviceRankerCfg *serviceranker.ServiceRankerConfig
 var embeddingCache *cache.EmbeddingCache
 var recallSources []recallsource.RecallSource
@@ -83,6 +84,7 @@ func main() {
 	// Initialize ranker
 	rankerCfg = ranker.NewRankerConfig(cfg)
 	rankerInstance = ranker.New(rankerCfg)
+	itemRerankPolicies = loadRerankPolicySet(context.Background(), "configs/sort/rerank.yaml", time.Now)
 
 	// Initialize service ranker (used by SearchServices for the trading domain).
 	serviceRankerCfg = &serviceranker.ServiceRankerConfig{

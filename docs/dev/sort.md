@@ -14,7 +14,27 @@ Trade owns the write side of services; feed owns impression / delivery. Sort sit
 | `rpc/sort/ranker/` | Typed item ranker. Multi-signal scoring with semantic + keyword + freshness, plus MMR diversity selection (kept but currently disabled) and exploration slots. |
 | `rpc/sort/serviceranker/` | Typed service ranker. 6-signal weighted scoring: semantic, keyword (BM25 passthrough), success_rate, latency (inverse), price (inverse), deadline (inverse). |
 | `rpc/sort/rank/` | Cross-type `Candidate` interface and `BasicCandidate` adapter, used when items and services need to flow through the same rerank policy. |
-| `rpc/sort/rerank/` | Policy-based mixer: `DedupPolicy`, `NormalizePolicy`, `BoundsPolicy`, `RatioPolicy`, `SlotPolicy`. See `docs/dev/rerank.md` for the full description. |
+| `rpc/sort/rerank/` | Policy-based mixer and filters: `FreshnessPolicy`, `DedupPolicy`, `NormalizePolicy`, `BoundsPolicy`, `RatioPolicy`, `SlotPolicy`. See `docs/dev/rerank.md` for the full description. |
+
+### Item Timeliness
+
+Sort applies configurable item rerank policies from `configs/sort/rerank.yaml` after recall and before item ranking/exploration:
+
+- `alert` is hard-limited by age. The default YAML rule drops alerts older than `6h` because stale urgent information is worse than silence.
+- Within the allowed alert window, the existing decay still applies: `FRESHNESS_ALERT_OFFSET=2h`, `FRESHNESS_ALERT_SCALE=12h`, `FRESHNESS_ALERT_DECAY=0.5`.
+- `demand` uses `expire_time` for urgency-aware freshness and drops to zero freshness after expiry.
+- `info` and `supply` remain score-decayed only, with `supply` using the slower supply-specific curve.
+
+The Sort service reads this YAML once during startup. If the file is missing or invalid, Sort logs a warning and runs without configured item rerank policies.
+
+```yaml
+policies:
+  - name: freshness
+    item_rules:
+      - broadcast_type: alert
+        max_age: 6h
+        action: drop
+```
 
 ## SearchServices
 
@@ -181,4 +201,3 @@ Empty fields are omitted so requests without client headers (internal calls, dev
 - Empty recall (no services match) → response is items-only and identical to the flag-off path.
 
 The mix is purely additive within the existing `SortItems` contract; callers that do not yet handle `entry_type` continue to function — they just see service IDs they cannot look up via item endpoints. Feed-side wiring (extending `FeedItem` to render service entries) ships in a follow-up PR.
-

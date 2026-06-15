@@ -1,0 +1,6 @@
+policies:
+  - name: freshness
+    item_rules:
+      - broadcast_type: alert
+        max_age: 12h
+        action: drop

@@ -85,6 +85,12 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale |
 | `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |
 
+## YAML Configuration Files
+
+| File | Owner | Purpose |
+|------|-------|---------|
+| `configs/sort/rerank.yaml` | Sort | Configurable item rerank policies. The default freshness policy drops stale `alert` items after `6h`; Sort reads the file once during startup and treats missing or invalid config as no configured policies. |
+
 ## Startup Constraints
 
 - When `ENABLE_EMAIL_VERIFICATION=true`, `RESEND_API_KEY` and `RESEND_FROM_EMAIL` cannot be empty

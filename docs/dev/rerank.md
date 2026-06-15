@@ -26,7 +26,8 @@ The rerank layer lives inside the sort service because sort owns feed compositio
 
 - `Reranker` — built with `rerank.New(policies...)`; `Rerank(cands, limit)` runs the policies in order, then truncates.
 - `Policy` interface — `Name() string`, `Apply([]rank.Candidate) []rank.Candidate`. Implementations must be pure (no I/O, no goroutines).
-- Six built-in policies:
+- Seven built-in policies:
+  - **FreshnessPolicy** — drops item candidates by type-aware age rules loaded from `configs/sort/rerank.yaml`. The default rule is `broadcast_type: alert`, `max_age: 6h`, `action: drop`. `SortItems` applies this policy after recall and before typed item ranking/exploration so stale alerts cannot re-enter through exploration slots.
   - **DedupPolicy** — drops duplicates by `Fingerprint`. Put it first.
   - **NormalizePolicy** — rescales scores per type. `Method: MinMax` maps each type group to `[0, 1]`; `Method: ZScore` standardises. Only mutates `*BasicCandidate`; other Candidate implementations pass through.
   - **CoveragePolicy** — guarantees each *intent* (string label off `*BasicCandidate.MatchedIntents()`) appears at least `FloorPerIntent` times in the top-`Limit` window. Iterates protected intents alphabetically; for each, swaps the highest-scoring outside-window match in for the lowest-scoring inside-window non-match, locking the satisfied slot to prevent later intents from evicting it. `Importance` (intent → [0,1]) filters which intents are protected — those below `ImportanceThreshold` drift naturally on score. Used by `SearchServices`. Does NOT call `AddReason` (intent-name cardinality would pollute replay aggregation).
@@ -34,7 +35,20 @@ The rerank layer lives inside the sort service because sort owns feed compositio
   - **RatioPolicy** — `CycleSize` and `TypeCounts` describe the target interleave (e.g. `{item: 5, service: 1}` over a cycle of 6). Underflow falls through to whichever queue still has candidates.
   - **SlotPolicy** — pins specific 0-indexed positions to a target type. Top-scoring unused candidate of that type is promoted. Place this last so positional overrides win over interleave rhythm.
 
-The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} → Coverage → Bounds{Ceiling: 10}`. See `docs/dev/sort.md` for the surrounding handler flow.
+The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} → Coverage → Bounds{Ceiling: 10}`. `SortItems` additionally has a configurable pre-rank item policy chain loaded from `configs/sort/rerank.yaml`, currently used for freshness hard limits. See `docs/dev/sort.md` for the surrounding handler flow.
+
+### YAML Configuration
+
+`SortItems` reads `configs/sort/rerank.yaml` once during Sort startup. A missing or invalid file logs a warning and disables configured item rerank policies for that process.
+
+```yaml
+policies:
+  - name: freshness
+    item_rules:
+      - broadcast_type: alert
+        max_age: 6h
+        action: drop
+```
 
 ### Canonical Composition
 
@@ -120,7 +134,7 @@ for _, c := range final {
 
 ## Status
 
-The packages are infrastructure-only at this point: **no domain code is wired to them yet**. `rpc/sort/handler.go` and `rpc/trade/handler.go` continue to use their typed rankers directly. A follow-up will choose the first surface (likely the Feed when it begins to mix in services) and replace the typed `.Rank(...)` call with the wrap-and-rerank pattern shown above.
+`SearchServices` uses the rerank chain for multi-intent service ranking. `SortItems` uses `FreshnessPolicy` from `configs/sort/rerank.yaml` before item ranking, and uses the mixed item/service rerank chain when `ENABLE_SERVICE_MIX=true`.
 
 ## Verification
 
