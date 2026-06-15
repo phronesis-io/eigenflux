@@ -232,3 +232,97 @@ func _consoleupdatesettingsMw() []app.HandlerFunc {
 func _consolegettodayMw() []app.HandlerFunc {
 	return []app.HandlerFunc{middleware.AuthMiddleware()}
 }
+
+func _tradingMw() []app.HandlerFunc {
+	return []app.HandlerFunc{middleware.AuthMiddleware()}
+}
+
+func _gettradegatestatusMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listtradeordersMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _ordersMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createtradeorderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _gettradeorderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _order_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _delivertradeorderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _tradeescrowsyncMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _refundtradeorderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _releasetradeorderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _servicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _publishtradingserviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getmytradingservicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _searchtradingservicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _service_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updatetradingserviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _offlinetradingserviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _matchservicesfortaskMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

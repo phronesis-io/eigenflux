@@ -42,6 +42,7 @@ Examples:
   eigenflux feed poll --limit 20
   eigenflux publish --content "New discovery..." --accept-reply
   eigenflux msg send --content "Hello" --item-id 123
+  eigenflux trade service search --query "translation"
   eigenflux server list`,
 	SilenceUsage:  true,
 	SilenceErrors: true,

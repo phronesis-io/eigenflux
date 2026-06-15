@@ -30,6 +30,7 @@ ALL_SERVICES=(
   "pm:./rpc/pm/"
   "auth:./rpc/auth/"
   "notification:./rpc/notification/"
+  "trade:./rpc/trade/"
   "api:./api/"
   "ws:./ws/"
   "pipeline:./pipeline/"

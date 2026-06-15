@@ -44,6 +44,7 @@ type Config struct {
 	AuthRPCPort                int
 	PMRPCPort                  int
 	NotificationRPCPort        int
+	TradeRPCPort               int
 	LLMApiKey                  string
 	LLMBaseURL                 string
 	LLMModel                   string
@@ -88,6 +89,22 @@ type Config struct {
 	LogLevel                   string   // Structured log level: debug | info | warn | error
 	EnableReplayLog            bool     // Enable replay log publishing in FeedService (default: true)
 
+	// Trade
+	ChiefLedgerURL              string
+	ChiefVerifyLookbackLimit    int    // entries to scan per VerifyAgentTransfer call (default 50)
+	ChiefHTTPTimeoutSec         int    // per-request timeout for chief HTTP calls (default 10)
+	TradeMaxActiveOrders          int
+	TradeExpiryScanIntervalSec    int
+	TradeOutboxDispatchIntervalMs int
+	TradeOutboxCleanupIntervalSec int
+	TradeOutboxRetentionDays      int
+	TradeSearchSemanticWeight   float64
+	TradeSearchKeywordWeight    float64
+	TradeSearchSuccessWeight    float64
+	TradeSearchLatencyWeight    float64
+	TradeSearchPriceWeight      float64
+	TradeSearchDeadlineWeight   float64
+
 	// Score layer weights
 	ScoreWeightSemantic  float64
 	ScoreWeightKeyword   float64
@@ -107,6 +124,8 @@ type Config struct {
 	EnableHotRecall          bool   // Enable hot_recall from Redis (default: true)
 	EnableNewRecall          bool   // Enable new_recall from Redis (default: true)
 	EnableTwoTowerRecall     bool   // Enable precomputed two_tower recall from Redis (default: false)
+	EnableServiceMix         bool   // Mix trading services into the SortItems feed (default: false)
+	ServiceMixRecallSize     int    // Max service candidates to recall before rerank (default: 50)
 	RecallRedisNamespace     string // Redis key namespace for recall indices (default: "rec")
 	TwoTowerRecallRedisKey   string // Redis recall output key for two_tower candidates (default: "two_tower_recall")
 	TwoTowerRecallK          int    // Top-K for two-tower Redis candidates (default: 50)
@@ -163,6 +182,7 @@ func Load() *Config {
 		PMRPCPort:                  getEnvInt("PM_RPC_PORT", 8885),
 		AuthRPCPort:                getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:        getEnvInt("NOTIFICATION_RPC_PORT", 8887),
+		TradeRPCPort:               getEnvInt("TRADE_RPC_PORT", 8888),
 		LLMApiKey:                  getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                   getEnv("LLM_MODEL", "gpt-4o-mini"),
@@ -206,6 +226,20 @@ func Load() *Config {
 		LokiURL:                     getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                    getEnv("LOG_LEVEL", "debug"),
 		EnableReplayLog:             getEnvBool("ENABLE_REPLAY_LOG", true),
+		ChiefLedgerURL:              getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
+		ChiefVerifyLookbackLimit:    getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
+		ChiefHTTPTimeoutSec:         getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),
+		TradeMaxActiveOrders:          getEnvInt("TRADE_MAX_ACTIVE_ORDERS", 3),
+		TradeExpiryScanIntervalSec:    getEnvInt("TRADE_EXPIRY_SCAN_INTERVAL_SEC", 30),
+		TradeOutboxDispatchIntervalMs: getEnvInt("TRADE_OUTBOX_DISPATCH_INTERVAL_MS", 1000),
+		TradeOutboxCleanupIntervalSec: getEnvInt("TRADE_OUTBOX_CLEANUP_INTERVAL_SEC", 3600),
+		TradeOutboxRetentionDays:      getEnvInt("TRADE_OUTBOX_RETENTION_DAYS", 7),
+		TradeSearchSemanticWeight:   getEnvFloat("TRADE_SEARCH_SEMANTIC_WEIGHT", 0.55),
+		TradeSearchKeywordWeight:    getEnvFloat("TRADE_SEARCH_KEYWORD_WEIGHT", 0.15),
+		TradeSearchSuccessWeight:    getEnvFloat("TRADE_SEARCH_SUCCESS_WEIGHT", 0.15),
+		TradeSearchLatencyWeight:    getEnvFloat("TRADE_SEARCH_LATENCY_WEIGHT", 0.07),
+		TradeSearchPriceWeight:      getEnvFloat("TRADE_SEARCH_PRICE_WEIGHT", 0.05),
+		TradeSearchDeadlineWeight:   getEnvFloat("TRADE_SEARCH_DEADLINE_WEIGHT", 0.03),
 		ScoreWeightSemantic:         getEnvFloat("SCORE_WEIGHT_SEMANTIC", 0.4),
 		ScoreWeightKeyword:          getEnvFloat("SCORE_WEIGHT_KEYWORD", 0.2),
 		ScoreWeightFreshness:        getEnvFloat("SCORE_WEIGHT_FRESHNESS", 0.3),
@@ -221,6 +255,8 @@ func Load() *Config {
 		KNNRecallCandidates:         getEnvInt("KNN_RECALL_CANDIDATES", 300),
 		EnableHotRecall:             getEnvBool("ENABLE_HOT_RECALL", true),
 		EnableNewRecall:             getEnvBool("ENABLE_NEW_RECALL", true),
+		EnableServiceMix:            getEnvBool("ENABLE_SERVICE_MIX", false),
+		ServiceMixRecallSize:        getEnvInt("SERVICE_MIX_RECALL_SIZE", 50),
 		EnableTwoTowerRecall:        getEnvBool("ENABLE_TWO_TOWER_RECALL", false),
 		RecallRedisNamespace:        getEnv("REC_REDIS_NAMESPACE", "rec"),
 		TwoTowerRecallRedisKey:      getEnv("TWO_TOWER_RECALL_REDIS_KEY", "two_tower_recall"),

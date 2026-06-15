@@ -33,6 +33,8 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
+	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
+	"eigenflux_server/kitex_gen/eigenflux/trade/tradeservice"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
@@ -108,6 +110,18 @@ func main() {
 	}
 	log.Println("Notification RPC client initialized")
 
+	tradeClient, err := tradeservice.NewClient("TradeService", rpcx.ClientOptions(r)...)
+	if err != nil {
+		log.Fatalf("failed to create trade client: %v", err)
+	}
+	log.Println("Trade RPC client initialized")
+
+	sortClient, err := sortservice.NewClient("SortService", rpcx.ClientOptions(r)...)
+	if err != nil {
+		log.Fatalf("failed to create sort client: %v", err)
+	}
+	log.Println("Sort RPC client initialized")
+
 	// Wire RPC clients for generated handlers
 	clients.ProfileClient = profileClient
 	clients.ItemClient = itemClient
@@ -115,6 +129,8 @@ func main() {
 	clients.AuthClient = authClient
 	clients.PMClient = pmClient
 	clients.NotificationClient = notificationClient
+	clients.TradeClient = tradeClient
+	clients.SortClient = sortClient
 
 	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
 	skillDocs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{

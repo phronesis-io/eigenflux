@@ -167,7 +167,11 @@ func WaitForProfileProcessed(t *testing.T, agentID int64) {
 
 func WaitForItemsProcessed(t *testing.T, itemIDs []int64) {
 	t.Helper()
-	timeout := 90*time.Second + time.Duration(len(itemIDs))*20*time.Second
+	// Item pipeline runs multiple LLM calls (tagging, quality, summary) + embedding.
+	// A single slow LLM round-trip can push a 1-item run past 2 minutes, so the
+	// floor is generous; the per-item slope only matters for tests that publish
+	// several items in parallel.
+	timeout := 150*time.Second + time.Duration(len(itemIDs))*30*time.Second
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		allDone := true
