@@ -294,7 +294,7 @@ start_service() {
   local port
   port=$(get_port "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed pm auth notification api pipeline cron"
+    echo "Available services: profile item sort feed pm auth notification trade api ws pipeline cron"
     echo "Console is an independent subsystem: ./console/console_api/scripts/start.sh"
     exit 1
   }
