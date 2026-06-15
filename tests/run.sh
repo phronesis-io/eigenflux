@@ -79,7 +79,10 @@ if [[ "$SKIP_START" != "true" ]]; then
 fi
 
 export APP_ENV=test
-CMD=("${GO_CMD[@]}" test -v -count=1 "$TEST_DIR")
+# The e2e suite spends most of its wall time inside the LLM/embedding pipeline;
+# a string of slow rounds across six tests can comfortably exceed Go's 10-minute
+# default global timeout. Allow 30 minutes for the whole run.
+CMD=("${GO_CMD[@]}" test -v -count=1 -timeout 30m "$TEST_DIR")
 if [[ -n "$TEST_CASE" ]]; then
   CMD+=(-run "$TEST_CASE")
 fi

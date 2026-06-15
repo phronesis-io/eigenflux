@@ -124,6 +124,8 @@ The base relevance score is wrapped in a `function_score` query with Gaussian de
 
 This keeps the main ranking driven by profile relevance, while giving clearly newer matching items a visible advantage so repeated refreshes are less likely to keep exhausting the exact same keyword bucket.
 
+Sort also applies configurable item rerank policies from `configs/sort/rerank.yaml` after recall and before item ranking. The default freshness policy drops `alert` items older than `6h`, because stale urgent information is considered worse than no delivery. Alerts still use their faster freshness decay inside that window (`FRESHNESS_ALERT_OFFSET=2h`, `FRESHNESS_ALERT_SCALE=12h`, `FRESHNESS_ALERT_DECAY=0.5`). The YAML is read once during Sort startup; if it is missing or invalid, Sort runs without configured item rerank policies.
+
 **Sort Order**: `_score DESC` (relevance × freshness), `updated_at DESC` (tie-break recency)
 
 ## Deduplication Mechanism

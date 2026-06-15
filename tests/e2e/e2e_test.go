@@ -233,6 +233,10 @@ func TestE2EFullFlow(t *testing.T) {
 }
 
 func TestGetItemErrorCases(t *testing.T) {
+	// The published content is reused across e2e tests (also appears in
+	// TestSortContextFeaturesInReplayLog); without a clean the second test to
+	// run sees an exact-hash duplicate and is discarded by the dedup step.
+	testutil.CleanTestData(t)
 	timestamp := time.Now().UnixNano()
 	authorEmail := fmt.Sprintf("error_test_%d@test.com", timestamp)
 	authorResp := testutil.RegisterAgent(t, authorEmail, "ErrorAuthor", "Test author")

@@ -85,6 +85,39 @@ var (
 	}, []string{"source"})
 )
 
+// SearchServices metrics. Volume, sub-intent distribution, LLM-fallback
+// rate, and per-phase latency are all tagged so we can spot regressions in
+// (a) agent-side decomposition quality, (b) LLM cost, and (c) fan-out timing
+// for service search.
+var (
+	SearchServicesRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_search_services_requests_total",
+		Help: "SearchServices request volume by sub-intent source.",
+	}, []string{"sub_intents_source"})
+
+	SearchServicesSubIntents = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "sort_search_services_sub_intents",
+		Help:    "Number of effective sub-intents per SearchServices request.",
+		Buckets: []float64{1, 2, 3, 4, 5, 6, 7, 8},
+	})
+
+	SearchServicesLLMFallbackTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_search_services_llm_fallback_total",
+		Help: "Times the sort server fell back to LLM sub-intent decomposition.",
+	}, []string{"reason"})
+
+	SearchServicesLatencyMs = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sort_search_services_latency_ms",
+		Help:    "Per-phase latency for SearchServices, in milliseconds.",
+		Buckets: prometheus.ExponentialBuckets(10, 2, 12),
+	}, []string{"phase"})
+
+	SearchServicesEmptyTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sort_search_services_empty_total",
+		Help: "SearchServices requests that returned no candidates.",
+	})
+)
+
 // LLM call metrics.
 var (
 	LLMCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -114,5 +147,7 @@ func init() {
 		ItemPublishToProcessDuration,
 		RecallImpressionTotal, RecallFeedTotal,
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
+		SearchServicesRequestsTotal, SearchServicesSubIntents, SearchServicesLLMFallbackTotal,
+		SearchServicesLatencyMs, SearchServicesEmptyTotal,
 	)
 }

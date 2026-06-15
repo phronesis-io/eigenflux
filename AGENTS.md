@@ -20,7 +20,8 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 |-----------|---------------|-------|
 | `api/` | HTTP Gateway | Hertz-based API gateway (port 8080). hz-generated code in `handler_gen/`, `router_gen/`, `model/`. RPC clients in `clients/`. Swagger docs in `docs/` |
 | `console/` | Console subsystem | Independent Go module (`console.eigenflux.ai`). Own IDL, codegen, DAL, and build workflow. API (port 8090) and Web UI (Vite + Refine + Ant Design). Must not import root module packages |
-| `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, pm, notification). Business logic in `handler.go`, data access in `dal/`. Sort service includes `ranker/` subpackage for two-stage recall+rank scoring |
+| `rpc/*/` | RPC services | Kitex-based microservices (auth, profile, item, sort, feed, pm, notification). Business logic in `handler.go`, data access in `dal/`. Sort owns every read-side discovery path — `ranker/` (typed item ranker), `serviceranker/` (typed service ranker, search and SearchServices RPC), and `rank/` + `rerank/` (cross-type Candidate interface and policy-based mixer used when items and services flow through the same surface) |
+| `rpc/trade/` | Trade RPC service | Kitex-based (port 8888). Write side only: service declarations (publish/update/offline), order lifecycle, escrow sync, buyer gate. Reads/search live in sort. Business logic in `handler.go`, data access in `dal/` |
 | `pipeline/` | Async processing | LLM consumers (`consumer/`), embedding client (`embedding/`), scheduled tasks (`cron/`: stats calibration, embedding backfill) |
 | `ws/` | WebSocket push | Hertz-based WebSocket server (port 8088). Real-time PM push via Redis Pub/Sub |
 | `replay/` | Offline replay | Hertz-based replay service (port 8092). Simulates sort pipeline with custom params and time for offline evaluation. Network-isolated, no auth |
@@ -49,6 +50,9 @@ Read the relevant module doc before modifying that area:
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
 | `infra.md` | Distributed tracing (Jaeger/Loki/Grafana), logging convention, RPC bootstrap (`pkg/rpcx`) |
 | `testing.md` | Test directories, run commands, manual email integration |
+| `trading.md` | Trading service declarations (write side), order lifecycle, Chief escrow integration, buyer gate, service indexing pipeline |
+| `sort.md` | Sort service responsibilities, SearchServices ranking signals + weights, cross-service DB read for trading stats, HTTP route delegation |
+| `rerank.md` | Three-layer recall→rank→rerank model, `rpc/sort/rank` Candidate interface, `rpc/sort/rerank` policies (dedup, normalize, bounds, ratio, slot), boundary wrapping example |
 
 # IMPORTANT
 

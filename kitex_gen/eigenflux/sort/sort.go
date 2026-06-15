@@ -78,6 +78,7 @@ type SortedItem struct {
 	Score         float64 `thrift:"score,2,required" frugal:"2,required,double" json:"score"`
 	AgentFeatures *string `thrift:"agent_features,3,optional" frugal:"3,optional,string" json:"agent_features,omitempty"`
 	ItemFeatures  *string `thrift:"item_features,4,optional" frugal:"4,optional,string" json:"item_features,omitempty"`
+	EntryType     *string `thrift:"entry_type,5,optional" frugal:"5,optional,string" json:"entry_type,omitempty"`
 }
 
 func NewSortedItem() *SortedItem {
@@ -112,6 +113,15 @@ func (p *SortedItem) GetItemFeatures() (v string) {
 	}
 	return *p.ItemFeatures
 }
+
+var SortedItem_EntryType_DEFAULT string
+
+func (p *SortedItem) GetEntryType() (v string) {
+	if !p.IsSetEntryType() {
+		return SortedItem_EntryType_DEFAULT
+	}
+	return *p.EntryType
+}
 func (p *SortedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -124,6 +134,9 @@ func (p *SortedItem) SetAgentFeatures(val *string) {
 func (p *SortedItem) SetItemFeatures(val *string) {
 	p.ItemFeatures = val
 }
+func (p *SortedItem) SetEntryType(val *string) {
+	p.EntryType = val
+}
 
 func (p *SortedItem) IsSetAgentFeatures() bool {
 	return p.AgentFeatures != nil
@@ -131,6 +144,10 @@ func (p *SortedItem) IsSetAgentFeatures() bool {
 
 func (p *SortedItem) IsSetItemFeatures() bool {
 	return p.ItemFeatures != nil
+}
+
+func (p *SortedItem) IsSetEntryType() bool {
+	return p.EntryType != nil
 }
 
 func (p *SortedItem) String() string {
@@ -145,6 +162,7 @@ var fieldIDToName_SortedItem = map[int16]string{
 	2: "score",
 	3: "agent_features",
 	4: "item_features",
+	5: "entry_type",
 }
 
 type SortItemsResp struct {
@@ -221,8 +239,427 @@ var fieldIDToName_SortItemsResp = map[int16]string{
 	255: "base_resp",
 }
 
+type SubIntent struct {
+	Name       string   `thrift:"name,1,required" frugal:"1,required,string" json:"name"`
+	QueryText  string   `thrift:"query_text,2,required" frugal:"2,required,string" json:"query_text"`
+	Importance *float64 `thrift:"importance,3,optional" frugal:"3,optional,double" json:"importance,omitempty"`
+}
+
+func NewSubIntent() *SubIntent {
+	return &SubIntent{}
+}
+
+func (p *SubIntent) InitDefault() {
+}
+
+func (p *SubIntent) GetName() (v string) {
+	return p.Name
+}
+
+func (p *SubIntent) GetQueryText() (v string) {
+	return p.QueryText
+}
+
+var SubIntent_Importance_DEFAULT float64
+
+func (p *SubIntent) GetImportance() (v float64) {
+	if !p.IsSetImportance() {
+		return SubIntent_Importance_DEFAULT
+	}
+	return *p.Importance
+}
+func (p *SubIntent) SetName(val string) {
+	p.Name = val
+}
+func (p *SubIntent) SetQueryText(val string) {
+	p.QueryText = val
+}
+func (p *SubIntent) SetImportance(val *float64) {
+	p.Importance = val
+}
+
+func (p *SubIntent) IsSetImportance() bool {
+	return p.Importance != nil
+}
+
+func (p *SubIntent) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SubIntent(%+v)", *p)
+}
+
+var fieldIDToName_SubIntent = map[int16]string{
+	1: "name",
+	2: "query_text",
+	3: "importance",
+}
+
+type SearchFilters struct {
+	MaxPriceAtomic *int64 `thrift:"max_price_atomic,1,optional" frugal:"1,optional,i64" json:"max_price_atomic,omitempty"`
+	DeadlineMsMax  *int64 `thrift:"deadline_ms_max,2,optional" frugal:"2,optional,i64" json:"deadline_ms_max,omitempty"`
+}
+
+func NewSearchFilters() *SearchFilters {
+	return &SearchFilters{}
+}
+
+func (p *SearchFilters) InitDefault() {
+}
+
+var SearchFilters_MaxPriceAtomic_DEFAULT int64
+
+func (p *SearchFilters) GetMaxPriceAtomic() (v int64) {
+	if !p.IsSetMaxPriceAtomic() {
+		return SearchFilters_MaxPriceAtomic_DEFAULT
+	}
+	return *p.MaxPriceAtomic
+}
+
+var SearchFilters_DeadlineMsMax_DEFAULT int64
+
+func (p *SearchFilters) GetDeadlineMsMax() (v int64) {
+	if !p.IsSetDeadlineMsMax() {
+		return SearchFilters_DeadlineMsMax_DEFAULT
+	}
+	return *p.DeadlineMsMax
+}
+func (p *SearchFilters) SetMaxPriceAtomic(val *int64) {
+	p.MaxPriceAtomic = val
+}
+func (p *SearchFilters) SetDeadlineMsMax(val *int64) {
+	p.DeadlineMsMax = val
+}
+
+func (p *SearchFilters) IsSetMaxPriceAtomic() bool {
+	return p.MaxPriceAtomic != nil
+}
+
+func (p *SearchFilters) IsSetDeadlineMsMax() bool {
+	return p.DeadlineMsMax != nil
+}
+
+func (p *SearchFilters) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchFilters(%+v)", *p)
+}
+
+var fieldIDToName_SearchFilters = map[int16]string{
+	1: "max_price_atomic",
+	2: "deadline_ms_max",
+}
+
+type SearchServicesReq struct {
+	RawQuery   string         `thrift:"raw_query,1,required" frugal:"1,required,string" json:"raw_query"`
+	SubIntents []*SubIntent   `thrift:"sub_intents,2,optional" frugal:"2,optional,list<SubIntent>" json:"sub_intents,omitempty"`
+	Limit      *int32         `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	Filters    *SearchFilters `thrift:"filters,4,optional" frugal:"4,optional,SearchFilters" json:"filters,omitempty"`
+}
+
+func NewSearchServicesReq() *SearchServicesReq {
+	return &SearchServicesReq{}
+}
+
+func (p *SearchServicesReq) InitDefault() {
+}
+
+func (p *SearchServicesReq) GetRawQuery() (v string) {
+	return p.RawQuery
+}
+
+var SearchServicesReq_SubIntents_DEFAULT []*SubIntent
+
+func (p *SearchServicesReq) GetSubIntents() (v []*SubIntent) {
+	if !p.IsSetSubIntents() {
+		return SearchServicesReq_SubIntents_DEFAULT
+	}
+	return p.SubIntents
+}
+
+var SearchServicesReq_Limit_DEFAULT int32
+
+func (p *SearchServicesReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return SearchServicesReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+
+var SearchServicesReq_Filters_DEFAULT *SearchFilters
+
+func (p *SearchServicesReq) GetFilters() (v *SearchFilters) {
+	if !p.IsSetFilters() {
+		return SearchServicesReq_Filters_DEFAULT
+	}
+	return p.Filters
+}
+func (p *SearchServicesReq) SetRawQuery(val string) {
+	p.RawQuery = val
+}
+func (p *SearchServicesReq) SetSubIntents(val []*SubIntent) {
+	p.SubIntents = val
+}
+func (p *SearchServicesReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+func (p *SearchServicesReq) SetFilters(val *SearchFilters) {
+	p.Filters = val
+}
+
+func (p *SearchServicesReq) IsSetSubIntents() bool {
+	return p.SubIntents != nil
+}
+
+func (p *SearchServicesReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *SearchServicesReq) IsSetFilters() bool {
+	return p.Filters != nil
+}
+
+func (p *SearchServicesReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchServicesReq(%+v)", *p)
+}
+
+var fieldIDToName_SearchServicesReq = map[int16]string{
+	1: "raw_query",
+	2: "sub_intents",
+	3: "limit",
+	4: "filters",
+}
+
+type SearchedService struct {
+	ServiceId          int64              `thrift:"service_id,1,required" frugal:"1,required,i64" json:"service_id"`
+	Title              string             `thrift:"title,2,required" frugal:"2,required,string" json:"title"`
+	SellerAgentId      int64              `thrift:"seller_agent_id,3,required" frugal:"3,required,i64" json:"seller_agent_id"`
+	AmountAtomic       int64              `thrift:"amount_atomic,4,required" frugal:"4,required,i64" json:"amount_atomic"`
+	Asset              string             `thrift:"asset,5,required" frugal:"5,required,string" json:"asset"`
+	DeliveryDeadlineMs int64              `thrift:"delivery_deadline_ms,6,required" frugal:"6,required,i64" json:"delivery_deadline_ms"`
+	Score              float64            `thrift:"score,7,required" frugal:"7,required,double" json:"score"`
+	MatchedIntents     []string           `thrift:"matched_intents,8,required" frugal:"8,required,list<string>" json:"matched_intents"`
+	WinningIntent      string             `thrift:"winning_intent,9,required" frugal:"9,required,string" json:"winning_intent"`
+	ScoreBreakdown     map[string]float64 `thrift:"score_breakdown,10,required" frugal:"10,required,map<string:double>" json:"score_breakdown"`
+	Stats              map[string]float64 `thrift:"stats,11,required" frugal:"11,required,map<string:double>" json:"stats"`
+}
+
+func NewSearchedService() *SearchedService {
+	return &SearchedService{}
+}
+
+func (p *SearchedService) InitDefault() {
+}
+
+func (p *SearchedService) GetServiceId() (v int64) {
+	return p.ServiceId
+}
+
+func (p *SearchedService) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *SearchedService) GetSellerAgentId() (v int64) {
+	return p.SellerAgentId
+}
+
+func (p *SearchedService) GetAmountAtomic() (v int64) {
+	return p.AmountAtomic
+}
+
+func (p *SearchedService) GetAsset() (v string) {
+	return p.Asset
+}
+
+func (p *SearchedService) GetDeliveryDeadlineMs() (v int64) {
+	return p.DeliveryDeadlineMs
+}
+
+func (p *SearchedService) GetScore() (v float64) {
+	return p.Score
+}
+
+func (p *SearchedService) GetMatchedIntents() (v []string) {
+	return p.MatchedIntents
+}
+
+func (p *SearchedService) GetWinningIntent() (v string) {
+	return p.WinningIntent
+}
+
+func (p *SearchedService) GetScoreBreakdown() (v map[string]float64) {
+	return p.ScoreBreakdown
+}
+
+func (p *SearchedService) GetStats() (v map[string]float64) {
+	return p.Stats
+}
+func (p *SearchedService) SetServiceId(val int64) {
+	p.ServiceId = val
+}
+func (p *SearchedService) SetTitle(val string) {
+	p.Title = val
+}
+func (p *SearchedService) SetSellerAgentId(val int64) {
+	p.SellerAgentId = val
+}
+func (p *SearchedService) SetAmountAtomic(val int64) {
+	p.AmountAtomic = val
+}
+func (p *SearchedService) SetAsset(val string) {
+	p.Asset = val
+}
+func (p *SearchedService) SetDeliveryDeadlineMs(val int64) {
+	p.DeliveryDeadlineMs = val
+}
+func (p *SearchedService) SetScore(val float64) {
+	p.Score = val
+}
+func (p *SearchedService) SetMatchedIntents(val []string) {
+	p.MatchedIntents = val
+}
+func (p *SearchedService) SetWinningIntent(val string) {
+	p.WinningIntent = val
+}
+func (p *SearchedService) SetScoreBreakdown(val map[string]float64) {
+	p.ScoreBreakdown = val
+}
+func (p *SearchedService) SetStats(val map[string]float64) {
+	p.Stats = val
+}
+
+func (p *SearchedService) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchedService(%+v)", *p)
+}
+
+var fieldIDToName_SearchedService = map[int16]string{
+	1:  "service_id",
+	2:  "title",
+	3:  "seller_agent_id",
+	4:  "amount_atomic",
+	5:  "asset",
+	6:  "delivery_deadline_ms",
+	7:  "score",
+	8:  "matched_intents",
+	9:  "winning_intent",
+	10: "score_breakdown",
+	11: "stats",
+}
+
+type SearchServicesDebug struct {
+	SubIntentsSource    string       `thrift:"sub_intents_source,1,required" frugal:"1,required,string" json:"sub_intents_source"`
+	EffectiveSubIntents []*SubIntent `thrift:"effective_sub_intents,2,required" frugal:"2,required,list<SubIntent>" json:"effective_sub_intents"`
+}
+
+func NewSearchServicesDebug() *SearchServicesDebug {
+	return &SearchServicesDebug{}
+}
+
+func (p *SearchServicesDebug) InitDefault() {
+}
+
+func (p *SearchServicesDebug) GetSubIntentsSource() (v string) {
+	return p.SubIntentsSource
+}
+
+func (p *SearchServicesDebug) GetEffectiveSubIntents() (v []*SubIntent) {
+	return p.EffectiveSubIntents
+}
+func (p *SearchServicesDebug) SetSubIntentsSource(val string) {
+	p.SubIntentsSource = val
+}
+func (p *SearchServicesDebug) SetEffectiveSubIntents(val []*SubIntent) {
+	p.EffectiveSubIntents = val
+}
+
+func (p *SearchServicesDebug) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchServicesDebug(%+v)", *p)
+}
+
+var fieldIDToName_SearchServicesDebug = map[int16]string{
+	1: "sub_intents_source",
+	2: "effective_sub_intents",
+}
+
+type SearchServicesResp struct {
+	Results  []*SearchedService   `thrift:"results,1,required" frugal:"1,required,list<SearchedService>" json:"results"`
+	Debug    *SearchServicesDebug `thrift:"debug,2,required" frugal:"2,required,SearchServicesDebug" json:"debug"`
+	BaseResp *base.BaseResp       `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewSearchServicesResp() *SearchServicesResp {
+	return &SearchServicesResp{}
+}
+
+func (p *SearchServicesResp) InitDefault() {
+}
+
+func (p *SearchServicesResp) GetResults() (v []*SearchedService) {
+	return p.Results
+}
+
+var SearchServicesResp_Debug_DEFAULT *SearchServicesDebug
+
+func (p *SearchServicesResp) GetDebug() (v *SearchServicesDebug) {
+	if !p.IsSetDebug() {
+		return SearchServicesResp_Debug_DEFAULT
+	}
+	return p.Debug
+}
+
+var SearchServicesResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *SearchServicesResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return SearchServicesResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *SearchServicesResp) SetResults(val []*SearchedService) {
+	p.Results = val
+}
+func (p *SearchServicesResp) SetDebug(val *SearchServicesDebug) {
+	p.Debug = val
+}
+func (p *SearchServicesResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *SearchServicesResp) IsSetDebug() bool {
+	return p.Debug != nil
+}
+
+func (p *SearchServicesResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *SearchServicesResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchServicesResp(%+v)", *p)
+}
+
+var fieldIDToName_SearchServicesResp = map[int16]string{
+	1:   "results",
+	2:   "debug",
+	255: "base_resp",
+}
+
 type SortService interface {
 	SortItems(ctx context.Context, req *SortItemsReq) (r *SortItemsResp, err error)
+
+	SearchServices(ctx context.Context, req *SearchServicesReq) (r *SearchServicesResp, err error)
 }
 
 type SortServiceSortItemsArgs struct {
@@ -298,5 +735,81 @@ func (p *SortServiceSortItemsResult) String() string {
 }
 
 var fieldIDToName_SortServiceSortItemsResult = map[int16]string{
+	0: "success",
+}
+
+type SortServiceSearchServicesArgs struct {
+	Req *SearchServicesReq `thrift:"req,1" frugal:"1,default,SearchServicesReq" json:"req"`
+}
+
+func NewSortServiceSearchServicesArgs() *SortServiceSearchServicesArgs {
+	return &SortServiceSearchServicesArgs{}
+}
+
+func (p *SortServiceSearchServicesArgs) InitDefault() {
+}
+
+var SortServiceSearchServicesArgs_Req_DEFAULT *SearchServicesReq
+
+func (p *SortServiceSearchServicesArgs) GetReq() (v *SearchServicesReq) {
+	if !p.IsSetReq() {
+		return SortServiceSearchServicesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SortServiceSearchServicesArgs) SetReq(val *SearchServicesReq) {
+	p.Req = val
+}
+
+func (p *SortServiceSearchServicesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SortServiceSearchServicesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceSearchServicesArgs(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceSearchServicesArgs = map[int16]string{
+	1: "req",
+}
+
+type SortServiceSearchServicesResult struct {
+	Success *SearchServicesResp `thrift:"success,0,optional" frugal:"0,optional,SearchServicesResp" json:"success,omitempty"`
+}
+
+func NewSortServiceSearchServicesResult() *SortServiceSearchServicesResult {
+	return &SortServiceSearchServicesResult{}
+}
+
+func (p *SortServiceSearchServicesResult) InitDefault() {
+}
+
+var SortServiceSearchServicesResult_Success_DEFAULT *SearchServicesResp
+
+func (p *SortServiceSearchServicesResult) GetSuccess() (v *SearchServicesResp) {
+	if !p.IsSetSuccess() {
+		return SortServiceSearchServicesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SortServiceSearchServicesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*SearchServicesResp)
+}
+
+func (p *SortServiceSearchServicesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SortServiceSearchServicesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceSearchServicesResult(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceSearchServicesResult = map[int16]string{
 	0: "success",
 }
