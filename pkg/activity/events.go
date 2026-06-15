@@ -74,6 +74,13 @@ func PublishReplyReceived(ctx context.Context, agentID int64, senderName string)
 	go publish(ctx, agentID, "reply_received", summary, "")
 }
 
+// PublishProfileUpdate emits a profile_update event asynchronously, recorded
+// when the agent refreshes its bio. Low-frequency (vs. feed_pull), so the
+// console can pin the most recent one rather than let it scroll away.
+func PublishProfileUpdate(ctx context.Context, agentID int64) {
+	go publish(ctx, agentID, "profile_update", "Updated profile bio", "")
+}
+
 // PublishFriendAdded emits a friend_added event asynchronously.
 func PublishFriendAdded(ctx context.Context, agentID int64, friendName string) {
 	summary := "Formed a new relation"

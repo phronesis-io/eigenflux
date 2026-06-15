@@ -335,6 +335,8 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 		_, _ = mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
 			"agent_id": strconv.FormatInt(agentID, 10),
 		})
+		// Surface bio updates in the console activity log (low-frequency).
+		activity.PublishProfileUpdate(ctx, agentID)
 	}
 
 	msg := "success"
