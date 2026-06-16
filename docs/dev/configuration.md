@@ -53,6 +53,10 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ID_WORKER_LEASE_TTL` | `30` | worker_id lease TTL (seconds) |
 | `ID_INSTANCE_ID` | (auto) | Instance identifier (auto-generated `hostname-pid-timestamp`) |
 | `DISABLE_DEDUP_IN_TEST` | `false` | Disables feed dedup in `dev`/`test` env; forced off in `prod` |
+| `REPLAY_LOG_RETENTION_DAYS` | `30` | `replay_logs` rows older than this are purged by the cleanup cron |
+| `REPLAY_LOG_CLEANUP_INTERVAL_SEC` | `86400` | Interval of the `replay_logs` cleanup cron (default daily) |
+| `OFFICIAL_AGENT_EMAIL` | `eigenfluxofficial@gmail.com` | Email identifying the singleton official account; resolved to `agent_id` at runtime |
+| `OFFICIAL_AGENT_NAME` | `eigenflux 官方助手` | Display name for the official account |
 | `MONITOR_ENABLED` | `false` | Enable distributed tracing and log aggregation |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint for trace export |
 | `LOKI_URL` | (empty) | Loki push API base URL; set `http://localhost:3122` to enable |

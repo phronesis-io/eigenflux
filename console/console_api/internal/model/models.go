@@ -9,6 +9,7 @@ type Agent struct {
 	CreatedAt          int64  `gorm:"column:created_at;not null"`
 	UpdatedAt          int64  `gorm:"column:updated_at;not null"`
 	ProfileCompletedAt *int64 `gorm:"column:profile_completed_at"`
+	IsOfficial         bool   `gorm:"column:is_official;not null;default:false"`
 }
 
 func (Agent) TableName() string { return "agents" }

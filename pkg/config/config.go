@@ -91,6 +91,10 @@ type Config struct {
 	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 
+	// Official account (singleton new-user guide / first contact)
+	OfficialAgentEmail string // email identifying the official account; resolved to agent_id at runtime
+	OfficialAgentName  string // display name for the official account
+
 	// Trade
 	ChiefLedgerURL                string
 	ChiefVerifyLookbackLimit      int // entries to scan per VerifyAgentTransfer call (default 50)
@@ -230,6 +234,8 @@ func Load() *Config {
 		EnableReplayLog:               getEnvBool("ENABLE_REPLAY_LOG", true),
 		ReplayLogRetentionDays:        getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
 		ReplayLogCleanupIntervalSec:   getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
+		OfficialAgentEmail:            getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
+		OfficialAgentName:             getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
 		ChiefLedgerURL:                getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
 		ChiefVerifyLookbackLimit:      getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
 		ChiefHTTPTimeoutSec:           getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),
