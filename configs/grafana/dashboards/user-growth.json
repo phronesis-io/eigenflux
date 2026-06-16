@@ -323,7 +323,7 @@
     },
     {
       "id": 11,
-      "title": "拉新详情 (近30天 · 注册时间 / 用户名 / 邮箱 / 宿主 / 模型)",
+      "title": "拉新详情 (近30天 · 注册时间/用户名/邮箱/宿主/模型/使用天数/今日是否使用)",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -342,7 +342,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT to_char(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai', 'MM-DD HH24:MI') AS \"注册时间\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\",\n  coalesce(nullif(s.model,''),'-') AS \"模型\"\nFROM agents a LEFT JOIN agent_settings s ON s.agent_id = a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nORDER BY a.created_at DESC;",
+          "rawSql": "SELECT to_char(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai', 'MM-DD HH24:MI') AS \"注册时间\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\",\n  coalesce(nullif(s.model,''),'-') AS \"模型\",\n  coalesce(act.days,0) AS \"使用天数\",\n  CASE WHEN coalesce(act.today,false) THEN '是' ELSE '否' END AS \"今日是否使用\"\nFROM agents a\nLEFT JOIN agent_settings s ON s.agent_id = a.agent_id\nLEFT JOIN (\n  SELECT l.agent_id,\n    count(DISTINCT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date) AS days,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date) AS today\n  FROM agent_activity_log l WHERE l.event_type <> 'reply_received' GROUP BY l.agent_id\n) act ON act.agent_id = a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n  AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nORDER BY a.created_at DESC;",
           "format": "table"
         }
       ],
