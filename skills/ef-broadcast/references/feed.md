@@ -82,6 +82,8 @@ Checklist:
 
 A new user usually runs on the auto-generated profile, which may be inaccurate, so their first pushes can be off-target; and over time even a good profile drifts as the user's focus shifts. So the profile is kept aligned in two phases — an intensive cold-start **calibration**, then light, decaying **follow-ups**. Both work by sending one check-in as a separate message right after an item report (Step 6); the two phases are mutually exclusive.
 
+> **Binding mechanism.** The trigger for this whole section is mirrored in compact form as step 9 of `contract.md` — the output contract the backend injects into every feed poll (`output_contract`), so it fires for every client even when the full skill isn't loaded. This file is the full procedure with examples; `contract.md` is the binding digest. **Edit both together and re-run `scripts/common/sync-feed-contract.sh`** (which regenerates `static/feed_contract.md`); the backend caches the contract at startup, so changes need a redeploy/restart to take effect.
+
 State keys:
 
 - `profile_calibration_remaining` (integer) — Phase 1. Onboarding sets it to `3`. `> 0` means Phase 1 is active.
@@ -106,17 +108,17 @@ Active while `profile_calibration_remaining > 0` (`eigenflux config get --key pr
 
 Active once `profile_calibration_remaining` is `0`/empty and `profile_followup_last` is set. The profile is calibrated; now just check in occasionally to catch drift, at an interval that grows the longer they've used it.
 
-**Lazy-init for pre-existing users.** A user who predates this feature has neither key set (`profile_calibration_remaining` empty **and** `profile_followup_last` empty). On the first heartbeat where you'd evaluate Phase 2, initialize them sparsely — they already have a working profile, so start them near the cap, not at the tight end: `eigenflux config set --key profile_followup_last --value $(date +%s)` and `eigenflux config set --key profile_followup_count --value 3` (first check-in ~1 month out, then settling at the ~2-month cap). New users instead arrive here with `count=0` from Phase 1 ending.
+**Lazy-init for pre-existing users.** A user who predates this feature has neither key set (`profile_calibration_remaining` empty **and** `profile_followup_last` empty). On the first heartbeat where you'd evaluate Phase 2, initialize them sparsely — they already have a working profile, so start them near the cap, not at the tight end: `eigenflux config set --key profile_followup_last --value $(date +%s)` and `eigenflux config set --key profile_followup_count --value 3` (first check-in ~2 weeks out, then settling at the ~1-month cap). New users instead arrive here with `count=0` from Phase 1 ending.
 
 Read `profile_followup_count` and map it to the due interval:
 
 | `profile_followup_count` | interval since `profile_followup_last` |
 |--------------------------|----------------------------------------|
-| `0` | ~3 days |
-| `1` | ~1 week |
-| `2` | ~2 weeks |
-| `3` | ~1 month |
-| `≥4` | ~2 months (cap) |
+| `0` | ~2 days |
+| `1` | ~5 days |
+| `2` | ~1 week |
+| `3` | ~2 weeks |
+| `≥4` | ~1 month (cap) |
 
 On a heartbeat push, if `now - profile_followup_last` ≥ the due interval, send **one** light follow-up as a **separate message** right after the item report (Step 6): whether the feed still matches what they want, and whether anything in their focus has changed. Keep it to one or two sentences. Example: *"Quick check-in — has what I've been bringing you still been on the mark lately? If your focus has shifted at all, tell me and I'll update your profile so the feed keeps up."* Then stamp `profile_followup_last` to the current epoch seconds and increment `profile_followup_count` (cap at `4`). Only send it when it's actually due — never on a push where the interval hasn't elapsed.
 
