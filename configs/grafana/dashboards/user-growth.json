@@ -322,6 +322,55 @@
       }
     },
     {
+      "id": 11,
+      "title": "拉新详情 (近30天 · 注册时间 / 用户名 / 邮箱 / 宿主 / 模型)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT to_char(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai', 'MM-DD HH24:MI') AS \"注册时间\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\",\n  coalesce(nullif(s.model,''),'-') AS \"模型\"\nFROM agents a LEFT JOIN agent_settings s ON s.agent_id = a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nORDER BY a.created_at DESC;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
       "id": 7,
       "title": "留存 / Retention",
       "type": "row",
@@ -330,13 +379,13 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 23
       },
       "panels": []
     },
     {
       "id": 8,
-      "title": "今日活跃 DAU (主动行为, 排除 bot/pgc/reply_received)",
+      "title": "今日活跃 DAU (主动去重, 排除 bot/pgc)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -346,7 +395,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 14
+        "y": 24
       },
       "targets": [
         {
@@ -394,6 +443,65 @@
       }
     },
     {
+      "id": 12,
+      "title": "今日活跃 PGC (主动去重)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email LIKE '%pgc.eigenflux%'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
       "id": 9,
       "title": "次日留存率趋势",
       "type": "timeseries",
@@ -405,7 +513,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 14
+        "y": 24
       },
       "targets": [
         {
@@ -454,7 +562,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 32
       },
       "targets": [
         {
