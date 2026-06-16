@@ -29,3 +29,18 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     uid: prometheus
+  # Business/distribution queries (user growth, retention). Connection comes
+  # from env injected into the grafana container (see docker-compose.monitor.yml).
+  # For cloud, point GRAFANA_PG_* at a read-only role.
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    url: $GRAFANA_PG_HOST:$GRAFANA_PG_PORT
+    user: $GRAFANA_PG_USER
+    uid: postgres
+    jsonData:
+      database: $GRAFANA_PG_DATABASE
+      sslmode: disable
+      postgresVersionGE: "15"
+    secureJsonData:
+      password: $GRAFANA_PG_PASSWORD
