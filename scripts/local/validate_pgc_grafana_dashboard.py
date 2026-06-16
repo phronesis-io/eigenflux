@@ -19,12 +19,10 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "Command Center",
-    "Flow and Backlog",
-    "Reliability",
-    "Source Health and Coverage",
-    "Cost and Quality Gates",
-    "Logs",
+    "内容交付 / Delivery",
+    "来源健康 / Source Health",
+    "质量与成本 / Quality & Cost",
+    "工程诊断 / Diagnostics",
 ]
 
 

@@ -2,7 +2,7 @@
   "id": null,
   "uid": "pgc-pipeline",
   "title": "EigenFlux - PGC Pipeline",
-  "description": "Professional operations dashboard for PGC crawl, process, publish, source health, cost, and logs.",
+  "description": "User-friendly operations dashboard for PGC delivery, source health, quality, cost, diagnostics, and logs.",
   "tags": [
     "pgc",
     "pipeline",
@@ -11,9 +11,9 @@
   "editable": true,
   "graphTooltip": 1,
   "timezone": "browser",
-  "refresh": "30s",
+  "refresh": "5m",
   "time": {
-    "from": "now-6h",
+    "from": "now-30d",
     "to": "now"
   },
   "templating": {
@@ -21,8 +21,8 @@
   },
   "panels": [
     {
-      "id": 10,
-      "title": "Command Center",
+      "id": 1,
+      "title": "内容交付 / Delivery",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -33,12 +33,12 @@
       "collapsed": false
     },
     {
-      "id": 11,
-      "title": "Published / 1h",
+      "id": 2,
+      "title": "近1小时发布",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 6,
         "x": 0,
         "y": 1
       },
@@ -46,7 +46,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Delivery velocity over the last hour.",
+      "description": "最近一小时成功推送到 EigenFlux 的内容量。",
       "targets": [
         {
           "expr": "sum(increase(pgc_published_total{job=\"pgc-pipeline\"}[1h]))",
@@ -61,29 +61,25 @@
           "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "green",
-                "value": 50
               }
             ]
           }
@@ -92,20 +88,20 @@
       }
     },
     {
-      "id": 12,
-      "title": "Active Queue",
+      "id": 3,
+      "title": "待处理队列",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
+        "w": 6,
+        "x": 6,
         "y": 1
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Items not yet terminal.",
+      "description": "仍在管线中的内容量，过高说明消费端积压。",
       "targets": [
         {
           "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"} + pgc_queue_extracting{job=\"pgc-pipeline\"} + pgc_queue_extracted{job=\"pgc-pipeline\"} + pgc_queue_processing{job=\"pgc-pipeline\"} + pgc_queue_done{job=\"pgc-pipeline\"}",
@@ -120,14 +116,19 @@
           "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -137,11 +138,11 @@
               },
               {
                 "color": "yellow",
-                "value": 100
+                "value": 500
               },
               {
                 "color": "red",
-                "value": 1000
+                "value": 2000
               }
             ]
           }
@@ -150,71 +151,12 @@
       }
     },
     {
-      "id": 13,
-      "title": "Max Worker Age",
+      "id": 4,
+      "title": "当前阻塞源",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 1
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "description": "Seconds since any crawl/process/publish worker last reported health.",
-      "targets": [
-        {
-          "expr": "max(pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"})",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 600
-              },
-              {
-                "color": "red",
-                "value": 1800
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 14,
-      "title": "Blocked Feeds",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
+        "w": 6,
         "x": 12,
         "y": 1
       },
@@ -222,7 +164,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Currently blocked feeds.",
+      "description": "当前被自动阻塞的 feed/source 数。",
       "targets": [
         {
           "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
@@ -237,14 +179,19 @@
           "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -267,78 +214,20 @@
       }
     },
     {
-      "id": 15,
-      "title": "LLM Failures / 1h",
+      "id": 5,
+      "title": "NewsAPI 用量",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 16,
+        "w": 6,
+        "x": 18,
         "y": 1
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "JSON/LLM failures over the last hour.",
-      "targets": [
-        {
-          "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\",status=~\"error_.*\"}[1h]))",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 5
-              },
-              {
-                "color": "red",
-                "value": 20
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 16,
-      "title": "NewsAPI Used",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 1
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "description": "NewsAPI budget used percentage.",
+      "description": "NewsAPI.ai 月度 token 使用百分比。",
       "targets": [
         {
           "expr": "pgc_newsapi_tokens_pct{job=\"pgc-pipeline\"}",
@@ -353,15 +242,19 @@
           "fields": "",
           "values": false
         },
+        "orientation": "auto",
+        "textMode": "auto",
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -384,32 +277,68 @@
       }
     },
     {
-      "id": 20,
-      "title": "Flow and Backlog",
-      "type": "row",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 5
-      },
-      "collapsed": false
-    },
-    {
-      "id": 21,
-      "title": "Queue by Stage",
+      "id": 6,
+      "title": "发布趋势 (每小时)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 5
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Backlog shape: where work is accumulating.",
+      "description": "像 User Growth 的每日新增趋势一样，先看交付节奏是否平稳。",
+      "targets": [
+        {
+          "expr": "sum(rate(pgc_published_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "发布/小时"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 45,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "队列分布",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按阶段展示 backlog，帮助判断卡在抓取、抽取、处理还是发布。",
       "targets": [
         {
           "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"}",
@@ -439,612 +368,267 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
       }
     },
     {
-      "id": 22,
-      "title": "Published Throughput / Hour",
-      "type": "timeseries",
+      "id": 8,
+      "title": "24小时内容状态",
+      "type": "table",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "description": "Delivery rate normalized to items/hour.",
-      "targets": [
-        {
-          "expr": "sum(rate(pgc_published_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
-          "refId": "A",
-          "legendFormat": "published/hour"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 23,
-      "title": "Last Stage Round Results",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
-        "y": 14
+        "y": 13
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Per-run gauges written by each worker.",
-      "targets": [
-        {
-          "expr": "pgc_crawl_extract_ok{job=\"pgc-pipeline\"}",
-          "refId": "A",
-          "legendFormat": "crawl extract ok"
-        },
-        {
-          "expr": "pgc_crawl_extract_fail{job=\"pgc-pipeline\"}",
-          "refId": "B",
-          "legendFormat": "crawl extract fail"
-        },
-        {
-          "expr": "pgc_process_ok{job=\"pgc-pipeline\"}",
-          "refId": "C",
-          "legendFormat": "process ok"
-        },
-        {
-          "expr": "pgc_process_fail{job=\"pgc-pipeline\"}",
-          "refId": "D",
-          "legendFormat": "process fail"
-        },
-        {
-          "expr": "pgc_publish_ok{job=\"pgc-pipeline\"}",
-          "refId": "E",
-          "legendFormat": "publish ok"
-        },
-        {
-          "expr": "pgc_publish_fail{job=\"pgc-pipeline\"}",
-          "refId": "F",
-          "legendFormat": "publish fail"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 24,
-      "title": "Items Indexed in Last 24h by Status",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 14
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "description": "Rolling 24h mix across statuses.",
+      "description": "最近 24 小时 indexed / processed / pushed 等状态分布。",
       "targets": [
         {
           "expr": "pgc_items_24h{job=\"pgc-pipeline\"}",
           "refId": "A",
-          "legendFormat": "{{status}}"
+          "format": "table",
+          "instant": true,
+          "range": false
         }
       ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
             },
-            "axisPlacement": "auto"
+            "filterable": true
           }
         },
         "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
       }
     },
     {
-      "id": 30,
-      "title": "Reliability",
+      "id": 9,
+      "title": "来源发布榜 (7天)",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "7 天发布量最高的来源，优先确认关键来源是否仍有产出。",
+      "targets": [
+        {
+          "expr": "topk(30, pgc_source_published_7d{job=\"pgc-pipeline\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "异常来源榜",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "连续失败次数最高的来源，适合直接定位需要人工处理的 feed。",
+      "targets": [
+        {
+          "expr": "topk(30, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "来源健康 / Source Health",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "collapsed": false
+    },
+    {
+      "id": 12,
+      "title": "失败源 >=3 次",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
         "x": 0,
         "y": 22
       },
-      "collapsed": false
-    },
-    {
-      "id": 31,
-      "title": "Worker Heartbeat Age",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 23
-      },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "连续失败达到 3 次以上的 feed 数。",
       "targets": [
-        {
-          "expr": "pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"}",
-          "refId": "A",
-          "legendFormat": "{{worker}}"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 32,
-      "title": "Worker FD Pressure",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 23
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_worker_fd_pct{job=\"pgc-pipeline\"} * 100",
-          "refId": "A",
-          "legendFormat": "{{worker}}"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 33,
-      "title": "Stage Latency",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 23
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_stage_latency_seconds{job=\"pgc-pipeline\"}",
-          "refId": "A",
-          "legendFormat": "{{stage}}"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 34,
-      "title": "Error Pressure",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 31
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "description": "Hourly error pressure by stage.",
-      "targets": [
-        {
-          "expr": "sum(rate(pgc_error_extract_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
-          "refId": "A",
-          "legendFormat": "extract errors/hour"
-        },
-        {
-          "expr": "sum(rate(pgc_error_llm_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
-          "refId": "B",
-          "legendFormat": "llm errors/hour"
-        },
-        {
-          "expr": "sum(rate(pgc_publish_fail{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
-          "refId": "C",
-          "legendFormat": "publish fails/hour"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 35,
-      "title": "Pipeline Latency p95",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 31
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(pgc_pipeline_latency_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le, stage))",
-          "refId": "A",
-          "legendFormat": "{{stage}} p95"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 40,
-      "title": "Source Health and Coverage",
-      "type": "row",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 39
-      },
-      "collapsed": false
-    },
-    {
-      "id": 41,
-      "title": "Blocked and Failing Feeds",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 40
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
-          "refId": "A",
-          "legendFormat": "blocked"
-        },
         {
           "expr": "count(pgc_feed_consecutive_fails{job=\"pgc-pipeline\"} >= 3)",
-          "refId": "B",
-          "legendFormat": "failing >=3"
+          "refId": "A"
         }
       ],
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": []
       }
     },
     {
-      "id": 42,
-      "title": "Top Failing Feeds",
-      "type": "bargauge",
+      "id": 13,
+      "title": "Worker 最久未运行",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 40
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "任一 worker 最近一次上报距现在的秒数。",
       "targets": [
         {
-          "expr": "topk(20, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
+          "expr": "max(pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"})",
           "refId": "A"
         }
       ],
@@ -1056,231 +640,289 @@
           "fields": "",
           "values": false
         },
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "minVizWidth": 0,
-        "minVizHeight": 10
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      }
-    },
-    {
-      "id": 43,
-      "title": "Source Publish Yield",
-      "type": "bargauge",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 40
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "topk(20, pgc_source_status_count{job=\"pgc-pipeline\",status=\"published\"} / on(source) group_left() sum by (source)(pgc_source_status_count{job=\"pgc-pipeline\"}))",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "minVizWidth": 0,
-        "minVizHeight": 10
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 600
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          }
         },
         "overrides": []
       }
     },
     {
-      "id": 44,
-      "title": "Top Sources by Published (7d)",
-      "type": "timeseries",
+      "id": 14,
+      "title": "LLM 失败 (1小时)",
+      "type": "stat",
       "gridPos": {
-        "h": 8,
-        "w": 8,
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "最近一小时 LLM error_* 调用数。",
+      "targets": [
+        {
+          "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\",status=~\"error_.*\"}[1h]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "title": "FD 压力最高",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "worker 文件描述符使用率最高值。",
+      "targets": [
+        {
+          "expr": "max(pgc_worker_fd_pct{job=\"pgc-pipeline\"}) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "title": "来源转化率 (发布 / 全状态)",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
         "x": 0,
-        "y": 48
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "按来源看发布转化率，帮助发现抓到了但没有推送的源。",
       "targets": [
         {
-          "expr": "topk(15, pgc_source_published_7d{job=\"pgc-pipeline\"})",
+          "expr": "topk(30, pgc_source_status_count{job=\"pgc-pipeline\",status=\"published\"} / on(source) group_left() sum by (source)(pgc_source_status_count{job=\"pgc-pipeline\"}))",
           "refId": "A",
-          "legendFormat": "{{source}}"
+          "format": "table",
+          "instant": true,
+          "range": false
         }
       ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
             },
-            "axisPlacement": "auto"
+            "filterable": true
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "id": 45,
-      "title": "Top Sources by Consumed (7d)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 48
       },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "topk(15, pgc_source_consumed_7d{job=\"pgc-pipeline\"})",
-          "refId": "A",
-          "legendFormat": "{{source}}"
-        }
-      ],
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 46,
-      "title": "Average Heat by Source (7d)",
-      "type": "bargauge",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 48
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "topk(20, pgc_source_avg_heat_7d{job=\"pgc-pipeline\"})",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
           ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "minVizWidth": 0,
-        "minVizHeight": 10
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
+          "fields": ""
+        }
       }
     },
     {
-      "id": 50,
-      "title": "Cost and Quality Gates",
+      "id": 17,
+      "title": "高热来源 (7天)",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "7 天平均 heat 最高的来源，便于判断高价值内容覆盖。",
+      "targets": [
+        {
+          "expr": "topk(30, pgc_source_avg_heat_7d{job=\"pgc-pipeline\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "质量与成本 / Quality & Cost",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 36
       },
       "collapsed": false
     },
     {
-      "id": 51,
-      "title": "LLM Calls by Outcome / Hour",
+      "id": 19,
+      "title": "LLM 调用结果 (每小时)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 57
+        "y": 37
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "按 status 看 LLM 调用是否出现异常尖峰。",
       "targets": [
         {
           "expr": "sum by (status) (rate(pgc_llm_calls_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
@@ -1290,229 +932,146 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
       }
     },
     {
-      "id": 52,
-      "title": "LLM Latency p95",
+      "id": 20,
+      "title": "LLM 延迟 p95",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 57
+        "y": 37
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "各模型 p95 调用耗时。",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(pgc_llm_call_duration_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le, model))",
           "refId": "A",
-          "legendFormat": "{{model}} p95"
+          "legendFormat": "{{model}}"
         }
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "s",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "s"
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
         },
         "overrides": []
       }
     },
     {
-      "id": 53,
-      "title": "LLM Tokens / Hour",
+      "id": 21,
+      "title": "Token 消耗 (每小时)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 57
+        "y": 37
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Prompt / completion token 每小时消耗速度。",
       "targets": [
         {
           "expr": "sum(rate(pgc_llm_prompt_tokens_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
           "refId": "A",
-          "legendFormat": "prompt tokens/hour"
+          "legendFormat": "prompt"
         },
         {
           "expr": "sum(rate(pgc_llm_completion_tokens_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
           "refId": "B",
-          "legendFormat": "completion tokens/hour"
+          "legendFormat": "completion"
         }
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
       }
     },
     {
-      "id": 54,
-      "title": "NewsAPI Token Budget",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 65
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_newsapi_tokens_used{job=\"pgc-pipeline\"}",
-          "refId": "A",
-          "legendFormat": "live used"
-        },
-        {
-          "expr": "pgc_newsapi_tokens_local{job=\"pgc-pipeline\"}",
-          "refId": "B",
-          "legendFormat": "local tracked"
-        },
-        {
-          "expr": "pgc_newsapi_tokens_limit{job=\"pgc-pipeline\"}",
-          "refId": "C",
-          "legendFormat": "limit"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 55,
+      "id": 22,
       "title": "Signal Gate",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 65
+        "x": 0,
+        "y": 45
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "质量门控丢弃率和 verdict 分布。",
       "targets": [
         {
           "expr": "pgc_signal_gate_drop_rate{job=\"pgc-pipeline\"} * 100",
@@ -1527,65 +1086,259 @@
       ],
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "short"
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
         },
         "overrides": []
       }
     },
     {
-      "id": 60,
-      "title": "Logs",
+      "id": 23,
+      "title": "端到端发布延迟 p95",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "从 indexed 到 pushed 的端到端延迟 p95。",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pgc_pipeline_latency_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "title": "工程诊断 / Diagnostics",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 73
+        "y": 53
       },
       "collapsed": false
     },
     {
-      "id": 61,
-      "title": "Pipeline Logs",
+      "id": 25,
+      "title": "Worker 心跳",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "每个 worker 的 heartbeat age。",
+      "targets": [
+        {
+          "expr": "pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "{{worker}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 26,
+      "title": "阶段耗时",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 54
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "extract / process / publish 最近 6 小时平均耗时。",
+      "targets": [
+        {
+          "expr": "pgc_stage_latency_seconds{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 27,
+      "title": "错误压力 (每小时)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 54
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "抽取、LLM、发布失败的每小时速度。",
+      "targets": [
+        {
+          "expr": "sum(rate(pgc_error_extract_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "extract"
+        },
+        {
+          "expr": "sum(rate(pgc_error_llm_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "B",
+          "legendFormat": "llm"
+        },
+        {
+          "expr": "sum(rate(pgc_publish_fail{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "C",
+          "legendFormat": "publish"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 28,
+      "title": "PGC Pipeline 日志",
       "type": "logs",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 62
       },
       "datasource": {
         "uid": "loki",
         "type": "loki"
       },
-      "description": "Recent structured logs for PGC pipeline.",
+      "description": "PGC pipeline 最近日志，用于从图表异常快速跳到原始事件。",
       "targets": [
         {
           "expr": "{service=\"pgc-pipeline\"}",

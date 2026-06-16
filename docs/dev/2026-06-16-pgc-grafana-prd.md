@@ -3,6 +3,7 @@
 Date: 2026-06-16
 Owner: PGC / EigenFlux operations
 Status: implemented in `configs/grafana/dashboards/pgc-pipeline.json`
+Design reference: `configs/grafana/dashboards/user-growth.json`
 
 ## Problem
 
@@ -18,8 +19,10 @@ failures obvious without requiring ad hoc SQL or shell inspection.
 
 ## Goals
 
+- Match the readability of the User Growth dashboard: compact KPI row, clear
+  Chinese business labels, large trend panels, and table-first detail views.
 - Give an operator a 30-second command-center view of PGC health.
-- Separate live health, flow, reliability, source health, cost, and logs.
+- Separate delivery, source health, quality/cost, diagnostics, and logs.
 - Prefer rates, rolling windows, and ratios over raw lifetime totals when the
   question is operational.
 - Keep drilldown panels close to the summary metric they explain.
@@ -46,43 +49,24 @@ failures obvious without requiring ad hoc SQL or shell inspection.
 
 ## Dashboard Structure
 
-1. Command Center
-   - Published in the last hour
-   - Active queue
-   - Maximum worker age
-   - Blocked feeds
-   - LLM failures in the last hour
-   - NewsAPI budget used
+1. 内容交付 / Delivery
+   - 近1小时发布
+   - 待处理队列
+   - 当前阻塞源
+   - NewsAPI 用量
+   - 发布趋势、队列分布、24小时内容状态
+   - 来源发布榜、异常来源榜
 
-2. Flow and Backlog
-   - Queue by stage
-   - Published throughput per hour
-   - Last crawl/process/publish round results
-   - 24-hour item mix by status
+2. 来源健康 / Source Health
+   - 失败源、worker 心跳、LLM 失败、FD 压力
+   - 来源转化率、高热来源
 
-3. Reliability
-   - Worker heartbeat age
-   - Worker file descriptor pressure
-   - Extraction/LLM/publish error pressure
-   - Stage latency
-   - Pipeline latency p95
+3. 质量与成本 / Quality & Cost
+   - LLM 调用结果、LLM 延迟、token 消耗
+   - Signal Gate、端到端发布延迟
 
-4. Source Health and Coverage
-   - Blocked feed count
-   - Top failing feeds
-   - Per-source publish yield
-   - Top published sources
-   - Top consumed sources
-   - Average heat by source
-
-5. Cost and Quality Gates
-   - LLM calls by status
-   - LLM latency p95
-   - Token usage rate
-   - NewsAPI budget and divergence
-   - Signal-gate verdicts and drop rate
-
-6. Logs
+4. 工程诊断 / Diagnostics
+   - Worker 心跳、阶段耗时、错误压力
    - PGC pipeline Loki stream
 
 ## Acceptance Criteria
