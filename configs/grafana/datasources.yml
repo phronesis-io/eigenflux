@@ -29,6 +29,15 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     uid: prometheus
+  # Backward-compatible alias for PGC dashboards. The PGC pipeline dashboard
+  # uses datasource uid=pgc-prometheus, while the central stack datasource is
+  # uid=prometheus. Keep both uids pointing at the same Prometheus backend.
+  - name: PGC Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    uid: pgc-prometheus
   # Business/distribution queries (user growth, retention). Connection comes
   # from env injected into the grafana container (see docker-compose.monitor.yml).
   # For cloud, point GRAFANA_PG_* at a read-only role.
