@@ -87,6 +87,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      # Persist Grafana's internal DB (users, public-dashboard tokens, prefs).
+      # Without this, recreating the container wipes anything created via API/UI.
+      - grafana-data:/var/lib/grafana
       - ./configs/grafana/datasources.yml:/etc/grafana/provisioning/datasources/ds.yml
       - ./configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards
@@ -126,5 +129,6 @@ services:
 
 volumes:
   prometheus-config:
+  grafana-data:
   caddy-data:
   caddy-config:
