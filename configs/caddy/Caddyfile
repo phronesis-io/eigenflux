@@ -1,0 +1,8 @@
+# Reverse proxy for the public Grafana endpoint (cloud only, started via the
+# `public` compose profile). Caddy auto-issues/renews a Let's Encrypt cert for
+# the domain and proxies to the grafana service over the internal compose network
+# (so it works regardless of grafana's host-port binding).
+{$GRAFANA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy grafana:3000
+}

@@ -65,10 +65,16 @@ services:
   grafana:
     image: grafana/grafana:11.6.0
     ports:
-      - "${GRAFANA_PORT:-3123}:3000"
+      # Local dev binds 0.0.0.0:3123 (anonymous Admin, as before). In cloud set
+      # GRAFANA_BIND=127.0.0.1 so the only public entry is Caddy/HTTPS.
+      - "${GRAFANA_BIND:-0.0.0.0}:${GRAFANA_PORT:-3123}:3000"
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      # Auth defaults preserve the local dev experience (anonymous Admin, no
+      # login). In cloud override these in .env to require login.
+      - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-true}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL:-}
       # PostgreSQL datasource connection (consumed by configs/grafana/datasources.yml).
       # The DB host is independent of METRICS_HOST (scrape target): defaults to the
       # local dev DB; in cloud set GRAFANA_PG_* in .env (e.g. the managed RDS endpoint
@@ -97,5 +103,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # Public HTTPS entrypoint for Grafana. Cloud only — gated behind the `public`
+  # profile so it never starts in local dev. Start with:
+  #   docker compose -f docker-compose.monitor.yml --profile public up -d
+  # Requires DNS (GRAFANA_DOMAIN -> this host) and inbound 80/443 open.
+  caddy:
+    image: caddy:2.8
+    profiles: ["public"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - GRAFANA_DOMAIN=${GRAFANA_DOMAIN:-grafana.eigenflux.ai}
+    volumes:
+      - ./configs/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      grafana:
+        condition: service_healthy
+
 volumes:
   prometheus-config:
+  caddy-data:
+  caddy-config:
