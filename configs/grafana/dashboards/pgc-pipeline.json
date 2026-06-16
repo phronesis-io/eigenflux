@@ -1,18 +1,19 @@
 {
   "id": null,
   "uid": "pgc-pipeline",
-  "title": "EigenFlux — PGC Pipeline",
-  "description": "RSS crawl → LLM process → Eigenflux publish pipeline monitoring",
+  "title": "EigenFlux - PGC Pipeline",
+  "description": "Professional operations dashboard for PGC crawl, process, publish, source health, cost, and logs.",
   "tags": [
     "pgc",
-    "pipeline"
+    "pipeline",
+    "ops"
   ],
   "editable": true,
   "graphTooltip": 1,
   "timezone": "browser",
   "refresh": "30s",
   "time": {
-    "from": "now-3h",
+    "from": "now-6h",
     "to": "now"
   },
   "templating": {
@@ -21,7 +22,7 @@
   "panels": [
     {
       "id": 10,
-      "title": "Overview",
+      "title": "Command Center",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -32,8 +33,8 @@
       "collapsed": false
     },
     {
-      "id": 1,
-      "title": "Published",
+      "id": 11,
+      "title": "Published / 1h",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -45,9 +46,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Delivery velocity over the last hour.",
       "targets": [
         {
-          "expr": "pgc_published_total{job=\"pgc-pipeline\"}",
+          "expr": "sum(increase(pgc_published_total{job=\"pgc-pipeline\"}[1h]))",
           "refId": "A"
         }
       ],
@@ -55,24 +57,43 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         },
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
+            ]
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 2,
-      "title": "Queue",
-      "description": "fetched + extracted + extracting + processing + done",
+      "id": 12,
+      "title": "Active Queue",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -84,9 +105,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Items not yet terminal.",
       "targets": [
         {
-          "expr": "pgc_queue_fetched + pgc_queue_extracted + pgc_queue_extracting + pgc_queue_processing + pgc_queue_done",
+          "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"} + pgc_queue_extracting{job=\"pgc-pipeline\"} + pgc_queue_extracted{job=\"pgc-pipeline\"} + pgc_queue_processing{job=\"pgc-pipeline\"} + pgc_queue_done{job=\"pgc-pipeline\"}",
           "refId": "A"
         }
       ],
@@ -94,10 +116,15 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         },
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
@@ -118,12 +145,13 @@
               }
             ]
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 3,
-      "title": "Error Extract",
+      "id": 13,
+      "title": "Max Worker Age",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -135,9 +163,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Seconds since any crawl/process/publish worker last reported health.",
       "targets": [
         {
-          "expr": "pgc_error_extract_total{job=\"pgc-pipeline\"}",
+          "expr": "max(pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"})",
           "refId": "A"
         }
       ],
@@ -145,13 +174,19 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         },
         "colorMode": "value",
-        "graphMode": "area"
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "s",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -160,21 +195,22 @@
                 "value": null
               },
               {
-                "color": "orange",
-                "value": 50000
+                "color": "yellow",
+                "value": 600
               },
               {
                 "color": "red",
-                "value": 200000
+                "value": 1800
               }
             ]
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 4,
-      "title": "Error LLM",
+      "id": 14,
+      "title": "Blocked Feeds",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -186,9 +222,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Currently blocked feeds.",
       "targets": [
         {
-          "expr": "pgc_error_llm_total{job=\"pgc-pipeline\"}",
+          "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
           "refId": "A"
         }
       ],
@@ -196,61 +233,15 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         },
         "colorMode": "value",
-        "graphMode": "area"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": 5,
-      "title": "Unhealthy Feeds",
-      "type": "stat",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 1
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_crawl_unhealthy_feeds{job=\"pgc-pipeline\"}",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
@@ -263,24 +254,79 @@
               },
               {
                 "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "orange",
-                "value": 100
+                "value": 20
               },
               {
                 "color": "red",
-                "value": 200
+                "value": 80
               }
             ]
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 6,
-      "title": "Dedup",
+      "id": 15,
+      "title": "LLM Failures / 1h",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "JSON/LLM failures over the last hour.",
+      "targets": [
+        {
+          "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\",status=~\"error_.*\"}[1h]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "title": "NewsAPI Used",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -292,9 +338,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "NewsAPI budget used percentage.",
       "targets": [
         {
-          "expr": "pgc_dedup_total{job=\"pgc-pipeline\"}",
+          "expr": "pgc_newsapi_tokens_pct{job=\"pgc-pipeline\"}",
           "refId": "A"
         }
       ],
@@ -302,23 +349,43 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         },
         "colorMode": "value",
-        "graphMode": "none"
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
       "id": 20,
-      "title": "Pipeline Throughput",
+      "title": "Flow and Backlog",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -330,7 +397,7 @@
     },
     {
       "id": 21,
-      "title": "Published Total",
+      "title": "Queue by Stage",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -342,34 +409,70 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Backlog shape: where work is accumulating.",
       "targets": [
         {
-          "expr": "pgc_published_total{job=\"pgc-pipeline\"}",
-          "legendFormat": "published",
-          "refId": "A"
+          "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "fetched"
+        },
+        {
+          "expr": "pgc_queue_extracting{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "extracting"
+        },
+        {
+          "expr": "pgc_queue_extracted{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "extracted"
+        },
+        {
+          "expr": "pgc_queue_processing{job=\"pgc-pipeline\"}",
+          "refId": "D",
+          "legendFormat": "processing"
+        },
+        {
+          "expr": "pgc_queue_done{job=\"pgc-pipeline\"}",
+          "refId": "E",
+          "legendFormat": "done"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
-          },
-          "unit": "short"
-        }
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
       }
     },
     {
       "id": 22,
-      "title": "Queue Depth",
+      "title": "Published Throughput / Hour",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -381,452 +484,203 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
+      "description": "Delivery rate normalized to items/hour.",
       "targets": [
         {
-          "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"}",
-          "legendFormat": "fetched",
-          "refId": "A"
-        },
-        {
-          "expr": "pgc_queue_extracted{job=\"pgc-pipeline\"}",
-          "legendFormat": "extracted",
-          "refId": "B"
-        },
-        {
-          "expr": "pgc_queue_processing{job=\"pgc-pipeline\"}",
-          "legendFormat": "processing",
-          "refId": "C"
-        },
-        {
-          "expr": "pgc_queue_done{job=\"pgc-pipeline\"}",
-          "legendFormat": "done",
-          "refId": "D"
+          "expr": "sum(rate(pgc_published_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "published/hour"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
-            "fillOpacity": 20,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
             "stacking": {
-              "mode": "normal"
+              "mode": "none",
+              "group": "A"
             },
-            "spanNulls": true
-          },
-          "unit": "short"
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "title": "Last Stage Round Results",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "Per-run gauges written by each worker.",
+      "targets": [
+        {
+          "expr": "pgc_crawl_extract_ok{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "crawl extract ok"
+        },
+        {
+          "expr": "pgc_crawl_extract_fail{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "crawl extract fail"
+        },
+        {
+          "expr": "pgc_process_ok{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "process ok"
+        },
+        {
+          "expr": "pgc_process_fail{job=\"pgc-pipeline\"}",
+          "refId": "D",
+          "legendFormat": "process fail"
+        },
+        {
+          "expr": "pgc_publish_ok{job=\"pgc-pipeline\"}",
+          "refId": "E",
+          "legendFormat": "publish ok"
+        },
+        {
+          "expr": "pgc_publish_fail{job=\"pgc-pipeline\"}",
+          "refId": "F",
+          "legendFormat": "publish fail"
         }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "title": "Items Indexed in Last 24h by Status",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "Rolling 24h mix across statuses.",
+      "targets": [
+        {
+          "expr": "pgc_items_24h{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
       }
     },
     {
       "id": 30,
-      "title": "Stage Metrics",
+      "title": "Reliability",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 22
       },
       "collapsed": false
     },
     {
       "id": 31,
-      "title": "Crawl — Extract OK / Fail",
+      "title": "Worker Heartbeat Age",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 0,
-        "y": 15
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_crawl_extract_ok{job=\"pgc-pipeline\"}",
-          "legendFormat": "extract_ok",
-          "refId": "A"
-        },
-        {
-          "expr": "pgc_crawl_extract_fail{job=\"pgc-pipeline\"}",
-          "legendFormat": "extract_fail",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "pointSize": 4,
-            "spanNulls": true
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "extract_ok"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "extract_fail"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 32,
-      "title": "Process — OK / Fail",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 15
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_process_ok{job=\"pgc-pipeline\"}",
-          "legendFormat": "process_ok",
-          "refId": "A"
-        },
-        {
-          "expr": "pgc_process_fail{job=\"pgc-pipeline\"}",
-          "legendFormat": "process_fail",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "pointSize": 4,
-            "spanNulls": true
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "process_ok"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "blue"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "process_fail"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 33,
-      "title": "Publish — OK / Fail",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 15
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_publish_ok{job=\"pgc-pipeline\"}",
-          "legendFormat": "publish_ok",
-          "refId": "A"
-        },
-        {
-          "expr": "pgc_publish_fail{job=\"pgc-pipeline\"}",
-          "legendFormat": "publish_fail",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "pointSize": 4,
-            "spanNulls": true
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "publish_ok"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "publish_fail"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 40,
-      "title": "Errors & Feeds",
-      "type": "row",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
         "x": 0,
         "y": 23
-      },
-      "collapsed": false
-    },
-    {
-      "id": 41,
-      "title": "Error Totals Over Time",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_error_extract_total{job=\"pgc-pipeline\"}",
-          "legendFormat": "error_extract",
-          "refId": "A"
-        },
-        {
-          "expr": "pgc_error_llm_total{job=\"pgc-pipeline\"}",
-          "legendFormat": "error_llm",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "spanNulls": true
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "error_extract"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "error_llm"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 42,
-      "title": "Unhealthy Feeds Over Time",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "datasource": {
-        "uid": "pgc-prometheus",
-        "type": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_crawl_unhealthy_feeds{job=\"pgc-pipeline\"}",
-          "legendFormat": "unhealthy feeds (3+ fails)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "orange"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "spanNulls": true
-          },
-          "unit": "short"
-        }
-      }
-    },
-    {
-      "id": 50,
-      "title": "Logs",
-      "type": "row",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 32
-      },
-      "collapsed": false
-    },
-    {
-      "id": 51,
-      "title": "Pipeline Logs",
-      "type": "logs",
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "datasource": {
-        "uid": "loki",
-        "type": "loki"
-      },
-      "targets": [
-        {
-          "expr": "{service=\"pgc-pipeline\"}",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "showTime": true,
-        "showLabels": true,
-        "showCommonLabels": false,
-        "wrapLogMessage": true,
-        "prettifyLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": true,
-        "dedupStrategy": "none"
-      }
-    },
-    {
-      "id": 60,
-      "title": "Worker Health & Real LLM",
-      "type": "row",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 43
-      }
-    },
-    {
-      "id": 61,
-      "title": "Worker Last Run Age",
-      "type": "timeseries",
-      "description": "Seconds since each worker last finished a run_once cycle. All three workers (crawl / process / publish) appear via the {{worker}} legend — if 'process' is missing it never finished a cycle, not that the metric is absent. A line that only climbs = that worker stalled or crashed mid-cycle.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 44
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -835,37 +689,53 @@
       "targets": [
         {
           "expr": "pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"}",
-          "legendFormat": "{{worker}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{worker}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           },
           "unit": "s"
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 62,
-      "title": "LLM Calls by Type (per hour)",
+      "id": 32,
+      "title": "Worker FD Pressure",
       "type": "timeseries",
-      "description": "Splits pgc_llm_calls_total by what actually ran. Only 'real LLM' consumes model tokens; 'rule-based' (NewsAPI shortcut) and 'dedup' make ZERO LLM calls. Summing all three — the old 'LLM per day' number — over-counts real LLM usage.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 44
+        "w": 8,
+        "x": 8,
+        "y": 23
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -873,48 +743,54 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model!~\"rule-based|dedup-pre-llm|unknown\"}[$__rate_interval])) * 3600",
-          "legendFormat": "real LLM",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"rule-based\"}[$__rate_interval])) * 3600",
-          "legendFormat": "rule-based (no LLM)",
-          "refId": "B"
-        },
-        {
-          "expr": "sum(rate(pgc_llm_calls_total{job=\"pgc-pipeline\", model=\"dedup-pre-llm\"}[$__rate_interval])) * 3600",
-          "legendFormat": "dedup (no LLM)",
-          "refId": "C"
+          "expr": "pgc_worker_fd_pct{job=\"pgc-pipeline\"} * 100",
+          "refId": "A",
+          "legendFormat": "{{worker}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           },
-          "unit": "short"
-        }
+          "unit": "percent"
+        },
+        "overrides": []
       }
     },
     {
-      "id": 63,
-      "title": "Stage Latency (avg, 6h)",
+      "id": 33,
+      "title": "Stage Latency",
       "type": "timeseries",
-      "description": "Average seconds per pipeline stage over the last 6h — which stage is slow + that each stage is alive. extract=indexed→extracted, process=extracted→processed, publish=processed→pushed. Requires pgc_stage_latency_seconds (eigenflux-pgc PR — shows no data until that exporter is deployed).",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 52
+        "w": 8,
+        "x": 16,
+        "y": 23
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -923,49 +799,283 @@
       "targets": [
         {
           "expr": "pgc_stage_latency_seconds{job=\"pgc-pipeline\"}",
-          "legendFormat": "{{stage}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{stage}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           },
           "unit": "s"
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 70,
-      "type": "row",
-      "title": "Per-Source Funnel & Ranking",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 60
-      },
-      "collapsed": false
-    },
-    {
-      "id": 71,
-      "title": "Broadcast Rate by Source (top 20)",
-      "type": "bargauge",
-      "description": "Per-source broadcast yield = published / all statuses for that source. The funnel's last stage: which sources convert crawl into broadcast vs. die in extract/dedup/discard. Needs pgc_source_status_count (deployed with the per-source exporter).",
+      "id": 34,
+      "title": "Error Pressure",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 31
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "Hourly error pressure by stage.",
+      "targets": [
+        {
+          "expr": "sum(rate(pgc_error_extract_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "extract errors/hour"
+        },
+        {
+          "expr": "sum(rate(pgc_error_llm_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "B",
+          "legendFormat": "llm errors/hour"
+        },
+        {
+          "expr": "sum(rate(pgc_publish_fail{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "C",
+          "legendFormat": "publish fails/hour"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 35,
+      "title": "Pipeline Latency p95",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pgc_pipeline_latency_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le, stage))",
+          "refId": "A",
+          "legendFormat": "{{stage}} p95"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 40,
+      "title": "Source Health and Coverage",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "title": "Blocked and Failing Feeds",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "blocked"
+        },
+        {
+          "expr": "count(pgc_feed_consecutive_fails{job=\"pgc-pipeline\"} >= 3)",
+          "refId": "B",
+          "legendFormat": "failing >=3"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 42,
+      "title": "Top Failing Feeds",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 40
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 43,
+      "title": "Source Publish Yield",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 40
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -974,40 +1084,39 @@
       "targets": [
         {
           "expr": "topk(20, pgc_source_status_count{job=\"pgc-pipeline\",status=\"published\"} / on(source) group_left() sum by (source)(pgc_source_status_count{job=\"pgc-pipeline\"}))",
-          "legendFormat": "{{source}}",
-          "refId": "A",
-          "instant": true
+          "refId": "A"
         }
       ],
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
-        }
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 0,
+        "minVizHeight": 10
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "continuous-GrYlRd"
-          },
           "unit": "percentunit"
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 72,
+      "id": 44,
       "title": "Top Sources by Published (7d)",
       "type": "timeseries",
-      "description": "Top 15 sources by items broadcast to EigenFlux over the last 7 days. Volume ranking — pairs with Consumed/Heat to tell volume from value.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 61
+        "w": 8,
+        "x": 0,
+        "y": 48
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1016,36 +1125,52 @@
       "targets": [
         {
           "expr": "topk(15, pgc_source_published_7d{job=\"pgc-pipeline\"})",
-          "legendFormat": "{{source}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{source}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 73,
+      "id": 45,
       "title": "Top Sources by Consumed (7d)",
       "type": "timeseries",
-      "description": "Top 15 sources by summed EigenFlux consumed_count over the last 7 days. The demand signal: which sources actually get read downstream, not just which publish most.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 69
+        "w": 8,
+        "x": 8,
+        "y": 48
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1054,36 +1179,52 @@
       "targets": [
         {
           "expr": "topk(15, pgc_source_consumed_7d{job=\"pgc-pipeline\"})",
-          "legendFormat": "{{source}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{source}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "scheme",
-            "pointSize": 3,
-            "spanNulls": true
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           }
-        }
+        },
+        "overrides": []
       }
     },
     {
-      "id": 74,
-      "title": "Avg Heat by Source (top 20, 7d)",
+      "id": 46,
+      "title": "Average Heat by Source (7d)",
       "type": "bargauge",
-      "description": "Average local heat (consumed + positive score − discards) per source over 7d. Per-broadcast value density — a low-volume source can rank high here.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 69
+        "w": 8,
+        "x": 16,
+        "y": 48
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1092,30 +1233,379 @@
       "targets": [
         {
           "expr": "topk(20, pgc_source_avg_heat_7d{job=\"pgc-pipeline\"})",
-          "legendFormat": "{{source}}",
-          "refId": "A",
-          "instant": true
+          "refId": "A"
         }
       ],
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 50,
+      "title": "Cost and Quality Gates",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "collapsed": false
+    },
+    {
+      "id": 51,
+      "title": "LLM Calls by Outcome / Hour",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 57
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(pgc_llm_calls_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "continuous-GrYlRd"
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
           }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 52,
+      "title": "LLM Latency p95",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 57
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pgc_llm_call_duration_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le, model))",
+          "refId": "A",
+          "legendFormat": "{{model}} p95"
         }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 53,
+      "title": "LLM Tokens / Hour",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 57
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pgc_llm_prompt_tokens_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "A",
+          "legendFormat": "prompt tokens/hour"
+        },
+        {
+          "expr": "sum(rate(pgc_llm_completion_tokens_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
+          "refId": "B",
+          "legendFormat": "completion tokens/hour"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 54,
+      "title": "NewsAPI Token Budget",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pgc_newsapi_tokens_used{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "live used"
+        },
+        {
+          "expr": "pgc_newsapi_tokens_local{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "local tracked"
+        },
+        {
+          "expr": "pgc_newsapi_tokens_limit{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "limit"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 55,
+      "title": "Signal Gate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pgc_signal_gate_drop_rate{job=\"pgc-pipeline\"} * 100",
+          "refId": "A",
+          "legendFormat": "drop rate %"
+        },
+        {
+          "expr": "sum by (verdict) (pgc_signal_gate_verdicts{job=\"pgc-pipeline\"})",
+          "refId": "B",
+          "legendFormat": "{{verdict}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 60,
+      "title": "Logs",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "collapsed": false
+    },
+    {
+      "id": 61,
+      "title": "Pipeline Logs",
+      "type": "logs",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "datasource": {
+        "uid": "loki",
+        "type": "loki"
+      },
+      "description": "Recent structured logs for PGC pipeline.",
+      "targets": [
+        {
+          "expr": "{service=\"pgc-pipeline\"}",
+          "refId": "A",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ],
   "schemaVersion": 39,
-  "version": 2
+  "version": 3
 }
