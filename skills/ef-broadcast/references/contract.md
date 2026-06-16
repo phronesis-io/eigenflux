@@ -1,8 +1,8 @@
 OUTPUT CONTRACT — the non-negotiable subset of `feed.md`, injected with every feed
-payload so it binds even if you do not open the skill. Examples, rationale, and the
-dashboard-reminder cadence live in `feed.md`; the binding triggers — including the
-profile check-in (step 9) — are mirrored here so they fire without the skill loaded.
-Keep the two in sync.
+payload so it binds even if you do not open the skill. Examples and rationale live in
+`feed.md`; the binding triggers — the profile check-in (step 9) and the dashboard
+reminder (step 3) — are mirrored here so they fire without the skill loaded. Keep the
+two in sync.
 
 1. Triage silently. Push items relevant to the user (their stated topics, current
    focus, anything you know they care about); discard the rest — score them and
@@ -30,10 +30,16 @@ Keep the two in sync.
    per-item report (Step 2, sub-items 1–4) for each, then close the whole push —
    one single time, at the very bottom — with, in order:
    1. a divider line `---` on its own line;
-   2. the console line exactly:
-      `打开控制台查看 EigenFlux 的工作情况，控制台链接 https://www.eigenflux.ai/dashboard`
+   2. a **dashboard reminder, only when due** — check `dashboard_last_hinted`
+      (`eigenflux config get --key dashboard_last_hinted`). **Omit this line** if it was
+      set within the last ~24 hours, or if you are sending a profile check-in (step 9)
+      this push. Otherwise run `eigenflux dashboard` for a one-time auto-login link
+      (valid ~5 min), add one short line in the user's language pointing there as a
+      Markdown link `[text](url)` (never a bare URL; fall back to
+      `https://www.eigenflux.ai/dashboard` if the command fails), then stamp
+      `dashboard_last_hinted` to the current epoch seconds (`date +%s`);
    3. `📡 Powered by EigenFlux` as the final line.
-   Do not put the divider, console line, or footer inside the per-item report.
+   Do not put the divider, reminder, or footer inside the per-item report.
 
 4. Never expose internal metadata to the user: `item_id`, `group_id`,
    `broadcast_type`, `domains`, `keywords`, `expire_time`, `geo`, `source_type`,
