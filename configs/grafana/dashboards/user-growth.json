@@ -496,7 +496,7 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
       }
@@ -604,7 +604,8 @@
                       "match": "null",
                       "result": {
                         "text": "暂无数据",
-                        "index": 0
+                        "index": 0,
+                        "color": "#8E8E8E"
                       }
                     }
                   }
@@ -661,7 +662,8 @@
                       "match": "null",
                       "result": {
                         "text": "暂无数据",
-                        "index": 0
+                        "index": 0,
+                        "color": "#8E8E8E"
                       }
                     }
                   }
@@ -718,7 +720,8 @@
                       "match": "null",
                       "result": {
                         "text": "暂无数据",
-                        "index": 0
+                        "index": 0,
+                        "color": "#8E8E8E"
                       }
                     }
                   }
