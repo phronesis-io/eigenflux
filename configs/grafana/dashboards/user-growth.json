@@ -9,7 +9,7 @@
     "from": "now-30d",
     "to": "now"
   },
-  "timezone": "browser",
+  "timezone": "Asia/Shanghai",
   "templating": {
     "list": []
   },
@@ -25,7 +25,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "拉新 / Acquisition",
+      "title": "拉新 / Acquisition (真实用户, 已排除 bot/pgc)",
       "type": "row",
       "collapsed": false,
       "gridPos": {
@@ -57,8 +57,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT count(*) AS v FROM agents WHERE to_timestamp(created_at/1000.0) >= date_trunc('day', now());",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
           "format": "table"
         }
       ],
@@ -117,8 +116,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT count(*) AS v FROM agents WHERE to_timestamp(created_at/1000.0) >= now() - interval '7 day';",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '7 day';",
           "format": "table"
         }
       ],
@@ -177,8 +175,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT count(*) AS v FROM agents WHERE to_timestamp(created_at/1000.0) >= now() - interval '30 day';",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day';",
           "format": "table"
         }
       ],
@@ -237,8 +234,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT count(*) AS v FROM agents;",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%';",
           "format": "table"
         }
       ],
@@ -278,7 +274,7 @@
     },
     {
       "id": 6,
-      "title": "每日新增用户趋势",
+      "title": "每日新增用户趋势 (近30天)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -297,8 +293,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT date_trunc('day', to_timestamp(created_at/1000.0)) AS time, count(*) AS \"新增用户\"\nFROM agents\nWHERE $__timeFilter(to_timestamp(created_at/1000.0))\nGROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"新增用户\"\nFROM agents a\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -310,7 +305,8 @@
             "lineWidth": 1,
             "fillOpacity": 60,
             "showPoints": "auto",
-            "barAlignment": 0
+            "barAlignment": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -340,7 +336,7 @@
     },
     {
       "id": 8,
-      "title": "今日活跃 DAU (主动去重)",
+      "title": "今日活跃 DAU (主动行为, 排除 bot/pgc/reply_received)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -359,8 +355,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "SELECT count(DISTINCT agent_id) AS v FROM agent_activity_log\nWHERE event_type <> 'reply_received'\n  AND to_timestamp(created_at/1000.0) >= date_trunc('day', now());",
+          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
           "format": "table"
         }
       ],
@@ -419,8 +414,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "WITH cohort AS (\n  SELECT agent_id, date_trunc('day', to_timestamp(created_at/1000.0)) AS d0 FROM agents\n),\nact AS (\n  SELECT DISTINCT agent_id, date_trunc('day', to_timestamp(created_at/1000.0)) AS d\n  FROM agent_activity_log WHERE event_type <> 'reply_received'\n)\nSELECT c.d0 AS time,\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + interval '1 day')\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"次日留存%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nWHERE $__timeFilter(c.d0)\nGROUP BY 1 ORDER BY 1;",
+          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n)\nSELECT c.d0 AS time,\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"次日留存%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nWHERE c.d0 + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\nGROUP BY 1 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -432,7 +426,8 @@
             "lineWidth": 1,
             "fillOpacity": 10,
             "showPoints": "auto",
-            "barAlignment": 0
+            "barAlignment": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -449,7 +444,7 @@
     },
     {
       "id": 10,
-      "title": "留存三角 (Cohort · 按注册日)",
+      "title": "留存三角 (Cohort · 按注册日, 未到期显示暂无数据)",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -468,8 +463,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawQuery": true,
-          "rawSql": "WITH cohort AS (\n  SELECT agent_id, date_trunc('day', to_timestamp(created_at/1000.0)) AS d0 FROM agents\n),\nact AS (\n  SELECT DISTINCT agent_id, date_trunc('day', to_timestamp(created_at/1000.0)) AS d\n  FROM agent_activity_log WHERE event_type <> 'reply_received'\n)\nSELECT to_char(c.d0, 'MM-DD') AS \"注册日\",\n  count(DISTINCT c.agent_id) AS \"新增\",\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + interval '1 day')\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"次日%\",\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + interval '7 day')\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"7日%\",\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + interval '30 day')\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"30日%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nWHERE $__timeFilter(c.d0)\nGROUP BY c.d0 ORDER BY c.d0 DESC;",
+          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n)\nSELECT to_char(c.d0, 'MM-DD') AS \"注册日\",\n  count(DISTINCT c.agent_id) AS \"新增\",\n  CASE WHEN c.d0 + 1 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"次日%\",\n  CASE WHEN c.d0 + 7 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 7)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"7日%\",\n  CASE WHEN c.d0 + 30 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 30)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"30日%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nGROUP BY c.d0 ORDER BY c.d0 DESC;",
           "format": "table"
         }
       ],
@@ -492,6 +486,21 @@
               {
                 "id": "unit",
                 "value": "percent"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "暂无数据",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
               },
               {
                 "id": "custom.cellOptions",
@@ -537,6 +546,21 @@
                 "value": "percent"
               },
               {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "暂无数据",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
                 "id": "custom.cellOptions",
                 "value": {
                   "type": "color-background",
@@ -578,6 +602,21 @@
               {
                 "id": "unit",
                 "value": "percent"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "暂无数据",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
               },
               {
                 "id": "custom.cellOptions",
