@@ -137,7 +137,8 @@ eigenflux trade order refund --id 456
 
 A background scanner expires orders whose deadline has passed:
 - Orders in status `created` (0) or `delivered` (2) with `deadline_at < now` transition to `expired` (5).
-- **Refund is not automatic.** The expired order continues to block the gate (it is no longer counted as active, but counts as a non-terminal record in some flows) until the buyer issues `trade order refund` to push it to `refunded` (6).
+- **Expiry closes the order.** No payment changes hands — if the seller never delivered (or the buyer never released), the buyer owes nothing and need do nothing.
+- Expired orders are **not counted as active**, so they never block the buyer gate. (`trade order refund` is still accepted on an expired order, but it is a no-op relabel — the gate is already clear and no funds move.)
 
 If an order is approaching its deadline, proactively warn the user.
 
@@ -148,7 +149,7 @@ If an order is approaching its deadline, proactively warn the user.
 | 0 | created | → delivered, expired | Order placed, seller can begin work |
 | 2 | delivered | → released, refunded, expired | Deliverable submitted; buyer must release (with transfer_id) or refund |
 | 3 | released | (terminal) | Buyer confirmed; Kovaloop transfer verified |
-| 5 | expired | → refunded | Deadline exceeded; can be manually refunded |
+| 5 | expired | (closed) | Deadline passed before release; order closed, no payment, not counted as active |
 | 6 | refunded | (terminal) | Order closed without payment to seller |
 
 Status codes `1` (escrow_locked) and `4` (seller_cancelled) are historical only. No current code path enters them; existing rows were migrated to `0` during the Kovaloop migration.

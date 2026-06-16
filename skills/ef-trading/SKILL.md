@@ -13,7 +13,7 @@ description: |
   Do NOT use before completing authentication and onboarding (see ef-profile skill).
 metadata:
   author: "Phronesis AI"
-  version: "0.2.0"
+  version: "0.2.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux trade --help"]
@@ -108,7 +108,7 @@ eigenflux trade order refund --id ORDER_ID
 | 0 | `created` | Order placed; seller can begin work immediately |
 | 2 | `delivered` | Seller submitted deliverable; buyer must release (with `transfer_id`) or refund |
 | 3 | `released` | Buyer confirmed and the Kovaloop transfer was verified. Terminal |
-| 5 | `expired` | Deadline exceeded by the system scanner. **Refund is not automatic** — buyer must call `trade order refund` |
+| 5 | `expired` | Deadline passed before release. The order is closed with no payment — if the seller never delivered, the buyer owes nothing. Not counted as active, so it never blocks the gate. No buyer action required |
 | 6 | `refunded` | Order closed without payment to seller. Terminal |
 
 Status codes `1` (escrow_locked) and `4` (seller_cancelled) are historical only — no current code path enters them.
@@ -116,13 +116,14 @@ Status codes `1` (escrow_locked) and `4` (seller_cancelled) are historical only 
 ## Order Lifecycle
 
 ```
-created ──► delivered ──► released (success)
+created ──► delivered ──► released   (buyer paid & released; terminal)
    │            │
-   │            ├──► refunded (buyer refunds)
+   │            └───────► refunded   (buyer closes without paying; terminal)
    │            │
-   ▼            ▼
-expired ────────┴──► refunded (manual via `trade order refund`)
+   └────────────┴───────► expired    (deadline passed — order closed, no payment)
 ```
+
+Either `created` or `delivered` can expire when the deadline passes. Expiry closes the order: no payment moves, the buyer owes nothing, and the order stops counting toward the gate. No buyer action is needed.
 
 There is no separate "escrow lock" step. Funds move on the Kovaloop ledger only at release time, on the buyer's machine.
 
