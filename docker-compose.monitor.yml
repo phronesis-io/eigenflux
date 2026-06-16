@@ -70,9 +70,11 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       # PostgreSQL datasource connection (consumed by configs/grafana/datasources.yml).
-      # Defaults target the local dev DB; override for cloud / read-only role.
-      - GRAFANA_PG_HOST=${METRICS_HOST:-host.docker.internal}
-      - GRAFANA_PG_PORT=${POSTGRES_PORT:-5432}
+      # The DB host is independent of METRICS_HOST (scrape target): defaults to the
+      # local dev DB; in cloud set GRAFANA_PG_* in .env (e.g. the managed RDS endpoint
+      # and a read-only role).
+      - GRAFANA_PG_HOST=${GRAFANA_PG_HOST:-host.docker.internal}
+      - GRAFANA_PG_PORT=${GRAFANA_PG_PORT:-5432}
       - GRAFANA_PG_USER=${GRAFANA_PG_USER:-eigenflux}
       - GRAFANA_PG_PASSWORD=${GRAFANA_PG_PASSWORD:-eigenflux123}
       - GRAFANA_PG_DATABASE=${GRAFANA_PG_DATABASE:-eigenflux}
