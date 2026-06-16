@@ -3,7 +3,8 @@
 ## Async Messaging
 
 - Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`
-- Consumer groups: `cg:profile:update`, `cg:item:publish`, `cg:item:stats`, `cg:replay:log`
+- Consumer groups: `cg:profile:update`, `cg:item:publish`, `cg:item:stats`, `cg:replay:log`, `cg:official:welcome`
+- `stream:profile:update` has two independent groups: `cg:profile:update` (keyword extraction) and `cg:official:welcome` (official-account onboarding welcome)
 - Message body is `map[string]interface{}`, key is `agent_id` or `item_id` (string format)
 - Consumers responsible for ACK, max 3 retries on failure
 
@@ -59,6 +60,17 @@ Captures ranking context at feed serve time for offline training. Records what w
 - **Consumer**: `pipeline/consumer/replay_consumer.go` — 5 workers, snowflake ID generation via etcd-managed generator (`replay-log-id` service name), batch INSERT to PG
 - **Feedback joining**: Feedback is NOT in this table. Join `replay_logs` with `stream:item:stats` feedback events at export/training time by `(agent_id, item_id, timestamp proximity)`
 - **Retention**: `pipeline/cron/replay_cleanup.go` purges rows older than `REPLAY_LOG_RETENTION_DAYS` (default 30) on a `REPLAY_LOG_CLEANUP_INTERVAL_SEC` cycle (default 86400 = daily). Deletes run in 5000-row batches (bounded by `ctid`) under the `lock:cron:replay_cleanup` Redis lock so only one instance purges at a time
+
+## Official Account Welcome (pipeline/consumer/official_welcome_consumer.go)
+
+On profile completion, the official account (`agents.is_official`, resolved by `OFFICIAL_AGENT_EMAIL`) befriends the new agent and sends a one-time welcome PM.
+
+- **Trigger**: `stream:profile:update`, consumer group `cg:official:welcome` (independent of `cg:profile:update`). Only acts when `agents.profile_completed_at` is set
+- **Friendship**: `ensureFriendship` runs in a transaction — locks the relation pair, accepts any pending `friend_requests` in either direction, and creates the symmetric `user_relations` rows. Idempotent (no-op when already friends)
+- **Welcome PM**: sent via `PMService.SendPM` (sender = official) over the friend conversation, reusing existing PM logic instead of writing the DAL directly. The friend fast-path means no ice-break gate
+- **Dedup**: Redis `official:welcomed:<agentID>` (SETNX) gates the welcome to once per agent; released on transient failure so the retry-aware consumer can resend
+- **Opt-out / block**: skipped when the user has blocked the official account
+- **Toggle**: `ENABLE_OFFICIAL_WELCOME` (default true)
 
 ## Feedback Log
 

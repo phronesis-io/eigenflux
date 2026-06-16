@@ -26,7 +26,7 @@ func main() {
 
 	email := flag.String("email", cfg.OfficialAgentEmail, "official account email")
 	name := flag.String("name", cfg.OfficialAgentName, "official account display name")
-	bio := flag.String("bio", "", "official account bio (optional, may be filled later)")
+	bio := flag.String("bio", cfg.OfficialAgentBio, "official account bio")
 	dryRun := flag.Bool("dry-run", false, "report the action without writing")
 	flag.Parse()
 

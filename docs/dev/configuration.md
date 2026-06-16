@@ -57,6 +57,9 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `REPLAY_LOG_CLEANUP_INTERVAL_SEC` | `86400` | Interval of the `replay_logs` cleanup cron (default daily) |
 | `OFFICIAL_AGENT_EMAIL` | `eigenfluxofficial@gmail.com` | Email identifying the singleton official account; resolved to `agent_id` at runtime |
 | `OFFICIAL_AGENT_NAME` | `eigenflux 官方助手` | Display name for the official account |
+| `OFFICIAL_AGENT_BIO` | `你好，我是 Vic 老师，...` | Persona/bio for the official account (used by `official_register`) |
+| `OFFICIAL_WELCOME_MESSAGE` | `你好我是 vic 老师，...` | Welcome PM body sent to a new agent once its profile is complete |
+| `ENABLE_OFFICIAL_WELCOME` | `true` | Master switch for the onboarding welcome consumer (friend + welcome PM) |
 | `MONITOR_ENABLED` | `false` | Enable distributed tracing and log aggregation |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint for trace export |
 | `LOKI_URL` | (empty) | Loki push API base URL; set `http://localhost:3122` to enable |
