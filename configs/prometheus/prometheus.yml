@@ -39,6 +39,10 @@ scrape_configs:
     static_configs:
       - targets: ["METRICS_HOST:9887"]
 
+  - job_name: trade-rpc
+    static_configs:
+      - targets: ["METRICS_HOST:9888"]
+
   - job_name: pipeline
     static_configs:
       - targets: ["METRICS_HOST:9070"]

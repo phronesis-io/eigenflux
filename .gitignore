@@ -46,6 +46,7 @@ __pycache__
 .cli.env
 .venv/
 .audit/
+.ops-backups/
 .mock/
 .draft/
 
