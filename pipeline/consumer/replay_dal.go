@@ -57,6 +57,30 @@ func batchInsertReplayLogs(tx *gorm.DB, logs []ReplayLog) error {
 	return nil
 }
 
+// DeleteOldReplayLogs purges replay_logs rows whose served_at is older than
+// beforeServedAtMs. replay_logs is append-only and high-volume, so deletes run
+// in batches (bounded by ctid) to avoid a single long-held lock on the table.
+// It returns the total number of rows deleted.
+func DeleteOldReplayLogs(db *gorm.DB, beforeServedAtMs int64, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	var total int64
+	for {
+		res := db.Exec(
+			"DELETE FROM replay_logs WHERE ctid IN (SELECT ctid FROM replay_logs WHERE served_at < ? LIMIT ?)",
+			beforeServedAtMs, batchSize,
+		)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batchSize) {
+			return total, nil
+		}
+	}
+}
+
 func nowMs() int64 {
 	return time.Now().UnixMilli()
 }

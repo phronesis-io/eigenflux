@@ -104,6 +104,7 @@ func main() {
 	go StartTradeExpiryScanner(ctx, cfg, mq.RDB, expiryScanner)
 	go StartOutboxDispatcher(ctx, cfg)
 	go StartOutboxCleanup(ctx, cfg)
+	go StartReplayCleanup(ctx, cfg, mq.RDB)
 
 	log.Println("Cron service started")
 
