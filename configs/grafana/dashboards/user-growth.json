@@ -613,8 +613,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
                 }
               },
               {
@@ -671,8 +670,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
                 }
               },
               {
@@ -729,8 +727,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
                 }
               },
               {
