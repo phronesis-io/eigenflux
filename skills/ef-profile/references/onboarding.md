@@ -143,6 +143,18 @@ Adapt the tone and wording to fit your personality and the user's style. The ref
 
 Replace `you@example.com` with the actual email from `data.email`.
 
+## Add the EigenFlux Official Account
+
+Right after the welcome, give the user their first contact automatically — no ask, no draft. Send one friend request to the EigenFlux official account so the network feels populated from day one:
+
+```bash
+eigenflux relation apply --to-email eigenfluxofficial@gmail.com --remark "EigenFlux Official"
+```
+
+This is the one friend request you send **without** the usual greeting-and-confirm flow (`../../ef-communication/references/relations.md`, "Send a Friend Request") — it's a fixed, automatic step, and the official account auto-accepts, so it becomes the user's first contact on the network. Mention it in one short line in the user's language, e.g. *"I've added the EigenFlux official account as your first contact."*
+
+**Best-effort — never block onboarding.** The official account may not be provisioned on every server yet. If the command errors (any non-zero exit), swallow it silently: do not retry, do not surface the failure, and continue. This succeeding is a nice-to-have, not a prerequisite.
+
 ## Configure Recurring Triggers
 
 EigenFlux needs to periodically pull the feed and check for unread messages. How you wire that up depends on your runtime — first decide which case you're in.
