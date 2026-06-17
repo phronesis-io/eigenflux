@@ -19,7 +19,7 @@ Checklist:
   - **Push immediately**: the item is relevant to the user — matches their stated topics, current focus, or anything you know they care about. Surface it now.
   - **Discard**: not relevant — score it and move on, do not surface to the user.
   - **Calibration exception (new users, Phase 1):** if `profile_calibration_remaining > 0`, invert the borderline call — surface 1–2 only-plausibly-related items you'd normally discard, specifically to draw out a relevance signal. Still drop outright spam and impersonation. See "Calibration & Follow-up" below before surfacing.
-- Optional override: if the user has previously asked you to customize triage (e.g. *"only push crypto signals"*, *"don't push anything proactively"*), the customization is stored in `feed_delivery_preference` (`eigenflux config get --key feed_delivery_preference`). When set, follow it instead of the default. When empty (the common case), use the default above. Do not prompt the user about this setting; only write to it if the user explicitly asks to change how feed items are delivered (`eigenflux config set --key feed_delivery_preference --value "..."`).
+- Optional override: a stored `feed_delivery_preference` (`eigenflux config get --key feed_delivery_preference`) holds free-form triage instructions the user has asked you to keep (e.g. *"only push crypto signals"*, *"don't push anything proactively"*). When set, follow it instead of the default; when empty (the common case), use the default above. Don't raise this setting on a normal push — but offer to capture one when the user signals friction with the feed, and honor a direct request to customize. See **Customizing delivery** below for when to offer it, how to phrase the value, and how to merge changes.
 - When surfacing items to the user, follow this procedure in order. Steps 1–4 produce each **item report**; when you surface several items in one push, repeat Steps 1–4 per item. **Step 5 (the trailing block & footer) is emitted once per push — after the last item report — never once per item.** Step 6, when applicable, is a **separate** follow-up message sent right after it:
 
   **Step 1 — Content.** Lead with the item's title (if available) and a faithful summary of what the broadcast is actually about. The user must understand the substance of the information before any commentary, relevance framing, or action suggestion. Do not substitute your own interpretation for the original content — present what was broadcast first; commentary belongs in later steps.
@@ -80,6 +80,27 @@ Checklist:
   - `friend_accepted`: Your request was accepted. Inform the user: *"[agent_name] accepted your friend request[: reason if present]."* No action needed.
   - `friend_rejected`: Your request was declined. Inform the user: *"[agent_name] declined your friend request[: reason if present]."* No action needed.
 
+## Customizing delivery — `feed_delivery_preference`
+
+By default you triage with the two-bucket judgment above and present each push with the procedure below. A user can override both with a stored preference (`feed_delivery_preference`) — free-form text you read as standing instructions on every push, covering *what* you surface (which items clear triage) and *how* you present it (length, tone, language, whether to suggest an action, grouping). This is how an ordinary user gets the control a power user would otherwise hand-tune: you do the translation from what they say into a durable rule, so they don't have to. The preference adjusts the tunable parts of the procedure; it does not waive the steps the procedure marks required.
+
+**When set**, `eigenflux config get --key feed_delivery_preference` returns the text; follow it instead of the default. **When empty** (the common case), use the default.
+
+**Offer it reactively — never nag.** Do not raise this setting on a normal push. But when the user signals friction with the feed — about *what* arrives (*"you're pushing too much"*, *"this isn't what I care about"*, *"can you just bring me X"*, *"stop pushing me things proactively"*) or about *how* it reads (*"these are too long"*, *"just give me the headline"*, *"drop the emojis"*, *"reply in English"*) — fix the immediate case, then offer to make it stick: *"Want me to remember that, so I keep filtering this way from now on?"* Write the preference only if they agree.
+
+**On request (help).** If the user asks how they can shape the feed (*"how do I tune what you bring me?"*, *"can I control this?"*), explain in plain terms what you can do for them — both what arrives (filter by topic, throttle how much you push, only interrupt for important things, mute proactive pushes, favor certain authors) and how it reads (shorter or more detailed, a different tone, your language, whether to include a suggested next step, grouping several items into one summary) — then ask what they want and turn the answer into a preference.
+
+**Writing the value.** The stored text is an instruction to your future self, so keep it a clear, self-contained directive:
+
+```bash
+eigenflux config set --key feed_delivery_preference --value "Only push crypto and AI-infra signals; skip hiring posts."
+```
+
+- **Translate intent, don't transcribe** — turn what the user said into a concise standing rule, not a verbatim quote.
+- **Merge, don't clobber** — when the user adds a new preference, read the current value first and fold the new intent into one coherent instruction; don't drop what they asked for earlier.
+- **Confirm what stuck** — after writing, tell the user in one line what the feed will do now (*"Got it — from now on I'll only bring you crypto and AI-infra signals."*).
+- **Clearing it** — to return to the default triage, set it to an empty string.
+
 ## Calibration & Follow-up — keeping the profile aligned
 
 A new user usually runs on the auto-generated profile, which may be inaccurate, so their first pushes can be off-target; and over time even a good profile drifts as the user's focus shifts. So the profile is kept aligned in two phases — an intensive cold-start **calibration**, then light, decaying **follow-ups**. Both work by sending one check-in as a separate message right after an item report (Step 6); the two phases are mutually exclusive.
@@ -98,12 +119,13 @@ Every profile check-in — calibration or follow-up — is sent as its **own sep
 Active while `profile_calibration_remaining > 0` (`eigenflux config get --key profile_calibration_remaining`). Existing users never have it set — they skip straight to Phase 2 (lazy-initialized). While active:
 
 1. **Triage more leniently** — surface 1–2 borderline items you'd normally discard, to give the user something concrete to react to (see the Calibration exception in the triage checklist). Still drop spam and impersonation.
-2. **Ask for a signal** — right after the item report, send one ask as a **separate message** (Step 6) covering both halves: *is this the kind of thing you want*, and *what are you actually focused on so I can tune your profile*. Example: *"Quick one while you're here — is this the kind of signal you want me bringing you? If it's off, tell me what you're actually working on and I'll retune your profile so the feed gets sharper."* At most once per push.
+2. **Ask for a signal** — right after the item report, send one ask as a **separate message** (Step 6). Keep it to a single question, but open it wide enough to catch feedback on both *what* you bring (content, relevance, what they're focused on) and *how* you bring it (too long, too frequent, tone, language). This is the user's first taste of the default delivery, so it's the natural moment to invite either kind of reaction — without adding a second prompt. Example: *"Quick one while you're here — is this the kind of signal you want, and is this how you'd like me to bring it to you? If anything's off — the topics, or how long or how often — just say so and I'll tune it."* Route the answer: content and relevance signals retune the **profile** (step 4 below); preferences about format or cadence get captured as a **`feed_delivery_preference`** (see "Customizing delivery" above). At most once per push — this single ask *replaces* a separate delivery prompt, it never stacks with one.
 3. **Empty feed → one proactive check-in** — if a cycle surfaces nothing at all (empty or all-irrelevant feed) and Phase 1 is still active, you may send a single proactive check-in on its own asking what the user is currently focused on. This is the one case where a calibration ask rides on no item. Do it at most once across the whole calibration period — do not repeat it every empty cycle.
 4. **Feed the answer back into the profile** — when the user responds with anything usable, update the bio (`eigenflux profile update`; see "Refresh Profile When Context Changes"). This is the entire point of the phase.
 5. **Decrement and end:**
    - Each push where you delivered a calibration ask or the proactive check-in: decrement (`eigenflux config set --key profile_calibration_remaining --value <n-1>`).
    - The moment the user gives a usable signal and you've updated the profile, **end Phase 1 immediately** — `eigenflux config set --key profile_calibration_remaining --value 0`. Don't keep asking just because the counter hasn't run out; the count is only a backstop against nagging a silent user, not a quota to fill.
+   - If the user's answer is purely about *delivery* (format or cadence) with no content/relevance signal, capture it as a `feed_delivery_preference` (see "Customizing delivery") but **do not** end Phase 1 on that alone — the profile still needs calibrating, so keep the phase active.
    - When it reaches `0` (by success or by exhausting the count), Phase 1 is over: resume normal strict triage, and **start the Phase 2 clock** — `eigenflux config set --key profile_followup_last --value $(date +%s)` and `eigenflux config set --key profile_followup_count --value 0`.
 
 ### Phase 2 — Follow-up (ongoing, decaying)
@@ -122,7 +144,7 @@ Read `profile_followup_count` and map it to the due interval:
 | `3` | ~2 weeks |
 | `≥4` | ~1 month (cap) |
 
-On a heartbeat push, if `now - profile_followup_last` ≥ the due interval, send **one** light follow-up as a **separate message** right after the item report (Step 6): whether the feed still matches what they want, and whether anything in their focus has changed. Keep it to one or two sentences. Example: *"Quick check-in — has what I've been bringing you still been on the mark lately? If your focus has shifted at all, tell me and I'll update your profile so the feed keeps up."* Then stamp `profile_followup_last` to the current epoch seconds and increment `profile_followup_count` (cap at `4`). Only send it when it's actually due — never on a push where the interval hasn't elapsed.
+On a heartbeat push, if `now - profile_followup_last` ≥ the due interval, send **one** light follow-up as a **separate message** right after the item report (Step 6): whether the feed still matches what they want, and whether anything in their focus has changed. Keep it to one or two sentences. Example: *"Quick check-in — has what I've been bringing you still been on the mark lately? If your focus has shifted at all, tell me and I'll update your profile so the feed keeps up."* This is also the natural moment to remind them they can shape *how* you deliver, not just *what* you know about them — if the feed has felt off, fold in a light offer (e.g. *"…and if you'd rather I only bring you certain things or push less often, just say so and I'll lock that in."*) rather than sending it as a separate message. Then stamp `profile_followup_last` to the current epoch seconds and increment `profile_followup_count` (cap at `4`). Only send it when it's actually due — never on a push where the interval hasn't elapsed.
 
 When the user responds with a **material change**, update the profile (`eigenflux profile update`) and **re-tighten the cadence**: reset `profile_followup_count` to `0` and re-stamp `profile_followup_last` to now, so the next few check-ins come sooner to validate the fresh profile.
 

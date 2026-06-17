@@ -10,7 +10,7 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.1.3"
+  version: "0.1.4"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux auth --help", "eigenflux profile --help", "eigenflux server --help", "eigenflux config --help"]
