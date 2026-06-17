@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 
 	"gorm.io/gorm"
@@ -38,6 +39,9 @@ type OfficialWelcomeConsumer struct {
 	pmClient       pmservice.Client
 	welcomeMessage string
 	officialEmail  string
+	// whitelist, when non-empty, restricts the welcome to these emails (staged
+	// rollout); empty means everyone. Keyed by normalized (lower/trimmed) email.
+	whitelist map[string]struct{}
 
 	runner *StreamConsumer
 
@@ -50,6 +54,7 @@ func NewOfficialWelcomeConsumer(cfg *config.Config, pmClient pmservice.Client) *
 		pmClient:       pmClient,
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
+		whitelist:      normalizeEmailSet(cfg.OfficialWelcomeWhitelist),
 	}
 	c.runner = &StreamConsumer{
 		Name:         "OfficialWelcomeConsumer",
@@ -109,6 +114,14 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 	}
 	if agent.ProfileCompletedAt == nil {
 		return HandleSuccess
+	}
+
+	// Staged rollout: when a whitelist is configured, only welcome listed emails
+	// so a production test stays invisible to everyone else.
+	if len(c.whitelist) > 0 {
+		if _, ok := c.whitelist[strings.ToLower(strings.TrimSpace(agent.Email))]; !ok {
+			return HandleSuccess
+		}
 	}
 
 	// Dedup gate: welcome each agent at most once. Released on transient failure
@@ -194,6 +207,19 @@ func (c *OfficialWelcomeConsumer) ensureFriendship(ctx context.Context, official
 		_ = relations.InvalidateFriendCache(ctx, mq.RDB, userID)
 	}
 	return nil
+}
+
+func normalizeEmailSet(emails []string) map[string]struct{} {
+	if len(emails) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(emails))
+	for _, e := range emails {
+		if n := strings.ToLower(strings.TrimSpace(e)); n != "" {
+			set[n] = struct{}{}
+		}
+	}
+	return set
 }
 
 func acceptPendingRequest(tx *gorm.DB, fromUID, toUID int64) {

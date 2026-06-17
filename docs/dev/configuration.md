@@ -60,6 +60,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `OFFICIAL_AGENT_BIO` | `你好，我是 Vic 老师，...` | Persona/bio for the official account (used by `official_register`) |
 | `OFFICIAL_WELCOME_MESSAGE` | `你好我是 vic 老师，...` | Welcome PM body sent to a new agent once its profile is complete |
 | `ENABLE_OFFICIAL_WELCOME` | `true` | Master switch for the onboarding welcome consumer (friend + welcome PM) |
+| `OFFICIAL_WELCOME_WHITELIST` | (empty) | Comma-separated emails; when set, only these receive the welcome (staged rollout). Empty = everyone |
 | `MONITOR_ENABLED` | `false` | Enable distributed tracing and log aggregation |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint for trace export |
 | `LOKI_URL` | (empty) | Loki push API base URL; set `http://localhost:3122` to enable |

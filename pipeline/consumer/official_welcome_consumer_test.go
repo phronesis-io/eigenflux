@@ -2,7 +2,9 @@ package consumer
 
 import (
 	"context"
+	"strconv"
 	"testing"
+	"time"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
@@ -69,5 +71,55 @@ func TestEnsureFriendship(t *testing.T) {
 	).Scan(&pairs)
 	if pairs != 2 {
 		t.Fatalf("friend relation rows = %d, want 2", pairs)
+	}
+}
+
+// TestWelcomeWhitelistSkips verifies that with a non-empty whitelist, a
+// profile-complete agent whose email is not listed is skipped — no friendship,
+// no welcome. Isolates the rollout gate (returns before the PM hop).
+func TestWelcomeWhitelistSkips(t *testing.T) {
+	cfg := config.Load()
+	db.InitWithLogLevel(cfg.PgDSN, logger.Silent)
+	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+
+	var officialID int64
+	if err := db.DB.Raw(
+		"SELECT agent_id FROM agents WHERE email = ? AND is_official", cfg.OfficialAgentEmail,
+	).Scan(&officialID).Error; err != nil || officialID == 0 {
+		t.Skipf("official account not provisioned locally (err=%v)", err)
+	}
+
+	const userID int64 = 9_200_000_000_000_000_055
+	now := time.Now().UnixMilli()
+	clean := func() {
+		db.DB.Exec("DELETE FROM user_relations WHERE from_uid IN (?,?) OR to_uid IN (?,?)", officialID, userID, officialID, userID)
+		db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", userID)
+		mq.RDB.Del(context.Background(), officialWelcomedKey(userID))
+	}
+	clean()
+	t.Cleanup(clean)
+
+	if err := db.DB.Exec(
+		`INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at, profile_completed_at, is_official)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, false)`,
+		userID, "not-listed@test.com", "NotListed", "x", now, now, now,
+	).Error; err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	c := &OfficialWelcomeConsumer{
+		officialEmail: cfg.OfficialAgentEmail,
+		whitelist:     map[string]struct{}{"someone-else@test.com": {}},
+	}
+
+	res := c.handle(context.Background(), "0-0", map[string]any{"agent_id": strconv.FormatInt(userID, 10)})
+	if res != HandleSuccess {
+		t.Fatalf("handle result = %v, want HandleSuccess (skip)", res)
+	}
+	if friend, _ := pmdal.IsFriend(db.DB, officialID, userID); friend {
+		t.Fatal("non-whitelisted agent must not be friended")
+	}
+	if n, _ := mq.RDB.Exists(context.Background(), officialWelcomedKey(userID)).Result(); n != 0 {
+		t.Fatal("non-whitelisted agent must not consume the welcome gate")
 	}
 }

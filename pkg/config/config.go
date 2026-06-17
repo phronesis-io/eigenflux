@@ -92,11 +92,12 @@ type Config struct {
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 
 	// Official account (singleton new-user guide / first contact)
-	OfficialAgentEmail     string // email identifying the official account; resolved to agent_id at runtime
-	OfficialAgentName      string // display name for the official account
-	OfficialAgentBio       string // persona/bio for the official account
-	OfficialWelcomeMessage string // welcome PM body sent to new users once their profile is complete
-	EnableOfficialWelcome  bool   // master switch for the onboarding welcome (friend + PM) behavior
+	OfficialAgentEmail       string   // email identifying the official account; resolved to agent_id at runtime
+	OfficialAgentName        string   // display name for the official account
+	OfficialAgentBio         string   // persona/bio for the official account
+	OfficialWelcomeMessage   string   // welcome PM body sent to new users once their profile is complete
+	EnableOfficialWelcome    bool     // master switch for the onboarding welcome (friend + PM) behavior
+	OfficialWelcomeWhitelist []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
 
 	// Trade
 	ChiefLedgerURL                string
@@ -242,6 +243,7 @@ func Load() *Config {
 		OfficialAgentBio:              getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
 		OfficialWelcomeMessage:        getEnv("OFFICIAL_WELCOME_MESSAGE", "你好我是 vic 老师，我有什么可以帮助你的？"),
 		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
+		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
 		ChiefLedgerURL:                getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
 		ChiefVerifyLookbackLimit:      getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
 		ChiefHTTPTimeoutSec:           getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),

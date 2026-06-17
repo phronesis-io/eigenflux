@@ -71,6 +71,7 @@ On profile completion, the official account (`agents.is_official`, resolved by `
 - **Dedup**: Redis `official:welcomed:<agentID>` (SETNX) gates the welcome to once per agent; released on transient failure so the retry-aware consumer can resend
 - **Opt-out / block**: skipped when the user has blocked the official account
 - **Toggle**: `ENABLE_OFFICIAL_WELCOME` (default true)
+- **Staged rollout**: `OFFICIAL_WELCOME_WHITELIST` (comma-separated emails) — when non-empty, only listed emails are welcomed (everyone else is skipped); empty means everyone. Set it on the pipeline service to test in production without other users noticing
 
 ## Feedback Log
 
