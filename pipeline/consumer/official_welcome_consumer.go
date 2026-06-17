@@ -14,6 +14,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	pmdal "eigenflux_server/rpc/pm/dal"
+	"eigenflux_server/rpc/pm/relations"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
@@ -129,19 +130,28 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 		return HandleSuccess
 	}
 
-	if err := c.ensureFriendship(officialID, agentID); err != nil {
+	if err := c.ensureFriendship(ctx, officialID, agentID); err != nil {
 		_ = mq.RDB.Del(ctx, gateKey).Err()
 		logger.Default().Warn("OfficialWelcomeConsumer ensure friendship failed", "agentID", agentID, "err", err)
 		return HandleRetry
 	}
 
-	if _, err := c.pmClient.SendPM(ctx, &pm.SendPMReq{
+	resp, err := c.pmClient.SendPM(ctx, &pm.SendPMReq{
 		SenderId:   officialID,
 		ReceiverId: agentID,
 		Content:    c.welcomeMessage,
-	}); err != nil {
+	})
+	if err != nil {
 		_ = mq.RDB.Del(ctx, gateKey).Err()
 		logger.Default().Warn("OfficialWelcomeConsumer send welcome failed", "agentID", agentID, "err", err)
+		return HandleRetry
+	}
+	// SendPM signals application-level rejection (e.g. not-friends 403) via
+	// BaseResp.Code, not a transport error.
+	if resp.GetBaseResp() != nil && resp.GetBaseResp().GetCode() != 0 {
+		_ = mq.RDB.Del(ctx, gateKey).Err()
+		logger.Default().Warn("OfficialWelcomeConsumer welcome rejected", "agentID", agentID,
+			"code", resp.GetBaseResp().GetCode(), "msg", resp.GetBaseResp().GetMsg())
 		return HandleRetry
 	}
 
@@ -152,8 +162,9 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 // ensureFriendship makes officialID and userID friends if they are not already.
 // It is idempotent and accepts any pending friend request between them so the
 // friend_requests table stays consistent with the relation it creates.
-func (c *OfficialWelcomeConsumer) ensureFriendship(officialID, userID int64) error {
-	return db.DB.Transaction(func(tx *gorm.DB) error {
+func (c *OfficialWelcomeConsumer) ensureFriendship(ctx context.Context, officialID, userID int64) error {
+	created := false
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := pmdal.LockRelationPair(tx, officialID, userID); err != nil {
 			return err
 		}
@@ -166,8 +177,23 @@ func (c *OfficialWelcomeConsumer) ensureFriendship(officialID, userID int64) err
 		}
 		acceptPendingRequest(tx, userID, officialID)
 		acceptPendingRequest(tx, officialID, userID)
-		return pmdal.CreateFriendRelation(tx, officialID, userID, officialWelcomeRemark, "")
+		if err := pmdal.CreateFriendRelation(tx, officialID, userID, officialWelcomeRemark, ""); err != nil {
+			return err
+		}
+		created = true
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if created {
+		// PMService.SendPM checks friendship from a Redis friend-set cache; a
+		// relation created directly via the DAL must invalidate it (as the normal
+		// accept path does) or the welcome PM is rejected as "not friends".
+		_ = relations.InvalidateFriendCache(ctx, mq.RDB, officialID)
+		_ = relations.InvalidateFriendCache(ctx, mq.RDB, userID)
+	}
+	return nil
 }
 
 func acceptPendingRequest(tx *gorm.DB, fromUID, toUID int64) {

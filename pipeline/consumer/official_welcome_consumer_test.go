@@ -1,10 +1,12 @@
 package consumer
 
 import (
+	"context"
 	"testing"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/mq"
 	pmdal "eigenflux_server/rpc/pm/dal"
 
 	"gorm.io/gorm/logger"
@@ -16,6 +18,7 @@ import (
 func TestEnsureFriendship(t *testing.T) {
 	cfg := config.Load()
 	db.InitWithLogLevel(cfg.PgDSN, logger.Silent)
+	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
 
 	const officialID int64 = 9_200_000_000_000_000_001
 	const userID int64 = 9_200_000_000_000_000_002
@@ -35,7 +38,7 @@ func TestEnsureFriendship(t *testing.T) {
 		t.Fatalf("seed pending request: %v", err)
 	}
 
-	if err := c.ensureFriendship(officialID, userID); err != nil {
+	if err := c.ensureFriendship(context.Background(), officialID, userID); err != nil {
 		t.Fatalf("ensureFriendship: %v", err)
 	}
 
@@ -56,7 +59,7 @@ func TestEnsureFriendship(t *testing.T) {
 	}
 
 	// Idempotent: a second call must not create duplicate relation rows.
-	if err := c.ensureFriendship(officialID, userID); err != nil {
+	if err := c.ensureFriendship(context.Background(), officialID, userID); err != nil {
 		t.Fatalf("ensureFriendship (second call): %v", err)
 	}
 	var pairs int64
