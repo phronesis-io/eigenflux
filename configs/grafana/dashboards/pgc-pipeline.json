@@ -2,11 +2,13 @@
   "id": null,
   "uid": "pgc-pipeline",
   "title": "EigenFlux - PGC Pipeline",
-  "description": "User-friendly operations dashboard for PGC delivery, source health, quality, cost, diagnostics, and logs.",
+  "description": "Owner cockpit for PGC source reliability, delivery, source health, quality, cost, diagnostics, and logs. Front page emphasizes canaries, critical sources, source-health freshness, and blocked-source backlog.",
   "tags": [
+    "ops",
     "pgc",
     "pipeline",
-    "ops"
+    "reliability",
+    "source-health"
   ],
   "editable": true,
   "graphTooltip": 1,
@@ -21,6 +23,486 @@
   },
   "panels": [
     {
+      "id": 100,
+      "title": "信源可靠性 / Source Reliability",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false
+    },
+    {
+      "id": 101,
+      "title": "Canary 失败",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "每日 source-health canary 失败数；非 0 就代表有必达信号风险。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 102,
+      "title": "关键源需处理",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "critical source 出现 blocked、fail、配置错误或 7 天无索引。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_critical_attention{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 103,
+      "title": "健康报告新鲜度",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "最新 source-health JSON 距现在的时间；超过 26 小时说明 daily webhook/report 可能断了。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_report_age_seconds{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "missing",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 93600
+              },
+              {
+                "color": "red",
+                "value": 172800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 104,
+      "title": "活跃源覆盖率",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "active / configured；低于预期说明 disabled 或配置治理压力增加。",
+      "targets": [
+        {
+          "expr": "100 * pgc_source_health_active_sources{job=\"pgc-pipeline\"} / pgc_source_health_configured_sources{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "green",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 105,
+      "title": "Source Health 趋势",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "每天 source-health 报告生成后会留下趋势；用于看治理是否变好，而不是只看瞬时值。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_blocked_sources{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "blocked"
+        },
+        {
+          "expr": "pgc_source_health_failing_sources{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "failing"
+        },
+        {
+          "expr": "pgc_source_health_quiet_7d_sources{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "quiet 7d"
+        },
+        {
+          "expr": "pgc_source_health_critical_attention{job=\"pgc-pipeline\"}",
+          "refId": "D",
+          "legendFormat": "critical attention"
+        },
+        {
+          "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
+          "refId": "E",
+          "legendFormat": "canary failed"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 106,
+      "title": "Canary 明细",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "1=通过，0=失败。失败详情看每日 webhook 或 data/source_health JSON。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_canary_passed{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 107,
+      "title": "当前 blocked sources",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "当前被自动 block 的源及原因，帮助把 Reddit 429、HTTP 404、5xx、timeout 分开处理。",
+      "targets": [
+        {
+          "expr": "pgc_feed_blocked{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 108,
+      "title": "即将被 block 的来源",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "连续失败 >=3 且尚未 block 的源，是当天应该先看的早期风险。",
+      "targets": [
+        {
+          "expr": "topk(50, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 1,
       "title": "内容交付 / Delivery",
       "type": "row",
@@ -28,7 +510,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 21
       },
       "collapsed": false
     },
@@ -40,7 +522,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -95,7 +577,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -158,7 +640,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -221,7 +703,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -284,7 +766,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -332,7 +814,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -400,7 +882,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 13
+        "y": 34
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -448,7 +930,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 13
+        "y": 34
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -496,7 +978,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 13
+        "y": 34
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -544,7 +1026,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 42
       },
       "collapsed": false
     },
@@ -556,7 +1038,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -565,7 +1047,7 @@
       "description": "连续失败达到 3 次以上的 feed 数。",
       "targets": [
         {
-          "expr": "count(pgc_feed_consecutive_fails{job=\"pgc-pipeline\"} >= 3)",
+          "expr": "count(pgc_feed_consecutive_fails{job=\"pgc-pipeline\"} >= 3) or vector(0)",
           "refId": "A"
         }
       ],
@@ -619,7 +1101,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -682,7 +1164,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -745,7 +1227,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -808,7 +1290,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -856,7 +1338,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -904,7 +1386,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 57
       },
       "collapsed": false
     },
@@ -916,7 +1398,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 37
+        "y": 58
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -964,7 +1446,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 37
+        "y": 58
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1012,7 +1494,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 37
+        "y": 58
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1065,7 +1547,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 66
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1118,7 +1600,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 66
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1166,7 +1648,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 74
       },
       "collapsed": false
     },
@@ -1178,7 +1660,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 54
+        "y": 75
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1226,7 +1708,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 54
+        "y": 75
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1274,7 +1756,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 54
+        "y": 75
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1332,7 +1814,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 62
+        "y": 83
       },
       "datasource": {
         "uid": "loki",

@@ -19,11 +19,17 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
+    "信源可靠性 / Source Reliability",
     "内容交付 / Delivery",
     "来源健康 / Source Health",
     "质量与成本 / Quality & Cost",
     "工程诊断 / Diagnostics",
 ]
+
+NATURALLY_EMPTY_PANEL_IDS = {
+    10,   # 异常来源榜: no rows when every failing source is already blocked or healthy.
+    108,  # 即将被 block 的来源: no rows is the ideal steady state.
+}
 
 
 def load_dashboard(path: Path) -> dict:
@@ -127,7 +133,7 @@ def prometheus_validate(
             errors.append(f"{panel.get('id')} {panel.get('title')}: {payload}")
             continue
         result = payload.get("data", {}).get("result", [])
-        if not result and not allow_empty:
+        if not result and not allow_empty and panel.get("id") not in NATURALLY_EMPTY_PANEL_IDS:
             errors.append(f"{panel.get('id')} {panel.get('title')}: empty result for {prom_expr}")
     if checked == 0:
         errors.append("no Prometheus expressions found")
