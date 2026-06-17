@@ -19,6 +19,7 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
+    "一手信号审计 / First-Source Audit",
     "信源可靠性 / Source Reliability",
     "内容交付 / Delivery",
     "来源健康 / Source Health",

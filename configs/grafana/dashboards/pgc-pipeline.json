@@ -8,7 +8,8 @@
     "pgc",
     "pipeline",
     "reliability",
-    "source-health"
+    "source-health",
+    "first-source"
   ],
   "editable": true,
   "graphTooltip": 1,
@@ -23,6 +24,477 @@
   },
   "panels": [
     {
+      "id": 200,
+      "title": "一手信号审计 / First-Source Audit",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 201,
+      "title": "需处理的一手信号",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "benchmark 源已出现、但一手源未跟上或需要人工确认的条目数。非 0 时优先复盘信源覆盖与抓取时效。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 202,
+      "title": "Critical 漏配/滞后",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "严重一手信号问题：通常表示明确 benchmark 已有，而当前源库或一手证据不足。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_critical{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 203,
+      "title": "审计报告新鲜度",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "最近一次 first-source audit 报告距现在的秒数。过旧说明每日复盘/告警链路可能没有运行。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_report_age_seconds{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "red",
+                "value": 21600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 204,
+      "title": "已审计 benchmark",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "本轮被拿来对照一手信源的 benchmark 条目数。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_items_audited{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 205,
+      "title": "一手审计趋势",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按天观察一手信号审计结果，判断治理是否改善。attention/critical 上升时应进入复盘。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "attention"
+        },
+        {
+          "expr": "pgc_first_source_audit_critical{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "critical"
+        },
+        {
+          "expr": "pgc_first_source_audit_warn{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "warn"
+        },
+        {
+          "expr": "pgc_first_source_audit_ok{job=\"pgc-pipeline\"}",
+          "refId": "D",
+          "legendFormat": "ok"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 206,
+      "title": "审计判定分布",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 verdict 汇总：例如 primary_seen_after_benchmark、primary_source_not_configured、unknown_needs_human_review。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_verdict_count{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 207,
+      "title": "严重度分布",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 severity 汇总 first-source audit，辅助区分 critical/warn/ok。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_severity_count{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 208,
+      "title": "信源库覆盖规模",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "source registry 中用于审计的 benchmark 源和一手源数量。benchmark 太少会漏复盘，一手源太少会跟不上定位。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_benchmark_sources{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "benchmark sources"
+        },
+        {
+          "expr": "pgc_first_source_audit_primary_sources{job=\"pgc-pipeline\"}",
+          "refId": "B",
+          "legendFormat": "primary sources"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 100,
       "title": "信源可靠性 / Source Reliability",
       "type": "row",
@@ -30,7 +502,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 21
       },
       "collapsed": false
     },
@@ -42,7 +514,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -101,7 +573,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -160,7 +632,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -233,7 +705,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -296,7 +768,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -366,7 +838,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -414,7 +886,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 34
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -462,7 +934,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 34
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -510,7 +982,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 42
       },
       "collapsed": false
     },
@@ -522,7 +994,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -577,7 +1049,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -640,7 +1112,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -703,7 +1175,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 43
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -766,7 +1238,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -814,7 +1286,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -882,7 +1354,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 34
+        "y": 55
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -930,7 +1402,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 34
+        "y": 55
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -978,7 +1450,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 34
+        "y": 55
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1026,7 +1498,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 63
       },
       "collapsed": false
     },
@@ -1038,7 +1510,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 43
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1101,7 +1573,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 43
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1164,7 +1636,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 43
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1227,7 +1699,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 43
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1290,7 +1762,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1338,7 +1810,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1386,7 +1858,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 78
       },
       "collapsed": false
     },
@@ -1398,7 +1870,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 58
+        "y": 79
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1446,7 +1918,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 58
+        "y": 79
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1494,7 +1966,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 58
+        "y": 79
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1547,7 +2019,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 66
+        "y": 87
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1600,7 +2072,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 66
+        "y": 87
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1648,7 +2120,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 95
       },
       "collapsed": false
     },
@@ -1660,7 +2132,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 75
+        "y": 96
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1708,7 +2180,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 75
+        "y": 96
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1756,7 +2228,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 75
+        "y": 96
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1814,7 +2286,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 83
+        "y": 104
       },
       "datasource": {
         "uid": "loki",
@@ -1842,5 +2314,5 @@
     }
   ],
   "schemaVersion": 39,
-  "version": 3
+  "version": 4
 }
