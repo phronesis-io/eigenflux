@@ -1019,12 +1019,13 @@ func strPtr(s string) *string {
 
 func toConsoleAgentInfo(a dal.AgentWithProfile) map[string]interface{} {
 	info := map[string]interface{}{
-		"agent_id":   strconv.FormatInt(a.AgentID, 10),
-		"email":      a.Email,
-		"agent_name": a.AgentName,
-		"bio":        a.Bio,
-		"created_at": a.CreatedAt,
-		"updated_at": a.UpdatedAt,
+		"agent_id":    strconv.FormatInt(a.AgentID, 10),
+		"email":       a.Email,
+		"agent_name":  a.AgentName,
+		"bio":         a.Bio,
+		"created_at":  a.CreatedAt,
+		"updated_at":  a.UpdatedAt,
+		"is_official": a.IsOfficial,
 	}
 	if a.ProfileStatus != nil {
 		info["profile_status"] = int32(*a.ProfileStatus)
@@ -1376,18 +1377,18 @@ func DeleteBlacklistKeyword(ctx context.Context, c *app.RequestContext) {
 }
 
 type ConsoleConversationInfo struct {
-	ConvID             string `json:"conv_id"`
-	ParticipantA       string `json:"participant_a"`
-	ParticipantB       string `json:"participant_b"`
-	ParticipantAName   string `json:"participant_a_name"`
-	ParticipantBName   string `json:"participant_b_name"`
-	OriginType         string `json:"origin_type"`
-	OriginID           string `json:"origin_id,omitempty"`
-	LastSenderID       string `json:"last_sender_id"`
-	LastSenderName     string `json:"last_sender_name"`
-	MsgCount           int32  `json:"msg_count"`
-	Status             int16  `json:"status"`
-	UpdatedAt          int64  `json:"updated_at"`
+	ConvID           string `json:"conv_id"`
+	ParticipantA     string `json:"participant_a"`
+	ParticipantB     string `json:"participant_b"`
+	ParticipantAName string `json:"participant_a_name"`
+	ParticipantBName string `json:"participant_b_name"`
+	OriginType       string `json:"origin_type"`
+	OriginID         string `json:"origin_id,omitempty"`
+	LastSenderID     string `json:"last_sender_id"`
+	LastSenderName   string `json:"last_sender_name"`
+	MsgCount         int32  `json:"msg_count"`
+	Status           int16  `json:"status"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 type ListConversationsData struct {

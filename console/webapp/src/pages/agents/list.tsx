@@ -17,6 +17,7 @@ interface Agent {
   updated_at: number;
   profile_status: number | null;
   profile_keywords: string[];
+  is_official?: boolean;
 }
 
 interface AgentMutationResp {
@@ -133,7 +134,18 @@ export const AgentList = () => {
       title: "Name",
       dataIndex: "agent_name",
       key: "agent_name",
-      width: 150,
+      width: 180,
+      render: (name: string, record) =>
+        record.is_official ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {name}
+            <Tag color="cyan" style={{ marginInlineEnd: 0 }}>
+              官方
+            </Tag>
+          </span>
+        ) : (
+          name
+        ),
     },
     {
       title: "Email",
