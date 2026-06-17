@@ -9,7 +9,8 @@
     "pipeline",
     "reliability",
     "source-health",
-    "first-source"
+    "first-source",
+    "event-timeline"
   ],
   "editable": true,
   "graphTooltip": 1,
@@ -502,7 +503,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 34
       },
       "collapsed": false
     },
@@ -514,7 +515,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -573,7 +574,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -632,7 +633,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -705,7 +706,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -768,7 +769,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 39
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -838,7 +839,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 39
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -886,7 +887,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -934,7 +935,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -982,7 +983,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 55
       },
       "collapsed": false
     },
@@ -994,7 +995,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 43
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1049,7 +1050,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 43
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1112,7 +1113,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 43
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1175,7 +1176,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 43
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1238,7 +1239,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 60
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1286,7 +1287,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 60
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1354,7 +1355,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 55
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1402,7 +1403,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 55
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1450,7 +1451,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 55
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1498,7 +1499,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 76
       },
       "collapsed": false
     },
@@ -1510,7 +1511,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 64
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1573,7 +1574,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 64
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1636,7 +1637,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 64
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1699,7 +1700,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 64
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1762,7 +1763,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 81
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1810,7 +1811,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 81
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1858,7 +1859,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 91
       },
       "collapsed": false
     },
@@ -1870,7 +1871,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 79
+        "y": 92
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1918,7 +1919,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 79
+        "y": 92
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1966,7 +1967,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 79
+        "y": 92
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2019,7 +2020,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 87
+        "y": 100
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2072,7 +2073,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 87
+        "y": 100
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2120,7 +2121,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 95
+        "y": 108
       },
       "collapsed": false
     },
@@ -2132,7 +2133,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 96
+        "y": 109
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2180,7 +2181,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 96
+        "y": 109
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2228,7 +2229,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 96
+        "y": 109
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2286,7 +2287,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 104
+        "y": 117
       },
       "datasource": {
         "uid": "loki",
@@ -2311,6 +2312,351 @@
         "sortOrder": "Descending",
         "wrapLogMessage": true
       }
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "信号链路时间线 / Event Timeline",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "panels": []
+    },
+    {
+      "id": 301,
+      "type": "stat",
+      "title": "链路事件最新年龄",
+      "description": "最新 item_timeline 事件距现在多久。超过 15 分钟说明链路事实表可能断写，需要先查 crawler/worker。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 900
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_latest_age_seconds{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "stat",
+      "title": "24h 时间线事件",
+      "description": "过去 24 小时记录的不可变链路事件总数，用来确认 crawl/extract/process/publish 都在持续留下证据。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_events_24h{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 303,
+      "type": "stat",
+      "title": "24h 覆盖 items",
+      "description": "过去 24 小时至少有一条时间线事件的 item 数。这个数接近 indexed item 量时，说明证据覆盖正常。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 304,
+      "type": "stat",
+      "title": "24h pushed 事件",
+      "description": "过去 24 小时进入发布阶段并写入 pushed 事件的数量。若 indexed 增长但 pushed 长时间不动，优先查 processor/publisher。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_stage_events_24h{job=\"pgc-pipeline\",stage=\"pushed\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 305,
+      "type": "timeseries",
+      "title": "时间线写入趋势",
+      "description": "观察 timeline events/items 是否持续增长；突然归零表示事实表或 source-health report 断流。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_events_24h{job=\"pgc-pipeline\"}",
+          "legendFormat": "events 24h",
+          "refId": "A"
+        },
+        {
+          "expr": "pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}",
+          "legendFormat": "items 24h",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 306,
+      "type": "table",
+      "title": "阶段事件分布",
+      "description": "按 stage 查看 24h 时间线事件。用于定位哪一跳断写：indexed、extracted、processed、pushed 或 error_*。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "expr": "pgc_event_timeline_stage_events_24h{job=\"pgc-pipeline\"}",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
