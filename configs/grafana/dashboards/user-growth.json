@@ -551,6 +551,57 @@
       }
     },
     {
+      "id": 13,
+      "title": "昨日 / 今日活跃用户 (真实用户, 按最近活跃排序)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH act AS (\n  SELECT l.agent_id, max(l.created_at) AS last_ms, count(*) AS events,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date) AS today,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date - 1) AS yday\n  FROM agent_activity_log l\n  WHERE l.event_type <> 'reply_received'\n    AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date >= (now() AT TIME ZONE 'Asia/Shanghai')::date - 1\n  GROUP BY l.agent_id\n)\nSELECT to_char(to_timestamp(act.last_ms/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"最近活跃\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\", coalesce(nullif(s.model,''),'-') AS \"模型\",\n  CASE WHEN act.today THEN '是' ELSE '' END AS \"今日\",\n  CASE WHEN act.yday THEN '是' ELSE '' END AS \"昨日\",\n  act.events AS \"活跃次数\"\nFROM act JOIN agents a ON a.agent_id=act.agent_id\nLEFT JOIN agent_settings s ON s.agent_id=a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\nORDER BY act.last_ms DESC;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
+    },
+    {
       "id": 10,
       "title": "留存三角 (Cohort · 按注册日, 未到期显示暂无数据)",
       "type": "table",
@@ -562,7 +613,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 42
       },
       "targets": [
         {
