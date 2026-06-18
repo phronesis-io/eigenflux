@@ -156,10 +156,12 @@ only generic crawler/source-health charts.
   operators can explain why raw SLA debt is not always an active first-source
   incident.
 - The active source latency panel queries
-  `pgc_signal_latency_active_source_breaches_3h{kind="source_latency"}`, so an
-  owner can see the exact source names currently dragging the low-latency
-  promise instead of stopping at class/tier aggregates. Non-actionable active
-  reasons remain visible in the adjacent breach-kind panel.
+  `pgc_signal_latency_active_source_breaches_3h{kind=~"source_latency|source_feed_lag"}`,
+  so an owner can see the exact source names currently dragging the
+  low-latency promise instead of stopping at class/tier aggregates. The `kind`
+  label distinguishes PGC/processing/polling latency from upstream RSS feed lag;
+  non-actionable active reasons remain visible in the adjacent breach-kind
+  panel.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

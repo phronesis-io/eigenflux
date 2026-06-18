@@ -978,10 +978,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按信源列出最近 3 小时仍活跃的 source_latency 破线。这张表回答现在先处理哪个信源；回补、日期精度、非信号噪音看下一张原因拆解表。",
+      "description": "按信源列出最近 3 小时仍活跃的可行动延迟破线：source_latency 表示 PGC/轮询/处理链路可能慢，source_feed_lag 表示上游 RSS 自身晚曝。这张表回答现在先处理哪个信源；回补、日期精度、非信号噪音看下一张原因拆解表。",
       "targets": [
         {
-          "expr": "sort_desc(sum by (source, stage, source_class, source_tier) (pgc_signal_latency_active_source_breaches_3h{job=\"pgc-pipeline\",kind=\"source_latency\"}))",
+          "expr": "sort_desc(sum by (source, stage, source_class, source_tier, kind) (pgc_signal_latency_active_source_breaches_3h{job=\"pgc-pipeline\",kind=~\"source_latency|source_feed_lag\"}))",
           "refId": "A",
           "format": "table",
           "instant": true,
