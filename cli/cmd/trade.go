@@ -3,8 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
@@ -280,6 +282,7 @@ Examples:
 		}
 
 		c := newClient()
+		c.HTTPClient = &http.Client{Timeout: 2 * time.Minute}
 		resp, err := c.Post("/trading/services/search", body)
 		if err != nil {
 			return err
