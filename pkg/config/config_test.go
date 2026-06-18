@@ -160,6 +160,7 @@ func TestLoadESCredentials(t *testing.T) {
 func TestLoadLLMDefaults(t *testing.T) {
 	t.Setenv("LLM_BASE_URL", "")
 	t.Setenv("LLM_MODEL", "")
+	t.Setenv("LLM_TASK_DECOMPOSE_MODEL", "")
 	t.Setenv("POSTGRES_PORT", "")
 	t.Setenv("REDIS_PORT", "")
 	t.Setenv("ETCD_PORT", "")
@@ -170,6 +171,21 @@ func TestLoadLLMDefaults(t *testing.T) {
 	}
 	if cfg.LLMModel != "gpt-4o-mini" {
 		t.Fatalf("LLMModel=%q, want %q", cfg.LLMModel, "gpt-4o-mini")
+	}
+	if cfg.LLMTaskDecomposeModel != "" {
+		t.Fatalf("LLMTaskDecomposeModel=%q, want empty", cfg.LLMTaskDecomposeModel)
+	}
+}
+
+func TestLoadLLMTaskDecomposeModel(t *testing.T) {
+	t.Setenv("LLM_TASK_DECOMPOSE_MODEL", "qwen3.6-flash")
+	t.Setenv("POSTGRES_PORT", "")
+	t.Setenv("REDIS_PORT", "")
+	t.Setenv("ETCD_PORT", "")
+
+	cfg := Load()
+	if cfg.LLMTaskDecomposeModel != "qwen3.6-flash" {
+		t.Fatalf("LLMTaskDecomposeModel=%q, want %q", cfg.LLMTaskDecomposeModel, "qwen3.6-flash")
 	}
 }
 

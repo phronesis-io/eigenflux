@@ -115,7 +115,12 @@ func main() {
 		logger.Default().Warn("sort: prompt registry unavailable; decompose chat degraded", "err", promptErr)
 		prompts = nil
 	}
-	chatClient = llm.NewClient(cfg, prompts).AsChat()
+	decomposeLLM := llm.NewClient(cfg, prompts)
+	if cfg.LLMTaskDecomposeModel != "" {
+		decomposeLLM = decomposeLLM.WithModel(cfg.LLMTaskDecomposeModel).WithReasoningOff()
+		logger.Default().Info("sort: task decomposition model configured", "model", cfg.LLMTaskDecomposeModel)
+	}
+	chatClient = decomposeLLM.AsChat()
 
 	// Initialize recall sources
 	recallReader := recall.NewRedisRecallReader(mq.RDB, cfg.RecallRedisNamespace)
