@@ -105,6 +105,8 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_signal_latency_active_source_breaches_3h" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use active source latency metric")
+        if not any('kind="source_latency"' in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must focus on actionable source_latency rows")
 
     prometheus_targets = 0
     loki_targets = 0

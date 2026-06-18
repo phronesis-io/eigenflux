@@ -978,10 +978,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按信源列出最近 3 小时仍活跃的延迟破线。source_latency 是需要马上处理的源质量/抓取问题；其他 kind 用来解释预算覆盖或非信号噪音。",
+      "description": "按信源列出最近 3 小时仍活跃的 source_latency 破线。这张表回答现在先处理哪个信源；回补、日期精度、非信号噪音看下一张原因拆解表。",
       "targets": [
         {
-          "expr": "sort_desc(sum by (source, kind, stage, source_class, source_tier) (pgc_signal_latency_active_source_breaches_3h{job=\"pgc-pipeline\"}))",
+          "expr": "sort_desc(sum by (source, stage, source_class, source_tier) (pgc_signal_latency_active_source_breaches_3h{job=\"pgc-pipeline\",kind=\"source_latency\"}))",
           "refId": "A",
           "format": "table",
           "instant": true,
