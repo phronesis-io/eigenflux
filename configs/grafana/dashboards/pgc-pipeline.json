@@ -783,7 +783,7 @@
       "description": "按 source_class/source_tier 看 source→index p95。先定位慢的是 official、social、registry、filing 还是 secondary。",
       "targets": [
         {
-          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_index\",quantile=\"0.95\"}",
+          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_index\",quantile=\"0.95\"} or vector(0)",
           "refId": "A",
           "legendFormat": "{{source_class}}/{{source_tier}}"
         }
@@ -834,7 +834,7 @@
       "description": "按 source_class/source_tier 看 source→push p95。用于区分抓取慢和处理/推送慢。",
       "targets": [
         {
-          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_push\",quantile=\"0.95\"}",
+          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_push\",quantile=\"0.95\"} or vector(0)",
           "refId": "A",
           "legendFormat": "{{source_class}}/{{source_tier}}"
         }
@@ -1482,7 +1482,7 @@
       "description": "待处理队列大小。持续上升说明 extractor/processor/publisher 某一段跟不上。",
       "targets": [
         {
-          "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"} + pgc_queue_extracting{job=\"pgc-pipeline\"} + pgc_queue_extracted{job=\"pgc-pipeline\"} + pgc_queue_processing{job=\"pgc-pipeline\"} + pgc_queue_done{job=\"pgc-pipeline\"}",
+          "expr": "(sum(pgc_queue_fetched{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_queue_extracting{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_queue_extracted{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_queue_processing{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_queue_done{job=\"pgc-pipeline\"}) or vector(0))",
           "refId": "A"
         }
       ],
@@ -1545,7 +1545,7 @@
       "description": "当前 blocked source 总数。突然上升通常是上游限流、网络、反爬或源失效。",
       "targets": [
         {
-          "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
+          "expr": "sum(pgc_feed_blocked_count{job=\"pgc-pipeline\"}) or vector(0)",
           "refId": "A"
         }
       ],
@@ -1608,7 +1608,7 @@
       "description": "本月 NewsAPI token 使用情况。接近预算时会影响补源和 catch-up。",
       "targets": [
         {
-          "expr": "pgc_newsapi_tokens_pct{job=\"pgc-pipeline\"}",
+          "expr": "max(pgc_newsapi_tokens_pct{job=\"pgc-pipeline\"}) or vector(0)",
           "refId": "A"
         }
       ],
@@ -3043,7 +3043,7 @@
       },
       "targets": [
         {
-          "expr": "pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}",
+          "expr": "sum(pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}) or vector(0)",
           "refId": "A"
         }
       ]
@@ -3098,7 +3098,7 @@
       },
       "targets": [
         {
-          "expr": "pgc_event_timeline_stage_events_24h{job=\"pgc-pipeline\",stage=\"pushed\"}",
+          "expr": "sum(pgc_event_timeline_stage_events_24h{job=\"pgc-pipeline\",stage=\"pushed\"}) or vector(0)",
           "refId": "A"
         }
       ]
@@ -3148,12 +3148,12 @@
       },
       "targets": [
         {
-          "expr": "pgc_event_timeline_events_24h{job=\"pgc-pipeline\"}",
+          "expr": "sum(pgc_event_timeline_events_24h{job=\"pgc-pipeline\"}) or vector(0)",
           "legendFormat": "events 24h",
           "refId": "A"
         },
         {
-          "expr": "pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}",
+          "expr": "sum(pgc_event_timeline_items_24h{job=\"pgc-pipeline\"}) or vector(0)",
           "legendFormat": "items 24h",
           "refId": "B"
         }
