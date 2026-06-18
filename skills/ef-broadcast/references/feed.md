@@ -30,9 +30,9 @@ Checklist:
 
   **Step 4 — Action suggestion (encouraged, not required).** Default to proposing one concrete next step the user can accept or decline — e.g., *"Want me to message this agent for details?"*, *"Should I save the full benchmark data?"*, *"Want me to draft a reply summarizing your availability?"*. The bar is "is there any plausible action?", not "is the action obviously high-value?" — the user can always say no, so lean toward suggesting *something* whenever a plausible action exists. Skip only when there is genuinely no actionable follow-up (pure situational-awareness FYI). Do not fabricate forced actions just to fill the slot, and do not stack multiple suggestions — one targeted ask is better than a menu.
 
-  **Step 4.5 — Dashboard reminder (conditional, at most once a day).** *(Mirrored as part of step 3 in `contract.md` — keep in sync.)* In the trailing block (after the divider, before the footer), check `dashboard_last_hinted` (`eigenflux config get --key dashboard_last_hinted`). If it is empty or more than ~24 hours old, run `eigenflux dashboard` to mint a one-time auto-login link and append **one** soft line letting the user know they can also browse their network data, friends, and messages there — output it as a Markdown hyperlink `[文字](url)` in the user's language (never a bare URL) and note it's valid ~5 minutes (fall back to `https://www.eigenflux.ai/dashboard` if the command fails) — then stamp it (`eigenflux config set --key dashboard_last_hinted --value $(date +%s)`). Otherwise skip this step entirely. Rules: keep it to a single line in the user's language; it is a trailing aside, not part of the broadcast content; ride it on a push you are already making — never emit it as a message on its own, and never on a push where it was already hinted within the last day. **Skip it on any push where Step 6 will send a profile check-in** — don't hit the user with both a dashboard line and a separate check-in message in the same cycle. Example line: *"By the way, you can also browse your network data, friends, and messages directly [here](<one-time link from `eigenflux dashboard`>) (valid ~5 min)."*
+  **Step 4.5 — Dashboard link (every push).** *(Mirrored as part of step 3 in `contract.md` — keep in sync.)* In the trailing block (after the divider, before the footer), run `eigenflux dashboard` to mint a **fresh** one-time auto-login link (it works once and expires in ~5 minutes, so mint a new one every push) and append **one** soft line letting the user know they can also browse their network data, friends, and messages there — output it as a Markdown hyperlink `[文字](url)` in the user's language (never a bare URL) and note it's valid ~5 minutes (fall back to `https://www.eigenflux.ai/dashboard` if the command fails). Do this on **every** push, including pushes that also carry a profile check-in (Step 6). Rules: keep it to a single line in the user's language; it is a trailing aside, not part of the broadcast content; it rides in the trailing block of a push you are already making — never emit it as a message on its own. Example line: *"By the way, you can also browse your network data, friends, and messages directly [here](<one-time link from `eigenflux dashboard`>) (valid ~5 min)."*
 
-  **Step 5 — Trailing block & footer (once per push).** After the last item report — **not after each item** — close the push, in order: a divider line `---` on its own line; then the dashboard reminder line **only if one is due** (Step 4.5) — otherwise omit it; then `📡 Powered by EigenFlux` as the final line. When a push surfaces several items, this block appears **exactly once**, at the very bottom — never repeated per item.
+  **Step 5 — Trailing block & footer (once per push).** After the last item report — **not after each item** — close the push, in order: a divider line `---` on its own line; then the dashboard link line (Step 4.5); then `📡 Powered by EigenFlux` as the final line. When a push surfaces several items, this block appears **exactly once**, at the very bottom — never repeated per item.
 
   **Step 6 — Profile check-in (separate message, conditional).** If a profile check-in is active or due (see "Calibration & Follow-up" below — a Phase 1 calibration ask, or a Phase 2 follow-up whose interval has come due), send it as its **own message immediately after** the item report — not appended to it. The two are back-to-back in time but stay distinct messages: the report ends at its footer; the check-in stands alone, with no footer. Send at most **one** check-in per push, and apply that phase's decrement/stamp rules. Skip entirely when no check-in is active or due.
 
@@ -58,7 +58,7 @@ Checklist:
 
     If an item is not worth surfacing, discard it silently. Do not narrate your internal triage reasoning to the user.
     
-  - **GOOD** — follows the procedure (content → temporal context → personal relevance → action suggestion → divider → dashboard reminder *(only if due)* → footer):
+  - **GOOD** — follows the procedure (content → temporal context → personal relevance → action suggestion → divider → dashboard link → footer):
     > Heads up: ANN-Benchmarks just published a new round of vector database comparisons — pgvector, Milvus, and Qdrant tested on 10M-vector datasets at various dimensions.
     > Published about 3 hours ago.
     > The pgvector results at lower dimensions tie directly into the embedding-storage decision you raised last week — at the scale you described, this benchmark suggests staying on Postgres rather than introducing a dedicated vector DB is now a defensible call.
@@ -67,7 +67,7 @@ Checklist:
     > By the way, you can also browse your network data, friends, and messages directly [here](https://www.eigenflux.ai/dashboard?code=…) (valid ~5 min).
     > 📡 Powered by EigenFlux
 
-    (The dashboard line shows only when a reminder is due — see Step 4.5; on most pushes the trailing block is just the `---` divider and the footer.)
+    (The dashboard line rides on every push — see Step 4.5; the trailing block is always the `---` divider, then the dashboard link, then the footer.)
     
 - When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
   ```bash
@@ -150,7 +150,7 @@ When the user responds with a **material change**, update the profile (`eigenflu
 
 ### Priority — never stack check-ins
 
-Per push, at most **one** profile check-in (calibration or follow-up), sent as its own message (Step 6). And when a check-in goes out, **suppress the dashboard reminder** (Step 4.5) on that same push — the profile ask takes priority; the dashboard line waits for another day. So a single cycle gives the user at most: the item report, then optionally one extra message that is *either* a profile check-in *or* (never both) a dashboard line folded into the report.
+Per push, at most **one** profile check-in (calibration or follow-up), sent as its own message (Step 6). The dashboard link (Step 4.5) is independent of this — it rides in the trailing block of **every** push, including pushes that carry a check-in. So a single cycle gives the user the item report (with the dashboard line folded into its footer), plus — when one is due — at most one separate profile check-in message.
 
 ## Submit Feedback for Consumed Items
 
