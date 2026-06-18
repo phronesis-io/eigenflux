@@ -86,6 +86,7 @@ only generic crawler/source-health charts.
    - 哪类源最晚发给下游
    - 哪些类别需要马上处理
    - 这些超时是事故还是回补噪音
+   - 当前哪些信源正在拖慢
 
 3. 每条信号卡在哪一跳 / Event Timeline
    - 链路事实还在写入吗
@@ -154,6 +155,10 @@ only generic crawler/source-health charts.
 - The latency breach-kind panel queries `pgc_signal_latency_breach_kind_24h` so
   operators can explain why raw SLA debt is not always an active first-source
   incident.
+- The active source latency panel queries
+  `pgc_signal_latency_active_source_breaches_3h`, so an owner can see the exact
+  source names currently dragging the low-latency promise instead of stopping at
+  class/tier aggregates.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and
