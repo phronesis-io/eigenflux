@@ -33,11 +33,16 @@ NATURALLY_EMPTY_PANEL_IDS = {
     10,   # 异常来源榜: no rows when every failing source is already blocked or healthy.
     108,  # 即将被 block 的来源: no rows is the ideal steady state.
     407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
+    409,  # SLA 破线原因: no rows is ideal when there is no latency debt.
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
     401,  # 现在高优先级信号还在超时吗
     407,  # 哪些类别需要马上处理
+}
+
+BREACH_KIND_PANEL_IDS = {
+    409,  # 这些超时是事故还是回补噪音
 }
 
 
@@ -77,6 +82,15 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_signal_latency_actionable_breaches_3h" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use active actionable latency breaches")
+
+    for panel_id in BREACH_KIND_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing breach-kind latency panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_signal_latency_breach_kind_24h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use breach-kind latency metric")
 
     prometheus_targets = 0
     loki_targets = 0

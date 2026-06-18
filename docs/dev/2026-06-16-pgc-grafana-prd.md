@@ -8,6 +8,7 @@ Revision: 2026-06-17, first-source audit metrics added to the first screen.
 Revision: 2026-06-18, low-latency signal-network SLI panels added between first-source audit and event timeline; panel titles rewritten as user/operator questions.
 Revision: 2026-06-18, SLA breach panels switched to actionable latency breaches so operators see real low-latency failures before raw timestamp/noise diagnostics.
 Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actionable breaches so operators can distinguish current incidents from 24h residual debt.
+Revision: 2026-06-18, latency breach-kind panel added so operators can tell true source latency from recovery backfill, date-only timestamps, and non-signal statuses.
 
 ## Problem
 
@@ -84,6 +85,7 @@ only generic crawler/source-health charts.
    - 哪类源最晚被我们看到
    - 哪类源最晚发给下游
    - 哪些类别需要马上处理
+   - 这些超时是事故还是回补噪音
 
 3. 每条信号卡在哪一跳 / Event Timeline
    - 链路事实还在写入吗
@@ -149,6 +151,9 @@ only generic crawler/source-health charts.
   `pgc_signal_latency_actionable_breaches_3h`, while 24h actionable/raw breach
   metrics remain available for review. The active SLA breach table is allowed
   to be empty when no class/tier has current actionable breaches.
+- The latency breach-kind panel queries `pgc_signal_latency_breach_kind_24h` so
+  operators can explain why raw SLA debt is not always an active first-source
+  incident.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

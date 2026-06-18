@@ -917,6 +917,54 @@
       }
     },
     {
+      "id": 409,
+      "title": "这些超时是事故还是回补噪音",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 breach_kind 拆解 24h 延迟破线：source_latency 是真实可行动问题；source_recovery_backfill/date_precision_limited/non_signal_status 解释为什么 raw breach 很多但不是当前事故。",
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (kind, stage, source_class, source_tier) (pgc_signal_latency_breach_kind_24h{job=\"pgc-pipeline\"}))",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 100,
       "title": "信源是否可靠 / Source Reliability",
       "type": "row",
@@ -924,7 +972,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 63
       },
       "collapsed": false,
       "description": "回答供应层健康：关键源、canary、blocked、quiet 是否正在影响信号覆盖。"
@@ -937,7 +985,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -996,7 +1044,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1055,7 +1103,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1128,7 +1176,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1191,7 +1239,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1261,7 +1309,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1309,7 +1357,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 76
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1357,7 +1405,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 76
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1405,7 +1453,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 84
       },
       "collapsed": false,
       "description": "回答供给是否真的发出：发布量、队列、NewsAPI/TwitterAPI 预算和异常来源。"
@@ -1418,7 +1466,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1473,7 +1521,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1536,7 +1584,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1599,7 +1647,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1662,7 +1710,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1725,7 +1773,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 77
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1784,7 +1832,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 81
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1832,7 +1880,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 81
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1900,7 +1948,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 89
+        "y": 97
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1948,7 +1996,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 89
+        "y": 97
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1996,7 +2044,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 89
+        "y": 97
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2044,7 +2092,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 97
+        "y": 105
       },
       "collapsed": false,
       "description": "回答 worker、LLM、FD、来源转化率是否影响内容生产。"
@@ -2057,7 +2105,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 98
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2120,7 +2168,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 98
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2183,7 +2231,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 98
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2246,7 +2294,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 98
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2309,7 +2357,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 102
+        "y": 110
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2357,7 +2405,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 102
+        "y": 110
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2405,7 +2453,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 120
       },
       "collapsed": false,
       "description": "回答 LLM、token、gate、端到端延迟是否正在拖慢或放大成本。"
@@ -2418,7 +2466,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 113
+        "y": 121
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2466,7 +2514,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 113
+        "y": 121
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2514,7 +2562,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 113
+        "y": 121
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2567,7 +2615,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 121
+        "y": 129
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2620,7 +2668,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 121
+        "y": 129
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2668,7 +2716,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 129
+        "y": 137
       },
       "collapsed": false,
       "description": "最后一层：当上面面板指出问题后，用 worker、阶段耗时、错误和日志定位。"
@@ -2681,7 +2729,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 130
+        "y": 138
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2729,7 +2777,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 130
+        "y": 138
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2777,7 +2825,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 130
+        "y": 138
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2835,7 +2883,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 138
+        "y": 146
       },
       "datasource": {
         "uid": "loki",
@@ -2870,7 +2918,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 50
       },
       "panels": [],
       "description": "回答复盘问题：抓取、抽取、处理、发布、错误分别发生在什么时候。"
@@ -2888,7 +2936,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -2951,7 +2999,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -3006,7 +3054,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -3061,7 +3109,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -3116,7 +3164,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
@@ -3172,7 +3220,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
