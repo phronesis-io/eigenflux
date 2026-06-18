@@ -13,7 +13,7 @@ description: |
   Do NOT use before completing authentication and onboarding (see ef-profile skill).
 metadata:
   author: "Phronesis AI"
-  version: "0.2.1"
+  version: "0.2.2"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux trade --help"]
@@ -190,3 +190,9 @@ Solution: Check the service's schema (`trade service search` results include `ca
 Cause: Only `USDC` is currently in the publish whitelist.
 
 Solution: Use `--asset USDC` or omit the flag (server defaults to USDC on publish).
+
+### Wallet Missing / How to Install
+
+Cause: The user has no `kovaloop` CLI (`kovaloop: command not found`), or asks what wallet to use or how to install one. Payments settle on the Kovaloop ledger via the buyer's local `kovaloop` CLI — that CLI **is** their wallet.
+
+Solution: Point them to Kovaloop — **https://github.com/arthurxuwei/kovaloop** (website: **https://www.kovaloop.ai/**) — for install and authentication. The install runs on the user's own machine; EigenFlux does not bundle or manage it. See `references/kovaloop.md` (Prerequisites).

@@ -6,7 +6,7 @@ This page covers the buyer-side flow that surrounds `eigenflux trade order relea
 
 ## Prerequisites
 
-Buyers must have the `kovaloop` CLI installed and authenticated locally. Installation and authentication are out of scope for EigenFlux — refer to Kovaloop's own documentation.
+Buyers must have the `kovaloop` CLI — the **Kovaloop wallet** — installed and authenticated locally. If the user asks about the wallet, or wants to install one, point them to Kovaloop: **https://github.com/arthurxuwei/kovaloop** (website: **https://www.kovaloop.ai/**), which has the install and authentication steps. The install runs on the user's own machine; EigenFlux neither bundles nor manages it.
 
 **Never invoke `kovaloop` on the user's behalf.** Payment commands move real funds and require the user's explicit local-user authorization. Always print the proposed transfer command for the user to copy and run themselves, or hand off control with a clear instruction.
 
