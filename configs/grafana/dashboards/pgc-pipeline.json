@@ -12,7 +12,9 @@
     "first-source",
     "event-timeline",
     "signal-latency",
-    "low-latency"
+    "low-latency",
+    "twitterapi",
+    "api-budget"
   ],
   "editable": true,
   "graphTooltip": 1,
@@ -1406,7 +1408,7 @@
         "y": 76
       },
       "collapsed": false,
-      "description": "回答供给是否真的发出：发布量、队列、NewsAPI 预算和异常来源。"
+      "description": "回答供给是否真的发出：发布量、队列、NewsAPI/TwitterAPI 预算和异常来源。"
     },
     {
       "id": 2,
@@ -1414,7 +1416,7 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 4,
         "x": 0,
         "y": 77
       },
@@ -1469,8 +1471,8 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
+        "w": 4,
+        "x": 4,
         "y": 77
       },
       "datasource": {
@@ -1532,8 +1534,8 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 4,
+        "x": 8,
         "y": 77
       },
       "datasource": {
@@ -1595,8 +1597,8 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 3,
-        "x": 18,
+        "w": 4,
+        "x": 12,
         "y": 77
       },
       "datasource": {
@@ -1653,23 +1655,86 @@
       }
     },
     {
-      "id": 307,
-      "title": "NewsAPI key 是否异常",
+      "id": 408,
+      "title": "TwitterAPI 还能撑多久",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 3,
-        "x": 21,
+        "w": 4,
+        "x": 16,
         "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "主 key 或 backup key 的 /usage 检查失败数。非 0 时先查密钥/网络/账户状态。",
+      "description": "X/Twitter 一手源依赖 twitterapi.io credits。低于 30 天要补充余额或降低轮询/账号成本。",
       "targets": [
         {
-          "expr": "pgc_newsapi_keys_usage_failed{job=\"pgc-pipeline\"}",
+          "expr": "max(pgc_twitterapi_credits_days_to_empty{job=\"pgc-pipeline\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 307,
+      "title": "外部 API 检查是否异常",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 77
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "NewsAPI /usage 或 TwitterAPI credit 刷新失败、或 TwitterAPI key 缺失。非 0 时先查外部 API 凭据和账户状态。",
+      "targets": [
+        {
+          "expr": "(sum(pgc_newsapi_keys_usage_failed{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_twitterapi_credit_refresh_failed{job=\"pgc-pipeline\"}) or vector(0)) + (sum(1 - pgc_twitterapi_key_present{job=\"pgc-pipeline\"}) or vector(0))",
           "refId": "A"
         }
       ],

@@ -104,7 +104,8 @@ only generic crawler/source-health charts.
    - 队列是否积压
    - 当前有多少阻塞源
    - NewsAPI 预算是否安全
-   - NewsAPI key 是否异常
+   - TwitterAPI 还能撑多久
+   - 外部 API 检查是否异常
    - 发布量是否稳定
    - 队列卡在哪个状态
    - 24h 内容状态分布
