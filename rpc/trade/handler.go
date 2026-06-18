@@ -141,6 +141,12 @@ func (s *TradeServiceImpl) OfflineService(_ context.Context, req *trade.OfflineS
 	if err := dal.OfflineService(db.DB, req.ServiceId, req.SellerAgentId); err != nil {
 		return &trade.OfflineServiceResp{BaseResp: fail("offline: " + err.Error())}, nil
 	}
+
+	_, _ = mq.Publish(context.Background(), "stream:trade:service", map[string]interface{}{
+		"service_id": fmt.Sprintf("%d", req.ServiceId),
+		"action":     "offline",
+	})
+
 	return &trade.OfflineServiceResp{BaseResp: ok()}, nil
 }
 
