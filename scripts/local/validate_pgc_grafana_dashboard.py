@@ -35,6 +35,11 @@ NATURALLY_EMPTY_PANEL_IDS = {
     407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
 }
 
+ACTIONABLE_LATENCY_PANEL_IDS = {
+    401,  # 高优先级信号有没有超时
+    407,  # 哪些类别需要马上处理
+}
+
 
 def load_dashboard(path: Path) -> dict:
     try:
@@ -62,6 +67,16 @@ def static_validate(dashboard: dict) -> list[str]:
     for section in EXPECTED_SECTIONS:
         if section not in row_titles:
             errors.append(f"missing section row: {section}")
+
+    panels_by_id = {panel.get("id"): panel for panel in dashboard.get("panels", [])}
+    for panel_id in ACTIONABLE_LATENCY_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing actionable latency panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_signal_latency_actionable_breaches_24h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use actionable latency breaches")
 
     prometheus_targets = 0
     loki_targets = 0
@@ -120,11 +135,14 @@ def prometheus_validate(
     ssh_host: str | None,
     rate_window: str,
     allow_empty: bool,
+    panel_ids: set[int] | None,
 ) -> list[str]:
     errors: list[str] = []
     checked = 0
     for panel, _target, expr in iter_targets(dashboard):
         if panel.get("type") == "logs":
+            continue
+        if panel_ids is not None and panel.get("id") not in panel_ids:
             continue
         checked += 1
         prom_expr = expr.replace("$__rate_interval", rate_window)
@@ -155,11 +173,19 @@ def main() -> int:
     parser.add_argument("--ssh-host")
     parser.add_argument("--rate-window", default="5m")
     parser.add_argument("--allow-empty", action="store_true")
+    parser.add_argument(
+        "--panel-id",
+        action="append",
+        default=[],
+        type=int,
+        help="Only run production Prometheus validation for this panel id. Repeatable.",
+    )
     args = parser.parse_args()
 
     dashboard = load_dashboard(args.dashboard)
     errors = static_validate(dashboard)
     if args.prometheus_url:
+        panel_ids = set(args.panel_id) if args.panel_id else None
         errors.extend(
             prometheus_validate(
                 dashboard,
@@ -167,6 +193,7 @@ def main() -> int:
                 args.ssh_host,
                 args.rate_window,
                 args.allow_empty,
+                panel_ids,
             )
         )
 
