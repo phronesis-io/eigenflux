@@ -19,17 +19,20 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "一手信号审计 / First-Source Audit",
-    "信源可靠性 / Source Reliability",
-    "内容交付 / Delivery",
-    "来源健康 / Source Health",
-    "质量与成本 / Quality & Cost",
-    "工程诊断 / Diagnostics",
+    "一手有没有漏 / First-Source Coverage",
+    "信号够不够快 / Signal Latency",
+    "每条信号卡在哪一跳 / Event Timeline",
+    "信源是否可靠 / Source Reliability",
+    "内容有没有送达 / Delivery",
+    "生产链路是否健康 / Pipeline Health",
+    "质量和成本是否失控 / Quality & Cost",
+    "工程诊断 / Deep Dive",
 ]
 
 NATURALLY_EMPTY_PANEL_IDS = {
     10,   # 异常来源榜: no rows when every failing source is already blocked or healthy.
     108,  # 即将被 block 的来源: no rows is the ideal steady state.
+    407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
 }
 
 

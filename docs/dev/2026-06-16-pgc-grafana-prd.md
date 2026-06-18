@@ -5,6 +5,7 @@ Owner: PGC / EigenFlux operations
 Status: implemented in `configs/grafana/dashboards/pgc-pipeline.json`
 Design reference: `configs/grafana/dashboards/user-growth.json`
 Revision: 2026-06-17, first-source audit metrics added to the first screen.
+Revision: 2026-06-18, low-latency signal-network SLI panels added between first-source audit and event timeline; panel titles rewritten as user/operator questions.
 
 ## Problem
 
@@ -31,6 +32,8 @@ only generic crawler/source-health charts.
 - Give an operator a 30-second command-center view of PGC health.
 - Make first-source misses, late primary-source sightings, and benchmark-only
   discoveries visible immediately.
+- Make world-to-PGC and world-to-push latency visible by source class and tier,
+  so delayed signals are investigated before users discover them.
 - Separate delivery, source health, quality/cost, diagnostics, and logs.
 - Prefer rates, rolling windows, and ratios over raw lifetime totals when the
   question is operational.
@@ -59,45 +62,75 @@ only generic crawler/source-health charts.
 
 ## Dashboard Structure
 
-1. 一手信号审计 / First-Source Audit
-   - 需处理的一手信号
-   - Critical 漏配/滞后
-   - 审计报告新鲜度
-   - 已审计 benchmark
-   - 一手审计趋势
-   - 审计判定分布
-   - 严重度分布
-   - 信源库覆盖规模
+1. 一手有没有漏 / First-Source Coverage
+   - 今天有多少一手问题要处理
+   - 严重漏配/晚到有多少
+   - 审计刚刚跑过吗
+   - 今天审了多少 benchmark
+   - 一手问题是在变多还是变少
+   - 问题属于哪种类型
+   - 问题严重到什么程度
+   - 一手源库覆盖够不够
 
-2. 信源可靠性 / Source Reliability
-   - Canary 失败
-   - 关键源需处理
-   - 健康报告新鲜度
-   - 活跃源覆盖率
-   - Source Health 趋势
-   - Canary 明细
-   - 当前 blocked sources
-   - 即将被 block 的来源
+2. 信号够不够快 / Signal Latency
+   - 高优先级信号有没有超时
+   - 官方源多久进入 PGC
+   - 机器源是否保持低延迟
+   - 高优先级信号多久发出去
+   - 哪类源最晚被我们看到
+   - 哪类源最晚发给下游
+   - 哪些类别正在破 SLA
 
-3. 内容交付 / Delivery
-   - 近1小时发布
-   - 待处理队列
-   - 当前阻塞源
-   - NewsAPI 用量
-   - 发布趋势、队列分布、24小时内容状态
-   - 来源发布榜、异常来源榜
+3. 每条信号卡在哪一跳 / Event Timeline
+   - 链路事实还在写入吗
+   - 24h 写了多少链路事件
+   - 24h 有多少内容可复盘
+   - 24h 有多少推送证据
+   - 链路证据是否稳定增长
+   - 慢/断在哪个阶段
 
-4. 来源健康 / Source Health
-   - 失败源、worker 心跳、LLM 失败、FD 压力
-   - 来源转化率、高热来源
+4. 信源是否可靠 / Source Reliability
+   - Canary 有没有失败
+   - 关键源是否需要处理
+   - 健康报告刚刚跑过吗
+   - 活跃源覆盖率够不够
+   - 源健康是在变好还是变差
+   - 哪些 Canary 失败
+   - 哪些源被 block
+   - 哪些源快被 block
 
-5. 质量与成本 / Quality & Cost
-   - LLM 调用结果、LLM 延迟、token 消耗
-   - Signal Gate、端到端发布延迟
+5. 内容有没有送达 / Delivery
+   - 近 1 小时发出多少
+   - 队列是否积压
+   - 当前有多少阻塞源
+   - NewsAPI 预算是否安全
+   - NewsAPI key 是否异常
+   - 发布量是否稳定
+   - 队列卡在哪个状态
+   - 24h 内容状态分布
+   - 哪些来源贡献最多
+   - 哪些来源正在异常
 
-6. 工程诊断 / Diagnostics
-   - Worker 心跳、阶段耗时、错误压力
-   - PGC pipeline Loki stream
+6. 生产链路是否健康 / Pipeline Health
+   - 哪些源连续失败
+   - Worker 是否卡住
+   - LLM 是否在报错
+   - FD 是否有压力
+   - 来源转化是否健康
+   - 哪些来源最热
+
+7. 质量和成本是否失控 / Quality & Cost
+   - LLM 调用是否稳定
+   - LLM p95 是否变慢
+   - Token 成本是否异常
+   - Signal Gate 是否过严
+   - 端到端发布是否超时
+
+8. 工程诊断 / Deep Dive
+   - Worker 心跳明细
+   - 各阶段耗时
+   - 错误压力是否升高
+   - Pipeline 日志
 
 ## Acceptance Criteria
 
@@ -106,6 +139,9 @@ only generic crawler/source-health charts.
 - Loki log panel uses `uid=loki`.
 - First-source audit panels query `pgc_first_source_audit_*` metrics and return
   non-empty frames in production.
+- Low-latency panels query `pgc_signal_latency_*` metrics and return production
+  data where appropriate; the SLA breach table is allowed to be empty when no
+  class/tier is breaching.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

@@ -2,7 +2,7 @@
   "id": null,
   "uid": "pgc-pipeline",
   "title": "EigenFlux - PGC Pipeline",
-  "description": "Owner cockpit for PGC source reliability, delivery, source health, quality, cost, diagnostics, and logs. Front page emphasizes canaries, critical sources, source-health freshness, and blocked-source backlog.",
+  "description": "Owner cockpit for PGC first-source reliability, low-latency signal SLIs, delivery, source health, quality, cost, diagnostics, and logs.",
   "tags": [
     "ops",
     "pgc",
@@ -10,7 +10,9 @@
     "reliability",
     "source-health",
     "first-source",
-    "event-timeline"
+    "event-timeline",
+    "signal-latency",
+    "low-latency"
   ],
   "editable": true,
   "graphTooltip": 1,
@@ -26,7 +28,7 @@
   "panels": [
     {
       "id": 200,
-      "title": "一手信号审计 / First-Source Audit",
+      "title": "一手有没有漏 / First-Source Coverage",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -35,11 +37,12 @@
         "y": 0
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "description": "先回答最重要的问题：二手媒体已经看到了，我们有没有更早的一手证据。"
     },
     {
       "id": 201,
-      "title": "需处理的一手信号",
+      "title": "今天有多少一手问题要处理",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -51,7 +54,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "benchmark 源已出现、但一手源未跟上或需要人工确认的条目数。非 0 时优先复盘信源覆盖与抓取时效。",
+      "description": "benchmark 已出现，但一手源未跟上或需要人工确认。非 0 时先看后面的判定分布，再查源覆盖。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
@@ -102,7 +105,7 @@
     },
     {
       "id": 202,
-      "title": "Critical 漏配/滞后",
+      "title": "严重漏配/晚到有多少",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -114,7 +117,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "严重一手信号问题：通常表示明确 benchmark 已有，而当前源库或一手证据不足。",
+      "description": "Critical 代表明确的一手覆盖缺口或严重滞后。这个数字非 0 时应进入事故复盘。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_critical{job=\"pgc-pipeline\"}",
@@ -161,7 +164,7 @@
     },
     {
       "id": 203,
-      "title": "审计报告新鲜度",
+      "title": "审计刚刚跑过吗",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -173,7 +176,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "最近一次 first-source audit 报告距现在的秒数。过旧说明每日复盘/告警链路可能没有运行。",
+      "description": "最近一次 first-source audit 距现在多久。过旧说明每日复盘链路或 webhook 链路可能断了。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_report_age_seconds{job=\"pgc-pipeline\"}",
@@ -224,7 +227,7 @@
     },
     {
       "id": 204,
-      "title": "已审计 benchmark",
+      "title": "今天审了多少 benchmark",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -236,7 +239,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "本轮被拿来对照一手信源的 benchmark 条目数。",
+      "description": "本轮拿来对照一手覆盖的二手/benchmark 条目数。太低时说明 benchmark 覆盖不足或报告未刷新。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_items_audited{job=\"pgc-pipeline\"}",
@@ -279,7 +282,7 @@
     },
     {
       "id": 205,
-      "title": "一手审计趋势",
+      "title": "一手问题是在变多还是变少",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -291,7 +294,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按天观察一手信号审计结果，判断治理是否改善。attention/critical 上升时应进入复盘。",
+      "description": "看 attention/critical/warn/ok 趋势。attention 上升说明源覆盖、抓取时效或匹配规则正在变差。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
@@ -345,7 +348,7 @@
     },
     {
       "id": 206,
-      "title": "审计判定分布",
+      "title": "问题属于哪种类型",
       "type": "table",
       "gridPos": {
         "h": 8,
@@ -357,7 +360,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按 verdict 汇总：例如 primary_seen_after_benchmark、primary_source_not_configured、unknown_needs_human_review。",
+      "description": "按 verdict 看根因：源没配、源配了但安静、看到了但晚于 benchmark，或需要人工确认。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_verdict_count{job=\"pgc-pipeline\"}",
@@ -393,7 +396,7 @@
     },
     {
       "id": 207,
-      "title": "严重度分布",
+      "title": "问题严重到什么程度",
       "type": "table",
       "gridPos": {
         "h": 8,
@@ -405,7 +408,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按 severity 汇总 first-source audit，辅助区分 critical/warn/ok。",
+      "description": "按 severity 看处理优先级。Critical 先处理，warn 进每日复盘，ok 代表 PGC 已经提前捕获。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_severity_count{job=\"pgc-pipeline\"}",
@@ -441,7 +444,7 @@
     },
     {
       "id": 208,
-      "title": "信源库覆盖规模",
+      "title": "一手源库覆盖够不够",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -453,7 +456,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "source registry 中用于审计的 benchmark 源和一手源数量。benchmark 太少会漏复盘，一手源太少会跟不上定位。",
+      "description": "看 registry 覆盖规模和 audit candidate 数。覆盖增长代表 PGC 对一手信号的解释能力在增强。",
       "targets": [
         {
           "expr": "pgc_first_source_audit_benchmark_sources{job=\"pgc-pipeline\"}",
@@ -496,32 +499,449 @@
       }
     },
     {
-      "id": 100,
-      "title": "信源可靠性 / Source Reliability",
+      "id": 400,
+      "title": "信号够不够快 / Signal Latency",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 21
       },
-      "collapsed": false
+      "collapsed": false,
+      "panels": [],
+      "description": "回答低时延产品承诺：世界发生后，PGC 多久知道、多久发出去。"
     },
     {
-      "id": 101,
-      "title": "Canary 失败",
+      "id": 401,
+      "title": "高优先级信号有没有超时",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 35
+        "y": 22
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "每日 source-health canary 失败数；非 0 就代表有必达信号风险。",
+      "description": "过去 24 小时 T0/T1 源的入库或推送 SLA 破线数。非 0 时代表低时延承诺已经被打破。",
+      "targets": [
+        {
+          "expr": "sum(pgc_signal_latency_sla_breaches_24h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 402,
+      "title": "官方源多久进入 PGC",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "官方/官方社交源从上游发布时间到 indexed_at 的 p95。它直接对应“别人先看到，我们后看到”的风险。",
+      "targets": [
+        {
+          "expr": "max(pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_index\",quantile=\"0.95\",source_class=~\"official|official_social\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1800
+              },
+              {
+                "color": "red",
+                "value": 3600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 403,
+      "title": "机器源是否保持低延迟",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "注册表、状态页等机器源的入库 p95。它们应该是最快、最稳定的一组；变慢优先查 adapter 或调度。",
+      "targets": [
+        {
+          "expr": "max(pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_index\",quantile=\"0.95\",source_class=~\"registry|status\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 900
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 404,
+      "title": "高优先级信号多久发出去",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "T0/T1 源从上游发布时间到 pushed_at 的 p95。若入库快但这里慢，问题在处理/发布链路。",
+      "targets": [
+        {
+          "expr": "max(pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_push\",quantile=\"0.95\",source_tier=~\"T0|T1\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1800
+              },
+              {
+                "color": "red",
+                "value": 3600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 405,
+      "title": "哪类源最晚被我们看到",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 source_class/source_tier 看 source→index p95。先定位慢的是 official、social、registry、filing 还是 secondary。",
+      "targets": [
+        {
+          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_index\",quantile=\"0.95\"}",
+          "refId": "A",
+          "legendFormat": "{{source_class}}/{{source_tier}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 406,
+      "title": "哪类源最晚发给下游",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 source_class/source_tier 看 source→push p95。用于区分抓取慢和处理/推送慢。",
+      "targets": [
+        {
+          "expr": "pgc_signal_latency_seconds{job=\"pgc-pipeline\",stage=\"source_to_push\",quantile=\"0.95\"}",
+          "refId": "A",
+          "legendFormat": "{{source_class}}/{{source_tier}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 407,
+      "title": "哪些类别正在破 SLA",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "按 stage/source_class/source_tier 列出 24h 破线。先处理 T0/T1，再处理数量最大的类别。",
+      "targets": [
+        {
+          "expr": "sort_desc(pgc_signal_latency_sla_breaches_24h{job=\"pgc-pipeline\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 100,
+      "title": "信源是否可靠 / Source Reliability",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "collapsed": false,
+      "description": "回答供应层健康：关键源、canary、blocked、quiet 是否正在影响信号覆盖。"
+    },
+    {
+      "id": 101,
+      "title": "Canary 有没有失败",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "每日 source-health canary 失败数。非 0 代表必达信号存在风险。",
       "targets": [
         {
           "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
@@ -568,19 +988,19 @@
     },
     {
       "id": 102,
-      "title": "关键源需处理",
+      "title": "关键源是否需要处理",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 35
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "critical source 出现 blocked、fail、配置错误或 7 天无索引。",
+      "description": "critical source attention 数。非 0 时优先处理，因为它们直接影响产品承诺。",
       "targets": [
         {
           "expr": "pgc_source_health_critical_attention{job=\"pgc-pipeline\"}",
@@ -627,19 +1047,19 @@
     },
     {
       "id": 103,
-      "title": "健康报告新鲜度",
+      "title": "健康报告刚刚跑过吗",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 35
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "最新 source-health JSON 距现在的时间；超过 26 小时说明 daily webhook/report 可能断了。",
+      "description": "source-health 报告距现在多久。过旧说明每日 webhook/报告链路可能断了。",
       "targets": [
         {
           "expr": "pgc_source_health_report_age_seconds{job=\"pgc-pipeline\"}",
@@ -700,19 +1120,19 @@
     },
     {
       "id": 104,
-      "title": "活跃源覆盖率",
+      "title": "活跃源覆盖率够不够",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 35
+        "y": 56
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "active / configured；低于预期说明 disabled 或配置治理压力增加。",
+      "description": "active/configured 比例。下降说明源池在变脆，可能有批量 block、失效或配置问题。",
       "targets": [
         {
           "expr": "100 * pgc_source_health_active_sources{job=\"pgc-pipeline\"} / pgc_source_health_configured_sources{job=\"pgc-pipeline\"}",
@@ -763,19 +1183,19 @@
     },
     {
       "id": 105,
-      "title": "Source Health 趋势",
+      "title": "源健康是在变好还是变差",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 39
+        "y": 60
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "每天 source-health 报告生成后会留下趋势；用于看治理是否变好，而不是只看瞬时值。",
+      "description": "看 blocked、failing、quiet、critical attention 趋势，判断是单源事故还是系统性退化。",
       "targets": [
         {
           "expr": "pgc_source_health_blocked_sources{job=\"pgc-pipeline\"}",
@@ -833,13 +1253,13 @@
     },
     {
       "id": 106,
-      "title": "Canary 明细",
+      "title": "哪些 Canary 失败",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 39
+        "y": 60
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -881,19 +1301,19 @@
     },
     {
       "id": 107,
-      "title": "当前 blocked sources",
+      "title": "哪些源被 block",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "当前被自动 block 的源及原因，帮助把 Reddit 429、HTTP 404、5xx、timeout 分开处理。",
+      "description": "当前被自动 block 的源列表。先看 T0/T1 和 high-value sources，再处理长尾。",
       "targets": [
         {
           "expr": "pgc_feed_blocked{job=\"pgc-pipeline\"}",
@@ -929,19 +1349,19 @@
     },
     {
       "id": 108,
-      "title": "即将被 block 的来源",
+      "title": "哪些源快被 block",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 68
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "连续失败 >=3 且尚未 block 的源，是当天应该先看的早期风险。",
+      "description": "连续失败但尚未 block 的源。这里是提前修复窗口。",
       "targets": [
         {
           "expr": "topk(50, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
@@ -977,31 +1397,32 @@
     },
     {
       "id": 1,
-      "title": "内容交付 / Delivery",
+      "title": "内容有没有送达 / Delivery",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 76
       },
-      "collapsed": false
+      "collapsed": false,
+      "description": "回答供给是否真的发出：发布量、队列、NewsAPI 预算和异常来源。"
     },
     {
       "id": 2,
-      "title": "近1小时发布",
+      "title": "近 1 小时发出多少",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 56
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "最近一小时成功推送到 EigenFlux 的内容量。",
+      "description": "最近 1 小时 published 数。突然为 0 时先查队列和 publisher。",
       "targets": [
         {
           "expr": "sum(increase(pgc_published_total{job=\"pgc-pipeline\"}[1h]))",
@@ -1044,19 +1465,19 @@
     },
     {
       "id": 3,
-      "title": "待处理队列",
+      "title": "队列是否积压",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 56
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "仍在管线中的内容量，过高说明消费端积压。",
+      "description": "待处理队列大小。持续上升说明 extractor/processor/publisher 某一段跟不上。",
       "targets": [
         {
           "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"} + pgc_queue_extracting{job=\"pgc-pipeline\"} + pgc_queue_extracted{job=\"pgc-pipeline\"} + pgc_queue_processing{job=\"pgc-pipeline\"} + pgc_queue_done{job=\"pgc-pipeline\"}",
@@ -1107,19 +1528,19 @@
     },
     {
       "id": 4,
-      "title": "当前阻塞源",
+      "title": "当前有多少阻塞源",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 56
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "当前被自动阻塞的 feed/source 数。",
+      "description": "当前 blocked source 总数。突然上升通常是上游限流、网络、反爬或源失效。",
       "targets": [
         {
           "expr": "pgc_feed_blocked_count{job=\"pgc-pipeline\"}",
@@ -1170,19 +1591,19 @@
     },
     {
       "id": 5,
-      "title": "NewsAPI 用量",
+      "title": "NewsAPI 预算是否安全",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 3,
         "x": 18,
-        "y": 56
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "NewsAPI.ai 月度 token 使用百分比。",
+      "description": "本月 NewsAPI token 使用情况。接近预算时会影响补源和 catch-up。",
       "targets": [
         {
           "expr": "pgc_newsapi_tokens_pct{job=\"pgc-pipeline\"}",
@@ -1233,19 +1654,19 @@
     },
     {
       "id": 307,
-      "title": "NewsAPI Key 异常",
+      "title": "NewsAPI key 是否异常",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 3,
         "x": 21,
-        "y": 56
+        "y": 77
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "NewsAPI.ai primary/backup account 池里 /usage 不可读的 key 数；0 表示 backup 池健康。",
+      "description": "主 key 或 backup key 的 /usage 检查失败数。非 0 时先查密钥/网络/账户状态。",
       "targets": [
         {
           "expr": "pgc_newsapi_keys_usage_failed{job=\"pgc-pipeline\"}",
@@ -1292,19 +1713,19 @@
     },
     {
       "id": 6,
-      "title": "发布趋势 (每小时)",
+      "title": "发布量是否稳定",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 81
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "像 User Growth 的每日新增趋势一样，先看交付节奏是否平稳。",
+      "description": "每小时发布趋势。用于发现供给断流、突增或异常降噪。",
       "targets": [
         {
           "expr": "sum(rate(pgc_published_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
@@ -1340,19 +1761,19 @@
     },
     {
       "id": 7,
-      "title": "队列分布",
+      "title": "队列卡在哪个状态",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 81
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按阶段展示 backlog，帮助判断卡在抓取、抽取、处理还是发布。",
+      "description": "按状态查看队列分布。fetched/extracted/processed 卡住分别对应不同 worker。",
       "targets": [
         {
           "expr": "pgc_queue_fetched{job=\"pgc-pipeline\"}",
@@ -1408,19 +1829,19 @@
     },
     {
       "id": 8,
-      "title": "24小时内容状态",
+      "title": "24h 内容状态分布",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "最近 24 小时 indexed / processed / pushed 等状态分布。",
+      "description": "过去 24 小时 indexed/published/discarded/error 分布，用来判断质量和吞吐是否异常。",
       "targets": [
         {
           "expr": "pgc_items_24h{job=\"pgc-pipeline\"}",
@@ -1456,19 +1877,19 @@
     },
     {
       "id": 9,
-      "title": "来源发布榜 (7天)",
+      "title": "哪些来源贡献最多",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 68
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "7 天发布量最高的来源，优先确认关键来源是否仍有产出。",
+      "description": "7 天发布榜。用于看供给是否过度依赖少数源。",
       "targets": [
         {
           "expr": "topk(30, pgc_source_published_7d{job=\"pgc-pipeline\"})",
@@ -1504,19 +1925,19 @@
     },
     {
       "id": 10,
-      "title": "异常来源榜",
+      "title": "哪些来源正在异常",
       "type": "table",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 68
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "连续失败次数最高的来源，适合直接定位需要人工处理的 feed。",
+      "description": "异常来源榜。无数据是理想状态；有数据时先处理高价值源。",
       "targets": [
         {
           "expr": "topk(30, pgc_feed_consecutive_fails{job=\"pgc-pipeline\"})",
@@ -1552,31 +1973,32 @@
     },
     {
       "id": 11,
-      "title": "来源健康 / Source Health",
+      "title": "生产链路是否健康 / Pipeline Health",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 97
       },
-      "collapsed": false
+      "collapsed": false,
+      "description": "回答 worker、LLM、FD、来源转化率是否影响内容生产。"
     },
     {
       "id": 12,
-      "title": "失败源 >=3 次",
+      "title": "哪些源连续失败",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 77
+        "y": 98
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "连续失败达到 3 次以上的 feed 数。",
+      "description": "连续失败 >=3 的源数。它们还没全部 block，但已经需要关注。",
       "targets": [
         {
           "expr": "count(pgc_feed_consecutive_fails{job=\"pgc-pipeline\"} >= 3) or vector(0)",
@@ -1627,19 +2049,19 @@
     },
     {
       "id": 13,
-      "title": "Worker 最久未运行",
+      "title": "Worker 是否卡住",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 77
+        "y": 98
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "任一 worker 最近一次上报距现在的秒数。",
+      "description": "最久未运行的 worker 心跳年龄。变大说明某个后台 worker 可能停了。",
       "targets": [
         {
           "expr": "max(pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"})",
@@ -1690,19 +2112,19 @@
     },
     {
       "id": 14,
-      "title": "LLM 失败 (1小时)",
+      "title": "LLM 是否在报错",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 77
+        "y": 98
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "最近一小时 LLM error_* 调用数。",
+      "description": "近 1 小时 LLM 失败数。升高会直接影响摘要、分类和发布质量。",
       "targets": [
         {
           "expr": "sum(increase(pgc_llm_calls_total{job=\"pgc-pipeline\",status=~\"error_.*\"}[1h]))",
@@ -1753,19 +2175,19 @@
     },
     {
       "id": 15,
-      "title": "FD 压力最高",
+      "title": "FD 是否有压力",
       "type": "stat",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 77
+        "y": 98
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "worker 文件描述符使用率最高值。",
+      "description": "文件描述符压力最高值。升高可能预示 socket/session 泄漏。",
       "targets": [
         {
           "expr": "max(pgc_worker_fd_pct{job=\"pgc-pipeline\"}) * 100",
@@ -1816,19 +2238,19 @@
     },
     {
       "id": 16,
-      "title": "来源转化率 (发布 / 全状态)",
+      "title": "来源转化是否健康",
       "type": "table",
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 81
+        "y": 102
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按来源看发布转化率，帮助发现抓到了但没有推送的源。",
+      "description": "按来源看发布/全状态转化率。低转化可能是抽取失败、LLM 丢弃或源噪声。",
       "targets": [
         {
           "expr": "topk(30, pgc_source_status_count{job=\"pgc-pipeline\",status=\"published\"} / on(source) group_left() sum by (source)(pgc_source_status_count{job=\"pgc-pipeline\"}))",
@@ -1864,19 +2286,19 @@
     },
     {
       "id": 17,
-      "title": "高热来源 (7天)",
+      "title": "哪些来源最热",
       "type": "table",
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 81
+        "y": 102
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "7 天平均 heat 最高的来源，便于判断高价值内容覆盖。",
+      "description": "7 天高热来源。用于识别供给集中度和异常爆量。",
       "targets": [
         {
           "expr": "topk(30, pgc_source_avg_heat_7d{job=\"pgc-pipeline\"})",
@@ -1912,31 +2334,32 @@
     },
     {
       "id": 18,
-      "title": "质量与成本 / Quality & Cost",
+      "title": "质量和成本是否失控 / Quality & Cost",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 112
       },
-      "collapsed": false
+      "collapsed": false,
+      "description": "回答 LLM、token、gate、端到端延迟是否正在拖慢或放大成本。"
     },
     {
       "id": 19,
-      "title": "LLM 调用结果 (每小时)",
+      "title": "LLM 调用是否稳定",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 92
+        "y": 113
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按 status 看 LLM 调用是否出现异常尖峰。",
+      "description": "按小时看 LLM 调用结果。失败、超时或异常状态升高时查 provider 与 prompt 输入。",
       "targets": [
         {
           "expr": "sum by (status) (rate(pgc_llm_calls_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
@@ -1972,19 +2395,19 @@
     },
     {
       "id": 20,
-      "title": "LLM 延迟 p95",
+      "title": "LLM p95 是否变慢",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 92
+        "y": 113
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "各模型 p95 调用耗时。",
+      "description": "LLM 延迟 p95。升高会拖慢处理链路和最终推送。",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(pgc_llm_call_duration_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le, model))",
@@ -2020,19 +2443,19 @@
     },
     {
       "id": 21,
-      "title": "Token 消耗 (每小时)",
+      "title": "Token 成本是否异常",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 92
+        "y": 113
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "Prompt / completion token 每小时消耗速度。",
+      "description": "每小时 token 消耗。突增说明输入变长、源噪声增大或调用量异常。",
       "targets": [
         {
           "expr": "sum(rate(pgc_llm_prompt_tokens_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
@@ -2073,19 +2496,19 @@
     },
     {
       "id": 22,
-      "title": "Signal Gate",
+      "title": "Signal Gate 是否过严",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 100
+        "y": 121
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "质量门控丢弃率和 verdict 分布。",
+      "description": "看 keep/drop 趋势。drop 异常升高可能让好信号被拦掉。",
       "targets": [
         {
           "expr": "pgc_signal_gate_drop_rate{job=\"pgc-pipeline\"} * 100",
@@ -2126,19 +2549,19 @@
     },
     {
       "id": 23,
-      "title": "端到端发布延迟 p95",
+      "title": "端到端发布是否超时",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 100
+        "y": 121
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "从 indexed 到 pushed 的端到端延迟 p95。",
+      "description": "从入库到发布的 p95。若低时延 section 正常但这里异常，问题多半在 PGC 内部。",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(pgc_pipeline_latency_seconds_bucket{job=\"pgc-pipeline\"}[$__rate_interval])) by (le))",
@@ -2174,31 +2597,32 @@
     },
     {
       "id": 24,
-      "title": "工程诊断 / Diagnostics",
+      "title": "工程诊断 / Deep Dive",
       "type": "row",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 108
+        "y": 129
       },
-      "collapsed": false
+      "collapsed": false,
+      "description": "最后一层：当上面面板指出问题后，用 worker、阶段耗时、错误和日志定位。"
     },
     {
       "id": 25,
-      "title": "Worker 心跳",
+      "title": "Worker 心跳明细",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 109
+        "y": 130
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "每个 worker 的 heartbeat age。",
+      "description": "各 worker 最近心跳。用于定位哪一个进程停了或卡住。",
       "targets": [
         {
           "expr": "pgc_worker_last_run_age_seconds{job=\"pgc-pipeline\"}",
@@ -2234,19 +2658,19 @@
     },
     {
       "id": 26,
-      "title": "阶段耗时",
+      "title": "各阶段耗时",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 109
+        "y": 130
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "extract / process / publish 最近 6 小时平均耗时。",
+      "description": "extract/process/publish 阶段平均耗时。用于确认瓶颈段。",
       "targets": [
         {
           "expr": "pgc_stage_latency_seconds{job=\"pgc-pipeline\"}",
@@ -2282,19 +2706,19 @@
     },
     {
       "id": 27,
-      "title": "错误压力 (每小时)",
+      "title": "错误压力是否升高",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 109
+        "y": 130
       },
       "datasource": {
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "抽取、LLM、发布失败的每小时速度。",
+      "description": "按小时错误压力。用于发现批量上游失败、抽取失败或发布失败。",
       "targets": [
         {
           "expr": "sum(rate(pgc_error_extract_total{job=\"pgc-pipeline\"}[$__rate_interval])) * 3600",
@@ -2340,19 +2764,19 @@
     },
     {
       "id": 28,
-      "title": "PGC Pipeline 日志",
+      "title": "Pipeline 日志",
       "type": "logs",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 117
+        "y": 138
       },
       "datasource": {
         "uid": "loki",
         "type": "loki"
       },
-      "description": "PGC pipeline 最近日志，用于从图表异常快速跳到原始事件。",
+      "description": "PGC pipeline Loki 日志。只在上方面板定位到问题后下钻查看。",
       "targets": [
         {
           "expr": "{service=\"pgc-pipeline\"}",
@@ -2375,21 +2799,22 @@
     {
       "id": 300,
       "type": "row",
-      "title": "信号链路时间线 / Event Timeline",
+      "title": "每条信号卡在哪一跳 / Event Timeline",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 42
       },
-      "panels": []
+      "panels": [],
+      "description": "回答复盘问题：抓取、抽取、处理、发布、错误分别发生在什么时候。"
     },
     {
       "id": 301,
       "type": "stat",
-      "title": "链路事件最新年龄",
-      "description": "最新 item_timeline 事件距现在多久。超过 15 分钟说明链路事实表可能断写，需要先查 crawler/worker。",
+      "title": "链路事实还在写入吗",
+      "description": "最新 item_timeline 事件距现在多久。超过 15 分钟说明事实表可能断写，先查 crawler/worker。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2398,7 +2823,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -2451,8 +2876,8 @@
     {
       "id": 302,
       "type": "stat",
-      "title": "24h 时间线事件",
-      "description": "过去 24 小时记录的不可变链路事件总数，用来确认 crawl/extract/process/publish 都在持续留下证据。",
+      "title": "24h 写了多少链路事件",
+      "description": "过去 24 小时 item_timeline 事件数。突然归零说明复盘证据链断了。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2461,7 +2886,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -2506,8 +2931,8 @@
     {
       "id": 303,
       "type": "stat",
-      "title": "24h 覆盖 items",
-      "description": "过去 24 小时至少有一条时间线事件的 item 数。这个数接近 indexed item 量时，说明证据覆盖正常。",
+      "title": "24h 有多少内容可复盘",
+      "description": "过去 24 小时至少有一条时间线事件的 item 数。它应接近 indexed item 量。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2516,7 +2941,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -2561,8 +2986,8 @@
     {
       "id": 304,
       "type": "stat",
-      "title": "24h pushed 事件",
-      "description": "过去 24 小时进入发布阶段并写入 pushed 事件的数量。若 indexed 增长但 pushed 长时间不动，优先查 processor/publisher。",
+      "title": "24h 有多少推送证据",
+      "description": "过去 24 小时 pushed 阶段事件数。indexed 增长但 pushed 不动时，优先查 processor/publisher。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2571,7 +2996,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -2616,8 +3041,8 @@
     {
       "id": 305,
       "type": "timeseries",
-      "title": "时间线写入趋势",
-      "description": "观察 timeline events/items 是否持续增长；突然归零表示事实表或 source-health report 断流。",
+      "title": "链路证据是否稳定增长",
+      "description": "看 timeline events/items 是否持续写入。断崖式下跌说明事实表或报告链路断流。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2626,7 +3051,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 47
       },
       "fieldConfig": {
         "defaults": {
@@ -2672,8 +3097,8 @@
     {
       "id": 306,
       "type": "table",
-      "title": "阶段事件分布",
-      "description": "按 stage 查看 24h 时间线事件。用于定位哪一跳断写：indexed、extracted、processed、pushed 或 error_*。",
+      "title": "慢/断在哪个阶段",
+      "description": "按 stage 查看 24h 时间线事件。用于定位 indexed、extracted、processed、pushed 或 error_*。",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -2682,7 +3107,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 47
       },
       "fieldConfig": {
         "defaults": {
