@@ -10,6 +10,7 @@ Revision: 2026-06-18, SLA breach panels switched to actionable latency breaches 
 Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actionable breaches so operators can distinguish current incidents from 24h residual debt.
 Revision: 2026-06-18, latency breach-kind panel added so operators can tell true source latency from recovery backfill, date-only timestamps, and non-signal statuses.
 Revision: 2026-06-18, source reliability panels now expose `pgc_source_health_sla_attention` so registry-defined per-source SLA failures are visible beside canary and critical-source failures.
+Revision: 2026-06-18, source reliability now includes a per-source SLA offender table backed by `pgc_source_health_sla_attention_source`.
 
 ## Problem
 
@@ -106,6 +107,7 @@ only generic crawler/source-health charts.
    - 健康报告刚刚跑过吗
    - 活跃源覆盖率够不够
    - 源健康是在变好还是变差
+   - 哪些源违反 SLA
    - 哪些 Canary 失败
    - 哪些源被 block
    - 哪些源快被 block
@@ -171,6 +173,10 @@ only generic crawler/source-health charts.
   trend panel includes the same series, so registry-defined poll-gap, quiet, and
   blocked-source SLA failures are visible in both current-state and historical
   views.
+- The source SLA drilldown table queries
+  `pgc_source_health_sla_attention_source{job="pgc-pipeline"}` and is allowed
+  to be empty in the healthy state; when non-empty it must expose source name,
+  category, source type/class/tier, stable reason, and critical label.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

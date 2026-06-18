@@ -36,6 +36,7 @@ NATURALLY_EMPTY_PANEL_IDS = {
     407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
     409,  # SLA 破线原因: no rows is ideal when there is no latency debt.
     410,  # 活跃拖慢信源: no rows is ideal when no source is currently breaching.
+    412,  # 违反 source SLA 的源: no rows is the ideal source-health steady state.
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
@@ -53,6 +54,10 @@ ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
 
 SOURCE_HEALTH_SLA_PANEL_IDS = {
     411,  # 信源 SLA 是否破线
+}
+
+SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS = {
+    412,  # 哪些源违反 SLA
 }
 
 
@@ -123,6 +128,15 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_source_health_sla_attention" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use source health SLA attention metric")
+
+    for panel_id in SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing source health SLA drilldown panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_source_health_sla_attention_source" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use source health SLA per-source metric")
 
     prometheus_targets = 0
     loki_targets = 0

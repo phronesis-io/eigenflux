@@ -1344,7 +1344,7 @@
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 76
       },
@@ -1414,13 +1414,61 @@
       }
     },
     {
+      "id": 412,
+      "title": "哪些源违反 SLA",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 76
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "source_registry SLA 当前破线的源。空表是健康态；非空时优先看 critical=true、T0/T1 和 reason。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_sla_attention_source{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 106,
       "title": "哪些 Canary 失败",
       "type": "table",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 76
       },
       "datasource": {
