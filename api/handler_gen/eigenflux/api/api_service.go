@@ -43,11 +43,13 @@ import (
 	profiledal "eigenflux_server/rpc/profile/dal"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/kitex/client/callopt"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 )
 
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
+const searchServicesRPCTimeout = 90 * time.Second
 
 func writeJSON(c *app.RequestContext, status int, code int32, msg string, data map[string]interface{}) {
 	resp := map[string]interface{}{
@@ -3116,7 +3118,7 @@ func SearchTradingServices(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	resp, err := clients.SortClient.SearchServices(ctx, rpcReq)
+	resp, err := clients.SortClient.SearchServices(ctx, rpcReq, callopt.WithRPCTimeout(searchServicesRPCTimeout))
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
