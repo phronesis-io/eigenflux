@@ -516,7 +516,7 @@
     },
     {
       "id": 401,
-      "title": "高优先级信号有没有超时",
+      "title": "现在高优先级信号还在超时吗",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -528,10 +528,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "过去 24 小时 T0/T1 源的可行动入库/推送 SLA 破线数。已排除 date-only RSS 精度限制、discarded/dedup/error_extract 等非信号噪声；非 0 时需要优先复盘。",
+      "description": "最近 3 小时 T0/T1 源的可行动入库/推送 SLA 破线数。用于判断当前是否还在新增低时延事故；24h 历史债务保留在复盘指标中。",
       "targets": [
         {
-          "expr": "sum(pgc_signal_latency_actionable_breaches_24h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0)",
+          "expr": "sum(pgc_signal_latency_actionable_breaches_3h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0)",
           "refId": "A"
         }
       ],
@@ -882,10 +882,10 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "按 stage/source_class/source_tier 列出 24h 可行动破线。先处理 T0/T1，再处理数量最大的类别；raw breach 噪声保留在底层指标中。",
+      "description": "按 stage/source_class/source_tier 列出最近 3 小时仍在新增的可行动破线。这里非空代表当前还需要处理；24h 残留用于事后复盘。",
       "targets": [
         {
-          "expr": "sort_desc(pgc_signal_latency_actionable_breaches_24h{job=\"pgc-pipeline\"})",
+          "expr": "sort_desc(pgc_signal_latency_actionable_breaches_3h{job=\"pgc-pipeline\"})",
           "refId": "A",
           "format": "table",
           "instant": true,

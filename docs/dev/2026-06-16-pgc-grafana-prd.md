@@ -7,6 +7,7 @@ Design reference: `configs/grafana/dashboards/user-growth.json`
 Revision: 2026-06-17, first-source audit metrics added to the first screen.
 Revision: 2026-06-18, low-latency signal-network SLI panels added between first-source audit and event timeline; panel titles rewritten as user/operator questions.
 Revision: 2026-06-18, SLA breach panels switched to actionable latency breaches so operators see real low-latency failures before raw timestamp/noise diagnostics.
+Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actionable breaches so operators can distinguish current incidents from 24h residual debt.
 
 ## Problem
 
@@ -35,8 +36,8 @@ only generic crawler/source-health charts.
   discoveries visible immediately.
 - Make world-to-PGC and world-to-push latency visible by source class and tier,
   so delayed signals are investigated before users discover them.
-- Put actionable latency failures in the first visible SLA panels, while keeping
-  raw breach counters available as diagnostic evidence.
+- Put active actionable latency failures in the first visible SLA panels, while
+  keeping 24h and raw breach counters available as review/diagnostic evidence.
 - Separate delivery, source health, quality/cost, diagnostics, and logs.
 - Prefer rates, rolling windows, and ratios over raw lifetime totals when the
   question is operational.
@@ -76,7 +77,7 @@ only generic crawler/source-health charts.
    - 一手源库覆盖够不够
 
 2. 信号够不够快 / Signal Latency
-   - 高优先级信号有没有可行动超时
+   - 现在高优先级信号还在超时吗
    - 官方源多久进入 PGC
    - 机器源是否保持低延迟
    - 高优先级信号多久发出去
@@ -145,8 +146,9 @@ only generic crawler/source-health charts.
   non-empty frames in production.
 - Low-latency panels query `pgc_signal_latency_*` metrics and return production
   data where appropriate; first-screen SLA breach panels use
-  `pgc_signal_latency_actionable_breaches_24h`, and the SLA breach table is
-  allowed to be empty when no class/tier has actionable breaches.
+  `pgc_signal_latency_actionable_breaches_3h`, while 24h actionable/raw breach
+  metrics remain available for review. The active SLA breach table is allowed
+  to be empty when no class/tier has current actionable breaches.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

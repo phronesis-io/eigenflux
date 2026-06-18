@@ -36,7 +36,7 @@ NATURALLY_EMPTY_PANEL_IDS = {
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
-    401,  # 高优先级信号有没有超时
+    401,  # 现在高优先级信号还在超时吗
     407,  # 哪些类别需要马上处理
 }
 
@@ -75,8 +75,8 @@ def static_validate(dashboard: dict) -> list[str]:
             errors.append(f"missing actionable latency panel: {panel_id}")
             continue
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
-        if not any("pgc_signal_latency_actionable_breaches_24h" in expr for expr in exprs):
-            errors.append(f"panel {panel_id} must use actionable latency breaches")
+        if not any("pgc_signal_latency_actionable_breaches_3h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use active actionable latency breaches")
 
     prometheus_targets = 0
     loki_targets = 0
