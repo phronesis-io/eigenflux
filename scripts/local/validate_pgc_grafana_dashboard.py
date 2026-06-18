@@ -13,6 +13,7 @@ import json
 import shlex
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -48,6 +49,10 @@ BREACH_KIND_PANEL_IDS = {
 
 ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
     410,  # 当前哪些信源正在拖慢
+}
+
+SOURCE_HEALTH_SLA_PANEL_IDS = {
+    411,  # 信源 SLA 是否破线
 }
 
 
@@ -110,6 +115,15 @@ def static_validate(dashboard: dict) -> list[str]:
                 f"panel {panel_id} must focus on actionable source_latency/source_feed_lag rows"
             )
 
+    for panel_id in SOURCE_HEALTH_SLA_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing source health SLA panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_source_health_sla_attention" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use source health SLA attention metric")
+
     prometheus_targets = 0
     loki_targets = 0
     for panel in dashboard.get("panels", []):
@@ -168,6 +182,8 @@ def prometheus_validate(
     rate_window: str,
     allow_empty: bool,
     panel_ids: set[int] | None,
+    empty_retries: int,
+    empty_retry_delay: float,
 ) -> list[str]:
     errors: list[str] = []
     checked = 0
@@ -178,15 +194,27 @@ def prometheus_validate(
             continue
         checked += 1
         prom_expr = expr.replace("$__rate_interval", rate_window)
-        try:
-            payload = query_prometheus(prom_expr, prometheus_url, ssh_host)
-        except Exception as exc:
-            errors.append(f"{panel.get('id')} {panel.get('title')}: query failed: {exc}")
+        payload = None
+        result = []
+        query_error = False
+        for attempt in range(empty_retries + 1):
+            try:
+                payload = query_prometheus(prom_expr, prometheus_url, ssh_host)
+            except Exception as exc:
+                errors.append(f"{panel.get('id')} {panel.get('title')}: query failed: {exc}")
+                query_error = True
+                break
+            if payload.get("status") != "success":
+                errors.append(f"{panel.get('id')} {panel.get('title')}: {payload}")
+                query_error = True
+                break
+            result = payload.get("data", {}).get("result", [])
+            if result or allow_empty or panel.get("id") in NATURALLY_EMPTY_PANEL_IDS:
+                break
+            if attempt < empty_retries:
+                time.sleep(empty_retry_delay)
+        if query_error:
             continue
-        if payload.get("status") != "success":
-            errors.append(f"{panel.get('id')} {panel.get('title')}: {payload}")
-            continue
-        result = payload.get("data", {}).get("result", [])
         if not result and not allow_empty and panel.get("id") not in NATURALLY_EMPTY_PANEL_IDS:
             errors.append(f"{panel.get('id')} {panel.get('title')}: empty result for {prom_expr}")
     if checked == 0:
@@ -205,6 +233,8 @@ def main() -> int:
     parser.add_argument("--ssh-host")
     parser.add_argument("--rate-window", default="5m")
     parser.add_argument("--allow-empty", action="store_true")
+    parser.add_argument("--empty-retries", default=2, type=int)
+    parser.add_argument("--empty-retry-delay", default=2.0, type=float)
     parser.add_argument(
         "--panel-id",
         action="append",
@@ -226,6 +256,8 @@ def main() -> int:
                 args.rate_window,
                 args.allow_empty,
                 panel_ids,
+                args.empty_retries,
+                args.empty_retry_delay,
             )
         )
 

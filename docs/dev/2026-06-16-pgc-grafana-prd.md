@@ -9,6 +9,7 @@ Revision: 2026-06-18, low-latency signal-network SLI panels added between first-
 Revision: 2026-06-18, SLA breach panels switched to actionable latency breaches so operators see real low-latency failures before raw timestamp/noise diagnostics.
 Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actionable breaches so operators can distinguish current incidents from 24h residual debt.
 Revision: 2026-06-18, latency breach-kind panel added so operators can tell true source latency from recovery backfill, date-only timestamps, and non-signal statuses.
+Revision: 2026-06-18, source reliability panels now expose `pgc_source_health_sla_attention` so registry-defined per-source SLA failures are visible beside canary and critical-source failures.
 
 ## Problem
 
@@ -37,6 +38,8 @@ only generic crawler/source-health charts.
   discoveries visible immediately.
 - Make world-to-PGC and world-to-push latency visible by source class and tier,
   so delayed signals are investigated before users discover them.
+- Make source-specific registry SLA failures visible as a first-class operator
+  signal, not only as JSON/webhook detail.
 - Put active actionable latency failures in the first visible SLA panels, while
   keeping 24h and raw breach counters available as review/diagnostic evidence.
 - Separate delivery, source health, quality/cost, diagnostics, and logs.
@@ -99,6 +102,7 @@ only generic crawler/source-health charts.
 4. 信源是否可靠 / Source Reliability
    - Canary 有没有失败
    - 关键源是否需要处理
+   - 信源 SLA 是否破线
    - 健康报告刚刚跑过吗
    - 活跃源覆盖率够不够
    - 源健康是在变好还是变差
@@ -162,6 +166,11 @@ only generic crawler/source-health charts.
   label distinguishes PGC/processing/polling latency from upstream RSS feed lag;
   non-actionable active reasons remain visible in the adjacent breach-kind
   panel.
+- Source reliability includes a stat panel for
+  `pgc_source_health_sla_attention{job="pgc-pipeline"}` and the source-health
+  trend panel includes the same series, so registry-defined poll-gap, quiet, and
+  blocked-source SLA failures are visible in both current-state and historical
+  views.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and

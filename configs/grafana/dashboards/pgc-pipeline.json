@@ -1031,7 +1031,7 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 72
       },
@@ -1090,8 +1090,8 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 5,
         "y": 72
       },
       "datasource": {
@@ -1144,13 +1144,72 @@
       }
     },
     {
+      "id": 411,
+      "title": "信源 SLA 是否破线",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 72
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "source_registry 定义的每源 SLA 破线数。非 0 代表某些源已经违反 poll gap、quiet 或 blocked 承诺。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_sla_attention{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 103,
       "title": "健康报告刚刚跑过吗",
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 15,
         "y": 72
       },
       "datasource": {
@@ -1222,8 +1281,8 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 20,
         "y": 72
       },
       "datasource": {
@@ -1293,7 +1352,7 @@
         "uid": "pgc-prometheus",
         "type": "prometheus"
       },
-      "description": "看 blocked、failing、quiet、critical attention 趋势，判断是单源事故还是系统性退化。",
+      "description": "看 blocked、failing、quiet、critical/source SLA attention 趋势，判断是单源事故还是系统性退化。",
       "targets": [
         {
           "expr": "pgc_source_health_blocked_sources{job=\"pgc-pipeline\"}",
@@ -1319,6 +1378,11 @@
           "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
           "refId": "E",
           "legendFormat": "canary failed"
+        },
+        {
+          "expr": "pgc_source_health_sla_attention{job=\"pgc-pipeline\"}",
+          "refId": "F",
+          "legendFormat": "source SLA attention"
         }
       ],
       "options": {
