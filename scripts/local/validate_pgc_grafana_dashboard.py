@@ -20,6 +20,7 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
+    "总览 / Owner Cockpit",
     "一手有没有漏 / First-Source Coverage",
     "信号够不够快 / Signal Latency",
     "每条信号卡在哪一跳 / Event Timeline",
@@ -37,9 +38,11 @@ NATURALLY_EMPTY_PANEL_IDS = {
     409,  # SLA 破线原因: no rows is ideal when there is no latency debt.
     410,  # 活跃拖慢信源: no rows is ideal when no source is currently breaching.
     412,  # 违反 source SLA 的源: no rows is the ideal source-health steady state.
+    908,  # 现在先处理哪些信源: no rows is ideal when no source is active-breaching.
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
+    903,  # 高优先级信号仍在超时吗
     401,  # 现在高优先级信号还在超时吗
     407,  # 哪些类别需要马上处理
 }
@@ -50,9 +53,11 @@ BREACH_KIND_PANEL_IDS = {
 
 ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
     410,  # 当前哪些信源正在拖慢
+    908,  # 现在先处理哪些信源
 }
 
 SOURCE_HEALTH_SLA_PANEL_IDS = {
+    905,  # Source SLA 是否破线
     411,  # 信源 SLA 是否破线
 }
 

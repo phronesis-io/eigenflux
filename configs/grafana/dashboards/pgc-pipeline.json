@@ -2,7 +2,7 @@
   "id": null,
   "uid": "pgc-pipeline",
   "title": "EigenFlux - PGC Pipeline",
-  "description": "Owner cockpit for PGC first-source reliability, low-latency signal SLIs, delivery, source health, quality, cost, diagnostics, and logs.",
+  "description": "Owner cockpit for PGC first-source reliability, low-latency signal SLIs, source health, delivery, budgets, quality, diagnostics, and logs. First screen summarizes whether the signal network is missing, slow, unhealthy, or close to external API budget limits.",
   "tags": [
     "ops",
     "pgc",
@@ -17,8 +17,8 @@
     "api-budget"
   ],
   "editable": true,
-  "graphTooltip": 1,
-  "timezone": "browser",
+  "graphTooltip": 0,
+  "timezone": "Asia/Shanghai",
   "refresh": "5m",
   "time": {
     "from": "now-30d",
@@ -29,6 +29,508 @@
   },
   "panels": [
     {
+      "id": 900,
+      "title": "总览 / Owner Cockpit",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": [],
+      "description": "第一屏只回答 owner 最关心的事：现在有没有漏、有没有慢、信源是否健康、外部预算是否安全。"
+    },
+    {
+      "id": 901,
+      "title": "现在需要立刻处理几件事",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "把 critical 一手缺口、canary 失败、关键源 attention、source SLA 破线、T0/T1 活跃时延破线合成一个 owner 级待办数。0 才是健康第一屏。",
+      "targets": [
+        {
+          "expr": "(sum(pgc_first_source_audit_critical{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_source_health_critical_attention{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_source_health_sla_attention{job=\"pgc-pipeline\"}) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 902,
+      "title": "一手复盘还有多少待处理",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "benchmark/二手媒体已经出现后，PGC 对一手证据的覆盖还需要复盘的条数。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 903,
+      "title": "高优先级信号仍在超时吗",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "最近 3 小时 T0/T1 源仍在新增的可行动时延破线。非 0 表示低时延承诺还在被打破。",
+      "targets": [
+        {
+          "expr": "sum(pgc_signal_latency_actionable_breaches_3h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 904,
+      "title": "Canary 是否全绿",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "必达源和必达 topic 的 canary 失败数。非 0 时优先查每日 source-health webhook。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 905,
+      "title": "Source SLA 是否破线",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "source_registry 定义的每源 SLA 破线数，用来发现 quiet、poll gap、blocked 等源层风险。",
+      "targets": [
+        {
+          "expr": "pgc_source_health_sla_attention{job=\"pgc-pipeline\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 906,
+      "title": "TwitterAPI 还能撑多久",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "X/Twitter 一手源依赖 twitterapi.io 轮询配额。低于 30 天要充值、降频或缩小 allowlist。",
+      "targets": [
+        {
+          "expr": "max(pgc_twitterapi_credits_days_to_empty{job=\"pgc-pipeline\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 907,
+      "title": "关键风险是在上升还是下降",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "把 owner 第一屏的关键风险按时间放在一起看：一手复盘、T0/T1 时延、source SLA、canary。",
+      "targets": [
+        {
+          "expr": "pgc_first_source_audit_attention{job=\"pgc-pipeline\"}",
+          "refId": "A",
+          "legendFormat": "一手待复盘"
+        },
+        {
+          "expr": "sum(pgc_signal_latency_actionable_breaches_3h{job=\"pgc-pipeline\",source_tier=~\"T0|T1\"}) or vector(0)",
+          "refId": "B",
+          "legendFormat": "T0/T1活跃超时"
+        },
+        {
+          "expr": "pgc_source_health_sla_attention{job=\"pgc-pipeline\"}",
+          "refId": "C",
+          "legendFormat": "Source SLA"
+        },
+        {
+          "expr": "pgc_source_health_canaries_failed{job=\"pgc-pipeline\"}",
+          "refId": "D",
+          "legendFormat": "Canary失败"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 908,
+      "title": "现在先处理哪些信源",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "pgc-prometheus",
+        "type": "prometheus"
+      },
+      "description": "最近 3 小时仍在拖慢低时延承诺的具体源。source_latency 查 PGC 轮询/处理；source_feed_lag 查上游 RSS 晚曝。空表是健康态。",
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (source, stage, source_class, source_tier, kind) (pgc_signal_latency_active_source_breaches_3h{job=\"pgc-pipeline\",kind=~\"source_latency|source_feed_lag\"}))",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 200,
       "title": "一手有没有漏 / First-Source Coverage",
       "type": "row",
@@ -36,7 +538,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 13
       },
       "collapsed": false,
       "panels": [],
@@ -50,7 +552,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 14
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -113,7 +615,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 14
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -172,7 +674,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 14
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -235,7 +737,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 14
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -290,7 +792,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 18
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -356,7 +858,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 18
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -404,7 +906,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -452,7 +954,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 26
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -508,7 +1010,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 34
       },
       "collapsed": false,
       "panels": [],
@@ -522,7 +1024,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -585,7 +1087,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -648,7 +1150,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -711,7 +1213,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 35
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -774,7 +1276,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 39
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -825,7 +1327,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 39
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -876,7 +1378,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 47
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -924,7 +1426,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 55
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -972,7 +1474,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 63
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1020,7 +1522,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 71
+        "y": 84
       },
       "collapsed": false,
       "description": "回答供应层健康：关键源、canary、blocked、quiet 是否正在影响信号覆盖。"
@@ -1033,7 +1535,7 @@
         "h": 4,
         "w": 5,
         "x": 0,
-        "y": 72
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1092,7 +1594,7 @@
         "h": 4,
         "w": 5,
         "x": 5,
-        "y": 72
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1151,7 +1653,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 72
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1210,7 +1712,7 @@
         "h": 4,
         "w": 5,
         "x": 15,
-        "y": 72
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1283,7 +1785,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 72
+        "y": 85
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1346,7 +1848,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 76
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1421,7 +1923,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 76
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1469,7 +1971,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 76
+        "y": 89
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1517,7 +2019,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 97
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1565,7 +2067,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 97
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1613,7 +2115,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 92
+        "y": 105
       },
       "collapsed": false,
       "description": "回答供给是否真的发出：发布量、队列、NewsAPI/TwitterAPI 预算和异常来源。"
@@ -1626,7 +2128,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1681,7 +2183,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1744,7 +2246,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1807,7 +2309,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1870,7 +2372,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1933,7 +2435,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 93
+        "y": 106
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -1992,7 +2494,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 97
+        "y": 110
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2040,7 +2542,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 97
+        "y": 110
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2108,7 +2610,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 105
+        "y": 118
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2156,7 +2658,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 105
+        "y": 118
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2204,7 +2706,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 105
+        "y": 118
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2252,7 +2754,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 113
+        "y": 126
       },
       "collapsed": false,
       "description": "回答 worker、LLM、FD、来源转化率是否影响内容生产。"
@@ -2265,7 +2767,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 114
+        "y": 127
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2328,7 +2830,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 114
+        "y": 127
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2391,7 +2893,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 114
+        "y": 127
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2454,7 +2956,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 114
+        "y": 127
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2517,7 +3019,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 118
+        "y": 131
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2565,7 +3067,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 118
+        "y": 131
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2613,7 +3115,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 128
+        "y": 141
       },
       "collapsed": false,
       "description": "回答 LLM、token、gate、端到端延迟是否正在拖慢或放大成本。"
@@ -2626,7 +3128,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 129
+        "y": 142
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2674,7 +3176,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 129
+        "y": 142
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2722,7 +3224,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 129
+        "y": 142
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2775,7 +3277,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 137
+        "y": 150
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2828,7 +3330,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 137
+        "y": 150
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2876,7 +3378,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 145
+        "y": 158
       },
       "collapsed": false,
       "description": "最后一层：当上面面板指出问题后，用 worker、阶段耗时、错误和日志定位。"
@@ -2889,7 +3391,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 146
+        "y": 159
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2937,7 +3439,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 146
+        "y": 159
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -2985,7 +3487,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 146
+        "y": 159
       },
       "datasource": {
         "uid": "pgc-prometheus",
@@ -3043,7 +3545,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 154
+        "y": 167
       },
       "datasource": {
         "uid": "loki",
@@ -3078,7 +3580,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 58
+        "y": 71
       },
       "panels": [],
       "description": "回答复盘问题：抓取、抽取、处理、发布、错误分别发生在什么时候。"
@@ -3096,7 +3598,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 59
+        "y": 72
       },
       "fieldConfig": {
         "defaults": {
@@ -3159,7 +3661,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 59
+        "y": 72
       },
       "fieldConfig": {
         "defaults": {
@@ -3214,7 +3716,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 59
+        "y": 72
       },
       "fieldConfig": {
         "defaults": {
@@ -3269,7 +3771,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 59
+        "y": 72
       },
       "fieldConfig": {
         "defaults": {
@@ -3324,7 +3826,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 63
+        "y": 76
       },
       "fieldConfig": {
         "defaults": {
@@ -3380,7 +3882,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 63
+        "y": 76
       },
       "fieldConfig": {
         "defaults": {

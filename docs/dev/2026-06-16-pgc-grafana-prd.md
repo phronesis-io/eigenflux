@@ -11,6 +11,7 @@ Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actio
 Revision: 2026-06-18, latency breach-kind panel added so operators can tell true source latency from recovery backfill, date-only timestamps, and non-signal statuses.
 Revision: 2026-06-18, source reliability panels now expose `pgc_source_health_sla_attention` so registry-defined per-source SLA failures are visible beside canary and critical-source failures.
 Revision: 2026-06-18, source reliability now includes a per-source SLA offender table backed by `pgc_source_health_sla_attention_source`.
+Revision: 2026-06-19, added a first-screen owner cockpit modeled after User Growth: one KPI row plus trend/drilldown panels answering whether PGC is missing signals, slow, source-unhealthy, or close to external API budget limits.
 
 ## Problem
 
@@ -71,7 +72,17 @@ only generic crawler/source-health charts.
 
 ## Dashboard Structure
 
-1. 一手有没有漏 / First-Source Coverage
+1. 总览 / Owner Cockpit
+   - 现在需要立刻处理几件事
+   - 一手复盘还有多少待处理
+   - 高优先级信号仍在超时吗
+   - Canary 是否全绿
+   - Source SLA 是否破线
+   - TwitterAPI 还能撑多久
+   - 关键风险是在上升还是下降
+   - 现在先处理哪些信源
+
+2. 一手有没有漏 / First-Source Coverage
    - 今天有多少一手问题要处理
    - 严重漏配/晚到有多少
    - 审计刚刚跑过吗
@@ -81,7 +92,7 @@ only generic crawler/source-health charts.
    - 问题严重到什么程度
    - 一手源库覆盖够不够
 
-2. 信号够不够快 / Signal Latency
+3. 信号够不够快 / Signal Latency
    - 现在高优先级信号还在超时吗
    - 官方源多久进入 PGC
    - 机器源是否保持低延迟
@@ -92,7 +103,7 @@ only generic crawler/source-health charts.
    - 这些超时是事故还是回补噪音
    - 当前哪些信源正在拖慢
 
-3. 每条信号卡在哪一跳 / Event Timeline
+4. 每条信号卡在哪一跳 / Event Timeline
    - 链路事实还在写入吗
    - 24h 写了多少链路事件
    - 24h 有多少内容可复盘
@@ -100,7 +111,7 @@ only generic crawler/source-health charts.
    - 链路证据是否稳定增长
    - 慢/断在哪个阶段
 
-4. 信源是否可靠 / Source Reliability
+5. 信源是否可靠 / Source Reliability
    - Canary 有没有失败
    - 关键源是否需要处理
    - 信源 SLA 是否破线
@@ -112,7 +123,7 @@ only generic crawler/source-health charts.
    - 哪些源被 block
    - 哪些源快被 block
 
-5. 内容有没有送达 / Delivery
+6. 内容有没有送达 / Delivery
    - 近 1 小时发出多少
    - 队列是否积压
    - 当前有多少阻塞源
@@ -125,7 +136,7 @@ only generic crawler/source-health charts.
    - 哪些来源贡献最多
    - 哪些来源正在异常
 
-6. 生产链路是否健康 / Pipeline Health
+7. 生产链路是否健康 / Pipeline Health
    - 哪些源连续失败
    - Worker 是否卡住
    - LLM 是否在报错
@@ -133,14 +144,14 @@ only generic crawler/source-health charts.
    - 来源转化是否健康
    - 哪些来源最热
 
-7. 质量和成本是否失控 / Quality & Cost
+8. 质量和成本是否失控 / Quality & Cost
    - LLM 调用是否稳定
    - LLM p95 是否变慢
    - Token 成本是否异常
    - Signal Gate 是否过严
    - 端到端发布是否超时
 
-8. 工程诊断 / Deep Dive
+9. 工程诊断 / Deep Dive
    - Worker 心跳明细
    - 各阶段耗时
    - 错误压力是否升高
@@ -151,6 +162,11 @@ only generic crawler/source-health charts.
 - Grafana dashboard loads with no "data source not found" errors.
 - Every Prometheus panel uses `uid=pgc-prometheus`.
 - Loki log panel uses `uid=loki`.
+- The first screen is an owner cockpit, not an engineering deep dive: it must
+  include the row `总览 / Owner Cockpit`, stat panels for immediate action count,
+  first-source attention, active T0/T1 latency, canary failures, source SLA
+  failures, and TwitterAPI days-to-empty, plus one trend panel and one active
+  source drilldown table.
 - First-source audit panels query `pgc_first_source_audit_*` metrics and return
   non-empty frames in production.
 - Low-latency panels query `pgc_signal_latency_*` metrics and return production
