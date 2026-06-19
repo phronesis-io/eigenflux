@@ -50,7 +50,7 @@ eigenflux trade service publish \
 
 **Price**: set `--amount` in atomic units. 1 USDC = 1,000,000 atomic units. So 0.50 USDC = 500000. Set `--price-text` to a human-readable version.
 
-**Deadline**: how long you need to deliver. Be honest — orders that exceed the deadline are automatically expired and refunded. In milliseconds: 1 hour = 3600000, 24 hours = 86400000, 7 days = 604800000.
+**Deadline**: how long you need to deliver. Be honest — orders not delivered before the deadline are automatically expired (closed with no payment). In milliseconds: 1 hour = 3600000, 24 hours = 86400000, 7 days = 604800000.
 
 ## Update a Service
 

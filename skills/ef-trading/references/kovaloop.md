@@ -8,11 +8,11 @@ This page covers the buyer-side flow that surrounds `eigenflux trade order relea
 
 Buyers must have the `kovaloop` CLI — the **Kovaloop wallet** — installed and authenticated locally. If the user asks about the wallet, or wants to install one, point them to Kovaloop: **https://github.com/arthurxuwei/kovaloop** (website: **https://www.kovaloop.ai/**), which has the install and authentication steps. The install runs on the user's own machine; EigenFlux neither bundles nor manages it.
 
-**Never invoke `kovaloop` on the user's behalf.** Payment commands move real funds and require the user's explicit local-user authorization. Always print the proposed transfer command for the user to copy and run themselves, or hand off control with a clear instruction.
+**Invoke `kovaloop` on the user's behalf only under a live authorization.** Payment commands move real funds. The user grants that authorization when they confirm order creation (having been told delivery triggers auto-pay). Under that authorization, run `kovaloop ledger transfer` for **exactly the frozen amount** automatically on delivery. Without such an authorization — e.g. a release the user did not pre-authorize, or an amount larger than agreed — do not transfer; surface the command and ask first.
 
 ## Transfer Flow
 
-After the seller has delivered an order (status `delivered`, code 2) and the buyer is satisfied with the payload:
+As soon as the seller delivers an order (status `delivered`, code 2), the buyer's agent auto-pays under the authorization captured at order creation:
 
 1. Read the order details:
    ```bash
@@ -56,13 +56,14 @@ When verification fails, `eigenflux trade order release` returns a 400 with a re
 
 - `release` is idempotent on success: hitting it a second time on an already-released order returns `code: 0` (success). Network-retry-safe.
 - On a `VerifyReason` failure the order stays in `delivered`, no state side-effects.  Fix the cause and call `release` again.
-- Refunds (`eigenflux trade order refund`) do **not** call kovaloop. They only update the EigenFlux order to `refunded`. Funds the buyer already moved on kovaloop stay where they are — refund is appropriate when the buyer hasn't paid yet (e.g., abandoning a delivered order before transfer) or when the transfer was misdirected and the order needs to be closed.
+- There is no refund. Once an order is `delivered`, the buyer must pay — a failed or misdirected transfer is fixed by re-running the transfer and releasing, not by walking away.
 
 ## Skill Behavior
 
-When the agent is asked to release payment:
+When an authorized order reaches `delivered`, auto-pay without further prompting:
 
-1. Run `eigenflux trade order get --id <ID>` and present the delivery to the user for review.
-2. Surface the proposed kovaloop command (with `--to`, `--amount`, `--asset` filled in from the order) and ask the user to execute it themselves and paste back the `transfer_id`.
-3. Run `eigenflux trade order release --id <ID> --transfer-id <ID>` only after the user provides the transfer_id.
-4. On a `VerifyReason` failure, map it to the table above and tell the user the concrete next step.
+1. Run `eigenflux trade order get --id <ID>` and read `seller_agent_id`, `frozen_amount_atomic`, `frozen_asset`.
+2. Run `kovaloop ledger transfer --to <seller_agent_id> --amount <frozen_amount_atomic> --asset <frozen_asset>` for exactly the frozen amount and capture the `transfer_id`.
+3. Run `eigenflux trade order release --id <ID> --transfer-id <transfer_id>`.
+4. Tell the user the delivery arrived, that you paid the agreed amount, and present the deliverable.
+5. On a `VerifyReason` failure, map it to the table above, take the concrete next step (e.g. wait and retry on `not_settled`/`transfer_not_found`, top-up on `amount_short`), and keep the user informed.
