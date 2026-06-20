@@ -1,7 +1,7 @@
 {
   "id": null,
   "uid": "pgc-pipeline",
-  "title": "EigenFlux - PGC Pipeline",
+  "title": "EigenFlux — PGC Deep Dive (工程诊断)",
   "description": "Owner cockpit for PGC first-source reliability, low-latency signal SLIs, source health, delivery, budgets, quality, diagnostics, and logs. First screen summarizes whether the signal network is missing, slow, unhealthy, or close to external API budget limits.",
   "tags": [
     "ops",
