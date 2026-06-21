@@ -413,7 +413,8 @@
      },
      "expr": "pgc_first_source_win_rate_winnable",
      "instant": false,
-     "legendFormat": "可赢事件"
+     "legendFormat": "可赢事件",
+     "range": true
     },
     {
      "refId": "A",
@@ -423,7 +424,8 @@
      },
      "expr": "pgc_first_source_win_rate",
      "instant": false,
-     "legendFormat": "全部事件"
+     "legendFormat": "全部事件",
+     "range": true
     }
    ],
    "fieldConfig": {
@@ -686,7 +688,8 @@
      },
      "expr": "pgc_first_party_feeds_broken_count",
      "instant": false,
-     "legendFormat": "坏源数"
+     "legendFormat": "坏源数",
+     "range": true
     }
    ],
    "fieldConfig": {
