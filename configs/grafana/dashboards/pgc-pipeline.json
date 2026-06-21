@@ -6,7 +6,7 @@
  "refresh": "5m",
  "schemaVersion": 39,
  "time": {
-  "from": "now-7d",
+  "from": "now-2d",
   "to": "now"
  },
  "timezone": "Asia/Shanghai",
