@@ -591,6 +591,408 @@
       "description": "近期高频抓取失败的信源数。"
     },
     {
+      "id": 15,
+      "title": "立即要看的事项",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "description": "Owner triage count: canary failures, first-source attention, critical source attention, and active T0/T1 latency breaches.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "title": "首发关注项",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "description": "Benchmark items where configured primary/early sources did not clearly beat the benchmark.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_first_source_audit_attention",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "活跃 T0/T1 延迟",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "description": "Current actionable T0/T1 latency breaches in the last 3 hours.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "(sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 18,
+      "title": "TwitterAPI 可用天数",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "description": "Estimated twitterapi.io runway at the current observed burn rate.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_twitterapi_credits_days_to_empty",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "title": "Source SLA 关注",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 29
+      },
+      "description": "Sources breaching explicit source registry health SLAs.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_sla_attention",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "title": "关键源关注",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 29
+      },
+      "description": "Critical configured sources that are blocked, failing, quiet beyond policy, or otherwise need owner attention.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_critical_attention",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "title": "风险趋势",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "description": "Trend of owner-visible risks that should move down after source, adapter, or budget fixes.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_first_source_audit_attention",
+          "instant": false,
+          "legendFormat": "first-source attention"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "(sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+          "instant": false,
+          "legendFormat": "active T0/T1 latency"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_canaries_failed",
+          "instant": false,
+          "legendFormat": "canary failures"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_critical_attention",
+          "instant": false,
+          "legendFormat": "critical source attention"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "活跃延迟源 Drilldown",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "description": "Current source-level latency offenders. Prioritize rows with T0/T1, source_latency, or source_feed_lag.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "sort_desc(pgc_signal_latency_active_source_breaches_3h{kind=~\"source_latency|source_feed_lag\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
       "id": 13,
       "title": "累计发布量",
       "type": "timeseries",
@@ -602,7 +1004,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 45
       },
       "targets": [
         {
@@ -652,7 +1054,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 53
       },
       "targets": [
         {
