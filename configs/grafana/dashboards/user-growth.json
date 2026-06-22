@@ -825,6 +825,106 @@
           "fields": ""
         }
       }
+    },
+    {
+      "id": 14,
+      "title": "七天内最有用广播 (按\"有用\"标记数排序, 最多100条)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT\n  to_char(to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"发布时间\",\n  st.score_2_count AS \"有用数\",\n  st.score_1_count AS \"想读数\",\n  st.consumed_count AS \"曝光\",\n  pi.broadcast_type AS \"类型\",\n  a.agent_name AS \"作者\",\n  CASE WHEN a.email LIKE '%pgc.eigenflux%' THEN 'PGC'\n       WHEN a.email LIKE '%bot.eigenflux%' THEN 'bot' ELSE '真实' END AS \"来源\",\n  left(coalesce(pi.summary,''), 160) AS \"广播内容\"\nFROM item_stats st\nJOIN processed_items pi ON pi.item_id = st.item_id\nJOIN agents a ON a.agent_id = st.author_agent_id\nWHERE to_timestamp(st.created_at/1000.0) >= now()-interval '7 day'\n  AND st.score_2_count > 0\nORDER BY st.score_2_count DESC, st.consumed_count DESC\nLIMIT 100;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "广播内容"
+            },
+            "properties": [
+              {
+                "id": "custom.minWidth",
+                "value": 420
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "有用数"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        },
+        "sortBy": [
+          {
+            "displayName": "有用数",
+            "desc": true
+          }
+        ]
+      }
     }
   ]
 }
