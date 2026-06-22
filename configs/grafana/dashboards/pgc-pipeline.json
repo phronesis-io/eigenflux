@@ -122,67 +122,6 @@
    "description": "在确信同事件配对 (sim≥0.72) 且我们有一手源的对决里，我们先发的比例。北极星。"
   },
   {
-   "id": 4,
-   "title": "首发率（全部事件）",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 3,
-    "x": 5,
-    "y": 6
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_source_win_rate",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "percent",
-     "mappings": [],
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "text"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "text",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "value",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   },
-   "description": "含所有对照事件（含无一手源/弱匹配/过期），正常值约5-8%，仅供参考。北极星看左边的确信对决胜率。"
-  },
-  {
    "id": 5,
    "title": "真实对决数",
    "type": "stat",
@@ -193,7 +132,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 8,
+    "x": 5,
     "y": 6
    },
    "targets": [
@@ -253,7 +192,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 11,
+    "x": 8,
     "y": 6
    },
    "targets": [
@@ -313,7 +252,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 14,
+    "x": 11,
     "y": 6
    },
    "targets": [
@@ -381,7 +320,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 15,
+    "x": 14,
     "y": 6
    },
    "targets": [
@@ -449,7 +388,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 18,
+    "x": 17,
     "y": 6
    },
    "targets": [
@@ -508,8 +447,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 3,
-    "x": 21,
+    "w": 4,
+    "x": 20,
     "y": 6
    },
    "targets": [
@@ -604,17 +543,6 @@
      "instant": false,
      "range": true,
      "legendFormat": "确信对决胜率"
-    },
-    {
-     "refId": "B",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_source_win_rate",
-     "instant": false,
-     "range": true,
-     "legendFormat": "全部事件"
     }
    ],
    "fieldConfig": {
