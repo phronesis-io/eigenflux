@@ -1266,82 +1266,6 @@ var fieldIDToName_ReleaseOrderResp = map[int16]string{
 	255: "base_resp",
 }
 
-type RefundOrderReq struct {
-	OrderId      int64 `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
-	ActorAgentId int64 `thrift:"actor_agent_id,2" frugal:"2,default,i64" json:"actor_agent_id"`
-}
-
-func NewRefundOrderReq() *RefundOrderReq {
-	return &RefundOrderReq{}
-}
-
-func (p *RefundOrderReq) InitDefault() {
-}
-
-func (p *RefundOrderReq) GetOrderId() (v int64) {
-	return p.OrderId
-}
-
-func (p *RefundOrderReq) GetActorAgentId() (v int64) {
-	return p.ActorAgentId
-}
-func (p *RefundOrderReq) SetOrderId(val int64) {
-	p.OrderId = val
-}
-func (p *RefundOrderReq) SetActorAgentId(val int64) {
-	p.ActorAgentId = val
-}
-
-func (p *RefundOrderReq) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("RefundOrderReq(%+v)", *p)
-}
-
-var fieldIDToName_RefundOrderReq = map[int16]string{
-	1: "order_id",
-	2: "actor_agent_id",
-}
-
-type RefundOrderResp struct {
-	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
-}
-
-func NewRefundOrderResp() *RefundOrderResp {
-	return &RefundOrderResp{}
-}
-
-func (p *RefundOrderResp) InitDefault() {
-}
-
-var RefundOrderResp_BaseResp_DEFAULT *base.BaseResp
-
-func (p *RefundOrderResp) GetBaseResp() (v *base.BaseResp) {
-	if !p.IsSetBaseResp() {
-		return RefundOrderResp_BaseResp_DEFAULT
-	}
-	return p.BaseResp
-}
-func (p *RefundOrderResp) SetBaseResp(val *base.BaseResp) {
-	p.BaseResp = val
-}
-
-func (p *RefundOrderResp) IsSetBaseResp() bool {
-	return p.BaseResp != nil
-}
-
-func (p *RefundOrderResp) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("RefundOrderResp(%+v)", *p)
-}
-
-var fieldIDToName_RefundOrderResp = map[int16]string{
-	255: "base_resp",
-}
-
 type GetOrderReq struct {
 	OrderId int64 `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
 	AgentId int64 `thrift:"agent_id,2" frugal:"2,default,i64" json:"agent_id"`
@@ -1600,6 +1524,7 @@ type GetGateStatusResp struct {
 	ActiveOrderCount  int32          `thrift:"active_order_count,2" frugal:"2,default,i32" json:"active_order_count"`
 	MaxActiveOrders   int32          `thrift:"max_active_orders,3" frugal:"3,default,i32" json:"max_active_orders"`
 	HasPendingRelease bool           `thrift:"has_pending_release,4" frugal:"4,default,bool" json:"has_pending_release"`
+	UnpaidOrderCount  int32          `thrift:"unpaid_order_count,5" frugal:"5,default,i32" json:"unpaid_order_count"`
 	BaseResp          *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
@@ -1626,6 +1551,10 @@ func (p *GetGateStatusResp) GetHasPendingRelease() (v bool) {
 	return p.HasPendingRelease
 }
 
+func (p *GetGateStatusResp) GetUnpaidOrderCount() (v int32) {
+	return p.UnpaidOrderCount
+}
+
 var GetGateStatusResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *GetGateStatusResp) GetBaseResp() (v *base.BaseResp) {
@@ -1645,6 +1574,9 @@ func (p *GetGateStatusResp) SetMaxActiveOrders(val int32) {
 }
 func (p *GetGateStatusResp) SetHasPendingRelease(val bool) {
 	p.HasPendingRelease = val
+}
+func (p *GetGateStatusResp) SetUnpaidOrderCount(val int32) {
+	p.UnpaidOrderCount = val
 }
 func (p *GetGateStatusResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
@@ -1666,6 +1598,7 @@ var fieldIDToName_GetGateStatusResp = map[int16]string{
 	2:   "active_order_count",
 	3:   "max_active_orders",
 	4:   "has_pending_release",
+	5:   "unpaid_order_count",
 	255: "base_resp",
 }
 
@@ -1683,8 +1616,6 @@ type TradeService interface {
 	DeliverOrder(ctx context.Context, req *DeliverOrderReq) (r *DeliverOrderResp, err error)
 
 	ReleaseOrder(ctx context.Context, req *ReleaseOrderReq) (r *ReleaseOrderResp, err error)
-
-	RefundOrder(ctx context.Context, req *RefundOrderReq) (r *RefundOrderResp, err error)
 
 	GetOrder(ctx context.Context, req *GetOrderReq) (r *GetOrderResp, err error)
 
@@ -2222,82 +2153,6 @@ func (p *TradeServiceReleaseOrderResult) String() string {
 }
 
 var fieldIDToName_TradeServiceReleaseOrderResult = map[int16]string{
-	0: "success",
-}
-
-type TradeServiceRefundOrderArgs struct {
-	Req *RefundOrderReq `thrift:"req,1" frugal:"1,default,RefundOrderReq" json:"req"`
-}
-
-func NewTradeServiceRefundOrderArgs() *TradeServiceRefundOrderArgs {
-	return &TradeServiceRefundOrderArgs{}
-}
-
-func (p *TradeServiceRefundOrderArgs) InitDefault() {
-}
-
-var TradeServiceRefundOrderArgs_Req_DEFAULT *RefundOrderReq
-
-func (p *TradeServiceRefundOrderArgs) GetReq() (v *RefundOrderReq) {
-	if !p.IsSetReq() {
-		return TradeServiceRefundOrderArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *TradeServiceRefundOrderArgs) SetReq(val *RefundOrderReq) {
-	p.Req = val
-}
-
-func (p *TradeServiceRefundOrderArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *TradeServiceRefundOrderArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("TradeServiceRefundOrderArgs(%+v)", *p)
-}
-
-var fieldIDToName_TradeServiceRefundOrderArgs = map[int16]string{
-	1: "req",
-}
-
-type TradeServiceRefundOrderResult struct {
-	Success *RefundOrderResp `thrift:"success,0,optional" frugal:"0,optional,RefundOrderResp" json:"success,omitempty"`
-}
-
-func NewTradeServiceRefundOrderResult() *TradeServiceRefundOrderResult {
-	return &TradeServiceRefundOrderResult{}
-}
-
-func (p *TradeServiceRefundOrderResult) InitDefault() {
-}
-
-var TradeServiceRefundOrderResult_Success_DEFAULT *RefundOrderResp
-
-func (p *TradeServiceRefundOrderResult) GetSuccess() (v *RefundOrderResp) {
-	if !p.IsSetSuccess() {
-		return TradeServiceRefundOrderResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *TradeServiceRefundOrderResult) SetSuccess(x interface{}) {
-	p.Success = x.(*RefundOrderResp)
-}
-
-func (p *TradeServiceRefundOrderResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *TradeServiceRefundOrderResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("TradeServiceRefundOrderResult(%+v)", *p)
-}
-
-var fieldIDToName_TradeServiceRefundOrderResult = map[int16]string{
 	0: "success",
 }
 

@@ -255,7 +255,6 @@ service ApiService {
     CreateTradeOrderResp CreateTradeOrder(1: CreateTradeOrderReq req) (api.post="/api/v1/trading/orders")
     DeliverTradeOrderResp DeliverTradeOrder(1: DeliverTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/deliver")
     ReleaseTradeOrderResp ReleaseTradeOrder(1: ReleaseTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/release")
-    RefundTradeOrderResp RefundTradeOrder(1: RefundTradeOrderReq req) (api.post="/api/v1/trading/orders/:order_id/refund")
     GetTradeOrderResp GetTradeOrder(1: GetTradeOrderReq req) (api.get="/api/v1/trading/orders/:order_id")
     ListTradeOrdersResp ListTradeOrders(1: ListTradeOrdersReq req) (api.get="/api/v1/trading/orders")
     GetTradeGateStatusResp GetTradeGateStatus(1: GetTradeGateStatusReq req) (api.get="/api/v1/trading/gate")
@@ -924,15 +923,6 @@ struct ReleaseTradeOrderResp {
     2: required string msg
 }
 
-struct RefundTradeOrderReq {
-    1: required i64 order_id (api.path="order_id")
-}
-
-struct RefundTradeOrderResp {
-    1: required i32 code
-    2: required string msg
-}
-
 struct GetTradeOrderReq {
     1: required i64 order_id (api.path="order_id")
 }
@@ -1006,6 +996,7 @@ struct GetTradeGateStatusData {
     2: required i32 active_order_count
     3: required i32 max_active_orders
     4: required bool has_pending_release
+    5: required i32 unpaid_order_count
 }
 
 struct GetTradeGateStatusResp {

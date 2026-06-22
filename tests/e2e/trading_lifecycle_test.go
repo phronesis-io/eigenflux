@@ -12,9 +12,7 @@ import (
 // the e2e package does not have to import the trade DAL (which would pull in
 // gorm and DB wiring just to read a few ints).
 const (
-	orderStatusCreated   = 0
-	orderStatusDelivered = 2
-	orderStatusRefunded  = 6
+	orderStatusCreated = 0
 
 	tradingServiceStatusActive  = 1
 	tradingServiceStatusOffline = 2
@@ -104,10 +102,11 @@ func getOrderViaHTTP(t *testing.T, token, orderID string) (map[string]interface{
 //	t=0       active=0, can_create=true,  has_pending_release=false
 //	t=create  active=1, can_create=true,  has_pending_release=false
 //	t=deliver active=1, can_create=false, has_pending_release=true
-//	t=refund  active=0, can_create=true,  has_pending_release=false
 //
-// Refund is used (not release) because release calls into the Chief verifier,
-// which rejects synthesized transfer_ids in the local test environment.
+// After delivery, the buyer's only path is ReleaseOrder (which requires a real
+// Chief-verifiable transfer_id and so is not exercised here). The
+// "delivered-locked" state is the new forcing function: there is no refund
+// path back to a clear gate.
 func TestTradingGateStatusReflectsLifecycle(t *testing.T) {
 	testutil.WaitForAPI(t)
 
@@ -141,111 +140,14 @@ func TestTradingGateStatusReflectsLifecycle(t *testing.T) {
 
 	deliverOrderViaHTTP(t, sellerToken, orderID, "delivery payload")
 
-	// t=deliver: still one active, but has_pending_release blocks further creates
+	// t=deliver: still one active, but has_pending_release blocks further creates.
+	// With the refund path removed, this "delivered-locked" state is terminal
+	// for gate purposes from the test's perspective — ReleaseOrder would call
+	// the Chief verifier, which rejects synthesized transfer_ids here.
 	canCreate, hasPending, active, _ = gateStatus(t, buyerToken)
 	if canCreate || !hasPending || active != 1 {
 		t.Fatalf("after deliver: want can_create=false active=1 pending=true; got can=%v active=%d pending=%v",
 			canCreate, active, hasPending)
-	}
-
-	// Refund frees the gate (release would call Chief, which rejects in test env)
-	refundResp := testutil.DoPost(t,
-		fmt.Sprintf("/api/v1/trading/orders/%s/refund", orderID),
-		map[string]interface{}{},
-		buyerToken,
-	)
-	if code, _ := refundResp["code"].(float64); code != 0 {
-		t.Fatalf("refund failed: %#v", refundResp)
-	}
-
-	canCreate, hasPending, active, _ = gateStatus(t, buyerToken)
-	if !canCreate || hasPending || active != 0 {
-		t.Fatalf("after refund: want can_create=true active=0 pending=false; got can=%v active=%d pending=%v",
-			canCreate, active, hasPending)
-	}
-}
-
-// TestTradingRefundFromDeliveredViaHTTP exercises POST /api/v1/trading/orders/:id/refund
-// from a DELIVERED order and verifies the order ends up in status=6 with
-// refunded_at populated and a "refunded" event emitted. This is the
-// HTTP-layer complement to TestRefundOrder which goes via the RPC client.
-func TestTradingRefundFromDeliveredViaHTTP(t *testing.T) {
-	testutil.WaitForAPI(t)
-
-	sellerEmail := fmt.Sprintf("trade_refund_seller_%d@test.com", time.Now().UnixNano())
-	buyerEmail := fmt.Sprintf("trade_refund_buyer_%d@test.com", time.Now().UnixNano())
-	sellerReg := testutil.RegisterAgent(t, sellerEmail, "RefundSeller", "refund seller")
-	buyerReg := testutil.RegisterAgent(t, buyerEmail, "RefundBuyer", "refund buyer")
-	t.Cleanup(func() { testutil.CleanupTestEmails(t, sellerEmail, buyerEmail) })
-	sellerToken := sellerReg["token"].(string)
-	buyerToken := buyerReg["token"].(string)
-
-	serviceID := publishTradingServiceForE2E(t, sellerToken, "Refund flow seed", "")
-	orderID := createOrderViaHTTP(t, buyerToken, serviceID, `{"note":"refund test"}`)
-	deliverOrderViaHTTP(t, sellerToken, orderID, "to be refunded")
-
-	// Sanity: order is delivered before refund.
-	preOrder, _ := getOrderViaHTTP(t, buyerToken, orderID)
-	if got, _ := preOrder["status"].(float64); int(got) != orderStatusDelivered {
-		t.Fatalf("pre-refund order must be delivered (status=%d); got status=%v",
-			orderStatusDelivered, preOrder["status"])
-	}
-
-	refundResp := testutil.DoPost(t,
-		fmt.Sprintf("/api/v1/trading/orders/%s/refund", orderID),
-		map[string]interface{}{},
-		buyerToken,
-	)
-	if code, _ := refundResp["code"].(float64); code != 0 {
-		t.Fatalf("refund failed: %#v", refundResp)
-	}
-
-	postOrder, events := getOrderViaHTTP(t, buyerToken, orderID)
-	if got, _ := postOrder["status"].(float64); int(got) != orderStatusRefunded {
-		t.Fatalf("post-refund order status = %v, want %d", postOrder["status"], orderStatusRefunded)
-	}
-	if got, _ := postOrder["refunded_at"].(float64); got == 0 {
-		t.Fatalf("post-refund order missing refunded_at: %#v", postOrder)
-	}
-
-	var sawRefunded bool
-	for _, raw := range events {
-		ev, _ := raw.(map[string]interface{})
-		if t2, _ := ev["event_type"].(string); t2 == "refunded" {
-			sawRefunded = true
-			break
-		}
-	}
-	if !sawRefunded {
-		t.Fatalf("expected a refunded event after refund; got events=%v", events)
-	}
-
-	// Refund is idempotent at terminal status: a duplicate call returns
-	// success and must not move the order out of REFUNDED nor emit a second
-	// `refunded` event. Verifying this here matters because RefundTradeOrder
-	// is reachable from retry-prone client paths.
-	dupResp := testutil.DoPost(t,
-		fmt.Sprintf("/api/v1/trading/orders/%s/refund", orderID),
-		map[string]interface{}{},
-		buyerToken,
-	)
-	if code, _ := dupResp["code"].(float64); code != 0 {
-		t.Fatalf("second refund should be idempotent (code=0); got: %#v", dupResp)
-	}
-	dupOrder, dupEvents := getOrderViaHTTP(t, buyerToken, orderID)
-	if got, _ := dupOrder["status"].(float64); int(got) != orderStatusRefunded {
-		t.Fatalf("after idempotent refund, status must remain %d; got %v",
-			orderStatusRefunded, dupOrder["status"])
-	}
-	var refundedCount int
-	for _, raw := range dupEvents {
-		ev, _ := raw.(map[string]interface{})
-		if t2, _ := ev["event_type"].(string); t2 == "refunded" {
-			refundedCount++
-		}
-	}
-	if refundedCount != 1 {
-		t.Fatalf("idempotent refund must not emit a second `refunded` event; got %d", refundedCount)
 	}
 }
 

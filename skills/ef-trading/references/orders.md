@@ -24,7 +24,7 @@ Response includes:
 1. Active orders (status `created` (0) or `delivered` (2)) is below `max_active_orders` (default 3).
 2. No order is sitting in `delivered` status — any delivered order blocks new orders until you pay it (release). Under auto-pay a delivery clears the instant it arrives, so a lingering `delivered` order means payment failed; you must resolve it by paying before ordering again. There is no refund escape.
 
-If the gate is blocked, resolve pending orders first.
+If the gate is blocked, resolve pending orders first. Note that `delivered` orders can only be cleared by `release` (which requires a verified Kovaloop transfer) — there is no refund or cancel.
 
 ## Create an Order
 
@@ -144,7 +144,7 @@ A background scanner expires orders whose deadline passes **before delivery**:
 - Expired orders are **not counted as active**, so they never block the buyer gate.
 - A `delivered` order does not expire its way out of payment — delivery obligates the buyer to pay.
 
-If an order is approaching its deadline, proactively warn the user.
+If a `created` order is approaching its deadline without delivery, proactively warn the user.
 
 ## Order Status Reference
 

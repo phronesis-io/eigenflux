@@ -9,6 +9,8 @@ import (
 
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/mq"
+	tradenotify "eigenflux_server/pkg/trade"
 	tradedal "eigenflux_server/rpc/trade/dal"
 )
 
@@ -71,23 +73,11 @@ func (c *OrderEventConsumer) seenOutbox(outboxID string) bool {
 	return false
 }
 
-func (c *OrderEventConsumer) handle(_ context.Context, _ string, values map[string]any) HandleResult {
+func (c *OrderEventConsumer) handle(ctx context.Context, _ string, values map[string]any) HandleResult {
 	outboxID, _ := values["outbox_id"].(string)
 	if c.seenOutbox(outboxID) {
 		logger.Default().Debug("OrderEventConsumer skip duplicate by outbox_id", "outbox_id", outboxID)
 		return HandleSuccess
-	}
-
-	serviceIDStr, ok := values["service_id"].(string)
-	if !ok {
-		logger.Default().Warn("OrderEventConsumer invalid message: missing service_id")
-		return HandleFailure
-	}
-
-	serviceID, err := strconv.ParseInt(serviceIDStr, 10, 64)
-	if err != nil {
-		logger.Default().Warn("OrderEventConsumer invalid service_id", "serviceID", serviceIDStr)
-		return HandleFailure
 	}
 
 	eventType, ok := values["event_type"].(string)
@@ -96,31 +86,153 @@ func (c *OrderEventConsumer) handle(_ context.Context, _ string, values map[stri
 		return HandleFailure
 	}
 
+	switch eventType {
+	case "created":
+		return c.handleCreated(ctx, outboxID, values)
+	case "delivered":
+		return c.handleDelivered(ctx, outboxID, values)
+	case "released", "expired":
+		return c.handleTerminal(outboxID, eventType, values)
+	default:
+		logger.Default().Warn("OrderEventConsumer unknown event_type, skipping", "eventType", eventType)
+		return HandleFailure
+	}
+}
+
+func (c *OrderEventConsumer) handleTerminal(outboxID, eventType string, values map[string]any) HandleResult {
+	serviceIDStr, ok := values["service_id"].(string)
+	if !ok {
+		logger.Default().Warn("OrderEventConsumer missing service_id on terminal event")
+		return HandleFailure
+	}
+	serviceID, err := strconv.ParseInt(serviceIDStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer invalid service_id", "serviceID", serviceIDStr)
+		return HandleFailure
+	}
+
 	var column string
 	switch eventType {
 	case "released":
 		column = "released_count"
-	case "refunded":
-		column = "refunded_count"
 	case "expired":
 		column = "expired_count"
-	default:
-		logger.Default().Warn("OrderEventConsumer unknown event_type, skipping", "eventType", eventType, "serviceID", serviceID)
-		return HandleFailure
 	}
 
-	logger.Default().Info("OrderEventConsumer processing order event", "serviceID", serviceID, "eventType", eventType, "outbox_id", outboxID)
+	logger.Default().Info("OrderEventConsumer processing terminal event", "serviceID", serviceID, "eventType", eventType, "outbox_id", outboxID)
 
 	if err := tradedal.IncrementServiceStats(db.DB, serviceID, column, time.Now().UnixMilli()); err != nil {
 		logger.Default().Error("OrderEventConsumer failed to increment service stats", "serviceID", serviceID, "column", column, "err", err)
 		return HandleFailure
 	}
-
 	if err := tradedal.UpdateServiceSuccessRate(db.DB, serviceID); err != nil {
 		logger.Default().Error("OrderEventConsumer failed to update service success rate", "serviceID", serviceID, "err", err)
 		return HandleFailure
 	}
+	logger.Default().Info("OrderEventConsumer processed terminal event", "serviceID", serviceID, "eventType", eventType)
+	return HandleSuccess
+}
 
-	logger.Default().Info("OrderEventConsumer processed order event", "serviceID", serviceID, "eventType", eventType)
+func (c *OrderEventConsumer) handleCreated(ctx context.Context, outboxID string, values map[string]any) HandleResult {
+	orderStr, _ := values["order_id"].(string)
+	serviceStr, _ := values["service_id"].(string)
+	buyerStr, _ := values["buyer_agent_id"].(string)
+	title, _ := values["frozen_title"].(string)
+	buyerInput, _ := values["buyer_input"].(string)
+	nowMsStr, _ := values["now_ms"].(string)
+
+	orderID, err := strconv.ParseInt(orderStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer created: bad order_id", "v", orderStr)
+		return HandleFailure
+	}
+	serviceID, err := strconv.ParseInt(serviceStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer created: bad service_id", "v", serviceStr)
+		return HandleFailure
+	}
+	buyerID, err := strconv.ParseInt(buyerStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer created: bad buyer_agent_id", "v", buyerStr)
+		return HandleFailure
+	}
+	createdAt, _ := strconv.ParseInt(nowMsStr, 10, 64)
+
+	svc, err := tradedal.GetService(db.DB, serviceID)
+	if err != nil {
+		logger.Default().Error("OrderEventConsumer created: load service", "serviceID", serviceID, "err", err)
+		return HandleFailure
+	}
+
+	n := tradenotify.Notification{
+		NotificationID: outboxID,
+		Type:           tradenotify.NotificationTypeOrderReceived,
+		OrderID:        orderID,
+		ServiceID:      serviceID,
+		Title:          title,
+		BuyerAgentID:   buyerID,
+		BuyerInput:     buyerInput,
+		CreatedAt:      createdAt,
+	}
+	if err := tradenotify.WriteNotification(ctx, mq.RDB, svc.SellerAgentID, n); err != nil {
+		logger.Default().Error("OrderEventConsumer created: write notif", "sellerID", svc.SellerAgentID, "err", err)
+		return HandleFailure
+	}
+	logger.Default().Info("OrderEventConsumer wrote trade_order_received", "sellerID", svc.SellerAgentID, "orderID", orderID)
+	return HandleSuccess
+}
+
+func (c *OrderEventConsumer) handleDelivered(ctx context.Context, outboxID string, values map[string]any) HandleResult {
+	orderStr, _ := values["order_id"].(string)
+	serviceStr, _ := values["service_id"].(string)
+	sellerStr, _ := values["seller_agent_id"].(string)
+	title, _ := values["frozen_title"].(string)
+	preview, _ := values["delivery_payload_preview"].(string)
+	amtStr, _ := values["frozen_amount_atomic"].(string)
+	asset, _ := values["frozen_asset"].(string)
+	nowMsStr, _ := values["now_ms"].(string)
+
+	orderID, err := strconv.ParseInt(orderStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer delivered: bad order_id", "v", orderStr)
+		return HandleFailure
+	}
+	serviceID, err := strconv.ParseInt(serviceStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer delivered: bad service_id", "v", serviceStr)
+		return HandleFailure
+	}
+	sellerID, err := strconv.ParseInt(sellerStr, 10, 64)
+	if err != nil {
+		logger.Default().Warn("OrderEventConsumer delivered: bad seller_agent_id", "v", sellerStr)
+		return HandleFailure
+	}
+	amount, _ := strconv.ParseInt(amtStr, 10, 64)
+	deliveredAt, _ := strconv.ParseInt(nowMsStr, 10, 64)
+
+	order, err := tradedal.GetOrder(db.DB, orderID)
+	if err != nil {
+		logger.Default().Error("OrderEventConsumer delivered: load order", "orderID", orderID, "err", err)
+		return HandleFailure
+	}
+
+	n := tradenotify.Notification{
+		NotificationID:         outboxID,
+		Type:                   tradenotify.NotificationTypeOrderDelivered,
+		OrderID:                orderID,
+		ServiceID:              serviceID,
+		Title:                  title,
+		SellerAgentID:          sellerID,
+		DeliveryPayloadPreview: preview,
+		FrozenAmountAtomic:     amount,
+		FrozenAsset:            asset,
+		DeliveredAt:            deliveredAt,
+		CreatedAt:              deliveredAt,
+	}
+	if err := tradenotify.WriteNotification(ctx, mq.RDB, order.BuyerAgentID, n); err != nil {
+		logger.Default().Error("OrderEventConsumer delivered: write notif", "buyerID", order.BuyerAgentID, "err", err)
+		return HandleFailure
+	}
+	logger.Default().Info("OrderEventConsumer wrote trade_order_delivered", "buyerID", order.BuyerAgentID, "orderID", orderID)
 	return HandleSuccess
 }

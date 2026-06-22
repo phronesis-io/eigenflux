@@ -55,8 +55,8 @@ When verification fails, `eigenflux trade order release` returns a 400 with a re
 ## Retry Semantics
 
 - `release` is idempotent on success: hitting it a second time on an already-released order returns `code: 0` (success). Network-retry-safe.
-- On a `VerifyReason` failure the order stays in `delivered`, no state side-effects.  Fix the cause and call `release` again.
-- There is no refund. Once an order is `delivered`, the buyer must pay — a failed or misdirected transfer is fixed by re-running the transfer and releasing, not by walking away.
+- On a `VerifyReason` failure the order stays in `delivered`, no state side-effects. Fix the cause and call `release` again.
+- There is no refund. If the buyer already moved funds on kovaloop but the transfer was misdirected or the buyer changed their mind, the platform cannot reverse it — recovery is between buyer and seller, off-platform.
 
 ## Skill Behavior
 

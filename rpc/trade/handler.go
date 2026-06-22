@@ -43,6 +43,8 @@ var allowedAssets = map[string]bool{"USDC": true}
 
 var errAlreadyAtTarget = errors.New("order already at target status")
 var errOrderNotFound = errors.New("order not found")
+var errHasUnpaidOrders = errors.New("has_unpaid_orders")
+var errTooManyActiveOrders = errors.New("too_many_active_orders")
 
 // --- Service Declaration ---
 
@@ -216,8 +218,11 @@ func (s *TradeServiceImpl) CreateOrder(ctx context.Context, req *trade.CreateOrd
 		if err != nil {
 			return fmt.Errorf("gate check: %w", err)
 		}
-		if !gate.CanCreate {
-			return errors.New("buyer gate blocked")
+		if gate.UnpaidOrderCount > 0 {
+			return errHasUnpaidOrders
+		}
+		if gate.ActiveCount >= gate.MaxActive {
+			return errTooManyActiveOrders
 		}
 
 		svc, err := dal.GetService(tx, req.ServiceId)
@@ -261,7 +266,24 @@ func (s *TradeServiceImpl) CreateOrder(ctx context.Context, req *trade.CreateOrd
 			return fmt.Errorf("create order: %w", err)
 		}
 		orderID = newID
-		return s.appendEvent(tx, newID, dal.EventTypeCreated, req.BuyerAgentId, "")
+		if err := s.appendEvent(tx, newID, dal.EventTypeCreated, req.BuyerAgentId, ""); err != nil {
+			return err
+		}
+		outID, err := s.outboxIDGen.NextID()
+		if err != nil {
+			return fmt.Errorf("outbox id gen: %w", err)
+		}
+		nowMs := time.Now().UnixMilli()
+		payload, err := dal.MarshalOrderCreatedPayload(outID, newID, svc.ServiceID, req.BuyerAgentId, svc.Title, req.BuyerInput, nowMs)
+		if err != nil {
+			return fmt.Errorf("marshal created payload: %w", err)
+		}
+		return dal.InsertOutbox(tx, &dal.TradeOutbox{
+			OutboxID:    outID,
+			StreamName:  "stream:trade:order-event",
+			PayloadJSON: payload,
+			CreatedAt:   nowMs,
+		})
 	})
 
 	switch {
@@ -303,7 +325,27 @@ func (s *TradeServiceImpl) DeliverOrder(_ context.Context, req *trade.DeliverOrd
 			}
 			return err
 		}
-		return s.appendEvent(tx, req.OrderId, dal.EventTypeDelivered, req.SellerAgentId, "")
+		if err := s.appendEvent(tx, req.OrderId, dal.EventTypeDelivered, req.SellerAgentId, ""); err != nil {
+			return err
+		}
+		outID, err := s.outboxIDGen.NextID()
+		if err != nil {
+			return fmt.Errorf("outbox id gen: %w", err)
+		}
+		preview := req.DeliveryPayload
+		if len(preview) > 500 {
+			preview = preview[:500]
+		}
+		payload, err := dal.MarshalOrderDeliveredPayload(outID, req.OrderId, order.ServiceID, req.SellerAgentId, order.FrozenTitle, preview, order.FrozenAsset, order.FrozenAmountAtomic, now)
+		if err != nil {
+			return fmt.Errorf("marshal delivered payload: %w", err)
+		}
+		return dal.InsertOutbox(tx, &dal.TradeOutbox{
+			OutboxID:    outID,
+			StreamName:  "stream:trade:order-event",
+			PayloadJSON: payload,
+			CreatedAt:   now,
+		})
 	})
 	return &trade.DeliverOrderResp{BaseResp: mapHandlerErr(err)}, nil
 }
@@ -370,44 +412,6 @@ func (s *TradeServiceImpl) ReleaseOrder(ctx context.Context, req *trade.ReleaseO
 	return &trade.ReleaseOrderResp{BaseResp: mapHandlerErr(err)}, nil
 }
 
-func (s *TradeServiceImpl) RefundOrder(_ context.Context, req *trade.RefundOrderReq) (*trade.RefundOrderResp, error) {
-	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		order, err := dal.GetOrder(tx, req.OrderId)
-		if err != nil {
-			return errOrderNotFound
-		}
-		if order.Status == dal.OrderStatusRefunded {
-			return errAlreadyAtTarget
-		}
-		if err := validateTransition(order.Status, dal.OrderStatusRefunded); err != nil {
-			return err
-		}
-
-		now := time.Now().UnixMilli()
-		if err := dal.TransitionOrderStatus(tx, req.OrderId, order.Status, dal.OrderStatusRefunded, map[string]interface{}{
-			"transfer_state": "refunded",
-			"refunded_at":    now,
-			"closed_at":      now,
-		}); err != nil {
-			if errors.Is(err, dal.ErrTransitionConflict) {
-				cur, gerr := dal.GetOrder(tx, req.OrderId)
-				if gerr == nil && cur.Status == dal.OrderStatusRefunded {
-					return errAlreadyAtTarget
-				}
-			}
-			return err
-		}
-		if err := s.appendEvent(tx, req.OrderId, dal.EventTypeRefunded, req.ActorAgentId, ""); err != nil {
-			return err
-		}
-		if err := s.saveTransferReceipt(tx, req.OrderId, order.TransferID, "refunded", nil); err != nil {
-			return err
-		}
-		return s.enqueueOrderEvent(tx, req.OrderId, order.ServiceID, dal.EventTypeRefunded)
-	})
-	return &trade.RefundOrderResp{BaseResp: mapHandlerErr(err)}, nil
-}
-
 func (s *TradeServiceImpl) GetOrder(_ context.Context, req *trade.GetOrderReq) (*trade.GetOrderResp, error) {
 	order, err := dal.GetOrder(db.DB, req.OrderId)
 	if err != nil {
@@ -464,6 +468,7 @@ func (s *TradeServiceImpl) GetGateStatus(_ context.Context, req *trade.GetGateSt
 		ActiveOrderCount:  gate.ActiveCount,
 		MaxActiveOrders:   gate.MaxActive,
 		HasPendingRelease: gate.HasPendingRelease,
+		UnpaidOrderCount:  gate.UnpaidOrderCount,
 		BaseResp:          ok(),
 	}, nil
 }
@@ -507,10 +512,15 @@ func mapHandlerErr(err error) *base.BaseResp {
 }
 
 func mapCreateOrderErr(err error) *base.BaseResp {
+	switch {
+	case errors.Is(err, errHasUnpaidOrders):
+		return badReq("has_unpaid_orders")
+	case errors.Is(err, errTooManyActiveOrders):
+		return badReq("too_many_active_orders")
+	}
 	msg := err.Error()
 	switch {
-	case msg == "buyer gate blocked",
-		msg == "service not active",
+	case msg == "service not active",
 		msg == "cannot buy own service",
 		strings.HasPrefix(msg, "buyer_input validation:"):
 		return badReq(msg)

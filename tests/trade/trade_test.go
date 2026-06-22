@@ -723,49 +723,6 @@ func TestAssetValidation(t *testing.T) {
 	}
 }
 
-// TestRefundOrder tests the full refund flow. RefundOrder no longer calls Chief,
-// so it should succeed from a delivered order state.
-func TestRefundOrder(t *testing.T) {
-	cli := newTradeClient(t)
-	sellerID := createTestAgentID()
-	buyerID := createTestAgentID()
-	t.Cleanup(func() { cleanTradeData(t, sellerID, buyerID) })
-
-	serviceID := publishTestService(t, cli, sellerID, "RefundOrder")
-
-	createResp, err := cli.CreateOrder(context.Background(), &trade.CreateOrderReq{
-		BuyerAgentId: buyerID,
-		ServiceId:    serviceID,
-		BuyerInput:   "refund test",
-	})
-	require.NoError(t, err)
-	require.Equal(t, int32(0), createResp.BaseResp.Code)
-	orderID := createResp.OrderId
-
-	// Deliver
-	_, err = cli.DeliverOrder(context.Background(), &trade.DeliverOrderReq{
-		OrderId:         orderID,
-		SellerAgentId:   sellerID,
-		DeliveryPayload: "disputed work",
-	})
-	require.NoError(t, err)
-
-	// Verify order is delivered before refund
-	getResp, err := cli.GetOrder(context.Background(), &trade.GetOrderReq{
-		OrderId: orderID,
-		AgentId: buyerID,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int16(2), getResp.Order.Status, "order should be delivered before refund")
-
-	refundResp, err := cli.RefundOrder(context.Background(), &trade.RefundOrderReq{
-		OrderId:      orderID,
-		ActorAgentId: buyerID,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int32(0), refundResp.BaseResp.Code, "RefundOrder should succeed: %s", refundResp.BaseResp.Msg)
-}
-
 // TestReleaseOrder_TransferIDRequired verifies that a release without a
 // transfer_id is rejected before any chief call.
 func TestReleaseOrder_TransferIDRequired(t *testing.T) {

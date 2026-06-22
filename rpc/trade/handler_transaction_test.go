@@ -154,9 +154,10 @@ func TestCreateOrder_RollsBackWhenCreatedEventFails(t *testing.T) {
 	key := fmt.Sprintf("rollback-create-%d", nextHandlerTestID())
 
 	impl := &TradeServiceImpl{
-		orderIDGen: &scriptedIDGen{ids: []int64{orderID}},
-		eventIDGen: &scriptedIDGen{err: errors.New("event id boom")},
-		maxActive:  3,
+		orderIDGen:  &scriptedIDGen{ids: []int64{orderID}},
+		eventIDGen:  &scriptedIDGen{err: errors.New("event id boom")},
+		outboxIDGen: &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
+		maxActive:   3,
 	}
 
 	resp, err := impl.CreateOrder(context.Background(), &trade.CreateOrderReq{
@@ -174,6 +175,7 @@ func TestCreateOrder_RollsBackWhenCreatedEventFails(t *testing.T) {
 
 	impl.orderIDGen = &scriptedIDGen{ids: []int64{nextHandlerTestID()}}
 	impl.eventIDGen = &scriptedIDGen{ids: []int64{nextHandlerTestID()}}
+	impl.outboxIDGen = &scriptedIDGen{ids: []int64{nextHandlerTestID()}}
 	retryResp, err := impl.CreateOrder(context.Background(), &trade.CreateOrderReq{
 		BuyerAgentId:   buyerID,
 		ServiceId:      serviceID,
@@ -195,7 +197,8 @@ func TestDeliverOrder_RollsBackStatusWhenEventFails(t *testing.T) {
 	orderID := newHandlerTestOrder(t, serviceID, sellerID, buyerID, dal.OrderStatusCreated)
 
 	impl := &TradeServiceImpl{
-		eventIDGen: &scriptedIDGen{err: errors.New("event id boom")},
+		eventIDGen:  &scriptedIDGen{err: errors.New("event id boom")},
+		outboxIDGen: &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
 	}
 
 	resp, err := impl.DeliverOrder(context.Background(), &trade.DeliverOrderReq{
@@ -232,64 +235,6 @@ func TestDeliverOrder_RollsBackStatusWhenEventFails(t *testing.T) {
 	require.Equal(t, int64(1), countHandlerRows(t,
 		"SELECT COUNT(*) FROM trade_order_events WHERE order_id = $1 AND event_type = $2",
 		orderID, dal.EventTypeDelivered,
-	))
-}
-
-func TestRefundOrder_RollsBackWhenReceiptInsertFails(t *testing.T) {
-	serviceID, sellerID := newHandlerTestService(t)
-	buyerID := nextHandlerTestID()
-	orderID := newHandlerTestOrder(t, serviceID, sellerID, buyerID, dal.OrderStatusDelivered)
-
-	impl := &TradeServiceImpl{
-		eventIDGen:   &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
-		receiptIDGen: &scriptedIDGen{err: errors.New("receipt id boom")},
-		outboxIDGen:  &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
-	}
-
-	resp, err := impl.RefundOrder(context.Background(), &trade.RefundOrderReq{
-		OrderId:      orderID,
-		ActorAgentId: buyerID,
-	})
-	require.NoError(t, err)
-	require.NotEqual(t, int32(0), resp.BaseResp.Code)
-	requireRefundRollback(t, orderID)
-}
-
-func TestRefundOrder_RollsBackWhenOutboxInsertFails(t *testing.T) {
-	serviceID, sellerID := newHandlerTestService(t)
-	buyerID := nextHandlerTestID()
-	orderID := newHandlerTestOrder(t, serviceID, sellerID, buyerID, dal.OrderStatusDelivered)
-
-	impl := &TradeServiceImpl{
-		eventIDGen:   &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
-		receiptIDGen: &scriptedIDGen{ids: []int64{nextHandlerTestID()}},
-		outboxIDGen:  &scriptedIDGen{err: errors.New("outbox id boom")},
-	}
-
-	resp, err := impl.RefundOrder(context.Background(), &trade.RefundOrderReq{
-		OrderId:      orderID,
-		ActorAgentId: buyerID,
-	})
-	require.NoError(t, err)
-	require.NotEqual(t, int32(0), resp.BaseResp.Code)
-	requireRefundRollback(t, orderID)
-}
-
-func requireRefundRollback(t *testing.T, orderID int64) {
-	t.Helper()
-	requireOrderStatus(t, orderID, dal.OrderStatusDelivered)
-	require.Equal(t, int64(0), countHandlerRows(t,
-		"SELECT COUNT(*) FROM trade_order_events WHERE order_id = $1 AND event_type = $2",
-		orderID, dal.EventTypeRefunded,
-	))
-	require.Equal(t, int64(0), countHandlerRows(t,
-		"SELECT COUNT(*) FROM trade_transfer_receipts WHERE order_id = $1 AND transfer_state = $2",
-		orderID, "refunded",
-	))
-	filter := fmt.Sprintf(`{"order_id": "%d"}`, orderID)
-	require.Equal(t, int64(0), countHandlerRows(t,
-		"SELECT COUNT(*) FROM trade_outbox WHERE payload_json @> $1::jsonb",
-		filter,
 	))
 }
 

@@ -18,7 +18,6 @@ type Client interface {
 	CreateOrder(ctx context.Context, req *trade.CreateOrderReq, callOptions ...callopt.Option) (r *trade.CreateOrderResp, err error)
 	DeliverOrder(ctx context.Context, req *trade.DeliverOrderReq, callOptions ...callopt.Option) (r *trade.DeliverOrderResp, err error)
 	ReleaseOrder(ctx context.Context, req *trade.ReleaseOrderReq, callOptions ...callopt.Option) (r *trade.ReleaseOrderResp, err error)
-	RefundOrder(ctx context.Context, req *trade.RefundOrderReq, callOptions ...callopt.Option) (r *trade.RefundOrderResp, err error)
 	GetOrder(ctx context.Context, req *trade.GetOrderReq, callOptions ...callopt.Option) (r *trade.GetOrderResp, err error)
 	ListOrders(ctx context.Context, req *trade.ListOrdersReq, callOptions ...callopt.Option) (r *trade.ListOrdersResp, err error)
 	GetGateStatus(ctx context.Context, req *trade.GetGateStatusReq, callOptions ...callopt.Option) (r *trade.GetGateStatusResp, err error)
@@ -86,11 +85,6 @@ func (p *kTradeServiceClient) DeliverOrder(ctx context.Context, req *trade.Deliv
 func (p *kTradeServiceClient) ReleaseOrder(ctx context.Context, req *trade.ReleaseOrderReq, callOptions ...callopt.Option) (r *trade.ReleaseOrderResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ReleaseOrder(ctx, req)
-}
-
-func (p *kTradeServiceClient) RefundOrder(ctx context.Context, req *trade.RefundOrderReq, callOptions ...callopt.Option) (r *trade.RefundOrderResp, err error) {
-	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
-	return p.kClient.RefundOrder(ctx, req)
 }
 
 func (p *kTradeServiceClient) GetOrder(ctx context.Context, req *trade.GetOrderReq, callOptions ...callopt.Option) (r *trade.GetOrderResp, err error) {

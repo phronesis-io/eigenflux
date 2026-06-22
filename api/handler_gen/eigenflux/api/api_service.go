@@ -3267,35 +3267,6 @@ func ReleaseTradeOrder(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 
-// RefundTradeOrder .
-// @router /api/v1/trading/orders/:order_id/refund [POST]
-func RefundTradeOrder(ctx context.Context, c *app.RequestContext) {
-	var req apimodel.RefundTradeOrderReq
-	if !bindOrBadRequest(c, &req) {
-		return
-	}
-	agentID, ok := currentAgentID(c)
-	if !ok {
-		return
-	}
-	logger.Ctx(ctx).Info("RefundTradeOrder", "agentID", agentID, "orderID", req.OrderID)
-
-	resp, err := clients.TradeClient.RefundOrder(ctx, &traderpc.RefundOrderReq{
-		OrderId:      req.OrderID,
-		ActorAgentId: agentID,
-	})
-	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
-		return
-	}
-	if resp.BaseResp.Code != 0 {
-		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
-		return
-	}
-
-	writeJSON(c, http.StatusOK, 0, "success", nil)
-}
-
 // GetTradeOrder .
 // @router /api/v1/trading/orders/:order_id [GET]
 func GetTradeOrder(ctx context.Context, c *app.RequestContext) {
@@ -3423,5 +3394,6 @@ func GetTradeGateStatus(ctx context.Context, c *app.RequestContext) {
 		"active_order_count":  resp.ActiveOrderCount,
 		"max_active_orders":   resp.MaxActiveOrders,
 		"has_pending_release": resp.HasPendingRelease,
+		"unpaid_order_count":  resp.UnpaidOrderCount,
 	})
 }
