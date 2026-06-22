@@ -33,7 +33,7 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "## PGC 首发胜率 (First-Source Win Rate)\n**北极星**：我们发出信息 A，其一手源 A' 是否也在我们发出的集合里。\n\n- **首发胜率（确信对决）** = 在同事件配对置信度 ≥ 0.72 且我们有一手源的前提下，一手源比对照媒体更早的比例。\n- **无一手源** = 过去 **7 天**内，对照媒体报了但我们根本没有一手源的事件数 → 采购 backlog。\n- 每 ~30 分钟自动重算，指标基于 **7 天滚动窗口**。新增一手源只影响未来事件 → 数字在 7 天内逐步下降。"
+    "content": "## PGC 首发胜率 (First-Source Win Rate)\n**北极星**：我们发出信息 A，其一手源 A' 是否也在我们发出的集合里。\n\n- **首发胜率（确信对决）** = 在同事件配对置信度 ≥ 0.72 且我们有一手源的前提下，一手源比对照媒体更早的比例。\n- **无一手源（可行动）** = 过去 7 天内，可以注册但尚未注册的一手源缺失数 → 采购 backlog。\n- **无一手源（结构性）** = 体育/本地/八卦等天然无一手源的事件数 → 无需行动。\n- 每 ~30 分钟自动重算，指标基于 **7 天滚动窗口**。新增一手源只影响未来事件 → 数字在 7 天内逐步下降。"
    }
   },
   {
@@ -379,7 +379,7 @@
   },
   {
    "id": 19,
-   "title": "无一手源（待补）",
+   "title": "无一手源（可行动）",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -387,8 +387,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 4,
-    "x": 17,
+    "w": 3,
+    "x": 15,
     "y": 6
    },
    "targets": [
@@ -443,7 +443,67 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "过去 7 天内，对照媒体报了但我们整个一手池里找不到相似内容（embedding cosine sim < 0.50）的事件数。每 ~30 分钟重算。新增一手源产出内容后，该数字会在 7 天内逐步下降。"
+   "description": "可行动的 NFP：对照媒体报了某事件，我们有可注册的一手源但尚未注册。这是采购 backlog。7 天滚动窗口。"
+  },
+  {
+   "id": 25,
+   "title": "无一手源（结构性）",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 3,
+    "x": 18,
+    "y": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_first_source_nfp_structural",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "结构性不可赢的 NFP：体育比分、本地新闻、八卦——天然没有可注册的一手源。无需行动。"
   },
   {
    "id": 7,
