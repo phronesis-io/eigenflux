@@ -1146,9 +1146,10 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(rate(pgc_published_total[$__rate_interval])) * 3600",
+     "expr": "sum(increase(pgc_published_total[1h]))",
      "instant": false,
      "range": true,
+     "interval": "1h",
      "legendFormat": "发布量/小时"
     }
    ],
@@ -1156,11 +1157,11 @@
     "defaults": {
      "unit": "short",
      "custom": {
-      "drawStyle": "line",
-      "lineWidth": 2,
-      "fillOpacity": 8,
+      "drawStyle": "bars",
+      "lineWidth": 1,
+      "fillOpacity": 60,
       "showPoints": "never",
-      "spanNulls": true
+      "spanNulls": false
      },
      "color": {
       "mode": "palette-classic"
