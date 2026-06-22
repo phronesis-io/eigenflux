@@ -151,22 +151,15 @@
      "unit": "percent",
      "mappings": [],
      "color": {
-      "mode": "thresholds"
+      "mode": "fixed",
+      "fixedColor": "text"
      },
      "thresholds": {
       "mode": "absolute",
       "steps": [
        {
-        "color": "red",
+        "color": "text",
         "value": null
-       },
-       {
-        "color": "orange",
-        "value": 5
-       },
-       {
-        "color": "green",
-        "value": 12
        }
       ]
      }
@@ -183,11 +176,11 @@
     },
     "orientation": "auto",
     "textMode": "auto",
-    "colorMode": "background",
+    "colorMode": "value",
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "含所有对照事件（含无人可抢先的目击突发），比确信对决低是正常的。"
+   "description": "含所有对照事件（含无一手源/弱匹配/过期），正常值约5-8%，仅供参考。北极星看左边的确信对决胜率。"
   },
   {
    "id": 5,
