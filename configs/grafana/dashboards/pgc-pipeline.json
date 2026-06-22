@@ -1,6 +1,6 @@
 {
  "uid": "pgc-pipeline",
- "title": "EigenFlux — PGC 首发胜率",
+ "title": "EigenFlux — PGC 事件延迟",
  "editable": true,
  "graphTooltip": 0,
  "refresh": "5m",
@@ -33,13 +33,13 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "## PGC 首发胜率 (First-Source Win Rate)\n**北极星**：我们发出信息 A，其一手源 A' 是否也在我们发出的集合里。\n\n- **首发胜率（确信对决）** = 在同事件配对置信度 ≥ 0.72 且我们有一手源的前提下，一手源比对照媒体更早的比例。\n- **无一手源（可行动）** = 过去 7 天内，可以注册但尚未注册的一手源缺失数 → 采购 backlog。\n- **无一手源（结构性）** = 体育/本地/八卦等天然无一手源的事件数 → 无需行动。\n- 每 ~30 分钟自动重算，指标基于 **7 天滚动窗口**。新增一手源只影响未来事件 → 数字在 7 天内逐步下降。"
+    "content": "## PGC 事件覆盖 (Event Coverage)\n**北极星**：事件发生后，我们多快能抓到？\n\n- **事件延迟中位数** = 从事件实际发生到我们首次抓取的时间中位数（模型从文章内容提取事件时间）\n- **真实对决** = 模型确认速度对比有意义的配对数（排除官方公告 vs 聚合转载等不可比配对）\n- **过滤配对** = 模型判定速度对比无意义的配对（如官方公告 vs 新闻聚合，不同角度的一手报道）\n- 每 ~30 分钟自动重算，模型读取文章全文判断。"
    }
   },
   {
    "id": 2,
    "type": "row",
-   "title": "核心结果 — 我们抢先了吗",
+   "title": "核心结果 — 我们离事件有多近",
    "collapsed": false,
    "gridPos": {
     "h": 1,
@@ -51,7 +51,7 @@
   },
   {
    "id": 3,
-   "title": "首发胜率（确信对决）",
+   "title": "事件延迟中位数",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -70,13 +70,13 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_confident_win_rate",
+     "expr": "pgc_event_latency_median_hours",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "percent",
+     "unit": "h",
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -85,20 +85,20 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "red",
+        "color": "green",
         "value": null
        },
        {
-        "color": "orange",
-        "value": 30
-       },
-       {
         "color": "yellow",
-        "value": 50
+        "value": 12
        },
        {
-        "color": "green",
-        "value": 70
+        "color": "orange",
+        "value": 24
+       },
+       {
+        "color": "red",
+        "value": 48
        }
       ]
      }
@@ -119,11 +119,11 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "在确信同事件配对 (sim≥0.72) 且我们有一手源的对决里，我们先发的比例。北极星。"
+   "description": "从事件实际发生到我们首次抓取的小时数中位数。越小越好。模型从文章内容提取事件时间。北极星。"
   },
   {
    "id": 5,
-   "title": "真实对决数",
+   "title": "真实对决（模型验证）",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -142,7 +142,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_confident_races",
+     "expr": "pgc_event_meaningful_races",
      "instant": true
     }
    ],
@@ -179,11 +179,11 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "确信配对的对决总数（分母）。越大越说明评测有统计意义。"
+   "description": "模型确认速度对比有意义的配对数。旧系统 76 对 → 模型过滤后仅留真正可比的。"
   },
   {
    "id": 17,
-   "title": "领先中位数",
+   "title": "真实胜率",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -202,13 +202,13 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_lead_median_hours",
+     "expr": "pgc_event_real_win_rate",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "h",
+     "unit": "percent",
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -217,8 +217,16 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 50
+       },
+       {
+        "color": "green",
+        "value": 70
        }
       ]
      }
@@ -239,11 +247,11 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "赢的时候，我们平均比对照媒体早多少小时。"
+   "description": "在模型验证的真实对决中，我们先发的比例。"
   },
   {
    "id": 18,
-   "title": "滞后中位数",
+   "title": "过滤配对",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -262,13 +270,13 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_lag_median_hours",
+     "expr": "pgc_event_non_meaningful",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "h",
+     "unit": "short",
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -277,16 +285,8 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "text",
         "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 2
-       },
-       {
-        "color": "red",
-        "value": 8
        }
       ]
      }
@@ -307,7 +307,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "输的时候（有一手源但比对照慢），我们平均晚多少小时。越小越接近翻盘。"
+   "description": "模型判定速度对比无意义的配对数（官方公告 vs 聚合、不同角度一手报道等）。"
   },
   {
    "id": 19,
@@ -460,7 +460,7 @@
   },
   {
    "id": 9,
-   "title": "首发胜率走势 (%)",
+   "title": "事件延迟 & 胜率走势",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -479,15 +479,26 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_confident_win_rate",
+     "expr": "pgc_event_latency_median_hours",
      "instant": false,
      "range": true,
-     "legendFormat": "确信对决胜率"
+     "legendFormat": "事件延迟中位数 (h)"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_real_win_rate",
+     "instant": false,
+     "range": true,
+     "legendFormat": "真实胜率 (%)"
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "percent",
+     "unit": "short",
      "custom": {
       "drawStyle": "line",
       "lineWidth": 2,
@@ -510,7 +521,7 @@
      "mode": "multi"
     }
    },
-   "description": "确信对决胜率 + 全量参考。修复一手源后约 14 天逐步抬升。"
+   "description": "事件延迟（越低越好）和真实胜率走势。模型每 ~30 分钟重算。"
   },
   {
    "id": 10,
@@ -1138,5 +1149,5 @@
    }
   }
  ],
- "description": "北极星：首发胜率（确信对决）— 我们输在哪、为什么输、怎么补。"
+ "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。"
 }
