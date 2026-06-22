@@ -21,7 +21,7 @@
   "timezone": "Asia/Shanghai",
   "refresh": "5m",
   "time": {
-    "from": "now-30d",
+    "from": "now-2d",
     "to": "now"
   },
   "templating": {
