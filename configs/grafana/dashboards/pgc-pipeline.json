@@ -59,7 +59,7 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 5,
+    "w": 6,
     "x": 0,
     "y": 6
    },
@@ -131,8 +131,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 3,
-    "x": 5,
+    "w": 4,
+    "x": 6,
     "y": 6
    },
    "targets": [
@@ -192,7 +192,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 8,
+    "x": 10,
     "y": 6
    },
    "targets": [
@@ -252,7 +252,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 11,
+    "x": 13,
     "y": 6
    },
    "targets": [
@@ -319,8 +319,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 3,
-    "x": 14,
+    "w": 4,
+    "x": 16,
     "y": 6
    },
    "targets": [
@@ -376,66 +376,6 @@
     "justifyMode": "auto"
    },
    "description": "可行动的 NFP：对照媒体报了某事件，我们有可注册的一手源但尚未注册。这是采购 backlog。7 天滚动窗口。"
-  },
-  {
-   "id": 25,
-   "title": "无一手源（结构性）",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 3,
-    "x": 17,
-    "y": 6
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_source_nfp_structural",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "text",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   },
-   "description": "结构性不可赢的 NFP：体育比分、本地新闻、八卦——天然没有可注册的一手源。无需行动。"
   },
   {
    "id": 7,
