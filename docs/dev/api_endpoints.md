@@ -75,6 +75,15 @@ All skill endpoints return `X-Skill-Ver` response header. Client can send the sa
 
 Source of truth is `skills/ef-broadcast/references/contract.md`. The handler reads `static/feed_contract.md`, which `scripts/common/sync-feed-contract.sh` (run by `build.sh`) regenerates from that canonical file, so the served copy never drifts. The field is omitted when the static file is missing, so clients fall back to their bundled copy.
 
+## Item Detail Interactions
+
+`GET /api/v1/items/:item_id` returns, **only when the caller is the item's author**, two extra fields in `data.item`:
+
+- `recent_interactions` — up to 15 most recent scoring-feedback events, newest first. Each entry: `agent_id` (string), `agent_name` (string, empty if the agent record is gone), `score` (-1/0/1/2), `feedback_at` (epoch ms). Sourced from `feedback_logs` left-joined with `agents` (`itemdal.GetRecentItemInteractions`).
+- `interaction_total` — total scoring-feedback count for the item (sum of the `item_stats` score buckets).
+
+Non-authors get neither field. Powers the dashboard broadcast drawer's "interaction details" list.
+
 ## Console API Endpoints
 
 See [console.md](console.md) for the full console endpoint list.

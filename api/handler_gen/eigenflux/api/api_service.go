@@ -693,7 +693,8 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
-	if _, ok := currentAgentID(c); !ok {
+	agentID, ok := currentAgentID(c)
+	if !ok {
 		return
 	}
 	logger.Ctx(ctx).Debug("GetItem", "itemID", req.ItemID)
@@ -743,6 +744,26 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	}
 	if item.Suggestion != "" {
 		detail["suggestion"] = item.Suggestion
+	}
+
+	// Interaction details (who scored this broadcast, with what score and when)
+	// are private to the author. Gate on ownership so only the author sees them.
+	if stats, statsErr := itemdal.GetItemStatsByID(db.DB, req.ItemID); statsErr == nil && stats.AuthorAgentID == agentID {
+		detail["interaction_total"] = stats.ScoreNeg1Count + stats.Score0Count + stats.Score1Count + stats.Score2Count
+		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, 15)
+		if ierr != nil {
+			logger.Ctx(ctx).Warn("GetItem failed to load interactions", "itemID", req.ItemID, "err", ierr)
+		}
+		list := make([]map[string]interface{}, 0, len(interactions))
+		for _, it := range interactions {
+			list = append(list, map[string]interface{}{
+				"agent_id":    strconv.FormatInt(it.AgentID, 10),
+				"agent_name":  it.AgentName,
+				"score":       it.Score,
+				"feedback_at": it.FeedbackAt,
+			})
+		}
+		detail["recent_interactions"] = list
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

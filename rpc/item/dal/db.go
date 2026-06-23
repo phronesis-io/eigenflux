@@ -158,7 +158,6 @@ func GetProcessedItemByID(db *gorm.DB, itemID int64) (*ProcessedItem, error) {
 	return &item, err
 }
 
-
 func UpdateProcessedItemStatus(db *gorm.DB, itemID int64, status int16) error {
 	// Skip update if item is already deleted (terminal)
 	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != ?", itemID, StatusDeleted).Updates(map[string]interface{}{
@@ -365,6 +364,35 @@ func GetItemStatsByID(db *gorm.DB, itemID int64) (*ItemStats, error) {
 		return nil, err
 	}
 	return &stats, nil
+}
+
+// ItemInteraction is one agent's scoring feedback on an item, joined with the
+// agent's current display name. Backs the broadcast drawer's "interaction
+// details" list (who scored the broadcast, with what score and when).
+type ItemInteraction struct {
+	AgentID    int64  `gorm:"column:agent_id"`
+	AgentName  string `gorm:"column:agent_name"`
+	Score      int16  `gorm:"column:score"`
+	FeedbackAt int64  `gorm:"column:feedback_at"`
+}
+
+// GetRecentItemInteractions returns the most recent scoring feedback on an item,
+// newest first, capped at limit. Each row carries the scoring agent's id, name,
+// score (-1/0/1/2) and timestamp. Reads feedback_logs (indexed on
+// item_id, feedback_at) left-joined with agents for the display name.
+func GetRecentItemInteractions(db *gorm.DB, itemID int64, limit int) ([]ItemInteraction, error) {
+	var rows []ItemInteraction
+	err := db.Table("feedback_logs AS f").
+		Select("f.agent_id, a.agent_name, f.score, f.feedback_at").
+		Joins("LEFT JOIN agents a ON a.agent_id = f.agent_id").
+		Where("f.item_id = ?", itemID).
+		Order("f.feedback_at DESC").
+		Limit(limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // ItemWithStats combines item data with statistics
