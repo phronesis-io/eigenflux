@@ -750,7 +750,18 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	// are private to the author. Gate on ownership so only the author sees them.
 	if stats, statsErr := itemdal.GetItemStatsByID(db.DB, req.ItemID); statsErr == nil && stats.AuthorAgentID == agentID {
 		detail["interaction_total"] = stats.ScoreNeg1Count + stats.Score0Count + stats.Score1Count + stats.Score2Count
-		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, 15)
+		// Default to the 15 most recent; the drawer's "view all" passes a higher
+		// int_limit to pull the full list in one shot (capped to bound the payload).
+		intLimit := 15
+		if v := string(c.Query("int_limit")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				intLimit = n
+				if intLimit > 200 {
+					intLimit = 200
+				}
+			}
+		}
+		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, intLimit)
 		if ierr != nil {
 			logger.Ctx(ctx).Warn("GetItem failed to load interactions", "itemID", req.ItemID, "err", ierr)
 		}
