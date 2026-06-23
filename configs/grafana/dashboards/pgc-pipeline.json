@@ -355,12 +355,34 @@
     },
     "overrides": [
      {
-      "matcher": {"id": "byName", "options": "赢"},
-      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+      "matcher": {
+       "id": "byName",
+       "options": "赢"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
      },
      {
-      "matcher": {"id": "byName", "options": "输"},
-      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+      "matcher": {
+       "id": "byName",
+       "options": "输"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       }
+      ]
      }
     ]
    },
@@ -450,6 +472,559 @@
    "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。"
   },
   {
+   "id": 30,
+   "type": "row",
+   "title": "Owner Cockpit — 现在要看哪里",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 12
+   },
+   "collapsed": false
+  },
+  {
+   "id": 31,
+   "type": "stat",
+   "title": "立即要处理几件事",
+   "description": "first-source attention + canary failures + source SLA + active T0/T1 latency breaches.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 0,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 32,
+   "type": "stat",
+   "title": "首发关注",
+   "description": "Benchmark/secondary items needing primary-source coverage review.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 4,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_first_source_audit_attention",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 33,
+   "type": "stat",
+   "title": "T0/T1 仍超时",
+   "description": "Active publishable source_to_index/source_to_push breaches in the last 3h.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 8,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0)",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 34,
+   "type": "stat",
+   "title": "Canary 失败",
+   "description": "Must-have source checks currently failing.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 12,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_source_health_canaries_failed",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 35,
+   "type": "stat",
+   "title": "源 SLA 关注",
+   "description": "Registry-defined source-health SLA breaches from the latest report.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 16,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_source_health_sla_attention",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 36,
+   "type": "stat",
+   "title": "Twitter runway",
+   "description": "Estimated days until twitterapi.io credits run out at current burn.",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 20,
+    "y": 13
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_twitterapi_credits_days_to_empty",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "d",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 14
+       },
+       {
+        "color": "green",
+        "value": 30
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 37,
+   "type": "timeseries",
+   "title": "风险趋势",
+   "description": "Owner action count and its components over time.",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 18
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "instant": false,
+     "range": true,
+     "legendFormat": "总行动数"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_first_source_audit_attention",
+     "instant": false,
+     "range": true,
+     "legendFormat": "首发关注"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0)",
+     "instant": false,
+     "range": true,
+     "legendFormat": "T0/T1 active latency"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_source_health_canaries_failed",
+     "instant": false,
+     "range": true,
+     "legendFormat": "Canary"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 38,
+   "type": "table",
+   "title": "Active source drilldown",
+   "description": "Which source is currently causing actionable low-latency breaches.",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 18
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "sort_desc(pgc_signal_latency_active_source_breaches_3h{kind=~\"source_latency|source_feed_lag\"})",
+     "instant": true,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false,
+     "fields": ""
+    }
+   }
+  },
+  {
    "id": 8,
    "type": "row",
    "title": "走势 — 是否在上升",
@@ -458,7 +1033,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 12
+    "y": 25
    },
    "panels": []
   },
@@ -474,7 +1049,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 13
+    "y": 26
    },
    "targets": [
     {
@@ -528,353 +1103,6 @@
    "description": "事件延迟（越低越好）和真实胜率走势。模型每 ~30 分钟重算。"
   },
   {
-   "id": 10,
-   "type": "row",
-   "title": "延迟分布 — 还有多少提速空间",
-   "collapsed": false,
-   "gridPos": {
-    "h": 1,
-    "w": 24,
-    "x": 0,
-    "y": 21
-   },
-   "panels": []
-  },
-  {
-   "id": 11,
-   "title": "延迟分位 P25 / P50 / P75",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 12,
-    "x": 0,
-    "y": 22
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_latency_p25_hours",
-     "instant": true,
-     "legendFormat": "P25"
-    },
-    {
-     "refId": "B",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_latency_median_hours",
-     "instant": true,
-     "legendFormat": "P50"
-    },
-    {
-     "refId": "C",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_latency_p75_hours",
-     "instant": true,
-     "legendFormat": "P75"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "h",
-     "decimals": 1,
-     "color": {
-      "mode": "palette-classic"
-     }
-    },
-    "overrides": [
-     {
-      "matcher": {"id": "byName", "options": "P25"},
-      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
-     },
-     {
-      "matcher": {"id": "byName", "options": "P50"},
-      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
-     },
-     {
-      "matcher": {"id": "byName", "options": "P75"},
-      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]
-     }
-    ]
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "horizontal",
-    "textMode": "auto",
-    "colorMode": "value",
-    "graphMode": "none",
-    "justifyMode": "auto"
-   },
-   "description": "事件抓取延迟分布：P25（最快 25%）、P50（中位数）、P75。P75-P25 越小说明延迟越稳定。"
-  },
-  {
-   "id": 12,
-   "title": "判定样本量",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 12,
-    "x": 12,
-    "y": 22
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_latencies_count",
-     "instant": true,
-     "legendFormat": "有延迟数据的事件数"
-    },
-    {
-     "refId": "B",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_meaningful_races",
-     "instant": true,
-     "legendFormat": "真实对决数"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "palette-classic"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "horizontal",
-    "textMode": "auto",
-    "colorMode": "value",
-    "graphMode": "none",
-    "justifyMode": "auto"
-   },
-   "description": "有多少事件有延迟数据（分母），其中多少进入真实对决（判定为有意义的速度对比）。分母越大 = 覆盖越广。"
-  },
-  {
-   "id": 13,
-   "type": "row",
-   "title": "一手源健康 — 抓取修复进度",
-   "collapsed": false,
-   "gridPos": {
-    "h": 1,
-    "w": 24,
-    "x": 0,
-    "y": 28
-   },
-   "panels": []
-  },
-  {
-   "id": 14,
-   "title": "坏掉的一手源",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 7,
-    "w": 6,
-    "x": 0,
-    "y": 29
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_party_feeds_broken_count",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 8
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   },
-   "description": "当前抓取失败/被封的一手源数。越低越好。"
-  },
-  {
-   "id": 15,
-   "title": "坏源数趋势 (下降 = 修复进度)",
-   "type": "timeseries",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 7,
-    "w": 10,
-    "x": 6,
-    "y": 29
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_party_feeds_broken_count",
-     "instant": false,
-     "range": true,
-     "legendFormat": "坏源数"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "custom": {
-      "drawStyle": "line",
-      "lineWidth": 2,
-      "fillOpacity": 8,
-      "showPoints": "never",
-      "spanNulls": true
-     },
-     "color": {
-      "mode": "palette-classic"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "bottom"
-    },
-    "tooltip": {
-     "mode": "multi"
-    }
-   },
-   "description": "每修好一个就降一格。"
-  },
-  {
-   "id": 16,
-   "title": "待修一手源",
-   "type": "table",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 7,
-    "w": 8,
-    "x": 16,
-    "y": 29
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_first_party_feed_broken",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "excludeByName": {
-       "Time": true,
-       "Value": true,
-       "job": true,
-       "instance": true,
-       "__name__": true
-      },
-      "renameByName": {
-       "source": "信源",
-       "error": "原因"
-      }
-     }
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {},
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true
-   },
-   "description": "仍抓取失败的一手源及原因（待修清单）。"
-  },
-  {
    "id": 20,
    "type": "row",
    "title": "运维保底 — 系统还活着吗",
@@ -883,7 +1111,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 36
+    "y": 34
    },
    "panels": []
   },
@@ -899,7 +1127,7 @@
     "h": 6,
     "w": 4,
     "x": 0,
-    "y": 37
+    "y": 35
    },
    "targets": [
     {
@@ -967,7 +1195,7 @@
     "h": 6,
     "w": 4,
     "x": 4,
-    "y": 37
+    "y": 35
    },
    "targets": [
     {
@@ -1035,7 +1263,7 @@
     "h": 6,
     "w": 4,
     "x": 8,
-    "y": 37
+    "y": 35
    },
    "targets": [
     {
@@ -1103,7 +1331,7 @@
     "h": 6,
     "w": 12,
     "x": 12,
-    "y": 37
+    "y": 35
    },
    "targets": [
     {
@@ -1158,7 +1386,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 43
+    "y": 41
    },
    "targets": [
     {

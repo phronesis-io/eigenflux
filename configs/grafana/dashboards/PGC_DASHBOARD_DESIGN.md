@@ -22,14 +22,13 @@
 这块 Grafana 看板（uid: `pgc-pipeline`）回答 **四个问题**：
 
 1. **事件延迟多少** — 中位数、胜率、赢输对比、数据年龄
-2. **趋势怎样** — 延迟和胜率时序线
-3. **延迟分布** — P25/P50/P75 分位数、样本量
-4. **一手源健康** — 坏源数、修复进度、待修清单
-5. **系统还活着吗** — 24h 发布量、队列积压、日志（底部运维保底）
+2. **现在要看哪里** — action count、首发关注、active latency、canary、source SLA、Twitter runway、风险趋势、source drilldown
+3. **趋势怎样** — 延迟和胜率时序线
+4. **系统还活着吗** — 24h 发布量、队列积压、日志（底部运维保底）
 
 ## 设计原则
 
-- **北极星优先**：前三行全部围绕事件延迟和真实对决，不放无关运维面板。
+- **北极星优先**：核心结果仍在首屏；owner cockpit 紧跟其后，因为它回答当前行动面。
 - **不超过 25 面板**：76 面板的教训 — 面板多了没人看，等于没有 dashboard。
   每加一个面板要能回答"看了之后我会做什么动作"，答不上来就不加。
 - **运维放底部且可折叠**：保底但不抢焦点。
@@ -48,23 +47,22 @@
 | 赢/输 | `pgc_event_real_wins` / `pgc_event_real_losses` | 绝对数 — 赢多输少 = 健康 |
 | 判定数据年龄 | `pgc_event_verdicts_age_seconds / 3600` | 超 2h = timer 可能卡了 |
 
-### Row 2: 走势 — 是否在上升
+### Row 2: Owner Cockpit — 现在要看哪里
+| 面板 | 指标 | 操作含义 |
+|------|------|---------|
+| 立即要处理几件事 | `pgc_first_source_audit_attention + pgc_source_health_canaries_failed + pgc_source_health_sla_attention + pgc_signal_latency_actionable_breaches_3h{source_tier=~"T0\|T1"}` | owner action queue |
+| 首发关注 | `pgc_first_source_audit_attention` | benchmark/secondary items needing primary-source review |
+| T0/T1 仍超时 | `pgc_signal_latency_actionable_breaches_3h{source_tier=~"T0\|T1"}` | active high-priority source latency breaches |
+| Canary 失败 | `pgc_source_health_canaries_failed` | must-have source checks failing now |
+| 源 SLA 关注 | `pgc_source_health_sla_attention` | registry-defined source-health SLA breaches |
+| Twitter runway | `pgc_twitterapi_credits_days_to_empty` | paid X/Twitter source budget runway |
+| 风险趋势 | owner-action components over time | whether active risk is improving or worsening |
+| Active source drilldown | `pgc_signal_latency_active_source_breaches_3h{kind=~"source_latency\|source_feed_lag"}` | source/stage/tier/kind for current offenders |
+
+### Row 3: 走势 — 是否在上升
 - 事件延迟 + 真实胜率双线 timeseries（`pgc_event_latency_median_hours`, `pgc_event_real_win_rate`）
 
-### Row 3: 延迟分布 — 还有多少提速空间
-| 面板 | 指标 | 操作含义 |
-|------|------|---------|
-| 延迟分位 P25/P50/P75 | `pgc_event_latency_p25_hours` / `median` / `p75` | P75-P25 越小 = 延迟越稳定 |
-| 判定样本量 | `pgc_event_latencies_count` + `pgc_event_meaningful_races` | 分母 — 覆盖越广越好 |
-
-### Row 4: 一手源健康
-| 面板 | 指标 | 操作含义 |
-|------|------|---------|
-| 坏掉的一手源 | `pgc_first_party_feeds_broken_count` | 越低越好 |
-| 坏源数趋势 | 同上 timeseries | 下降 = 修复进度 |
-| 待修一手源 | `pgc_first_party_feed_broken` (table) | TODO 清单 |
-
-### Row 5: 运维保底
+### Row 4: 运维保底
 | 面板 | 指标 | 操作含义 |
 |------|------|---------|
 | 近 24h 发布数 | `increase(pgc_published_total[24h])` | 为 0 = 管道挂了 |
@@ -86,6 +84,7 @@
 | 2026-06-22 `ec15eda` | 意外恢复 76 面板（误判删减为丢失） | **76** |
 | 2026-06-22 | 以确信对决胜率为北极星重建 | **24** |
 | 2026-06-23 `329b47c` | 全面迁移至模型判定 (pgc_event_*)，删除所有旧 pgc_first_source_* 面板 | **22** |
+| 2026-06-23 当前 | 加 owner cockpit，并删除低优先级延迟分布和旧坏源面板，保持 25 面板上限 | **25** |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
@@ -111,7 +110,7 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 
 ## 已退役的指标（2026-06-23）
 
-以下指标不再有 dashboard 面板消费，但 Gauge 定义仍在 `metrics.py` 中（避免 scrape error）：
+以下旧 leaderboard 指标不再有 dashboard 面板消费，但 Gauge 定义仍在 `metrics.py` 中（避免 scrape error）：
 - `pgc_first_source_confident_win_rate` — 旧北极星
 - `pgc_first_source_win_rate` / `pgc_first_source_win_rate_by_domain`
 - `pgc_first_source_losses_by_reason`
