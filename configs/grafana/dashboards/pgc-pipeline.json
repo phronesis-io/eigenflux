@@ -311,7 +311,7 @@
   },
   {
    "id": 19,
-   "title": "无一手源（可行动）",
+   "title": "赢 / 输",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -330,8 +330,19 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_no_first_party",
-     "instant": true
+     "expr": "pgc_event_real_wins",
+     "instant": true,
+     "legendFormat": "赢"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_real_losses",
+     "instant": true,
+     "legendFormat": "输"
     }
    ],
    "fieldConfig": {
@@ -339,27 +350,19 @@
      "unit": "short",
      "mappings": [],
      "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 5
-       },
-       {
-        "color": "red",
-        "value": 15
-       }
-      ]
+      "mode": "palette-classic"
      }
     },
-    "overrides": []
+    "overrides": [
+     {
+      "matcher": {"id": "byName", "options": "赢"},
+      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+     },
+     {
+      "matcher": {"id": "byName", "options": "输"},
+      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+     }
+    ]
    },
    "options": {
     "reduceOptions": {
@@ -369,17 +372,17 @@
      "fields": "",
      "values": false
     },
-    "orientation": "auto",
+    "orientation": "horizontal",
     "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
+    "colorMode": "value",
+    "graphMode": "none",
     "justifyMode": "auto"
    },
-   "description": "可行动的 NFP：对照媒体报了某事件，我们有可注册的一手源但尚未注册。这是采购 backlog。7 天滚动窗口。"
+   "description": "真实对决中，我们抢先的次数（赢）和对照媒体更快的次数（输）。"
   },
   {
    "id": 7,
-   "title": "数据新鲜度",
+   "title": "判定数据年龄",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -398,13 +401,14 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_leaderboard_age_seconds / 3600",
+     "expr": "pgc_event_verdicts_age_seconds / 3600",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
      "unit": "h",
+     "decimals": 1,
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -418,11 +422,11 @@
        },
        {
         "color": "yellow",
-        "value": 26
+        "value": 2
        },
        {
         "color": "red",
-        "value": 50
+        "value": 6
        }
       ]
      }
@@ -443,7 +447,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "距上次基准重算的时间。每天自动跑一次。"
+   "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。"
   },
   {
    "id": 8,
@@ -526,7 +530,7 @@
   {
    "id": 10,
    "type": "row",
-   "title": "按领域 / 为什么没赢 — 下一步补哪里",
+   "title": "延迟分布 — 还有多少提速空间",
    "collapsed": false,
    "gridPos": {
     "h": 1,
@@ -538,14 +542,14 @@
   },
   {
    "id": 11,
-   "title": "各领域首发率 (%)",
-   "type": "bargauge",
+   "title": "延迟分位 P25 / P50 / P75",
+   "type": "stat",
    "datasource": {
     "type": "prometheus",
     "uid": "pgc-prometheus"
    },
    "gridPos": {
-    "h": 9,
+    "h": 6,
     "w": 12,
     "x": 0,
     "y": 22
@@ -557,32 +561,55 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_win_rate_by_domain",
+     "expr": "pgc_event_latency_p25_hours",
      "instant": true,
-     "legendFormat": "{{domain}}"
+     "legendFormat": "P25"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_latency_median_hours",
+     "instant": true,
+     "legendFormat": "P50"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_latency_p75_hours",
+     "instant": true,
+     "legendFormat": "P75"
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "percent",
+     "unit": "h",
+     "decimals": 1,
      "color": {
-      "mode": "continuous-GrYlRd"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
+      "mode": "palette-classic"
      }
     },
-    "overrides": []
+    "overrides": [
+     {
+      "matcher": {"id": "byName", "options": "P25"},
+      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+     },
+     {
+      "matcher": {"id": "byName", "options": "P50"},
+      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+     },
+     {
+      "matcher": {"id": "byName", "options": "P75"},
+      "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]
+     }
+    ]
    },
    "options": {
-    "orientation": "horizontal",
-    "displayMode": "gradient",
     "reduceOptions": {
      "calcs": [
       "lastNotNull"
@@ -590,20 +617,24 @@
      "fields": "",
      "values": false
     },
-    "showUnfilled": true
+    "orientation": "horizontal",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "none",
+    "justifyMode": "auto"
    },
-   "description": "每个领域我们抢先的比例。低的领域 = 下一步补一手源的方向。"
+   "description": "事件抓取延迟分布：P25（最快 25%）、P50（中位数）、P75。P75-P25 越小说明延迟越稳定。"
   },
   {
    "id": 12,
-   "title": "没赢的原因 (事件数)",
-   "type": "bargauge",
+   "title": "判定样本量",
+   "type": "stat",
    "datasource": {
     "type": "prometheus",
     "uid": "pgc-prometheus"
    },
    "gridPos": {
-    "h": 9,
+    "h": 6,
     "w": 12,
     "x": 12,
     "y": 22
@@ -615,32 +646,31 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_losses_by_reason",
+     "expr": "pgc_event_latencies_count",
      "instant": true,
-     "legendFormat": "{{reason}}"
+     "legendFormat": "有延迟数据的事件数"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_meaningful_races",
+     "instant": true,
+     "legendFormat": "真实对决数"
     }
    ],
    "fieldConfig": {
     "defaults": {
      "unit": "short",
      "color": {
-      "mode": "continuous-BlPu"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
+      "mode": "palette-classic"
      }
     },
     "overrides": []
    },
    "options": {
-    "orientation": "horizontal",
-    "displayMode": "gradient",
     "reduceOptions": {
      "calcs": [
       "lastNotNull"
@@ -648,9 +678,13 @@
      "fields": "",
      "values": false
     },
-    "showUnfilled": true
+    "orientation": "horizontal",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "none",
+    "justifyMode": "auto"
    },
-   "description": "no_first_party = 没抓到源（补源）；first_party_slower = 抓到但慢（提速/换源）；weak_match = 匹配不确定。"
+   "description": "有多少事件有延迟数据（分母），其中多少进入真实对决（判定为有意义的速度对比）。分母越大 = 覆盖越广。"
   },
   {
    "id": 13,
@@ -661,7 +695,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 31
+    "y": 28
    },
    "panels": []
   },
@@ -677,7 +711,7 @@
     "h": 7,
     "w": 6,
     "x": 0,
-    "y": 32
+    "y": 29
    },
    "targets": [
     {
@@ -745,7 +779,7 @@
     "h": 7,
     "w": 10,
     "x": 6,
-    "y": 32
+    "y": 29
    },
    "targets": [
     {
@@ -799,7 +833,7 @@
     "h": 7,
     "w": 8,
     "x": 16,
-    "y": 32
+    "y": 29
    },
    "targets": [
     {
@@ -849,7 +883,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 39
+    "y": 36
    },
    "panels": []
   },
@@ -865,7 +899,7 @@
     "h": 6,
     "w": 4,
     "x": 0,
-    "y": 40
+    "y": 37
    },
    "targets": [
     {
@@ -933,7 +967,7 @@
     "h": 6,
     "w": 4,
     "x": 4,
-    "y": 40
+    "y": 37
    },
    "targets": [
     {
@@ -1001,7 +1035,7 @@
     "h": 6,
     "w": 4,
     "x": 8,
-    "y": 40
+    "y": 37
    },
    "targets": [
     {
@@ -1069,7 +1103,7 @@
     "h": 6,
     "w": 12,
     "x": 12,
-    "y": 40
+    "y": 37
    },
    "targets": [
     {
@@ -1124,7 +1158,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 46
+    "y": 43
    },
    "targets": [
     {
