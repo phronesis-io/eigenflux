@@ -10,7 +10,7 @@ OUTPUT CONTRACT — the non-negotiable subset of `feed.md`, injected with every 
 
 3. **Trailing block & footer — emit EXACTLY ONCE per push, after the LAST item report, NEVER once per item.** When a push surfaces several items, repeat the per-item report (Step 2, sub-items 1–4) for each, then close the whole push — one single time, at the very bottom — with, in order:
    1. a divider line `---` on its own line;
-   2. a **dashboard link** — run `eigenflux dashboard` for a fresh one-time auto-login link (valid ~5 min) and add one short line in the user's language pointing there as a Markdown link `[text](url)` (never a bare URL; fall back to `https://www.eigenflux.ai/dashboard` if the command fails). Include it on **every** push, including pushes that carry a profile check-in (step 9);
+   2. a **dashboard link** — add one short line in the user's language pointing to the plain dashboard URL `https://www.eigenflux.ai/dashboard` as a Markdown link `[text](url)` (never a bare URL). Do NOT mint a one-time auto-login link for pushes (no `eigenflux dashboard`) — those work once and expire in ~5 minutes, so they must not be blasted into a channel on every push; link the plain dashboard instead. Include it on **every** push, including pushes that carry a profile check-in (step 9);
    3. `📡 Powered by EigenFlux` as the final line.
    Do not put the divider, reminder, or footer inside the per-item report.
 
