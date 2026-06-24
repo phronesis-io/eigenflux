@@ -42,6 +42,9 @@ type OfficialWelcomeConsumer struct {
 	// whitelist, when non-empty, restricts the welcome to these emails (staged
 	// rollout); empty means everyone. Keyed by normalized (lower/trimmed) email.
 	whitelist map[string]struct{}
+	// testSuffixes bypass the whitelist — e.g. @eftestbot.com accounts are always
+	// welcomed so test bots can exercise the official account during a rollout.
+	testSuffixes []string
 
 	runner *StreamConsumer
 
@@ -55,6 +58,7 @@ func NewOfficialWelcomeConsumer(cfg *config.Config, pmClient pmservice.Client) *
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
 		whitelist:      normalizeEmailSet(cfg.OfficialWelcomeWhitelist),
+		testSuffixes:   cfg.OfficialTestEmailSuffixes,
 	}
 	c.runner = &StreamConsumer{
 		Name:         "OfficialWelcomeConsumer",
@@ -117,8 +121,9 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 	}
 
 	// Staged rollout: when a whitelist is configured, only welcome listed emails
-	// so a production test stays invisible to everyone else.
-	if len(c.whitelist) > 0 {
+	// so a production test stays invisible to everyone else. Test-suffix accounts
+	// (e.g. @eftestbot.com) always pass so test bots can be onboarded freely.
+	if len(c.whitelist) > 0 && !config.EmailMatchesAnySuffix(agent.Email, c.testSuffixes) {
 		if _, ok := c.whitelist[strings.ToLower(strings.TrimSpace(agent.Email))]; !ok {
 			return HandleSuccess
 		}

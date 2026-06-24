@@ -23,11 +23,12 @@ import (
 // PM crons (#4 feed rescue, #5 trending) use to send DMs as the official
 // account. The official account is resolved by email and cached.
 type officialCtx struct {
-	pm        pmservice.Client
-	llm       *llm.Client
-	prompts   *llm.PromptRegistry
-	cfg       *config.Config
-	whitelist map[string]struct{}
+	pm           pmservice.Client
+	llm          *llm.Client
+	prompts      *llm.PromptRegistry
+	cfg          *config.Config
+	whitelist    map[string]struct{}
+	testSuffixes []string // e.g. @eftestbot.com — always pass the whitelist gate
 
 	mu         sync.Mutex
 	officialID int64
@@ -43,7 +44,7 @@ func newOfficialCtx(cfg *config.Config, pmClient pmservice.Client, llmClient *ll
 	if len(wl) == 0 {
 		wl = nil
 	}
-	return &officialCtx{pm: pmClient, llm: llmClient, prompts: prompts, cfg: cfg, whitelist: wl}
+	return &officialCtx{pm: pmClient, llm: llmClient, prompts: prompts, cfg: cfg, whitelist: wl, testSuffixes: cfg.OfficialTestEmailSuffixes}
 }
 
 // resolveOfficialID looks up the official account's agent_id by email and caches
@@ -69,7 +70,7 @@ func (o *officialCtx) passesGate(officialID, targetID int64, targetEmail string)
 	if friend, err := pmdal.IsFriend(db.DB, officialID, targetID); err != nil || !friend {
 		return false
 	}
-	if o.whitelist != nil {
+	if o.whitelist != nil && !config.EmailMatchesAnySuffix(targetEmail, o.testSuffixes) {
 		if _, ok := o.whitelist[strings.ToLower(strings.TrimSpace(targetEmail))]; !ok {
 			return false
 		}

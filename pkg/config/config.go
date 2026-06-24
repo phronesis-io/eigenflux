@@ -99,6 +99,7 @@ type Config struct {
 	EnableOfficialWelcome       bool     // master switch for the onboarding welcome (friend + PM) behavior
 	OfficialWelcomeWhitelist    []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
 	OfficialPMWhitelist         []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
+	OfficialTestEmailSuffixes   []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
 	EnableOfficialTrending      bool     // #5: biweekly network-wide trending DM
 	EnableOfficialFeedRescue    bool     // #4: feed-deficit topic-recommendation DM
 	OfficialTrendingIntervalSec int      // #5 cadence (default 14d)
@@ -257,6 +258,7 @@ func Load() *Config {
 		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
 		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
 		OfficialPMWhitelist:           getEnvStringList("OFFICIAL_PM_WHITELIST", nil),
+		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", []string{"@eftestbot.com"}),
 		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
 		EnableOfficialFeedRescue:      getEnvBool("ENABLE_OFFICIAL_FEED_RESCUE", true),
 		OfficialTrendingIntervalSec:   getEnvInt("OFFICIAL_TRENDING_INTERVAL_SEC", 14*86400),
@@ -430,6 +432,23 @@ func getEnvFloat(key string, fallback float64) float64 {
 
 // getEnvStringList parses a comma-separated env var into a string slice.
 // Each element is trimmed and lowercased. Empty elements are skipped.
+// EmailMatchesAnySuffix reports whether email ends with any of the given
+// suffixes (case-insensitive). Used to treat e.g. @eftestbot.com accounts as
+// test accounts for official-account features.
+func EmailMatchesAnySuffix(email string, suffixes []string) bool {
+	e := strings.ToLower(strings.TrimSpace(email))
+	if e == "" {
+		return false
+	}
+	for _, s := range suffixes {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s != "" && strings.HasSuffix(e, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func getEnvStringList(key string, fallback []string) []string {
 	v := os.Getenv(key)
 	if v == "" {
