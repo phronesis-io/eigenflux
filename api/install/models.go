@@ -22,6 +22,12 @@ type Token struct {
 	// FetchedAt is set the first time the agent fetches /r/<ref> (the earliest
 	// post-click signal — instructions read but not yet installed).
 	FetchedAt int64 `gorm:"column:fetched_at;not null;default:0"`
+	// Platform click identifiers captured from the landing URL, kept so a later
+	// (cross-device) conversion can be reported back to the ad platform's
+	// optimizer keyed by the original click. ClickID = Xiaohongshu 聚光; Twclid =
+	// X (Twitter) Ads. Exactly one is set for paid traffic; both empty otherwise.
+	ClickID string `gorm:"column:click_id;not null;default:''"`
+	Twclid  string `gorm:"column:twclid;not null;default:''"`
 }
 
 func (Token) TableName() string { return "install_tokens" }

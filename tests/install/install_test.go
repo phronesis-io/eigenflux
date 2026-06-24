@@ -26,6 +26,7 @@ func TestInstallAttributionFlow(t *testing.T) {
 		"utm_medium":   "cpc",
 		"utm_campaign": "launch_2026",
 		"referrer":     "https://example.com/",
+		"click_id":     "atest648ad435e4b05cd8517ffeee",
 	}, "")
 	if int(mint["code"].(float64)) != 0 {
 		t.Fatalf("install/token failed: %v", mint)
@@ -61,6 +62,10 @@ func TestInstallAttributionFlow(t *testing.T) {
 	attr := d1["attribution"].(map[string]interface{})
 	if attr["ref"] != ref || attr["channel"] != "google" || attr["utm_campaign"] != "launch_2026" {
 		t.Fatalf("attribution recovered wrong data: %v", attr)
+	}
+	// The platform click id captured at mint must round-trip for later callback.
+	if attr["click_id"] != "atest648ad435e4b05cd8517ffeee" {
+		t.Fatalf("click_id not captured/recovered: %v", attr["click_id"])
 	}
 	if int(attr["report_count"].(float64)) != 1 {
 		t.Fatalf("report_count should be 1 after first report, got %v", attr["report_count"])

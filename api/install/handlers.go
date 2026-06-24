@@ -43,6 +43,9 @@ type mintBody struct {
 	UTMContent  string `json:"utm_content"`
 	UTMTerm     string `json:"utm_term"`
 	Referrer    string `json:"referrer"`
+	// Platform click identifiers from the landing URL (paid traffic).
+	ClickID string `json:"click_id"` // Xiaohongshu 聚光
+	Twclid  string `json:"twclid"`   // X (Twitter) Ads
 }
 
 // mintRef issues a fresh referral code, persists the UTM/referrer it was minted
@@ -72,6 +75,8 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		UTMTerm:     trunc(body.UTMTerm, 255),
 		Channel:     normalizeChannel(body.UTMSource),
 		Referrer:    trunc(body.Referrer, 2048),
+		ClickID:     trunc(body.ClickID, 128),
+		Twclid:      trunc(body.Twclid, 128),
 		Status:      StatusPending,
 		ClientIP:    ip,
 		CreatedAt:   time.Now().UnixMilli(),
@@ -80,7 +85,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	event("install_ref_new", t.Token, "channel", t.Channel)
+	event("install_ref_new", t.Token, "channel", t.Channel, "paid", t.ClickID != "" || t.Twclid != "")
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"ref":     t.Token,
 		"command": installCommand(t.Token),
@@ -137,6 +142,8 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 			"utm_content":  t.UTMContent,
 			"utm_term":     t.UTMTerm,
 			"referrer":     t.Referrer,
+			"click_id":     t.ClickID,
+			"twclid":       t.Twclid,
 			"report_count": t.ReportCount,
 			"created_at":   t.CreatedAt,
 			"reported_at":  t.ReportedAt,
