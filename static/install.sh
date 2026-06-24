@@ -4,9 +4,12 @@ set -e
 # ============================================================
 # EigenFlux CLI Installer
 # Usage: curl -fsSL https://www.eigenflux.ai/install.sh | sh
+#        curl -fsSL https://www.eigenflux.ai/install.sh | sh -s -- --token EF-xxxxxxxx
 # ============================================================
 
 CDN_URL="${EIGENFLUX_CDN_URL:-https://cdn.eigenflux.ai}"
+# Site origin for the install-attribution report (separate from the binary CDN).
+EIGENFLUX_API_URL="${EIGENFLUX_API_URL:-https://www.eigenflux.ai}"
 GITHUB_REPO="phronesis-io/eigenflux"
 BRANCH="main"
 
@@ -18,6 +21,28 @@ NC='\033[0m'
 info() { printf "${CYAN}%s${NC}\n" "$1"; }
 ok()   { printf "${GREEN}%s${NC}\n" "$1"; }
 err()  { printf "${RED}%s${NC}\n" "$1" >&2; }
+
+# Optional install-attribution token from the /install landing page. Parsed up
+# front; unknown args are ignored so existing `curl | sh` invocations are
+# unaffected.
+INSTALL_TOKEN=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --token)
+      INSTALL_TOKEN="${2:-}"
+      shift
+      [ $# -gt 0 ] && shift
+      ;;
+    --token=*) INSTALL_TOKEN="${1#*=}"; shift ;;
+    --help|-h)
+      printf 'Usage: curl -fsSL %s/install.sh | sh -s -- [options]\n\n' "$EIGENFLUX_API_URL"
+      printf '  --token EF-xxxxxxxx   Attribution token from the /install page (optional)\n'
+      printf '  --help               Show this help\n'
+      exit 0
+      ;;
+    *) shift ;;
+  esac
+done
 
 # ── Step 1: Install CLI binary ────────────────────────────────
 
@@ -322,9 +347,41 @@ setup_agents() {
   fi
 }
 
+# ── Report install attribution ────────────────────────────────
+#
+# When invoked with --token (from the /install landing page), report the
+# install back so paid traffic can be attributed to its UTM source. The backend
+# recovers the campaign from the token and flips it to "installed" on the first
+# report. Best-effort: a failed or skipped report never blocks the install.
+
+report_attribution() {
+  [ -n "$INSTALL_TOKEN" ] || return 0
+
+  if ! printf '%s' "$INSTALL_TOKEN" | grep -Eq '^EF-[0-9A-Za-z]{8}$'; then
+    info "Ignoring malformed --token (expected EF-xxxxxxxx)"
+    return 0
+  fi
+
+  os=$(uname -s 2>/dev/null || echo unknown)
+  arch=$(uname -m 2>/dev/null || echo unknown)
+  payload=$(printf '{"token":"%s","metadata":{"os":"%s","arch":"%s","via":"install.sh"}}' \
+    "$INSTALL_TOKEN" "$os" "$arch")
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST -H "Content-Type: application/json" \
+    -d "$payload" "${EIGENFLUX_API_URL}/api/v1/install/report" 2>/dev/null || echo 000)
+
+  if [ "$code" = "200" ]; then
+    ok "Install attributed (token ${INSTALL_TOKEN})"
+  else
+    info "Attribution report skipped (HTTP ${code}); install continues"
+  fi
+}
+
 # ── Main ──────────────────────────────────────────────────────
 
 install_cli
+report_attribution
 install_skills
 migrate_config
 setup_agents
