@@ -446,7 +446,7 @@
     },
     {
       "id": 12,
-      "title": "今日活跃 PGC (主动去重)",
+      "title": "近30日活跃 MAU (主动去重, 排除 bot/pgc)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -465,7 +465,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email LIKE '%pgc.eigenflux%'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
+          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n  AND to_timestamp(l.created_at/1000.0) >= now()-interval '30 day';",
           "format": "table"
         }
       ],
