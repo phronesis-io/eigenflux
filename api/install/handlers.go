@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,17 +19,21 @@ import (
 // Package-level deps, set once by Register (same pattern as api/agti).
 var (
 	publicBaseURL string
-	limiter       = newIPLimiter(20, time.Minute) // token mint per IP
+	limiter       = newIPLimiter(20, time.Minute) // ref mint per IP
 )
 
-// Register wires the install-attribution routes onto the gateway. Both
-// endpoints are public (marketing landing page, no login); token minting is
-// IP rate limited so a flood of page loads can't amplify writes.
+// Register wires the install-attribution routes onto the gateway. All endpoints
+// are public (marketing landing page + agent join bootstrap, no login); ref
+// minting is IP rate limited so a flood of page loads can't amplify writes.
 func Register(h *server.Hertz, baseURL string) {
 	publicBaseURL = strings.TrimRight(baseURL, "/")
 	g := h.Group("/api/v1/install")
-	g.POST("/token", mintToken)
+	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
+	// Agent join entry: the /install page hands the user a command pointing here
+	// (not raw GitHub), so the instruction the agent reads is one we control and
+	// the fetch is the earliest post-click attribution signal.
+	h.GET("/r/:ref", serveRef)
 }
 
 type mintBody struct {
@@ -40,12 +45,12 @@ type mintBody struct {
 	Referrer    string `json:"referrer"`
 }
 
-// mintToken issues a fresh attribution token, persists the UTM/referrer it was
-// minted for, and returns the agent install command. The client is expected to
-// cache the token (localStorage) and not re-mint on refresh; the IP rate limit
-// is the server-side backstop against write amplification.
+// mintRef issues a fresh referral code, persists the UTM/referrer it was minted
+// for, and returns the agent join command. The client is expected to cache the
+// ref (localStorage) and not re-mint on refresh; the IP rate limit is the
+// server-side backstop against write amplification.
 // @router /api/v1/install/token [POST]
-func mintToken(_ context.Context, c *app.RequestContext) {
+func mintRef(_ context.Context, c *app.RequestContext) {
 	ip := clientIP(c)
 	if !limiter.Allow(ip) {
 		reply(c, http.StatusTooManyRequests, 429, "rate limited, try again later", nil)
@@ -75,21 +80,23 @@ func mintToken(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	event("install_token_new", t.Token, "channel", t.Channel)
+	event("install_ref_new", t.Token, "channel", t.Channel)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"token":   t.Token,
+		"ref":     t.Token,
 		"command": installCommand(t.Token),
 	})
 }
 
 type reportBody struct {
-	Token    string                 `json:"token"`
+	Ref      string                 `json:"ref"`
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
-// reportInstall records an install for a token and returns its attribution.
-// The first report flips the token to "installed" (the conversion); later
-// reports for the same token return attribution without re-counting it.
+// reportInstall records an install for a ref and returns its attribution. The
+// first report flips the ref to "installed" (the conversion); later reports for
+// the same ref return attribution without re-counting it. Public and idempotent
+// — install.sh, the CLI login, and the agent onboarding doc may all report the
+// same ref; only the first counts as a conversion.
 // @router /api/v1/install/report [POST]
 func reportInstall(_ context.Context, c *app.RequestContext) {
 	raw, _ := c.Body()
@@ -98,18 +105,18 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusBadRequest, 400, "invalid JSON body", nil)
 		return
 	}
-	if body.Token == "" {
-		reply(c, http.StatusBadRequest, 400, "token is required", nil)
+	if body.Ref == "" {
+		reply(c, http.StatusBadRequest, 400, "ref is required", nil)
 		return
 	}
-	if !ValidTokenFormat(body.Token) {
-		reply(c, http.StatusBadRequest, 400, "invalid token format, expected EF-xxxxxxxx", nil)
+	if !ValidTokenFormat(body.Ref) {
+		reply(c, http.StatusBadRequest, 400, "invalid ref format, expected EF-xxxxxxxx", nil)
 		return
 	}
-	converted, t, err := ReportInstall(db.DB, body.Token)
+	converted, t, err := ReportInstall(db.DB, body.Ref)
 	if err != nil {
 		if err == ErrTokenNotFound {
-			reply(c, http.StatusNotFound, 404, "token not found", nil)
+			reply(c, http.StatusNotFound, 404, "ref not found", nil)
 			return
 		}
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
@@ -122,7 +129,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"converted": converted,
 		"attribution": map[string]interface{}{
-			"token":        t.Token,
+			"ref":          t.Token,
 			"channel":      t.Channel,
 			"utm_source":   t.UTMSource,
 			"utm_medium":   t.UTMMedium,
@@ -137,8 +144,51 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	})
 }
 
-func installCommand(token string) string {
-	return "Read https://github.com/phronesis-io/eigenflux and help me join EigenFlux --invite " + token
+// serveRef serves the agent-facing join bootstrap for a referral code and
+// records the fetch as the earliest post-click attribution signal (the proxy
+// conversion fed to ad platforms within their short attribution windows).
+// @router /r/:ref [GET]
+func serveRef(_ context.Context, c *app.RequestContext) {
+	ref := c.Param("ref")
+	if !ValidTokenFormat(ref) {
+		c.Data(http.StatusBadRequest, "text/markdown; charset=utf-8",
+			[]byte("# Invalid referral code\n\nExpected the form EF-xxxxxxxx.\n"))
+		return
+	}
+	t, err := MarkFetched(db.DB, ref)
+	if err != nil {
+		c.Data(http.StatusInternalServerError, "text/markdown; charset=utf-8", []byte("# Error\n"))
+		return
+	}
+	if t == nil {
+		// Unknown ref: still serve generic join instructions, just unattributed.
+		event("install_fetch_unknown", ref)
+	} else {
+		event("install_fetch", ref, "channel", t.Channel)
+	}
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref)))
+}
+
+func installCommand(ref string) string {
+	return fmt.Sprintf("Read %s/r/%s and follow it to join EigenFlux", publicBaseURL, ref)
+}
+
+// joinDocTmpl is the agent-facing bootstrap served at /r/<ref>. {REF}/{BASE} are
+// substituted per request. It carries the ref through both the install and the
+// login steps so attribution is captured deterministically by the CLI.
+const joinDocTmpl = "# Join EigenFlux\n\n" +
+	"Your referral code: **{REF}** — keep it; it attributes this install to the campaign that referred you.\n\n" +
+	"## 1. Install the EigenFlux CLI and skills\n\n" +
+	"```bash\ncurl -fsSL {BASE}/install.sh | sh -s -- --ref {REF}\n```\n\n" +
+	"## 2. Log in — the CLI reports your referral automatically\n\n" +
+	"```bash\neigenflux auth login --email <your-email> --ref {REF}\n```\n\n" +
+	"If an OTP is required, complete it (keep the `--ref`):\n\n" +
+	"```bash\neigenflux auth verify --challenge-id <id> --code <code> --ref {REF}\n```\n\n" +
+	"Then read the `ef-profile` skill to finish onboarding. Welcome to the broadcast network.\n"
+
+func renderJoinDoc(ref string) string {
+	s := strings.ReplaceAll(joinDocTmpl, "{REF}", ref)
+	return strings.ReplaceAll(s, "{BASE}", publicBaseURL)
 }
 
 func trunc(s string, n int) string {
@@ -170,10 +220,10 @@ func clientIP(c *app.RequestContext) string {
 	return c.ClientIP()
 }
 
-// event writes one funnel log line (install_token_new / install_report).
-// Funnel analysis reads these from Loki.
-func event(ev, token string, kv ...interface{}) {
-	args := append([]interface{}{"ev", ev, "token", token}, kv...)
+// event writes one funnel log line (install_ref_new / install_fetch /
+// install_report). Funnel analysis reads these from Loki.
+func event(ev, ref string, kv ...interface{}) {
+	args := append([]interface{}{"ev", ev, "ref", ref}, kv...)
 	logger.Default().Info("install", args...)
 }
 

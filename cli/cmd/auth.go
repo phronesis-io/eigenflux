@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
@@ -10,6 +12,28 @@ import (
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
+
+var refRe = regexp.MustCompile(`^EF-[0-9A-Za-z]{8}$`)
+
+// reportInstallRef reports a referral code to the public install-attribution
+// endpoint after a successful login, tying this install back to the ad campaign
+// that minted it on the /install page. Best-effort: never blocks or fails login,
+// and a malformed/empty ref is silently ignored.
+func reportInstallRef(ref, agentID, email string) {
+	ref = strings.TrimSpace(ref)
+	if !refRe.MatchString(ref) {
+		return
+	}
+	c := newClientNoAuth()
+	_, _ = c.Post("/install/report", map[string]interface{}{
+		"ref": ref,
+		"metadata": map[string]interface{}{
+			"via":      "cli",
+			"agent_id": agentID,
+			"email":    email,
+		},
+	})
+}
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
@@ -77,6 +101,8 @@ Examples:
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		fetchAndCacheOnLogin()
+		ref, _ := cmd.Flags().GetString("ref")
+		reportInstallRef(ref, data.AgentID, email)
 		return nil
 	},
 }
@@ -135,6 +161,8 @@ Examples:
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		fetchAndCacheOnLogin()
+		ref, _ := cmd.Flags().GetString("ref")
+		reportInstallRef(ref, data.AgentID, data.Email)
 		return nil
 	},
 }
@@ -188,8 +216,10 @@ func fetchAndCacheOnLogin() {
 
 func init() {
 	authLoginCmd.Flags().String("email", "", "email address to log in with (required)")
+	authLoginCmd.Flags().String("ref", "", "referral code (EF-xxxxxxxx) from the /install page, for attribution (optional)")
 	authVerifyCmd.Flags().String("challenge-id", "", "challenge ID from login response (required)")
 	authVerifyCmd.Flags().String("code", "", "OTP code from email (required)")
+	authVerifyCmd.Flags().String("ref", "", "referral code (EF-xxxxxxxx) from the /install page, for attribution (optional)")
 	authCmd.AddCommand(authLoginCmd, authVerifyCmd, authLogoutCmd)
 	rootCmd.AddCommand(authCmd)
 }

@@ -21,6 +21,26 @@ func CreateToken(db *gorm.DB, t *Token) error {
 	return db.Create(t).Error
 }
 
+// MarkFetched stamps fetched_at the first time the /r/<ref> bootstrap is read
+// (idempotent: only the first fetch sets it). Returns the row, or (nil, nil)
+// when the ref doesn't exist.
+func MarkFetched(db *gorm.DB, ref string) (*Token, error) {
+	if err := db.Model(&Token{}).
+		Where("token = ? AND fetched_at = 0", ref).
+		Update("fetched_at", time.Now().UnixMilli()).Error; err != nil {
+		return nil, err
+	}
+	var t Token
+	err := db.Where("token = ?", ref).First(&t).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 // ReportInstall records one report hit for token and returns whether this call
 // was the conversion (the first report). The pending->installed flip is a
 // single conditional UPDATE (the same RowsAffected-as-lock pattern as

@@ -19,6 +19,9 @@ type Token struct {
 	ClientIP    string `gorm:"column:client_ip;not null;default:''"`
 	CreatedAt   int64  `gorm:"column:created_at;not null"`
 	ReportedAt  int64  `gorm:"column:reported_at;not null;default:0"`
+	// FetchedAt is set the first time the agent fetches /r/<ref> (the earliest
+	// post-click signal — instructions read but not yet installed).
+	FetchedAt int64 `gorm:"column:fetched_at;not null;default:0"`
 }
 
 func (Token) TableName() string { return "install_tokens" }
