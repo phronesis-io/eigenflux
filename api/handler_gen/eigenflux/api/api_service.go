@@ -2565,6 +2565,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// can never silently disable the ramp).
 		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
 		AutoReplyPM             *bool `json:"auto_reply_pm"`
+		OfficialPMOptout        *bool `json:"official_pm_optout"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -2575,7 +2576,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}

@@ -92,12 +92,24 @@ type Config struct {
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 
 	// Official account (singleton new-user guide / first contact)
-	OfficialAgentEmail       string   // email identifying the official account; resolved to agent_id at runtime
-	OfficialAgentName        string   // display name for the official account
-	OfficialAgentBio         string   // persona/bio for the official account
-	OfficialWelcomeMessage   string   // welcome PM body sent to new users once their profile is complete
-	EnableOfficialWelcome    bool     // master switch for the onboarding welcome (friend + PM) behavior
-	OfficialWelcomeWhitelist []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
+	OfficialAgentEmail          string   // email identifying the official account; resolved to agent_id at runtime
+	OfficialAgentName           string   // display name for the official account
+	OfficialAgentBio            string   // persona/bio for the official account
+	OfficialWelcomeMessage      string   // welcome PM body sent to new users once their profile is complete
+	EnableOfficialWelcome       bool     // master switch for the onboarding welcome (friend + PM) behavior
+	OfficialWelcomeWhitelist    []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
+	OfficialPMWhitelist         []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
+	EnableOfficialTrending      bool     // #5: biweekly network-wide trending DM
+	EnableOfficialFeedRescue    bool     // #4: feed-deficit topic-recommendation DM
+	OfficialTrendingIntervalSec int      // #5 cadence (default 14d)
+	OfficialTrendingWindowDays  int      // #5 aggregation window (default 7, reuses the existing highlights/dashboard window)
+	OfficialTrendingPoolN       int      // #5 top-N pool to sample from (default 20)
+	OfficialTrendingPickN       int      // #5 topics per DM (default 3)
+	OfficialRescueIntervalSec   int      // #4 cron cadence (default 1d)
+	OfficialRescueWindowDays    int      // #4 feed lookback window (default 3)
+	OfficialRescueThreshold     int      // #4 "insufficient" delivered-item count in window (default 30)
+	OfficialRescueCooldownDays  int      // #4 per-user cooldown (default 3)
+	OfficialLLMMaxPerRun        int      // cap on official LLM generations per cron run (rate guard, default 100)
 
 	// Trade
 	ChiefLedgerURL                string
@@ -244,6 +256,18 @@ func Load() *Config {
 		OfficialWelcomeMessage:        getEnv("OFFICIAL_WELCOME_MESSAGE", "你好我是 vic 老师，我有什么可以帮助你的？"),
 		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
 		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
+		OfficialPMWhitelist:           getEnvStringList("OFFICIAL_PM_WHITELIST", nil),
+		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
+		EnableOfficialFeedRescue:      getEnvBool("ENABLE_OFFICIAL_FEED_RESCUE", true),
+		OfficialTrendingIntervalSec:   getEnvInt("OFFICIAL_TRENDING_INTERVAL_SEC", 14*86400),
+		OfficialTrendingWindowDays:    getEnvInt("OFFICIAL_TRENDING_WINDOW_DAYS", 7),
+		OfficialTrendingPoolN:         getEnvInt("OFFICIAL_TRENDING_POOL_N", 20),
+		OfficialTrendingPickN:         getEnvInt("OFFICIAL_TRENDING_PICK_N", 3),
+		OfficialRescueIntervalSec:     getEnvInt("OFFICIAL_RESCUE_INTERVAL_SEC", 86400),
+		OfficialRescueWindowDays:      getEnvInt("OFFICIAL_RESCUE_WINDOW_DAYS", 3),
+		OfficialRescueThreshold:       getEnvInt("OFFICIAL_RESCUE_THRESHOLD", 30),
+		OfficialRescueCooldownDays:    getEnvInt("OFFICIAL_RESCUE_COOLDOWN_DAYS", 3),
+		OfficialLLMMaxPerRun:          getEnvInt("OFFICIAL_LLM_MAX_PER_RUN", 100),
 		ChiefLedgerURL:                getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
 		ChiefVerifyLookbackLimit:      getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
 		ChiefHTTPTimeoutSec:           getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),

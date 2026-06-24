@@ -47,6 +47,7 @@ type AgentSettings struct {
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
 	Model                  string `gorm:"column:model"`
+	OfficialPMOptout       bool   `gorm:"column:official_pm_optout;default:false"`
 	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
 }
 
@@ -81,7 +82,7 @@ func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
 // that echoes its default interval would silently pin the row and disable the
 // onboarding ramp. The CLI pairs the two (value + user_set=true) when it pushes
 // a genuine override.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool) error {
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool, officialPMOptout *bool) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -111,6 +112,9 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 	}
 	if autoReplyPM != nil {
 		vals["auto_reply_pm"] = *autoReplyPM
+	}
+	if officialPMOptout != nil {
+		vals["official_pm_optout"] = *officialPMOptout
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }

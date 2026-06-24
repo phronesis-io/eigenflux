@@ -169,6 +169,12 @@ func (c *Client) Call(ctx context.Context, prompt, promptName string) (string, e
 	return c.call(ctx, prompt, promptName, "")
 }
 
+// CallText is like Call but returns the model's raw text without JSON
+// extraction, for prose generation such as official-account messages.
+func (c *Client) CallText(ctx context.Context, prompt, promptName string) (string, error) {
+	return c.callRaw(ctx, prompt, promptName, "")
+}
+
 func normalizeBaseURL(baseURL string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
