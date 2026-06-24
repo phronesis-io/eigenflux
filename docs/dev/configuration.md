@@ -62,7 +62,8 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENABLE_OFFICIAL_WELCOME` | `true` | Master switch for the onboarding welcome consumer (friend + welcome PM) |
 | `OFFICIAL_WELCOME_WHITELIST` | (empty) | Comma-separated emails; when set, only these receive the welcome (staged rollout). Empty = everyone |
 | `OFFICIAL_PM_WHITELIST` | (empty) | Staged-rollout allowlist for the #4/#5 proactive official PMs. Empty = all friends |
-| `OFFICIAL_TEST_EMAIL_SUFFIXES` | `@eftestbot.com` | Comma-separated email suffixes always treated as test accounts: they bypass the welcome / PM staged-rollout whitelists, so test bots can exercise the official account during a restricted rollout |
+| `OFFICIAL_TEST_EMAIL_SUFFIXES` | `@eftestbot.com` | Comma-separated email suffixes always treated as test accounts: they bypass the welcome / PM staged-rollout whitelists, and log in with `OFFICIAL_TEST_OTP` (no IP whitelist), so test bots can exercise the official account during a restricted rollout |
+| `OFFICIAL_TEST_OTP` | `111111` | Fixed login OTP for `OFFICIAL_TEST_EMAIL_SUFFIXES` accounts (no email sent, no IP whitelist). Set empty to disable the test-login path. ⚠️ This is a sign-in backdoor for that email domain — keep the suffix to a domain you control |
 | `ENABLE_OFFICIAL_TRENDING` | `true` | #5 biweekly network-wide trending DM cron |
 | `ENABLE_OFFICIAL_FEED_RESCUE` | `true` | #4 feed-deficit recommendation DM cron |
 | `OFFICIAL_TRENDING_INTERVAL_SEC` | `1209600` | #5 cadence (default 14d) |

@@ -25,6 +25,10 @@ Login start IP rate limiting (30 times/10min) always applies. When OTP verificat
 
 After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests matching both email suffix and IP use mock verification code logic (no email sent, verify using `MOCK_UNIVERSAL_OTP`), and skip IP rate limiting for login/verification endpoints. Suitable for production backend operation accounts. Both conditions must be satisfied simultaneously.
 
+## Test Accounts (fixed OTP, no IP whitelist)
+
+Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` (default `@eftestbot.com`) log in with the fixed `OFFICIAL_TEST_OTP` (default `111111`): no email is sent and **no IP whitelist is required**, so test bots can sign in from anywhere to exercise the official account. Checked before the mock-OTP path in `isOTPMatched`. Set `OFFICIAL_TEST_OTP` empty to disable. ⚠️ This is a sign-in backdoor for the configured domain — only use a domain you control, and disable it for a full GA.
+
 ## Configuration
 
 | Variable | Description |

@@ -100,6 +100,7 @@ type Config struct {
 	OfficialWelcomeWhitelist    []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
 	OfficialPMWhitelist         []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
 	OfficialTestEmailSuffixes   []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
+	OfficialTestOTP             string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
 	EnableOfficialTrending      bool     // #5: biweekly network-wide trending DM
 	EnableOfficialFeedRescue    bool     // #4: feed-deficit topic-recommendation DM
 	OfficialTrendingIntervalSec int      // #5 cadence (default 14d)
@@ -259,6 +260,7 @@ func Load() *Config {
 		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
 		OfficialPMWhitelist:           getEnvStringList("OFFICIAL_PM_WHITELIST", nil),
 		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", []string{"@eftestbot.com"}),
+		OfficialTestOTP:               getEnv("OFFICIAL_TEST_OTP", "111111"),
 		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
 		EnableOfficialFeedRescue:      getEnvBool("ENABLE_OFFICIAL_FEED_RESCUE", true),
 		OfficialTrendingIntervalSec:   getEnvInt("OFFICIAL_TRENDING_INTERVAL_SEC", 14*86400),
