@@ -1806,6 +1806,27 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		friends = append(friends, item)
 	}
 
+	// Mark the verified official account so the UI can badge it. Sourced from
+	// agents.is_official (ops-set), never anything self-claimed.
+	if len(resp.Friends) > 0 {
+		friendIDs := make([]int64, len(resp.Friends))
+		for i := range resp.Friends {
+			friendIDs[i] = resp.Friends[i].AgentId
+		}
+		var officialIDs []int64
+		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", friendIDs).Scan(&officialIDs).Error; err == nil {
+			officialSet := make(map[int64]struct{}, len(officialIDs))
+			for _, id := range officialIDs {
+				officialSet[id] = struct{}{}
+			}
+			for i := range friends {
+				if _, ok := officialSet[resp.Friends[i].AgentId]; ok {
+					friends[i]["is_official"] = true
+				}
+			}
+		}
+	}
+
 	// Enrich each friend with a "recent activity" line = the more recent of their
 	// latest broadcast and our last direct message with them.
 	type recentEntry struct {
