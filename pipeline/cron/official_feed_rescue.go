@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apidal "eigenflux_server/api/dal"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
@@ -23,7 +24,7 @@ const lockKeyOfficialFeedRescue = "lock:cron:official_feed_rescue"
 // feed in their declared domains has been quiet, and DMs them a couple of
 // concrete topic suggestions (drawn from network-wide trending) nudging them to
 // broaden a domain or update their profile.
-func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *officialCtx) {
+func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
 	interval := time.Duration(cfg.OfficialRescueIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 24 * time.Hour
@@ -45,14 +46,14 @@ func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis
 	}
 }
 
-func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *officialCtx) {
+func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
 	acquired, err := acquireLock(ctx, rdb, lockKeyOfficialFeedRescue, 20*time.Minute)
 	if err != nil || !acquired {
 		return
 	}
 	defer releaseLock(ctx, rdb, lockKeyOfficialFeedRescue)
 
-	officialID := oc.resolveOfficialID()
+	officialID := oc.ResolveOfficialID()
 	if officialID == 0 {
 		logger.Default().Info("official feed-rescue skipped (official account not provisioned)")
 		return
@@ -97,7 +98,7 @@ func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.C
 			if aerr != nil {
 				continue
 			}
-			if !oc.passesGate(officialID, f.AgentID, agent.Email) {
+			if !oc.PassesGate(officialID, f.AgentID, agent.Email) {
 				continue
 			}
 			domains := agentRecentDomains(f.AgentID)
@@ -108,11 +109,11 @@ func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.C
 			if cerr != nil || cnt >= threshold {
 				continue // feed sufficient (or unmeasurable)
 			}
-			if !oc.cooldownAcquire(ctx, "rescue", f.AgentID, cooldown) {
+			if !oc.CooldownAcquire(ctx, "rescue", f.AgentID, cooldown) {
 				continue
 			}
 			if llmBudget <= 0 {
-				cooldownRelease(ctx, "rescue", f.AgentID)
+				oc.CooldownRelease(ctx, "rescue", f.AgentID)
 				logger.Default().Warn("official feed-rescue: LLM budget exhausted for this run")
 				goto done
 			}
@@ -120,14 +121,14 @@ func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.C
 				"Scenario 3 (topic-recommendation DM, feed quiet). The member's declared domains are: %s. Their feed in these areas has been quiet over the last %d days (only %d items). Network-wide hot topics right now: %s. Pick 1-2 concrete topics/directions relevant to their declared interests; suggest they broaden a domain or update their profile to catch more; leave a light opt-out.",
 				strings.Join(domains, ", "), windowDays, cnt, strings.Join(hotTopics, ", "),
 			)
-			content, gerr := oc.generate(ctx, task)
+			content, gerr := oc.Generate(ctx, task)
 			llmBudget--
 			if gerr != nil || content == "" {
-				cooldownRelease(ctx, "rescue", f.AgentID)
+				oc.CooldownRelease(ctx, "rescue", f.AgentID)
 				continue
 			}
-			if !oc.send(ctx, officialID, f.AgentID, content) {
-				cooldownRelease(ctx, "rescue", f.AgentID)
+			if !oc.Send(ctx, officialID, f.AgentID, content) {
+				oc.CooldownRelease(ctx, "rescue", f.AgentID)
 				continue
 			}
 			sent++

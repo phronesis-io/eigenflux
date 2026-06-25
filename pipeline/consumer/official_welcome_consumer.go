@@ -2,14 +2,14 @@ package consumer
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 
 	"gorm.io/gorm"
 
-	"eigenflux_server/kitex_gen/eigenflux/pm"
-	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
@@ -36,7 +36,7 @@ func officialWelcomedKey(agentID int64) string {
 // the official account. It subscribes to the same stream:profile:update as
 // ProfileConsumer but in its own consumer group, so the two are independent.
 type OfficialWelcomeConsumer struct {
-	pmClient       pmservice.Client
+	sender         *official.Sender
 	welcomeMessage string
 	officialEmail  string
 	// whitelist, when non-empty, restricts the welcome to these emails (staged
@@ -52,9 +52,9 @@ type OfficialWelcomeConsumer struct {
 	officialID int64
 }
 
-func NewOfficialWelcomeConsumer(cfg *config.Config, pmClient pmservice.Client) *OfficialWelcomeConsumer {
+func NewOfficialWelcomeConsumer(cfg *config.Config, sender *official.Sender) *OfficialWelcomeConsumer {
 	c := &OfficialWelcomeConsumer{
-		pmClient:       pmClient,
+		sender:         sender,
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
 		whitelist:      normalizeEmailSet(cfg.OfficialWelcomeWhitelist),
@@ -154,22 +154,22 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 		return HandleRetry
 	}
 
-	resp, err := c.pmClient.SendPM(ctx, &pm.SendPMReq{
-		SenderId:   officialID,
-		ReceiverId: agentID,
-		Content:    c.welcomeMessage,
-	})
-	if err != nil {
-		_ = mq.RDB.Del(ctx, gateKey).Err()
-		logger.Default().Warn("OfficialWelcomeConsumer send welcome failed", "agentID", agentID, "err", err)
-		return HandleRetry
+	// Welcome copy is prompt-generated (official persona, scenario 1), personalized
+	// from the new member's name/bio; the configured static line is the fallback.
+	content := c.welcomeMessage
+	task := fmt.Sprintf(
+		"Scenario 1 (welcome DM) for a brand-new member who just joined. Their name: %q. Their bio: %q. Write the first welcome message — who you are, what they can do here, what to do first — in ≤4-5 sentences, matching their language.",
+		agent.AgentName, agent.Bio,
+	)
+	if gen, gerr := c.sender.Generate(ctx, task); gerr == nil && gen != "" {
+		content = gen
+	} else if gerr != nil {
+		logger.Default().Warn("OfficialWelcomeConsumer generate failed, using fallback", "agentID", agentID, "err", gerr)
 	}
-	// SendPM signals application-level rejection (e.g. not-friends 403) via
-	// BaseResp.Code, not a transport error.
-	if resp.GetBaseResp() != nil && resp.GetBaseResp().GetCode() != 0 {
+
+	if !c.sender.Send(ctx, officialID, agentID, content) {
 		_ = mq.RDB.Del(ctx, gateKey).Err()
-		logger.Default().Warn("OfficialWelcomeConsumer welcome rejected", "agentID", agentID,
-			"code", resp.GetBaseResp().GetCode(), "msg", resp.GetBaseResp().GetMsg())
+		logger.Default().Warn("OfficialWelcomeConsumer send welcome failed", "agentID", agentID)
 		return HandleRetry
 	}
 

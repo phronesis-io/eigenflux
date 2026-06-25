@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pipeline/consumer"
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -100,6 +101,10 @@ func main() {
 	}
 	log.Printf("Loaded and validated %d prompt templates: %v", len(prompts.Names()), prompts.Names())
 
+	// Shared official-account sender for the consumers that act as the official
+	// account (welcome, first-broadcast reply, inbox chat).
+	officialSender := official.NewSender(cfg, pmClient, llm.NewClient(cfg, prompts), prompts)
+
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
@@ -143,7 +148,7 @@ func main() {
 
 	var officialWelcomeConsumer *consumer.OfficialWelcomeConsumer
 	if cfg.EnableOfficialWelcome {
-		officialWelcomeConsumer = consumer.NewOfficialWelcomeConsumer(cfg, pmClient)
+		officialWelcomeConsumer = consumer.NewOfficialWelcomeConsumer(cfg, officialSender)
 	}
 
 	go profileConsumer.Start(ctx)

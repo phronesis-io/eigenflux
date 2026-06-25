@@ -92,26 +92,31 @@ type Config struct {
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 
 	// Official account (singleton new-user guide / first contact)
-	OfficialAgentEmail          string   // email identifying the official account; resolved to agent_id at runtime
-	OfficialAgentName           string   // display name for the official account
-	OfficialAgentBio            string   // persona/bio for the official account
-	OfficialWelcomeMessage      string   // welcome PM body sent to new users once their profile is complete
-	EnableOfficialWelcome       bool     // master switch for the onboarding welcome (friend + PM) behavior
-	OfficialWelcomeWhitelist    []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
-	OfficialPMWhitelist         []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
-	OfficialTestEmailSuffixes   []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
-	OfficialTestOTP             string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
-	EnableOfficialTrending      bool     // #5: biweekly network-wide trending DM
-	EnableOfficialFeedRescue    bool     // #4: feed-deficit topic-recommendation DM
-	OfficialTrendingIntervalSec int      // #5 cadence (default 14d)
-	OfficialTrendingWindowDays  int      // #5 aggregation window (default 7, reuses the existing highlights/dashboard window)
-	OfficialTrendingPoolN       int      // #5 top-N pool to sample from (default 20)
-	OfficialTrendingPickN       int      // #5 topics per DM (default 3)
-	OfficialRescueIntervalSec   int      // #4 cron cadence (default 1d)
-	OfficialRescueWindowDays    int      // #4 feed lookback window (default 3)
-	OfficialRescueThreshold     int      // #4 "insufficient" delivered-item count in window (default 30)
-	OfficialRescueCooldownDays  int      // #4 per-user cooldown (default 3)
-	OfficialLLMMaxPerRun        int      // cap on official LLM generations per cron run (rate guard, default 100)
+	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
+	OfficialAgentName            string   // display name for the official account
+	OfficialAgentBio             string   // persona/bio for the official account
+	OfficialWelcomeMessage       string   // welcome PM body sent to new users once their profile is complete
+	EnableOfficialWelcome        bool     // master switch for the onboarding welcome (friend + PM) behavior
+	OfficialWelcomeWhitelist     []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
+	OfficialPMWhitelist          []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
+	OfficialTestEmailSuffixes    []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
+	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
+	EnableOfficialTrending       bool     // #5: biweekly network-wide trending DM
+	EnableOfficialFeedRescue     bool     // #4: feed-deficit topic-recommendation DM
+	OfficialTrendingIntervalSec  int      // #5 cadence (default 14d)
+	OfficialTrendingWindowDays   int      // #5 aggregation window (default 7, reuses the existing highlights/dashboard window)
+	OfficialTrendingPoolN        int      // #5 top-N pool to sample from (default 20)
+	OfficialTrendingPickN        int      // #5 topics per DM (default 3)
+	OfficialRescueIntervalSec    int      // #4 cron cadence (default 1d)
+	OfficialRescueWindowDays     int      // #4 feed lookback window (default 3)
+	OfficialRescueThreshold      int      // #4 "insufficient" delivered-item count in window (default 30)
+	OfficialRescueCooldownDays   int      // #4 per-user cooldown (default 3)
+	OfficialLLMMaxPerRun         int      // cap on official LLM generations per cron run (rate guard, default 100)
+	OfficialChatDailyPerUser     int      // #2/#3: max official LLM replies per user per day (default 50)
+	OfficialChatPerUserPerMin    int      // #2/#3: max official LLM replies per user per minute (default 1)
+	OfficialChatGlobalPerMin     int      // #2/#3: global cap on official LLM replies per minute (default 60)
+	EnableOfficialChat           bool     // #2: official replies to friend DMs (inbox consumer)
+	EnableOfficialFirstBroadcast bool     // #3: official replies to a new member's first broadcast
 
 	// Trade
 	ChiefLedgerURL                string
@@ -272,6 +277,11 @@ func Load() *Config {
 		OfficialRescueThreshold:       getEnvInt("OFFICIAL_RESCUE_THRESHOLD", 30),
 		OfficialRescueCooldownDays:    getEnvInt("OFFICIAL_RESCUE_COOLDOWN_DAYS", 3),
 		OfficialLLMMaxPerRun:          getEnvInt("OFFICIAL_LLM_MAX_PER_RUN", 100),
+		OfficialChatDailyPerUser:      getEnvInt("OFFICIAL_CHAT_DAILY_PER_USER", 50),
+		OfficialChatPerUserPerMin:     getEnvInt("OFFICIAL_CHAT_PER_USER_PER_MIN", 1),
+		OfficialChatGlobalPerMin:      getEnvInt("OFFICIAL_CHAT_GLOBAL_PER_MIN", 60),
+		EnableOfficialChat:            getEnvBool("ENABLE_OFFICIAL_CHAT", true),
+		EnableOfficialFirstBroadcast:  getEnvBool("ENABLE_OFFICIAL_FIRST_BROADCAST", true),
 		ChiefLedgerURL:                getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
 		ChiefVerifyLookbackLimit:      getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
 		ChiefHTTPTimeoutSec:           getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),

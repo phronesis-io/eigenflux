@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
+	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/mq"
@@ -89,8 +91,13 @@ func TestOfficialWelcomeE2E(t *testing.T) {
 		t.Fatalf("pm client: %v", err)
 	}
 
+	prompts, perr := llm.LoadDefaultPrompts()
+	if perr != nil {
+		t.Fatalf("load prompts: %v", perr)
+	}
+	sender := official.NewSender(cfg, pmClient, llm.NewClient(cfg, prompts), prompts)
 	c := &OfficialWelcomeConsumer{
-		pmClient:       pmClient,
+		sender:         sender,
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
 		// Exercise the active-whitelist path: this email is listed, so it must
@@ -109,10 +116,12 @@ func TestOfficialWelcomeE2E(t *testing.T) {
 		t.Fatal("expected official and user to be friends after welcome")
 	}
 
+	// Content is now prompt-generated (or the static fallback), so assert that a
+	// welcome PM was delivered rather than matching exact text.
 	var msgs int64
 	db.DB.Raw(
-		"SELECT count(*) FROM private_messages WHERE sender_id = ? AND receiver_id = ? AND content = ?",
-		officialID, userID, cfg.OfficialWelcomeMessage,
+		"SELECT count(*) FROM private_messages WHERE sender_id = ? AND receiver_id = ?",
+		officialID, userID,
 	).Scan(&msgs)
 
 	// The PM hop needs the PM service reachable from this host. Local stacks may

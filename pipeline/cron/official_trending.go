@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apidal "eigenflux_server/api/dal"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
@@ -24,7 +25,7 @@ const lockKeyOfficialTrending = "lock:cron:official_trending"
 // curated set of network-wide trending topics. Topics reuse the existing
 // network-signal aggregation; the message is generated once per cycle and
 // shared across recipients to bound LLM cost.
-func StartOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *officialCtx) {
+func StartOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
 	interval := time.Duration(cfg.OfficialTrendingIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 14 * 24 * time.Hour
@@ -46,14 +47,14 @@ func StartOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.C
 	}
 }
 
-func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *officialCtx) {
+func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
 	acquired, err := acquireLock(ctx, rdb, lockKeyOfficialTrending, 20*time.Minute)
 	if err != nil || !acquired {
 		return
 	}
 	defer releaseLock(ctx, rdb, lockKeyOfficialTrending)
 
-	officialID := oc.resolveOfficialID()
+	officialID := oc.ResolveOfficialID()
 	if officialID == 0 {
 		logger.Default().Info("official trending skipped (official account not provisioned)")
 		return
@@ -79,7 +80,7 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 		"Scenario 4 (network-wide trending topics, periodic). The current trending topics across the network are: %s. Write the periodic trending DM: curated, at most %d, each with one line on why it's worth a look, and a light way to mute or reduce frequency.",
 		strings.Join(topics, ", "), cfg.OfficialTrendingPickN,
 	)
-	content, err := oc.generate(ctx, task)
+	content, err := oc.Generate(ctx, task)
 	if err != nil || content == "" {
 		logger.Default().Warn("official trending: generate failed", "err", err)
 		return
@@ -99,14 +100,14 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 			if aerr != nil {
 				continue
 			}
-			if !oc.passesGate(officialID, f.AgentID, agent.Email) {
+			if !oc.PassesGate(officialID, f.AgentID, agent.Email) {
 				continue
 			}
-			if !oc.cooldownAcquire(ctx, "trending", f.AgentID, cooldown) {
+			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, cooldown) {
 				continue
 			}
-			if !oc.send(ctx, officialID, f.AgentID, content) {
-				cooldownRelease(ctx, "trending", f.AgentID)
+			if !oc.Send(ctx, officialID, f.AgentID, content) {
+				oc.CooldownRelease(ctx, "trending", f.AgentID)
 				continue
 			}
 			sent++

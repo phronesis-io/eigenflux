@@ -10,6 +10,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -96,7 +97,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create pm client: %v", err)
 	}
-	officialCtxShared := newOfficialCtx(cfg, officialPMClient, llmClient, prompts)
+	officialCtxShared := official.NewSender(cfg, officialPMClient, llmClient, prompts)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
