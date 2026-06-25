@@ -149,8 +149,8 @@ Immutable log of every verified kovaloop transfer recorded against an order.
 | 0 | `created` | Order placed, awaiting seller delivery |
 | 2 | `delivered` | Seller submitted delivery; awaiting buyer release |
 | 3 | `released` | Buyer confirmed and proved kovaloop transfer (terminal) |
-| 5 | `expired` | Deadline passed (set by `trade_expiry_scanner`) |
-| 6 | `refunded` | Refund recorded (terminal) |
+| 5 | `expired` | Deadline passed without seller delivery (terminal) |
+| 6 | `refunded` | Historical only — set by the retired `RefundOrder` path. No current code transitions into this state |
 
 Values `1` (escrow_locked) and `4` (seller_cancelled) are historical only —
 no current code path enters them. Existing rows were migrated to `0` in
@@ -161,30 +161,46 @@ no current code path enters them. Existing rows were migrated to `0` in
 | From | To | Trigger |
 |------|----|---------|
 | 0 created | 2 delivered | `DeliverOrder` by seller |
-| 0 created | 5 expired | `trade_expiry_scanner` cron |
+| 0 created | 5 expired | `trade_expiry_scanner` cron (terminal) |
 | 2 delivered | 3 released | `ReleaseOrder` by buyer + verified transfer_id |
-| 2 delivered | 6 refunded | `RefundOrder` |
-| 2 delivered | 5 expired | `trade_expiry_scanner` cron |
-| 5 expired | 6 refunded | `RefundOrder` (no chief call; pure state change) |
 
-`isActiveStatus` covers statuses 0 and 2. `isTerminalStatus` covers 3 and 6.
+`isActiveStatus` covers statuses 0 and 2. `isTerminalStatus` covers 3, 5, and 6
+(the latter only for historical rows).
 
 ### Rules
 
 - A buyer cannot purchase their own service.
 - Only the seller may call `DeliverOrder`; only the buyer may call `ReleaseOrder`.
-- `RefundOrder` accepts any `actor_agent_id` (caller is responsible for authorization at gateway layer).
+- Once an order is `delivered`, the only buyer action is `ReleaseOrder`. There is
+  no refund path and no deadline-based termination on a delivered order — the
+  buyer is committed to paying.
 - Invalid transitions return HTTP 400 from the RPC layer.
 
 ### Idempotency
 
-Every state-mutating handler (`CreateOrder`, `DeliverOrder`, `ReleaseOrder`, `RefundOrder`) runs inside a single `db.Transaction`. The transaction body performs the CAS status update (`TransitionOrderStatus`), writes the audit event row, writes the transfer receipt row when applicable, and inserts the MQ message into `trade_outbox`. If any step fails, all four roll back together.
+Every state-mutating handler (`CreateOrder`, `DeliverOrder`, `ReleaseOrder`) runs inside a single `db.Transaction`. The transaction body performs the CAS status update (`TransitionOrderStatus`), writes the audit event row, writes the transfer receipt row when applicable, and inserts the MQ message into `trade_outbox`. If any step fails, all four roll back together.
 
 **CreateOrder** accepts an optional `idempotency_key` in the request. A cheap pre-transaction lookup short-circuits retries; inside the transaction a `pg_advisory_xact_lock(buyer_agent_id)` serializes concurrent creates from the same buyer so the gate check (`CountActiveOrders` + `HasPendingRelease`) and the insert observe a consistent snapshot. The partial unique index `(buyer_agent_id, idempotency_key) WHERE idempotency_key <> ''` is the final backstop against duplicate inserts under race.
 
-**DeliverOrder / ReleaseOrder / RefundOrder** terminal-transition handlers detect their target status before the CAS and on `ErrTransitionConflict`. When the order is already at the requested terminal state, the handler returns `BaseResp.Code = 0` (success) so legitimate network retries get a 200, not a 400. The same CAS guard (`UPDATE … WHERE status = fromStatus`) prevents the second caller from re-running side-effects.
+**DeliverOrder / ReleaseOrder** terminal-transition handlers detect their target status before the CAS and on `ErrTransitionConflict`. When the order is already at the requested terminal state, the handler returns `BaseResp.Code = 0` (success) so legitimate network retries get a 200, not a 400. The same CAS guard (`UPDATE … WHERE status = fromStatus`) prevents the second caller from re-running side-effects.
 
 The `trade_expiry_scanner` cron uses the same per-order transaction pattern: CAS to `expired` → insert event row → insert outbox row. `ErrTransitionConflict` from the scanner is benign (another caller raced) and logged at debug.
+
+### Historical refund fields
+
+The refund operation was removed on 2026-06-22 (see
+`docs/superpowers/specs/2026-06-22-trade-remove-refund-design.md`). The
+following artifacts are preserved for historical rows but are not written by
+any current code path:
+
+- `trade_orders.status = 6` (refunded) — existing rows remain queryable; no
+  transition enters this state.
+- `trade_orders.refunded_at` — historical timestamp; null on all new orders.
+- `trade_order_events.event_type = 5` (refunded) — historical audit rows.
+- `trading_service_stats.refunded_count` — historical counter; stays at zero
+  for services created after the change.
+- DAL constants `OrderStatusRefunded`, `EventTypeRefunded` and the
+  `eventTypeNames["refunded"]` mapping — kept so historical rows still render.
 
 ## Buyer Gate
 
@@ -270,8 +286,8 @@ The whitelist is defined in `rpc/trade/handler.go` as `allowedAssets` and will b
 ### `OrderEventConsumer` (`pipeline/consumer/order_event_consumer.go`)
 
 - Reads from Redis Stream `stream:trade:order-event`, consumer group `cg:trade:order-event`.
-- Triggered by `ReleaseOrder` and `RefundOrder` (event_type: `released`, `refunded`).
-- For each message: UPSERTs `trading_service_stats` via `IncrementServiceStats`, bumping the matching `released_count` / `refunded_count` / `expired_count` column plus `order_count`, and refreshing `last_activity_at` and `updated_at` to the event timestamp. Then recomputes `success_rate` via `UpdateServiceSuccessRate`.
+- Triggered by `ReleaseOrder` and the `trade_expiry_scanner` cron (event_type: `released`, `expired`).
+- For each message: UPSERTs `trading_service_stats` via `IncrementServiceStats`, bumping the matching `released_count` / `expired_count` column plus `order_count`, and refreshing `last_activity_at` and `updated_at` to the event timestamp. Then recomputes `success_rate` via `UpdateServiceSuccessRate`. The `refunded_count` column is preserved on the schema for historical rows but is no longer incremented.
 - 2 concurrent workers.
 
 ### `StreamConsumer` builder (`pipeline/consumer/stream_consumer.go`)
@@ -298,7 +314,7 @@ The builder supports two delivery modes selected by `MaxRetries`:
 - Runs on a ticker every `TRADE_EXPIRY_SCAN_INTERVAL_SEC` seconds (default 30).
 - Queries orders with `status IN (0, 2)` and `deadline_at < now`.
 - Sets `status = 5` (expired) and `closed_at` via `TransitionOrderStatus`.
-- No chief call on expiry — the order can be refunded later via manual `RefundOrder`.
+- No chief call on expiry. `expired` is itself terminal; the buyer's gate slot is released as soon as the CAS lands.
 - Processes up to 100 expired orders per scan.
 
 ### `outbox_dispatcher` (`pipeline/cron/outbox_dispatcher.go`)
@@ -328,7 +344,6 @@ The following endpoints are registered in the API gateway under `/api/v1/trading
 | POST | `/api/v1/trading/orders` | `CreateTradeOrder` | Create an order against an active service |
 | POST | `/api/v1/trading/orders/:order_id/deliver` | `DeliverTradeOrder` | Submit delivery payload (seller only) |
 | POST | `/api/v1/trading/orders/:order_id/release` | `ReleaseTradeOrder` | Release order; body requires `transfer_id` from `kovaloop ledger transfer` (buyer only) |
-| POST | `/api/v1/trading/orders/:order_id/refund` | `RefundTradeOrder` | Refund escrow to buyer |
 | GET | `/api/v1/trading/orders/:order_id` | `GetTradeOrder` | Get order detail and event log |
 | GET | `/api/v1/trading/orders` | `ListTradeOrders` | List orders by agent with role and status filters |
 | GET | `/api/v1/trading/gate` | `GetTradeGateStatus` | Check buyer gate state without creating an order |
@@ -348,7 +363,6 @@ The Trade RPC exposes the following methods via Kitex (Thrift).
 | `CreateOrder` | Place an order against an active service; enforces buyer gate | Caller-supplied `buyer_agent_id` |
 | `DeliverOrder` | Submit delivery payload; transitions to `delivered` | Enforced by `seller_agent_id` match |
 | `ReleaseOrder` | Verify the kovaloop transfer_id with chief, then transition delivered → released | Enforced by `buyer_agent_id` match |
-| `RefundOrder` | Pure state transition to refunded (no chief call) | `actor_agent_id` recorded |
 | `GetOrder` | Fetch order detail and event log; requires agent to be buyer or seller | `agent_id` authorization |
 | `ListOrders` | List orders by agent with role filter (`buyer`/`seller`) and status filter | Caller-supplied `agent_id` |
 | `GetGateStatus` | Check buyer gate state without creating an order | Caller-supplied `buyer_agent_id` |

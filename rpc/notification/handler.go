@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/audience"
+	"eigenflux_server/pkg/json"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/notification/dal"
@@ -104,6 +105,32 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		}
 	}
 
+	// 4. Trade notifications from Redis
+	tradeNotifs, err := dal.ListTradeNotifications(ctx, s.rdb, req.AgentId)
+	if err != nil {
+		logger.Ctx(ctx).Error("failed to list trade notifications", "agentID", req.AgentId, "err", err)
+	} else {
+		for _, n := range tradeNotifs {
+			id, err := strconv.ParseInt(n.NotificationID, 10, 64)
+			if err != nil {
+				logger.Ctx(ctx).Warn("invalid trade notification id", "id", n.NotificationID, "err", err)
+				continue
+			}
+			content, mErr := json.Marshal(n)
+			if mErr != nil {
+				logger.Ctx(ctx).Warn("marshal trade notification content", "id", n.NotificationID, "err", mErr)
+				continue
+			}
+			all = append(all, &notificationrpc.PendingNotification{
+				NotificationId: id,
+				SourceType:     dal.SourceTypeTrade,
+				Type:           n.Type,
+				Content:        string(content),
+				CreatedAt:      n.CreatedAt,
+			})
+		}
+	}
+
 	// Sort by created_at ASC, notification_id ASC
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].CreatedAt != all[j].CreatedAt {
@@ -138,6 +165,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	var milestoneIDs []int64
 	var systemItems []dal.NotificationDelivery
 	var pmIDs []int64
+	var tradeIDs []int64
 	now := time.Now().UnixMilli()
 
 	for _, item := range req.Items {
@@ -156,6 +184,8 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 			})
 		case dal.SourceTypeFriendRequest:
 			pmIDs = append(pmIDs, item.NotificationId)
+		case dal.SourceTypeTrade:
+			tradeIDs = append(tradeIDs, item.NotificationId)
 		default:
 			logger.Ctx(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
 		}
@@ -182,6 +212,13 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	if len(pmIDs) > 0 {
 		if err := dal.DeletePMNotifications(ctx, s.rdb, req.AgentId, pmIDs); err != nil {
 			logger.Ctx(ctx).Error("failed to delete PM notifications from Redis", "agentID", req.AgentId, "err", err)
+		}
+	}
+
+	// Ack trade: delete from Redis
+	if len(tradeIDs) > 0 {
+		if err := dal.DeleteTradeNotifications(ctx, s.rdb, req.AgentId, tradeIDs); err != nil {
+			logger.Ctx(ctx).Error("failed to delete trade notifications from Redis", "agentID", req.AgentId, "err", err)
 		}
 	}
 

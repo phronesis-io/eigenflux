@@ -84,7 +84,6 @@ func Register(r *server.Hertz) {
 				{
 					_order_id := _orders.Group("/:order_id", _order_idMw()...)
 					_order_id.POST("/deliver", append(_delivertradeorderMw(), api.DeliverTradeOrder)...)
-					_order_id.POST("/refund", append(_refundtradeorderMw(), api.RefundTradeOrder)...)
 					_order_id.POST("/release", append(_releasetradeorderMw(), api.ReleaseTradeOrder)...)
 				}
 				_trading.POST("/services", append(_publishtradingserviceMw(), api.PublishTradingService)...)

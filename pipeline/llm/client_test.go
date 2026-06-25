@@ -16,7 +16,7 @@ import (
 func mockServer(t *testing.T, responseText string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
+		if r.URL.Path != "/v1/responses" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 
@@ -30,29 +30,41 @@ func mockServer(t *testing.T, responseText string) *httptest.Server {
 		if _, ok := reqBody["max_tokens"]; ok {
 			t.Errorf("request should not include deprecated max_tokens")
 		}
-		if got := reqBody["max_completion_tokens"]; got != float64(4096) {
-			t.Errorf("expected max_completion_tokens=4096, got %v", got)
+		if _, ok := reqBody["max_completion_tokens"]; ok {
+			t.Errorf("request should not include chat completions max_completion_tokens")
+		}
+		if got := reqBody["max_output_tokens"]; got != float64(4096) {
+			t.Errorf("expected max_output_tokens=4096, got %v", got)
 		}
 
 		resp := map[string]interface{}{
-			"id":      "chatcmpl-test123",
-			"object":  "chat.completion",
-			"created": 1773300000,
-			"model":   "test-model",
-			"choices": []map[string]interface{}{
+			"id":         "resp-test123",
+			"object":     "response",
+			"created_at": 1773300000,
+			"status":     "completed",
+			"model":      "test-model",
+			"output": []map[string]interface{}{
 				{
-					"index": 0,
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": responseText,
+					"id":     "msg-test123",
+					"type":   "message",
+					"status": "completed",
+					"role":   "assistant",
+					"content": []map[string]interface{}{
+						{
+							"type":        "output_text",
+							"text":        responseText,
+							"annotations": []interface{}{},
+						},
 					},
-					"finish_reason": "stop",
 				},
 			},
 			"usage": map[string]interface{}{
-				"prompt_tokens":     10,
-				"completion_tokens": 20,
-				"total_tokens":      30,
+				"input_tokens":  10,
+				"output_tokens": 20,
+				"total_tokens":  30,
+				"output_tokens_details": map[string]interface{}{
+					"reasoning_tokens": 0,
+				},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -245,18 +257,32 @@ func TestAPIError_NonOKStatus(t *testing.T) {
 func TestAPIError_EmptyContent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
-			"id":      "chatcmpl-test",
-			"object":  "chat.completion",
-			"created": 1773300000,
-			"model":   "test-model",
-			"choices": []interface{}{
+			"id":         "resp-test",
+			"object":     "response",
+			"created_at": 1773300000,
+			"status":     "completed",
+			"model":      "test-model",
+			"output": []interface{}{
 				map[string]interface{}{
-					"index": 0,
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": "",
+					"id":     "msg-test",
+					"type":   "message",
+					"status": "completed",
+					"role":   "assistant",
+					"content": []interface{}{
+						map[string]interface{}{
+							"type":        "output_text",
+							"text":        "",
+							"annotations": []interface{}{},
+						},
 					},
-					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{
+				"input_tokens":  10,
+				"output_tokens": 0,
+				"total_tokens":  10,
+				"output_tokens_details": map[string]interface{}{
+					"reasoning_tokens": 0,
 				},
 			},
 		}

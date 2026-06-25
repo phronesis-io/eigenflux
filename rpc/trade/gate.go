@@ -10,6 +10,7 @@ type GateResult struct {
 	ActiveCount       int32
 	MaxActive         int32
 	HasPendingRelease bool
+	UnpaidOrderCount  int32
 }
 
 func checkBuyerGate(db *gorm.DB, buyerAgentID int64, maxActive int) (*GateResult, error) {
@@ -18,7 +19,7 @@ func checkBuyerGate(db *gorm.DB, buyerAgentID int64, maxActive int) (*GateResult
 		return nil, err
 	}
 
-	hasPending, err := dal.HasPendingRelease(db, buyerAgentID)
+	unpaidCount, err := dal.CountUnpaidOrders(db, buyerAgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +27,9 @@ func checkBuyerGate(db *gorm.DB, buyerAgentID int64, maxActive int) (*GateResult
 	result := &GateResult{
 		ActiveCount:       int32(activeCount),
 		MaxActive:         int32(maxActive),
-		HasPendingRelease: hasPending,
+		UnpaidOrderCount:  int32(unpaidCount),
+		HasPendingRelease: unpaidCount > 0,
 	}
-	result.CanCreate = activeCount < int64(maxActive) && !hasPending
+	result.CanCreate = activeCount < int64(maxActive) && unpaidCount == 0
 	return result, nil
 }

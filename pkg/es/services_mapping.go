@@ -12,6 +12,7 @@ func BuildServicesMapping(embeddingDims int) map[string]interface{} {
 		"properties": map[string]interface{}{
 			"service_id":           map[string]interface{}{"type": "long"},
 			"seller_agent_id":      map[string]interface{}{"type": "long"},
+			"status":               map[string]interface{}{"type": "keyword"},
 			"title":                map[string]interface{}{"type": "text", "analyzer": "standard"},
 			"capability_desc":      map[string]interface{}{"type": "text", "analyzer": "standard"},
 			"call_spec_text":       map[string]interface{}{"type": "text", "analyzer": "standard"},

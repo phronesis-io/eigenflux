@@ -36356,355 +36356,6 @@ func (p *ReleaseTradeOrderResp) String() string {
 
 }
 
-type RefundTradeOrderReq struct {
-	OrderID int64 `thrift:"order_id,1,required" json:"order_id,required" path:"order_id,required"`
-}
-
-func NewRefundTradeOrderReq() *RefundTradeOrderReq {
-	return &RefundTradeOrderReq{}
-}
-
-func (p *RefundTradeOrderReq) InitDefault() {
-}
-
-func (p *RefundTradeOrderReq) GetOrderID() (v int64) {
-	return p.OrderID
-}
-
-var fieldIDToName_RefundTradeOrderReq = map[int16]string{
-	1: "order_id",
-}
-
-func (p *RefundTradeOrderReq) Read(iprot thrift.TProtocol) (err error) {
-
-	var fieldTypeId thrift.TType
-	var fieldId int16
-	var issetOrderID bool = false
-
-	if _, err = iprot.ReadStructBegin(); err != nil {
-		goto ReadStructBeginError
-	}
-
-	for {
-		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
-		if err != nil {
-			goto ReadFieldBeginError
-		}
-		if fieldTypeId == thrift.STOP {
-			break
-		}
-
-		switch fieldId {
-		case 1:
-			if fieldTypeId == thrift.I64 {
-				if err = p.ReadField1(iprot); err != nil {
-					goto ReadFieldError
-				}
-				issetOrderID = true
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		default:
-			if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		}
-		if err = iprot.ReadFieldEnd(); err != nil {
-			goto ReadFieldEndError
-		}
-	}
-	if err = iprot.ReadStructEnd(); err != nil {
-		goto ReadStructEndError
-	}
-
-	if !issetOrderID {
-		fieldId = 1
-		goto RequiredFieldNotSetError
-	}
-	return nil
-ReadStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
-ReadFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-ReadFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RefundTradeOrderReq[fieldId]), err)
-SkipFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
-
-ReadFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
-ReadStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
-RequiredFieldNotSetError:
-	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RefundTradeOrderReq[fieldId]))
-}
-
-func (p *RefundTradeOrderReq) ReadField1(iprot thrift.TProtocol) error {
-
-	var _field int64
-	if v, err := iprot.ReadI64(); err != nil {
-		return err
-	} else {
-		_field = v
-	}
-	p.OrderID = _field
-	return nil
-}
-
-func (p *RefundTradeOrderReq) Write(oprot thrift.TProtocol) (err error) {
-	var fieldId int16
-	if err = oprot.WriteStructBegin("RefundTradeOrderReq"); err != nil {
-		goto WriteStructBeginError
-	}
-	if p != nil {
-		if err = p.writeField1(oprot); err != nil {
-			fieldId = 1
-			goto WriteFieldError
-		}
-	}
-	if err = oprot.WriteFieldStop(); err != nil {
-		goto WriteFieldStopError
-	}
-	if err = oprot.WriteStructEnd(); err != nil {
-		goto WriteStructEndError
-	}
-	return nil
-WriteStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
-WriteFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
-WriteFieldStopError:
-	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
-WriteStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
-}
-
-func (p *RefundTradeOrderReq) writeField1(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("order_id", thrift.I64, 1); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteI64(p.OrderID); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
-}
-
-func (p *RefundTradeOrderReq) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("RefundTradeOrderReq(%+v)", *p)
-
-}
-
-type RefundTradeOrderResp struct {
-	Code int32  `thrift:"code,1,required" form:"code,required" json:"code,required" query:"code,required"`
-	Msg  string `thrift:"msg,2,required" form:"msg,required" json:"msg,required" query:"msg,required"`
-}
-
-func NewRefundTradeOrderResp() *RefundTradeOrderResp {
-	return &RefundTradeOrderResp{}
-}
-
-func (p *RefundTradeOrderResp) InitDefault() {
-}
-
-func (p *RefundTradeOrderResp) GetCode() (v int32) {
-	return p.Code
-}
-
-func (p *RefundTradeOrderResp) GetMsg() (v string) {
-	return p.Msg
-}
-
-var fieldIDToName_RefundTradeOrderResp = map[int16]string{
-	1: "code",
-	2: "msg",
-}
-
-func (p *RefundTradeOrderResp) Read(iprot thrift.TProtocol) (err error) {
-
-	var fieldTypeId thrift.TType
-	var fieldId int16
-	var issetCode bool = false
-	var issetMsg bool = false
-
-	if _, err = iprot.ReadStructBegin(); err != nil {
-		goto ReadStructBeginError
-	}
-
-	for {
-		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
-		if err != nil {
-			goto ReadFieldBeginError
-		}
-		if fieldTypeId == thrift.STOP {
-			break
-		}
-
-		switch fieldId {
-		case 1:
-			if fieldTypeId == thrift.I32 {
-				if err = p.ReadField1(iprot); err != nil {
-					goto ReadFieldError
-				}
-				issetCode = true
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		case 2:
-			if fieldTypeId == thrift.STRING {
-				if err = p.ReadField2(iprot); err != nil {
-					goto ReadFieldError
-				}
-				issetMsg = true
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		default:
-			if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		}
-		if err = iprot.ReadFieldEnd(); err != nil {
-			goto ReadFieldEndError
-		}
-	}
-	if err = iprot.ReadStructEnd(); err != nil {
-		goto ReadStructEndError
-	}
-
-	if !issetCode {
-		fieldId = 1
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetMsg {
-		fieldId = 2
-		goto RequiredFieldNotSetError
-	}
-	return nil
-ReadStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
-ReadFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-ReadFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RefundTradeOrderResp[fieldId]), err)
-SkipFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
-
-ReadFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
-ReadStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
-RequiredFieldNotSetError:
-	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RefundTradeOrderResp[fieldId]))
-}
-
-func (p *RefundTradeOrderResp) ReadField1(iprot thrift.TProtocol) error {
-
-	var _field int32
-	if v, err := iprot.ReadI32(); err != nil {
-		return err
-	} else {
-		_field = v
-	}
-	p.Code = _field
-	return nil
-}
-func (p *RefundTradeOrderResp) ReadField2(iprot thrift.TProtocol) error {
-
-	var _field string
-	if v, err := iprot.ReadString(); err != nil {
-		return err
-	} else {
-		_field = v
-	}
-	p.Msg = _field
-	return nil
-}
-
-func (p *RefundTradeOrderResp) Write(oprot thrift.TProtocol) (err error) {
-	var fieldId int16
-	if err = oprot.WriteStructBegin("RefundTradeOrderResp"); err != nil {
-		goto WriteStructBeginError
-	}
-	if p != nil {
-		if err = p.writeField1(oprot); err != nil {
-			fieldId = 1
-			goto WriteFieldError
-		}
-		if err = p.writeField2(oprot); err != nil {
-			fieldId = 2
-			goto WriteFieldError
-		}
-	}
-	if err = oprot.WriteFieldStop(); err != nil {
-		goto WriteFieldStopError
-	}
-	if err = oprot.WriteStructEnd(); err != nil {
-		goto WriteStructEndError
-	}
-	return nil
-WriteStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
-WriteFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
-WriteFieldStopError:
-	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
-WriteStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
-}
-
-func (p *RefundTradeOrderResp) writeField1(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("code", thrift.I32, 1); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteI32(p.Code); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
-}
-
-func (p *RefundTradeOrderResp) writeField2(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("msg", thrift.STRING, 2); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteString(p.Msg); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
-}
-
-func (p *RefundTradeOrderResp) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("RefundTradeOrderResp(%+v)", *p)
-
-}
-
 type GetTradeOrderReq struct {
 	OrderID int64 `thrift:"order_id,1,required" json:"order_id,required" path:"order_id,required"`
 }
@@ -39823,6 +39474,7 @@ type GetTradeGateStatusData struct {
 	ActiveOrderCount  int32 `thrift:"active_order_count,2,required" form:"active_order_count,required" json:"active_order_count,required" query:"active_order_count,required"`
 	MaxActiveOrders   int32 `thrift:"max_active_orders,3,required" form:"max_active_orders,required" json:"max_active_orders,required" query:"max_active_orders,required"`
 	HasPendingRelease bool  `thrift:"has_pending_release,4,required" form:"has_pending_release,required" json:"has_pending_release,required" query:"has_pending_release,required"`
+	UnpaidOrderCount  int32 `thrift:"unpaid_order_count,5,required" form:"unpaid_order_count,required" json:"unpaid_order_count,required" query:"unpaid_order_count,required"`
 }
 
 func NewGetTradeGateStatusData() *GetTradeGateStatusData {
@@ -39848,11 +39500,16 @@ func (p *GetTradeGateStatusData) GetHasPendingRelease() (v bool) {
 	return p.HasPendingRelease
 }
 
+func (p *GetTradeGateStatusData) GetUnpaidOrderCount() (v int32) {
+	return p.UnpaidOrderCount
+}
+
 var fieldIDToName_GetTradeGateStatusData = map[int16]string{
 	1: "can_create_order",
 	2: "active_order_count",
 	3: "max_active_orders",
 	4: "has_pending_release",
+	5: "unpaid_order_count",
 }
 
 func (p *GetTradeGateStatusData) Read(iprot thrift.TProtocol) (err error) {
@@ -39863,6 +39520,7 @@ func (p *GetTradeGateStatusData) Read(iprot thrift.TProtocol) (err error) {
 	var issetActiveOrderCount bool = false
 	var issetMaxActiveOrders bool = false
 	var issetHasPendingRelease bool = false
+	var issetUnpaidOrderCount bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -39914,6 +39572,15 @@ func (p *GetTradeGateStatusData) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 5:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetUnpaidOrderCount = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -39944,6 +39611,11 @@ func (p *GetTradeGateStatusData) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetHasPendingRelease {
 		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetUnpaidOrderCount {
+		fieldId = 5
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -40008,6 +39680,17 @@ func (p *GetTradeGateStatusData) ReadField4(iprot thrift.TProtocol) error {
 	p.HasPendingRelease = _field
 	return nil
 }
+func (p *GetTradeGateStatusData) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.UnpaidOrderCount = _field
+	return nil
+}
 
 func (p *GetTradeGateStatusData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -40029,6 +39712,10 @@ func (p *GetTradeGateStatusData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -40115,6 +39802,23 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *GetTradeGateStatusData) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("unpaid_order_count", thrift.I32, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.UnpaidOrderCount); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
 func (p *GetTradeGateStatusData) String() string {
@@ -40473,8 +40177,6 @@ type ApiService interface {
 	DeliverTradeOrder(ctx context.Context, req *DeliverTradeOrderReq) (r *DeliverTradeOrderResp, err error)
 
 	ReleaseTradeOrder(ctx context.Context, req *ReleaseTradeOrderReq) (r *ReleaseTradeOrderResp, err error)
-
-	RefundTradeOrder(ctx context.Context, req *RefundTradeOrderReq) (r *RefundTradeOrderResp, err error)
 
 	GetTradeOrder(ctx context.Context, req *GetTradeOrderReq) (r *GetTradeOrderResp, err error)
 
@@ -40896,15 +40598,6 @@ func (p *ApiServiceClient) ReleaseTradeOrder(ctx context.Context, req *ReleaseTr
 	}
 	return _result.GetSuccess(), nil
 }
-func (p *ApiServiceClient) RefundTradeOrder(ctx context.Context, req *RefundTradeOrderReq) (r *RefundTradeOrderResp, err error) {
-	var _args ApiServiceRefundTradeOrderArgs
-	_args.Req = req
-	var _result ApiServiceRefundTradeOrderResult
-	if err = p.Client_().Call(ctx, "RefundTradeOrder", &_args, &_result); err != nil {
-		return
-	}
-	return _result.GetSuccess(), nil
-}
 func (p *ApiServiceClient) GetTradeOrder(ctx context.Context, req *GetTradeOrderReq) (r *GetTradeOrderResp, err error) {
 	var _args ApiServiceGetTradeOrderArgs
 	_args.Req = req
@@ -40996,7 +40689,6 @@ func NewApiServiceProcessor(handler ApiService) *ApiServiceProcessor {
 	self.AddToProcessorMap("CreateTradeOrder", &apiServiceProcessorCreateTradeOrder{handler: handler})
 	self.AddToProcessorMap("DeliverTradeOrder", &apiServiceProcessorDeliverTradeOrder{handler: handler})
 	self.AddToProcessorMap("ReleaseTradeOrder", &apiServiceProcessorReleaseTradeOrder{handler: handler})
-	self.AddToProcessorMap("RefundTradeOrder", &apiServiceProcessorRefundTradeOrder{handler: handler})
 	self.AddToProcessorMap("GetTradeOrder", &apiServiceProcessorGetTradeOrder{handler: handler})
 	self.AddToProcessorMap("ListTradeOrders", &apiServiceProcessorListTradeOrders{handler: handler})
 	self.AddToProcessorMap("GetTradeGateStatus", &apiServiceProcessorGetTradeGateStatus{handler: handler})
@@ -43067,54 +42759,6 @@ func (p *apiServiceProcessorReleaseTradeOrder) Process(ctx context.Context, seqI
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("ReleaseTradeOrder", thrift.REPLY, seqId); err2 != nil {
-		err = err2
-	}
-	if err2 = result.Write(oprot); err == nil && err2 != nil {
-		err = err2
-	}
-	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
-		err = err2
-	}
-	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
-		err = err2
-	}
-	if err != nil {
-		return
-	}
-	return true, err
-}
-
-type apiServiceProcessorRefundTradeOrder struct {
-	handler ApiService
-}
-
-func (p *apiServiceProcessorRefundTradeOrder) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
-	args := ApiServiceRefundTradeOrderArgs{}
-	if err = args.Read(iprot); err != nil {
-		iprot.ReadMessageEnd()
-		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
-		oprot.WriteMessageBegin("RefundTradeOrder", thrift.EXCEPTION, seqId)
-		x.Write(oprot)
-		oprot.WriteMessageEnd()
-		oprot.Flush(ctx)
-		return false, err
-	}
-
-	iprot.ReadMessageEnd()
-	var err2 error
-	result := ApiServiceRefundTradeOrderResult{}
-	var retval *RefundTradeOrderResp
-	if retval, err2 = p.handler.RefundTradeOrder(ctx, args.Req); err2 != nil {
-		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing RefundTradeOrder: "+err2.Error())
-		oprot.WriteMessageBegin("RefundTradeOrder", thrift.EXCEPTION, seqId)
-		x.Write(oprot)
-		oprot.WriteMessageEnd()
-		oprot.Flush(ctx)
-		return true, err2
-	} else {
-		result.Success = retval
-	}
-	if err2 = oprot.WriteMessageBegin("RefundTradeOrder", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -55915,300 +55559,6 @@ func (p *ApiServiceReleaseTradeOrderResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ApiServiceReleaseTradeOrderResult(%+v)", *p)
-
-}
-
-type ApiServiceRefundTradeOrderArgs struct {
-	Req *RefundTradeOrderReq `thrift:"req,1"`
-}
-
-func NewApiServiceRefundTradeOrderArgs() *ApiServiceRefundTradeOrderArgs {
-	return &ApiServiceRefundTradeOrderArgs{}
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) InitDefault() {
-}
-
-var ApiServiceRefundTradeOrderArgs_Req_DEFAULT *RefundTradeOrderReq
-
-func (p *ApiServiceRefundTradeOrderArgs) GetReq() (v *RefundTradeOrderReq) {
-	if !p.IsSetReq() {
-		return ApiServiceRefundTradeOrderArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-
-var fieldIDToName_ApiServiceRefundTradeOrderArgs = map[int16]string{
-	1: "req",
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) Read(iprot thrift.TProtocol) (err error) {
-
-	var fieldTypeId thrift.TType
-	var fieldId int16
-
-	if _, err = iprot.ReadStructBegin(); err != nil {
-		goto ReadStructBeginError
-	}
-
-	for {
-		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
-		if err != nil {
-			goto ReadFieldBeginError
-		}
-		if fieldTypeId == thrift.STOP {
-			break
-		}
-
-		switch fieldId {
-		case 1:
-			if fieldTypeId == thrift.STRUCT {
-				if err = p.ReadField1(iprot); err != nil {
-					goto ReadFieldError
-				}
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		default:
-			if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		}
-		if err = iprot.ReadFieldEnd(); err != nil {
-			goto ReadFieldEndError
-		}
-	}
-	if err = iprot.ReadStructEnd(); err != nil {
-		goto ReadStructEndError
-	}
-
-	return nil
-ReadStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
-ReadFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-ReadFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ApiServiceRefundTradeOrderArgs[fieldId]), err)
-SkipFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
-
-ReadFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
-ReadStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) ReadField1(iprot thrift.TProtocol) error {
-	_field := NewRefundTradeOrderReq()
-	if err := _field.Read(iprot); err != nil {
-		return err
-	}
-	p.Req = _field
-	return nil
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) Write(oprot thrift.TProtocol) (err error) {
-	var fieldId int16
-	if err = oprot.WriteStructBegin("RefundTradeOrder_args"); err != nil {
-		goto WriteStructBeginError
-	}
-	if p != nil {
-		if err = p.writeField1(oprot); err != nil {
-			fieldId = 1
-			goto WriteFieldError
-		}
-	}
-	if err = oprot.WriteFieldStop(); err != nil {
-		goto WriteFieldStopError
-	}
-	if err = oprot.WriteStructEnd(); err != nil {
-		goto WriteStructEndError
-	}
-	return nil
-WriteStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
-WriteFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
-WriteFieldStopError:
-	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
-WriteStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) writeField1(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("req", thrift.STRUCT, 1); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := p.Req.Write(oprot); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("ApiServiceRefundTradeOrderArgs(%+v)", *p)
-
-}
-
-type ApiServiceRefundTradeOrderResult struct {
-	Success *RefundTradeOrderResp `thrift:"success,0,optional"`
-}
-
-func NewApiServiceRefundTradeOrderResult() *ApiServiceRefundTradeOrderResult {
-	return &ApiServiceRefundTradeOrderResult{}
-}
-
-func (p *ApiServiceRefundTradeOrderResult) InitDefault() {
-}
-
-var ApiServiceRefundTradeOrderResult_Success_DEFAULT *RefundTradeOrderResp
-
-func (p *ApiServiceRefundTradeOrderResult) GetSuccess() (v *RefundTradeOrderResp) {
-	if !p.IsSetSuccess() {
-		return ApiServiceRefundTradeOrderResult_Success_DEFAULT
-	}
-	return p.Success
-}
-
-var fieldIDToName_ApiServiceRefundTradeOrderResult = map[int16]string{
-	0: "success",
-}
-
-func (p *ApiServiceRefundTradeOrderResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *ApiServiceRefundTradeOrderResult) Read(iprot thrift.TProtocol) (err error) {
-
-	var fieldTypeId thrift.TType
-	var fieldId int16
-
-	if _, err = iprot.ReadStructBegin(); err != nil {
-		goto ReadStructBeginError
-	}
-
-	for {
-		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
-		if err != nil {
-			goto ReadFieldBeginError
-		}
-		if fieldTypeId == thrift.STOP {
-			break
-		}
-
-		switch fieldId {
-		case 0:
-			if fieldTypeId == thrift.STRUCT {
-				if err = p.ReadField0(iprot); err != nil {
-					goto ReadFieldError
-				}
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		default:
-			if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		}
-		if err = iprot.ReadFieldEnd(); err != nil {
-			goto ReadFieldEndError
-		}
-	}
-	if err = iprot.ReadStructEnd(); err != nil {
-		goto ReadStructEndError
-	}
-
-	return nil
-ReadStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
-ReadFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-ReadFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ApiServiceRefundTradeOrderResult[fieldId]), err)
-SkipFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
-
-ReadFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
-ReadStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderResult) ReadField0(iprot thrift.TProtocol) error {
-	_field := NewRefundTradeOrderResp()
-	if err := _field.Read(iprot); err != nil {
-		return err
-	}
-	p.Success = _field
-	return nil
-}
-
-func (p *ApiServiceRefundTradeOrderResult) Write(oprot thrift.TProtocol) (err error) {
-	var fieldId int16
-	if err = oprot.WriteStructBegin("RefundTradeOrder_result"); err != nil {
-		goto WriteStructBeginError
-	}
-	if p != nil {
-		if err = p.writeField0(oprot); err != nil {
-			fieldId = 0
-			goto WriteFieldError
-		}
-	}
-	if err = oprot.WriteFieldStop(); err != nil {
-		goto WriteFieldStopError
-	}
-	if err = oprot.WriteStructEnd(); err != nil {
-		goto WriteStructEndError
-	}
-	return nil
-WriteStructBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
-WriteFieldError:
-	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
-WriteFieldStopError:
-	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
-WriteStructEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderResult) writeField0(oprot thrift.TProtocol) (err error) {
-	if p.IsSetSuccess() {
-		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
-			goto WriteFieldBeginError
-		}
-		if err := p.Success.Write(oprot); err != nil {
-			return err
-		}
-		if err = oprot.WriteFieldEnd(); err != nil {
-			goto WriteFieldEndError
-		}
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
-}
-
-func (p *ApiServiceRefundTradeOrderResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("ApiServiceRefundTradeOrderResult(%+v)", *p)
 
 }
 

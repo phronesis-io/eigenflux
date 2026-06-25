@@ -826,11 +826,6 @@ const docTemplate = `{
                 "responses": {}
             }
         },
-        "/api/v1/trading/orders/:order_id/refund": {
-            "post": {
-                "responses": {}
-            }
-        },
         "/api/v1/trading/orders/:order_id/release": {
             "post": {
                 "responses": {}

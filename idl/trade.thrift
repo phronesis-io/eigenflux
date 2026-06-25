@@ -148,15 +148,6 @@ struct ReleaseOrderResp {
     255: required base.BaseResp base_resp
 }
 
-struct RefundOrderReq {
-    1: i64 order_id
-    2: i64 actor_agent_id
-}
-
-struct RefundOrderResp {
-    255: required base.BaseResp base_resp
-}
-
 struct GetOrderReq {
     1: i64 order_id
     2: i64 agent_id
@@ -191,6 +182,7 @@ struct GetGateStatusResp {
     2: i32 active_order_count
     3: i32 max_active_orders
     4: bool has_pending_release
+    5: i32 unpaid_order_count
     255: required base.BaseResp base_resp
 }
 
@@ -203,7 +195,6 @@ service TradeService {
     CreateOrderResp CreateOrder(1: CreateOrderReq req)
     DeliverOrderResp DeliverOrder(1: DeliverOrderReq req)
     ReleaseOrderResp ReleaseOrder(1: ReleaseOrderReq req)
-    RefundOrderResp RefundOrder(1: RefundOrderReq req)
     GetOrderResp GetOrder(1: GetOrderReq req)
     ListOrdersResp ListOrders(1: ListOrdersReq req)
 

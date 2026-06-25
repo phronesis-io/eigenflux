@@ -49,6 +49,7 @@ type Config struct {
 	LLMBaseURL                  string
 	LLMModel                    string
 	LLMTranslateModel           string // cheaper model for display translations; falls back to LLMModel when empty
+	LLMTaskDecomposeModel       string // cheaper model for SearchServices sub-intent decomposition; falls back to LLMModel when empty
 	LLMMaxTokens                int
 	LLMReasoningEffort          string
 	EmbeddingProvider           string // "openai" or "ollama"
@@ -216,6 +217,7 @@ func Load() *Config {
 		LLMBaseURL:                    getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                      getEnv("LLM_MODEL", "gpt-4o-mini"),
 		LLMTranslateModel:             getEnv("LLM_TRANSLATE_MODEL", ""),
+		LLMTaskDecomposeModel:         getEnv("LLM_TASK_DECOMPOSE_MODEL", ""),
 		LLMMaxTokens:                  getEnvInt("LLM_MAX_TOKENS", 4096),
 		LLMReasoningEffort:            getEnv("LLM_REASONING_EFFORT", "low"),
 		EmbeddingProvider:             embeddingProvider,

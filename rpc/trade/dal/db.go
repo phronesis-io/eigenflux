@@ -19,9 +19,10 @@ const (
 )
 
 // Order status. Slots 1 (escrow_locked) and 4 (seller_cancelled) were retired
-// when the chief escrow model was replaced by direct kovaloop transfers; the
-// integer values stay reserved but no current code emits or transitions into
-// them.
+// when the chief escrow model was replaced by direct kovaloop transfers. Slot
+// 6 (refunded) was retired when RefundOrder was removed; existing rows are
+// preserved and isTerminalStatus still recognises it for historical orders,
+// but no current code path emits or transitions into it.
 const (
 	OrderStatusCreated   int16 = 0
 	OrderStatusDelivered int16 = 2
@@ -33,7 +34,9 @@ const (
 // Order event type. Stored as SMALLINT; the string form is exposed at the API
 // boundary via EventTypeName / ParseEventTypeName. Slots 2 (escrow_locked) and
 // 7 (seller_cancelled) are retained in the name map so historical event rows
-// still render, but no constants are exposed since no current code emits them.
+// still render. Slot 5 (refunded) is also historical-only after RefundOrder
+// removal — the constant stays so eventTypeNames continues to map it, but no
+// current code path writes EventTypeRefunded rows.
 const (
 	EventTypeUnknown   int16 = 0
 	EventTypeCreated   int16 = 1
@@ -372,10 +375,20 @@ func HasPendingRelease(db *gorm.DB, buyerAgentID int64) (bool, error) {
 	return count > 0, err
 }
 
+// CountUnpaidOrders returns the number of delivered-but-unreleased orders
+// for the buyer. The buyer gate uses this to surface "has_unpaid_orders" as
+// the block reason; any value > 0 blocks new order creation.
+func CountUnpaidOrders(db *gorm.DB, buyerAgentID int64) (int64, error) {
+	var count int64
+	err := db.Model(&TradeOrder{}).
+		Where("buyer_agent_id = ? AND status = ?", buyerAgentID, OrderStatusDelivered).
+		Count(&count).Error
+	return count, err
+}
+
 func FindExpiredOrders(db *gorm.DB, nowMs int64, limit int) ([]*TradeOrder, error) {
 	var orders []*TradeOrder
-	err := db.Where("status IN ? AND deadline_at < ?",
-		[]int16{OrderStatusCreated, OrderStatusDelivered}, nowMs).
+	err := db.Where("status = ? AND deadline_at < ?", OrderStatusCreated, nowMs).
 		Limit(limit).Find(&orders).Error
 	return orders, err
 }
@@ -433,19 +446,69 @@ func DeleteOldPublishedOutbox(db *gorm.DB, beforeMs int64) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-// MarshalOrderEventPayload renders the canonical JSON payload for a trade
-// order event. The same shape is produced by handler.go (in-handler
-// transitions) and pipeline/cron/trade_expiry.go (cron expirations) so the
-// dispatcher and downstream consumer see one format. outbox_id is included
-// so the consumer can dedup duplicate publishes via in-memory LRU.
+// OrderEventPayload is the canonical JSON shape published on
+// stream:trade:order-event. Terminal events (released/refunded/expired) use
+// only the first four fields; created and delivered events carry the extra
+// agent ids and frozen snapshot the consumer needs to write the
+// trade:notify:{agent_id} Redis hash without re-reading trade_orders.
+type OrderEventPayload struct {
+	OutboxID               string `json:"outbox_id"`
+	OrderID                string `json:"order_id"`
+	ServiceID              string `json:"service_id"`
+	EventType              string `json:"event_type"`
+	BuyerAgentID           string `json:"buyer_agent_id,omitempty"`
+	SellerAgentID          string `json:"seller_agent_id,omitempty"`
+	FrozenTitle            string `json:"frozen_title,omitempty"`
+	BuyerInput             string `json:"buyer_input,omitempty"`
+	DeliveryPayloadPreview string `json:"delivery_payload_preview,omitempty"`
+	FrozenAmountAtomic     string `json:"frozen_amount_atomic,omitempty"`
+	FrozenAsset            string `json:"frozen_asset,omitempty"`
+	NowMs                  string `json:"now_ms,omitempty"`
+}
+
+// MarshalOrderEventPayload renders the JSON for terminal events
+// (released/refunded/expired). Used by handler.go and pipeline/cron/trade_expiry.go.
 func MarshalOrderEventPayload(outboxID, orderID, serviceID int64, eventType string) (string, error) {
-	payload := map[string]string{
-		"outbox_id":  strconv.FormatInt(outboxID, 10),
-		"order_id":   strconv.FormatInt(orderID, 10),
-		"service_id": strconv.FormatInt(serviceID, 10),
-		"event_type": eventType,
-	}
-	raw, err := json.Marshal(payload)
+	return marshalOrderPayload(OrderEventPayload{
+		OutboxID:  strconv.FormatInt(outboxID, 10),
+		OrderID:   strconv.FormatInt(orderID, 10),
+		ServiceID: strconv.FormatInt(serviceID, 10),
+		EventType: eventType,
+	})
+}
+
+// MarshalOrderCreatedPayload renders the JSON for a `created` event.
+func MarshalOrderCreatedPayload(outboxID, orderID, serviceID, buyerAgentID int64, frozenTitle, buyerInput string, nowMs int64) (string, error) {
+	return marshalOrderPayload(OrderEventPayload{
+		OutboxID:     strconv.FormatInt(outboxID, 10),
+		OrderID:      strconv.FormatInt(orderID, 10),
+		ServiceID:    strconv.FormatInt(serviceID, 10),
+		EventType:    "created",
+		BuyerAgentID: strconv.FormatInt(buyerAgentID, 10),
+		FrozenTitle:  frozenTitle,
+		BuyerInput:   buyerInput,
+		NowMs:        strconv.FormatInt(nowMs, 10),
+	})
+}
+
+// MarshalOrderDeliveredPayload renders the JSON for a `delivered` event.
+func MarshalOrderDeliveredPayload(outboxID, orderID, serviceID, sellerAgentID int64, frozenTitle, deliveryPreview, frozenAsset string, frozenAmountAtomic, nowMs int64) (string, error) {
+	return marshalOrderPayload(OrderEventPayload{
+		OutboxID:               strconv.FormatInt(outboxID, 10),
+		OrderID:                strconv.FormatInt(orderID, 10),
+		ServiceID:              strconv.FormatInt(serviceID, 10),
+		EventType:              "delivered",
+		SellerAgentID:          strconv.FormatInt(sellerAgentID, 10),
+		FrozenTitle:            frozenTitle,
+		DeliveryPayloadPreview: deliveryPreview,
+		FrozenAmountAtomic:     strconv.FormatInt(frozenAmountAtomic, 10),
+		FrozenAsset:            frozenAsset,
+		NowMs:                  strconv.FormatInt(nowMs, 10),
+	})
+}
+
+func marshalOrderPayload(p OrderEventPayload) (string, error) {
+	raw, err := json.Marshal(p)
 	if err != nil {
 		return "", err
 	}

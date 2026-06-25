@@ -4,6 +4,7 @@ const (
 	SourceTypeMilestone     = "milestone"
 	SourceTypeSystem        = "system"
 	SourceTypeFriendRequest = "friend_request"
+	SourceTypeTrade         = "trade"
 
 	StatusDraft   int16 = 0
 	StatusActive  int16 = 1

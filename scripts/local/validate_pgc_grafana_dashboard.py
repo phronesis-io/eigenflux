@@ -13,17 +13,57 @@ import json
 import shlex
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "内容交付 / Delivery",
-    "来源健康 / Source Health",
-    "质量与成本 / Quality & Cost",
-    "工程诊断 / Diagnostics",
+    "总览 / Owner Cockpit",
+    "一手有没有漏 / First-Source Coverage",
+    "信号够不够快 / Signal Latency",
+    "每条信号卡在哪一跳 / Event Timeline",
+    "信源是否可靠 / Source Reliability",
+    "内容有没有送达 / Delivery",
+    "生产链路是否健康 / Pipeline Health",
+    "质量和成本是否失控 / Quality & Cost",
+    "工程诊断 / Deep Dive",
 ]
+
+NATURALLY_EMPTY_PANEL_IDS = {
+    10,   # 异常来源榜: no rows when every failing source is already blocked or healthy.
+    108,  # 即将被 block 的来源: no rows is the ideal steady state.
+    407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
+    409,  # SLA 破线原因: no rows is ideal when there is no latency debt.
+    410,  # 活跃拖慢信源: no rows is ideal when no source is currently breaching.
+    412,  # 违反 source SLA 的源: no rows is the ideal source-health steady state.
+    908,  # 现在先处理哪些信源: no rows is ideal when no source is active-breaching.
+}
+
+ACTIONABLE_LATENCY_PANEL_IDS = {
+    903,  # 高优先级信号仍在超时吗
+    401,  # 现在高优先级信号还在超时吗
+    407,  # 哪些类别需要马上处理
+}
+
+BREACH_KIND_PANEL_IDS = {
+    409,  # 这些超时是事故还是回补噪音
+}
+
+ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
+    410,  # 当前哪些信源正在拖慢
+    908,  # 现在先处理哪些信源
+}
+
+SOURCE_HEALTH_SLA_PANEL_IDS = {
+    905,  # Source SLA 是否破线
+    411,  # 信源 SLA 是否破线
+}
+
+SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS = {
+    412,  # 哪些源违反 SLA
+}
 
 
 def load_dashboard(path: Path) -> dict:
@@ -52,6 +92,56 @@ def static_validate(dashboard: dict) -> list[str]:
     for section in EXPECTED_SECTIONS:
         if section not in row_titles:
             errors.append(f"missing section row: {section}")
+
+    panels_by_id = {panel.get("id"): panel for panel in dashboard.get("panels", [])}
+    for panel_id in ACTIONABLE_LATENCY_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing actionable latency panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_signal_latency_actionable_breaches_3h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use active actionable latency breaches")
+
+    for panel_id in BREACH_KIND_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing breach-kind latency panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_signal_latency_breach_kind_24h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use breach-kind latency metric")
+
+    for panel_id in ACTIVE_SOURCE_LATENCY_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing active source latency panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_signal_latency_active_source_breaches_3h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use active source latency metric")
+        if not any("source_latency" in expr and "source_feed_lag" in expr for expr in exprs):
+            errors.append(
+                f"panel {panel_id} must focus on actionable source_latency/source_feed_lag rows"
+            )
+
+    for panel_id in SOURCE_HEALTH_SLA_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing source health SLA panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_source_health_sla_attention" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use source health SLA attention metric")
+
+    for panel_id in SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS:
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing source health SLA drilldown panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        if not any("pgc_source_health_sla_attention_source" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use source health SLA per-source metric")
 
     prometheus_targets = 0
     loki_targets = 0
@@ -110,24 +200,41 @@ def prometheus_validate(
     ssh_host: str | None,
     rate_window: str,
     allow_empty: bool,
+    panel_ids: set[int] | None,
+    empty_retries: int,
+    empty_retry_delay: float,
 ) -> list[str]:
     errors: list[str] = []
     checked = 0
     for panel, _target, expr in iter_targets(dashboard):
         if panel.get("type") == "logs":
             continue
+        if panel_ids is not None and panel.get("id") not in panel_ids:
+            continue
         checked += 1
         prom_expr = expr.replace("$__rate_interval", rate_window)
-        try:
-            payload = query_prometheus(prom_expr, prometheus_url, ssh_host)
-        except Exception as exc:
-            errors.append(f"{panel.get('id')} {panel.get('title')}: query failed: {exc}")
+        payload = None
+        result = []
+        query_error = False
+        for attempt in range(empty_retries + 1):
+            try:
+                payload = query_prometheus(prom_expr, prometheus_url, ssh_host)
+            except Exception as exc:
+                errors.append(f"{panel.get('id')} {panel.get('title')}: query failed: {exc}")
+                query_error = True
+                break
+            if payload.get("status") != "success":
+                errors.append(f"{panel.get('id')} {panel.get('title')}: {payload}")
+                query_error = True
+                break
+            result = payload.get("data", {}).get("result", [])
+            if result or allow_empty or panel.get("id") in NATURALLY_EMPTY_PANEL_IDS:
+                break
+            if attempt < empty_retries:
+                time.sleep(empty_retry_delay)
+        if query_error:
             continue
-        if payload.get("status") != "success":
-            errors.append(f"{panel.get('id')} {panel.get('title')}: {payload}")
-            continue
-        result = payload.get("data", {}).get("result", [])
-        if not result and not allow_empty:
+        if not result and not allow_empty and panel.get("id") not in NATURALLY_EMPTY_PANEL_IDS:
             errors.append(f"{panel.get('id')} {panel.get('title')}: empty result for {prom_expr}")
     if checked == 0:
         errors.append("no Prometheus expressions found")
@@ -145,11 +252,21 @@ def main() -> int:
     parser.add_argument("--ssh-host")
     parser.add_argument("--rate-window", default="5m")
     parser.add_argument("--allow-empty", action="store_true")
+    parser.add_argument("--empty-retries", default=2, type=int)
+    parser.add_argument("--empty-retry-delay", default=2.0, type=float)
+    parser.add_argument(
+        "--panel-id",
+        action="append",
+        default=[],
+        type=int,
+        help="Only run production Prometheus validation for this panel id. Repeatable.",
+    )
     args = parser.parse_args()
 
     dashboard = load_dashboard(args.dashboard)
     errors = static_validate(dashboard)
     if args.prometheus_url:
+        panel_ids = set(args.panel_id) if args.panel_id else None
         errors.extend(
             prometheus_validate(
                 dashboard,
@@ -157,6 +274,9 @@ def main() -> int:
                 args.ssh_host,
                 args.rate_window,
                 args.allow_empty,
+                panel_ids,
+                args.empty_retries,
+                args.empty_retry_delay,
             )
         )
 

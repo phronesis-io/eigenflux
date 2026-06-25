@@ -98,6 +98,14 @@ func (c *Client) WithModel(model string) *Client {
 	return &c2
 }
 
+// WithReasoningOff returns a shallow copy that omits the reasoning parameter.
+// Some DashScope-compatible fast models reject reasoning settings outright.
+func (c *Client) WithReasoningOff() *Client {
+	c2 := *c
+	c2.reasoningEffort = shared.ReasoningEffort(reasoningOff)
+	return &c2
+}
+
 // TranslateToChinese renders the given text into Simplified Chinese for
 // display, keeping technical terms, product names and identifiers as-is.
 // Uses callRaw: translations may legitimately contain brackets, which

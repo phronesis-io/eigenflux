@@ -62,13 +62,6 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
-	"RefundOrder": kitex.NewMethodInfo(
-		refundOrderHandler,
-		newTradeServiceRefundOrderArgs,
-		newTradeServiceRefundOrderResult,
-		false,
-		kitex.WithStreamingMode(kitex.StreamingNone),
-	),
 	"GetOrder": kitex.NewMethodInfo(
 		getOrderHandler,
 		newTradeServiceGetOrderArgs,
@@ -282,24 +275,6 @@ func newTradeServiceReleaseOrderResult() interface{} {
 	return trade.NewTradeServiceReleaseOrderResult()
 }
 
-func refundOrderHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
-	realArg := arg.(*trade.TradeServiceRefundOrderArgs)
-	realResult := result.(*trade.TradeServiceRefundOrderResult)
-	success, err := handler.(trade.TradeService).RefundOrder(ctx, realArg.Req)
-	if err != nil {
-		return err
-	}
-	realResult.Success = success
-	return nil
-}
-func newTradeServiceRefundOrderArgs() interface{} {
-	return trade.NewTradeServiceRefundOrderArgs()
-}
-
-func newTradeServiceRefundOrderResult() interface{} {
-	return trade.NewTradeServiceRefundOrderResult()
-}
-
 func getOrderHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*trade.TradeServiceGetOrderArgs)
 	realResult := result.(*trade.TradeServiceGetOrderResult)
@@ -429,16 +404,6 @@ func (p *kClient) ReleaseOrder(ctx context.Context, req *trade.ReleaseOrderReq) 
 	_args.Req = req
 	var _result trade.TradeServiceReleaseOrderResult
 	if err = p.c.Call(ctx, "ReleaseOrder", &_args, &_result); err != nil {
-		return
-	}
-	return _result.GetSuccess(), nil
-}
-
-func (p *kClient) RefundOrder(ctx context.Context, req *trade.RefundOrderReq) (r *trade.RefundOrderResp, err error) {
-	var _args trade.TradeServiceRefundOrderArgs
-	_args.Req = req
-	var _result trade.TradeServiceRefundOrderResult
-	if err = p.c.Call(ctx, "RefundOrder", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

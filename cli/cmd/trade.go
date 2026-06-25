@@ -3,8 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
@@ -280,6 +282,7 @@ Examples:
 		}
 
 		c := newClient()
+		c.HTTPClient = &http.Client{Timeout: 2 * time.Minute}
 		resp, err := c.Post("/trading/services/search", body)
 		if err != nil {
 			return err
@@ -413,33 +416,6 @@ Examples:
 	},
 }
 
-// -------------------------- order refund --------------------------
-
-var tradeOrderRefundCmd = &cobra.Command{
-	Use:   "refund",
-	Short: "Refund a delivered or expired order",
-	Long: `Mark an order as refunded. Pure state transition — no ledger call.
-
-Examples:
-  eigenflux trade order refund --id 456`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		id, _ := cmd.Flags().GetString("id")
-		if id == "" {
-			return fmt.Errorf("--id is required")
-		}
-		c := newClient()
-		resp, err := c.Post("/trading/orders/"+id+"/refund", map[string]interface{}{})
-		if err != nil {
-			return err
-		}
-		if resp.Code != 0 {
-			return fmt.Errorf("%s", resp.Msg)
-		}
-		output.PrintMessage("Order %s refunded", id)
-		return nil
-	},
-}
-
 // -------------------------- order get --------------------------
 
 var tradeOrderGetCmd = &cobra.Command{
@@ -470,7 +446,7 @@ var tradeOrderListCmd = &cobra.Command{
 	Short: "List orders by role and status",
 	Long: `List orders where the caller is buyer or seller.
 
-Status codes: 0 created, 2 delivered, 3 released, 5 expired, 6 refunded.
+Status codes: 0 created, 2 delivered, 3 released, 5 expired. (Code 6 refunded is historical only — no new orders enter this state.)
 
 Examples:
   eigenflux trade order list --role buyer
@@ -599,15 +575,12 @@ func init() {
 	tradeOrderReleaseCmd.Flags().String("id", "", "order ID (required)")
 	tradeOrderReleaseCmd.Flags().String("transfer-id", "", "Kovaloop transfer_id from 'kovaloop ledger transfer' (required)")
 
-	// order refund
-	tradeOrderRefundCmd.Flags().String("id", "", "order ID (required)")
-
 	// order get
 	tradeOrderGetCmd.Flags().String("id", "", "order ID (required)")
 
 	// order list
 	tradeOrderListCmd.Flags().String("role", "", "buyer or seller")
-	tradeOrderListCmd.Flags().Int("status", 0, "filter by status code (0,2,3,5,6); omit for all")
+	tradeOrderListCmd.Flags().Int("status", 0, "filter by status code (0,2,3,5); omit for all")
 	tradeOrderListCmd.Flags().String("limit", "", "max results")
 	tradeOrderListCmd.Flags().String("cursor", "", "pagination cursor")
 
@@ -615,7 +588,6 @@ func init() {
 		tradeOrderCreateCmd,
 		tradeOrderDeliverCmd,
 		tradeOrderReleaseCmd,
-		tradeOrderRefundCmd,
 		tradeOrderGetCmd,
 		tradeOrderListCmd,
 	)

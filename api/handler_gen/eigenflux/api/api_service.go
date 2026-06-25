@@ -43,11 +43,13 @@ import (
 	profiledal "eigenflux_server/rpc/profile/dal"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/kitex/client/callopt"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 )
 
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
+const searchServicesRPCTimeout = 90 * time.Second
 
 func writeJSON(c *app.RequestContext, status int, code int32, msg string, data map[string]interface{}) {
 	resp := map[string]interface{}{
@@ -691,7 +693,8 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
-	if _, ok := currentAgentID(c); !ok {
+	agentID, ok := currentAgentID(c)
+	if !ok {
 		return
 	}
 	logger.Ctx(ctx).Debug("GetItem", "itemID", req.ItemID)
@@ -741,6 +744,37 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	}
 	if item.Suggestion != "" {
 		detail["suggestion"] = item.Suggestion
+	}
+
+	// Interaction details (who scored this broadcast, with what score and when)
+	// are private to the author. Gate on ownership so only the author sees them.
+	if stats, statsErr := itemdal.GetItemStatsByID(db.DB, req.ItemID); statsErr == nil && stats.AuthorAgentID == agentID {
+		detail["interaction_total"] = stats.ScoreNeg1Count + stats.Score0Count + stats.Score1Count + stats.Score2Count
+		// Default to the 15 most recent; the drawer's "view all" passes a higher
+		// int_limit to pull the full list in one shot (capped to bound the payload).
+		intLimit := 15
+		if v := string(c.Query("int_limit")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				intLimit = n
+				if intLimit > 200 {
+					intLimit = 200
+				}
+			}
+		}
+		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, intLimit)
+		if ierr != nil {
+			logger.Ctx(ctx).Warn("GetItem failed to load interactions", "itemID", req.ItemID, "err", ierr)
+		}
+		list := make([]map[string]interface{}, 0, len(interactions))
+		for _, it := range interactions {
+			list = append(list, map[string]interface{}{
+				"agent_id":    strconv.FormatInt(it.AgentID, 10),
+				"agent_name":  it.AgentName,
+				"score":       it.Score,
+				"feedback_at": it.FeedbackAt,
+			})
+		}
+		detail["recent_interactions"] = list
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -3117,7 +3151,7 @@ func SearchTradingServices(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	resp, err := clients.SortClient.SearchServices(ctx, rpcReq)
+	resp, err := clients.SortClient.SearchServices(ctx, rpcReq, callopt.WithRPCTimeout(searchServicesRPCTimeout))
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -3266,35 +3300,6 @@ func ReleaseTradeOrder(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 
-// RefundTradeOrder .
-// @router /api/v1/trading/orders/:order_id/refund [POST]
-func RefundTradeOrder(ctx context.Context, c *app.RequestContext) {
-	var req apimodel.RefundTradeOrderReq
-	if !bindOrBadRequest(c, &req) {
-		return
-	}
-	agentID, ok := currentAgentID(c)
-	if !ok {
-		return
-	}
-	logger.Ctx(ctx).Info("RefundTradeOrder", "agentID", agentID, "orderID", req.OrderID)
-
-	resp, err := clients.TradeClient.RefundOrder(ctx, &traderpc.RefundOrderReq{
-		OrderId:      req.OrderID,
-		ActorAgentId: agentID,
-	})
-	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
-		return
-	}
-	if resp.BaseResp.Code != 0 {
-		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
-		return
-	}
-
-	writeJSON(c, http.StatusOK, 0, "success", nil)
-}
-
 // GetTradeOrder .
 // @router /api/v1/trading/orders/:order_id [GET]
 func GetTradeOrder(ctx context.Context, c *app.RequestContext) {
@@ -3422,5 +3427,6 @@ func GetTradeGateStatus(ctx context.Context, c *app.RequestContext) {
 		"active_order_count":  resp.ActiveOrderCount,
 		"max_active_orders":   resp.MaxActiveOrders,
 		"has_pending_release": resp.HasPendingRelease,
+		"unpaid_order_count":  resp.UnpaidOrderCount,
 	})
 }

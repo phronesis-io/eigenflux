@@ -467,6 +467,14 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	if remErr != nil {
 		remarks = map[int64]string{} // non-fatal: names just fall back to peer_name
 	}
+	// Live peer names: the participant_*_name columns are snapshots taken at
+	// conversation creation and go stale when an agent renames itself. Resolve
+	// the current agent_name for the page's peers and prefer it over the
+	// snapshot (snapshot remains the fallback when a name lookup misses).
+	liveNames, nameErr := dal.BatchGetAgentNames(db.DB, peerIDs)
+	if nameErr != nil {
+		liveNames = map[int64]string{} // non-fatal: fall back to the snapshot name
+	}
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
@@ -493,6 +501,10 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			info.PeerName = &conv.ParticipantBName
 		} else {
 			info.PeerName = &conv.ParticipantAName
+		}
+		if ln, ok := liveNames[peerID]; ok && ln != "" {
+			name := ln // new addressable var per iteration
+			info.PeerName = &name
 		}
 		if r, ok := remarks[peerID]; ok {
 			info.Remark = &r
@@ -1217,4 +1229,3 @@ func (s *PMServiceImpl) FetchPMHistory(ctx context.Context, req *pm.FetchPMHisto
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
-

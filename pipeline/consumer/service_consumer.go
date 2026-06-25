@@ -147,10 +147,14 @@ func (c *ServiceConsumer) handle(ctx context.Context, msgID string, values map[s
 
 // buildServiceDoc assembles the ES document. usageEmb may be nil — in that
 // case the field is omitted so the doc remains valid against the mapping.
+// The status field mirrors the PG enum (draft/active/offline) and is the
+// hard filter every SearchServices recall lane applies, so it must always
+// be written or the doc will be invisible to search.
 func buildServiceDoc(svc *tradedal.TradingService, en *EnrichOutput, selfEmb, usageEmb []float32) map[string]any {
 	doc := map[string]any{
 		"service_id":           svc.ServiceID,
 		"seller_agent_id":      svc.SellerAgentID,
+		"status":               serviceStatusString(svc.Status),
 		"title":                svc.Title,
 		"capability_desc":      svc.CapabilityDesc,
 		"call_spec_text":       svc.CallSpecText,
@@ -166,4 +170,15 @@ func buildServiceDoc(svc *tradedal.TradingService, en *EnrichOutput, selfEmb, us
 		doc["usage_embedding"] = usageEmb
 	}
 	return doc
+}
+
+func serviceStatusString(s int16) string {
+	switch s {
+	case tradedal.ServiceStatusActive:
+		return "active"
+	case tradedal.ServiceStatusOffline:
+		return "offline"
+	default:
+		return "draft"
+	}
 }

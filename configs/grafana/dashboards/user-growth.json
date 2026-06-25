@@ -57,7 +57,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
           "format": "table"
         }
       ],
@@ -116,7 +116,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '7 day';",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '7 day';",
           "format": "table"
         }
       ],
@@ -175,7 +175,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day';",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day';",
           "format": "table"
         }
       ],
@@ -234,7 +234,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%';",
+          "rawSql": "SELECT count(*) AS v FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com';",
           "format": "table"
         }
       ],
@@ -293,7 +293,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"新增用户\"\nFROM agents a\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"新增用户\"\nFROM agents a\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -330,7 +330,7 @@
         "uid": "postgres"
       },
       "gridPos": {
-        "h": 10,
+        "h": 12,
         "w": 24,
         "x": 0,
         "y": 13
@@ -342,7 +342,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT to_char(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai', 'MM-DD HH24:MI') AS \"注册时间\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\",\n  coalesce(nullif(s.model,''),'-') AS \"模型\",\n  coalesce(act.days,0) AS \"使用天数\",\n  CASE WHEN coalesce(act.today,false) THEN '是' ELSE '否' END AS \"今日是否使用\"\nFROM agents a\nLEFT JOIN agent_settings s ON s.agent_id = a.agent_id\nLEFT JOIN (\n  SELECT l.agent_id,\n    count(DISTINCT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date) AS days,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date) AS today\n  FROM agent_activity_log l WHERE l.event_type <> 'reply_received' GROUP BY l.agent_id\n) act ON act.agent_id = a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n  AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nORDER BY a.created_at DESC;",
+          "rawSql": "SELECT to_char(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai', 'MM-DD HH24:MI') AS \"注册时间\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\",\n  coalesce(nullif(s.model,''),'-') AS \"模型\",\n  coalesce(act.days,0) AS \"使用天数\",\n  CASE WHEN coalesce(act.today,false) THEN '是' ELSE '否' END AS \"今日是否使用\"\nFROM agents a\nLEFT JOIN agent_settings s ON s.agent_id = a.agent_id\nLEFT JOIN (\n  SELECT l.agent_id,\n    count(DISTINCT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date) AS days,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date) AS today\n  FROM agent_activity_log l WHERE l.event_type <> 'reply_received' GROUP BY l.agent_id\n) act ON act.agent_id = a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n  AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nORDER BY a.created_at DESC;",
           "format": "table"
         }
       ],
@@ -366,7 +366,9 @@
           "reducer": [
             "sum"
           ],
-          "fields": ""
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
         }
       }
     },
@@ -379,7 +381,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 25
       },
       "panels": []
     },
@@ -395,7 +397,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 24
+        "y": 26
       },
       "targets": [
         {
@@ -404,7 +406,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
+          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
           "format": "table"
         }
       ],
@@ -444,7 +446,7 @@
     },
     {
       "id": 12,
-      "title": "今日活跃 PGC (主动去重)",
+      "title": "近30日活跃 MAU (主动去重, 排除 bot/pgc)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -454,7 +456,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 28
+        "y": 30
       },
       "targets": [
         {
@@ -463,7 +465,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email LIKE '%pgc.eigenflux%'\n  AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
+          "rawSql": "SELECT count(DISTINCT l.agent_id) AS v FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n  AND to_timestamp(l.created_at/1000.0) >= now()-interval '30 day';",
           "format": "table"
         }
       ],
@@ -513,7 +515,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 24
+        "y": 26
       },
       "targets": [
         {
@@ -522,7 +524,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n)\nSELECT c.d0 AS time,\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"次日留存%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nWHERE c.d0 + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\nGROUP BY 1 ORDER BY 1;",
+          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n)\nSELECT c.d0 AS time,\n  round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n        / nullif(count(DISTINCT c.agent_id),0), 1) AS \"次日留存%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nWHERE c.d0 + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\nGROUP BY 1 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -551,6 +553,57 @@
       }
     },
     {
+      "id": 13,
+      "title": "昨日 / 今日活跃用户 (真实用户, 按最近活跃排序)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH act AS (\n  SELECT l.agent_id, max(l.created_at) AS last_ms, count(*) AS events,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date) AS today,\n    bool_or((to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date - 1) AS yday\n  FROM agent_activity_log l\n  WHERE l.event_type <> 'reply_received'\n    AND (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date >= (now() AT TIME ZONE 'Asia/Shanghai')::date - 1\n  GROUP BY l.agent_id\n)\nSELECT to_char(to_timestamp(act.last_ms/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"最近活跃\",\n  a.agent_name AS \"用户名\", a.email AS \"邮箱\",\n  coalesce(nullif(s.client_host,''),'-') AS \"宿主\", coalesce(nullif(s.model,''),'-') AS \"模型\",\n  CASE WHEN act.today THEN '是' ELSE '' END AS \"今日\",\n  CASE WHEN act.yday THEN '是' ELSE '' END AS \"昨日\",\n  act.events AS \"活跃次数\"\nFROM act JOIN agents a ON a.agent_id=act.agent_id\nLEFT JOIN agent_settings s ON s.agent_id=a.agent_id\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\nORDER BY act.last_ms DESC;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
+    },
+    {
       "id": 10,
       "title": "留存三角 (Cohort · 按注册日, 未到期显示暂无数据)",
       "type": "table",
@@ -562,7 +615,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 46
       },
       "targets": [
         {
@@ -571,7 +624,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%'\n)\nSELECT to_char(c.d0, 'MM-DD') AS \"注册日\",\n  count(DISTINCT c.agent_id) AS \"新增\",\n  CASE WHEN c.d0 + 1 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"次日%\",\n  CASE WHEN c.d0 + 7 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 7)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"7日%\",\n  CASE WHEN c.d0 + 30 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 30)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"30日%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nGROUP BY c.d0 ORDER BY c.d0 DESC;",
+          "rawSql": "WITH cohort AS (\n  SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d0 FROM agents a\n  WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\n),\nact AS (\n  SELECT DISTINCT la.agent_id, (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM agent_activity_log la JOIN agents a ON a.agent_id=la.agent_id\n  WHERE la.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n)\nSELECT to_char(c.d0, 'MM-DD') AS \"注册日\",\n  count(DISTINCT c.agent_id) AS \"新增\",\n  CASE WHEN c.d0 + 1 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 1)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"次日%\",\n  CASE WHEN c.d0 + 7 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 7)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"7日%\",\n  CASE WHEN c.d0 + 30 > (now() AT TIME ZONE 'Asia/Shanghai')::date THEN NULL\n    ELSE round(100.0*count(DISTINCT a.agent_id) FILTER (WHERE a.d = c.d0 + 30)\n               / nullif(count(DISTINCT c.agent_id),0), 1) END AS \"30日%\"\nFROM cohort c LEFT JOIN act a ON a.agent_id = c.agent_id\nGROUP BY c.d0 ORDER BY c.d0 DESC;",
           "format": "table"
         }
       ],

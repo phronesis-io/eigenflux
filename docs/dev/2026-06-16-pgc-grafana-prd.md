@@ -4,6 +4,14 @@ Date: 2026-06-16
 Owner: PGC / EigenFlux operations
 Status: implemented in `configs/grafana/dashboards/pgc-pipeline.json`
 Design reference: `configs/grafana/dashboards/user-growth.json`
+Revision: 2026-06-17, first-source audit metrics added to the first screen.
+Revision: 2026-06-18, low-latency signal-network SLI panels added between first-source audit and event timeline; panel titles rewritten as user/operator questions.
+Revision: 2026-06-18, SLA breach panels switched to actionable latency breaches so operators see real low-latency failures before raw timestamp/noise diagnostics.
+Revision: 2026-06-18, first-screen SLA breach panels switched to 3h active actionable breaches so operators can distinguish current incidents from 24h residual debt.
+Revision: 2026-06-18, latency breach-kind panel added so operators can tell true source latency from recovery backfill, date-only timestamps, and non-signal statuses.
+Revision: 2026-06-18, source reliability panels now expose `pgc_source_health_sla_attention` so registry-defined per-source SLA failures are visible beside canary and critical-source failures.
+Revision: 2026-06-18, source reliability now includes a per-source SLA offender table backed by `pgc_source_health_sla_attention_source`.
+Revision: 2026-06-19, added a first-screen owner cockpit modeled after User Growth: one KPI row plus trend/drilldown panels answering whether PGC is missing signals, slow, source-unhealthy, or close to external API budget limits.
 
 ## Problem
 
@@ -17,11 +25,25 @@ This became painful during recent PGC incidents where a critical source was
 alive upstream but not deliverable downstream. The dashboard must make similar
 failures obvious without requiring ad hoc SQL or shell inspection.
 
+The newer first-source incidents are more specific: a benchmark or secondary
+source can already contain a high-value signal, while PGC either lacks the
+right primary source, sees the primary source too late, or cannot classify the
+gap confidently. The dashboard therefore needs a first-screen audit surface, not
+only generic crawler/source-health charts.
+
 ## Goals
 
 - Match the readability of the User Growth dashboard: compact KPI row, clear
   Chinese business labels, large trend panels, and table-first detail views.
 - Give an operator a 30-second command-center view of PGC health.
+- Make first-source misses, late primary-source sightings, and benchmark-only
+  discoveries visible immediately.
+- Make world-to-PGC and world-to-push latency visible by source class and tier,
+  so delayed signals are investigated before users discover them.
+- Make source-specific registry SLA failures visible as a first-class operator
+  signal, not only as JSON/webhook detail.
+- Put active actionable latency failures in the first visible SLA panels, while
+  keeping 24h and raw breach counters available as review/diagnostic evidence.
 - Separate delivery, source health, quality/cost, diagnostics, and logs.
 - Prefer rates, rolling windows, and ratios over raw lifetime totals when the
   question is operational.
@@ -32,7 +54,8 @@ failures obvious without requiring ad hoc SQL or shell inspection.
 
 ## Non-Goals
 
-- This PRD does not add new Prometheus metrics.
+- This PRD consumes the first-source audit Prometheus metrics exported by PGC;
+  it does not define the audit algorithm itself.
 - This PRD does not replace Lark/webhook canaries; Grafana is the operator
   cockpit, while webhooks remain the push-alert surface.
 - This PRD does not create alert rules. Alerting can be layered on top once the
@@ -49,31 +72,127 @@ failures obvious without requiring ad hoc SQL or shell inspection.
 
 ## Dashboard Structure
 
-1. 内容交付 / Delivery
-   - 近1小时发布
-   - 待处理队列
-   - 当前阻塞源
-   - NewsAPI 用量
-   - 发布趋势、队列分布、24小时内容状态
-   - 来源发布榜、异常来源榜
+1. 总览 / Owner Cockpit
+   - 现在需要立刻处理几件事
+   - 一手复盘还有多少待处理
+   - 高优先级信号仍在超时吗
+   - Canary 是否全绿
+   - Source SLA 是否破线
+   - TwitterAPI 还能撑多久
+   - 关键风险是在上升还是下降
+   - 现在先处理哪些信源
 
-2. 来源健康 / Source Health
-   - 失败源、worker 心跳、LLM 失败、FD 压力
-   - 来源转化率、高热来源
+2. 一手有没有漏 / First-Source Coverage
+   - 今天有多少一手问题要处理
+   - 严重漏配/晚到有多少
+   - 审计刚刚跑过吗
+   - 今天审了多少 benchmark
+   - 一手问题是在变多还是变少
+   - 问题属于哪种类型
+   - 问题严重到什么程度
+   - 一手源库覆盖够不够
 
-3. 质量与成本 / Quality & Cost
-   - LLM 调用结果、LLM 延迟、token 消耗
-   - Signal Gate、端到端发布延迟
+3. 信号够不够快 / Signal Latency
+   - 现在高优先级信号还在超时吗
+   - 官方源多久进入 PGC
+   - 机器源是否保持低延迟
+   - 高优先级信号多久发出去
+   - 哪类源最晚被我们看到
+   - 哪类源最晚发给下游
+   - 哪些类别需要马上处理
+   - 这些超时是事故还是回补噪音
+   - 当前哪些信源正在拖慢
 
-4. 工程诊断 / Diagnostics
-   - Worker 心跳、阶段耗时、错误压力
-   - PGC pipeline Loki stream
+4. 每条信号卡在哪一跳 / Event Timeline
+   - 链路事实还在写入吗
+   - 24h 写了多少链路事件
+   - 24h 有多少内容可复盘
+   - 24h 有多少推送证据
+   - 链路证据是否稳定增长
+   - 慢/断在哪个阶段
+
+5. 信源是否可靠 / Source Reliability
+   - Canary 有没有失败
+   - 关键源是否需要处理
+   - 信源 SLA 是否破线
+   - 健康报告刚刚跑过吗
+   - 活跃源覆盖率够不够
+   - 源健康是在变好还是变差
+   - 哪些源违反 SLA
+   - 哪些 Canary 失败
+   - 哪些源被 block
+   - 哪些源快被 block
+
+6. 内容有没有送达 / Delivery
+   - 近 1 小时发出多少
+   - 队列是否积压
+   - 当前有多少阻塞源
+   - NewsAPI 预算是否安全
+   - TwitterAPI 还能撑多久
+   - 外部 API 检查是否异常
+   - 发布量是否稳定
+   - 队列卡在哪个状态
+   - 24h 内容状态分布
+   - 哪些来源贡献最多
+   - 哪些来源正在异常
+
+7. 生产链路是否健康 / Pipeline Health
+   - 哪些源连续失败
+   - Worker 是否卡住
+   - LLM 是否在报错
+   - FD 是否有压力
+   - 来源转化是否健康
+   - 哪些来源最热
+
+8. 质量和成本是否失控 / Quality & Cost
+   - LLM 调用是否稳定
+   - LLM p95 是否变慢
+   - Token 成本是否异常
+   - Signal Gate 是否过严
+   - 端到端发布是否超时
+
+9. 工程诊断 / Deep Dive
+   - Worker 心跳明细
+   - 各阶段耗时
+   - 错误压力是否升高
+   - Pipeline 日志
 
 ## Acceptance Criteria
 
 - Grafana dashboard loads with no "data source not found" errors.
 - Every Prometheus panel uses `uid=pgc-prometheus`.
 - Loki log panel uses `uid=loki`.
+- The first screen is an owner cockpit, not an engineering deep dive: it must
+  include the row `总览 / Owner Cockpit`, stat panels for immediate action count,
+  first-source attention, active T0/T1 latency, canary failures, source SLA
+  failures, and TwitterAPI days-to-empty, plus one trend panel and one active
+  source drilldown table.
+- First-source audit panels query `pgc_first_source_audit_*` metrics and return
+  non-empty frames in production.
+- Low-latency panels query `pgc_signal_latency_*` metrics and return production
+  data where appropriate; first-screen SLA breach panels use
+  `pgc_signal_latency_actionable_breaches_3h`, while 24h actionable/raw breach
+  metrics remain available for review. The active SLA breach table is allowed
+  to be empty when no class/tier has current actionable breaches.
+- The latency breach-kind panel queries `pgc_signal_latency_breach_kind_24h` so
+  operators can explain why raw SLA debt is not always an active first-source
+  incident.
+- The active source latency panel queries
+  `pgc_signal_latency_active_source_breaches_3h{kind=~"source_latency|source_feed_lag"}`,
+  so an owner can see the exact source names currently dragging the
+  low-latency promise instead of stopping at class/tier aggregates. The `kind`
+  label distinguishes PGC/processing/polling latency from upstream RSS feed lag;
+  non-actionable active reasons remain visible in the adjacent breach-kind
+  panel.
+- Source reliability includes a stat panel for
+  `pgc_source_health_sla_attention{job="pgc-pipeline"}` and the source-health
+  trend panel includes the same series, so registry-defined poll-gap, quiet, and
+  blocked-source SLA failures are visible in both current-state and historical
+  views.
+- The source SLA drilldown table queries
+  `pgc_source_health_sla_attention_source{job="pgc-pipeline"}` and is allowed
+  to be empty in the healthy state; when non-empty it must expose source name,
+  category, source type/class/tier, stable reason, and critical label.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and
@@ -84,7 +203,5 @@ failures obvious without requiring ad hoc SQL or shell inspection.
 ## Follow-Ups
 
 - Add Grafana alert rules for max worker age, queue depth, LLM error spikes,
-  and blocked-feed spikes.
-- Add a source-canary metric so the Paul Graham/latest-source webhook state can
-  also be charted in Grafana.
+  blocked-feed spikes, and first-source critical spikes.
 - Add a topic coverage panel once demand-canary metrics are exported.
