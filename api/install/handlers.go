@@ -131,6 +131,9 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 		event("install_report", t.Token,
 			"channel", t.Channel, "utm_source", t.UTMSource, "utm_campaign", t.UTMCampaign)
 	}
+	// Fallback conversion signal: fires only if the /r/ fetch didn't already
+	// claim it (ClaimCallback makes the platform callback exactly-once per ref).
+	fireXHSCallback(t.Token)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"converted": converted,
 		"attribution": map[string]interface{}{
@@ -172,6 +175,8 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		event("install_fetch_unknown", ref)
 	} else {
 		event("install_fetch", ref, "channel", t.Channel)
+		// Primary in-window conversion signal for the ad platform optimizer.
+		fireXHSCallback(ref)
 	}
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref)))
 }

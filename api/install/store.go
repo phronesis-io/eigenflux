@@ -41,6 +41,29 @@ func MarkFetched(db *gorm.DB, ref string) (*Token, error) {
 	return &t, nil
 }
 
+// ClaimCallback atomically claims the right to send the one platform conversion
+// callback for ref: it sets callback_sent_at if still 0 and reports whether this
+// caller won the claim, along with the ref's click_id/twclid. Mirrors the
+// RowsAffected-as-lock pattern, so concurrent triggers (/r/ fetch and install
+// report) can't double-report the same click. Returns won=false when the ref is
+// absent, has no platform click id, or was already claimed.
+func ClaimCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+	res := db.Model(&Token{}).
+		Where("token = ? AND callback_sent_at = 0 AND (click_id <> '' OR twclid <> '')", ref).
+		Update("callback_sent_at", time.Now().UnixMilli())
+	if res.Error != nil {
+		return false, nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return false, nil, nil
+	}
+	var loaded Token
+	if err := db.Where("token = ?", ref).First(&loaded).Error; err != nil {
+		return false, nil, err
+	}
+	return true, &loaded, nil
+}
+
 // ReportInstall records one report hit for token and returns whether this call
 // was the conversion (the first report). The pending->installed flip is a
 // single conditional UPDATE (the same RowsAffected-as-lock pattern as
