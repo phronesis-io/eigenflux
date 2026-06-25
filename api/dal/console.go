@@ -794,7 +794,7 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 		     WHERE f.agent_id = ?
 		     ORDER BY f.item_id, f.feedback_at DESC
 		) x
-		WHERE (? = 0 OR x.feedback_at < ?)
+		WHERE (?::bigint = 0 OR x.feedback_at < ?::bigint)
 		ORDER BY x.feedback_at DESC
 		LIMIT ?`,
 		agentID, cursorMs, cursorMs, limit,
