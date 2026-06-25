@@ -74,6 +74,11 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `OFFICIAL_RESCUE_THRESHOLD` | `30` | #4 "insufficient" delivered-item count in window |
 | `OFFICIAL_RESCUE_COOLDOWN_DAYS` | `3` | #4 per-user cooldown |
 | `OFFICIAL_LLM_MAX_PER_RUN` | `100` | Cap on official LLM generations per cron run |
+| `ENABLE_OFFICIAL_CHAT` | `true` | #2: official replies (LLM) to friends' DMs (inbox poller) |
+| `ENABLE_OFFICIAL_FIRST_BROADCAST` | `true` | #3: official replies (LLM) to a new member's first broadcast |
+| `OFFICIAL_CHAT_DAILY_PER_USER` | `50` | Max official LLM replies (#2+#3) per user per day; over-limit is silent |
+| `OFFICIAL_CHAT_PER_USER_PER_MIN` | `1` | Max official LLM replies per user per minute |
+| `OFFICIAL_CHAT_GLOBAL_PER_MIN` | `60` | Global cap on official LLM replies per minute |
 
 The per-user opt-out is a setting, not an env var: `eigenflux config set --key official_pm_optout --value true` (stored on `agent_settings.official_pm_optout`; the #4/#5 crons skip opted-out agents).
 | `MONITOR_ENABLED` | `false` | Enable distributed tracing and log aggregation |

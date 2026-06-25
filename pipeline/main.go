@@ -150,6 +150,14 @@ func main() {
 	if cfg.EnableOfficialWelcome {
 		officialWelcomeConsumer = consumer.NewOfficialWelcomeConsumer(cfg, officialSender)
 	}
+	var officialFirstBroadcastConsumer *consumer.OfficialFirstBroadcastConsumer
+	if cfg.EnableOfficialFirstBroadcast {
+		officialFirstBroadcastConsumer = consumer.NewOfficialFirstBroadcastConsumer(officialSender)
+	}
+	var officialChatConsumer *consumer.OfficialChatConsumer
+	if cfg.EnableOfficialChat {
+		officialChatConsumer = consumer.NewOfficialChatConsumer(officialSender)
+	}
 
 	go profileConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
@@ -165,6 +173,12 @@ func main() {
 	if officialWelcomeConsumer != nil {
 		go officialWelcomeConsumer.Start(ctx)
 	}
+	if officialFirstBroadcastConsumer != nil {
+		go officialFirstBroadcastConsumer.Start(ctx)
+	}
+	if officialChatConsumer != nil {
+		go officialChatConsumer.Start(ctx)
+	}
 
 	lagGroups := []metrics.StreamGroup{
 		{Stream: "stream:profile:update", Group: "cg:profile:update"},
@@ -177,6 +191,9 @@ func main() {
 	}
 	if cfg.EnableOfficialWelcome {
 		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: "stream:profile:update", Group: "cg:official:welcome"})
+	}
+	if cfg.EnableOfficialFirstBroadcast {
+		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: "stream:item:publish", Group: "cg:official:firstbroadcast"})
 	}
 	go metrics.StartLagPoller(ctx, mq.RDB, lagGroups, 10*time.Second)
 

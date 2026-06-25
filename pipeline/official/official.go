@@ -84,6 +84,22 @@ func (s *Sender) PassesGate(officialID, targetID int64, targetEmail string) bool
 	return true
 }
 
+// ChatGate is like PassesGate but for user-initiated chat (#2): it requires
+// friendship and the staged-rollout whitelist (test suffixes bypass it), but
+// ignores the proactive-PM opt-out — a user who DMs the official account wants
+// a reply regardless of having muted proactive pushes.
+func (s *Sender) ChatGate(officialID, userID int64, userEmail string) bool {
+	if friend, err := pmdal.IsFriend(db.DB, officialID, userID); err != nil || !friend {
+		return false
+	}
+	if s.whitelist != nil && !config.EmailMatchesAnySuffix(userEmail, s.testSuffixes) {
+		if _, ok := s.whitelist[strings.ToLower(strings.TrimSpace(userEmail))]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // CooldownAcquire SETNX-gates a per-feature, per-user cooldown. Returns true
 // when the action may proceed (not currently on cooldown).
 func (s *Sender) CooldownAcquire(ctx context.Context, kind string, targetID int64, ttl time.Duration) bool {
