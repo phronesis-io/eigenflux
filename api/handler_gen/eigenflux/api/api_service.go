@@ -1184,6 +1184,33 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		conversations[i] = m
 	}
 
+	// Stamp the verified-official flag on the conversation peer (the other
+	// participant), sourced from agents.is_official (ops-set, unspoofable).
+	if len(resp.Conversations) > 0 {
+		peerOf := make([]int64, len(resp.Conversations))
+		peerIDs := make([]int64, len(resp.Conversations))
+		for i, conv := range resp.Conversations {
+			peer := conv.ParticipantA
+			if peer == agentID {
+				peer = conv.ParticipantB
+			}
+			peerOf[i] = peer
+			peerIDs[i] = peer
+		}
+		var officialIDs []int64
+		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", peerIDs).Scan(&officialIDs).Error; err == nil {
+			officialSet := make(map[int64]struct{}, len(officialIDs))
+			for _, id := range officialIDs {
+				officialSet[id] = struct{}{}
+			}
+			for i := range conversations {
+				if _, ok := officialSet[peerOf[i]]; ok {
+					conversations[i]["peer_is_official"] = true
+				}
+			}
+		}
+	}
+
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"conversations": conversations,
 		"next_cursor":   strconv.FormatInt(resp.NextCursor, 10),
