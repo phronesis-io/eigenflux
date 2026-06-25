@@ -1,6 +1,7 @@
 package client
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,17 +21,38 @@ func TestResolveMeta(t *testing.T) {
 	if m.Channel != "cli" {
 		t.Errorf("Channel = %q, want %q (default)", m.Channel, "cli")
 	}
+	if m.Model != "" {
+		t.Errorf("Model = %q, want empty (no default)", m.Model)
+	}
 }
 
 func TestResolveMetaWithEnv(t *testing.T) {
 	t.Setenv("EIGENFLUX_HOST", "openclaw/0.0.10")
 	t.Setenv("EIGENFLUX_CHANNEL", "feishu")
+	t.Setenv("EIGENFLUX_MODEL", "claude-opus-4-8")
 	m := ResolveMeta()
 	if m.Host != "openclaw/0.0.10" {
 		t.Errorf("Host = %q, want %q", m.Host, "openclaw/0.0.10")
 	}
 	if m.Channel != "feishu" {
 		t.Errorf("Channel = %q, want %q", m.Channel, "feishu")
+	}
+	if m.Model != "claude-opus-4-8" {
+		t.Errorf("Model = %q, want %q", m.Model, "claude-opus-4-8")
+	}
+}
+
+func TestMetaSetHeadersModel(t *testing.T) {
+	h := http.Header{}
+	Meta{Model: "claude-opus-4-8"}.SetHeaders(h)
+	if got := h.Get("X-Client-Model"); got != "claude-opus-4-8" {
+		t.Errorf("X-Client-Model = %q, want %q", got, "claude-opus-4-8")
+	}
+	// Empty model must not emit the header.
+	h2 := http.Header{}
+	Meta{}.SetHeaders(h2)
+	if _, ok := h2["X-Client-Model"]; ok {
+		t.Error("X-Client-Model should be absent when Model is empty")
 	}
 }
 
