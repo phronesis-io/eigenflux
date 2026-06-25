@@ -21,16 +21,17 @@ import (
 
 const lockKeyOfficialTrending = "lock:cron:official_trending"
 
+// officialTrendingTick: the cron runs daily so test accounts can receive
+// trending daily; non-test recipients are still bounded by their full-interval
+// per-user cooldown (OfficialTrendingIntervalSec).
+const officialTrendingTick = 24 * time.Hour
+
 // StartOfficialTrending (#5) periodically DMs the official account's friends a
 // curated set of network-wide trending topics. Topics reuse the existing
 // network-signal aggregation; the message is generated once per cycle and
 // shared across recipients to bound LLM cost.
 func StartOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
-	interval := time.Duration(cfg.OfficialTrendingIntervalSec) * time.Second
-	if interval <= 0 {
-		interval = 14 * 24 * time.Hour
-	}
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(officialTrendingTick)
 	defer ticker.Stop()
 
 	runOfficialTrending(ctx, cfg, rdb, oc)
@@ -86,7 +87,10 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 		return
 	}
 
-	cooldown := time.Duration(cfg.OfficialTrendingIntervalSec) * time.Second
+	fullCooldown := time.Duration(cfg.OfficialTrendingIntervalSec) * time.Second
+	if fullCooldown <= 0 {
+		fullCooldown = 14 * 24 * time.Hour
+	}
 	sent := 0
 	var cursor int64
 	for {
@@ -103,7 +107,11 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 			if !oc.PassesGate(officialID, f.AgentID, agent.Email) {
 				continue
 			}
-			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, cooldown) {
+			cd := fullCooldown
+			if oc.IsTestRecipient(agent.Email) {
+				cd = 24 * time.Hour // test accounts: daily
+			}
+			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, cd) {
 				continue
 			}
 			if !oc.Send(ctx, officialID, f.AgentID, content) {

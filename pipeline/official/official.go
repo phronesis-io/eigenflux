@@ -100,6 +100,21 @@ func (s *Sender) ChatGate(officialID, userID int64, userEmail string) bool {
 	return true
 }
 
+// IsTestRecipient reports whether the recipient is a test account (matches a
+// configured test suffix, or the PM whitelist). Used to deliver the proactive
+// PMs (#4/#5) daily for testing instead of at the normal cadence.
+func (s *Sender) IsTestRecipient(email string) bool {
+	if config.EmailMatchesAnySuffix(email, s.testSuffixes) {
+		return true
+	}
+	if s.whitelist != nil {
+		if _, ok := s.whitelist[strings.ToLower(strings.TrimSpace(email))]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // CooldownAcquire SETNX-gates a per-feature, per-user cooldown. Returns true
 // when the action may proceed (not currently on cooldown).
 func (s *Sender) CooldownAcquire(ctx context.Context, kind string, targetID int64, ttl time.Duration) bool {

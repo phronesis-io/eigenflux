@@ -1425,6 +1425,12 @@ func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
 			email = email[len(prefix):]
 		}
 
+		// The EigenFlux ID value may be a numeric agent_id (new format) or an
+		// email (legacy); a purely numeric value resolves directly by agent_id.
+		if id, derr := strconv.ParseInt(strings.TrimSpace(email), 10, 64); derr == nil && id > 0 {
+			return id, 0, ""
+		}
+
 		if !friendEmailRegexp.MatchString(email) {
 			return 0, 400, "invalid email format"
 		}

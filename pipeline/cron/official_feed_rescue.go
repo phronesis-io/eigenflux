@@ -105,11 +105,21 @@ func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.C
 			if len(domains) == 0 {
 				continue
 			}
+			isTest := oc.IsTestRecipient(agent.Email)
 			cnt, cerr := deliveredCountInDomains(f.AgentID, sinceMs, domains)
-			if cerr != nil || cnt >= threshold {
-				continue // feed sufficient (or unmeasurable)
+			if cerr != nil {
+				continue
 			}
-			if !oc.CooldownAcquire(ctx, "rescue", f.AgentID, cooldown) {
+			// Test accounts get the recommendation daily regardless of deficit;
+			// real users only when their in-domain feed is below the threshold.
+			if !isTest && cnt >= threshold {
+				continue
+			}
+			cd := cooldown
+			if isTest {
+				cd = 24 * time.Hour // test accounts: daily
+			}
+			if !oc.CooldownAcquire(ctx, "rescue", f.AgentID, cd) {
 				continue
 			}
 			if llmBudget <= 0 {
