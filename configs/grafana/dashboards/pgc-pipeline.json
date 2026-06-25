@@ -51,7 +51,7 @@
   },
   {
    "id": 3,
-   "title": "事件延迟中位数",
+   "title": "可追事件延迟",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -70,8 +70,9 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_latency_median_hours",
-     "instant": true
+     "expr": "pgc_event_latency_breakable_median_hours",
+     "instant": true,
+     "legendFormat": "可追中位数"
     }
    ],
    "fieldConfig": {
@@ -90,15 +91,15 @@
        },
        {
         "color": "yellow",
-        "value": 12
+        "value": 1
        },
        {
         "color": "orange",
-        "value": 24
+        "value": 2
        },
        {
         "color": "red",
-        "value": 48
+        "value": 6
        }
       ]
      }
@@ -119,7 +120,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "从事件实际发生到我们首次抓取的小时数中位数。越小越好。模型从文章内容提取事件时间。北极星。"
+   "description": "可追(breaking/wire)事件从发生到首次抓取的小时数中位数。排除结构延迟(官方公告/arXiv等)。越小越好。"
   },
   {
    "id": 5,
@@ -1039,7 +1040,7 @@
   },
   {
    "id": 9,
-   "title": "事件延迟 & 胜率走势",
+   "title": "事件延迟(可追/结构) & 胜率走势",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -1058,10 +1059,8 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_latency_median_hours",
-     "instant": false,
-     "range": true,
-     "legendFormat": "事件延迟中位数 (h)"
+     "expr": "pgc_event_latency_breakable_median_hours",
+     "legendFormat": "可追延迟(h)"
     },
     {
      "refId": "B",
@@ -1069,10 +1068,17 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
+     "expr": "pgc_event_latency_structural_median_hours",
+     "legendFormat": "结构延迟(h)"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
      "expr": "pgc_event_real_win_rate",
-     "instant": false,
-     "range": true,
-     "legendFormat": "真实胜率 (%)"
+     "legendFormat": "胜率(%)"
     }
    ],
    "fieldConfig": {
