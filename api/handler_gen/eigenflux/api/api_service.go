@@ -1985,8 +1985,8 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Calculate today start in UTC milliseconds
 	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	todayStartMs := todayStart.UnixMilli()
+	// The two-way activity cards (inbound/outbound) show a rolling 7-day window.
+	sinceMs := now.AddDate(0, 0, -7).UnixMilli()
 
 	var (
 		signalsScanned    int64
@@ -2043,7 +2043,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: activity log aggregation
 	g.Go(func() error {
-		counts, syncAt, err := consoledal.TodayEventCounts(db.DB, agentID, todayStartMs)
+		counts, syncAt, err := consoledal.TodayEventCounts(db.DB, agentID, sinceMs)
 		if err != nil {
 			return nil // non-fatal
 		}
@@ -2054,7 +2054,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: today's broadcast reach and score stats from item_stats
 	g.Go(func() error {
-		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, todayStartMs)
+		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, sinceMs)
 		if err != nil {
 			return nil // non-fatal
 		}
@@ -2064,10 +2064,10 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: today's quantity sums from activity-log detail (counts, not events)
 	g.Go(func() error {
-		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", todayStartMs)
-		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", todayStartMs)
-		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", todayStartMs)
-		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", todayStartMs)
+		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", sinceMs)
+		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", sinceMs)
+		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", sinceMs)
+		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", sinceMs)
 		return nil
 	})
 

@@ -189,6 +189,10 @@ func main() {
 	h.GET("/api/v1/pm/unread", middleware.AuthMiddleware(), apihandler.GetUnreadBreakdown)
 	h.POST("/api/v1/pm/read", middleware.AuthMiddleware(), apihandler.MarkConvRead)
 
+	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
+	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
+	h.GET("/api/v1/broadcasts/rated", middleware.AuthMiddleware(), apihandler.MyRatedItems)
+
 	// AgentRapport quiz (public marketing activity at /agti). Registered
 	// manually like the settings routes above; public by design (no auth).
 	agtiBank, err := agti.LoadBank("static/agti")

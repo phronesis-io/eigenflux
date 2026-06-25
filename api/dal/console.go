@@ -707,3 +707,97 @@ func GetWorthCount(ctx context.Context, agentID int64) (int64, error) {
 func IncrWorthCount(ctx context.Context, agentID int64, delta int64) error {
 	return mq.RDB.IncrBy(ctx, worthKey(agentID), delta).Err()
 }
+
+// LeaderboardRow is one agent's aggregated broadcast performance over a window,
+// with its dense rank by net total_score.
+type LeaderboardRow struct {
+	AuthorAgentID    int64  `gorm:"column:author_agent_id"`
+	AgentName        string `gorm:"column:agent_name"`
+	IsOfficial       bool   `gorm:"column:is_official"`
+	TotalScore       int64  `gorm:"column:total_score"`
+	BroadcastCount   int64  `gorm:"column:broadcast_count"`
+	InteractionCount int64  `gorm:"column:interaction_count"`
+	PraiseCount      int64  `gorm:"column:praise_count"`
+	Rank             int64  `gorm:"column:rank"`
+}
+
+// BroadcastLeaderboard ranks agents by the net score their broadcasts earned
+// since sinceMs (item_stats.created_at = item publish time). Returns the top 10
+// plus the caller's own row when the caller ranks outside the top 10, so the UI
+// can always show "your standing". Ordered by rank.
+func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]LeaderboardRow, error) {
+	var rows []LeaderboardRow
+	err := db.Raw(`
+		SELECT * FROM (
+		    SELECT s.author_agent_id,
+		           COALESCE(a.agent_name, '')              AS agent_name,
+		           COALESCE(a.is_official, false)          AS is_official,
+		           SUM(s.total_score)                      AS total_score,
+		           COUNT(*)                                AS broadcast_count,
+		           SUM(s.consumed_count)                   AS interaction_count,
+		           SUM(s.score_1_count + s.score_2_count)  AS praise_count,
+		           ROW_NUMBER() OVER (
+		               ORDER BY SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
+		           )                                       AS rank
+		      FROM item_stats s
+		      LEFT JOIN agents a ON a.agent_id = s.author_agent_id
+		     WHERE s.created_at >= ?
+		     GROUP BY s.author_agent_id, a.agent_name, a.is_official
+		) ranked
+		WHERE rank <= 10 OR author_agent_id = ?
+		ORDER BY rank`,
+		sinceMs, callerAgentID,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+// RatedItem is a broadcast the caller has scored, with the caller's own score
+// and enough item content to render a card.
+type RatedItem struct {
+	ItemID        int64  `gorm:"column:item_id"`
+	MyScore       int16  `gorm:"column:my_score"`
+	FeedbackAt    int64  `gorm:"column:feedback_at"`
+	Summary       string `gorm:"column:summary"`
+	SummaryZh     string `gorm:"column:summary_zh"`
+	TitleZh       string `gorm:"column:title_zh"`
+	Lang          string `gorm:"column:lang"`
+	Domains       string `gorm:"column:domains"`
+	BroadcastType string `gorm:"column:broadcast_type"`
+	RawContent    string `gorm:"column:raw_content"`
+	RawURL        string `gorm:"column:raw_url"`
+	AuthorAgentID int64  `gorm:"column:author_agent_id"`
+	AuthorName    string `gorm:"column:author_name"`
+	CreatedAt     int64  `gorm:"column:created_at"`
+}
+
+// ListRatedItems returns broadcasts the caller has given feedback to, newest
+// feedback first, deduped to the caller's latest score per item. Cursor is a
+// feedback_at value (0 for the first page); rows older than the cursor follow.
+func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedItem, error) {
+	var rows []RatedItem
+	err := db.Raw(`
+		SELECT * FROM (
+		    SELECT DISTINCT ON (f.item_id)
+		           f.item_id, f.score AS my_score, f.feedback_at,
+		           COALESCE(p.summary, '')     AS summary,
+		           COALESCE(p.summary_zh, '')  AS summary_zh,
+		           COALESCE(p.title_zh, '')    AS title_zh,
+		           COALESCE(p.lang, '')        AS lang,
+		           COALESCE(p.domains, '')     AS domains,
+		           COALESCE(p.broadcast_type, '') AS broadcast_type,
+		           r.raw_content, r.raw_url, r.author_agent_id,
+		           COALESCE(a.agent_name, '')  AS author_name, r.created_at
+		      FROM feedback_logs f
+		      JOIN raw_items r            ON r.item_id = f.item_id
+		      LEFT JOIN processed_items p ON p.item_id = f.item_id
+		      LEFT JOIN agents a          ON a.agent_id = r.author_agent_id
+		     WHERE f.agent_id = ?
+		     ORDER BY f.item_id, f.feedback_at DESC
+		) x
+		WHERE (? = 0 OR x.feedback_at < ?)
+		ORDER BY x.feedback_at DESC
+		LIMIT ?`,
+		agentID, cursorMs, cursorMs, limit,
+	).Scan(&rows).Error
+	return rows, err
+}
