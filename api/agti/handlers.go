@@ -173,6 +173,12 @@ func getQuiz(_ context.Context, c *app.RequestContext) {
 
 type answersBody struct {
 	Answers map[string]string `json:"answers"`
+	// Agent-side extras (Step 3): self-reported identity + q0 答案。
+	AgentName     string `json:"agent_name"`
+	ModelName     string `json:"model_name"`
+	MasterAddress string `json:"master_address"` // 怎么称呼主人
+	// Human-side extra: q0 答案（真名/想被怎么称呼）。
+	HumanName string `json:"human_name"`
 }
 
 // agentSubmit locks the agent's answers (commit-reveal) and returns the URL
@@ -196,7 +202,7 @@ func agentSubmit(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	answers := NormalizeAnswers(questionsByIDs(s.QuestionIDList()), body.Answers)
-	if err := LockAgentAnswers(db.DB, sid, answers); err != nil {
+	if err := LockAgentAnswers(db.DB, sid, answers, strings.TrimSpace(body.AgentName), strings.TrimSpace(body.ModelName), strings.TrimSpace(body.MasterAddress)); err != nil {
 		if err == ErrLocked {
 			reply(c, http.StatusConflict, 409, "agent already submitted (locked)", nil)
 			return
@@ -224,7 +230,8 @@ func humanSubmit(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusBadRequest, 400, "invalid JSON body", nil)
 		return
 	}
-	resultID, err := SubmitHuman(db.DB, sid, body.Answers, func(s *Session) (*Result, error) {
+	humanName := strings.TrimSpace(body.HumanName)
+	resultID, err := SubmitHuman(db.DB, sid, body.Answers, humanName, func(s *Session) (*Result, error) {
 		questions := questionsByIDs(s.QuestionIDList())
 		human := NormalizeAnswers(questions, body.Answers)
 		a := Analyze(questions, s.AgentAnswerMap(), human)
@@ -232,7 +239,7 @@ func humanSubmit(_ context.Context, c *app.RequestContext) {
 		if !ok {
 			return nil, fmt.Errorf("unknown type code %s", a.Code)
 		}
-		payload := buildResultPayload(a, t)
+		payload := buildResultPayload(a, t, s, humanName)
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return nil, err
@@ -262,12 +269,16 @@ func humanSubmit(_ context.Context, c *app.RequestContext) {
 }
 
 // buildResultPayload mirrors the demo's makeResult shape (snake_cased).
-func buildResultPayload(a Analysis, t TypeInfo) map[string]interface{} {
+// s carries the agent's self-reported identity + q0 (master_address); humanName
+// is the human's q0 answer (their real name / preferred address).
+func buildResultPayload(a Analysis, t TypeInfo, s *Session, humanName string) map[string]interface{} {
 	payload := map[string]interface{}{
 		"type":       t,
 		"match":      a.Match,
 		"total":      a.Total,
 		"agent_view": a.AgentView,
+		"agent_name": s.AgentName,
+		"model_name": s.ModelName,
 	}
 	if a.Sweet != nil && a.Sweet.Human != nil {
 		payload["sweet"] = map[string]string{"text": a.Sweet.Text, "choice": a.Sweet.Human.Label}
@@ -282,7 +293,39 @@ func buildResultPayload(a Analysis, t TypeInfo) map[string]interface{} {
 		}
 		payload["worst"] = w
 	}
+	// Full per-question comparison: q0（怎么称呼你）固定第一行 + 全部 10 道题，
+	// 所以结果页能展示每一题，而不只是 sweet/worst。
+	compare := make([]map[string]interface{}, 0, len(a.PerQ)+1)
+	compare = append(compare, map[string]interface{}{
+		"text":  "你的 Agent 平时怎么称呼你？",
+		"human": humanName,
+		"agent": s.MasterAddress,
+		"hit":   addressHit(s.MasterAddress, humanName),
+	})
+	for _, p := range a.PerQ {
+		row := map[string]interface{}{"text": p.Text, "hit": p.Hit}
+		if p.Human != nil {
+			row["human"] = p.Human.Label
+		}
+		if p.Agent != nil {
+			row["agent"] = p.Agent.Label
+		}
+		compare = append(compare, row)
+	}
+	payload["compare"] = compare
 	return payload
+}
+
+// addressHit fuzzily compares the agent's "how I address my master" answer with
+// the human's real name: a hit if either contains the other (case-insensitive,
+// trimmed). Both must be non-empty.
+func addressHit(agentAddr, humanName string) bool {
+	a := strings.ToLower(strings.TrimSpace(agentAddr))
+	h := strings.ToLower(strings.TrimSpace(humanName))
+	if a == "" || h == "" {
+		return false
+	}
+	return strings.Contains(a, h) || strings.Contains(h, a)
 }
 
 // getResult serves the shareable result page data.

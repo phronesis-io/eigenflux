@@ -13,7 +13,7 @@ import (
 // Session maps to agti_sessions. JSONB columns are stored as raw JSON strings
 // (same pattern as api/dal ActivityLog.Detail).
 type Session struct {
-	SessionID string `gorm:"column:session_id;primaryKey"`
+	SessionID   string `gorm:"column:session_id;primaryKey"`
 	QuestionIDs string `gorm:"column:question_ids;type:jsonb;not null"`
 	// Nullable JSONB columns must be pointers: an empty string is not valid
 	// JSON, so gorm writing "" would fail with SQLSTATE 22P02.
@@ -23,6 +23,11 @@ type Session struct {
 	ResultID      string  `gorm:"column:result_id;not null;default:''"`
 	ClientIP      string  `gorm:"column:client_ip;not null;default:''"`
 	CreatedAt     int64   `gorm:"column:created_at;not null"`
+	// Agent self-reported identity + q0 ("how do you address your master").
+	AgentName     string `gorm:"column:agent_name;not null;default:''"`
+	ModelName     string `gorm:"column:model_name;not null;default:''"`
+	MasterAddress string `gorm:"column:master_address;not null;default:''"` // agent: 怎么称呼主人
+	HumanName     string `gorm:"column:human_name;not null;default:''"`     // human: 真名/想被怎么称呼
 }
 
 func (Session) TableName() string { return "agti_sessions" }
@@ -95,15 +100,19 @@ func (s *Session) AgentAnswerMap() map[string]string {
 	return out
 }
 
-// LockAgentAnswers writes the agent's answers exactly once (commit-reveal).
-// The conditional UPDATE is the lock: a second submit matches zero rows.
-func LockAgentAnswers(db *gorm.DB, sessionID string, answers map[string]string) error {
+// LockAgentAnswers writes the agent's answers + self-reported identity exactly
+// once (commit-reveal). The conditional UPDATE is the lock: a second submit
+// matches zero rows. agentName/modelName/masterAddr are free text (may be "").
+func LockAgentAnswers(db *gorm.DB, sessionID string, answers map[string]string, agentName, modelName, masterAddr string) error {
 	data, _ := json.Marshal(answers)
 	res := db.Model(&Session{}).
 		Where("session_id = ? AND agent_locked_at = 0", sessionID).
 		Updates(map[string]interface{}{
 			"agent_answers":   string(data),
 			"agent_locked_at": time.Now().UnixMilli(),
+			"agent_name":      agentName,
+			"model_name":      modelName,
+			"master_address":  masterAddr,
 		})
 	if res.Error != nil {
 		return res.Error
@@ -117,7 +126,7 @@ func LockAgentAnswers(db *gorm.DB, sessionID string, answers map[string]string) 
 // SubmitHuman stores the human's answers and the computed result in one
 // transaction. Idempotent: a second submit returns the existing result ID
 // without recomputing, so refreshing the page can't change the outcome.
-func SubmitHuman(db *gorm.DB, sessionID string, humanAnswers map[string]string, build func(s *Session) (*Result, error)) (string, error) {
+func SubmitHuman(db *gorm.DB, sessionID string, humanAnswers map[string]string, humanName string, build func(s *Session) (*Result, error)) (string, error) {
 	var resultID string
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var s Session
@@ -143,6 +152,7 @@ func SubmitHuman(db *gorm.DB, sessionID string, humanAnswers map[string]string, 
 			Updates(map[string]interface{}{
 				"human_answers": string(data),
 				"result_id":     r.ResultID,
+				"human_name":    humanName,
 			}).Error; err != nil {
 			return err
 		}

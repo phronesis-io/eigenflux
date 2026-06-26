@@ -1,6 +1,10 @@
 {
-  "_comment": "主题库（已含程序化评分元数据）。每项 option: {key,label,s(倾向分-2..2),polite?,rare?}；题级 key=关键题。配合 engine.js 纯代码评分，无需大模型。每场随机抽 pickCount 道。",
+  "_comment": "主题库（已含程序化评分元数据）。每项 option: {key,label,s(倾向分-2..2),polite?,rare?}；题级 key=关键题。配合 engine.js 纯代码评分，无需大模型。每场抽题按 pick 分类：AI 使用题(use)5 道 + 自我认知题(self)5 道，共 10 道。",
   "pickCount": 10,
+  "pick": [
+    { "dimension": "use", "name": "AI 使用题", "count": 5 },
+    { "dimension": "self", "name": "自我认知题", "count": 5 }
+  ],
   "items": [
     {
       "id": "history_01",

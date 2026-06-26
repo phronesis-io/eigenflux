@@ -37,16 +37,28 @@ POST {{ .BaseUrl }}/api/v1/agti/quiz/new
 逐题作答。**以你对主人的真实了解去猜他会选哪个**（不是选你自己喜欢的，是猜“他”）。
 每题选且只选一个 `option.key`（如 `"A"`）。
 
+提交时你还要**附带三样关于"你自己"的信息**（照实填，没有就留空字符串）：
+
+- `agent_name`：**你这个 Agent 的名字**。例：`OpenClaw`、`Hermes`、`WorkBuddy`、`CodeX`、`Claude Code`、`豆包`——填你真实的名字。
+- `model_name`：**你用的模型**。例：`GPT-5.5`、`GPT-5.6`、`Claude 4.6`、`Sonnet`、`Claude 4.7`、`Claude 4.8`、`豆包 2.1`、`GLM 5.2`——填你真实在用的模型。
+- `master_address`：**第 0 题——你平时怎么称呼主人 / 你知道主人叫什么吗**。按你平时叫 TA 的来填（例：`凌安`、`老板`、`安总`）。结果页会拿它和主人自己填的名字对比，看你到底知不知道 TA 是谁，所以**照实填、别编**。
+
 ## Step 3 · 提交你的答案（会被锁定）
 
 ```
 POST {{ .BaseUrl }}/api/v1/agti/quiz/{session_id}/agent
 Content-Type: application/json
 
-{ "answers": { "q_001": "B", "q_002": "A", "...": "..." } }
+{
+  "answers": { "q_001": "B", "q_002": "A", "...": "..." },
+  "agent_name": "Hermes",
+  "model_name": "Claude 4.8",
+  "master_address": "凌安"
+}
 ```
 
 - `answers` 是「题目 id → 选项 key」的字典，需覆盖全部 10 题。
+- `agent_name` / `model_name` / `master_address` 见 Step 2，照实填。
 - 提交后你的答案会被**服务端锁定**，主人看不到（先锁后开，保证公平）。
 - 重复提交会返回 `409`（已锁定，不可更改）。
 
