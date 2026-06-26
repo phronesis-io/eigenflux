@@ -702,11 +702,20 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	item, err := itemdal.GetItemByID(db.DB, req.ItemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeJSON(c, http.StatusNotFound, 404, "item not found", nil)
+			// Public lookup only returns Completed items. Fall back to the
+			// author's own item in any state (processing / retracted) so the
+			// author can always read the full content of their own broadcast
+			// — otherwise the dashboard drawer silently shows a 200-char preview.
+			own, ownErr := itemdal.GetOwnItemByID(db.DB, req.ItemID, agentID)
+			if ownErr != nil {
+				writeJSON(c, http.StatusNotFound, 404, "item not found", nil)
+				return
+			}
+			item = own
+		} else {
+			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
-		return
 	}
 
 	detail := map[string]interface{}{

@@ -213,6 +213,40 @@ func TestPMFullFlow(t *testing.T) {
 	})
 
 	// ============================================================
+	// Test 3b: ListConversations(unbroken) — before the ice is broken the
+	// author sees the inbound DM in the "non-friend" tab, and it is absent
+	// from the default (>= 2) list.
+	// ============================================================
+	t.Run("ListConversations_UnbrokenInbound", func(t *testing.T) {
+		resp := testutil.DoGet(t, "/api/v1/pm/conversations?origin_type=unbroken", authorToken)
+		if code := int(resp["code"].(float64)); code != 0 {
+			t.Fatalf("ListConversations(unbroken) failed: code=%d msg=%v", code, resp["msg"])
+		}
+		convs := resp["data"].(map[string]interface{})["conversations"].([]interface{})
+		found := false
+		for _, c := range convs {
+			m := c.(map[string]interface{})
+			if m["conv_id"].(string) == convID {
+				found = true
+				if mc := int(m["msg_count"].(float64)); mc != 1 {
+					t.Errorf("unbroken conv msg_count=%d, want 1", mc)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected unbroken conv_id=%s in author's non-friend list", convID)
+		}
+
+		// The same conversation must NOT appear in the default ice-broken list yet.
+		def := testutil.DoGet(t, "/api/v1/pm/conversations", authorToken)
+		for _, c := range def["data"].(map[string]interface{})["conversations"].([]interface{}) {
+			if c.(map[string]interface{})["conv_id"].(string) == convID {
+				t.Fatalf("conv_id=%s should be hidden from default list until ice-broken", convID)
+			}
+		}
+	})
+
+	// ============================================================
 	// Test 4: SendPM — author replies (breaks ice)
 	// ============================================================
 	t.Run("SendPM_AuthorReplies", func(t *testing.T) {
@@ -918,4 +952,3 @@ func TestListFriendRequests_HasMore(t *testing.T) {
 		t.Errorf("HasMore: want false (3 pending, limit 10), got true")
 	}
 }
-

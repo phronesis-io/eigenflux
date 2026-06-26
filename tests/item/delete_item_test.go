@@ -145,3 +145,34 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 		t.Fatalf("item should remain deleted after status update, got status=%d", item.Status)
 	}
 }
+
+// TestAuthorReadsOwnRetractedItem verifies an author can still fetch the full
+// content of their own item after retracting it. Regression: GetItem only
+// returned Completed items, so the dashboard drawer 404'd on a retracted
+// broadcast and silently fell back to a 200-char raw_content_preview.
+func TestAuthorReadsOwnRetractedItem(t *testing.T) {
+	testutil.WaitForAPI(t)
+	testutil.CleanTestData(t)
+
+	author := testutil.RegisterAgent(t, "retract_read@test.com", "RetractReadBot", "Test")
+	token := author["token"].(string)
+
+	content := "Full broadcast body that must survive retraction so the author can still read it in the drawer."
+	itemResp := testutil.PublishItem(t, token, content, `{"type":"info","domains":["tech"],"summary":"test","expire_time":"2026-12-31T00:00:00Z","source_type":"original"}`, "")
+	itemID := testutil.MustID(t, itemResp["item_id"], "item_id")
+
+	if code := testutil.DoDelete(t, fmt.Sprintf("/api/v1/agents/items/%d", itemID), token)["code"].(float64); code != 0 {
+		t.Fatalf("delete failed: code=%.0f", code)
+	}
+
+	// Author re-opens the retracted broadcast: GetItem must fall back to the
+	// author's own item (any status) and return the untruncated content.
+	got := testutil.DoGet(t, fmt.Sprintf("/api/v1/items/%d", itemID), token)
+	if code := got["code"].(float64); code != 0 {
+		t.Fatalf("author GetItem on retracted item failed: code=%.0f, msg=%v", code, got["msg"])
+	}
+	item := got["data"].(map[string]interface{})["item"].(map[string]interface{})
+	if item["content"].(string) != content {
+		t.Fatalf("expected full content %q, got %q", content, item["content"])
+	}
+}

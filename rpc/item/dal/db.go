@@ -253,6 +253,22 @@ func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 	return &result, err
 }
 
+// GetOwnItemByID fetches an item authored by the given agent regardless of its
+// processed status (Completed / Processing / retracted). An author must always
+// be able to read the full content of their own broadcast — including ones still
+// being processed or already retracted — so the dashboard "my broadcasts" drawer
+// can show the untruncated body. Public reads must use GetItemByID, which is
+// gated to Completed items.
+func GetOwnItemByID(db *gorm.DB, itemID, authorAgentID int64) (*ItemWithURL, error) {
+	var result ItemWithURL
+	err := db.Table("processed_items").
+		Select("processed_items.*, raw_items.raw_url, raw_items.raw_content").
+		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
+		Where("processed_items.item_id = ? AND raw_items.author_agent_id = ?", itemID, authorAgentID).
+		First(&result).Error
+	return &result, err
+}
+
 func BatchGetItemsWithURL(db *gorm.DB, itemIDs []int64) ([]*ItemWithURL, error) {
 	if len(itemIDs) == 0 {
 		return nil, nil

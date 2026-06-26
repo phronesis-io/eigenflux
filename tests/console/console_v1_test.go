@@ -456,8 +456,9 @@ func TestListConversationsOriginTypeFilter(t *testing.T) {
 	testutil.WaitForAPI(t)
 	token, _, _ := testutil.LoginAndGetToken(t, testEmail)
 
-	// With origin_type filter
-	for _, originType := range []string{"item", "friend"} {
+	// With origin_type filter. "unbroken" surfaces inbound non-friend DMs still
+	// waiting for the user's first reply (the dashboard "non-friend" tab).
+	for _, originType := range []string{"item", "friend", "unbroken"} {
 		t.Run(fmt.Sprintf("origin_type=%s", originType), func(t *testing.T) {
 			result := testutil.DoGet(t, fmt.Sprintf("/api/v1/pm/conversations?origin_type=%s", originType), token)
 			assertCode(t, result, 0)
@@ -465,6 +466,19 @@ func TestListConversationsOriginTypeFilter(t *testing.T) {
 			convs, ok := data["conversations"].([]interface{})
 			if !ok {
 				t.Fatal("expected conversations array")
+			}
+			// Unbroken conversations are inbound first-contact DMs: each must have
+			// exactly one message (not yet ice-broken) and a non-friend origin.
+			if originType == "unbroken" {
+				for _, c := range convs {
+					m := c.(map[string]interface{})
+					if mc, ok := m["msg_count"].(float64); ok && int(mc) != 1 {
+						t.Errorf("unbroken conv %v has msg_count=%v, want 1", m["conv_id"], mc)
+					}
+					if ot, ok := m["origin_type"].(string); ok && ot == "friend" {
+						t.Errorf("unbroken conv %v has origin_type=friend, want non-friend", m["conv_id"])
+					}
+				}
 			}
 			t.Logf("origin_type=%s: %d conversations", originType, len(convs))
 		})
