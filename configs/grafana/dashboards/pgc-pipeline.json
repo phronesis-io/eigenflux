@@ -51,7 +51,7 @@
   },
   {
    "id": 3,
-   "title": "可追事件延迟",
+   "title": "事件延迟中位数",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -70,7 +70,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_latency_breakable_median_hours",
+     "expr": "pgc_event_latency_median_hours",
      "instant": true,
      "legendFormat": "可追中位数"
     }
@@ -1059,7 +1059,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_latency_breakable_median_hours",
+     "expr": "pgc_event_latency_median_hours",
      "legendFormat": "可追延迟(h)"
     },
     {
