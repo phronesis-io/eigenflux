@@ -51,7 +51,7 @@
   },
   {
    "id": 50,
-   "title": "可赢胜率 (覆盖)",
+   "title": "首发覆盖率 (全基准)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -70,7 +70,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_win_rate_winnable",
+     "expr": "pgc_first_source_win_rate",
      "instant": true
     }
    ],
@@ -90,11 +90,11 @@
        },
        {
         "color": "yellow",
-        "value": 10
+        "value": 8
        },
        {
         "color": "green",
-        "value": 20
+        "value": 12
        }
       ]
      }
@@ -115,7 +115,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "覆盖面: 全基准里「有一手源且我们更快」的事件比例(没抓到=覆盖缺口, 计入分母)。配合真实胜率看——真实胜率高而这个低=主要差在覆盖/匹配。"
+   "description": "覆盖(诚实地板): 全部基准事件里我们用一手源在媒体公开前先发的比例 = 赢/全部基准。固定分母——不能靠改'可赢'定义灌水。今天≈9.6%。可追(winnable-by-type)细分视图随诚实化改造上线。"
   },
   {
    "id": 51,
