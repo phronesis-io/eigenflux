@@ -39,7 +39,7 @@
   {
    "id": 2,
    "type": "row",
-   "title": "核心结果 — 我们离事件有多近",
+   "title": "核心结果 — 覆盖 · 准确 · 速度",
    "collapsed": false,
    "gridPos": {
     "h": 1,
@@ -48,6 +48,142 @@
     "y": 5
    },
    "panels": []
+  },
+  {
+   "id": 50,
+   "title": "可赢胜率 (覆盖)",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 3,
+    "x": 0,
+    "y": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_first_source_win_rate_winnable",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 10
+       },
+       {
+        "color": "green",
+        "value": 20
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "覆盖面: 全基准里「有一手源且我们更快」的事件比例(没抓到=覆盖缺口, 计入分母)。配合真实胜率看——真实胜率高而这个低=主要差在覆盖/匹配。"
+  },
+  {
+   "id": 51,
+   "title": "领先中位数 (速度)",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 4,
+    "x": 10,
+    "y": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_lead_on_win_median_hours",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "h",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "green",
+        "value": 6
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "我们赢的对决里, 比基准媒体早多少小时(中位数)。胜率说「赢没赢」, 这个说「赢多少」。越大越好。"
   },
   {
    "id": 3,
@@ -59,8 +195,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 6,
-    "x": 0,
+    "w": 4,
+    "x": 14,
     "y": 6
    },
    "targets": [
@@ -132,8 +268,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 4,
-    "x": 6,
+    "w": 3,
+    "x": 18,
     "y": 6
    },
    "targets": [
@@ -193,7 +329,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 10,
+    "x": 3,
     "y": 6
    },
    "targets": [
@@ -251,66 +387,6 @@
    "description": "在模型验证的真实对决中，我们先发的比例。"
   },
   {
-   "id": 18,
-   "title": "过滤配对",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 3,
-    "x": 13,
-    "y": 6
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_non_meaningful",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "text",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "value",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   },
-   "description": "模型判定速度对比无意义的配对数（官方公告 vs 聚合、不同角度一手报道等）。"
-  },
-  {
    "id": 19,
    "title": "赢 / 输",
    "type": "stat",
@@ -321,7 +397,7 @@
    "gridPos": {
     "h": 6,
     "w": 4,
-    "x": 16,
+    "x": 6,
     "y": 6
    },
    "targets": [
@@ -413,8 +489,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 4,
-    "x": 20,
+    "w": 3,
+    "x": 21,
     "y": 6
    },
    "targets": [
@@ -1200,7 +1276,7 @@
   },
   {
    "id": 9,
-   "title": "事件延迟(可追/结构) & 胜率走势",
+   "title": "首发: 延迟 · 领先 · 胜率走势",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -1239,6 +1315,15 @@
      },
      "expr": "pgc_event_real_win_rate",
      "legendFormat": "胜率(%)"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_lead_on_win_median_hours",
+     "legendFormat": "领先(h)"
     }
    ],
    "fieldConfig": {
