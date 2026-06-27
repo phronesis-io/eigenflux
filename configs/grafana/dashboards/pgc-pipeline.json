@@ -488,7 +488,7 @@
    "id": 31,
    "type": "stat",
    "title": "立即要处理几件事",
-   "description": "first-source attention + canary failures + source SLA + active T0/T1 latency breaches.",
+   "description": "first-source attention + critical source attention + canary failures + source SLA + active T0/T1 latency breaches.",
    "gridPos": {
     "h": 5,
     "w": 3,
@@ -506,7 +506,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
      "instant": true
     }
    ],
@@ -1052,7 +1052,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
      "instant": false,
      "range": true,
      "legendFormat": "总行动数"
@@ -1089,6 +1089,28 @@
      "instant": false,
      "range": true,
      "legendFormat": "Canary"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_source_health_critical_attention",
+     "instant": false,
+     "range": true,
+     "legendFormat": "关键源关注"
+    },
+    {
+     "refId": "F",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_source_health_sla_attention",
+     "instant": false,
+     "range": true,
+     "legendFormat": "源 SLA"
     }
    ],
    "fieldConfig": {
