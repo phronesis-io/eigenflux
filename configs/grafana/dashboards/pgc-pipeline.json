@@ -1447,8 +1447,9 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(increase(pgc_published_total[24h]))",
-     "instant": true
+     "expr": "pgc_items_24h{status=\"published\"}",
+     "instant": true,
+     "legendFormat": "近24h发布"
     }
    ],
    "fieldConfig": {
@@ -1492,7 +1493,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "过去 24 小时推送到 EigenFlux 的内容数。为 0 说明管道挂了。"
+   "description": "过去 24 小时推送到 EigenFlux 的内容数。为 0 说明管道挂了。 [reset-safe: pgc_items_24h, was increase(pgc_published_total) = same spike bug]"
   },
   {
    "id": 22,
