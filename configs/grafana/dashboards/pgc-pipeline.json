@@ -118,8 +118,76 @@
    "description": "覆盖(诚实地板): 全部基准事件里我们用一手源在媒体公开前先发的比例 = 赢/全部基准。固定分母——不能靠改'可赢'定义灌水。今天≈9.6%。可追(winnable-by-type)细分视图随诚实化改造上线。"
   },
   {
+   "id": 52,
+   "title": "首发准确率 (准确·信任)",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 3,
+    "x": 3,
+    "y": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_win_precision",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 50
+       },
+       {
+        "color": "green",
+        "value": 85
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "信任: 我们声称的首发里, 多少经内容模型确认是真同一事件首发(未判定=未确认, 计入分母)。这不是右侧'对决胜率'(那是速度条件的、会自我打分)。目标≥90%, <85% 告警。"
+  },
+  {
    "id": 51,
-   "title": "领先中位数 (速度)",
+   "title": "领先中位数 (速度·复核中)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -128,7 +196,7 @@
    "gridPos": {
     "h": 6,
     "w": 4,
-    "x": 10,
+    "x": 6,
     "y": 6
    },
    "targets": [
@@ -183,80 +251,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "我们赢的对决里, 比基准媒体早多少小时(中位数)。胜率说「赢没赢」, 这个说「赢多少」。越大越好。"
-  },
-  {
-   "id": 3,
-   "title": "事件延迟中位数",
-   "type": "stat",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 4,
-    "x": 14,
-    "y": 6
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_event_latency_median_hours",
-     "instant": true,
-     "legendFormat": "可追中位数"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "h",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "orange",
-        "value": 2
-       },
-       {
-        "color": "red",
-        "value": 6
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   },
-   "description": "可追(breaking/wire)事件从发生到首次抓取的小时数中位数。排除结构延迟(官方公告/arXiv等)。越小越好。"
+   "description": "⚠️复核中: 我们赢的对决里比基准早多少小时。注意'最大化领先'是虚荣陷阱(arXiv 等源天生早 -180h 会灌高这个数, 不代表我们快)。候选改为'按我们自己SLA的及时率', 待 Pascal 定。"
   },
   {
    "id": 5,
@@ -269,7 +264,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 18,
+    "x": 10,
     "y": 6
    },
    "targets": [
@@ -320,7 +315,7 @@
   },
   {
    "id": 17,
-   "title": "真实胜率",
+   "title": "对决胜率 (速度条件·诊断)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -328,8 +323,8 @@
    },
    "gridPos": {
     "h": 6,
-    "w": 3,
-    "x": 3,
+    "w": 4,
+    "x": 20,
     "y": 6
    },
    "targets": [
@@ -384,7 +379,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "在模型验证的真实对决中，我们先发的比例。"
+   "description": "诊断, 非信任指标: 在已确认的真实同事件对决里我们更快的比例。它假设对决已是真的, 所以高(82.8%)不代表'我们声称的赢都是真的'——信任看左侧'首发准确率'(54%)。"
   },
   {
    "id": 19,
@@ -397,7 +392,7 @@
    "gridPos": {
     "h": 6,
     "w": 4,
-    "x": 6,
+    "x": 13,
     "y": 6
    },
    "targets": [
@@ -490,7 +485,7 @@
    "gridPos": {
     "h": 6,
     "w": 3,
-    "x": 21,
+    "x": 17,
     "y": 6
    },
    "targets": [
