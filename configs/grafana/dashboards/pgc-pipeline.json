@@ -51,7 +51,7 @@
   },
   {
    "id": 50,
-   "title": "首发覆盖率 (全基准)",
+   "title": "覆盖广度 (无域盲区)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -70,7 +70,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_first_source_win_rate",
+     "expr": "pgc_coverage_breadth_pct",
      "instant": true
     }
    ],
@@ -90,11 +90,11 @@
        },
        {
         "color": "yellow",
-        "value": 8
+        "value": 80
        },
        {
         "color": "green",
-        "value": 12
+        "value": 100
        }
       ]
      }
@@ -115,7 +115,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "覆盖(诚实地板): 全部基准事件里我们用一手源在媒体公开前先发的比例 = 赢/全部基准。固定分母——不能靠改'可赢'定义灌水。今天≈9.6%。可追(winnable-by-type)细分视图随诚实化改造上线。"
+   "description": "覆盖(广度): 16个基准领域里PGC有实际广播(24h发布>=10)的比例。100%=没有整域盲区。细看下方各域发布量——space/macro/defense/crypto 偏薄是补量重点。首发率9.6%已移到速度/基准侧(它衡量'是否最先', 不是覆盖)。"
   },
   {
    "id": 52,
@@ -1356,6 +1356,62 @@
     }
    },
    "description": "事件延迟（越低越好）和真实胜率走势。模型每 ~30 分钟重算。"
+  },
+  {
+   "id": 53,
+   "title": "各域广播覆盖量 (24h)",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_coverage_published_by_domain",
+     "legendFormat": "{{domain}}",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 80,
+      "lineWidth": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "right"
+    },
+    "tooltip": {
+     "mode": "single"
+    },
+    "orientation": "horizontal",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": true
+    }
+   },
+   "description": "PGC 24h各基准领域发布量。薄的域=覆盖待补(space/macro/defense)。"
   },
   {
    "id": 20,
