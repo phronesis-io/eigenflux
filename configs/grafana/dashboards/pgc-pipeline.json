@@ -187,7 +187,7 @@
   },
   {
    "id": 51,
-   "title": "领先中位数 (速度·复核中)",
+   "title": "抢先率 (速度)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -206,13 +206,13 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_lead_on_win_median_hours",
+     "expr": "pgc_first_source_speed_win_share",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "h",
+     "unit": "percent",
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -226,11 +226,11 @@
        },
        {
         "color": "yellow",
-        "value": 1
+        "value": 30
        },
        {
         "color": "green",
-        "value": 6
+        "value": 50
        }
       ]
      }
@@ -247,11 +247,11 @@
     },
     "orientation": "auto",
     "textMode": "auto",
-    "colorMode": "background",
+    "colorMode": "value",
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "⚠️复核中: 我们赢的对决里比基准早多少小时。注意'最大化领先'是虚荣陷阱(arXiv 等源天生早 -180h 会灌高这个数, 不代表我们快)。候选改为'按我们自己SLA的及时率', 待 Pascal 定。"
+   "description": "速度(我们的准时率): 在我们手握一手源的对决里, 有多少我们比媒体更快发出 = 赢/(赢+我方更慢)。不是'领先多少小时'(那是虚荣陷阱: 慢源天生领先大)。今天≈35.7%。输掉的多半是源本身比媒体慢→换更快的源。(管道本身很快: 一手抓取准时率97.9%, 见审计层)"
   },
   {
    "id": 5,
@@ -1271,7 +1271,7 @@
   },
   {
    "id": 9,
-   "title": "首发: 延迟 · 领先 · 胜率走势",
+   "title": "首发: 准确率 · 抢先率 · 延迟走势",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -1317,8 +1317,17 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_lead_on_win_median_hours",
-     "legendFormat": "领先(h)"
+     "expr": "pgc_first_source_speed_win_share",
+     "legendFormat": "抢先率(%)"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_event_win_precision",
+     "legendFormat": "准确率(%)"
     }
    ],
    "fieldConfig": {
