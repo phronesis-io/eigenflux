@@ -1612,11 +1612,12 @@
     "defaults": {
      "unit": "short",
      "custom": {
-      "drawStyle": "bars",
-      "lineWidth": 1,
-      "fillOpacity": 60,
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
       "showPoints": "never",
-      "spanNulls": false
+      "spanNulls": true,
+      "lineInterpolation": "smooth"
      },
      "color": {
       "mode": "palette-classic"
