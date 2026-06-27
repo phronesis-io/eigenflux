@@ -1595,11 +1595,11 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(increase(pgc_published_total[1h]))",
+     "expr": "pgc_items_1h{status=\"published\"}",
      "instant": false,
      "range": true,
      "interval": "1h",
-     "legendFormat": "发布量/小时"
+     "legendFormat": "发布(条/小时)"
     }
    ],
    "fieldConfig": {
@@ -1627,7 +1627,7 @@
      "mode": "multi"
     }
    },
-   "description": "每小时发布量。突然降到 0 = 管道故障。"
+   "description": "每小时发布条数(1h滑窗, 重置安全)。原查询 increase(pgc_published_total[1h]) 是对一个由DB COUNT赋值的Gauge做计数器运算, 重启/DB瞬时读到0会被算成~74万的假尖峰, 已改为 pgc_items_1h。"
   },
   {
    "id": 25,
