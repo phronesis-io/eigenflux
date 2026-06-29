@@ -242,7 +242,7 @@
   },
   {
    "id": 50,
-   "title": "护栏·覆盖召回",
+   "title": "护栏·捕获召回(管线)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -281,11 +281,11 @@
        },
        {
         "color": "yellow",
-        "value": 60
+        "value": 90
        },
        {
         "color": "green",
-        "value": 85
+        "value": 97
        }
       ]
      }
@@ -306,7 +306,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "覆盖(召回, 真): 基准媒体报道的事件里, PGC 实际广播或已有(published+dedup)的比例。比'广度'(各域有没有量)更真——它看'有没有抓全发生的事'。低召回域(law/policy/ai)=漏掉多, 见下方各域召回。丢弃含正确丢的噪声。"
+   "description": "捕获召回(管线健康): benchmark 源里 PGC 决定处理的条目中, 链路成功交付(published+dedup)的比例; 分母只含 交付+捕获失败(error_extract/error_llm), 不含'故意丢弃'(那是实质门的判断, 不是故障)。低=抓取/解析坏了(如付费墙)。各域低=该域源付费墙(law=National Law Review 5/5 抓取失败)。门是否错丢真事件由'错丢真损率'单独衡量。"
   },
   {
    "id": 52,
@@ -756,7 +756,7 @@
   },
   {
    "id": 53,
-   "title": "各域召回率 (低=漏得多)",
+   "title": "各域捕获召回率 (低=该域付费墙/抓取坏)",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -808,7 +808,7 @@
      "values": true
     }
    },
-   "description": "各基准领域的事件召回率。低的域(law/policy)=我们丢掉很多该域基准报道的事件=补抓重点。"
+   "description": "各 benchmark 域的捕获召回。低的域=该域源抓取/解析失败多(付费墙/JS)。law 低=National Law Review 全失败。"
   },
   {
    "id": 20,
@@ -2029,6 +2029,74 @@
     }
    },
    "description": "24h 广播按可信度标签的占比构成。high=一手官方记录, standard=专业媒体/分析, unverified=社区/未知, low=已知不可靠(仅人工覆盖). unverified+low 上升=信任风险。"
+  },
+  {
+   "id": 60,
+   "title": "护栏·错丢真损率(门)",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 13,
+    "w": 8,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "pgc_discard_false_loss_rate",
+     "refId": "A",
+     "legendFormat": "错丢真损%",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 8
+       },
+       {
+        "color": "red",
+        "value": 15
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "实质门错丢真信号率(真·覆盖护栏): 抽样审计被丢弃的 benchmark 条目里, 有多少是'无任何已发条目覆盖'的真实事件被门错杀(排除噪声+排除被同事件他文覆盖的重复)。这是诚实的'过度丢弃'数字。低=好。当前 19.2% 偏高=门在杀真信号→Cycle2 调门。配套: 丢弃占比/捕获召回。"
   }
  ],
  "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。"
