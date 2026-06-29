@@ -378,7 +378,7 @@
   },
   {
    "id": 51,
-   "title": "护栏·延迟(速度)",
+   "title": "护栏·首源入库 (速度)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -397,13 +397,13 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_event_latency_median_hours",
+     "expr": "pgc_first_party_ingest_median_minutes",
      "instant": true
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "h",
+     "unit": "m",
      "mappings": [],
      "color": {
       "mode": "thresholds"
@@ -417,11 +417,11 @@
        },
        {
         "color": "yellow",
-        "value": 6
+        "value": 10
        },
        {
         "color": "red",
-        "value": 12
+        "value": 60
        }
       ]
      }
@@ -442,7 +442,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "速度(你的定义): 事件发生→我们入库的中位小时数(越接近T0越好)。越低越好。抢先率(beat-media)移到走势图。注: 部分源用回填日期, 真实信道延迟见'运维/诊断'。"
+   "description": "速度(你的定义, 真实测量): 一手源发布→我们入库的中位分钟数(越接近T0越好)。p50≈2分钟=对典型首源很快; 慢尾(p90 见运维)多是期刊/registry回填日期或慢RSS=换源待办。替换了原先误导的 event_latency(8.7h, 基于LLM猜测的T0+取两侧min的小样本)。"
   },
   {
    "id": 5,
