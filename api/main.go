@@ -13,6 +13,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -199,10 +200,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load agti bank: %v", err)
 	}
-	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", "static/templates/agti_interpret.tmpl.md", publicBaseURL); err != nil {
+	// AGTI activity runs on its own domain (ICP-备案 的 www.eigenflux.net) so the
+	// whole funnel — skills/answer/result/join/interpret links — stays on .net,
+	// independent of the product-wide publicBaseURL (.ai). Override via AGTI_BASE_URL.
+	agtiBaseURL := os.Getenv("AGTI_BASE_URL")
+	if agtiBaseURL == "" {
+		agtiBaseURL = "https://www.eigenflux.net"
+	}
+	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", "static/templates/agti_interpret.tmpl.md", agtiBaseURL); err != nil {
 		log.Fatalf("failed to init agti skills: %v", err)
 	}
-	agti.Register(h, agtiBank, publicBaseURL)
+	agti.Register(h, agtiBank, agtiBaseURL)
 	log.Printf("AgentRapport quiz registered (%d questions, %d types)", len(agtiBank.Items), len(agtiBank.Types))
 
 	// Register generated routes
