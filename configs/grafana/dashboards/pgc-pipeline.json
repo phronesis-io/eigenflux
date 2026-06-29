@@ -1268,80 +1268,12 @@
    "description": "诊断, 非信任指标: 在已确认的真实同事件对决里我们更快的比例。它假设对决已经是真的, 所以这个比例高 ≠ '我们声称的赢都是真的'——真正的信任指标是 win_precision(确认的赢/所有声称的赢), 远低于此。"
   },
   {
-   "id": 31,
-   "type": "stat",
-   "title": "立即要处理几件事",
-   "description": "需立刻处理的总数 = 首发关注 + 关键源关注 + canary 失败 + 源 SLA + 我方管线延迟(source_latency)。只算我方能立刻动手修的；‘慢源 feed’不计入（属换源复核, 见 Active source drilldown），避免把正常的源端 RSS 滞后当成紧急。",
-   "gridPos": {
-    "x": 4,
-    "y": 43,
-    "w": 4,
-    "h": 5
-   },
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 5
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   }
-  },
-  {
    "id": 32,
    "type": "stat",
    "title": "首发关注",
    "description": "Benchmark/secondary items needing primary-source coverage review.",
    "gridPos": {
-    "x": 8,
+    "x": 4,
     "y": 43,
     "w": 4,
     "h": 5
@@ -1409,7 +1341,7 @@
    "title": "我方管线延迟",
    "description": "近 3h 内属于我方管线的 T0/T1 抓取超时（source_latency：我们抓到晚了，要修代码）。不含‘慢源 feed’（源自己 RSS 发得慢，是换源问题，见下方 Active source drilldown）。0 = 管线健康。",
    "gridPos": {
-    "x": 12,
+    "x": 8,
     "y": 43,
     "w": 4,
     "h": 5
@@ -1477,7 +1409,7 @@
    "title": "Canary 失败",
    "description": "Must-have source checks currently failing.",
    "gridPos": {
-    "x": 16,
+    "x": 12,
     "y": 43,
     "w": 4,
     "h": 5
@@ -1545,7 +1477,7 @@
    "title": "源 SLA 关注",
    "description": "Registry-defined source-health SLA breaches from the latest report.",
    "gridPos": {
-    "x": 20,
+    "x": 16,
     "y": 43,
     "w": 4,
     "h": 5
