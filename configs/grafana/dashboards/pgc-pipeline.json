@@ -33,13 +33,13 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "## PGC 北极星 — 覆盖 · 准确 · 速度\n- **覆盖广度**: 是否每个领域都在广播(无整域盲区)；下方各域发布量看薄弱领域。\n- **忠实率**: 已发布广播是否忠于原文事实(无捏造/夸大)。目标≥90%。\n- **抢先率**: 手握一手源的对决里我们是否比媒体更快(我们的准时率, 非'领先多少小时')。\n- 旁边'对决胜率(诊断)'是速度条件指标, 不是信任/准确指标。"
+    "content": "## PGC 北极星 — 价值(信号) 为顶, 覆盖·准确·速度 为护栏\n- **信号率(价值)**: 广播的是否是对 agent 有价值的信号, 而非噪声。**顶层目标**。\n- **护栏·覆盖**: 每个领域都在广播(无整域盲区)。\n- **护栏·准确**: 忠于原文事实, 无捏造。\n- **护栏·速度**: 事件→入库延迟(越接近T0越好)。\n- 三条护栏需各自保持绿; 顶层看价值。只测量不抑制。"
    }
   },
   {
    "id": 2,
    "type": "row",
-   "title": "🎯 北极星 — 覆盖 · 准确 · 速度",
+   "title": "🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度",
    "collapsed": false,
    "gridPos": {
     "x": 0,
@@ -50,8 +50,8 @@
    "panels": []
   },
   {
-   "id": 50,
-   "title": "覆盖广度 (无域盲区)",
+   "id": 54,
+   "title": "信号率 (价值·顶层)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -62,6 +62,197 @@
     "y": 4,
     "w": 8,
     "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_broadcast_signal_rate",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 60
+       },
+       {
+        "color": "green",
+        "value": 85
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "价值(顶层): 抽样已发布广播里, 经模型判定是'对陌生AI agent有价值的信号'(非体育/人情/本地琐事/梗/吹捧噪声)的比例。这是北极星的顶——覆盖/准确/速度只是护栏。只测量不抑制(PGC保持广播+接收方过滤)。<85%黄, <60%红。"
+  },
+  {
+   "id": 55,
+   "title": "噪声泄漏 (按类型)",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 4,
+    "w": 10,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_broadcast_noise_by_type",
+     "legendFormat": "{{noise_type}}",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 80,
+      "lineWidth": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "right"
+    },
+    "tooltip": {
+     "mode": "single"
+    },
+    "orientation": "horizontal",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "values": true
+    }
+   },
+   "description": "漏过信号门被广播的噪声, 按类型。体育/本地琐事/人情是主泄漏。"
+  },
+  {
+   "id": 56,
+   "title": "错分类 (域填错)",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 4,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_broadcast_miscategorized",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 10
+       },
+       {
+        "color": "red",
+        "value": 25
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "抽样里被判定'域明显填错'的条数(如板球比分填进新加坡, 印度地方政治填进地缘政治)。分母≈样本数(见信号率judged)。越低越好。"
+  },
+  {
+   "id": 50,
+   "title": "护栏·覆盖广度",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 8,
+    "h": 4
    },
    "targets": [
     {
@@ -119,7 +310,7 @@
   },
   {
    "id": 52,
-   "title": "忠实率 (准确)",
+   "title": "护栏·忠实率(准确)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -127,9 +318,9 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 4,
+    "y": 9,
     "w": 8,
-    "h": 5
+    "h": 4
    },
    "targets": [
     {
@@ -187,7 +378,7 @@
   },
   {
    "id": 51,
-   "title": "事件→入库延迟 (速度)",
+   "title": "护栏·延迟(速度)",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -195,9 +386,9 @@
    },
    "gridPos": {
     "x": 16,
-    "y": 4,
+    "y": 9,
     "w": 8,
-    "h": 5
+    "h": 4
    },
    "targets": [
     {
@@ -263,7 +454,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 9,
+    "y": 13,
     "w": 8,
     "h": 4
    },
@@ -323,7 +514,7 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 9,
+    "y": 13,
     "w": 8,
     "h": 4
    },
@@ -416,7 +607,7 @@
    },
    "gridPos": {
     "x": 16,
-    "y": 9,
+    "y": 13,
     "w": 8,
     "h": 4
    },
@@ -485,7 +676,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 13,
+    "y": 17,
     "w": 12,
     "h": 8
    },
@@ -573,7 +764,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 13,
+    "y": 17,
     "w": 12,
     "h": 8
    },
