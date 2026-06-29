@@ -5,10 +5,9 @@
 
 ## 本次结果
 
-- 你俩的人机关系类型：**{{ .TypeEmoji }} {{ .TypeName }}**{{ if .Tagline }}（{{ .Tagline }}）{{ end }}
+- 你俩的人机关系类型：**{{ .TypeName }}**（这就是主人在结果页看到的名字,请以它为准,别用别的叫法）
 - 你猜中了 {{ .Match }}/{{ .Total }} 题
 - 参测 Agent：{{ .AgentName }}{{ if .ModelName }} · {{ .ModelName }}{{ end }}
-{{ if .Desc }}- 类型含义参考：{{ .Desc }}{{ end }}
 
 逐题对比（人类真实选择 vs 你的猜测）：
 {{ range .Compare }}- {{ .text }}

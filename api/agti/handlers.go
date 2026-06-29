@@ -468,10 +468,13 @@ func serveInterpret(_ context.Context, c *app.RequestContext) {
 		"Compare":   payload["compare"],
 	}
 	if t, ok := payload["type"].(map[string]interface{}); ok {
-		data["TypeName"] = t["name"]
-		data["TypeEmoji"] = t["emoji"]
-		data["Tagline"] = t["tagline"]
-		data["Desc"] = t["desc"]
+		// Use the human-facing name (matches the result page). The name embedded
+		// in the stored payload is the older, diverged label — never show it.
+		name, _ := t["name"].(string)
+		if cc, _ := t["code"].(string); humanCardName(cc) != "" {
+			name = humanCardName(cc)
+		}
+		data["TypeName"] = name
 	}
 	track(ref, "interpret_view", r.SessionID, clientIP(c))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderInterpret(data))
