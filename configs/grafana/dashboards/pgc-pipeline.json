@@ -242,7 +242,7 @@
   },
   {
    "id": 50,
-   "title": "护栏·覆盖广度",
+   "title": "护栏·覆盖召回",
    "type": "stat",
    "datasource": {
     "type": "prometheus",
@@ -261,7 +261,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_coverage_breadth_pct",
+     "expr": "pgc_coverage_recall_pct",
      "instant": true
     }
    ],
@@ -281,11 +281,11 @@
        },
        {
         "color": "yellow",
-        "value": 80
+        "value": 60
        },
        {
         "color": "green",
-        "value": 100
+        "value": 85
        }
       ]
      }
@@ -306,7 +306,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "覆盖(广度): 16个基准领域里PGC有实际广播(24h发布>=10)的比例。100%=没有整域盲区。细看下方各域发布量找偏薄领域(补量重点)。注意: 这衡量'各域有没有量', 不是'抓全了发生的事'(真覆盖=事件召回, 待建)。首发率(是否最先)在速度/基准侧, 不算覆盖。"
+   "description": "覆盖(召回, 真): 基准媒体报道的事件里, PGC 实际广播或已有(published+dedup)的比例。比'广度'(各域有没有量)更真——它看'有没有抓全发生的事'。低召回域(law/policy/ai)=漏掉多, 见下方各域召回。丢弃含正确丢的噪声。"
   },
   {
    "id": 52,
@@ -756,7 +756,7 @@
   },
   {
    "id": 53,
-   "title": "各域广播覆盖量 (24h)",
+   "title": "各域召回率 (低=漏得多)",
    "type": "timeseries",
    "datasource": {
     "type": "prometheus",
@@ -775,7 +775,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_coverage_published_by_domain",
+     "expr": "pgc_coverage_recall_by_domain",
      "legendFormat": "{{domain}}",
      "instant": true
     }
@@ -808,7 +808,7 @@
      "values": true
     }
    },
-   "description": "PGC 24h各基准领域发布量。薄的域=覆盖待补(space/macro/defense)。"
+   "description": "各基准领域的事件召回率。低的域(law/policy)=我们丢掉很多该域基准报道的事件=补抓重点。"
   },
   {
    "id": 20,
