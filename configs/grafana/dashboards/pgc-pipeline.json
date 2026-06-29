@@ -417,11 +417,11 @@
        },
        {
         "color": "yellow",
-        "value": 10
+        "value": 5
        },
        {
         "color": "red",
-        "value": 60
+        "value": 30
        }
       ]
      }
@@ -1503,7 +1503,7 @@
        },
        {
         "color": "green",
-        "value": 80
+        "value": 70
        }
       ]
      }
