@@ -1108,8 +1108,8 @@
   {
    "id": 38,
    "type": "table",
-   "title": "Active source drilldown",
-   "description": "Which source is currently causing actionable low-latency breaches.",
+   "title": "各源延迟明细 (我方延迟 + 慢源feed)",
+   "description": "近 3h 谁在拖延迟, 按源+类型拆。kind=source_latency=我方抓晚了(修管线); kind=source_feed_lag=源自己 RSS 发得慢(换更快的源, 即‘慢源即坏源’)。慢源 feed 在这里复核, 不进上面的‘立即要处理’。",
    "gridPos": {
     "x": 12,
     "y": 27,
@@ -1271,7 +1271,7 @@
    "id": 31,
    "type": "stat",
    "title": "立即要处理几件事",
-   "description": "first-source attention + critical source attention + canary failures + source SLA + active T0/T1 latency breaches.",
+   "description": "需立刻处理的总数 = 首发关注 + 关键源关注 + canary 失败 + 源 SLA + 我方管线延迟(source_latency)。只算我方能立刻动手修的；‘慢源 feed’不计入（属换源复核, 见 Active source drilldown），避免把正常的源端 RSS 滞后当成紧急。",
    "gridPos": {
     "x": 4,
     "y": 43,
@@ -1289,7 +1289,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
      "instant": true
     }
    ],
@@ -1406,8 +1406,8 @@
   {
    "id": 33,
    "type": "stat",
-   "title": "T0/T1 仍超时",
-   "description": "Active publishable source_to_index/source_to_push breaches in the last 3h.",
+   "title": "我方管线延迟",
+   "description": "近 3h 内属于我方管线的 T0/T1 抓取超时（source_latency：我们抓到晚了，要修代码）。不含‘慢源 feed’（源自己 RSS 发得慢，是换源问题，见下方 Active source drilldown）。0 = 管线健康。",
    "gridPos": {
     "x": 12,
     "y": 43,
@@ -1425,7 +1425,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0)",
+     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
      "instant": true
     }
    ],
@@ -1629,7 +1629,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0))",
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
      "instant": false,
      "range": true,
      "legendFormat": "总行动数"
@@ -1651,7 +1651,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"}) or vector(0)",
+     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
      "instant": false,
      "range": true,
      "legendFormat": "T0/T1 active latency"
