@@ -63,6 +63,7 @@ func Register(h *server.Hertz, b *Bank, baseURL string) {
 	h.GET("/agti/skills/:ref", serveSkills)
 	h.GET("/agti/join", serveJoin)
 	h.GET("/agti/join/:ref", serveJoin)
+	h.GET("/agti/interpret/:result_id", serveInterpret)
 
 	g := h.Group("/api/v1/agti")
 	g.POST("/quiz/new", newQuiz)
@@ -438,6 +439,44 @@ func serveJoin(_ context.Context, c *app.RequestContext) {
 		track(ref, "join_view", "", clientIP(c))
 	}
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderJoin(ref))
+}
+
+// serveInterpret renders the post-quiz interpretation brief (markdown) the agent
+// reads to write its principal a personalized read of the result + a soft
+// EigenFlux suggestion. Reached two ways: the agent polling after the human
+// submits (skill Step 6 A/B), or the human tapping "send result back to my
+// agent" on the result page (B). Logs interpret_view, attributed by ref.
+func serveInterpret(_ context.Context, c *app.RequestContext) {
+	rid := c.Param("result_id")
+	r, err := GetResult(db.DB, rid)
+	if err != nil || r == nil {
+		c.Data(http.StatusNotFound, "text/markdown; charset=utf-8",
+			[]byte("# 结果不存在\n\n没有找到这个测验结果,可能链接有误或已过期。"))
+		return
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(r.Payload), &payload); err != nil {
+		c.Data(http.StatusInternalServerError, "text/markdown; charset=utf-8",
+			[]byte("# 结果读取失败"))
+		return
+	}
+	ref, _ := payload["ref"].(string)
+	data := map[string]interface{}{
+		"Ref":       ref,
+		"Match":     payload["match"],
+		"Total":     payload["total"],
+		"AgentName": payload["agent_name"],
+		"ModelName": payload["model_name"],
+		"Compare":   payload["compare"],
+	}
+	if t, ok := payload["type"].(map[string]interface{}); ok {
+		data["TypeName"] = t["name"]
+		data["TypeEmoji"] = t["emoji"]
+		data["Tagline"] = t["tagline"]
+		data["Desc"] = t["desc"]
+	}
+	track(ref, "interpret_view", r.SessionID, clientIP(c))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderInterpret(data))
 }
 
 // funnelStats returns per-KOL funnel counts for the dashboard. Protected by a

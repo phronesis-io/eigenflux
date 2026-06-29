@@ -247,6 +247,7 @@ type FunnelRow struct {
 	AgentLock     int64  `json:"agent_lock"`     // Agent 锁定答案
 	HumanOpen     int64  `json:"human_open"`     // 用户打开答题页
 	HumanComplete int64  `json:"human_complete"` // 用户答完
+	InterpretView int64  `json:"interpret_view"` // 拿到结果解读（二次触达，原始次数）
 	JoinView      int64  `json:"join_view"`      // 发起加入 EigenFlux（原始次数）
 }
 
@@ -290,6 +291,8 @@ func FunnelStats(db *gorm.DB) ([]FunnelRow, error) {
 			row.HumanOpen = r.Uniq
 		case "human_complete":
 			row.HumanComplete = r.Uniq
+		case "interpret_view":
+			row.InterpretView = r.Total
 		case "join_view":
 			row.JoinView = r.Total
 		}

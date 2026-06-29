@@ -199,7 +199,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load agti bank: %v", err)
 	}
-	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", publicBaseURL); err != nil {
+	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", "static/templates/agti_interpret.tmpl.md", publicBaseURL); err != nil {
 		log.Fatalf("failed to init agti skills: %v", err)
 	}
 	agti.Register(h, agtiBank, publicBaseURL)

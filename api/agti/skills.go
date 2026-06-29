@@ -10,13 +10,15 @@ import (
 // into the documented API call and join link — that's how the ref rides through
 // the funnel without asking the agent to remember a tracking code.
 var (
-	skillTmpl *template.Template
-	joinTmpl  *template.Template
-	skillBase string
+	skillTmpl     *template.Template
+	joinTmpl      *template.Template
+	interpretTmpl *template.Template
+	skillBase     string
 )
 
-// InitSkills parses the agent-facing skill + join templates once at startup.
-func InitSkills(skillPath, joinPath, baseURL string) error {
+// InitSkills parses the agent-facing skill + join + interpret templates once at
+// startup.
+func InitSkills(skillPath, joinPath, interpretPath, baseURL string) error {
 	st, err := template.ParseFiles(skillPath)
 	if err != nil {
 		return fmt.Errorf("agti skills template: %w", err)
@@ -25,8 +27,13 @@ func InitSkills(skillPath, joinPath, baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("agti join template: %w", err)
 	}
+	it, err := template.ParseFiles(interpretPath)
+	if err != nil {
+		return fmt.Errorf("agti interpret template: %w", err)
+	}
 	skillTmpl = st
 	joinTmpl = jt
+	interpretTmpl = it
 	skillBase = baseURL
 	return nil
 }
@@ -50,5 +57,15 @@ func renderSkill(ref string) []byte {
 func renderJoin(ref string) []byte {
 	var buf bytes.Buffer
 	_ = joinTmpl.Execute(&buf, tmplData(ref))
+	return buf.Bytes()
+}
+
+// renderInterpret renders the post-quiz interpretation brief the agent reads to
+// write its principal a personalized read of the result. data is built by the
+// handler from the stored result payload (+ BaseUrl/Ref for the join link).
+func renderInterpret(data map[string]interface{}) []byte {
+	data["BaseUrl"] = skillBase
+	var buf bytes.Buffer
+	_ = interpretTmpl.Execute(&buf, data)
 	return buf.Bytes()
 }
