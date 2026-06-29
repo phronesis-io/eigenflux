@@ -276,10 +276,13 @@ func FunnelStats(db *gorm.DB) ([]FunnelRow, error) {
 		return out[ref]
 	}
 	for _, r := range rows {
-		if r.Ref == "" {
-			continue // untracked (organic) traffic — not a KOL row
+		// ref="" is organic (no-param, straight-from-site) traffic — bucket it
+		// under a synthetic "organic" row instead of dropping it.
+		key := r.Ref
+		if key == "" {
+			key = "organic"
 		}
-		row := get(r.Ref)
+		row := get(key)
 		switch r.Event {
 		case "skills_view":
 			row.SkillsView = r.Total
@@ -306,6 +309,8 @@ func FunnelStats(db *gorm.DB) ([]FunnelRow, error) {
 	for _, ref := range refs {
 		get(ref.Code).Label = ref.Label
 	}
+	// Always surface the organic bucket, even at zero.
+	get("organic").Label = "官网直接进入（无参数）"
 
 	list := make([]FunnelRow, 0, len(out))
 	for _, r := range out {

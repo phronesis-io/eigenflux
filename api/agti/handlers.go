@@ -424,9 +424,8 @@ func getTypes(_ context.Context, c *app.RequestContext) {
 // ref (/agti/skills/01) that gets baked into the documented quiz/new call.
 func serveSkills(_ context.Context, c *app.RequestContext) {
 	ref := normalizeRef(c.Param("ref"))
-	if ref != "" {
-		track(ref, "skills_view", "", clientIP(c))
-	}
+	// Always log: ref="" is the organic (no-param, straight-from-site) bucket.
+	track(ref, "skills_view", "", clientIP(c))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderSkill(ref))
 }
 
@@ -435,9 +434,8 @@ func serveSkills(_ context.Context, c *app.RequestContext) {
 // the standard EigenFlux onboarding (unchanged).
 func serveJoin(_ context.Context, c *app.RequestContext) {
 	ref := normalizeRef(c.Param("ref"))
-	if ref != "" {
-		track(ref, "join_view", "", clientIP(c))
-	}
+	// Always log: ref="" is the organic (no-param) bucket.
+	track(ref, "join_view", "", clientIP(c))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderJoin(ref))
 }
 
