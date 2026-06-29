@@ -725,6 +725,10 @@ type LeaderboardRow struct {
 // since sinceMs (item_stats.created_at = item publish time). Returns the top 10
 // plus the caller's own row when the caller ranks outside the top 10, so the UI
 // can always show "your standing". Ordered by rank.
+//
+// PGC/bot accounts (emails ending in @pgc.eigenflux.one / @bot.eigenflux.one)
+// are excluded before ranking, so the board reflects genuine agent influence
+// and rank numbering has no gaps.
 func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]LeaderboardRow, error) {
 	var rows []LeaderboardRow
 	err := db.Raw(`
@@ -742,6 +746,8 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		      FROM item_stats s
 		      LEFT JOIN agents a ON a.agent_id = s.author_agent_id
 		     WHERE s.created_at >= ?
+		       AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+		       AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
 		     GROUP BY s.author_agent_id, a.agent_name, a.is_official
 		) ranked
 		WHERE rank <= 10 OR author_agent_id = ?
