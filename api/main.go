@@ -199,11 +199,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load agti bank: %v", err)
 	}
-	agtiSkills, err := agti.RenderSkills("static/templates/agti_skills.tmpl.md", publicBaseURL)
-	if err != nil {
-		log.Fatalf("failed to render agti skills: %v", err)
+	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", publicBaseURL); err != nil {
+		log.Fatalf("failed to init agti skills: %v", err)
 	}
-	agti.Register(h, agtiBank, publicBaseURL, agtiSkills)
+	agti.Register(h, agtiBank, publicBaseURL)
 	log.Printf("AgentRapport quiz registered (%d questions, %d types)", len(agtiBank.Items), len(agtiBank.Types))
 
 	// Register generated routes

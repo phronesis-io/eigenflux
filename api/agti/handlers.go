@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,20 +22,48 @@ import (
 var (
 	bank          *Bank
 	publicBaseURL string
-	skillsDoc     []byte
+	dashKey       string                          // funnel dashboard access key (env AGTI_DASH_KEY)
 	limiter       = newIPLimiter(10, time.Minute) // session creation per IP
+	refRe         = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 )
 
-const sessionTTL = 7 * 24 * time.Hour // unfinished sessions are deleted after this
+const (
+	sessionTTL = 7 * 24 * time.Hour // unfinished sessions are deleted after this
+	refWindow  = 30 * time.Minute   // IP fallback window linking skills_view → quiz_start
+)
+
+// normalizeRef validates a KOL ref code; returns "" for missing/invalid input
+// so untracked traffic stays untracked instead of polluting the funnel.
+func normalizeRef(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || !refRe.MatchString(s) {
+		return ""
+	}
+	return s
+}
+
+// track records a funnel event in Postgres (for the dashboard) and Loki (for
+// ad-hoc analysis). Best-effort: tracking never blocks the user flow.
+func track(ref, ev, sessionID, ip string) {
+	if err := LogEvent(db.DB, ref, ev, sessionID, ip); err != nil {
+		logger.Default().Error("agti track failed", "ev", ev, "err", err)
+	}
+	event(ev, sessionID, "ref", ref)
+}
 
 // Register wires the quiz routes onto the gateway. All endpoints are public
 // (marketing activity, no login); session creation is IP rate limited.
-func Register(h *server.Hertz, b *Bank, baseURL string, skills []byte) {
+func Register(h *server.Hertz, b *Bank, baseURL string) {
 	bank = b
 	publicBaseURL = strings.TrimRight(baseURL, "/")
-	skillsDoc = skills
+	dashKey = strings.TrimSpace(os.Getenv("AGTI_DASH_KEY"))
 
+	// Agent-facing docs (served as markdown). The /:ref variants tag the funnel.
 	h.GET("/agti/skills", serveSkills)
+	h.GET("/agti/skills/:ref", serveSkills)
+	h.GET("/agti/join", serveJoin)
+	h.GET("/agti/join/:ref", serveJoin)
+
 	g := h.Group("/api/v1/agti")
 	g.POST("/quiz/new", newQuiz)
 	g.GET("/quiz/:session_id", getQuiz)
@@ -41,6 +71,7 @@ func Register(h *server.Hertz, b *Bank, baseURL string, skills []byte) {
 	g.POST("/quiz/:session_id/human", humanSubmit)
 	g.GET("/result/:result_id", getResult)
 	g.GET("/types", getTypes)
+	g.GET("/funnel", funnelStats) // KOL funnel dashboard data (key-protected)
 
 	go cleanupLoop()
 }
@@ -131,17 +162,34 @@ func newQuiz(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusTooManyRequests, 429, "rate limited, try again later", nil)
 		return
 	}
+	// KOL ref: primary from ?ref= (baked into the per-ref skill's documented
+	// quiz/new URL), fallback to a {"ref":...} body field, then to a same-IP
+	// recent skills_view for agents that dropped the param.
+	ref := normalizeRef(string(c.Query("ref")))
+	if ref == "" {
+		if raw, _ := c.Body(); len(raw) > 0 {
+			var b struct {
+				Ref string `json:"ref"`
+			}
+			if json.Unmarshal(raw, &b) == nil {
+				ref = normalizeRef(b.Ref)
+			}
+		}
+	}
+	if ref == "" {
+		ref = RecentRefByIP(db.DB, ip, refWindow)
+	}
 	qs := bank.Pick()
 	ids := make([]string, len(qs))
 	for i, q := range qs {
 		ids[i] = q.ID
 	}
 	sid := NewID()
-	if err := CreateSession(db.DB, sid, ids, ip); err != nil {
+	if err := CreateSession(db.DB, sid, ids, ip, ref); err != nil {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	event("quiz_new", sid)
+	track(ref, "quiz_start", sid, ip)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"session_id": sid,
 		"questions":  publicQuestions(qs),
@@ -162,7 +210,7 @@ func getQuiz(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusNotFound, 404, "session not found", nil)
 		return
 	}
-	event("human_open", sid)
+	track(s.Ref, "human_open", sid, clientIP(c))
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"questions":       publicQuestions(questionsByIDs(s.QuestionIDList())),
 		"agent_submitted": s.AgentLockedAt > 0,
@@ -211,7 +259,7 @@ func agentSubmit(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	humanURL := fmt.Sprintf("%s/agti/q/%s", publicBaseURL, sid)
-	event("agent_locked", sid)
+	track(s.Ref, "agent_lock", sid, clientIP(c))
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"human_url": humanURL,
 		// Fallback copy; the skill doc asks the agent to write its own.
@@ -231,6 +279,7 @@ func humanSubmit(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	humanName := strings.TrimSpace(body.HumanName)
+	ip := clientIP(c)
 	resultID, err := SubmitHuman(db.DB, sid, body.Answers, humanName, func(s *Session) (*Result, error) {
 		questions := questionsByIDs(s.QuestionIDList())
 		human := NormalizeAnswers(questions, body.Answers)
@@ -245,6 +294,9 @@ func humanSubmit(_ context.Context, c *app.RequestContext) {
 			return nil, err
 		}
 		event("human_submit", s.SessionID, "type", a.Code, "match", a.Match)
+		if err := LogEvent(db.DB, s.Ref, "human_complete", s.SessionID, ip); err != nil {
+			logger.Default().Error("agti track failed", "ev", "human_complete", "err", err)
+		}
 		return &Result{
 			ResultID:   NewID(),
 			SessionID:  s.SessionID,
@@ -279,6 +331,7 @@ func buildResultPayload(a Analysis, t TypeInfo, s *Session, humanName string) ma
 		"agent_view": a.AgentView,
 		"agent_name": s.AgentName,
 		"model_name": s.ModelName,
+		"ref":        s.Ref, // lets the result page build a ref-tagged join prompt
 	}
 	if a.Sweet != nil && a.Sweet.Human != nil {
 		payload["sweet"] = map[string]string{"text": a.Sweet.Text, "choice": a.Sweet.Human.Label}
@@ -347,7 +400,8 @@ func getResult(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	payload["result_id"] = r.ResultID
-	event("result_view", r.SessionID, "result_id", rid)
+	ref, _ := payload["ref"].(string)
+	track(ref, "result_view", r.SessionID, clientIP(c))
 	reply(c, http.StatusOK, 0, "success", payload)
 }
 
@@ -365,8 +419,40 @@ func getTypes(_ context.Context, c *app.RequestContext) {
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"types": list})
 }
 
+// serveSkills serves the agent-facing skill doc, optionally tagged with a KOL
+// ref (/agti/skills/01) that gets baked into the documented quiz/new call.
 func serveSkills(_ context.Context, c *app.RequestContext) {
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", skillsDoc)
+	ref := normalizeRef(c.Param("ref"))
+	if ref != "" {
+		track(ref, "skills_view", "", clientIP(c))
+	}
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderSkill(ref))
+}
+
+// serveJoin serves the "join EigenFlux via the activity" doc. The ref variant
+// (/agti/join/01) logs the join as attributable to that KOL, then hands off to
+// the standard EigenFlux onboarding (unchanged).
+func serveJoin(_ context.Context, c *app.RequestContext) {
+	ref := normalizeRef(c.Param("ref"))
+	if ref != "" {
+		track(ref, "join_view", "", clientIP(c))
+	}
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", renderJoin(ref))
+}
+
+// funnelStats returns per-KOL funnel counts for the dashboard. Protected by a
+// shared key (env AGTI_DASH_KEY) since it's an internal ops view.
+func funnelStats(_ context.Context, c *app.RequestContext) {
+	if dashKey == "" || string(c.Query("key")) != dashKey {
+		reply(c, http.StatusUnauthorized, 401, "unauthorized", nil)
+		return
+	}
+	rows, err := FunnelStats(db.DB)
+	if err != nil {
+		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"rows": rows})
 }
 
 // --- minimal per-IP rate limiter (fixed window) ---
