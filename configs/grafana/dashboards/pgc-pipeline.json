@@ -251,7 +251,7 @@
       "gridPos": {
         "x": 0,
         "y": 9,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -317,9 +317,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 9,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -385,9 +385,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 9,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -445,6 +445,74 @@
       "description": "速度(你的定义, 真实测量): 一手源发布→我们入库的中位分钟数(越接近T0越好)。p50≈2分钟=对典型首源很快; 慢尾(p90 见运维)多是期刊/registry回填日期或慢RSS=换源待办。替换了原先误导的 event_latency(8.7h, 基于LLM猜测的T0+取两侧min的小样本)。"
     },
     {
+      "id": 58,
+      "title": "护栏·低可信占比",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "pgc_broadcast_low_trust_pct",
+          "refId": "A",
+          "legendFormat": "低可信%",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。"
+    },
+    {
       "id": 5,
       "title": "真实对决（模型验证）",
       "type": "stat",
@@ -455,7 +523,7 @@
       "gridPos": {
         "x": 0,
         "y": 13,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -513,9 +581,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 13,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -606,9 +674,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 13,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -665,6 +733,74 @@
         "justifyMode": "auto"
       },
       "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。"
+    },
+    {
+      "id": 60,
+      "title": "护栏·错丢真损率(门)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 13,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "pgc_discard_false_loss_rate",
+          "refId": "A",
+          "legendFormat": "错丢真损%",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 8
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "实质门错丢真信号率(真·覆盖护栏): 抽样审计被丢弃的 benchmark 条目里, 有多少是'无任何已发条目覆盖'的真实事件被门错杀(排除噪声+排除被同事件他文覆盖的重复)。这是诚实的'过度丢弃'数字。低=好。当前 19.2% 偏高=门在杀真信号→Cycle2 调门。配套: 丢弃占比/捕获召回。"
     },
     {
       "id": 9,
@@ -756,7 +892,7 @@
     },
     {
       "id": 53,
-      "title": "各域捕获召回率 (低=该域付费墙/抓取坏)",
+      "title": "各域丢弃占比 (高=该域多被门丢弃)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -775,7 +911,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_coverage_recall_by_domain",
+          "expr": "pgc_coverage_discard_share_by_domain",
           "legendFormat": "{{domain}}",
           "instant": true
         }
@@ -808,7 +944,7 @@
           "values": true
         }
       },
-      "description": "各 benchmark 域的捕获召回。低的域=该域源抓取/解析失败多(付费墙/JS)。law 低=National Law Review 全失败。"
+      "description": "各 benchmark 域被实质门丢弃的占比 (24h)。替换了原先的'各域捕获召回率'——后者排除了丢弃, 管线一健康就各域都≈100%, 看不出问题。丢弃占比会随域变化, 定位过度丢弃风险集中在哪 (法律/政策通常偏高); 配合'错丢真损率(门)'(当前 30.8% 偏高)判断这些丢弃里有多少是错杀真信号。"
     },
     {
       "id": 20,
@@ -817,7 +953,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 25,
         "w": 24,
         "h": 1
       },
@@ -833,7 +969,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -902,7 +1038,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -970,7 +1106,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -1035,7 +1171,7 @@
       "description": "Estimated days until twitterapi.io credits run out at current burn.",
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -1103,7 +1239,7 @@
       "description": "本月 NewsAPI token 已用比例。接近 100% 会影响 NewsAPI 补源。",
       "gridPos": {
         "x": 16,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -1172,7 +1308,7 @@
       "description": "本月 ScraperAPI credits 已用比例。用于 IP 被封的信源代理抓取。",
       "gridPos": {
         "x": 20,
-        "y": 22,
+        "y": 26,
         "w": 4,
         "h": 5
       },
@@ -1244,7 +1380,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 31,
         "w": 12,
         "h": 7
       },
@@ -1303,7 +1439,7 @@
       "description": "近 3h 谁在拖延迟, 按源+类型拆。kind=source_latency=我方抓晚了(修管线); kind=source_feed_lag=源自己 RSS 发得慢(换更快的源, 即‘慢源即坏源’)。慢源 feed 在这里复核, 不进上面的‘立即要处理’。",
       "gridPos": {
         "x": 12,
-        "y": 27,
+        "y": 31,
         "w": 12,
         "h": 7
       },
@@ -1352,7 +1488,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 34,
+        "y": 38,
         "w": 24,
         "h": 8
       },
@@ -1381,10 +1517,10 @@
     {
       "id": 30,
       "type": "row",
-      "title": "📉 诊断 / Deep dive",
+      "title": "📉 诊断 — 对标媒体 / 首发 (已降级)",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 46,
         "w": 24,
         "h": 1
       },
@@ -1400,7 +1536,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 47,
         "w": 4,
         "h": 5
       },
@@ -1459,81 +1595,13 @@
       "description": "诊断, 非信任指标: 在已确认的真实同事件对决里我们更快的比例。它假设对决已经是真的, 所以这个比例高 ≠ '我们声称的赢都是真的'——真正的信任指标是 win_precision(确认的赢/所有声称的赢), 远低于此。"
     },
     {
-      "id": 57,
-      "title": "首发判定准确率 (诚实)",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 43,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_win_precision",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "green",
-                "value": 70
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "诚实信任数: 我们声称的首发里, 经内容模型确认是真同事件的比例(确认赢/所有声称赢, 未判定算否)。远低于左边的'对决胜率'——后者已假设对决为真, 是自我打分。"
-    },
-    {
       "id": 32,
       "type": "stat",
       "title": "首发关注",
       "description": "Benchmark/secondary items needing primary-source coverage review.",
       "gridPos": {
         "x": 4,
-        "y": 43,
+        "y": 47,
         "w": 4,
         "h": 5
       },
@@ -1601,7 +1669,7 @@
       "description": "近 3h 内属于我方管线的 T0/T1 抓取超时（source_latency：我们抓到晚了，要修代码）。不含‘慢源 feed’（源自己 RSS 发得慢，是换源问题，见下方 Active source drilldown）。0 = 管线健康。",
       "gridPos": {
         "x": 8,
-        "y": 43,
+        "y": 47,
         "w": 4,
         "h": 5
       },
@@ -1669,7 +1737,7 @@
       "description": "Must-have source checks currently failing.",
       "gridPos": {
         "x": 12,
-        "y": 43,
+        "y": 47,
         "w": 4,
         "h": 5
       },
@@ -1737,7 +1805,7 @@
       "description": "Registry-defined source-health SLA breaches from the latest report.",
       "gridPos": {
         "x": 16,
-        "y": 43,
+        "y": 47,
         "w": 4,
         "h": 5
       },
@@ -1799,13 +1867,81 @@
       }
     },
     {
+      "id": 57,
+      "title": "首发判定准确率 (诚实)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 47,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_event_win_precision",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 70
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "诚实信任数: 我们声称的首发里, 经内容模型确认是真同事件的比例(确认赢/所有声称赢, 未判定算否)。远低于左边的'对决胜率'——后者已假设对决为真, 是自我打分。"
+    },
+    {
       "id": 37,
       "type": "timeseries",
       "title": "风险趋势",
       "description": "Owner action count and its components over time.",
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 52,
         "w": 24,
         "h": 7
       },
@@ -1908,74 +2044,6 @@
       }
     },
     {
-      "id": 58,
-      "title": "护栏·低可信占比",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 9,
-        "w": 8,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "pgc_broadcast_low_trust_pct",
-          "refId": "A",
-          "legendFormat": "低可信%",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 25
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。"
-    },
-    {
       "id": 59,
       "title": "信源可信度构成 (按标签占比)",
       "type": "timeseries",
@@ -1985,7 +2053,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -2031,187 +2099,15 @@
       "description": "24h 广播按可信度标签的占比构成。high=一手官方记录, standard=专业媒体/分析, unverified=社区/未知, low=已知不可靠(仅人工覆盖). unverified+low 上升=信任风险。"
     },
     {
-      "id": 60,
-      "title": "护栏·错丢真损率(门)",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 13,
-        "w": 8,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "pgc_discard_false_loss_rate",
-          "refId": "A",
-          "legendFormat": "错丢真损%",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 8
-              },
-              {
-                "color": "red",
-                "value": 15
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "实质门错丢真信号率(真·覆盖护栏): 抽样审计被丢弃的 benchmark 条目里, 有多少是'无任何已发条目覆盖'的真实事件被门错杀(排除噪声+排除被同事件他文覆盖的重复)。这是诚实的'过度丢弃'数字。低=好。当前 19.2% 偏高=门在杀真信号→Cycle2 调门。配套: 丢弃占比/捕获召回。"
-    },
-    {
-      "id": 800,
+      "id": 808,
       "type": "row",
-      "title": "总览 / Owner Cockpit",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 63
-      },
-      "panels": []
-    },
-    {
-      "id": 801,
-      "type": "row",
-      "title": "一手有没有漏 / First-Source Coverage",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 64
-      },
-      "panels": []
-    },
-    {
-      "id": 802,
-      "type": "row",
-      "title": "信号够不够快 / Signal Latency",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 65
-      },
-      "panels": []
-    },
-    {
-      "id": 803,
-      "type": "row",
-      "title": "每条信号卡在哪一跳 / Event Timeline",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 66
-      },
-      "panels": []
-    },
-    {
-      "id": 804,
-      "type": "row",
-      "title": "信源是否可靠 / Source Reliability",
+      "title": "🔬 工程诊断 — 信号延迟链路",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 67
-      },
-      "panels": []
-    },
-    {
-      "id": 805,
-      "type": "row",
-      "title": "内容有没有送达 / Delivery",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 68
-      },
-      "panels": []
-    },
-    {
-      "id": 806,
-      "type": "row",
-      "title": "生产链路是否健康 / Pipeline Health",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 69
-      },
-      "panels": []
-    },
-    {
-      "id": 807,
-      "type": "row",
-      "title": "质量和成本是否失控 / Quality & Cost",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 70
-      },
-      "panels": []
-    },
-    {
-      "id": 808,
-      "type": "row",
-      "title": "工程诊断 / Deep Dive",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 71
       },
       "panels": []
     },
@@ -2228,7 +2124,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 72
+        "y": 68
       },
       "targets": [
         {
@@ -2295,7 +2191,7 @@
         "h": 5,
         "w": 18,
         "x": 6,
-        "y": 72
+        "y": 68
       },
       "targets": [
         {
@@ -2386,7 +2282,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 77
+        "y": 73
       },
       "targets": [
         {
@@ -2439,7 +2335,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 77
+        "y": 73
       },
       "targets": [
         {
@@ -2492,7 +2388,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 81
       },
       "targets": [
         {
@@ -2545,7 +2441,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 81
       },
       "targets": [
         {
@@ -2598,7 +2494,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 93
+        "y": 89
       },
       "targets": [
         {
@@ -2665,7 +2561,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 93
+        "y": 89
       },
       "targets": [
         {
@@ -2756,7 +2652,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 93
+        "y": 89
       },
       "targets": [
         {
