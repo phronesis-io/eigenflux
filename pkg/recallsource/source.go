@@ -6,11 +6,12 @@ import "context"
 type Source uint8
 
 const (
-	Keyword  Source = 1 << iota // 0x01
-	KNN                         // 0x02
-	TwoTower                    // 0x04
-	HotRecall                   // 0x08
-	NewRecall                   // 0x10
+	Keyword   Source = 1 << iota // 0x01
+	KNN                          // 0x02
+	TwoTower                     // 0x04
+	HotRecall                    // 0x08
+	NewRecall                    // 0x10
+	Friend                       // 0x20
 )
 
 func (s Source) Has(flag Source) bool    { return s&flag != 0 }
@@ -47,6 +48,9 @@ func Names(s Source) []string {
 	}
 	if s.Has(NewRecall) {
 		names = append(names, "new_recall")
+	}
+	if s.Has(Friend) {
+		names = append(names, "friend")
 	}
 	return names
 }

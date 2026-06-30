@@ -253,6 +253,71 @@ func SearchByEmbedding(ctx context.Context, embedding []float32, filters []inter
 	return items, nil
 }
 
+// FetchRecentItemsByAuthors returns recent broadcasts authored by any of authorIDs,
+// within the last windowHours, newest first, capped at limit. Used by the friend-feed
+// recall lane to surface friends' broadcasts regardless of relevance affinity.
+func FetchRecentItemsByAuthors(ctx context.Context, authorIDs []int64, windowHours, limit int) ([]Item, error) {
+	if len(authorIDs) == 0 || limit <= 0 {
+		return nil, nil
+	}
+	if windowHours <= 0 {
+		windowHours = 168
+	}
+
+	query := map[string]interface{}{
+		"query": map[string]interface{}{
+			"bool": map[string]interface{}{
+				"filter": []interface{}{
+					map[string]interface{}{"terms": map[string]interface{}{"author_agent_id": authorIDs}},
+					map[string]interface{}{"range": map[string]interface{}{"created_at": map[string]interface{}{"gte": fmt.Sprintf("now-%dh", windowHours)}}},
+					map[string]interface{}{"exists": map[string]interface{}{"field": "group_id"}},
+				},
+			},
+		},
+		"sort": []interface{}{
+			map[string]interface{}{"created_at": map[string]interface{}{"order": "desc"}},
+		},
+		"size": limit,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("encode authors query: %w", err)
+	}
+
+	res, err := es.Client.Search(
+		es.Client.Search.WithContext(ctx),
+		es.Client.Search.WithIndex(es.ReadIndexPattern),
+		es.Client.Search.WithBody(&buf),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("execute authors search: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("ES authors search error: %s", res.String())
+	}
+
+	parsed, err := parseSearchResponse(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]Item, 0, len(parsed.Hits.Hits))
+	for _, hit := range parsed.Hits.Hits {
+		item := hit.Source
+		if hit.ID != "" {
+			if id, parseErr := strconv.ParseInt(hit.ID, 10, 64); parseErr == nil {
+				item.ID = id
+			}
+		}
+		item.Score = hit.Score
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 // FetchItemsByIDs retrieves full item documents from ES using an ids query.
 func FetchItemsByIDs(ctx context.Context, ids []int64) ([]Item, error) {
 	if len(ids) == 0 {

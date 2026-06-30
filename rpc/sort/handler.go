@@ -473,6 +473,40 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 
 	esItems = applyItemRerankPolicies(ctx, esItems, sourceMap)
 
+	// Friend-feed recall lane: surface friends' recent broadcasts in the requester's
+	// feed, bypassing the relevance threshold in the split below. Group-collapse and
+	// bloom dedup still apply (so a friend post shows at most once per group), and
+	// inactive friends who never fetch are not reached — best-effort, not guaranteed.
+	if cfg.FriendFeedEnabled {
+		var friendIDs []int64
+		if err := db.DB.Table("user_relations").
+			Where("from_uid = ? AND rel_type = ?", req.AgentId, 1).
+			Limit(cfg.FriendFeedMaxAuthors).
+			Pluck("to_uid", &friendIDs).Error; err != nil {
+			logger.Ctx(ctx).Warn("friend recall: list friends failed", "err", err)
+		} else if len(friendIDs) > 0 {
+			friendItems, ferr := sortDal.FetchRecentItemsByAuthors(ctx, friendIDs, cfg.FriendFeedWindowHours, cfg.FriendFeedMaxItems)
+			if ferr != nil {
+				logger.Ctx(ctx).Warn("friend recall: fetch items failed", "err", ferr)
+			} else {
+				existing := make(map[int64]bool, len(esItems))
+				for _, it := range esItems {
+					existing[it.ID] = true
+				}
+				added := 0
+				for _, it := range friendItems {
+					sourceMap[it.ID] |= recallsource.Friend
+					if !existing[it.ID] {
+						esItems = append(esItems, it)
+						existing[it.ID] = true
+						added++
+					}
+				}
+				logger.Ctx(ctx).Info("friend recall merge", "friends", len(friendIDs), "candidates", len(friendItems), "newItems", added)
+			}
+		}
+	}
+
 	// Record recall source feed composition
 	for _, item := range esItems {
 		for _, name := range recallsource.Names(sourceMap[item.ID]) {
@@ -498,7 +532,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	ranked := make([]ranker.RankedItem, 0, len(allRanked))
 	filteredItems := make([]ranker.RankedItem, 0)
 	for _, ri := range allRanked {
-		if ri.Score >= rankerCfg.MinRelevanceScore {
+		// Friend-feed items bypass the relevance threshold; they still pass through
+		// group-collapse (above) and bloom dedup (below).
+		if ri.Score >= rankerCfg.MinRelevanceScore || sourceMap[ri.ItemID].Has(recallsource.Friend) {
 			ranked = append(ranked, ri)
 		} else {
 			filteredItems = append(filteredItems, ri)
