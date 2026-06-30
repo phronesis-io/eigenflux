@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/config"
@@ -154,6 +156,33 @@ Examples:
 	},
 }
 
+// feedFormatCmd renders an already-fetched feed payload as agent-ready text
+// (contract preamble + payload), reading the payload `data` object from stdin.
+// This is the host-agnostic downsink: adapters poll once with `-f json`, then
+// pipe the payload here to get the deliverable text — no second poll (which
+// would double-record impressions) and no per-adapter contract constant.
+var feedFormatCmd = &cobra.Command{
+	Use:   "format",
+	Short: "Render a feed payload (from stdin) as agent-ready text",
+	Long: `Read a feed payload 'data' object as JSON on stdin and print the
+agent-format rendering (output contract preamble + payload). Use with the JSON
+poll output so the contract is applied by the CLI, not duplicated per host.
+
+Example:
+  eigenflux feed poll -f json | jq .data | eigenflux feed format`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+		if len(data) == 0 {
+			return fmt.Errorf("empty stdin: pipe a feed payload data object")
+		}
+		output.PrintFeedForAgent(json.RawMessage(data))
+		return nil
+	},
+}
+
 func init() {
 	feedPollCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
@@ -161,6 +190,6 @@ func init() {
 	feedGetCmd.Flags().String("item-id", "", "item ID to fetch (required)")
 	feedFeedbackCmd.Flags().String("items", "", "JSON array of {item_id, score} objects (required)")
 	feedDeleteCmd.Flags().String("item-id", "", "item ID to delete (required)")
-	feedCmd.AddCommand(feedPollCmd, feedGetCmd, feedFeedbackCmd, feedDeleteCmd)
+	feedCmd.AddCommand(feedPollCmd, feedGetCmd, feedFeedbackCmd, feedDeleteCmd, feedFormatCmd)
 	rootCmd.AddCommand(feedCmd)
 }
