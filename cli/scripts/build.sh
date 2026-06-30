@@ -71,13 +71,21 @@ echo "$CLI_VERSION" > "$BUILD_DIR/version.txt"
 #    release, not a plugin republish). ───────────────────────────────────────
 SKILLS_SRC="$PROJECT_ROOT/skills"
 SKILLS_STAGE="$BUILD_DIR/skills-stage"
-SKILLS_ALLOWLIST=(ef-broadcast ef-communication ef-profile ef-trading)
+# Single source of truth: derive the allowlist from the Go constant ProdAllowlist
+# so build.sh can never drift from manifestgen/the client.
+SKILLS_ALLOWLIST=()
+while IFS= read -r _name; do [[ -n "$_name" ]] && SKILLS_ALLOWLIST+=("$_name"); done \
+  < <("${GO_CMD[@]}" run ./cmd/manifestgen --print-allowlist)
 
 build_skills_bundle() {
   # Deterministic archives require GNU tar's long flags; macOS bsdtar lacks them.
   if ! command -v gtar >/dev/null 2>&1; then
     echo -e "${RED}gtar (GNU tar) required for deterministic skills archives.${NC}"
     echo -e "${RED}  macOS: brew install gnu-tar   Debian/Ubuntu: apt install tar${NC}"
+    exit 1
+  fi
+  if [[ ${#SKILLS_ALLOWLIST[@]} -eq 0 ]]; then
+    echo -e "${RED}skills allowlist empty — manifestgen --print-allowlist failed${NC}"
     exit 1
   fi
   rm -rf "$SKILLS_STAGE"

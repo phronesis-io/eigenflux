@@ -58,7 +58,7 @@ silently corrupted or hand-modified.`,
 			}
 		}
 		if !rep.Writable || anyModified {
-			exit = 1 // hard issue: dir not writable, or a skill drifted from its hash
+			exit = output.ExitError // hard issue: dir not writable, or a skill drifted from its hash
 		}
 
 		if resolveFormat() == "table" {

@@ -173,7 +173,11 @@ install_skills() {
   # Fallback ONLY when R2 is down. The bootstrap copy is marked provisional
   # (.ef-stale) and has no cli_version manifest, so the next `skills sync`
   # bypasses its --if-stale short-circuit and force-replaces it from R2.
-  SKILLS_DIR="$HOME/.agents/skills"
+  # Resolve the host's real load dir via the CLI (offline path resolution) so a
+  # claude-code host gets ~/.claude/skills, not a hardcoded ~/.agents/skills.
+  SKILLS_DIR=""
+  [ -n "$EF_BIN" ] && SKILLS_DIR="$("$EF_BIN" skills path $HOST_ARG 2>/dev/null || true)"
+  [ -n "$SKILLS_DIR" ] || SKILLS_DIR="$HOME/.agents/skills"
   TMP_DIR=$(mktemp -d)
   trap "rm -rf '$TMP_DIR'" EXIT
 

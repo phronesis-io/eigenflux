@@ -289,6 +289,34 @@ func TestRecoverInterruptedRollsBack(t *testing.T) {
 	}
 }
 
+func TestPreserveReportsUserEdit(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "skills")
+	bundle := stageSkills(t, map[string]map[string]string{
+		"ef-broadcast": {"SKILL.md": "b1"},
+		"ef-profile":   {"SKILL.md": "p1"},
+	})
+	names := []string{"ef-broadcast", "ef-profile"}
+	opts := SyncOptions{Into: dst, BundleDir: bundle, CLIVersion: "0.0.16", Allowlist: names}
+	if _, err := InstallFromBundle(opts); err != nil {
+		t.Fatal(err)
+	}
+	// User hand-edits one managed skill.
+	if err := os.WriteFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"), []byte("b1-EDITED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := InstallFromBundle(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Preserved) != 1 || res.Preserved[0] != "ef-broadcast" {
+		t.Fatalf("expected ef-broadcast reported preserved, got %v", res.Preserved)
+	}
+	got, _ := os.ReadFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"))
+	if string(got) != "b1-EDITED" {
+		t.Fatalf("user edit was clobbered: %q", got)
+	}
+}
+
 func TestRecoverInterruptedNoJournalNoOp(t *testing.T) {
 	parent := t.TempDir()
 	real := filepath.Join(parent, "skills")

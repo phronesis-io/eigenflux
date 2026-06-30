@@ -2,6 +2,7 @@ package skills
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -10,9 +11,15 @@ import (
 	"strings"
 )
 
+// maxExtractedBytes caps total decompressed output. The skills bundle is tiny
+// (a handful of markdown files); this bounds a malicious/over-large archive so a
+// gzip bomb can't fill the disk before content verification runs.
+const maxExtractedBytes = 64 << 20 // 64 MiB
+
 // extractTarGz extracts a gzip'd tar of skill folders into destDir, keeping only
 // top-level entries whose first path component is in allow. destDir is created
-// fresh. Defends against path traversal and absolute paths; ignores .DS_Store/._*.
+// fresh. Defends against path traversal, absolute paths, and decompression
+// bombs (cumulative size cap); ignores .DS_Store/._*.
 func extractTarGz(data []byte, destDir string, allow []string) error {
 	allowed := make(map[string]bool, len(allow))
 	for _, a := range allow {
@@ -21,12 +28,13 @@ func extractTarGz(data []byte, destDir string, allow []string) error {
 	if err := os.MkdirAll(destDir, dirPerm); err != nil {
 		return err
 	}
-	gz, err := gzip.NewReader(strings.NewReader(string(data)))
+	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("gzip: %w", err)
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	var written int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -72,10 +80,20 @@ func extractTarGz(data []byte, destDir string, allow []string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			// Cap cumulative output to stop a decompression bomb; LimitReader+1
+			// lets us detect overflow precisely.
+			n, err := io.Copy(out, io.LimitReader(tr, maxExtractedBytes-written+1))
+			written += n
+			if err == nil && written > maxExtractedBytes {
+				err = fmt.Errorf("archive exceeds %d bytes (possible decompression bomb)", maxExtractedBytes)
+			}
+			if err != nil {
 				out.Close()
 				return err
 			}
+			// fsync the file so its contents are durable before the atomic swap
+			// exposes it (avoids a powered-off "directory entry but empty file").
+			out.Sync()
 			if err := out.Close(); err != nil {
 				return err
 			}

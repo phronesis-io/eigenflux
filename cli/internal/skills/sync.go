@@ -1,12 +1,10 @@
 package skills
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 // Sync pulls the latest skills bundle from R2 into the host's real skill-load
@@ -85,7 +83,8 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 		return nil, softFail(opts, err)
 	}
 
-	if err := preserveUnmanaged(real, newDir, local, remote); err != nil {
+	preserved, err := preserveUnmanaged(real, newDir, local, remote)
+	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)
 	}
@@ -102,7 +101,11 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 	}
 	fsyncDir(newDir)
 
-	return swapInPlace(opts, parent, real, newDir, remote, source, removed, stale)
+	res, err := swapInPlace(opts, parent, real, newDir, remote, source, removed, stale)
+	if err == nil && res != nil {
+		res.Preserved = preserved
+	}
+	return res, err
 }
 
 // swapInPlace performs the rename×2 swap with a journal + fsync(parent) at each
@@ -127,9 +130,6 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 		if err := os.Rename(real, oldDir); err != nil { // ── A ──
 			os.Remove(journal)
 			fsyncDir(parent)
-			if isEXDEV(err) {
-				return exdevDegrade(opts, real, newDir, remote, source)
-			}
 			os.RemoveAll(newDir)
 			return nil, softFail(opts, err)
 		}
@@ -151,9 +151,6 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 		}
 		os.Remove(journal)
 		fsyncDir(parent)
-		if isEXDEV(err) {
-			return exdevDegrade(opts, real, newDir, remote, source)
-		}
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)
 	}
@@ -247,7 +244,11 @@ func reconcileZombies(local, remote *Manifest) []string {
 // user-placed), including on first install where local==nil; (2) a managed skill
 // the user has hand-edited (on-disk sha != our recorded sha) — we keep their
 // edit rather than clobber it.
-func preserveUnmanaged(real, newDir string, local, remote *Manifest) error {
+// preserveUnmanaged returns the names of managed skills whose pending update was
+// skipped because the user hand-edited them (so callers can surface that the
+// skill is stuck on a local fork). Third-party folders are preserved verbatim
+// but not reported, since no update was ever due for them.
+func preserveUnmanaged(real, newDir string, local, remote *Manifest) (skippedUpdate []string, err error) {
 	inRemote := remote.names()
 	recorded := map[string]string{}
 	if local != nil && local.ManagedBy == ManagedByValue {
@@ -258,9 +259,9 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest) error {
 	entries, err := os.ReadDir(real)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
@@ -277,49 +278,31 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest) error {
 				continue
 			}
 			if err := replaceCopy(src, dst); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
-		// In the managed set: keep user edits to a previously-managed skill.
+		// In the managed set: keep user edits to a previously-managed skill,
+		// and report that we skipped the update for it.
 		if want, isManaged := recorded[name]; isManaged {
 			cur, err := dirSHA256(src)
 			if err == nil && cur != want {
 				if err := replaceCopy(src, dst); err != nil {
-					return err
+					return nil, err
 				}
+				skippedUpdate = append(skippedUpdate, name)
 			}
 		}
 		// else: clean managed skill or unknown same-name dir => let the new
 		// version win (do not copy).
 	}
-	return nil
+	return skippedUpdate, nil
 }
 
 // replaceCopy copies src over dst (removing any staged version first).
 func replaceCopy(src, dst string) error {
 	os.RemoveAll(dst)
 	return copyDir(src, dst)
-}
-
-// exdevDegrade handles a cross-device target (only reachable via --into /
-// --from-bundle pointing at another volume). Fresh install: a non-atomic copy
-// with Atomic=false. Existing install: keep the old skills and tell the user to
-// pick a same-volume dir — never a rm+cp pseudo-atomic that risks data loss.
-func exdevDegrade(opts SyncOptions, real, newDir string, remote *Manifest, source string) (*SyncResult, error) {
-	if !dirExists(real) {
-		if err := copyDir(newDir, real); err != nil {
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, err)
-		}
-		os.RemoveAll(newDir)
-		fmt.Fprintln(os.Stderr, "skills sync: cross-device install, non-atomic (atomic=false)")
-		return &SyncResult{SkillsDir: real, Source: source, CLIVersion: remote.CLIVersion, Atomic: false}, nil
-	}
-	os.RemoveAll(newDir)
-	return nil, softFail(opts, fmt.Errorf(
-		"skills sync: cross-device rename (EXDEV), keeping existing skills; "+
-			"set EIGENFLUX_SKILLS_DIR to a path on the same volume as %s", filepath.Dir(real)))
 }
 
 // --- small helpers -------------------------------------------------------
@@ -369,10 +352,6 @@ func fsyncDir(dir string) {
 	}
 	f.Sync()
 	f.Close()
-}
-
-func isEXDEV(err error) bool {
-	return errors.Is(err, syscall.EXDEV)
 }
 
 // journal format: a single line holding the old-dir path (may be empty).

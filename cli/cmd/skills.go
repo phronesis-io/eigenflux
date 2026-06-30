@@ -54,11 +54,16 @@ reconciled away when they leave the manifest.`,
 			CDNBase:    cdnBase(),
 		})
 		if err != nil {
-			output.Die(output.ExitAuthRequired, "skills sync: %v", err)
+			// Generic failure (network/IO/checksum) — NOT auth. Using exit 4
+			// here would make hooks misread a CDN outage as "re-login needed".
+			output.Die(output.ExitError, "skills sync: %v", err)
 		}
 		if resolveFormat() == "table" {
 			fmt.Printf("skills %s -> %s (source=%s, removed=%d, atomic=%t, stale=%t)\n",
 				res.CLIVersion, res.SkillsDir, res.Source, len(res.Removed), res.Atomic, res.Stale)
+			if len(res.Preserved) > 0 {
+				fmt.Printf("  note: %d skill(s) kept on local edits, update skipped: %v\n", len(res.Preserved), res.Preserved)
+			}
 			return nil
 		}
 		output.PrintData(res, resolveFormat())
@@ -133,6 +138,9 @@ var skillsInstallCmd = &cobra.Command{
 		}
 		if resolveFormat() == "table" {
 			fmt.Printf("skills installed -> %s (source=%s, atomic=%t)\n", res.SkillsDir, res.Source, res.Atomic)
+			if len(res.Preserved) > 0 {
+				fmt.Printf("  note: %d skill(s) kept on local edits, update skipped: %v\n", len(res.Preserved), res.Preserved)
+			}
 			return nil
 		}
 		output.PrintData(res, resolveFormat())

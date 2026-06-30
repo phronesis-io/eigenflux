@@ -12,6 +12,7 @@ import (
 
 const (
 	ExitSuccess      = 0
+	ExitError        = 1 // generic runtime failure (network/IO/checksum) — NOT auth-related
 	ExitUsageError   = 2
 	ExitNotFound     = 3
 	ExitAuthRequired = 4

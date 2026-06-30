@@ -117,7 +117,11 @@ type SyncResult struct {
 	Source     string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
 	CLIVersion string   `json:"cli_version"`
 	Removed    []string `json:"removed,omitempty"`
-	Stale      bool     `json:"stale"`
-	NoNetwork  bool     `json:"no_network"`
-	Atomic     bool     `json:"atomic"`
+	// Preserved lists skills kept verbatim instead of updated — third-party
+	// folders and skills the user hand-edited. Surfaced so a user stuck on a
+	// local fork (which would otherwise never receive updates) can see why.
+	Preserved []string `json:"preserved,omitempty"`
+	Stale     bool     `json:"stale"`
+	NoNetwork bool     `json:"no_network"`
+	Atomic    bool     `json:"atomic"`
 }
