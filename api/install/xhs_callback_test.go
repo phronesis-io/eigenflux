@@ -45,8 +45,12 @@ func TestReportXHSConversionAuthOn(t *testing.T) {
 	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, true, "", 0
 	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()
 
-	if err := reportXHSConversion("click_abc"); err != nil {
+	code, err := reportXHSConversion("click_abc")
+	if err != nil {
 		t.Fatalf("reportXHSConversion: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected success code 0, got %d", code)
 	}
 	if !tokenCalled {
 		t.Fatal("getAccessToken should be called when auth enabled")
@@ -80,7 +84,7 @@ func TestReportXHSConversionAuthOff(t *testing.T) {
 	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, false, "", 0
 	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()
 
-	if err := reportXHSConversion("click_def"); err != nil {
+	if _, err := reportXHSConversion("click_def"); err != nil {
 		t.Fatalf("reportXHSConversion: %v", err)
 	}
 	if tokenCalled {

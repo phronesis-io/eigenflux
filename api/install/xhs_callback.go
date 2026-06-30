@@ -55,18 +55,25 @@ func fireXHSCallback(ref string) {
 			return
 		}
 		if !won || t.ClickID == "" {
-			return // already sent, no platform click id, or not a 聚光 click
+			return // already succeeded, no 聚光 click id, or not claimable
 		}
-		if err := reportXHSConversion(t.ClickID); err != nil {
-			logger.Default().Error("install xhs callback failed", "ref", ref, "err", err)
-			return
+		code, err := reportXHSConversion(t.ClickID)
+		if err != nil {
+			logger.Default().Error("install xhs callback failed", "ref", ref, "code", code, "err", err)
 		}
-		event("install_callback_xhs", ref, "channel", t.Channel, "event_type", xhsEventType)
+		if e := SetCallbackCode(db.DB, ref, code); e != nil {
+			logger.Default().Error("install xhs callback set code failed", "ref", ref, "err", e)
+		}
+		if code == 0 {
+			event("install_callback_xhs", ref, "channel", t.Channel, "event_type", xhsEventType)
+		}
 	}()
 }
 
-// reportXHSConversion POSTs one aurora.leads conversion for clickID.
-func reportXHSConversion(clickID string) error {
+// reportXHSConversion POSTs one aurora.leads conversion for clickID and returns
+// the platform response code (0 = accepted, >0 = platform error) or -2 on a
+// transport/token error.
+func reportXHSConversion(clickID string) (int, error) {
 	body := map[string]interface{}{
 		"advertiser_id": xhsAdvertiserID,
 		"method":        "aurora.leads",
@@ -77,18 +84,15 @@ func reportXHSConversion(clickID string) error {
 	if xhsAuthEnabled {
 		token, err := getXHSAccessToken()
 		if err != nil {
-			return fmt.Errorf("get access token: %w", err)
+			return -2, fmt.Errorf("get access token: %w", err)
 		}
 		body["access_token"] = token
 	}
 	var out xhsResp
 	if err := xhsPost(body, &out); err != nil {
-		return err
+		return -2, err
 	}
-	if out.Code != 0 {
-		return fmt.Errorf("aurora.leads code=%d msg=%s", out.Code, out.Msg)
-	}
-	return nil
+	return out.Code, nil
 }
 
 // --- access token cache (7200s ttl, refreshed a minute early) ---

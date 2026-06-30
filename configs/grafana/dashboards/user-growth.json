@@ -825,6 +825,469 @@
           "fields": ""
         }
       }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "collapsed": false,
+      "title": "付费增长 / Paid Growth (xhs / x 付费投放归因)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "title": "付费落地 (mint)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "title": "/r 抓取",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND fetched_at > 0 AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "安装",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND status = 'installed' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 18,
+      "title": "回传成功",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND callback_code = 0 AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "title": "回传失败",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND callback_code NOT IN (0, -1) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "title": "安装转化率",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 59
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status='installed') / NULLIF(count(*),0), 1) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "title": "付费每日趋势 (落地 / 抓取 / 安装 / 回传成功)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\", count(*) FILTER (WHERE callback_code=0) AS \"回传成功\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "前 100 付费明细 (验测试: 找到你的 ref, 看 抓取/安装/回传 是否一路 ✓)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 71
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT to_char(to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", token AS \"ref\", channel AS \"渠道\", utm_campaign AS \"campaign\", left(coalesce(nullif(click_id,''), twclid),16) AS \"click_id\", CASE WHEN fetched_at>0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN status='installed' THEN '✓' ELSE '·' END AS \"安装\", CASE WHEN callback_code=0 THEN '✓成功' WHEN callback_code=-1 THEN '·未发' WHEN callback_code=-2 THEN '✗网络' ELSE '✗'||callback_code::text END AS \"回传\", report_count AS \"上报\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') ORDER BY created_at DESC LIMIT 100;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "回传失败明细 (callback_code 非 0/-1, 联调配置错一眼看出)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT to_char(to_timestamp(callback_sent_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"回传时间\", token AS \"ref\", channel AS \"渠道\", left(coalesce(nullif(click_id,''), twclid),16) AS \"click_id\", callback_code AS \"错误码\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND callback_code NOT IN (0,-1) ORDER BY callback_sent_at DESC LIMIT 50;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
     }
   ]
 }

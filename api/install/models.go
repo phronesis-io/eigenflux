@@ -28,9 +28,11 @@ type Token struct {
 	// X (Twitter) Ads. Exactly one is set for paid traffic; both empty otherwise.
 	ClickID string `gorm:"column:click_id;not null;default:''"`
 	Twclid  string `gorm:"column:twclid;not null;default:''"`
-	// CallbackSentAt is set the first (and only) time a platform conversion
-	// callback is sent for this ref (Loop B), guarding against double-reporting.
+	// CallbackSentAt is the time of the most recent platform callback attempt.
 	CallbackSentAt int64 `gorm:"column:callback_sent_at;not null;default:0"`
+	// CallbackCode is the callback outcome: -1 not attempted, 0 accepted
+	// (terminal), >0 platform error, -2 transport error. Non-zero is re-claimable.
+	CallbackCode int `gorm:"column:callback_code;not null;default:-1"`
 }
 
 func (Token) TableName() string { return "install_tokens" }

@@ -41,15 +41,15 @@ func MarkFetched(db *gorm.DB, ref string) (*Token, error) {
 	return &t, nil
 }
 
-// ClaimCallback atomically claims the right to send the one platform conversion
-// callback for ref: it sets callback_sent_at if still 0 and reports whether this
-// caller won the claim, along with the ref's click_id/twclid. Mirrors the
-// RowsAffected-as-lock pattern, so concurrent triggers (/r/ fetch and install
-// report) can't double-report the same click. Returns won=false when the ref is
-// absent, has no platform click id, or was already claimed.
+// ClaimCallback claims the right to send a platform conversion callback for ref
+// and stamps the attempt time. It claims only while the callback has not yet
+// succeeded (callback_code <> 0), so a failed attempt is retried by a later
+// trigger (the install report after the /r/ fetch) while a success (code 0) is
+// terminal. Mirrors the RowsAffected-as-lock pattern. Returns won=false when the
+// ref is absent, carries no platform click id, or already succeeded.
 func ClaimCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
 	res := db.Model(&Token{}).
-		Where("token = ? AND callback_sent_at = 0 AND (click_id <> '' OR twclid <> '')", ref).
+		Where("token = ? AND callback_code <> 0 AND (click_id <> '' OR twclid <> '')", ref).
 		Update("callback_sent_at", time.Now().UnixMilli())
 	if res.Error != nil {
 		return false, nil, res.Error
@@ -62,6 +62,11 @@ func ClaimCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
 		return false, nil, err
 	}
 	return true, &loaded, nil
+}
+
+// SetCallbackCode records the outcome of a platform callback attempt for ref.
+func SetCallbackCode(db *gorm.DB, ref string, code int) error {
+	return db.Model(&Token{}).Where("token = ?", ref).Update("callback_code", code).Error
 }
 
 // ReportInstall records one report hit for token and returns whether this call
