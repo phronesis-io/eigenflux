@@ -147,6 +147,10 @@ type Config struct {
 
 	// Recall & ranking
 	MinRelevanceScore        float64 // items below this total score are dropped from feed (default 0)
+	FriendFeedEnabled        bool    // inject friends' recent broadcasts into the feed, bypassing the relevance threshold (best-effort, not guaranteed)
+	FriendFeedWindowHours    int     // how far back to pull friends' broadcasts
+	FriendFeedMaxItems       int     // cap friend items injected per feed fetch
+	FriendFeedMaxAuthors     int     // cap friends queried per feed fetch
 	KeywordRecallSize        int     // number of keyword recall candidates from ES (default 200)
 	EnableKNNRecall          bool
 	KNNRecallK               int
@@ -307,6 +311,10 @@ func Load() *Config {
 		MMRLambda:                     getEnvFloat("MMR_LAMBDA", 0.7),
 		ExplorationSlots:              getEnvInt("EXPLORATION_SLOTS", 0),
 		MinRelevanceScore:             getEnvFloat("MIN_RELEVANCE_SCORE", 0.1),
+		FriendFeedEnabled:             getEnvBool("FRIEND_FEED_ENABLED", true),
+		FriendFeedWindowHours:         getEnvInt("FRIEND_FEED_WINDOW_HOURS", 168),
+		FriendFeedMaxItems:            getEnvInt("FRIEND_FEED_MAX_ITEMS", 20),
+		FriendFeedMaxAuthors:          getEnvInt("FRIEND_FEED_MAX_AUTHORS", 50),
 		KeywordRecallSize:             getEnvInt("KEYWORD_RECALL_SIZE", 200),
 		EnableKNNRecall:               getEnvBool("ENABLE_KNN_RECALL", true),
 		KNNRecallK:                    getEnvInt("KNN_RECALL_K", 80),
