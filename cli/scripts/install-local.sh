@@ -110,21 +110,17 @@ persist_path() {
 
 install_skills() {
   SKILLS_SRC="$PROJECT_ROOT/skills"
-  SKILLS_DST="$HOME/.agents/skills"
 
   if [ ! -d "$SKILLS_SRC" ]; then
     return
   fi
 
-  echo -e "${CYAN}Installing EigenFlux skills...${NC}"
-  mkdir -p "$SKILLS_DST"
-  for skill_dir in "$SKILLS_SRC"/*/; do
-    [ -f "$skill_dir/SKILL.md" ] || continue
-    skill_name=$(basename "$skill_dir")
-    rm -rf "$SKILLS_DST/$skill_name"
-    cp -R "$skill_dir" "$SKILLS_DST/$skill_name"
-  done
-  echo -e "${GREEN}Skills installed to ${SKILLS_DST}${NC}"
+  echo -e "${CYAN}Installing EigenFlux skills (from local bundle)...${NC}"
+  # Reuse the CLI's atomic install path: it stages the production allowlist,
+  # verifies, and swaps into the host's real skill-load dir (gate-4 routing).
+  HOST_ARG=""
+  [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw"
+  "$INSTALL_DIR/eigenflux" skills install --from-bundle "$SKILLS_SRC" $HOST_ARG
 }
 
 # ── Step 3: Post-install migration ───────────────────────────

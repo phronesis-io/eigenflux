@@ -150,23 +150,41 @@ persist_path() {
 # ── Step 2: Install skills ────────────────────────────────────
 
 install_skills() {
-  SKILLS_DIR="$HOME/.agents/skills"
-
   info ""
   info "Installing EigenFlux skills..."
 
+  EF_BIN="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}/eigenflux"
+  [ -x "$EF_BIN" ] || EF_BIN="$(command -v eigenflux 2>/dev/null || true)"
+
+  # R2 is the authoritative skills source for a released CLI. Pass --host
+  # explicitly: at install time the host statedir/env may not be ready, so
+  # autodetect could misroute. (gate-4: openclaw/codex/terminal all load
+  # ~/.agents/skills; only claude-code uses ~/.claude/skills.)
+  HOST_ARG=""
+  [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw"
+
+  if [ -n "$EF_BIN" ] && "$EF_BIN" skills sync $HOST_ARG >/dev/null 2>&1; then
+    ok "EigenFlux skills synced from R2"
+    return
+  fi
+
+  info "R2 unreachable — bootstrapping skills from GitHub (provisional, replaced on next sync)"
+
+  # Fallback ONLY when R2 is down. The bootstrap copy is marked provisional
+  # (.ef-stale) and has no cli_version manifest, so the next `skills sync`
+  # bypasses its --if-stale short-circuit and force-replaces it from R2.
+  SKILLS_DIR="$HOME/.agents/skills"
   TMP_DIR=$(mktemp -d)
   trap "rm -rf '$TMP_DIR'" EXIT
 
   TARBALL_URL="https://github.com/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.tar.gz"
   if ! curl -fsSL "$TARBALL_URL" | tar xz -C "$TMP_DIR" 2>/dev/null; then
-    info "Skills installation skipped (failed to download)"
+    info "Skills installation skipped (no R2, GitHub download failed)"
     return
   fi
 
   EXTRACTED=$(ls "$TMP_DIR")
   SRC_SKILLS="$TMP_DIR/$EXTRACTED/skills"
-
   if [ ! -d "$SRC_SKILLS" ]; then
     info "Skills installation skipped (no skills found)"
     return
@@ -176,11 +194,17 @@ install_skills() {
   for skill_dir in "$SRC_SKILLS"/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
     skill_name=$(basename "$skill_dir")
+    # Only the production allowlist — never ship dev-only skills (e.g. ef-localdev).
+    case "$skill_name" in
+      ef-broadcast|ef-communication|ef-profile|ef-trading) ;;
+      *) continue ;;
+    esac
     rm -rf "$SKILLS_DIR/$skill_name"
     cp -R "$skill_dir" "$SKILLS_DIR/$skill_name"
   done
+  : > "$SKILLS_DIR/.ef-stale"
 
-  ok "EigenFlux skills installed to ${SKILLS_DIR}"
+  ok "EigenFlux skills bootstrapped to ${SKILLS_DIR} (provisional — will refresh from R2 on next sync)"
 }
 
 # ── Step 3: Migrate legacy config ─────────────────────────────

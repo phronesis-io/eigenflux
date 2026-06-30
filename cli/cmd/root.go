@@ -51,6 +51,7 @@ Examples:
 			config.SetHomeDir(homeDirFlag)
 		}
 		clientMeta = client.ResolveMeta()
+		clientMeta.CLIVersion = version
 	},
 }
 
