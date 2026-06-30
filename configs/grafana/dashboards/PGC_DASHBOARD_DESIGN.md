@@ -84,7 +84,9 @@
 | 2026-06-22 `ec15eda` | 意外恢复 76 面板（误判删减为丢失） | **76** |
 | 2026-06-22 | 以确信对决胜率为北极星重建 | **24** |
 | 2026-06-23 `329b47c` | 全面迁移至模型判定 (pgc_event_*)，删除所有旧 pgc_first_source_* 面板 | **22** |
-| 2026-06-23 当前 | 加 owner cockpit，并删除低优先级延迟分布和旧坏源面板，保持 25 面板上限 | **25** |
+| 2026-06-23 | 加 owner cockpit，删除低优先级延迟分布和旧坏源面板 | **25** |
+| 2026-06-29 | 迁移至价值(信号)为顶 + 覆盖/准确/速度护栏 (北极星重定义) | ~30 |
+| 2026-06-30 当前 | 清理：删 8 个空的双语 row(总览/Owner Cockpit 等历史遗留空壳); 修护栏区两处面板重叠(51/58、7/60 共占 x16); 各域召回→各域丢弃占比(召回排除丢弃后恒≈100%, 无信号); 两个 Deep Dive row 改名区分(诊断·对标 / 工程诊断·信号延迟) | **44** (含 4 row+text) |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
@@ -119,5 +121,7 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 - `pgc_first_source_lead_median_hours` / `lag_median_hours`
 - `pgc_first_source_confident_races`
 
-对应的数据源 timer（`pgc-first-source-leaderboard.timer` 和 `pgc-improvement-loop.timer`）
-已于 2026-06-23 在 prod 上 `systemctl disable --now`。
+> **2026-06-30 校正**：旧版本曾称 `pgc-first-source-leaderboard.timer` 已 disable —— 这是**错误**的。
+> prod 上该 timer 仍 `enabled`+`active`(每日 10:30 CST)，因为 `pgc_first_source_speed_win_share`
+> (首发走势面板的"抢先率"线)仍由它产出的 leaderboard 报告驱动。改前以
+> `ssh aliap systemctl list-timers 'pgc-*'` 实际状态为准。
