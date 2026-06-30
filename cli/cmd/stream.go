@@ -58,10 +58,12 @@ Examples:
 		}
 		creds, err := auth.LoadCredentials(srv.Name)
 		if err != nil {
-			return fmt.Errorf("not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			// Exit 4 (auth) so adapters reading the exit code prompt re-login,
+			// consistent with feed poll / the rest of the CLI.
+			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
 		}
 		if creds.IsExpired() {
-			return fmt.Errorf("token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
 		}
 
 		wsBase := srv.WSBaseURL()
@@ -188,6 +190,15 @@ Examples:
 
 					if format == "json" {
 						fmt.Fprintln(os.Stdout, string(msg))
+						if once {
+							// --once: the first packet (offline history replay)
+							// has been emitted; exit. JSON mode doesn't track
+							// firstPacket, but the first message IS the backlog
+							// packet, so emit-then-exit is correct. Without this,
+							// cold-spawn hosts (non-TTY => json) would never exit.
+							shouldReconnect = false
+							return
+						}
 					} else {
 						if !pushOK {
 							fmt.Fprintln(os.Stdout, string(msg))

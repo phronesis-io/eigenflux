@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -77,6 +79,14 @@ func init() {
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		// Map a server-side 401 to the auth-required exit code so adapters
+		// (which key off exit 4) prompt re-login even when the local token
+		// looked valid but the server rejected it (revoked / clock skew /
+		// server-side expiry). Exit 4 is the single source of truth for "auth".
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
+			os.Exit(output.ExitAuthRequired)
+		}
 		os.Exit(2)
 	}
 }
