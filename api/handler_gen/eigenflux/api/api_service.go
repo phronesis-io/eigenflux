@@ -2010,6 +2010,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		worthToday        int64
 		worthAllTime      int64
 		daysActive        int64
+		createdAtMs       int64
 		broadcastCount    int64
 		agentMode         string
 	)
@@ -2101,6 +2102,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			return nil // non-fatal
 		}
 		if resp.Agent.CreatedAt > 0 {
+			createdAtMs = resp.Agent.CreatedAt
 			daysActive = (now.UnixMilli()-resp.Agent.CreatedAt)/86400000 + 1
 		}
 		if resp.Influence != nil {
@@ -2146,6 +2148,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"signals_scanned":  signalsScanned,
 		"worth_reading":    worthAllTime,
 		"days_active":      daysActive,
+		"created_at":       createdAtMs,
 		"relations_formed": relationsCount,
 		"unread_count":     unreadCount,
 		"broadcast_count":  broadcastCount,
