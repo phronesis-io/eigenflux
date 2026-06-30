@@ -60,7 +60,7 @@
    "gridPos": {
     "x": 0,
     "y": 4,
-    "w": 8,
+    "w": 12,
     "h": 5
    },
    "targets": [
@@ -118,61 +118,6 @@
    "description": "价值(顶层): 抽样已发布广播里, 经模型判定是'对陌生AI agent有价值的信号'(非体育/人情/本地琐事/梗/吹捧噪声)的比例。这是北极星的顶——覆盖/准确/速度只是护栏。只测量不抑制(PGC保持广播+接收方过滤)。<85%黄, <60%红。"
   },
   {
-   "id": 55,
-   "title": "噪声泄漏 (按类型)",
-   "type": "timeseries",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "x": 8,
-    "y": 4,
-    "w": 10,
-    "h": 5
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_broadcast_noise_by_type",
-     "legendFormat": "{{noise_type}}",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "custom": {
-      "drawStyle": "bars",
-      "fillOpacity": 80,
-      "lineWidth": 1
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "right"
-    },
-    "tooltip": {
-     "mode": "single"
-    },
-    "orientation": "horizontal",
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "values": true
-    }
-   },
-   "description": "漏过信号门被广播的噪声, 按类型。体育/本地琐事/人情是主泄漏。"
-  },
-  {
    "id": 56,
    "title": "错分类率 (域填错%)",
    "type": "stat",
@@ -181,9 +126,9 @@
     "uid": "pgc-prometheus"
    },
    "gridPos": {
-    "x": 18,
+    "x": 12,
     "y": 4,
-    "w": 6,
+    "w": 12,
     "h": 5
    },
    "targets": [
@@ -1167,8 +1112,8 @@
   {
    "id": 36,
    "type": "stat",
-   "title": "Twitter runway",
-   "description": "Estimated days until twitterapi.io credits run out at current burn.",
+   "title": "Twitter 还能撑几天",
+   "description": "按当前消耗速度，twitterapi.io 付费额度还能用多少天。",
    "gridPos": {
     "x": 12,
     "y": 26,
@@ -1381,7 +1326,7 @@
    "gridPos": {
     "x": 0,
     "y": 31,
-    "w": 12,
+    "w": 24,
     "h": 7
    },
    "targets": [
@@ -1431,52 +1376,6 @@
     }
    },
    "description": "每小时发布量。24h均值线(pgc_items_24h/24)即时有历史; 实时线(pgc_items_1h, 1h滑窗)随时间累积出真实逐时趋势。两者都重置安全——已弃用 increase(pgc_published_total) 那个会因DB瞬时读0爆出~74万假尖峰的查询。"
-  },
-  {
-   "id": 38,
-   "type": "table",
-   "title": "各源延迟明细 (我方延迟 + 慢源feed)",
-   "description": "近 3h 谁在拖延迟, 按源+类型拆。kind=source_latency=我方抓晚了(修管线); kind=source_feed_lag=源自己 RSS 发得慢(换更快的源, 即‘慢源即坏源’)。慢源 feed 在这里复核, 不进上面的‘立即要处理’。",
-   "gridPos": {
-    "x": 12,
-    "y": 31,
-    "w": 12,
-    "h": 7
-   },
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "sort_desc(pgc_signal_latency_active_source_breaches_3h{kind=~\"source_latency|source_feed_lag\"})",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
-    }
-   }
   },
   {
    "id": 25,
@@ -1598,7 +1497,7 @@
    "id": 32,
    "type": "stat",
    "title": "首发关注",
-   "description": "Benchmark/secondary items needing primary-source coverage review.",
+   "description": "对标/二手媒体条目里，需要人工核实是否有一手信源的数量。",
    "gridPos": {
     "x": 4,
     "y": 47,
@@ -1733,8 +1632,8 @@
   {
    "id": 34,
    "type": "stat",
-   "title": "Canary 失败",
-   "description": "Must-have source checks currently failing.",
+   "title": "关键源现在挂了吗",
+   "description": "必须保活的关键信源探活检查，当前失败的数量。",
    "gridPos": {
     "x": 12,
     "y": 47,
@@ -1799,74 +1698,6 @@
    }
   },
   {
-   "id": 35,
-   "type": "stat",
-   "title": "源 SLA 关注",
-   "description": "Registry-defined source-health SLA breaches from the latest report.",
-   "gridPos": {
-    "x": 16,
-    "y": 47,
-    "w": 4,
-    "h": 5
-   },
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_source_health_sla_attention",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 5
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   }
-  },
-  {
    "id": 57,
    "title": "诊断·原始声明准确率 (榜单声明质量)",
    "type": "stat",
@@ -1875,7 +1706,7 @@
     "uid": "pgc-prometheus"
    },
    "gridPos": {
-    "x": 20,
+    "x": 16,
     "y": 47,
     "w": 4,
     "h": 5
@@ -1938,7 +1769,7 @@
    "id": 37,
    "type": "timeseries",
    "title": "风险趋势",
-   "description": "Owner action count and its components over time.",
+   "description": "Owner 待处理事项总数，及各分项（首发关注/高优先级超时/关键源/信源更新慢等）随时间的走势。",
    "gridPos": {
     "x": 0,
     "y": 52,
@@ -1981,7 +1812,7 @@
      "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
      "instant": false,
      "range": true,
-     "legendFormat": "T0/T1 active latency"
+     "legendFormat": "高优先级超时"
     },
     {
      "refId": "D",
@@ -1992,7 +1823,7 @@
      "expr": "pgc_source_health_canaries_failed",
      "instant": false,
      "range": true,
-     "legendFormat": "Canary"
+     "legendFormat": "关键源挂了"
     },
     {
      "refId": "E",
@@ -2014,7 +1845,7 @@
      "expr": "pgc_source_health_sla_attention",
      "instant": false,
      "range": true,
-     "legendFormat": "源 SLA"
+     "legendFormat": "信源更新慢"
     }
    ],
    "fieldConfig": {
@@ -2040,655 +1871,6 @@
     },
     "tooltip": {
      "mode": "multi"
-    }
-   }
-  },
-  {
-   "id": 59,
-   "title": "信源可信度构成 (按标签占比)",
-   "type": "timeseries",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "x": 0,
-    "y": 59,
-    "w": 12,
-    "h": 8
-   },
-   "targets": [
-    {
-     "expr": "pgc_broadcast_reliability_share_pct",
-     "refId": "A",
-     "legendFormat": "{{reliability}}",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     }
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "percent",
-     "custom": {
-      "drawStyle": "bars",
-      "fillOpacity": 80,
-      "lineWidth": 1
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "right"
-    },
-    "tooltip": {
-     "mode": "single"
-    },
-    "orientation": "horizontal",
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": true
-    }
-   },
-   "description": "24h 广播按可信度标签的占比构成。high=一手官方记录, standard=专业媒体/分析, unverified=社区/未知, low=已知不可靠(仅人工覆盖). unverified+low 上升=信任风险。"
-  },
-  {
-   "id": 808,
-   "type": "row",
-   "title": "🔬 工程诊断 — 信号延迟链路",
-   "collapsed": false,
-   "gridPos": {
-    "h": 1,
-    "w": 24,
-    "x": 0,
-    "y": 67
-   },
-   "panels": []
-  },
-  {
-   "id": 903,
-   "type": "stat",
-   "title": "高优先级信号仍在超时吗",
-   "description": "T0/T1 active actionable latency breaches over the last 3h.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 5,
-    "w": 6,
-    "x": 0,
-    "y": 68
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "sum(pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"})",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 5
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   }
-  },
-  {
-   "id": 401,
-   "type": "timeseries",
-   "title": "现在高优先级信号还在超时吗",
-   "description": "Trend for active T0/T1 latency breaches.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 5,
-    "w": 18,
-    "x": 6,
-    "y": 68
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "sum by (source_tier, stage, kind) (pgc_signal_latency_actionable_breaches_3h{source_tier=~\"T0|T1\"})",
-     "legendFormat": "{{source_tier}} {{stage}} {{kind}}"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "drawStyle": "line",
-      "lineInterpolation": "linear",
-      "barAlignment": 0,
-      "lineWidth": 1,
-      "fillOpacity": 10,
-      "gradientMode": "none",
-      "spanNulls": false,
-      "insertNulls": false,
-      "showPoints": "never",
-      "pointSize": 5,
-      "stacking": {
-       "mode": "none",
-       "group": "A"
-      },
-      "axisPlacement": "auto",
-      "axisLabel": "",
-      "axisColorMode": "text",
-      "axisBorderShow": false,
-      "scaleDistribution": {
-       "type": "linear"
-      },
-      "axisCenteredZero": false,
-      "hideFrom": {
-       "tooltip": false,
-       "viz": false,
-       "legend": false
-      },
-      "thresholdsStyle": {
-       "mode": "off"
-      }
-     },
-     "color": {
-      "mode": "palette-classic"
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "tooltip": {
-     "mode": "multi",
-     "sort": "desc"
-    },
-    "legend": {
-     "showLegend": true,
-     "displayMode": "list",
-     "placement": "bottom",
-     "calcs": [
-      "lastNotNull"
-     ]
-    }
-   }
-  },
-  {
-   "id": 407,
-   "type": "table",
-   "title": "哪些类别需要马上处理",
-   "description": "Actionable latency breaches grouped by tier/class/stage/kind.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 0,
-    "y": 73
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "sum by (source_tier, source_class, stage, kind) (pgc_signal_latency_actionable_breaches_3h)",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "cellOptions": {
-       "type": "auto"
-      },
-      "inspect": false
-     },
-     "mappings": []
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
-    }
-   }
-  },
-  {
-   "id": 409,
-   "type": "table",
-   "title": "这些超时是事故还是回补噪音",
-   "description": "Breach reason split: source_latency/source_feed_lag are actionable; date/no-feed/noise are usually non-actionable.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 12,
-    "y": 73
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "sum by (kind) (pgc_signal_latency_breach_kind_24h)",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "cellOptions": {
-       "type": "auto"
-      },
-      "inspect": false
-     },
-     "mappings": []
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
-    }
-   }
-  },
-  {
-   "id": 410,
-   "type": "table",
-   "title": "当前哪些信源正在拖慢",
-   "description": "Active source-level offenders now.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 0,
-    "y": 81
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "topk(20, pgc_signal_latency_active_source_breaches_3h{kind=~\"source_latency|source_feed_lag\"})",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "cellOptions": {
-       "type": "auto"
-      },
-      "inspect": false
-     },
-     "mappings": []
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
-    }
-   }
-  },
-  {
-   "id": 908,
-   "type": "table",
-   "title": "现在先处理哪些信源",
-   "description": "Prioritized active source drilldown for owner action.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 12,
-    "y": 81
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "topk(20, sum by (source, source_tier, stage, kind) (pgc_signal_latency_active_source_breaches_3h{kind=~\"source_latency|source_feed_lag\"}))",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "cellOptions": {
-       "type": "auto"
-      },
-      "inspect": false
-     },
-     "mappings": []
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
-    }
-   }
-  },
-  {
-   "id": 905,
-   "type": "stat",
-   "title": "Source SLA 是否破线",
-   "description": "Registry-defined source-health SLA attention count.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 5,
-    "w": 6,
-    "x": 0,
-    "y": 89
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_source_health_sla_attention",
-     "instant": true
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "mappings": [],
-     "color": {
-      "mode": "thresholds"
-     },
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       },
-       {
-        "color": "yellow",
-        "value": 1
-       },
-       {
-        "color": "red",
-        "value": 5
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "graphMode": "area",
-    "justifyMode": "auto"
-   }
-  },
-  {
-   "id": 411,
-   "type": "timeseries",
-   "title": "信源 SLA 是否破线",
-   "description": "Source-health SLA attention over time.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 5,
-    "w": 6,
-    "x": 6,
-    "y": 89
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_source_health_sla_attention",
-     "legendFormat": "{{source_tier}} {{stage}} {{kind}}"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "drawStyle": "line",
-      "lineInterpolation": "linear",
-      "barAlignment": 0,
-      "lineWidth": 1,
-      "fillOpacity": 10,
-      "gradientMode": "none",
-      "spanNulls": false,
-      "insertNulls": false,
-      "showPoints": "never",
-      "pointSize": 5,
-      "stacking": {
-       "mode": "none",
-       "group": "A"
-      },
-      "axisPlacement": "auto",
-      "axisLabel": "",
-      "axisColorMode": "text",
-      "axisBorderShow": false,
-      "scaleDistribution": {
-       "type": "linear"
-      },
-      "axisCenteredZero": false,
-      "hideFrom": {
-       "tooltip": false,
-       "viz": false,
-       "legend": false
-      },
-      "thresholdsStyle": {
-       "mode": "off"
-      }
-     },
-     "color": {
-      "mode": "palette-classic"
-     },
-     "mappings": [],
-     "thresholds": {
-      "mode": "absolute",
-      "steps": [
-       {
-        "color": "green",
-        "value": null
-       }
-      ]
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "tooltip": {
-     "mode": "multi",
-     "sort": "desc"
-    },
-    "legend": {
-     "showLegend": true,
-     "displayMode": "list",
-     "placement": "bottom",
-     "calcs": [
-      "lastNotNull"
-     ]
-    }
-   }
-  },
-  {
-   "id": 412,
-   "type": "table",
-   "title": "哪些源违反 SLA",
-   "description": "Per-source source-health SLA drilldown.",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "pgc-prometheus"
-   },
-   "gridPos": {
-    "h": 6,
-    "w": 12,
-    "x": 12,
-    "y": 89
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "prometheus",
-      "uid": "pgc-prometheus"
-     },
-     "expr": "pgc_source_health_sla_attention_source",
-     "instant": true,
-     "format": "table"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "align": "auto",
-      "cellOptions": {
-       "type": "auto"
-      },
-      "inspect": false
-     },
-     "mappings": []
-    },
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "cellHeight": "sm",
-    "footer": {
-     "show": false,
-     "reducer": [
-      "sum"
-     ],
-     "countRows": false,
-     "fields": ""
     }
    }
   }
