@@ -52,16 +52,18 @@ done
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/$CLI_VERSION/version.txt" $S3_ARGS --quiet
 
-# Upload skills bundle (tarball + bare-hash sidecar + manifest) to both the
-# versioned and latest paths so `eigenflux skills sync` can pull it.
+# Upload skills bundle to the CLI-independent canonical path `skills/latest/`
+# (clients compare the manifest `revision`, not the CLI version, so a skill edit
+# ships from here without a CLI release). Also mirror to `cli/latest/` for
+# back-compat with the initial layout.
 for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
   if [[ ! -f "$BUILD_DIR/$f" ]]; then
     echo -e "${RED}missing $f — run build.sh first${NC}"
     exit 1
   fi
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/$CLI_VERSION/$f" $S3_ARGS --quiet
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"        $S3_ARGS --quiet
-  echo -e "${CYAN}skills: ${GREEN}$f → v${CLI_VERSION} + latest${NC}"
+  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
+  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
+  echo -e "${CYAN}skills: ${GREEN}$f → skills/latest + cli/latest${NC}"
 done
 
 echo ""

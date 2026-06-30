@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -126,14 +127,15 @@ func TarballSHA256(path string) (string, error) {
 // an authoritative manifest. A directory without SKILL.md is skipped; hidden
 // directories are ignored. display_version is read best-effort from the
 // SKILL.md frontmatter and never gates anything.
-func GenerateManifest(srcDir, cliVersion string, allowlist []string, generatedAt int64) (*Manifest, error) {
+func GenerateManifest(srcDir, cliVersion, minCLIVersion string, allowlist []string, generatedAt int64) (*Manifest, error) {
 	if len(allowlist) == 0 {
 		allowlist = ProdAllowlist
 	}
 	m := &Manifest{
-		CLIVersion:  cliVersion,
-		ManagedBy:   ManagedByValue,
-		GeneratedAt: generatedAt,
+		CLIVersion:    cliVersion,
+		MinCLIVersion: minCLIVersion,
+		ManagedBy:     ManagedByValue,
+		GeneratedAt:   generatedAt,
 	}
 	for _, name := range allowlist {
 		sd := filepath.Join(srcDir, name)
@@ -151,7 +153,63 @@ func GenerateManifest(srcDir, cliVersion string, allowlist []string, generatedAt
 		})
 	}
 	sort.Slice(m.Skills, func(i, j int) bool { return m.Skills[i].Name < m.Skills[j].Name })
+	m.Revision = computeRevision(m.Skills)
 	return m, nil
+}
+
+// computeRevision is the content fingerprint over the sorted per-skill sha256s.
+// It changes iff any skill's content changes — the freshness key, decoupled
+// from the CLI version.
+func computeRevision(skills []SkillEntry) string {
+	ordered := append([]SkillEntry(nil), skills...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
+	h := sha256.New()
+	for _, s := range ordered {
+		io.WriteString(h, s.Name)
+		h.Write([]byte{0})
+		io.WriteString(h, s.SHA256)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16] // 64-bit prefix is plenty
+}
+
+// cliMeetsMin reports whether cliVersion >= minVersion (semver x.y.z compare).
+// An empty floor or unparseable input is permissive (returns true).
+func cliMeetsMin(cliVersion, minVersion string) bool {
+	if strings.TrimSpace(minVersion) == "" {
+		return true
+	}
+	return compareSemver(cliVersion, minVersion) >= 0
+}
+
+// compareSemver returns -1/0/1 for a<b / a==b / a>b over dotted numeric
+// versions; non-numeric or missing components are treated as 0.
+func compareSemver(a, b string) int {
+	pa, pb := splitVer(a), splitVer(b)
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			if pa[i] < pb[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+func splitVer(v string) [3]int {
+	var out [3]int
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	// drop any pre-release/build suffix
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.SplitN(v, ".", 3)
+	for i := 0; i < len(parts) && i < 3; i++ {
+		n, _ := strconv.Atoi(strings.TrimSpace(parts[i]))
+		out[i] = n
+	}
+	return out
 }
 
 // readDisplayVersion best-effort extracts `version:` from SKILL.md frontmatter

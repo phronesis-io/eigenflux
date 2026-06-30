@@ -60,7 +60,17 @@ var ProdAllowlist = []string{"ef-broadcast", "ef-communication", "ef-profile", "
 // (cli_version, per-skill sha256) is authoritative; display_version is cosmetic
 // and may be empty.
 type Manifest struct {
-	CLIVersion  string       `json:"cli_version"`
+	// Revision is the content fingerprint of the bundle (hash over the sorted
+	// per-skill sha256s). It is the freshness key — skills update when this
+	// changes, INDEPENDENT of the CLI binary version. This is what makes a skill
+	// edit a `release-skills` (upload to R2) rather than a CLI republish.
+	Revision string `json:"revision"`
+	// MinCLIVersion gates compatibility: a CLI older than this must not adopt
+	// the bundle (the skills may reference newer CLI commands). Empty = no floor.
+	MinCLIVersion string `json:"min_cli_version,omitempty"`
+	// CLIVersion is the CLI that built the bundle — informational only, NOT used
+	// for the update decision (that was the original design flaw).
+	CLIVersion  string       `json:"cli_version,omitempty"`
 	ManagedBy   string       `json:"managed_by"`
 	GeneratedAt int64        `json:"generated_at,omitempty"`
 	TarSHA256   string       `json:"tar_sha256,omitempty"`

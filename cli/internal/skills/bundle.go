@@ -53,7 +53,7 @@ func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale b
 			return nil, softFail(opts, err)
 		}
 	}
-	m, err := GenerateManifest(newDir, opts.CLIVersion, opts.allowlist(), 0)
+	m, err := GenerateManifest(newDir, opts.CLIVersion, "", opts.allowlist(), 0)
 	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)

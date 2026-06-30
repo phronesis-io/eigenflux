@@ -112,6 +112,7 @@ build_skills_bundle() {
   ( cd "$BUILD_DIR" && shasum -a 256 skills.tar.gz | awk '{print $1}' > skills.tar.gz.sha256 )
   "${GO_CMD[@]}" run ./cmd/manifestgen \
     --skills-dir "$SKILLS_STAGE" --cli-version "$CLI_VERSION" \
+    --min-cli-version "${SKILLS_MIN_CLI_VERSION:-}" \
     --tarball "$BUILD_DIR/skills.tar.gz" --out "$BUILD_DIR/manifest.json"
   rm -rf "$SKILLS_STAGE"
   echo -e "${GREEN}Skills bundle → skills.tar.gz / .sha256 / manifest.json${NC}"

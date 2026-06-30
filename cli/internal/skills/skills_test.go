@@ -73,7 +73,7 @@ func tarGzDir(t *testing.T, src string, names []string) []byte {
 // serveBundle stands up an httptest server exposing cli/<ver>/ and cli/latest/.
 func serveBundle(t *testing.T, version string, src string, names []string) (*httptest.Server, *Manifest) {
 	t.Helper()
-	m, err := GenerateManifest(src, version, names, 1700000000)
+	m, err := GenerateManifest(src, version, "", names, 1700000000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func serveBundle(t *testing.T, version string, src string, names []string) (*htt
 	manBytes, _ := json.Marshal(m)
 
 	mux := http.NewServeMux()
-	for _, prefix := range []string{"/cli/" + version, "/cli/latest"} {
+	for _, prefix := range []string{"/skills/latest", "/cli/latest", "/cli/" + version} {
 		p := prefix
 		mux.HandleFunc(p+"/"+RemoteManifest, func(w http.ResponseWriter, r *http.Request) { w.Write(manBytes) })
 		mux.HandleFunc(p+"/"+TarName, func(w http.ResponseWriter, r *http.Request) { w.Write(tarGz) })
@@ -138,7 +138,7 @@ func TestSyncInstallUpdateReconcilePreserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if res.Source != "cli/0.0.16" {
+	if res.Source != "skills/latest" {
 		t.Fatalf("source=%s", res.Source)
 	}
 	for _, n := range []string{"ef-broadcast", "ef-profile", "my-custom"} {
@@ -183,6 +183,72 @@ func TestSyncInstallUpdateReconcilePreserve(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("ef-profile not reported removed: %v", res2.Removed)
+	}
+}
+
+func TestSyncDecoupledFromCLIVersion(t *testing.T) {
+	// A skill edit must ship WITHOUT a CLI bump: same CLI version, new content
+	// (new revision) -> sync pulls it.
+	dst := filepath.Join(t.TempDir(), "skills")
+	names := []string{"ef-broadcast"}
+
+	src1 := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "v1"}})
+	srv1, _ := serveBundle(t, "0.0.16", src1, names)
+	if _, err := Sync(syncOpts(dst, "0.0.16", srv1.URL, names)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same CLI version 0.0.16, edited content -> different revision.
+	src2 := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "v2-edited"}})
+	srv2, _ := serveBundle(t, "0.0.16", src2, names)
+	res, err := Sync(syncOpts(dst, "0.0.16", srv2.URL, names))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Source == "local" {
+		t.Fatal("expected an update (new revision), got local skip")
+	}
+	got, _ := os.ReadFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"))
+	if string(got) != "v2-edited" {
+		t.Fatalf("skill not updated despite same CLI version: %q", got)
+	}
+
+	// Re-sync identical content -> revision matches -> skip (source local).
+	res2, err := Sync(syncOpts(dst, "0.0.16", srv2.URL, names))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.Source != "local" {
+		t.Fatalf("expected revision skip, got source=%s", res2.Source)
+	}
+}
+
+func TestSyncMinCLIVersionGuard(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "skills")
+	names := []string{"ef-broadcast"}
+	src := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "needs new cli"}})
+	// serveBundle stamps min_cli_version via GenerateManifest? No — set manually.
+	m, _ := GenerateManifest(src, "9.9.9", "9.9.9", names, 1700000000)
+	tarGz := tarGzDir(t, src, names)
+	sum := sha256.Sum256(tarGz)
+	m.TarSHA256 = hex.EncodeToString(sum[:])
+	manBytes, _ := json.Marshal(m)
+	mux := http.NewServeMux()
+	for _, p := range []string{"/skills/latest", "/cli/latest"} {
+		pre := p
+		mux.HandleFunc(pre+"/"+RemoteManifest, func(w http.ResponseWriter, r *http.Request) { w.Write(manBytes) })
+		mux.HandleFunc(pre+"/"+TarName, func(w http.ResponseWriter, r *http.Request) { w.Write(tarGz) })
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// CLI 0.0.16 < min 9.9.9: must NOT install (no local copy) and error/keep.
+	_, err := Sync(syncOpts(dst, "0.0.16", srv.URL, names))
+	if err == nil {
+		t.Fatal("expected min-cli-version guard to refuse install on old CLI")
+	}
+	if dirExists(filepath.Join(dst, "ef-broadcast")) {
+		t.Fatal("must not install skills requiring a newer CLI")
 	}
 }
 

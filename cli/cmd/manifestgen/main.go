@@ -24,6 +24,7 @@ func main() {
 	tarball := flag.String("tarball", "", "optional skills.tar.gz to record tar_sha256")
 	out := flag.String("out", "", "output manifest.json path (stdout if empty)")
 	printAllowlist := flag.Bool("print-allowlist", false, "print the production skill allowlist (one per line) and exit")
+	minCLI := flag.String("min-cli-version", "", "minimum CLI version that may adopt this bundle (compatibility floor)")
 	flag.Parse()
 
 	// Single source of truth for the production allowlist: build.sh/install.sh
@@ -39,7 +40,7 @@ func main() {
 		log.Fatal("manifestgen: --skills-dir and --cli-version are required")
 	}
 
-	m, err := skills.GenerateManifest(*src, *ver, skills.ProdAllowlist, time.Now().Unix())
+	m, err := skills.GenerateManifest(*src, *ver, *minCLI, skills.ProdAllowlist, time.Now().Unix())
 	if err != nil {
 		log.Fatalf("manifestgen: %v", err)
 	}

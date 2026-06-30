@@ -17,59 +17,63 @@ var errNoNetwork = errors.New("skills sync: remote unavailable")
 
 const fetchTimeout = 30 * time.Second
 
-// fetchWithFallback pulls the manifest + tarball, trying the version-pinned path
-// first and falling back to latest/. It rejects empty/garbage manifests up front
-// so a truncated CDN response can never drive a swap that wipes the user's skills.
-func fetchWithFallback(opts SyncOptions) (m *Manifest, tarGz []byte, source string, err error) {
-	hc := opts.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: fetchTimeout}
+func httpClient(opts SyncOptions) *http.Client {
+	if opts.HTTPClient != nil {
+		return opts.HTTPClient
 	}
+	return &http.Client{Timeout: fetchTimeout}
+}
+
+// fetchManifest pulls ONLY the small manifest.json (the cheap freshness check),
+// trying the CLI-independent skills/latest path first and falling back to
+// cli/latest for back-compat. Skills are published under their own path so a
+// skill edit is a `release-skills` (upload), not a CLI republish — the manifest
+// `revision` (not the CLI version) decides whether the tarball needs pulling.
+// Empty/garbage manifests are rejected so a truncated CDN response can never
+// drive a swap that wipes the user's skills.
+func fetchManifest(opts SyncOptions) (m *Manifest, dirURL, source string, err error) {
+	hc := httpClient(opts)
 	base := strings.TrimRight(opts.cdnBase(), "/")
-
-	candidates := []struct{ path, source string }{}
-	if opts.CLIVersion != "" {
-		candidates = append(candidates, struct{ path, source string }{
-			path: fmt.Sprintf("%s/cli/%s", base, opts.CLIVersion), source: "cli/" + opts.CLIVersion})
+	candidates := []struct{ path, source string }{
+		{base + "/skills/latest", "skills/latest"},
+		{base + "/cli/latest", "cli/latest"}, // back-compat with the initial layout
 	}
-	candidates = append(candidates, struct{ path, source string }{
-		path: base + "/cli/latest", source: "cli/latest"})
-
 	var lastErr error
 	for _, c := range candidates {
-		man, tar, e := fetchOne(hc, c.path, opts.CLIVersion)
+		manBytes, e := httpGet(hc, c.path+"/"+RemoteManifest, opts.CLIVersion)
 		if e != nil {
 			lastErr = e
 			continue
 		}
-		return man, tar, c.source, nil
+		var man Manifest
+		if e := json.Unmarshal(manBytes, &man); e != nil {
+			lastErr = fmt.Errorf("parse manifest: %w", e)
+			continue
+		}
+		if e := validateRemoteManifest(&man); e != nil {
+			lastErr = e
+			continue
+		}
+		return &man, c.path, c.source, nil
 	}
 	if lastErr == nil {
 		lastErr = errNoNetwork
 	}
-	return nil, nil, "", fmt.Errorf("%w: %v", errNoNetwork, lastErr)
+	return nil, "", "", fmt.Errorf("%w: %v", errNoNetwork, lastErr)
 }
 
-func fetchOne(hc *http.Client, dirURL, cliVersion string) (*Manifest, []byte, error) {
-	manBytes, err := httpGet(hc, dirURL+"/"+RemoteManifest, cliVersion)
+// fetchTarball downloads the bundle from the same directory the manifest came
+// from. Only called when the revision changed, so the big download is skipped
+// when skills are already current.
+func fetchTarball(opts SyncOptions, dirURL string) ([]byte, error) {
+	tarGz, err := httpGet(httpClient(opts), dirURL+"/"+TarName, opts.CLIVersion)
 	if err != nil {
-		return nil, nil, err
-	}
-	var m Manifest
-	if err := json.Unmarshal(manBytes, &m); err != nil {
-		return nil, nil, fmt.Errorf("parse manifest: %w", err)
-	}
-	if err := validateRemoteManifest(&m); err != nil {
-		return nil, nil, err
-	}
-	tarGz, err := httpGet(hc, dirURL+"/"+TarName, cliVersion)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(tarGz) == 0 {
-		return nil, nil, fmt.Errorf("empty tarball at %s", dirURL)
+		return nil, fmt.Errorf("empty tarball at %s", dirURL)
 	}
-	return &m, tarGz, nil
+	return tarGz, nil
 }
 
 // validateRemoteManifest refuses a manifest that would, if applied, leave the

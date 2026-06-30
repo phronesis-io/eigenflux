@@ -32,18 +32,18 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 
 	local, _ := ReadLocalManifest(real)
 
-	// --if-stale short-circuit: local already matches and is not a provisional
-	// (GitHub-bootstrap) copy => zero network. Exclude empty cli_version and the
-	// stale marker so bootstrap copies are always force-replaced.
-	if opts.IfStale && local != nil && local.CLIVersion != "" &&
-		local.CLIVersion == opts.CLIVersion && !staleMarkerPresent(real) {
-		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion}, nil
-	}
-
-	remote, tarGz, source, ferr := fetchWithFallback(opts)
+	// Step 1: fetch ONLY the small manifest (cheap). Freshness is decided by the
+	// content `revision`, NOT the CLI version — so a skill edit ships via R2
+	// (release-skills) without a CLI republish.
+	remote, dirURL, source, ferr := fetchManifest(opts)
 	if ferr != nil {
 		if local != nil {
 			r := &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, NoNetwork: true}
+			// A background freshness check (startup hook) must never error out on
+			// a transient network failure — keep what we have silently.
+			if opts.IfStale || opts.Quiet {
+				return r, nil
+			}
 			return r, softFail(opts, ferr)
 		}
 		if opts.FromBundle && opts.BundleDir != "" {
@@ -52,6 +52,29 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 		return nil, softFail(opts, ferr)
 	}
 
+	// Step 2: compatibility floor. A CLI older than the bundle requires must not
+	// adopt it (the skills may reference newer CLI commands). Keep local + nudge.
+	if !cliMeetsMin(opts.CLIVersion, remote.MinCLIVersion) {
+		msg := fmt.Sprintf("skills need CLI >= %s (have %s) — upgrade the CLI", remote.MinCLIVersion, opts.CLIVersion)
+		if local != nil {
+			return keepLocal(real, local, msg), nil
+		}
+		return nil, softFail(opts, fmt.Errorf("skills sync: %s (run install.sh)", msg))
+	}
+
+	// Step 3: already current → skip the tarball download entirely.
+	if local != nil && local.Revision != "" && local.Revision == remote.Revision && !staleMarkerPresent(real) {
+		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion}, nil
+	}
+
+	// Step 4: revision changed → pull + verify + atomic swap.
+	tarGz, terr := fetchTarball(opts, dirURL)
+	if terr != nil {
+		if local != nil {
+			return keepLocal(real, local, "tarball fetch failed"), nil
+		}
+		return nil, softFail(opts, terr)
+	}
 	if err := verifyTarSHA(tarGz, remote.TarSHA256); err != nil {
 		if local != nil {
 			return keepLocal(real, local, "checksum mismatch"), nil
