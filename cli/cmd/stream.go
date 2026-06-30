@@ -21,11 +21,11 @@ import (
 )
 
 const (
-	pongWait       = 45 * time.Second
-	writeWait      = 10 * time.Second
-	reconnectMin   = 5 * time.Second
-	reconnectMax   = 120 * time.Second
-	reconnectMul   = 2.0
+	pongWait     = 45 * time.Second
+	writeWait    = 10 * time.Second
+	reconnectMin = 5 * time.Second
+	reconnectMax = 120 * time.Second
+	reconnectMul = 2.0
 )
 
 var streamCmd = &cobra.Command{
@@ -43,6 +43,10 @@ Examples:
   eigenflux stream --format json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cursor, _ := cmd.Flags().GetString("cursor")
+		// --once: connect, print the first packet (which replays all offline
+		// unread history), then exit. For cold-spawn hosts (codex/gemini/…) that
+		// drain offline PMs at session start instead of holding a stream open.
+		once, _ := cmd.Flags().GetBool("once")
 
 		cfg, err := config.Load()
 		if err != nil {
@@ -110,6 +114,9 @@ Examples:
 			clientMeta.SetHeaders(dialHeaders)
 			conn, _, dialErr := websocket.DefaultDialer.Dial(u.String(), dialHeaders)
 			if dialErr != nil {
+				if once {
+					return fmt.Errorf("connect failed: %w", dialErr)
+				}
 				output.PrintMessage("Connect failed: %v, retrying in %s...", dialErr, backoff)
 				select {
 				case <-time.After(backoff):
@@ -151,6 +158,10 @@ Examples:
 							shouldReconnect = false
 						} else {
 							output.PrintMessage("Connection lost: %v", err)
+						}
+						if once {
+							// One-shot mode: never reconnect, even on a transient drop.
+							shouldReconnect = false
 						}
 						return
 					}
@@ -246,6 +257,11 @@ Examples:
 								}
 							}
 							firstPacket = false
+							if once {
+								// Offline backlog drained — exit without reconnecting.
+								shouldReconnect = false
+								return
+							}
 						} else {
 							for _, m := range data.Messages {
 								printNewLine(m)
@@ -288,6 +304,7 @@ Examples:
 
 func init() {
 	streamCmd.Flags().String("cursor", "", "resume from message cursor (msg_id)")
+	streamCmd.Flags().Bool("once", false, "connect, print the first packet (offline backlog replay), then exit")
 	rootCmd.AddCommand(streamCmd)
 }
 
