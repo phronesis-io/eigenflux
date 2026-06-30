@@ -89,6 +89,35 @@ type Config struct {
 	LokiURL                     string   // Loki push API URL (default http://localhost:3122)
 	LogLevel                    string   // Structured log level: debug | info | warn | error
 	EnableReplayLog             bool     // Enable replay log publishing in FeedService (default: true)
+	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
+	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
+
+	// Official account (singleton new-user guide / first contact)
+	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
+	OfficialAgentName            string   // display name for the official account
+	OfficialAgentBio             string   // persona/bio for the official account
+	OfficialWelcomeMessage       string   // welcome PM body sent to new users once their profile is complete
+	EnableOfficialWelcome        bool     // master switch for the onboarding welcome (friend + PM) behavior
+	OfficialWelcomeWhitelist     []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
+	OfficialPMWhitelist          []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
+	OfficialTestEmailSuffixes    []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
+	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
+	EnableOfficialTrending       bool     // #5: biweekly network-wide trending DM
+	EnableOfficialFeedRescue     bool     // #4: feed-deficit topic-recommendation DM
+	OfficialTrendingIntervalSec  int      // #5 cadence (default 14d)
+	OfficialTrendingWindowDays   int      // #5 aggregation window (default 7, reuses the existing highlights/dashboard window)
+	OfficialTrendingPoolN        int      // #5 top-N pool to sample from (default 20)
+	OfficialTrendingPickN        int      // #5 topics per DM (default 3)
+	OfficialRescueIntervalSec    int      // #4 cron cadence (default 1d)
+	OfficialRescueWindowDays     int      // #4 feed lookback window (default 3)
+	OfficialRescueThreshold      int      // #4 "insufficient" delivered-item count in window (default 30)
+	OfficialRescueCooldownDays   int      // #4 per-user cooldown (default 3)
+	OfficialLLMMaxPerRun         int      // cap on official LLM generations per cron run (rate guard, default 100)
+	OfficialChatDailyPerUser     int      // #2/#3: max official LLM replies per user per day (default 50)
+	OfficialChatPerUserPerMin    int      // #2/#3: max official LLM replies per user per minute (default 1)
+	OfficialChatGlobalPerMin     int      // #2/#3: global cap on official LLM replies per minute (default 60)
+	EnableOfficialChat           bool     // #2: official replies to friend DMs (inbox consumer)
+	EnableOfficialFirstBroadcast bool     // #3: official replies to a new member's first broadcast
 
 	// Trade
 	ChiefLedgerURL                string
@@ -228,6 +257,33 @@ func Load() *Config {
 		LokiURL:                       getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                      getEnv("LOG_LEVEL", "debug"),
 		EnableReplayLog:               getEnvBool("ENABLE_REPLAY_LOG", true),
+		ReplayLogRetentionDays:        getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
+		ReplayLogCleanupIntervalSec:   getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
+		OfficialAgentEmail:            getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
+		OfficialAgentName:             getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
+		OfficialAgentBio:              getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
+		OfficialWelcomeMessage:        getEnv("OFFICIAL_WELCOME_MESSAGE", "你好我是 vic 老师，我有什么可以帮助你的？"),
+		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
+		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
+		OfficialPMWhitelist:           getEnvStringList("OFFICIAL_PM_WHITELIST", nil),
+		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", []string{"@eftestbot.com"}),
+		OfficialTestOTP:               getEnv("OFFICIAL_TEST_OTP", "111111"),
+		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
+		EnableOfficialFeedRescue:      getEnvBool("ENABLE_OFFICIAL_FEED_RESCUE", true),
+		OfficialTrendingIntervalSec:   getEnvInt("OFFICIAL_TRENDING_INTERVAL_SEC", 14*86400),
+		OfficialTrendingWindowDays:    getEnvInt("OFFICIAL_TRENDING_WINDOW_DAYS", 7),
+		OfficialTrendingPoolN:         getEnvInt("OFFICIAL_TRENDING_POOL_N", 20),
+		OfficialTrendingPickN:         getEnvInt("OFFICIAL_TRENDING_PICK_N", 3),
+		OfficialRescueIntervalSec:     getEnvInt("OFFICIAL_RESCUE_INTERVAL_SEC", 86400),
+		OfficialRescueWindowDays:      getEnvInt("OFFICIAL_RESCUE_WINDOW_DAYS", 3),
+		OfficialRescueThreshold:       getEnvInt("OFFICIAL_RESCUE_THRESHOLD", 30),
+		OfficialRescueCooldownDays:    getEnvInt("OFFICIAL_RESCUE_COOLDOWN_DAYS", 3),
+		OfficialLLMMaxPerRun:          getEnvInt("OFFICIAL_LLM_MAX_PER_RUN", 100),
+		OfficialChatDailyPerUser:      getEnvInt("OFFICIAL_CHAT_DAILY_PER_USER", 50),
+		OfficialChatPerUserPerMin:     getEnvInt("OFFICIAL_CHAT_PER_USER_PER_MIN", 1),
+		OfficialChatGlobalPerMin:      getEnvInt("OFFICIAL_CHAT_GLOBAL_PER_MIN", 60),
+		EnableOfficialChat:            getEnvBool("ENABLE_OFFICIAL_CHAT", true),
+		EnableOfficialFirstBroadcast:  getEnvBool("ENABLE_OFFICIAL_FIRST_BROADCAST", true),
 		ChiefLedgerURL:                getEnv("CHIEF_LEDGER_URL", "https://ledger.kovaloop.ai"),
 		ChiefVerifyLookbackLimit:      getEnvInt("CHIEF_VERIFY_LOOKBACK_LIMIT", 50),
 		ChiefHTTPTimeoutSec:           getEnvInt("CHIEF_HTTP_TIMEOUT_SEC", 10),
@@ -390,6 +446,23 @@ func getEnvFloat(key string, fallback float64) float64 {
 
 // getEnvStringList parses a comma-separated env var into a string slice.
 // Each element is trimmed and lowercased. Empty elements are skipped.
+// EmailMatchesAnySuffix reports whether email ends with any of the given
+// suffixes (case-insensitive). Used to treat e.g. @eftestbot.com accounts as
+// test accounts for official-account features.
+func EmailMatchesAnySuffix(email string, suffixes []string) bool {
+	e := strings.ToLower(strings.TrimSpace(email))
+	if e == "" {
+		return false
+	}
+	for _, s := range suffixes {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s != "" && strings.HasSuffix(e, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func getEnvStringList(key string, fallback []string) []string {
 	v := os.Getenv(key)
 	if v == "" {

@@ -76,7 +76,7 @@ func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64
 	}
 
 	offset := (params.Page - 1) * params.PageSize
-	if err := query.Offset(int(offset)).Limit(int(params.PageSize)).Order("agents.agent_id DESC").Find(&agents).Error; err != nil {
+	if err := query.Offset(int(offset)).Limit(int(params.PageSize)).Order("agents.is_official DESC, agents.agent_id DESC").Find(&agents).Error; err != nil {
 		return nil, 0, err
 	}
 

@@ -46,9 +46,18 @@ type TypeInfo struct {
 	Desc    string `json:"desc"`
 }
 
+// PickRule selects Count questions from one named sub-bank (by Dimension).
+// e.g. {use, "AI 使用题", 5} + {self, "自我认知题", 5} → 10 题/场.
+type PickRule struct {
+	Dimension string `json:"dimension"`
+	Name      string `json:"name"`
+	Count     int    `json:"count"`
+}
+
 // Bank holds the loaded question bank and type table.
 type Bank struct {
 	PickCount int
+	PickSpec  []PickRule // 分类抽题规则；为空时退回从全库随机抽 PickCount 道
 	Items     []Question
 	Types     map[string]TypeInfo
 	byID      map[string]*Question
@@ -56,6 +65,7 @@ type Bank struct {
 
 type questionsFile struct {
 	PickCount int        `json:"pickCount"`
+	Pick      []PickRule `json:"pick"`
 	Items     []Question `json:"items"`
 }
 
@@ -76,10 +86,27 @@ func LoadBank(dir string) (*Bank, error) {
 	if len(qf.Items) == 0 || len(tf.Types) == 0 {
 		return nil, fmt.Errorf("agti bank empty: %d questions, %d types", len(qf.Items), len(tf.Types))
 	}
+	// 分类抽题规则优先：校验每个子题库题量足够，并把 PickCount 设为各类之和。
+	if len(qf.Pick) > 0 {
+		sum := 0
+		for _, r := range qf.Pick {
+			avail := 0
+			for _, q := range qf.Items {
+				if q.Dimension == r.Dimension {
+					avail++
+				}
+			}
+			if avail < r.Count {
+				return nil, fmt.Errorf("agti pick: 子题库 %q(%s) 需要 %d 题，只有 %d 题", r.Name, r.Dimension, r.Count, avail)
+			}
+			sum += r.Count
+		}
+		qf.PickCount = sum
+	}
 	if qf.PickCount <= 0 {
 		qf.PickCount = 10
 	}
-	b := &Bank{PickCount: qf.PickCount, Items: qf.Items, Types: tf.Types, byID: make(map[string]*Question, len(qf.Items))}
+	b := &Bank{PickCount: qf.PickCount, PickSpec: qf.Pick, Items: qf.Items, Types: tf.Types, byID: make(map[string]*Question, len(qf.Items))}
 	for i := range b.Items {
 		b.byID[b.Items[i].ID] = &b.Items[i]
 	}
@@ -94,8 +121,14 @@ func readJSONFile(path string, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
-// Pick returns PickCount random questions (Fisher–Yates over a copy).
+// Pick returns one quiz's questions. With a PickSpec it draws Count random
+// questions from each named sub-bank (e.g. 5 AI 使用题 + 5 自我认知题) and
+// shuffles them together; otherwise it falls back to PickCount random over the
+// whole bank.
 func (b *Bank) Pick() []Question {
+	if len(b.PickSpec) > 0 {
+		return b.pickByCategory()
+	}
 	items := make([]Question, len(b.Items))
 	copy(items, b.Items)
 	rand.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
@@ -104,6 +137,28 @@ func (b *Bank) Pick() []Question {
 		k = len(items)
 	}
 	return items[:k]
+}
+
+// pickByCategory draws each PickRule.Count random questions from its dimension
+// pool, then shuffles the combined set so the two sub-banks interleave.
+func (b *Bank) pickByCategory() []Question {
+	out := make([]Question, 0, b.PickCount)
+	for _, rule := range b.PickSpec {
+		pool := make([]Question, 0, len(b.Items))
+		for _, q := range b.Items {
+			if q.Dimension == rule.Dimension {
+				pool = append(pool, q)
+			}
+		}
+		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+		k := rule.Count
+		if k > len(pool) {
+			k = len(pool)
+		}
+		out = append(out, pool[:k]...)
+	}
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
 }
 
 // Get returns the bank question by ID, or nil.

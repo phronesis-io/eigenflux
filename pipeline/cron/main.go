@@ -8,14 +8,19 @@ import (
 	"strings"
 	"syscall"
 
+	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pipeline/official"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
+
+	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
 func splitEtcdEndpoints(raw string) []string {
@@ -83,6 +88,17 @@ func main() {
 	}
 	llmClient := llm.NewClient(cfg, prompts)
 
+	// PM RPC client + official-account context for the official PM crons (#4/#5).
+	officialResolver, err := etcd.NewEtcdResolver(splitEtcdEndpoints(cfg.EtcdAddr))
+	if err != nil {
+		log.Fatalf("failed to create etcd resolver: %v", err)
+	}
+	officialPMClient, err := pmservice.NewClient("PMService", rpcx.ClientOptions(officialResolver)...)
+	if err != nil {
+		log.Fatalf("failed to create pm client: %v", err)
+	}
+	officialCtxShared := official.NewSender(cfg, officialPMClient, llmClient, prompts)
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -104,6 +120,13 @@ func main() {
 	go StartTradeExpiryScanner(ctx, cfg, mq.RDB, expiryScanner)
 	go StartOutboxDispatcher(ctx, cfg)
 	go StartOutboxCleanup(ctx, cfg)
+	go StartReplayCleanup(ctx, cfg, mq.RDB)
+	if cfg.EnableOfficialTrending {
+		go StartOfficialTrending(ctx, cfg, mq.RDB, officialCtxShared)
+	}
+	if cfg.EnableOfficialFeedRescue {
+		go StartOfficialFeedRescue(ctx, cfg, mq.RDB, officialCtxShared)
+	}
 
 	log.Println("Cron service started")
 

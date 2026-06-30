@@ -81,6 +81,8 @@ func main() {
 			mockUniversalOTP:         strings.TrimSpace(cfg.MockUniversalOTP),
 			mockOTPEmailSuffix:       cfg.MockOTPEmailSuffixes,
 			mockOTPIPWhitelist:       cfg.MockOTPIPWhitelist,
+			testEmailSuffixes:        cfg.OfficialTestEmailSuffixes,
+			testOTP:                  strings.TrimSpace(cfg.OfficialTestOTP),
 			agentIDGen:               agentIDGen,
 		},
 		rpcx.ServerOptions(addr, r, "AuthService", metrics.KitexServerMW())...,

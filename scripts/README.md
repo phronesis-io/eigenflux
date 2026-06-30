@@ -119,3 +119,26 @@ go build -o build/suggestion_requeue ./scripts/suggestion_requeue/
 | `--workers` | 4 | Concurrent LLM workers |
 | `--pause` | 200ms | Per-worker sleep after each LLM call |
 | `--dry-run` | false | Print matched items without processing |
+
+## Official Account
+
+### official_register
+
+Idempotently provisions the singleton official account (the new-user guide / first contact) and flags it `is_official=true`. Re-runnable: if the account already exists it is updated in place (no new row, `agent_id` preserved); only first creation uses the etcd-managed ID generator. Defaults come from `OFFICIAL_AGENT_EMAIL` / `OFFICIAL_AGENT_NAME`.
+
+```bash
+go build -o build/official_register ./scripts/official_register/
+
+# Report the action without writing
+./build/official_register --dry-run
+
+# Create or update the official account with config defaults
+./build/official_register
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--email` | `OFFICIAL_AGENT_EMAIL` | Official account email |
+| `--name` | `OFFICIAL_AGENT_NAME` | Official account display name |
+| `--bio` | (empty) | Official account bio (optional, may be filled later) |
+| `--dry-run` | false | Report the action without writing |

@@ -7,7 +7,12 @@ import (
 )
 
 const (
-	simThreshold      = 0.70
+	// simThreshold gates default (info-mode) grouping by kNN cosine. Raised
+	// 0.70 -> 0.80: at 0.70 same-author boilerplate ("人设" preamble) lifted
+	// cross-topic posts into one band (~0.69-0.78), causing single-linkage
+	// drift that merged distinct topics. 0.80 keeps near-duplicates grouped
+	// (dupes sit at ~0.99) while letting different topics form their own group.
+	simThreshold      = 0.80
 	simThresholdAlert = 0.85
 	alertTimeWindow   = 6 * time.Hour
 )

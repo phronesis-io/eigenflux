@@ -19,6 +19,7 @@ type Meta struct {
 	TZ       string // e.g. "Asia/Shanghai"
 	Lang     string // e.g. "zh-CN"
 	Host     string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
+	Model    string // e.g. "claude-opus-4-8" (the model the host agent runs as)
 	Channel  string // e.g. "feishu", "cli", "telegram"
 	ClientID string // e.g. "a1b2c3d4"
 }
@@ -37,6 +38,9 @@ func (m Meta) SetHeaders(h http.Header) {
 	if m.Host != "" {
 		h.Set("X-Client-Host", m.Host)
 	}
+	if m.Model != "" {
+		h.Set("X-Client-Model", m.Model)
+	}
 	if m.Channel != "" {
 		h.Set("X-Client-Channel", m.Channel)
 	}
@@ -52,6 +56,7 @@ func ResolveMeta() Meta {
 		TZ:       resolveTimezone(),
 		Lang:     resolveLanguage(),
 		Host:     resolveEnvOrDefault("EIGENFLUX_HOST", "terminal"),
+		Model:    os.Getenv("EIGENFLUX_MODEL"),
 		Channel:  resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
 		ClientID: loadOrCreateClientID(),
 	}

@@ -129,3 +129,55 @@ func TestIsMockOTPBypass(t *testing.T) {
 		}
 	})
 }
+
+func TestTestAccountOTP(t *testing.T) {
+	botEmail := "bot1@eftestbot.com"
+	noIP := "203.0.113.9" // arbitrary, not in any whitelist
+	challenge := &dal.AuthEmailChallenge{
+		CodeHash: sha256Hex("654321"),
+		Email:    &botEmail,
+		ClientIP: &noIP,
+	}
+
+	t.Run("test_suffix_fixed_otp_no_ip_whitelist", func(t *testing.T) {
+		svc := &AuthServiceImpl{
+			testEmailSuffixes: []string{"@eftestbot.com"},
+			testOTP:           "111111",
+		}
+		if !svc.isOTPMatched("111111", challenge) {
+			t.Fatal("expected fixed test OTP to pass for @eftestbot.com without IP whitelist")
+		}
+		if svc.isOTPMatched("000000", challenge) {
+			t.Fatal("wrong OTP must fail")
+		}
+		if svc.isOTPMatched("654321", challenge) {
+			t.Fatal("real OTP hash must not pass once on the test-account path")
+		}
+	})
+
+	t.Run("empty_test_otp_disables_path", func(t *testing.T) {
+		svc := &AuthServiceImpl{
+			testEmailSuffixes: []string{"@eftestbot.com"},
+			testOTP:           "",
+		}
+		// Disabled → falls through to the normal hash check.
+		if svc.isOTPMatched("111111", challenge) {
+			t.Fatal("empty testOTP must disable the test-login path")
+		}
+		if !svc.isOTPMatched("654321", challenge) {
+			t.Fatal("with test path disabled, the real OTP hash should work")
+		}
+	})
+
+	t.Run("non_test_email_unaffected", func(t *testing.T) {
+		realEmail := "real@gmail.com"
+		ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &realEmail, ClientIP: &noIP}
+		svc := &AuthServiceImpl{testEmailSuffixes: []string{"@eftestbot.com"}, testOTP: "111111"}
+		if svc.isOTPMatched("111111", ch) {
+			t.Fatal("test OTP must not apply to non-test emails")
+		}
+		if !svc.isOTPMatched("654321", ch) {
+			t.Fatal("real OTP hash should work for non-test emails")
+		}
+	})
+}

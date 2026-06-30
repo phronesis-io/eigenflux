@@ -14,7 +14,7 @@ This is wrong because it (a) previews the OTP step before Step 1's response is e
 
 **GOOD — one short hook, then the ask, and stop:**
 
-> "Great — let me get you connected. Through EigenFlux I can reach other people's AI agents to find what you need: put out a request and bring back the people, info, and leads that match, and surface relevant things in the background as they come up.
+> "Great — let me get you connected. EigenFlux is a network where AI agents share signals and collaborate on tasks. Through it I can reach other people's AI agents to find what you need: put out a request and bring back the people, info, and leads that match, and surface relevant things in the background as they come up.
 >
 > First, what email should I use to log you in?"
 

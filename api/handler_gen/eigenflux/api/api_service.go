@@ -702,11 +702,20 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	item, err := itemdal.GetItemByID(db.DB, req.ItemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeJSON(c, http.StatusNotFound, 404, "item not found", nil)
+			// Public lookup only returns Completed items. Fall back to the
+			// author's own item in any state (processing / retracted) so the
+			// author can always read the full content of their own broadcast
+			// — otherwise the dashboard drawer silently shows a 200-char preview.
+			own, ownErr := itemdal.GetOwnItemByID(db.DB, req.ItemID, agentID)
+			if ownErr != nil {
+				writeJSON(c, http.StatusNotFound, 404, "item not found", nil)
+				return
+			}
+			item = own
+		} else {
+			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
-		return
 	}
 
 	detail := map[string]interface{}{
@@ -1184,6 +1193,33 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		conversations[i] = m
 	}
 
+	// Stamp the verified-official flag on the conversation peer (the other
+	// participant), sourced from agents.is_official (ops-set, unspoofable).
+	if len(resp.Conversations) > 0 {
+		peerOf := make([]int64, len(resp.Conversations))
+		peerIDs := make([]int64, len(resp.Conversations))
+		for i, conv := range resp.Conversations {
+			peer := conv.ParticipantA
+			if peer == agentID {
+				peer = conv.ParticipantB
+			}
+			peerOf[i] = peer
+			peerIDs[i] = peer
+		}
+		var officialIDs []int64
+		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", peerIDs).Scan(&officialIDs).Error; err == nil {
+			officialSet := make(map[int64]struct{}, len(officialIDs))
+			for _, id := range officialIDs {
+				officialSet[id] = struct{}{}
+			}
+			for i := range conversations {
+				if _, ok := officialSet[peerOf[i]]; ok {
+					conversations[i]["peer_is_official"] = true
+				}
+			}
+		}
+	}
+
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"conversations": conversations,
 		"next_cursor":   strconv.FormatInt(resp.NextCursor, 10),
@@ -1423,6 +1459,12 @@ func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
 		prefix := strings.ToLower(cfg.ProjectName) + "#"
 		if strings.HasPrefix(strings.ToLower(email), prefix) {
 			email = email[len(prefix):]
+		}
+
+		// The EigenFlux ID value may be a numeric agent_id (new format) or an
+		// email (legacy); a purely numeric value resolves directly by agent_id.
+		if id, derr := strconv.ParseInt(strings.TrimSpace(email), 10, 64); derr == nil && id > 0 {
+			return id, 0, ""
 		}
 
 		if !friendEmailRegexp.MatchString(email) {
@@ -1806,6 +1848,27 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		friends = append(friends, item)
 	}
 
+	// Mark the verified official account so the UI can badge it. Sourced from
+	// agents.is_official (ops-set), never anything self-claimed.
+	if len(resp.Friends) > 0 {
+		friendIDs := make([]int64, len(resp.Friends))
+		for i := range resp.Friends {
+			friendIDs[i] = resp.Friends[i].AgentId
+		}
+		var officialIDs []int64
+		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", friendIDs).Scan(&officialIDs).Error; err == nil {
+			officialSet := make(map[int64]struct{}, len(officialIDs))
+			for _, id := range officialIDs {
+				officialSet[id] = struct{}{}
+			}
+			for i := range friends {
+				if _, ok := officialSet[resp.Friends[i].AgentId]; ok {
+					friends[i]["is_official"] = true
+				}
+			}
+		}
+	}
+
 	// Enrich each friend with a "recent activity" line = the more recent of their
 	// latest broadcast and our last direct message with them.
 	type recentEntry struct {
@@ -1931,8 +1994,8 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Calculate today start in UTC milliseconds
 	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	todayStartMs := todayStart.UnixMilli()
+	// The two-way activity cards (inbound/outbound) show a rolling 7-day window.
+	sinceMs := now.AddDate(0, 0, -7).UnixMilli()
 
 	var (
 		signalsScanned    int64
@@ -1989,7 +2052,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: activity log aggregation
 	g.Go(func() error {
-		counts, syncAt, err := consoledal.TodayEventCounts(db.DB, agentID, todayStartMs)
+		counts, syncAt, err := consoledal.TodayEventCounts(db.DB, agentID, sinceMs)
 		if err != nil {
 			return nil // non-fatal
 		}
@@ -2000,7 +2063,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: today's broadcast reach and score stats from item_stats
 	g.Go(func() error {
-		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, todayStartMs)
+		agg, err := consoledal.GetTodayBroadcastAgg(db.DB, agentID, sinceMs)
 		if err != nil {
 			return nil // non-fatal
 		}
@@ -2010,10 +2073,10 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 
 	// Parallel: today's quantity sums from activity-log detail (counts, not events)
 	g.Go(func() error {
-		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", todayStartMs)
-		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", todayStartMs)
-		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", todayStartMs)
-		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", todayStartMs)
+		itemsScannedToday, _ = consoledal.SumDetailField(db.DB, agentID, "feed_pull", "count", sinceMs)
+		usefulToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "useful", sinceMs)
+		feedbacksToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "count", sinceMs)
+		worthToday, _ = consoledal.SumDetailField(db.DB, agentID, "feedback", "kept", sinceMs)
 		return nil
 	})
 
@@ -2599,6 +2662,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// can never silently disable the ramp).
 		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
 		AutoReplyPM             *bool `json:"auto_reply_pm"`
+		OfficialPMOptout        *bool `json:"official_pm_optout"`
 	}
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -2609,7 +2673,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}

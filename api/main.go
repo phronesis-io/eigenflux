@@ -13,6 +13,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -190,17 +191,27 @@ func main() {
 	h.GET("/api/v1/pm/unread", middleware.AuthMiddleware(), apihandler.GetUnreadBreakdown)
 	h.POST("/api/v1/pm/read", middleware.AuthMiddleware(), apihandler.MarkConvRead)
 
+	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
+	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
+	h.GET("/api/v1/broadcasts/rated", middleware.AuthMiddleware(), apihandler.MyRatedItems)
+
 	// AgentRapport quiz (public marketing activity at /agti). Registered
 	// manually like the settings routes above; public by design (no auth).
 	agtiBank, err := agti.LoadBank("static/agti")
 	if err != nil {
 		log.Fatalf("failed to load agti bank: %v", err)
 	}
-	agtiSkills, err := agti.RenderSkills("static/templates/agti_skills.tmpl.md", publicBaseURL)
-	if err != nil {
-		log.Fatalf("failed to render agti skills: %v", err)
+	// AGTI activity runs on its own domain (ICP-备案 的 www.eigenflux.net) so the
+	// whole funnel — skills/answer/result/join/interpret links — stays on .net,
+	// independent of the product-wide publicBaseURL (.ai). Override via AGTI_BASE_URL.
+	agtiBaseURL := os.Getenv("AGTI_BASE_URL")
+	if agtiBaseURL == "" {
+		agtiBaseURL = "https://www.eigenflux.net"
 	}
-	agti.Register(h, agtiBank, publicBaseURL, agtiSkills)
+	if err := agti.InitSkills("static/templates/agti_skills.tmpl.md", "static/templates/agti_join.tmpl.md", "static/templates/agti_interpret.tmpl.md", agtiBaseURL); err != nil {
+		log.Fatalf("failed to init agti skills: %v", err)
+	}
+	agti.Register(h, agtiBank, agtiBaseURL)
 	log.Printf("AgentRapport quiz registered (%d questions, %d types)", len(agtiBank.Items), len(agtiBank.Types))
 
 	// Install attribution (public marketing landing page at /install). Mints

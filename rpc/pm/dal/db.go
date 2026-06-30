@@ -89,8 +89,10 @@ func FetchUnreadMessages(db *gorm.DB, agentID, cursor int64, limit int) ([]*Priv
 
 // FetchRecentReadMessages returns up to `limit` messages involving agentID
 // that are NOT currently eligible for FetchUnreadMessages, i.e.:
-//   (receiver_id = agentID AND is_read = TRUE)  // already-read received
-//   OR sender_id = agentID                       // anything agent sent
+//
+//	(receiver_id = agentID AND is_read = TRUE)  // already-read received
+//	OR sender_id = agentID                       // anything agent sent
+//
 // Ordered by msg_id DESC. Used by FetchPMHistory for recovery-on-reconnect.
 func FetchRecentReadMessages(db *gorm.DB, agentID int64, limit int) ([]*PrivateMessage, error) {
 	var messages []*PrivateMessage
@@ -118,32 +120,40 @@ func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conver
 }
 
 func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, originType string) ([]*Conversation, error) {
+	// "unbroken" is the inverse of the normal threshold: inbound non-friend DMs
+	// still waiting for the user's first reply. It has its own query shape, so
+	// handle it separately rather than overloading the threshold logic below.
+	if originType == "unbroken" {
+		return listUnbrokenInbound(db, agentID, cursor, limit)
+	}
+
 	var convs []*Conversation
 	var err error
 
 	originFilter := ""
 	args := make([]interface{}, 0, 8)
-	if originType != "" {
-		originFilter = " AND origin_type = ?"
-	}
 
-	// Listing threshold by origin: friend conversations surface as soon as there
-	// is any message (the two sides are already friends — no ice-breaking), while
-	// broadcast/other conversations still require an ice-broken exchange (>= 2).
-	// With no origin filter, apply each rule per origin_type.
+	// Listing threshold by origin type:
+	//   friend            → surface as soon as there is any message (>= 1); already
+	//                        friends, so no ice-breaking is required.
+	//   broadcast / other → require an ice-broken exchange (>= 2).
+	//   "" (all)          → apply each rule per origin_type.
 	countCond := "msg_count >= 2"
 	switch originType {
 	case "friend":
 		countCond = "msg_count >= 1"
+		originFilter = " AND origin_type = ?"
 	case "":
 		countCond = "((origin_type = 'friend' AND msg_count >= 1) OR (origin_type <> 'friend' AND msg_count >= 2))"
+	default:
+		originFilter = " AND origin_type = ?"
 	}
 
 	if cursor > 0 {
 		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 
-		if originType != "" {
+		if originFilter != "" {
 			args = append(args, agentID, cursor, originType, limit, agentID, cursor, originType, limit, limit)
 		} else {
 			args = append(args, agentID, cursor, limit, agentID, cursor, limit, limit)
@@ -154,7 +164,7 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
 
-		if originType != "" {
+		if originFilter != "" {
 			args = append(args, agentID, originType, limit, agentID, originType, limit, limit)
 		} else {
 			args = append(args, agentID, limit, agentID, limit, limit)
@@ -163,6 +173,37 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 		err = db.Raw(query, args...).Scan(&convs).Error
 	}
 
+	return convs, err
+}
+
+// listUnbrokenInbound returns non-friend conversations where the other party
+// sent the first (and only) message and the user hasn't replied yet — inbound
+// DMs still waiting to be ice-broken. The >= 2 broadcast threshold hides these
+// from the Direct and Broadcast tabs, so the "non-friend" tab surfaces them and
+// lets the user break the ice. last_sender_id <> agentID keeps it to messages
+// the user received, not first messages the user sent that went unanswered.
+func listUnbrokenInbound(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
+	var convs []*Conversation
+	cond := "status = 0 AND origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
+
+	baseA := "SELECT * FROM conversations WHERE participant_a = ? AND " + cond
+	baseB := "SELECT * FROM conversations WHERE participant_b = ? AND " + cond
+
+	var query string
+	var args []interface{}
+	if cursor > 0 {
+		baseA += " AND updated_at < ? ORDER BY updated_at DESC LIMIT ?"
+		baseB += " AND updated_at < ? ORDER BY updated_at DESC LIMIT ?"
+		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC LIMIT ?"
+		args = []interface{}{agentID, agentID, cursor, limit, agentID, agentID, cursor, limit, limit}
+	} else {
+		baseA += " ORDER BY updated_at DESC LIMIT ?"
+		baseB += " ORDER BY updated_at DESC LIMIT ?"
+		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC LIMIT ?"
+		args = []interface{}{agentID, agentID, limit, agentID, agentID, limit, limit}
+	}
+
+	err := db.Raw(query, args...).Scan(&convs).Error
 	return convs, err
 }
 

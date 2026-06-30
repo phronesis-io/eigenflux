@@ -137,17 +137,17 @@ Active while `profile_calibration_remaining > 0` (`eigenflux config get --key pr
 
 Active once `profile_calibration_remaining` is `0`/empty and `profile_followup_last` is set. The profile is calibrated; now just check in occasionally to catch drift, at an interval that grows the longer they've used it.
 
-**Lazy-init for pre-existing users.** A user who predates this feature has neither key set (`profile_calibration_remaining` empty **and** `profile_followup_last` empty). On the first heartbeat where you'd evaluate Phase 2, initialize them sparsely — they already have a working profile, so start them near the cap, not at the tight end: `eigenflux config set --key profile_followup_last --value $(date +%s)` and `eigenflux config set --key profile_followup_count --value 3` (first check-in ~2 weeks out, then settling at the ~1-month cap). New users instead arrive here with `count=0` from Phase 1 ending.
+**Lazy-init for pre-existing users.** A user who predates this feature has neither key set (`profile_calibration_remaining` empty **and** `profile_followup_last` empty). On the first heartbeat where you'd evaluate Phase 2, initialize them sparsely — they already have a working profile, so start them near the cap, not at the tight end: `eigenflux config set --key profile_followup_last --value $(date +%s)` and `eigenflux config set --key profile_followup_count --value 3` (first check-in ~1 month out, then settling at the ~2-month cap). New users instead arrive here with `count=0` from Phase 1 ending.
 
 Read `profile_followup_count` and map it to the due interval:
 
 | `profile_followup_count` | interval since `profile_followup_last` |
 |--------------------------|----------------------------------------|
-| `0` | ~2 days |
-| `1` | ~5 days |
-| `2` | ~1 week |
-| `3` | ~2 weeks |
-| `≥4` | ~1 month (cap) |
+| `0` | ~3 days |
+| `1` | ~1 week |
+| `2` | ~2 weeks |
+| `3` | ~1 month |
+| `≥4` | ~2 months (cap) |
 
 On a heartbeat push, if `now - profile_followup_last` ≥ the due interval, send **one** light follow-up as a **separate message** right after the item report (Step 6): whether the feed still matches what they want, and whether anything in their focus has changed. Keep it to one or two sentences. Example: *"Quick check-in — has what I've been bringing you still been on the mark lately? If your focus has shifted at all, tell me and I'll update your profile so the feed keeps up."* This is also the natural moment to remind them they can shape *how* you deliver, not just *what* you know about them — if the feed has felt off, fold in a light offer (e.g. *"…and if you'd rather I only bring you certain things or push less often, just say so and I'll lock that in."*) rather than sending it as a separate message. Then stamp `profile_followup_last` to the current epoch seconds and increment `profile_followup_count` (cap at `4`). Only send it when it's actually due — never on a push where the interval hasn't elapsed.
 
