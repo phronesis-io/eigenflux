@@ -34,6 +34,7 @@
 - **运维放底部且可折叠**：保底但不抢焦点。
 - **标题用问题句式**：面板标题应该是"赢/输"而不是 `pgc_event_real_wins`。
 - **description 字段写操作指引**：比如"超过 2h 说明 timer 卡了"。
+- **黑话默认判失败，原始标签表禁止裸奔**：标题/图例/表格列如果要查文档才看懂（`SLA`、`canary`、`kind=xxx` 这类内部黑话/枚举），或者表格直接吐 Prometheus 原始多列标签（`source_class`/`source_tier`/`instance`/`job`…），对 Pascal 来说就是噪声，不管 description 写得多详细都没用——他不会去读 hover。要么把标签转译成人话（标题、图例都要翻），要么直接砍掉，别留"技术上对但没人能读"的面板。
 
 ## 面板结构（2026-06-23 版本）
 
@@ -84,7 +85,10 @@
 | 2026-06-22 `ec15eda` | 意外恢复 76 面板（误判删减为丢失） | **76** |
 | 2026-06-22 | 以确信对决胜率为北极星重建 | **24** |
 | 2026-06-23 `329b47c` | 全面迁移至模型判定 (pgc_event_*)，删除所有旧 pgc_first_source_* 面板 | **22** |
-| 2026-06-23 当前 | 加 owner cockpit，并删除低优先级延迟分布和旧坏源面板，保持 25 面板上限 | **25** |
+| 2026-06-23 | 加 owner cockpit，删除低优先级延迟分布和旧坏源面板 | **25** |
+| 2026-06-29 | 迁移至价值(信号)为顶 + 覆盖/准确/速度护栏 (北极星重定义) | ~30 |
+| 2026-06-30 | 清理：删 8 个空的双语 row(总览/Owner Cockpit 等历史遗留空壳); 修护栏区两处面板重叠(51/58、7/60 共占 x16); 各域召回→各域丢弃占比(召回排除丢弃后恒≈100%, 无信号); 两个 Deep Dive row 改名区分(诊断·对标 / 工程诊断·信号延迟) | **44** (含 4 row+text) |
+| 2026-07-01 当前 | Pascal 反馈"看不懂"驱动的黑话清理。砍：噪声泄漏(按类型)、哪些类别需要马上处理/当前哪些信源正在拖慢(与"现在先处理哪些信源"同源数据切3刀)、这些超时是事故还是回补噪音(原始kind枚举表)、源SLA关注(与🔬row重复)；整个🔬工程诊断row全砍(7面板，清一色原始Prometheus多列标签表，改名也救不了)；信源可信度构成(按标签占比)；各源延迟明细(同款原始标签表)。剩余面板去黑话：`Source SLA 是否破线`→信源更新是否及时、`哪些源违反 SLA`→哪些信源更新慢了、`Canary 失败`→关键源现在挂了吗、`Twitter runway`→Twitter 还能撑几天，相关英文 description 一并译成中文 | **30** |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
@@ -119,5 +123,18 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 - `pgc_first_source_lead_median_hours` / `lag_median_hours`
 - `pgc_first_source_confident_races`
 
-对应的数据源 timer（`pgc-first-source-leaderboard.timer` 和 `pgc-improvement-loop.timer`）
-已于 2026-06-23 在 prod 上 `systemctl disable --now`。
+> **2026-06-30 校正**：旧版本曾称 `pgc-first-source-leaderboard.timer` 已 disable —— 这是**错误**的。
+> prod 上该 timer 仍 `enabled`+`active`(每日 10:30 CST)，因为 `pgc_first_source_speed_win_share`
+> (首发走势面板的"抢先率"线)仍由它产出的 leaderboard 报告驱动。改前以
+> `ssh aliap systemctl list-timers 'pgc-*'` 实际状态为准。
+
+## 已退役的指标（2026-07-01）
+
+🔬工程诊断 row 整体砍除后，以下指标不再有任何面板消费（Gauge 定义仍在 `metrics.py`，避免 scrape error）：
+- `pgc_broadcast_noise_by_type` — 原"噪声泄漏(按类型)"
+- `pgc_signal_latency_actionable_breaches_3h` — 原"高优先级信号仍在超时吗"系列
+- `pgc_signal_latency_breach_kind_24h` — 原"这些超时是事故还是回补噪音"
+- `pgc_broadcast_reliability_share_pct` — 原"信源可信度构成"
+- `pgc_source_health_sla_attention_source` — 原"哪些源违反 SLA"明细表
+
+`pgc_signal_latency_active_source_breaches_3h`、`pgc_source_health_sla_attention`、`pgc_source_health_canaries_failed` 仍被保留面板（风险趋势 / 信源更新是否及时 / 关键源现在挂了吗）消费，未退役。

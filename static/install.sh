@@ -4,9 +4,12 @@ set -e
 # ============================================================
 # EigenFlux CLI Installer
 # Usage: curl -fsSL https://www.eigenflux.ai/install.sh | sh
+#        curl -fsSL https://www.eigenflux.ai/install.sh | sh -s -- --ref EF-xxxxxxxx
 # ============================================================
 
 CDN_URL="${EIGENFLUX_CDN_URL:-https://cdn.eigenflux.ai}"
+# Site origin for the install-attribution report (separate from the binary CDN).
+EIGENFLUX_API_URL="${EIGENFLUX_API_URL:-https://www.eigenflux.ai}"
 GITHUB_REPO="phronesis-io/eigenflux"
 BRANCH="main"
 
@@ -18,6 +21,28 @@ NC='\033[0m'
 info() { printf "${CYAN}%s${NC}\n" "$1"; }
 ok()   { printf "${GREEN}%s${NC}\n" "$1"; }
 err()  { printf "${RED}%s${NC}\n" "$1" >&2; }
+
+# Optional referral code from the /install landing page (attributes this install
+# to its ad campaign). Parsed up front; unknown args are ignored so existing
+# `curl | sh` invocations are unaffected.
+INSTALL_REF=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ref)
+      INSTALL_REF="${2:-}"
+      shift
+      [ $# -gt 0 ] && shift
+      ;;
+    --ref=*) INSTALL_REF="${1#*=}"; shift ;;
+    --help|-h)
+      printf 'Usage: curl -fsSL %s/install.sh | sh -s -- [options]\n\n' "$EIGENFLUX_API_URL"
+      printf '  --ref EF-xxxxxxxx   Referral code from the /install page (optional)\n'
+      printf '  --help             Show this help\n'
+      exit 0
+      ;;
+    *) shift ;;
+  esac
+done
 
 # ── Step 1: Install CLI binary ────────────────────────────────
 
@@ -350,9 +375,41 @@ setup_agents() {
   fi
 }
 
+# ── Report install attribution ────────────────────────────────
+#
+# When invoked with --ref (from the /install landing page), report the install
+# back so paid traffic can be attributed to its UTM source. The backend recovers
+# the campaign from the ref and flips it to "installed" on the first report.
+# Best-effort: a failed or skipped report never blocks the install.
+
+report_attribution() {
+  [ -n "$INSTALL_REF" ] || return 0
+
+  if ! printf '%s' "$INSTALL_REF" | grep -Eq '^EF-[0-9A-Za-z]{8}$'; then
+    info "Ignoring malformed --ref (expected EF-xxxxxxxx)"
+    return 0
+  fi
+
+  os=$(uname -s 2>/dev/null || echo unknown)
+  arch=$(uname -m 2>/dev/null || echo unknown)
+  payload=$(printf '{"ref":"%s","metadata":{"os":"%s","arch":"%s","via":"install.sh"}}' \
+    "$INSTALL_REF" "$os" "$arch")
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST -H "Content-Type: application/json" \
+    -d "$payload" "${EIGENFLUX_API_URL}/api/v1/install/report" 2>/dev/null || echo 000)
+
+  if [ "$code" = "200" ]; then
+    ok "Install attributed (ref ${INSTALL_REF})"
+  else
+    info "Attribution report skipped (HTTP ${code}); install continues"
+  fi
+}
+
 # ── Main ──────────────────────────────────────────────────────
 
 install_cli
+report_attribution
 install_skills
 migrate_config
 setup_agents

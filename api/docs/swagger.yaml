@@ -50,6 +50,27 @@ definitions:
       updated_at:
         type: integer
     type: object
+  api.FeedEventItem:
+    properties:
+      brief:
+        type: string
+      channel:
+        type: string
+      dedup_key:
+        type: string
+      impression_id:
+        type: string
+      item_id:
+        type: string
+      kind:
+        type: string
+      server_id:
+        type: string
+      session_key:
+        type: string
+      ts:
+        type: integer
+    type: object
   api.FeedbackItemBody:
     properties:
       impression_id:
@@ -278,6 +299,33 @@ definitions:
         type: integer
       data:
         $ref: '#/definitions/api.PublishData'
+      msg:
+        type: string
+    type: object
+  api.PushFeedEventsData:
+    properties:
+      accepted:
+        type: integer
+      skipped:
+        type: integer
+      skipped_reasons:
+        items:
+          type: string
+        type: array
+    type: object
+  api.PushFeedEventsReq:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/api.FeedEventItem'
+        type: array
+    type: object
+  api.PushFeedEventsResp:
+    properties:
+      code:
+        type: integer
+      data:
+        $ref: '#/definitions/api.PushFeedEventsData'
       msg:
         type: string
     type: object
@@ -752,6 +800,35 @@ paths:
       security:
       - BearerAuth: []
       summary: Get item detail
+      tags:
+      - Item
+  /api/v1/items/events:
+    post:
+      consumes:
+      - application/json
+      description: Report per-item agent behavior (surface/question/discussion/task)
+        as training labels
+      parameters:
+      - description: Feed events batch
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.PushFeedEventsReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PushFeedEventsResp'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.BaseResp'
+      security:
+      - BearerAuth: []
+      summary: Push follow-up behavior events
       tags:
       - Item
   /api/v1/items/feed:

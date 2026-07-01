@@ -34,6 +34,7 @@ import (
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -2010,6 +2011,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		worthToday        int64
 		worthAllTime      int64
 		daysActive        int64
+		createdAtMs       int64
 		broadcastCount    int64
 		agentMode         string
 	)
@@ -2101,6 +2103,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 			return nil // non-fatal
 		}
 		if resp.Agent.CreatedAt > 0 {
+			createdAtMs = resp.Agent.CreatedAt
 			daysActive = (now.UnixMilli()-resp.Agent.CreatedAt)/86400000 + 1
 		}
 		if resp.Influence != nil {
@@ -2146,6 +2149,7 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		"signals_scanned":  signalsScanned,
 		"worth_reading":    worthAllTime,
 		"days_active":      daysActive,
+		"created_at":       createdAtMs,
 		"relations_formed": relationsCount,
 		"unread_count":     unreadCount,
 		"broadcast_count":  broadcastCount,
@@ -3492,4 +3496,93 @@ func GetTradeGateStatus(ctx context.Context, c *app.RequestContext) {
 		"has_pending_release": resp.HasPendingRelease,
 		"unpaid_order_count":  resp.UnpaidOrderCount,
 	})
+}
+
+// PushFeedEvents .
+// @router /api/v1/items/events [POST]
+// PushFeedEvents ingests follow-up behavior events for ranking labels.
+// @Summary Push follow-up behavior events
+// @Description Report per-item agent behavior (surface/question/discussion/task) as training labels
+// @Tags Item
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body PushFeedEventsReq true "Feed events batch"
+// @Success 200 {object} PushFeedEventsResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/items/events [post]
+func PushFeedEvents(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.PushFeedEventsReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+
+	validKinds := map[string]bool{"surface": true, "question": true, "discussion": true, "task": true}
+	events := make([]followuplog.Event, 0, len(req.Events))
+	skipped := make([]string, 0)
+	now := time.Now().UnixMilli()
+
+	for _, it := range req.Events {
+		if !validKinds[it.Kind] {
+			skipped = append(skipped, "invalid kind "+it.Kind)
+			continue
+		}
+		itemID, err := strconv.ParseInt(strings.TrimSpace(it.ItemID), 10, 64)
+		if err != nil {
+			skipped = append(skipped, "invalid item_id "+it.ItemID)
+			continue
+		}
+		dedupKey := ""
+		if it.DedupKey != nil {
+			dedupKey = strings.TrimSpace(*it.DedupKey)
+		}
+		if dedupKey == "" {
+			skipped = append(skipped, "missing dedup_key for item "+it.ItemID)
+			continue
+		}
+		reportedAt := now
+		if it.Ts != nil && *it.Ts > 0 {
+			reportedAt = *it.Ts
+		}
+		events = append(events, followuplog.Event{
+			AgentID:      agentID,
+			ItemID:       itemID,
+			Kind:         it.Kind,
+			ImpressionID: optStr(it.ImpressionID),
+			Brief:        optStr(it.Brief),
+			SessionKey:   optStr(it.SessionKey),
+			Channel:      optStr(it.Channel),
+			ServerID:     optStr(it.ServerID),
+			DedupKey:     dedupKey,
+			ReportedAt:   reportedAt,
+		})
+	}
+
+	if len(events) > 0 {
+		if err := followuplog.Publish(ctx, events); err != nil {
+			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+			return
+		}
+	}
+
+	data := map[string]interface{}{
+		"accepted": len(events),
+		"skipped":  len(skipped),
+	}
+	if len(skipped) > 0 {
+		data["skipped_reasons"] = skipped
+	}
+	logger.Ctx(ctx).Info("PushFeedEvents", "agentID", agentID, "accepted", len(events), "skipped", len(skipped))
+	writeJSON(c, http.StatusOK, 0, "success", data)
+}
+
+func optStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

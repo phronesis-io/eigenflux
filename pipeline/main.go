@@ -146,6 +146,22 @@ func main() {
 	}()
 	activityConsumer := consumer.NewActivityConsumer(activityIDGen)
 
+	followupIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+		Endpoints:      etcdEndpoints,
+		WorkerPrefix:   cfg.IDWorkerPrefix,
+		ServiceName:    "followup-label-id",
+		InstanceID:     cfg.IDInstanceID,
+		LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+		EpochMS:        cfg.IDSnowflakeEpoch,
+	})
+	if err != nil {
+		log.Fatalf("failed to init followup label id generator: %v", err)
+	}
+	defer func() {
+		_ = followupIDGen.Close(context.Background())
+	}()
+	followupConsumer := consumer.NewFollowupConsumer(followupIDGen)
+
 	var officialWelcomeConsumer *consumer.OfficialWelcomeConsumer
 	if cfg.EnableOfficialWelcome {
 		officialWelcomeConsumer = consumer.NewOfficialWelcomeConsumer(cfg, officialSender)
@@ -170,6 +186,7 @@ func main() {
 		go replayConsumer.Start(ctx)
 	}
 	go activityConsumer.Start(ctx)
+	go followupConsumer.Start(ctx)
 	if officialWelcomeConsumer != nil {
 		go officialWelcomeConsumer.Start(ctx)
 	}
@@ -186,6 +203,7 @@ func main() {
 		{Stream: "stream:item:stats", Group: "cg:item:stats"},
 		{Stream: "stream:replay:log", Group: "cg:replay:log"},
 		{Stream: "stream:agent:activity", Group: "cg:agent:activity"},
+		{Stream: "stream:followup:label", Group: "cg:followup:label"},
 		{Stream: "stream:trade:service", Group: "cg:trade:service"},
 		{Stream: "stream:trade:order-event", Group: "cg:trade:order-event"},
 	}

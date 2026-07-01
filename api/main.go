@@ -26,6 +26,7 @@ import (
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
+	"eigenflux_server/api/install"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
@@ -212,6 +213,12 @@ func main() {
 	}
 	agti.Register(h, agtiBank, agtiBaseURL)
 	log.Printf("AgentRapport quiz registered (%d questions, %d types)", len(agtiBank.Items), len(agtiBank.Types))
+
+	// Install attribution (public marketing landing page at /install). Mints
+	// invite tokens carrying UTM data and records install conversions. Manually
+	// registered like agti above; public by design (no auth).
+	install.Register(h, publicBaseURL)
+	log.Print("Install attribution registered")
 
 	// Register generated routes
 	router_gen.GeneratedRegister(h)
