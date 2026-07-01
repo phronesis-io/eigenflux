@@ -6,11 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -320,6 +325,155 @@ func coerceString(v interface{}) string {
 	}
 }
 
+// pushEvents POSTs a batch of already-built events to the backend. Shared by
+// `feed event record` (opportunistic flush) and `feed event flush`. Unlike the
+// explicit `push` command, it RETURNS auth/network errors instead of Die-ing —
+// so an unauthenticated opportunistic flush leaves events queued and never kills
+// the record command.
+func pushEvents(events []map[string]interface{}) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	srv, err := cfg.GetActive(serverFlag)
+	if err != nil {
+		return err
+	}
+	creds, err := auth.LoadCredentials(srv.Name)
+	if err != nil {
+		return fmt.Errorf("not logged in to server %q", srv.Name)
+	}
+	if creds.IsExpired() {
+		return fmt.Errorf("token expired for server %q", srv.Name)
+	}
+	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+	c := client.New(baseURL, creds.AccessToken, version, clientMeta)
+	resp, err := c.Post("/items/events", map[string]interface{}{"events": events})
+	if err != nil {
+		return err
+	}
+	if resp.Code != 0 {
+		return fmt.Errorf("%s", resp.Msg)
+	}
+	return nil
+}
+
+// eventDirs resolves the per-server broadcast-cache and event-queue directories.
+func eventDirs() (server, broadcastsDir, eventsDir string) {
+	server = activeServerName()
+	dataDir := cache.ServerDataDir(server)
+	return server, filepath.Join(dataDir, "broadcasts"), filepath.Join(dataDir, "events")
+}
+
+var feedEventRecordCmd = &cobra.Command{
+	Use:   "record",
+	Short: "Record a follow-up behavior on feed items (validate + enrich + queue)",
+	Long: `Record per-item follow-up behavior (surface/question/discussion/task).
+Item ids are validated against this CLI's own feed cache and enriched with the
+impression that served them; a dedup_key is stamped and the events are queued and
+opportunistically flushed. Unflushed events are sent later by 'feed event flush'.
+
+The host adapter just calls this — the ledger/queue/batch logic lives in the CLI,
+not per-host.
+
+Examples:
+  eigenflux feed event record --item-ids 123,124 --kind surface
+  eigenflux feed event record --item-ids 123 --kind question --brief "asked about X"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		kind, _ := cmd.Flags().GetString("kind")
+		if !feedEventKinds[kind] {
+			return fmt.Errorf("invalid --kind %q (want surface/question/discussion/task)", kind)
+		}
+		idsCSV, _ := cmd.Flags().GetString("item-ids")
+		var itemIDs []string
+		for _, s := range strings.Split(idsCSV, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				itemIDs = append(itemIDs, s)
+			}
+		}
+		if len(itemIDs) == 0 {
+			return fmt.Errorf("--item-ids is required (comma-separated)")
+		}
+		brief, _ := cmd.Flags().GetString("brief")
+		session, _ := cmd.Flags().GetString("session")
+		channel, _ := cmd.Flags().GetString("channel")
+
+		server, broadcastsDir, eventsDir := eventDirs()
+		now := time.Now().UnixMilli()
+		ledger := feedevent.NewLedger(broadcastsDir, server)
+
+		var toBuild []map[string]interface{}
+		var hitResults []map[string]interface{}
+		results := make([]map[string]interface{}, 0, len(itemIDs))
+		for _, id := range itemIDs {
+			entry, status := ledger.Lookup(id, now)
+			if status != feedevent.StatusHit {
+				errKind := "unknown_item"
+				if status == feedevent.StatusExpired {
+					errKind = "expired"
+				}
+				results = append(results, map[string]interface{}{"item_id": id, "ok": false, "error": errKind})
+				continue
+			}
+			item := map[string]interface{}{"item_id": id, "kind": kind, "server_id": server, "ts": now}
+			if entry.ImpressionID != "" {
+				item["impression_id"] = entry.ImpressionID
+			}
+			if brief != "" {
+				item["brief"] = brief
+			}
+			if session != "" {
+				item["session_key"] = session
+			}
+			if channel != "" {
+				item["channel"] = channel
+			}
+			toBuild = append(toBuild, item)
+			r := map[string]interface{}{"item_id": id, "ok": true}
+			hitResults = append(hitResults, r)
+			results = append(results, r)
+		}
+
+		if len(toBuild) > 0 {
+			events, err := buildFeedEventsFromItems(toBuild, activeAgentScope())
+			if err != nil {
+				return err
+			}
+			for i := range events {
+				hitResults[i]["dedup_key"] = events[i]["dedup_key"]
+			}
+			q := feedevent.NewQueue(eventsDir)
+			if err := q.Enqueue(events); err != nil {
+				return err
+			}
+			// Opportunistic flush — best-effort; leftovers ride the next flush.
+			_, _, _ = q.Flush(now, pushEvents)
+		}
+
+		output.PrintData(map[string]interface{}{"ok": true, "accepted": len(toBuild), "results": results}, resolveFormat())
+		return nil
+	},
+}
+
+var feedEventFlushCmd = &cobra.Command{
+	Use:   "flush",
+	Short: "Flush queued follow-up events to the backend (returns remaining)",
+	Long: `Send one batch of queued follow-up events. Returns {flushed, remaining, ok}.
+No internal retry — the caller (a resident plugin loop / automation task / cron)
+owns the cadence: re-run while remaining > 0 with its own back-off.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		_, _, eventsDir := eventDirs()
+		q := feedevent.NewQueue(eventsDir)
+		flushed, remaining, ferr := q.Flush(time.Now().UnixMilli(), pushEvents)
+		output.PrintData(map[string]interface{}{
+			"flushed":   flushed,
+			"remaining": remaining,
+			"ok":        ferr == nil,
+		}, resolveFormat())
+		return nil // the JSON conveys success; never hard-fail the caller's loop
+	},
+}
+
 func init() {
 	feedPollCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
@@ -329,7 +483,12 @@ func init() {
 	feedDeleteCmd.Flags().String("item-id", "", "item ID to delete (required)")
 	feedEventPushCmd.Flags().String("items", "", "inline JSON array of {item_id, kind, impression_id} objects (mutually exclusive with --batch)")
 	feedEventPushCmd.Flags().String("batch", "", "path to a JSON file shaped {\"events\":[...]} (mutually exclusive with --items)")
-	feedEventCmd.AddCommand(feedEventPushCmd)
+	feedEventRecordCmd.Flags().String("item-ids", "", "comma-separated feed item ids (required)")
+	feedEventRecordCmd.Flags().String("kind", "", "surface|question|discussion|task (required)")
+	feedEventRecordCmd.Flags().String("brief", "", "short free-text note (optional)")
+	feedEventRecordCmd.Flags().String("session", "", "session key to stamp on events (optional)")
+	feedEventRecordCmd.Flags().String("channel", "", "channel to stamp on events (optional)")
+	feedEventCmd.AddCommand(feedEventPushCmd, feedEventRecordCmd, feedEventFlushCmd)
 	feedCmd.AddCommand(feedPollCmd, feedGetCmd, feedFeedbackCmd, feedDeleteCmd, feedEventCmd)
 	rootCmd.AddCommand(feedCmd)
 }
