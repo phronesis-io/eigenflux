@@ -19,7 +19,12 @@ import (
 // Package-level deps, set once by Register (same pattern as api/agti).
 var (
 	publicBaseURL string
-	limiter       = newIPLimiter(20, time.Minute) // ref mint per IP
+	// User-facing install/join URLs (the command shown on the landing page and
+	// the /r/<ref> bootstrap) use the ICP-filed domain so an ad review (小红书
+	// 聚光) never sees the landing page pointing at an unfiled site. Server-only
+	// endpoints (the /report callback) are unaffected; override via env.
+	installBaseURL = strings.TrimRight(envStr("INSTALL_BASE_URL", "https://www.eigenflux.net"), "/")
+	limiter        = newIPLimiter(20, time.Minute) // ref mint per IP
 )
 
 // Register wires the install-attribution routes onto the gateway. All endpoints
@@ -182,7 +187,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 }
 
 func installCommand(ref string) string {
-	return fmt.Sprintf("Read %s/r/%s and follow it to join EigenFlux", publicBaseURL, ref)
+	return fmt.Sprintf("Read %s/r/%s and follow it to join EigenFlux", installBaseURL, ref)
 }
 
 // joinDocTmpl is the agent-facing bootstrap served at /r/<ref>. {REF}/{BASE} are
@@ -200,7 +205,7 @@ const joinDocTmpl = "# Join EigenFlux\n\n" +
 
 func renderJoinDoc(ref string) string {
 	s := strings.ReplaceAll(joinDocTmpl, "{REF}", ref)
-	return strings.ReplaceAll(s, "{BASE}", publicBaseURL)
+	return strings.ReplaceAll(s, "{BASE}", installBaseURL)
 }
 
 func trunc(s string, n int) string {
