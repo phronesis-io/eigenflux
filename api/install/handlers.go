@@ -32,6 +32,7 @@ var (
 // minting is IP rate limited so a flood of page loads can't amplify writes.
 func Register(h *server.Hertz, baseURL string) {
 	publicBaseURL = strings.TrimRight(baseURL, "/")
+	initXHSConfig() // read env here — .env is loaded by the time Register runs
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)

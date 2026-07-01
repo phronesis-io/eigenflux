@@ -41,6 +41,7 @@ func TestReportXHSConversionAuthOn(t *testing.T) {
 	srv := mockXHS(t, &leadsBody, &tokenCalled)
 	defer srv.Close()
 
+	initXHSConfig() // load defaults (advertiser_id / event_type); overridden below
 	oldBase, oldAuth := xhsAPIBase, xhsAuthEnabled
 	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, true, "", 0
 	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()
@@ -80,6 +81,7 @@ func TestReportXHSConversionAuthOff(t *testing.T) {
 	srv := mockXHS(t, &leadsBody, &tokenCalled)
 	defer srv.Close()
 
+	initXHSConfig() // load defaults (advertiser_id / event_type); overridden below
 	oldBase, oldAuth := xhsAPIBase, xhsAuthEnabled
 	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, false, "", 0
 	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()

@@ -30,12 +30,24 @@ import (
 //	                      clients may not need it — set false to skip the token)
 //	XHS_ADVERTISER_ID / XHS_EVENT_TYPE / XHS_API_BASE
 var (
-	xhsCallbackEnabled = envBool("XHS_CALLBACK_ENABLED", false)
-	xhsAuthEnabled     = envBool("XHS_AUTH_ENABLED", true)
-	xhsAdvertiserID    = envStr("XHS_ADVERTISER_ID", "5dfe36e3000000000100b5c3")
-	xhsEventType       = envStr("XHS_EVENT_TYPE", "101") // 101 = 表单提交, the generic primary target
-	xhsAPIBase         = envStr("XHS_API_BASE", "https://adapi.xiaohongshu.com")
+	xhsCallbackEnabled bool
+	xhsAuthEnabled     bool
+	xhsAdvertiserID    string
+	xhsEventType       string
+	xhsAPIBase         string
 )
+
+// initXHSConfig reads the callback config from env. It MUST run from Register
+// (after the app loads .env via config's godotenv.Load) — reading these at
+// package-var init runs before main() and would miss .env values, so a
+// XHS_CALLBACK_ENABLED=true in .env would be silently ignored.
+func initXHSConfig() {
+	xhsCallbackEnabled = envBool("XHS_CALLBACK_ENABLED", false)
+	xhsAuthEnabled = envBool("XHS_AUTH_ENABLED", true)
+	xhsAdvertiserID = envStr("XHS_ADVERTISER_ID", "5dfe36e3000000000100b5c3")
+	xhsEventType = envStr("XHS_EVENT_TYPE", "101") // 101 = 表单提交, generic primary target
+	xhsAPIBase = envStr("XHS_API_BASE", "https://adapi.xiaohongshu.com")
+}
 
 const xhsCommonPath = "/api/open/common"
 
