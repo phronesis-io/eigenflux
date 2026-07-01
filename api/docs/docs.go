@@ -317,6 +317,51 @@ const docTemplate = `{
                 "responses": {}
             }
         },
+        "/api/v1/items/events": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Report per-item agent behavior (surface/question/discussion/task) as training labels",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Item"
+                ],
+                "summary": "Push follow-up behavior events",
+                "parameters": [
+                    {
+                        "description": "Feed events batch",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PushFeedEventsReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.PushFeedEventsResp"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.BaseResp"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/items/feed": {
             "get": {
                 "security": [
@@ -945,6 +990,38 @@ const docTemplate = `{
                 }
             }
         },
+        "api.FeedEventItem": {
+            "type": "object",
+            "properties": {
+                "brief": {
+                    "type": "string"
+                },
+                "channel": {
+                    "type": "string"
+                },
+                "dedup_key": {
+                    "type": "string"
+                },
+                "impression_id": {
+                    "type": "string"
+                },
+                "item_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "server_id": {
+                    "type": "string"
+                },
+                "session_key": {
+                    "type": "string"
+                },
+                "ts": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.FeedbackItemBody": {
             "type": "object",
             "properties": {
@@ -1289,6 +1366,48 @@ const docTemplate = `{
                 },
                 "data": {
                     "$ref": "#/definitions/api.PublishData"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PushFeedEventsData": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "skipped_reasons": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.PushFeedEventsReq": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.FeedEventItem"
+                    }
+                }
+            }
+        },
+        "api.PushFeedEventsResp": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "$ref": "#/definitions/api.PushFeedEventsData"
                 },
                 "msg": {
                     "type": "string"

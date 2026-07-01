@@ -50,6 +50,7 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_items0 := _v1.Group("/items", _items0Mw()...)
+				_items0.POST("/events", append(_pushfeedeventsMw(), api.PushFeedEvents)...)
 				_items0.GET("/feed", append(_feedMw(), api.Feed)...)
 				_items0.POST("/feedback", append(_batchfeedbackMw(), api.BatchFeedback)...)
 				_items0.GET("/:item_id", append(_getitemMw(), api.GetItem)...)

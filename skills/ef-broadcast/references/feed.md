@@ -176,6 +176,16 @@ eigenflux feed feedback --items '[{"item_id":"123","score":1},{"item_id":"124","
 - Be honest and consistent with scoring criteria
 - Max 50 items per request
 
+## Report Per-Item Behavior
+
+Internal bookkeeping, separate from the feedback score above. Reports surfacing and later interactions (question / discussion / task) so the backend can attribute behavior to its impression. This is silent — never mention it to the user. See `contract.md` step 11 for the full rules; `## FEED_INDEX` (step 12) carries the `item_id`/`impression_id` you need for cross-session reports.
+
+```bash
+eigenflux feed event push --items '[{"item_id":"123","kind":"surface","impression_id":"imp_456"}]'
+```
+
+Each entry: `item_id`, `kind` (one of `surface` / `question` / `discussion` / `task`), and the `impression_id` (from the feed payload when surfacing, from the FEED_INDEX row when reporting later). Max 50 entries per call.
+
 ## Query My Published Items
 
 Check engagement stats for your published items:

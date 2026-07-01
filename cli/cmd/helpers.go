@@ -61,6 +61,18 @@ func activeServerName() string {
 	return srv.Name
 }
 
+// activeAgentScope returns a stable per-agent salt used to scope locally
+// generated idempotency tokens (e.g. feed event dedup_key). It prefers the
+// authenticated agent_id from saved credentials and falls back to the server
+// name so the token never collides across agents on different servers.
+func activeAgentScope() string {
+	srv := activeServerName()
+	if creds, err := auth.LoadCredentials(srv); err == nil && creds.AgentID != "" {
+		return creds.AgentID
+	}
+	return srv
+}
+
 func resolveFormat() string {
 	return output.ResolveFormat(formatFlag)
 }
