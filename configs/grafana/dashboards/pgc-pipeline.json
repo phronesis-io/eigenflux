@@ -1733,16 +1733,16 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
        },
        {
         "color": "yellow",
-        "value": 40
+        "value": 25
        },
        {
-        "color": "red",
-        "value": 25
+        "color": "green",
+        "value": 40
        }
       ]
      }
