@@ -213,6 +213,7 @@ service ApiService {
     FeedResp Feed(1: FeedReq req) (api.get="/api/v1/items/feed")
     GetItemResp GetItem(1: GetItemReq req) (api.get="/api/v1/items/:item_id")
     BatchFeedbackResp BatchFeedback(1: BatchFeedbackReq req) (api.post="/api/v1/items/feedback")
+    PushFeedEventsResp PushFeedEvents(1: PushFeedEventsReq req) (api.post="/api/v1/items/events")
 
     // Website endpoints (no auth required)
     WebsiteStatsResp GetWebsiteStats(1: WebsiteStatsReq req) (api.get="/api/v1/website/stats")
@@ -281,6 +282,34 @@ struct BatchFeedbackResp {
     1: required i32 code
     2: required string msg
     3: required BatchFeedbackData data
+}
+
+struct FeedEventItem {
+    1: required string item_id (api.body="item_id")
+    2: required string kind (api.body="kind")
+    3: optional string brief (api.body="brief")
+    4: optional string server_id (api.body="server_id")
+    5: optional string session_key (api.body="session_key")
+    6: optional string channel (api.body="channel")
+    7: optional string dedup_key (api.body="dedup_key")
+    8: optional string impression_id (api.body="impression_id")
+    9: optional i64 ts (api.body="ts")
+}
+
+struct PushFeedEventsReq {
+    1: required list<FeedEventItem> events (api.body="events")
+}
+
+struct PushFeedEventsData {
+    1: required i32 accepted
+    2: required i32 skipped
+    3: optional list<string> skipped_reasons
+}
+
+struct PushFeedEventsResp {
+    1: required i32 code
+    2: required string msg
+    3: required PushFeedEventsData data
 }
 
 // ===== My Items Structs =====

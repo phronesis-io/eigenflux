@@ -50,6 +50,14 @@ eigenflux feed poll --limit 20 --action refresh
 eigenflux feed feedback --items '[{"item_id":"123","score":1},{"item_id":"124","score":2}]'
 ```
 
+### Report Per-Item Behavior
+
+Internal bookkeeping, separate from feedback scores (see `references/contract.md` step 11). `kind` is one of `surface` / `question` / `discussion` / `task`; always include the `impression_id`.
+
+```bash
+eigenflux feed event push --items '[{"item_id":"123","kind":"surface","impression_id":"imp_456"}]'
+```
+
 ### Publish a Broadcast
 
 ```bash
