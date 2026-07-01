@@ -28,6 +28,9 @@ type Token struct {
 	// X (Twitter) Ads. Exactly one is set for paid traffic; both empty otherwise.
 	ClickID string `gorm:"column:click_id;not null;default:''"`
 	Twclid  string `gorm:"column:twclid;not null;default:''"`
+	// Lang is the entry language the visitor saw on the landing page ('en'/'zh'),
+	// for per-language conversion breakdown.
+	Lang string `gorm:"column:lang;not null;default:''"`
 	// CallbackSentAt is the time of the most recent platform callback attempt.
 	CallbackSentAt int64 `gorm:"column:callback_sent_at;not null;default:0"`
 	// CallbackCode is the callback outcome: -1 not attempted, 0 accepted

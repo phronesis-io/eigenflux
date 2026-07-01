@@ -51,6 +51,20 @@ type mintBody struct {
 	// Platform click identifiers from the landing URL (paid traffic).
 	ClickID string `json:"click_id"` // Xiaohongshu 聚光
 	Twclid  string `json:"twclid"`   // X (Twitter) Ads
+	Lang    string `json:"lang"`     // entry language shown on the page ('en'/'zh')
+}
+
+// normalizeLang keeps only the two supported entry languages; anything else
+// (including empty) is stored as ” so it groups separately in reports.
+func normalizeLang(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "en":
+		return "en"
+	case "zh":
+		return "zh"
+	default:
+		return ""
+	}
 }
 
 // mintRef issues a fresh referral code, persists the UTM/referrer it was minted
@@ -82,6 +96,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		Referrer:    trunc(body.Referrer, 2048),
 		ClickID:     trunc(body.ClickID, 128),
 		Twclid:      trunc(body.Twclid, 128),
+		Lang:        normalizeLang(body.Lang),
 		Status:      StatusPending,
 		ClientIP:    ip,
 		CreatedAt:   time.Now().UnixMilli(),
@@ -152,6 +167,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 			"referrer":     t.Referrer,
 			"click_id":     t.ClickID,
 			"twclid":       t.Twclid,
+			"lang":         t.Lang,
 			"report_count": t.ReportCount,
 			"created_at":   t.CreatedAt,
 			"reported_at":  t.ReportedAt,
