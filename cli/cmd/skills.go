@@ -151,7 +151,7 @@ var skillsInstallCmd = &cobra.Command{
 func init() {
 	skillsSyncCmd.Flags().String("into", "", "explicit skills dir (overrides host detection)")
 	skillsSyncCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
-	skillsSyncCmd.Flags().Bool("if-stale", false, "skip network when local cli_version already matches")
+	skillsSyncCmd.Flags().Bool("if-stale", false, "background mode: never fail on network errors; unchanged revision skips the download")
 	skillsSyncCmd.Flags().Bool("quiet", false, "never fail (exit 0); for startup hooks")
 
 	skillsListCmd.Flags().String("into", "", "explicit skills dir")

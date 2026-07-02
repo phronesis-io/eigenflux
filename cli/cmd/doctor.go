@@ -47,7 +47,7 @@ silently corrupted or hand-modified.`,
 			rep.Stale = skillsStale(dir)
 		}
 		if rep.Outdated {
-			rep.Hint = "skills follow the CLI version — upgrade the CLI to get newer skills: curl -fsSL https://www.eigenflux.ai/install.sh | sh"
+			rep.Hint = "the CLI binary is out of date — upgrade it: curl -fsSL https://www.eigenflux.ai/install.sh | sh (skills update independently via 'eigenflux skills sync')"
 		}
 
 		exit := output.ExitSuccess

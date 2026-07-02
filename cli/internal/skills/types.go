@@ -56,9 +56,9 @@ const CDNDefault = "https://cdn.eigenflux.ai"
 // excluded and is never distributed.
 var ProdAllowlist = []string{"ef-broadcast", "ef-communication", "ef-profile", "ef-trading"}
 
-// Manifest is the authoritative description of a skills bundle. The pair
-// (cli_version, per-skill sha256) is authoritative; display_version is cosmetic
-// and may be empty.
+// Manifest is the authoritative description of a skills bundle. The content
+// `revision` (plus per-skill sha256) is authoritative; cli_version is
+// informational and display_version is cosmetic — both may be empty.
 type Manifest struct {
 	// Revision is the content fingerprint of the bundle (hash over the sorted
 	// per-skill sha256s). It is the freshness key — skills update when this
@@ -99,7 +99,7 @@ type SyncOptions struct {
 	Host       string       // openclaw|claude-code|codex|terminal; "" => autodetect
 	CLIVersion string       // current binary version, supplied by the cmd layer
 	CDNBase    string       // default CDNDefault
-	IfStale    bool         // skip network when local cli_version already matches
+	IfStale    bool         // background mode: keep local silently on fetch failure (revision match always short-circuits the download)
 	Quiet      bool         // never return an error (exit 0); for startup hooks
 	FromBundle bool         // offline-first-install: fall back to BundleDir
 	BundleDir  string       // local skills dir for InstallFromBundle / fallback

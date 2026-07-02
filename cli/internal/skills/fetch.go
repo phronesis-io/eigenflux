@@ -80,8 +80,10 @@ func fetchTarball(opts SyncOptions, dirURL string) ([]byte, error) {
 // user with zero or malformed skills. This is the guard against CDN edge
 // truncation silently clearing skills.
 func validateRemoteManifest(m *Manifest) error {
-	if strings.TrimSpace(m.CLIVersion) == "" {
-		return fmt.Errorf("manifest missing cli_version")
+	// revision is the freshness key — a manifest without one can never satisfy
+	// the short-circuit and would force a tarball download on every sync.
+	if strings.TrimSpace(m.Revision) == "" {
+		return fmt.Errorf("manifest missing revision")
 	}
 	if len(m.Skills) == 0 {
 		return fmt.Errorf("manifest has no skills")
