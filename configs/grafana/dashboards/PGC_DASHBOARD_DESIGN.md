@@ -36,6 +36,20 @@
 - **description 字段写操作指引**：比如"超过 2h 说明 timer 卡了"。
 - **黑话默认判失败，原始标签表禁止裸奔**：标题/图例/表格列如果要查文档才看懂（`SLA`、`canary`、`kind=xxx` 这类内部黑话/枚举），或者表格直接吐 Prometheus 原始多列标签（`source_class`/`source_tier`/`instance`/`job`…），对 Pascal 来说就是噪声，不管 description 写得多详细都没用——他不会去读 hover。要么把标签转译成人话（标题、图例都要翻），要么直接砍掉，别留"技术上对但没人能读"的面板。
 
+## 2026-07-02 口径切换：榜单声称改为大模型确认制（metric v2）
+
+榜单的"抢先"声称从"相似度够高就算"改为"大模型读两篇全文确认同一事件、
+且我们确实更早才算"；没判完的事件标 pending、不进分母。对应
+eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
+
+对看板的影响：
+- `pgc_first_source_win_rate` 跨 2026-07-02 不可比（ledger 里有 metric_version:2 标记）。
+- `pgc_event_win_precision` 降级为纯诊断（旧判断器准确率），不再代表对外口径
+  （面板 57 标题/说明已改）。
+- 新指标可用：`pgc_first_source_metric_version`、`pgc_first_source_pending_verdicts`、
+  `pgc_event_shadow_llm_win_claims`、`pgc_event_gate_won_llm_rejected`、
+  `pgc_event_gate_missed_llm_won`（暂未上面板，按"看了会做什么"原则先不加）。
+
 ## 面板结构（2026-06-23 版本）
 
 ### Row 1: 核心结果 — 我们离事件有多近
