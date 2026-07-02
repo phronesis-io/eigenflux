@@ -223,6 +223,15 @@ func TestConfigKV(t *testing.T) {
 	if kv["recurring_publish"] != "true" {
 		t.Errorf("show.kv.recurring_publish = %v, want \"true\"", kv["recurring_publish"])
 	}
+
+	// auto_comment is backend-synced too: same global-only scoping contract.
+	mustRunCLI(t, "config", "set", "--key", "auto_comment", "--value", "false", "--server", "local")
+	out = mustRunCLI(t, "config", "show", "--server", "local", "--format", "json")
+	v = parseJSON(t, out)
+	kv, _ = v["kv"].(map[string]interface{})
+	if kv["auto_comment"] != "false" {
+		t.Errorf("synced key set with --server must land in global kv; show.kv.auto_comment = %v, want \"false\"", kv["auto_comment"])
+	}
 	if kv["feed_delivery_preference"] != "push urgent signals" {
 		t.Errorf("show.kv.feed_delivery_preference = %v, want \"push urgent signals\"", kv["feed_delivery_preference"])
 	}

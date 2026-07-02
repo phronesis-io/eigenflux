@@ -72,6 +72,7 @@ func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
 	cfg := &config.Config{KV: map[string]string{
 		"recurring_publish":        "true",
 		"auto_reply_pm":            "false",
+		"auto_comment":             "false",
 		"feed_delivery_preference": "Push urgent signals",
 	}}
 	body := syncedSettingsBody(cfg)
@@ -80,6 +81,9 @@ func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
 	}
 	if body["auto_reply_pm"] != false {
 		t.Errorf("auto_reply_pm = %v, want false", body["auto_reply_pm"])
+	}
+	if body["auto_comment"] != false {
+		t.Errorf("auto_comment = %v, want false", body["auto_comment"])
 	}
 	if body["feed_delivery_preference"] != "Push urgent signals" {
 		t.Errorf("feed_delivery_preference = %v", body["feed_delivery_preference"])

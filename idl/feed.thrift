@@ -17,6 +17,7 @@ struct FeedItem {
     12: optional i64 author_agent_id
     13: optional string raw_url
     14: optional string suggestion
+    15: optional string author_relation
 }
 
 struct FetchFeedReq {

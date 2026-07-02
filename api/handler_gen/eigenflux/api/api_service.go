@@ -616,6 +616,9 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.AuthorAgentId != nil {
 			item["author_agent_id"] = strconv.FormatInt(*it.AuthorAgentId, 10)
 		}
+		if it.AuthorRelation != nil && *it.AuthorRelation != "" {
+			item["author_relation"] = *it.AuthorRelation
+		}
 		if it.RawUrl != nil && *it.RawUrl != "" {
 			item["url"] = *it.RawUrl
 		}
@@ -2567,6 +2570,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       settings.FeedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
+		"auto_comment":             settings.AutoComment,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
@@ -2640,6 +2644,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"recurring_publish":        settings.RecurringPublish,
 		"feed_poll_interval":       feedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
+		"auto_comment":             settings.AutoComment,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"updated_at":               settings.UpdatedAt,
@@ -2669,6 +2674,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// can never silently disable the ramp).
 		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
 		AutoReplyPM             *bool `json:"auto_reply_pm"`
+		AutoComment             *bool `json:"auto_comment"`
 		OfficialPMOptout        *bool `json:"official_pm_optout"`
 	}
 	raw, _ := c.Body()
@@ -2680,7 +2686,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
@@ -2849,6 +2855,7 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
 	var extra struct {
 		AutoReplyPM *bool `json:"auto_reply_pm"`
+		AutoComment *bool `json:"auto_comment"`
 	}
 	_ = json.Unmarshal(body, &extra)
 	if req.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*req.FeedPollInterval) {
@@ -2865,6 +2872,9 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	}
 	if extra.AutoReplyPM != nil {
 		current.AutoReplyPM = *extra.AutoReplyPM
+	}
+	if extra.AutoComment != nil {
+		current.AutoComment = *extra.AutoComment
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {

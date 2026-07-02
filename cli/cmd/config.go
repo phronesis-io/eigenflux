@@ -38,7 +38,7 @@ var configSetCmd = &cobra.Command{
   - --server NAME: stored under that server.
 An empty value deletes the entry.
 
-Backend-synced settings (feed_delivery_preference, recurring_publish,
+Backend-synced settings (feed_delivery_preference, recurring_publish, auto_comment,
 auto_reply_pm, feed_poll_interval) are account-level and always stored
 globally; --server is ignored for them (and any stray per-server copy is
 cleared) so they reliably reach the backend.

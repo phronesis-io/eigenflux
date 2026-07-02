@@ -35,7 +35,7 @@ const feedPollIntentKey = "_feed_poll_interval_intent"
 // syncedBoolKeys / syncedIntKeys / syncedStringKeys are the config KV entries
 // mirrored to the backend agent_settings row (PUT /agents/me/settings).
 var (
-	syncedBoolKeys   = []string{"recurring_publish", "auto_reply_pm", "official_pm_optout"}
+	syncedBoolKeys   = []string{"recurring_publish", "auto_reply_pm", "official_pm_optout", "auto_comment"}
 	syncedIntKeys    = []string{"feed_poll_interval"}
 	syncedStringKeys = []string{"feed_delivery_preference"}
 )

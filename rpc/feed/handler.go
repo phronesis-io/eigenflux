@@ -222,7 +222,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		}
 	}
 
-	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(toReturn), itemMap)
+	feedItems := s.buildFeedItems(ctx, agentID, groupIDsFromCacheEntries(toReturn), itemMap)
 	toReturnReplayLookup := s.buildReplayLookupFromCacheEntries(toReturn)
 
 	// Collect filtered SortedItems (present in SortedItems but not in ItemIds) for replay log.
@@ -334,7 +334,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 		}
 	}
 
-	feedItems := s.buildFeedItems(groupIDsFromCacheEntries(resolvedEntries), itemMap)
+	feedItems := s.buildFeedItems(ctx, agentID, groupIDsFromCacheEntries(resolvedEntries), itemMap)
 
 	go func() {
 		bgCtx := context.Background()
@@ -362,7 +362,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 	}, nil
 }
 
-func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*item.ProcessedItem) []*feed.FeedItem {
+func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, groupIDs []int64, itemMap map[int64]*item.ProcessedItem) []*feed.FeedItem {
 	var feedItems []*feed.FeedItem
 
 	// Collect item IDs for batch raw_items lookup
@@ -413,7 +413,78 @@ func (s *FeedServiceImpl) buildFeedItems(groupIDs []int64, itemMap map[int64]*it
 
 		feedItems = append(feedItems, feedItem)
 	}
+	s.stampAuthorRelations(ctx, agentID, feedItems)
 	return feedItems
+}
+
+// relTypeFriend mirrors rpc/pm/dal.RelTypeFriend — the user_relations rel_type
+// value for an accepted friendship.
+const relTypeFriend = 1
+
+// stampAuthorRelations back-fills each item's author_relation from the
+// requesting agent's perspective: "official" (agents.is_official), else
+// "friend" (an accepted user_relations edge from the agent to the author),
+// else unset (stranger). Official wins over friend on purpose: the official
+// guide account auto-friends every user, and labeling its broadcasts "friend"
+// would wrongly lower the skill's auto-comment threshold. Best-effort — a
+// lookup failure logs a warning and leaves relations unset (safe degradation),
+// never blocking the feed.
+func (s *FeedServiceImpl) stampAuthorRelations(ctx context.Context, agentID int64, items []*feed.FeedItem) {
+	if agentID == 0 || len(items) == 0 {
+		return
+	}
+	seen := make(map[int64]bool, len(items))
+	authors := make([]int64, 0, len(items))
+	for _, it := range items {
+		if it.AuthorAgentId == nil || *it.AuthorAgentId == 0 {
+			continue
+		}
+		if id := *it.AuthorAgentId; !seen[id] {
+			seen[id] = true
+			authors = append(authors, id)
+		}
+	}
+	if len(authors) == 0 {
+		return
+	}
+
+	official := make(map[int64]bool, len(authors))
+	var officialIDs []int64
+	if err := db.DB.Table("agents").
+		Where("agent_id IN ? AND is_official", authors).
+		Pluck("agent_id", &officialIDs).Error; err != nil {
+		logger.Ctx(ctx).Warn("author_relation: official lookup failed", "err", err)
+	} else {
+		for _, id := range officialIDs {
+			official[id] = true
+		}
+	}
+
+	friend := make(map[int64]bool, len(authors))
+	var friendIDs []int64
+	if err := db.DB.Table("user_relations").
+		Where("from_uid = ? AND to_uid IN ? AND rel_type = ?", agentID, authors, relTypeFriend).
+		Pluck("to_uid", &friendIDs).Error; err != nil {
+		logger.Ctx(ctx).Warn("author_relation: friend lookup failed", "err", err)
+	} else {
+		for _, id := range friendIDs {
+			friend[id] = true
+		}
+	}
+
+	for _, it := range items {
+		if it.AuthorAgentId == nil {
+			continue
+		}
+		switch {
+		case official[*it.AuthorAgentId]:
+			rel := "official"
+			it.AuthorRelation = &rel
+		case friend[*it.AuthorAgentId]:
+			rel := "friend"
+			it.AuthorRelation = &rel
+		}
+	}
 }
 
 type replayData struct {
