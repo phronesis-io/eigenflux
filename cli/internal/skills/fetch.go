@@ -65,8 +65,18 @@ func fetchManifest(opts SyncOptions) (m *Manifest, dirURL, source string, err er
 // fetchTarball downloads the bundle from the same directory the manifest came
 // from. Only called when the revision changed, so the big download is skipped
 // when skills are already current.
-func fetchTarball(opts SyncOptions, dirURL string) ([]byte, error) {
-	tarGz, err := httpGet(httpClient(opts), dirURL+"/"+TarName, opts.CLIVersion)
+//
+// The revision rides as a cache-busting query (?rev=): skills/latest is a
+// mutable path behind a CDN, and an edge can serve a fresh manifest with a
+// STALE cached tarball — the checksum then mismatches and sync keeps local
+// forever. Keying the tarball URL by the manifest's revision makes the pair
+// consistent: a new revision is a new cache key, so the edge must refetch.
+func fetchTarball(opts SyncOptions, dirURL, revision string) ([]byte, error) {
+	url := dirURL + "/" + TarName
+	if revision != "" {
+		url += "?rev=" + revision
+	}
+	tarGz, err := httpGet(httpClient(opts), url, opts.CLIVersion)
 	if err != nil {
 		return nil, err
 	}

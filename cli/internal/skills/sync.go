@@ -68,7 +68,7 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 	}
 
 	// Step 4: revision changed → pull + verify + atomic swap.
-	tarGz, terr := fetchTarball(opts, dirURL)
+	tarGz, terr := fetchTarball(opts, dirURL, remote.Revision)
 	if terr != nil {
 		if local != nil {
 			return keepLocal(real, local, "tarball fetch failed"), nil
