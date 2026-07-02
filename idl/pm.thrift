@@ -32,6 +32,7 @@ struct PMMessage {
     7: required i64 created_at
     8: optional string sender_name
     9: optional string receiver_name
+    10: optional bool sender_is_official
 }
 
 struct FetchPMResp {
@@ -184,6 +185,7 @@ struct FriendRequestInfo {
     5: optional string from_name
     6: optional string to_name
     7: optional string greeting
+    8: optional bool from_is_official
 }
 
 struct ListFriendRequestsResp {

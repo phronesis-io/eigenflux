@@ -355,6 +355,28 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
+// officialFlagsFor batch-resolves which of the given agent IDs are ops-flagged
+// official accounts. This is the single computation point for the
+// server-verified officialness that rides PMs (sender_is_official) and friend
+// requests (from_is_official). Best-effort: on error it logs and returns an
+// empty map, so messages still flow — the flags are simply absent.
+func officialFlagsFor(ctx context.Context, agentIDs []int64) map[int64]bool {
+	seen := make(map[int64]bool, len(agentIDs))
+	distinct := make([]int64, 0, len(agentIDs))
+	for _, id := range agentIDs {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			distinct = append(distinct, id)
+		}
+	}
+	flags, err := dal.BatchGetOfficialFlags(db.DB, distinct)
+	if err != nil {
+		logger.Ctx(ctx).Warn("BatchGetOfficialFlags failed", "err", err)
+		return map[int64]bool{}
+	}
+	return flags
+}
+
 func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.FetchPMResp, error) {
 	limit := int(req.GetLimit())
 	if limit <= 0 {
@@ -410,18 +432,25 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 	_ = dal.MarkMessagesAsRead(db.DB, msgIDs)
 
 	// Build response
+	senderIDs := make([]int64, len(messages))
+	for i, msg := range messages {
+		senderIDs[i] = msg.SenderID
+	}
+	official := officialFlagsFor(ctx, senderIDs)
 	respMessages := make([]*pm.PMMessage, len(messages))
 	for i, msg := range messages {
+		isOfficial := official[msg.SenderID]
 		respMessages[i] = &pm.PMMessage{
-			MsgId:        msg.MsgID,
-			ConvId:       msg.ConvID,
-			SenderId:     msg.SenderID,
-			ReceiverId:   msg.ReceiverID,
-			Content:      msg.Content,
-			IsRead:       true,
-			CreatedAt:    msg.CreatedAt,
-			SenderName:   &msg.SenderName,
-			ReceiverName: &msg.ReceiverName,
+			MsgId:            msg.MsgID,
+			ConvId:           msg.ConvID,
+			SenderId:         msg.SenderID,
+			ReceiverId:       msg.ReceiverID,
+			Content:          msg.Content,
+			IsRead:           true,
+			CreatedAt:        msg.CreatedAt,
+			SenderName:       &msg.SenderName,
+			ReceiverName:     &msg.ReceiverName,
+			SenderIsOfficial: &isOfficial,
 		}
 	}
 
@@ -564,18 +593,25 @@ func (s *PMServiceImpl) GetConvHistory(ctx context.Context, req *pm.GetConvHisto
 		}, nil
 	}
 
+	convSenderIDs := make([]int64, len(msgs))
+	for i, msg := range msgs {
+		convSenderIDs[i] = msg.SenderID
+	}
+	official := officialFlagsFor(ctx, convSenderIDs)
 	pmMessages := make([]*pm.PMMessage, len(msgs))
 	for i, msg := range msgs {
+		isOfficial := official[msg.SenderID]
 		pmMessages[i] = &pm.PMMessage{
-			MsgId:        msg.MsgID,
-			ConvId:       msg.ConvID,
-			SenderId:     msg.SenderID,
-			ReceiverId:   msg.ReceiverID,
-			Content:      msg.Content,
-			IsRead:       msg.IsRead,
-			CreatedAt:    msg.CreatedAt,
-			SenderName:   &msg.SenderName,
-			ReceiverName: &msg.ReceiverName,
+			MsgId:            msg.MsgID,
+			ConvId:           msg.ConvID,
+			SenderId:         msg.SenderID,
+			ReceiverId:       msg.ReceiverID,
+			Content:          msg.Content,
+			IsRead:           msg.IsRead,
+			CreatedAt:        msg.CreatedAt,
+			SenderName:       &msg.SenderName,
+			ReceiverName:     &msg.ReceiverName,
+			SenderIsOfficial: &isOfficial,
 		}
 	}
 
@@ -1028,20 +1064,25 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 	var result []*pm.FriendRequestInfo
 	if len(requests) > 0 {
 		var uids []int64
+		fromUIDs := make([]int64, 0, len(requests))
 		for _, r := range requests {
 			uids = append(uids, r.FromUID, r.ToUID)
+			fromUIDs = append(fromUIDs, r.FromUID)
 		}
 		nameMap, _ := dal.BatchGetAgentNames(db.DB, uids)
+		official := officialFlagsFor(ctx, fromUIDs)
 		for _, r := range requests {
 			fromName := nameMap[r.FromUID]
 			toName := nameMap[r.ToUID]
+			fromIsOfficial := official[r.FromUID]
 			info := &pm.FriendRequestInfo{
-				RequestId: r.ID,
-				FromUid:   r.FromUID,
-				ToUid:     r.ToUID,
-				CreatedAt: r.CreatedAt,
-				FromName:  &fromName,
-				ToName:    &toName,
+				RequestId:      r.ID,
+				FromUid:        r.FromUID,
+				ToUid:          r.ToUID,
+				CreatedAt:      r.CreatedAt,
+				FromName:       &fromName,
+				ToName:         &toName,
+				FromIsOfficial: &fromIsOfficial,
 			}
 			if r.Greeting != "" {
 				info.Greeting = &r.Greeting
@@ -1208,18 +1249,25 @@ func (s *PMServiceImpl) FetchPMHistory(ctx context.Context, req *pm.FetchPMHisto
 		}, nil
 	}
 
+	historySenderIDs := make([]int64, len(messages))
+	for i, msg := range messages {
+		historySenderIDs[i] = msg.SenderID
+	}
+	official := officialFlagsFor(ctx, historySenderIDs)
 	respMessages := make([]*pm.PMMessage, len(messages))
 	for i, msg := range messages {
+		isOfficial := official[msg.SenderID]
 		respMessages[i] = &pm.PMMessage{
-			MsgId:        msg.MsgID,
-			ConvId:       msg.ConvID,
-			SenderId:     msg.SenderID,
-			ReceiverId:   msg.ReceiverID,
-			Content:      msg.Content,
-			IsRead:       msg.IsRead,
-			CreatedAt:    msg.CreatedAt,
-			SenderName:   &msg.SenderName,
-			ReceiverName: &msg.ReceiverName,
+			MsgId:            msg.MsgID,
+			ConvId:           msg.ConvID,
+			SenderId:         msg.SenderID,
+			ReceiverId:       msg.ReceiverID,
+			Content:          msg.Content,
+			IsRead:           msg.IsRead,
+			CreatedAt:        msg.CreatedAt,
+			SenderName:       &msg.SenderName,
+			ReceiverName:     &msg.ReceiverName,
+			SenderIsOfficial: &isOfficial,
 		}
 	}
 

@@ -47,6 +47,8 @@ type CachedMessage struct {
 	CreatedAt    int64  `json:"created_at"`
 	SenderName   string `json:"sender_name"`
 	ReceiverName string `json:"receiver_name"`
+	// Server-verified: the sender is an ops-flagged official account.
+	SenderIsOfficial bool `json:"sender_is_official,omitempty"`
 }
 
 // ServerDir returns the base directory for a server: ~/.eigenflux/servers/{serverName}

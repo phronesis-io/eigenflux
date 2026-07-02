@@ -1092,11 +1092,12 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
 			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
 			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
-			"content":       msg.Content,
-			"is_read":       msg.IsRead,
-			"created_at":    msg.CreatedAt,
-			"sender_name":   msg.GetSenderName(),
-			"receiver_name": msg.GetReceiverName(),
+			"content":            msg.Content,
+			"is_read":            msg.IsRead,
+			"created_at":         msg.CreatedAt,
+			"sender_name":        msg.GetSenderName(),
+			"receiver_name":      msg.GetReceiverName(),
+			"sender_is_official": msg.GetSenderIsOfficial(),
 		}
 	}
 
@@ -1294,11 +1295,12 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
 			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
 			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
-			"content":       msg.Content,
-			"is_read":       msg.IsRead,
-			"created_at":    msg.CreatedAt,
-			"sender_name":   msg.GetSenderName(),
-			"receiver_name": msg.GetReceiverName(),
+			"content":            msg.Content,
+			"is_read":            msg.IsRead,
+			"created_at":         msg.CreatedAt,
+			"sender_name":        msg.GetSenderName(),
+			"receiver_name":      msg.GetReceiverName(),
+			"sender_is_official": msg.GetSenderIsOfficial(),
 		}
 	}
 
@@ -1786,6 +1788,7 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 		if r.Greeting != nil && *r.Greeting != "" {
 			item["greeting"] = *r.Greeting
 		}
+		item["from_is_official"] = r.GetFromIsOfficial()
 		requests = append(requests, item)
 	}
 

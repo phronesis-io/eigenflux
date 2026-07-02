@@ -24,9 +24,9 @@ type Message struct {
 // PMFetchData mirrors the FetchPMResp.data shape sent via the REST API,
 // extended on the WS initial envelope with history + pending friend requests.
 type PMFetchData struct {
-	Messages            []PMMessageData     `json:"messages"`
-	NextCursor          string              `json:"next_cursor"`
-	HistoryMessages     []PMMessageData     `json:"history_messages,omitempty"`
+	Messages              []PMMessageData     `json:"messages"`
+	NextCursor            string              `json:"next_cursor"`
+	HistoryMessages       []PMMessageData     `json:"history_messages,omitempty"`
 	FriendRequests        []FriendRequestData `json:"friend_requests,omitempty"`
 	FriendRequestsHasMore bool                `json:"friend_requests_has_more,omitempty"`
 }
@@ -39,6 +39,9 @@ type FriendRequestData struct {
 	FromName  string `json:"from_name,omitempty"`
 	ToName    string `json:"to_name,omitempty"`
 	Greeting  string `json:"greeting,omitempty"`
+	// Server-verified officialness of the requester (agents.is_official),
+	// stamped by the pm service — clients must never infer it from names.
+	FromIsOfficial bool `json:"from_is_official,omitempty"`
 }
 
 type PMMessageData struct {
@@ -51,19 +54,23 @@ type PMMessageData struct {
 	CreatedAt    int64  `json:"created_at"`
 	SenderName   string `json:"sender_name,omitempty"`
 	ReceiverName string `json:"receiver_name,omitempty"`
+	// Server-verified officialness of the sender (agents.is_official),
+	// stamped by the pm service — clients must never infer it from names.
+	SenderIsOfficial bool `json:"sender_is_official,omitempty"`
 }
 
 func buildPMMessages(msgs []*pm.PMMessage) []PMMessageData {
 	result := make([]PMMessageData, len(msgs))
 	for i, m := range msgs {
 		result[i] = PMMessageData{
-			MsgID:      fmt.Sprintf("%d", m.MsgId),
-			ConvID:     fmt.Sprintf("%d", m.ConvId),
-			SenderID:   fmt.Sprintf("%d", m.SenderId),
-			ReceiverID: fmt.Sprintf("%d", m.ReceiverId),
-			Content:    m.Content,
-			IsRead:     m.IsRead,
-			CreatedAt:  m.CreatedAt,
+			MsgID:            fmt.Sprintf("%d", m.MsgId),
+			ConvID:           fmt.Sprintf("%d", m.ConvId),
+			SenderID:         fmt.Sprintf("%d", m.SenderId),
+			ReceiverID:       fmt.Sprintf("%d", m.ReceiverId),
+			Content:          m.Content,
+			IsRead:           m.IsRead,
+			CreatedAt:        m.CreatedAt,
+			SenderIsOfficial: m.GetSenderIsOfficial(),
 		}
 		if m.SenderName != nil {
 			result[i].SenderName = *m.SenderName
@@ -79,10 +86,11 @@ func buildFriendRequests(infos []*pm.FriendRequestInfo) []FriendRequestData {
 	result := make([]FriendRequestData, len(infos))
 	for i, fr := range infos {
 		result[i] = FriendRequestData{
-			RequestID: fmt.Sprintf("%d", fr.RequestId),
-			FromUID:   fmt.Sprintf("%d", fr.FromUid),
-			ToUID:     fmt.Sprintf("%d", fr.ToUid),
-			CreatedAt: fr.CreatedAt,
+			RequestID:      fmt.Sprintf("%d", fr.RequestId),
+			FromUID:        fmt.Sprintf("%d", fr.FromUid),
+			ToUID:          fmt.Sprintf("%d", fr.ToUid),
+			CreatedAt:      fr.CreatedAt,
+			FromIsOfficial: fr.GetFromIsOfficial(),
 		}
 		if fr.FromName != nil {
 			result[i].FromName = *fr.FromName
@@ -193,9 +201,9 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 	}
 
 	data := PMFetchData{
-		Messages:            unread,
-		NextCursor:          fmt.Sprintf("%d", nextCursor),
-		HistoryMessages:     history,
+		Messages:              unread,
+		NextCursor:            fmt.Sprintf("%d", nextCursor),
+		HistoryMessages:       history,
 		FriendRequests:        pending,
 		FriendRequestsHasMore: pendingHasMore,
 	}

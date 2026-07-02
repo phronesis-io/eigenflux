@@ -387,3 +387,25 @@ func BatchGetAgentNames(db *gorm.DB, agentIDs []int64) (map[int64]string, error)
 	}
 	return nameMap, nil
 }
+
+// BatchGetOfficialFlags returns the subset of the given agent IDs that are
+// ops-flagged official accounts (agents.is_official), as a set-style map.
+// IDs absent from the map are not official. Used to stamp server-verified
+// sender_is_official / from_is_official onto PMs and friend requests so
+// clients never have to infer officialness from names or bios.
+func BatchGetOfficialFlags(db *gorm.DB, agentIDs []int64) (map[int64]bool, error) {
+	if len(agentIDs) == 0 {
+		return map[int64]bool{}, nil
+	}
+	var ids []int64
+	err := db.Table("agents").Where("agent_id IN ? AND is_official", agentIDs).
+		Pluck("agent_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	flags := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		flags[id] = true
+	}
+	return flags, nil
+}

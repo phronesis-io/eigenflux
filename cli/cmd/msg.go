@@ -229,14 +229,15 @@ func cacheMessages(data json.RawMessage) {
 	ensureProfileCached(srv)
 
 	type rawMsg struct {
-		MsgID        string `json:"msg_id"`
-		ConvID       string `json:"conv_id"`
-		SenderID     string `json:"sender_id"`
-		ReceiverID   string `json:"receiver_id"`
-		Content      string `json:"content"`
-		CreatedAt    int64  `json:"created_at"`
-		SenderName   string `json:"sender_name"`
-		ReceiverName string `json:"receiver_name"`
+		MsgID            string `json:"msg_id"`
+		ConvID           string `json:"conv_id"`
+		SenderID         string `json:"sender_id"`
+		ReceiverID       string `json:"receiver_id"`
+		Content          string `json:"content"`
+		CreatedAt        int64  `json:"created_at"`
+		SenderName       string `json:"sender_name"`
+		ReceiverName     string `json:"receiver_name"`
+		SenderIsOfficial bool   `json:"sender_is_official"`
 	}
 	var wrapper struct {
 		Messages        []rawMsg `json:"messages"`
@@ -255,14 +256,15 @@ func cacheMessages(data json.RawMessage) {
 	msgs := make([]cache.CachedMessage, len(combined))
 	for i, m := range combined {
 		msgs[i] = cache.CachedMessage{
-			MsgID:        m.MsgID,
-			ConvID:       m.ConvID,
-			SenderID:     m.SenderID,
-			ReceiverID:   m.ReceiverID,
-			Content:      m.Content,
-			CreatedAt:    m.CreatedAt,
-			SenderName:   m.SenderName,
-			ReceiverName: m.ReceiverName,
+			MsgID:            m.MsgID,
+			ConvID:           m.ConvID,
+			SenderID:         m.SenderID,
+			ReceiverID:       m.ReceiverID,
+			Content:          m.Content,
+			CreatedAt:        m.CreatedAt,
+			SenderName:       m.SenderName,
+			ReceiverName:     m.ReceiverName,
+			SenderIsOfficial: m.SenderIsOfficial,
 		}
 	}
 

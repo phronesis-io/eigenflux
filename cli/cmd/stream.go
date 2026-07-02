@@ -219,11 +219,12 @@ Examples:
 							Messages       []streamMsg `json:"messages"`
 							History        []streamMsg `json:"history_messages"`
 							FriendRequests []struct {
-								RequestID string `json:"request_id"`
-								FromUID   string `json:"from_uid"`
-								FromName  string `json:"from_name"`
-								Greeting  string `json:"greeting"`
-								CreatedAt int64  `json:"created_at"`
+								RequestID      string `json:"request_id"`
+								FromUID        string `json:"from_uid"`
+								FromName       string `json:"from_name"`
+								Greeting       string `json:"greeting"`
+								CreatedAt      int64  `json:"created_at"`
+								FromIsOfficial bool   `json:"from_is_official"`
 							} `json:"friend_requests"`
 							FriendRequestsHasMore bool `json:"friend_requests_has_more"`
 						}
@@ -328,6 +329,18 @@ type streamMsg struct {
 	ReceiverName string `json:"receiver_name"`
 	Content      string `json:"content"`
 	CreatedAt    int64  `json:"created_at"`
+	// Server-verified: the sender is an ops-flagged official account.
+	SenderIsOfficial bool `json:"sender_is_official"`
+}
+
+// officialMark renders the server-verified official badge appended to a
+// sender's name. Officialness comes ONLY from the backend flag — never from
+// names or bios.
+func officialMark(isOfficial bool) string {
+	if isOfficial {
+		return " [✓ 官方已验证]"
+	}
+	return ""
 }
 
 func printHistoryLine(m streamMsg, myAgentID string) {
@@ -343,7 +356,7 @@ func printHistoryLine(m streamMsg, myAgentID string) {
 		if peer == "" {
 			peer = m.SenderID
 		}
-		fmt.Fprintf(os.Stdout, "[%s] ← %s: %s\n", ts, peer, m.Content)
+		fmt.Fprintf(os.Stdout, "[%s] ← %s%s: %s\n", ts, peer, officialMark(m.SenderIsOfficial), m.Content)
 	}
 }
 
@@ -353,5 +366,5 @@ func printNewLine(m streamMsg) {
 	if sender == "" {
 		sender = m.SenderID
 	}
-	fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, sender, m.Content)
+	fmt.Fprintf(os.Stdout, "[%s] %s%s: %s\n", ts, sender, officialMark(m.SenderIsOfficial), m.Content)
 }
