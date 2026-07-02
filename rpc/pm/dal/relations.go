@@ -267,16 +267,53 @@ func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int
 	return requests, false, nil
 }
 
-// ListFriends retrieves friends with names and pagination.
+// officialFriendIDs returns the subset of an agent's friends that are ops-flagged
+// official accounts (agents.is_official) — normally just the singleton new-user
+// guide. Used to pin the official account to the top of the relations list.
+func officialFriendIDs(db *gorm.DB, agentID int64) ([]int64, error) {
+	var ids []int64
+	err := db.Model(&UserRelation{}).
+		Joins("JOIN agents a ON a.agent_id = user_relations.to_uid").
+		Where("user_relations.from_uid = ? AND user_relations.rel_type = ? AND a.is_official",
+			agentID, RelTypeFriend).
+		Pluck("user_relations.to_uid", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// ListFriends retrieves friends with names and pagination. Official accounts are
+// pinned to the very top of the first page (cursor == 0) and excluded from the
+// normal id-DESC body on every page, so the official account always leads the
+// list and never appears twice across pages.
 func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend, error) {
+	official, err := officialFriendIDs(db, agentID)
+	if err != nil {
+		return nil, err
+	}
+
 	var relations []UserRelation
 	query := db.Where("from_uid = ? AND rel_type = ?", agentID, RelTypeFriend)
+	if len(official) > 0 {
+		query = query.Where("to_uid NOT IN ?", official)
+	}
 	if cursor > 0 {
 		query = query.Where("id < ?", cursor)
 	}
-	err := query.Order("id DESC").Limit(limit).Find(&relations).Error
-	if err != nil {
+	if err := query.Order("id DESC").Limit(limit).Find(&relations).Error; err != nil {
 		return nil, err
+	}
+
+	// First page: prepend the official account(s) ahead of the id-DESC body.
+	if cursor == 0 && len(official) > 0 {
+		var pinned []UserRelation
+		if err := db.Where("from_uid = ? AND rel_type = ? AND to_uid IN ?",
+			agentID, RelTypeFriend, official).
+			Order("id DESC").Find(&pinned).Error; err != nil {
+			return nil, err
+		}
+		relations = append(pinned, relations...)
 	}
 
 	if len(relations) == 0 {
