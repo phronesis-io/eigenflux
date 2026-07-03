@@ -271,7 +271,12 @@ func reply(c *app.RequestContext, status int, code int, msg string, data interfa
 }
 
 func clientIP(c *app.RequestContext) string {
-	for _, key := range []string{"X-Forwarded-For", "X-Real-IP"} {
+	// Behind Cloudflare → Caddy, X-Forwarded-For gets rewritten to the Cloudflare
+	// edge IP, so it yields Cloudflare's address rather than the visitor's. The
+	// real client is in CF-Connecting-IP (set by Cloudflare, passed through by
+	// Caddy). Prefer it, then the CF Enterprise alias, then the standard proxy
+	// headers (leftmost hop), then the direct peer.
+	for _, key := range []string{"CF-Connecting-IP", "True-Client-IP", "X-Real-IP", "X-Forwarded-For"} {
 		if v := string(c.GetHeader(key)); v != "" {
 			if i := strings.IndexByte(v, ','); i > 0 {
 				v = v[:i]
