@@ -1415,7 +1415,7 @@
   {
    "id": 30,
    "type": "row",
-   "title": "📉 诊断 — 对标媒体 / 首发 (已降级)",
+   "title": "🏁 首发榜单 — 对外口径 · 诊断",
    "gridPos": {
     "x": 0,
     "y": 46,
@@ -1872,6 +1872,66 @@
      "mode": "multi"
     }
    }
+  },
+  {
+   "id": 61,
+   "title": "榜单胜率（对外口径）",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "gridPos": {
+    "x": 20,
+    "y": 47,
+    "w": 4,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "pgc_first_source_win_rate",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto"
+   },
+   "description": "过去14天的大事件里，我们抢先拿到消息的比例。2026-07-02 起每一个'抢先'都经大模型读全文确认才算数（口径v2），还没判完的事件不计入。这是对外可引用的那个数；旁边的'对决胜率'只看我们手里有源的比赛。日更。"
   }
  ],
  "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。"
