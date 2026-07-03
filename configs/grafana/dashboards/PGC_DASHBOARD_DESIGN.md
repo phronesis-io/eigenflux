@@ -50,41 +50,46 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
   `pgc_event_shadow_llm_win_claims`、`pgc_event_gate_won_llm_rejected`、
   `pgc_event_gate_missed_llm_won`（暂未上面板，按"看了会做什么"原则先不加）。
 
-## 面板结构（2026-06-23 版本）
+## 面板结构（2026-07-03 版本）
 
-### Row 1: 核心结果 — 我们离事件有多近
-| 面板 | Prometheus 指标 | 操作含义 |
+内容面板 26 个（另有 3 个 row 分隔 + 1 个 text 头部说明）。
+
+### Row 🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度
+| 面板 (id) | Prometheus 指标 | 操作含义 |
 |------|----------------|---------|
-| 事件延迟中位数 | `pgc_event_latency_median_hours` | 北极星 — 越低越好 |
-| 真实对决 | `pgc_event_meaningful_races` | 分母 — 太小说明评测无统计意义 |
-| 真实胜率 | `pgc_event_real_win_rate` | 赢的比例 |
-| 过滤配对 | `pgc_event_non_meaningful` | 模型过滤掉的不可比配对数 |
-| 赢/输 | `pgc_event_real_wins` / `pgc_event_real_losses` | 绝对数 — 赢多输少 = 健康 |
-| 判定数据年龄 | `pgc_event_verdicts_age_seconds / 3600` | 超 2h = timer 可能卡了 |
+| 信号率·价值顶层 (54) | signal quality | 北极星顶层 — 广播里真信号占比 |
+| 错分类率 (56) | misclassification | 域填错% — 高了修分类 |
+| 护栏·捕获召回 (50) | coverage recall | 管线是否漏抓大事件 |
+| 护栏·忠实率 (52) | faithfulness | 广播是否忠于原文 |
+| 护栏·首源入库·速度 (51) | event latency | 事件发生→入库多快 |
+| 护栏·低可信占比 (58) | broadcast reliability | 低可信源广播占比 |
+| 真实对决·模型验证 (5) | `pgc_event_meaningful_races` | 评测分母，太小=无统计意义 |
+| 赢/输 (19) | `pgc_event_real_wins/losses` | 绝对数 |
+| 判定数据年龄 (7) | `pgc_event_verdicts_age_seconds` | 超 2h = timer 卡了 |
+| 诊断·门丢弃质量 (60) | discard quality | 软信号：门是否错杀真事件 |
+| 首发走势 (9) | latency/胜率/抢先率/旧判断器准确率 | 趋势；**7/2 有口径断点标注** |
+| 各域丢弃占比 (53) | discard by domain | 哪个域被门丢得多 |
 
-### Row 2: Owner Cockpit — 现在要看哪里
-| 面板 | 指标 | 操作含义 |
+### Row 🔧 运维 — 系统健康
+| 面板 (id) | 指标 | 操作含义 |
 |------|------|---------|
-| 立即要处理几件事 | `pgc_first_source_audit_attention + pgc_source_health_canaries_failed + pgc_source_health_sla_attention + pgc_signal_latency_actionable_breaches_3h{source_tier=~"T0\|T1"}` | owner action queue |
-| 首发关注 | `pgc_first_source_audit_attention` | benchmark/secondary items needing primary-source review |
-| T0/T1 仍超时 | `pgc_signal_latency_actionable_breaches_3h{source_tier=~"T0\|T1"}` | active high-priority source latency breaches |
-| Canary 失败 | `pgc_source_health_canaries_failed` | must-have source checks failing now |
-| 源 SLA 关注 | `pgc_source_health_sla_attention` | registry-defined source-health SLA breaches |
-| Twitter runway | `pgc_twitterapi_credits_days_to_empty` | paid X/Twitter source budget runway |
-| 风险趋势 | owner-action components over time | whether active risk is improving or worsening |
-| Active source drilldown | `pgc_signal_latency_active_source_breaches_3h{kind=~"source_latency\|source_feed_lag"}` | source/stage/tier/kind for current offenders |
+| 近 24h 发布数 (21) | published 24h | 为 0 = 管道挂了 |
+| 队列积压 (22) | queue depth | 持续增长 = 某阶段卡住 |
+| Worker 最大空闲 (23) | worker idle | 超时 = worker 可能死了 |
+| Twitter 还能撑几天 (36) | credits runway | 付费额度预警 |
+| NewsAPI 用量 (39) / ScraperAPI 用量 (40) | api usage | 付费额度预警 |
+| 发布量趋势 (24) | published/h | 吞吐节奏 |
+| Pipeline 日志 (25) | Loki | 排障 |
 
-### Row 3: 走势 — 是否在上升
-- 事件延迟 + 真实胜率双线 timeseries（`pgc_event_latency_median_hours`, `pgc_event_real_win_rate`）
-
-### Row 4: 运维保底
-| 面板 | 指标 | 操作含义 |
+### Row 🏁 首发榜单 — 对外口径 · 诊断
+| 面板 (id) | 指标 | 操作含义 |
 |------|------|---------|
-| 近 24h 发布数 | `increase(pgc_published_total[24h])` | 为 0 = 管道挂了 |
-| 队列积压 | `pgc_queue_*` sum | 持续增长 = 某阶段卡住 |
-| Worker 最大空闲 | `max(pgc_worker_last_run_age_seconds)` | 超 600s = worker 可能死了 |
-| 发布量趋势 | `increase(pgc_published_total[1h])` 柱状图 | 直观看吞吐节奏 |
-| Pipeline 日志 | Loki `{service="pgc-pipeline"}` | 排障用 |
+| 对决胜率·有一手源的比赛 (17) | `pgc_event_real_win_rate` | 速度：有源比赛我们更快的占比 |
+| 首发关注 (32) | `pgc_first_source_audit_attention` | 红了→去日报看清单加源/修源 |
+| 我方管线延迟 (33) | pipeline latency | 我们自己的处理耗时 |
+| 关键源现在挂了吗 (34) | canaries failed | 关键源健康 |
+| **榜单胜率·对外口径 (61)** | `pgc_first_source_win_rate` | 对外可引用的抢先率（大模型确认制 v2，日更） |
+| 风险趋势 (37) | owner action components | 待处理事项是好转还是恶化 |
 
 ## 演变记录
 
@@ -102,7 +107,10 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 | 2026-06-23 | 加 owner cockpit，删除低优先级延迟分布和旧坏源面板 | **25** |
 | 2026-06-29 | 迁移至价值(信号)为顶 + 覆盖/准确/速度护栏 (北极星重定义) | ~30 |
 | 2026-06-30 | 清理：删 8 个空的双语 row(总览/Owner Cockpit 等历史遗留空壳); 修护栏区两处面板重叠(51/58、7/60 共占 x16); 各域召回→各域丢弃占比(召回排除丢弃后恒≈100%, 无信号); 两个 Deep Dive row 改名区分(诊断·对标 / 工程诊断·信号延迟) | **44** (含 4 row+text) |
-| 2026-07-01 当前 | Pascal 反馈"看不懂"驱动的黑话清理。砍：噪声泄漏(按类型)、哪些类别需要马上处理/当前哪些信源正在拖慢(与"现在先处理哪些信源"同源数据切3刀)、这些超时是事故还是回补噪音(原始kind枚举表)、源SLA关注(与🔬row重复)；整个🔬工程诊断row全砍(7面板，清一色原始Prometheus多列标签表，改名也救不了)；信源可信度构成(按标签占比)；各源延迟明细(同款原始标签表)。剩余面板去黑话：`Source SLA 是否破线`→信源更新是否及时、`哪些源违反 SLA`→哪些信源更新慢了、`Canary 失败`→关键源现在挂了吗、`Twitter runway`→Twitter 还能撑几天，相关英文 description 一并译成中文 | **30** |
+| 2026-07-01 | Pascal 反馈"看不懂"驱动的黑话清理。砍：噪声泄漏(按类型)、哪些类别需要马上处理/当前哪些信源正在拖慢(与"现在先处理哪些信源"同源数据切3刀)、这些超时是事故还是回补噪音(原始kind枚举表)、源SLA关注(与🔬row重复)；整个🔬工程诊断row全砍(7面板，清一色原始Prometheus多列标签表，改名也救不了)；信源可信度构成(按标签占比)；各源延迟明细(同款原始标签表)。剩余面板去黑话：`Source SLA 是否破线`→信源更新是否及时、`哪些源违反 SLA`→哪些信源更新慢了、`Canary 失败`→关键源现在挂了吗、`Twitter runway`→Twitter 还能撑几天，相关英文 description 一并译成中文 | **30** |
+
+| 2026-07-02 `#58/#59` | 榜单口径切换(大模型确认制 metric v2)配套文案：面板9断点标注+win_precision图例改'旧判断器准确率'；面板17讲清与榜单胜率差7倍原因(覆盖vs速度)；面板32改行动指引+审计端去噪(pgc#18) | 30 |
+| 2026-07-03 `#60`+本次 | 体检发现榜单胜率(对外口径v2)全板无处展示→加面板61(诊断区空位)；row30标题'已降级'→'对外口径·诊断'；**砍面板57旧判断器准确率**(其说明自述'低了不用管'，不过'看了会做什么'测试；数据仍在Prometheus/Loki) | **30**(26内容+4结构) |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
@@ -112,7 +120,7 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 
 1. 先读完本文档的设计原则。
 2. 新面板必须回答"看了之后我会做什么动作"。
-3. 总面板数不超过 25。要加就先砍一个。
+3. 内容面板以 25 为目标上限（2026-07-03 现状 26，历史欠账）：**净增为零，要加必须同 PR 先砍一个**，有机会就向 25 收敛。
 4. 改完跑 `python3 -c "import json; json.load(open('pgc-pipeline.json'))"` 验证 JSON。
 5. 推到 main 后，SSH 到 aliapmo 执行 `cd /data/git/eigenflux && git pull && docker compose -f docker-compose.monitor.yml restart grafana`。
 6. 更新本文档的面板结构表和演变记录。
