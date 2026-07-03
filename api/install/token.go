@@ -74,6 +74,12 @@ var channelMap = map[string]string{
 	"organic":  "organic",
 	"direct":   "direct",
 	"referral": "referral",
+	// Xiaohongshu (小红书 / RED) aliases — all normalize to one bucket.
+	"xiaohongshu": "xiaohongshu",
+	"xhs":         "xiaohongshu",
+	"redbook":     "xiaohongshu",
+	"rednote":     "xiaohongshu",
+	"小红书":         "xiaohongshu",
 }
 
 // normalizeChannel maps a raw utm_source to a channel bucket. Unknown non-empty
@@ -91,4 +97,22 @@ func normalizeChannel(utmSource string) string {
 		s = s[:32]
 	}
 	return s
+}
+
+// deriveChannel resolves the channel bucket for a mint. An explicit utm_source
+// wins; but 聚光 auto-appends only click_id (not utm_source) to the landing URL,
+// so when the source is missing/unknown a platform click id is decisive —
+// click_id ⇒ xiaohongshu, twclid ⇒ twitter — rather than logging the paid click
+// as "unknown".
+func deriveChannel(utmSource, clickID, twclid string) string {
+	c := normalizeChannel(utmSource)
+	if c == "unknown" {
+		if clickID != "" {
+			return "xiaohongshu"
+		}
+		if twclid != "" {
+			return "twitter"
+		}
+	}
+	return c
 }

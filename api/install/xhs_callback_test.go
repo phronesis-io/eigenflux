@@ -41,12 +41,14 @@ func TestReportXHSConversionAuthOn(t *testing.T) {
 	srv := mockXHS(t, &leadsBody, &tokenCalled)
 	defer srv.Close()
 
-	initXHSConfig() // load defaults (advertiser_id / event_type); overridden below
-	oldBase, oldAuth := xhsAPIBase, xhsAuthEnabled
-	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, true, "", 0
-	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()
+	initXHSConfig() // load env config; overridden below for the mock
+	oldBase, oldAuth, oldAdv := xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID
+	xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID, xhsToken, xhsTokenExp = srv.URL, true, "adv_test", "", 0
+	defer func() {
+		xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID, xhsToken, xhsTokenExp = oldBase, oldAuth, oldAdv, "", 0
+	}()
 
-	code, err := reportXHSConversion("click_abc")
+	code, err := reportXHSConversion("click_abc", EventCopy)
 	if err != nil {
 		t.Fatalf("reportXHSConversion: %v", err)
 	}
@@ -62,7 +64,7 @@ func TestReportXHSConversionAuthOn(t *testing.T) {
 	if leadsBody["method"] != "aurora.leads" || leadsBody["click_id"] != "click_abc" {
 		t.Fatalf("bad aurora.leads body: %v", leadsBody)
 	}
-	if leadsBody["advertiser_id"] != xhsAdvertiserID || leadsBody["event_type"] != xhsEventType {
+	if leadsBody["advertiser_id"] != "adv_test" || leadsBody["event_type"] != EventCopy {
 		t.Fatalf("advertiser_id/event_type missing: %v", leadsBody)
 	}
 	if leadsBody["access_token"] != "tok_xyz" {
@@ -81,12 +83,14 @@ func TestReportXHSConversionAuthOff(t *testing.T) {
 	srv := mockXHS(t, &leadsBody, &tokenCalled)
 	defer srv.Close()
 
-	initXHSConfig() // load defaults (advertiser_id / event_type); overridden below
-	oldBase, oldAuth := xhsAPIBase, xhsAuthEnabled
-	xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = srv.URL, false, "", 0
-	defer func() { xhsAPIBase, xhsAuthEnabled, xhsToken, xhsTokenExp = oldBase, oldAuth, "", 0 }()
+	initXHSConfig() // load env config; overridden below for the mock
+	oldBase, oldAuth, oldAdv := xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID
+	xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID, xhsToken, xhsTokenExp = srv.URL, false, "adv_test", "", 0
+	defer func() {
+		xhsAPIBase, xhsAuthEnabled, xhsAdvertiserID, xhsToken, xhsTokenExp = oldBase, oldAuth, oldAdv, "", 0
+	}()
 
-	if _, err := reportXHSConversion("click_def"); err != nil {
+	if _, err := reportXHSConversion("click_def", EventInstall); err != nil {
 		t.Fatalf("reportXHSConversion: %v", err)
 	}
 	if tokenCalled {
@@ -97,5 +101,19 @@ func TestReportXHSConversionAuthOff(t *testing.T) {
 	}
 	if _, ok := leadsBody["access_token"]; ok {
 		t.Fatalf("access_token must be omitted when auth disabled: %v", leadsBody["access_token"])
+	}
+}
+
+// TestCallbackCols: the copy (101) and install (102) callbacks map to separate
+// state columns so they are claimed and retried independently.
+func TestCallbackCols(t *testing.T) {
+	if c, s := callbackCols(EventCopy); c != "cb101_code" || s != "cb101_sent_at" {
+		t.Fatalf("101 cols wrong: %s %s", c, s)
+	}
+	if c, s := callbackCols(EventInstall); c != "cb102_code" || s != "cb102_sent_at" {
+		t.Fatalf("102 cols wrong: %s %s", c, s)
+	}
+	if c, _ := callbackCols("999"); c != "cb101_code" {
+		t.Fatalf("unknown event should default to cb101, got %s", c)
 	}
 }

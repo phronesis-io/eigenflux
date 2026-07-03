@@ -2,6 +2,7 @@ package install
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -41,16 +42,48 @@ func MarkFetched(db *gorm.DB, ref string) (*Token, error) {
 	return &t, nil
 }
 
-// ClaimCallback claims the right to send a platform conversion callback for ref
-// and stamps the attempt time. It claims only while the callback has not yet
-// succeeded (callback_code <> 0), so a failed attempt is retried by a later
-// trigger (the install report after the /r/ fetch) while a success (code 0) is
-// terminal. Mirrors the RowsAffected-as-lock pattern. Returns won=false when the
-// ref is absent, carries no platform click id, or already succeeded.
-func ClaimCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+// MarkCopied stamps copied_at the first time the visitor copies the install
+// command on the landing page (idempotent: only the first copy sets it). Returns
+// the row, or (nil, nil) when the ref doesn't exist.
+func MarkCopied(db *gorm.DB, ref string) (*Token, error) {
+	if err := db.Model(&Token{}).
+		Where("token = ? AND copied_at = 0", ref).
+		Update("copied_at", time.Now().UnixMilli()).Error; err != nil {
+		return nil, err
+	}
+	var t Token
+	err := db.Where("token = ?", ref).First(&t).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// callbackCols returns the (code, sent_at) column names for an event type. The
+// values are a fixed whitelist (never user input), so embedding them in SQL is
+// safe. Any non-102 value maps to the 101 columns.
+func callbackCols(eventType string) (codeCol, sentCol string) {
+	if eventType == EventInstall {
+		return "cb102_code", "cb102_sent_at"
+	}
+	return "cb101_code", "cb101_sent_at"
+}
+
+// ClaimCallback claims the right to send the eventType platform callback for ref
+// and stamps the attempt time. It claims only while that event's callback has not
+// yet succeeded (its code <> 0), so a failed attempt is retried by a later trigger
+// while a success (code 0) is terminal. The two events (101 copy, 102 install)
+// live in independent columns and are claimed independently. Mirrors the
+// RowsAffected-as-lock pattern. Returns won=false when the ref is absent, carries
+// no platform click id, or that event already succeeded.
+func ClaimCallback(db *gorm.DB, ref, eventType string) (won bool, t *Token, err error) {
+	codeCol, sentCol := callbackCols(eventType)
 	res := db.Model(&Token{}).
-		Where("token = ? AND callback_code <> 0 AND (click_id <> '' OR twclid <> '')", ref).
-		Update("callback_sent_at", time.Now().UnixMilli())
+		Where(fmt.Sprintf("token = ? AND %s <> 0 AND (click_id <> '' OR twclid <> '')", codeCol), ref).
+		Update(sentCol, time.Now().UnixMilli())
 	if res.Error != nil {
 		return false, nil, res.Error
 	}
@@ -64,9 +97,10 @@ func ClaimCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
 	return true, &loaded, nil
 }
 
-// SetCallbackCode records the outcome of a platform callback attempt for ref.
-func SetCallbackCode(db *gorm.DB, ref string, code int) error {
-	return db.Model(&Token{}).Where("token = ?", ref).Update("callback_code", code).Error
+// SetCallbackCode records the outcome of the eventType callback attempt for ref.
+func SetCallbackCode(db *gorm.DB, ref, eventType string, code int) error {
+	codeCol, _ := callbackCols(eventType)
+	return db.Model(&Token{}).Where("token = ?", ref).Update(codeCol, code).Error
 }
 
 // ReportInstall records one report hit for token and returns whether this call

@@ -16,24 +16,29 @@ import (
 
 // --- Xiaohongshu 聚光 conversion callback (Loop B) ---
 //
-// Reports a conversion back to 聚光's optimizer keyed by the original click_id so
-// ocpx can optimize bidding. Server-to-server (no landing-page pixel). 聚光's
-// attribution window is short (~1 day) while our real install is delayed and
-// cross-device, so the callback fires on the earliest in-window signal — the
-// /r/<ref> fetch — with the install report as a fallback; ClaimCallback makes it
-// exactly-once per ref.
+// Reports conversions back to 聚光's optimizer keyed by the original click_id so
+// ocpx can optimize bidding. Server-to-server (no landing-page pixel). Two-stage
+// funnel, each event exactly-once per ref (ClaimCallback on independent columns):
+//
+//	event_type 101 — fired on the copy click (POST /api/v1/install/copy)
+//	event_type 102 — fired on the successful install (POST /api/v1/install/report)
 //
 // Switches are code defaults, overridable by env for ops without a rebuild:
 //
 //	XHS_CALLBACK_ENABLED  master switch; keep OFF until 直客 联调 is verified
 //	XHS_AUTH_ENABLED      do the getAccessToken handshake (the 3.20 doc says new
 //	                      clients may not need it — set false to skip the token)
-//	XHS_ADVERTISER_ID / XHS_EVENT_TYPE / XHS_API_BASE
+//	XHS_ADVERTISER_ID     REQUIRED (no code default); callbacks skip if unset
+//	XHS_API_BASE
+const (
+	EventCopy    = "101" // 表单提交 (shallow intent) — copy click
+	EventInstall = "102" // deep conversion — install success
+)
+
 var (
 	xhsCallbackEnabled bool
 	xhsAuthEnabled     bool
 	xhsAdvertiserID    string
-	xhsEventType       string
 	xhsAPIBase         string
 )
 
@@ -44,52 +49,57 @@ var (
 func initXHSConfig() {
 	xhsCallbackEnabled = envBool("XHS_CALLBACK_ENABLED", false)
 	xhsAuthEnabled = envBool("XHS_AUTH_ENABLED", true)
-	xhsAdvertiserID = envStr("XHS_ADVERTISER_ID", "5dfe36e3000000000100b5c3")
-	xhsEventType = envStr("XHS_EVENT_TYPE", "101") // 101 = 表单提交, generic primary target
+	// No baked-in advertiser id — the value lives in ops config (XHS_ADVERTISER_ID
+	// in .env). If the callback is on but this is unset, skip rather than post to
+	// the wrong account.
+	xhsAdvertiserID = envStr("XHS_ADVERTISER_ID", "")
 	xhsAPIBase = envStr("XHS_API_BASE", "https://adapi.xiaohongshu.com")
+	if xhsCallbackEnabled && xhsAdvertiserID == "" {
+		logger.Default().Error("XHS_CALLBACK_ENABLED=true but XHS_ADVERTISER_ID is empty; callbacks skipped")
+	}
 }
 
 const xhsCommonPath = "/api/open/common"
 
 var xhsHTTP = &http.Client{Timeout: 8 * time.Second}
 
-// fireXHSCallback reports the conversion for ref to 聚光 exactly once, in the
-// background. Safe to call from multiple triggers (/r/ fetch and install report);
-// a no-op unless the master switch is on and ref carries a 聚光 click_id.
-func fireXHSCallback(ref string) {
-	if !xhsCallbackEnabled {
+// fireXHSCallback reports the eventType conversion for ref to 聚光 exactly once,
+// in the background. Safe to call repeatedly; a no-op unless the master switch is
+// on, an advertiser id is configured, and ref carries a 聚光 click_id.
+func fireXHSCallback(ref, eventType string) {
+	if !xhsCallbackEnabled || xhsAdvertiserID == "" {
 		return
 	}
 	go func() {
-		won, t, err := ClaimCallback(db.DB, ref)
+		won, t, err := ClaimCallback(db.DB, ref, eventType)
 		if err != nil {
-			logger.Default().Error("install xhs callback claim failed", "ref", ref, "err", err)
+			logger.Default().Error("install xhs callback claim failed", "ref", ref, "event_type", eventType, "err", err)
 			return
 		}
 		if !won || t.ClickID == "" {
 			return // already succeeded, no 聚光 click id, or not claimable
 		}
-		code, err := reportXHSConversion(t.ClickID)
+		code, err := reportXHSConversion(t.ClickID, eventType)
 		if err != nil {
-			logger.Default().Error("install xhs callback failed", "ref", ref, "code", code, "err", err)
+			logger.Default().Error("install xhs callback failed", "ref", ref, "event_type", eventType, "code", code, "err", err)
 		}
-		if e := SetCallbackCode(db.DB, ref, code); e != nil {
-			logger.Default().Error("install xhs callback set code failed", "ref", ref, "err", e)
+		if e := SetCallbackCode(db.DB, ref, eventType, code); e != nil {
+			logger.Default().Error("install xhs callback set code failed", "ref", ref, "event_type", eventType, "err", e)
 		}
 		if code == 0 {
-			event("install_callback_xhs", ref, "channel", t.Channel, "event_type", xhsEventType)
+			event("install_callback_xhs", ref, "channel", t.Channel, "event_type", eventType)
 		}
 	}()
 }
 
-// reportXHSConversion POSTs one aurora.leads conversion for clickID and returns
-// the platform response code (0 = accepted, >0 = platform error) or -2 on a
-// transport/token error.
-func reportXHSConversion(clickID string) (int, error) {
+// reportXHSConversion POSTs one aurora.leads conversion for clickID with the
+// given eventType and returns the platform response code (0 = accepted, >0 =
+// platform error) or -2 on a transport/token error.
+func reportXHSConversion(clickID, eventType string) (int, error) {
 	body := map[string]interface{}{
 		"advertiser_id": xhsAdvertiserID,
 		"method":        "aurora.leads",
-		"event_type":    xhsEventType,
+		"event_type":    eventType,
 		"conv_time":     time.Now().UnixMilli(),
 		"click_id":      clickID,
 	}

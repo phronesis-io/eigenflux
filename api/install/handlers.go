@@ -36,6 +36,7 @@ func Register(h *server.Hertz, baseURL string) {
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
+	g.POST("/copy", reportCopy)
 	// Agent join entry: the /install page hands the user a command pointing here
 	// (not raw GitHub), so the instruction the agent reads is one we control and
 	// the fetch is the earliest post-click attribution signal.
@@ -93,7 +94,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		UTMCampaign: trunc(body.UTMCampaign, 255),
 		UTMContent:  trunc(body.UTMContent, 255),
 		UTMTerm:     trunc(body.UTMTerm, 255),
-		Channel:     normalizeChannel(body.UTMSource),
+		Channel:     deriveChannel(body.UTMSource, body.ClickID, body.Twclid),
 		Referrer:    trunc(body.Referrer, 2048),
 		ClickID:     trunc(body.ClickID, 128),
 		Twclid:      trunc(body.Twclid, 128),
@@ -152,9 +153,9 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 		event("install_report", t.Token,
 			"channel", t.Channel, "utm_source", t.UTMSource, "utm_campaign", t.UTMCampaign)
 	}
-	// Fallback conversion signal: fires only if the /r/ fetch didn't already
-	// claim it (ClaimCallback makes the platform callback exactly-once per ref).
-	fireXHSCallback(t.Token)
+	// Deep conversion: install success fires 聚光 event_type 102 (exactly-once
+	// per ref; retried by later reports if a prior attempt failed).
+	fireXHSCallback(t.Token, EventInstall)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"converted": converted,
 		"attribution": map[string]interface{}{
@@ -174,6 +175,33 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 			"reported_at":  t.ReportedAt,
 		},
 	})
+}
+
+// reportCopy records that the visitor copied the install command on the landing
+// page (the copy-stage funnel signal) and fires the shallow 聚光 conversion
+// (event_type 101). Unknown refs are accepted silently (unattributed).
+// @router /api/v1/install/copy [POST]
+func reportCopy(_ context.Context, c *app.RequestContext) {
+	raw, _ := c.Body()
+	var body reportBody
+	if err := json.Unmarshal(raw, &body); err != nil {
+		reply(c, http.StatusBadRequest, 400, "invalid JSON body", nil)
+		return
+	}
+	if body.Ref == "" || !ValidTokenFormat(body.Ref) {
+		reply(c, http.StatusBadRequest, 400, "invalid ref format, expected EF-xxxxxxxx", nil)
+		return
+	}
+	t, err := MarkCopied(db.DB, body.Ref)
+	if err != nil {
+		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if t != nil {
+		event("install_copy", t.Token, "channel", t.Channel)
+		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
+	}
+	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref})
 }
 
 // serveRef serves the agent-facing join bootstrap for a referral code and
@@ -196,9 +224,9 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		// Unknown ref: still serve generic join instructions, just unattributed.
 		event("install_fetch_unknown", ref)
 	} else {
+		// Fetch is now an analytics-only funnel signal; the 聚光 callbacks fire on
+		// the copy click (101) and the install (102), not on the fetch.
 		event("install_fetch", ref, "channel", t.Channel)
-		// Primary in-window conversion signal for the ad platform optimizer.
-		fireXHSCallback(ref)
 	}
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref)))
 }

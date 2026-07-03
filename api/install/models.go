@@ -31,11 +31,21 @@ type Token struct {
 	// Lang is the entry language the visitor saw on the landing page ('en'/'zh'),
 	// for per-language conversion breakdown.
 	Lang string `gorm:"column:lang;not null;default:''"`
-	// CallbackSentAt is the time of the most recent platform callback attempt.
+	// CopiedAt is set the first time the visitor copies the install command on the
+	// landing page — the shallow-conversion signal that fires 聚光 event_type 101.
+	CopiedAt int64 `gorm:"column:copied_at;not null;default:0"`
+	// Two-stage 聚光 ocpx callback state, each exactly-once and independent:
+	// cb101 = copy click (event_type 101), cb102 = install success (event_type
+	// 102). Code: -1 not attempted, 0 accepted (terminal), >0 platform error,
+	// -2 transport error. Non-zero is re-claimable by a later trigger.
+	Cb101Code   int   `gorm:"column:cb101_code;not null;default:-1"`
+	Cb101SentAt int64 `gorm:"column:cb101_sent_at;not null;default:0"`
+	Cb102Code   int   `gorm:"column:cb102_code;not null;default:-1"`
+	Cb102SentAt int64 `gorm:"column:cb102_sent_at;not null;default:0"`
+	// CallbackSentAt / CallbackCode are the legacy single-event callback columns,
+	// superseded by the cb101/cb102 pair above; kept for backward compatibility.
 	CallbackSentAt int64 `gorm:"column:callback_sent_at;not null;default:0"`
-	// CallbackCode is the callback outcome: -1 not attempted, 0 accepted
-	// (terminal), >0 platform error, -2 transport error. Non-zero is re-claimable.
-	CallbackCode int `gorm:"column:callback_code;not null;default:-1"`
+	CallbackCode   int   `gorm:"column:callback_code;not null;default:-1"`
 }
 
 func (Token) TableName() string { return "install_tokens" }
