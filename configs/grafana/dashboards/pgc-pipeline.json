@@ -1563,8 +1563,8 @@
   {
    "id": 33,
    "type": "stat",
-   "title": "我方管线延迟",
-   "description": "近 3h 内属于我方管线的 T0/T1 抓取超时（source_latency：我们抓到晚了，要修代码）。不含‘慢源 feed’（源自己 RSS 发得慢，是换源问题，见下方 Active source drilldown）。0 = 管线健康。",
+   "title": "活跃高优先延迟",
+   "description": "近 3h 内 T0/T1 重要源的可行动延迟：source_latency=我们抓到晚了，source_feed_lag=上游 feed 发得慢或需要换更快源。0 = 当前无高优先延迟行动项。",
    "gridPos": {
     "x": 8,
     "y": 47,
@@ -1582,7 +1582,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
+     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
      "instant": true
     }
    ],
@@ -1718,7 +1718,7 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
+     "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0))",
      "instant": false,
      "range": true,
      "legendFormat": "总行动数"
@@ -1740,10 +1740,10 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
+     "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
      "instant": false,
      "range": true,
-     "legendFormat": "高优先级超时"
+     "legendFormat": "高优先级延迟"
     },
     {
      "refId": "D",
@@ -1802,6 +1802,59 @@
     },
     "tooltip": {
      "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 62,
+   "type": "table",
+   "title": "活跃延迟源明细",
+   "description": "近 3h 内最需要处理的高优先延迟源。kind=source_latency 优先查抓取/适配器；kind=source_feed_lag 优先找更快一手源或降低该 RSS 的速度预期。",
+   "gridPos": {
+    "x": 0,
+    "y": 59,
+    "w": 24,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "pgc-prometheus"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+     "expr": "topk(12, pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})",
+     "instant": true,
+     "legendFormat": "{{source}} · {{stage}} · {{kind}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "auto"
+      },
+      "inspect": false
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false,
+     "fields": ""
     }
    }
   },
