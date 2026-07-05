@@ -1179,8 +1179,8 @@
   {
    "id": 39,
    "type": "stat",
-   "title": "NewsAPI 用量",
-   "description": "本月 NewsAPI token 已用比例。接近 100% 会影响 NewsAPI 补源。",
+   "title": "NewsAPI 用量(每把 key)",
+   "description": "每把 NewsAPI key 本月已用比例(1号=主 key)。任何一把用光都会单独变红。以前只看全部 key 的合计,主 key 用光时面板还是绿的,这次拆开看。",
    "gridPos": {
     "x": 16,
     "y": 26,
@@ -1198,7 +1198,8 @@
       "type": "prometheus",
       "uid": "pgc-prometheus"
      },
-     "expr": "pgc_newsapi_tokens_pct",
+     "expr": "pgc_newsapi_key_tokens_pct",
+     "legendFormat": "{{key}}号key",
      "instant": true
     }
    ],
@@ -1239,7 +1240,7 @@
      "values": false
     },
     "orientation": "auto",
-    "textMode": "auto",
+    "textMode": "value_and_name",
     "colorMode": "background",
     "graphMode": "area",
     "justifyMode": "auto"
