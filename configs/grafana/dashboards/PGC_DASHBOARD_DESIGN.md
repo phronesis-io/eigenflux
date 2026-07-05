@@ -77,7 +77,7 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 | 队列积压 (22) | queue depth | 持续增长 = 某阶段卡住 |
 | Worker 最大空闲 (23) | worker idle | 超时 = worker 可能死了 |
 | Twitter 还能撑几天 (36) | credits runway | 付费额度预警 |
-| NewsAPI 用量 (39) / ScraperAPI 用量 (40) | api usage | 付费额度预警 |
+| NewsAPI 用量·每把 key (39) / ScraperAPI 用量 (40) | api usage | 付费额度预警。NewsAPI 按 key 分开显示(`pgc_newsapi_key_tokens_pct`,1号=主):合计口径会把单把用光的 key 平均掉(7/4 主 key 烧干时合计仍 ~40% 绿) |
 | 发布量趋势 (24) | published/h | 吞吐节奏 |
 | Pipeline 日志 (25) | Loki | 排障 |
 
