@@ -20,15 +20,9 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "总览 / Owner Cockpit",
-    "一手有没有漏 / First-Source Coverage",
-    "信号够不够快 / Signal Latency",
-    "每条信号卡在哪一跳 / Event Timeline",
-    "信源是否可靠 / Source Reliability",
-    "内容有没有送达 / Delivery",
-    "生产链路是否健康 / Pipeline Health",
-    "质量和成本是否失控 / Quality & Cost",
-    "工程诊断 / Deep Dive",
+    "🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度",
+    "🔧 运维 — 系统健康",
+    "🏁 首发榜单 — 对外口径 · 诊断",
 ]
 
 NATURALLY_EMPTY_PANEL_IDS = {
@@ -42,27 +36,33 @@ NATURALLY_EMPTY_PANEL_IDS = {
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
-    903,  # 高优先级信号仍在超时吗
-    401,  # 现在高优先级信号还在超时吗
-    407,  # 哪些类别需要马上处理
-}
-
-BREACH_KIND_PANEL_IDS = {
-    409,  # 这些超时是事故还是回补噪音
+    33,  # 活跃高优先延迟
 }
 
 ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
-    410,  # 当前哪些信源正在拖慢
-    908,  # 现在先处理哪些信源
+    62,  # 活跃延迟源明细
 }
 
 SOURCE_HEALTH_SLA_PANEL_IDS = {
-    905,  # Source SLA 是否破线
-    411,  # 信源 SLA 是否破线
+    61,  # 信源 SLA
 }
 
-SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS = {
-    412,  # 哪些源违反 SLA
+OWNER_COCKPIT_PANELS = {
+    17: [
+        "pgc_first_source_audit_attention",
+        "pgc_source_health_critical_attention",
+        "pgc_source_health_canaries_failed",
+        "pgc_source_health_sla_attention",
+        "pgc_signal_latency_active_source_breaches_3h",
+    ],
+    32: ["pgc_first_source_audit_attention"],
+    33: ["pgc_signal_latency_active_source_breaches_3h"],
+    34: ["pgc_source_health_canaries_failed"],
+    36: ["pgc_twitterapi_credits_days_to_empty"],
+    37: ["pgc_source_health_sla_attention"],
+    39: ["pgc_newsapi_key_tokens_pct"],
+    61: ["pgc_source_health_sla_attention"],
+    62: ["pgc_signal_latency_active_source_breaches_3h"],
 }
 
 
@@ -94,23 +94,25 @@ def static_validate(dashboard: dict) -> list[str]:
             errors.append(f"missing section row: {section}")
 
     panels_by_id = {panel.get("id"): panel for panel in dashboard.get("panels", [])}
+    for panel_id, required_terms in OWNER_COCKPIT_PANELS.items():
+        panel = panels_by_id.get(panel_id)
+        if not panel:
+            errors.append(f"missing owner cockpit panel: {panel_id}")
+            continue
+        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
+        joined_expr = "\n".join(exprs)
+        for term in required_terms:
+            if term not in joined_expr:
+                errors.append(f"panel {panel_id} must use {term}")
+
     for panel_id in ACTIONABLE_LATENCY_PANEL_IDS:
         panel = panels_by_id.get(panel_id)
         if not panel:
             errors.append(f"missing actionable latency panel: {panel_id}")
             continue
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
-        if not any("pgc_signal_latency_actionable_breaches_3h" in expr for expr in exprs):
-            errors.append(f"panel {panel_id} must use active actionable latency breaches")
-
-    for panel_id in BREACH_KIND_PANEL_IDS:
-        panel = panels_by_id.get(panel_id)
-        if not panel:
-            errors.append(f"missing breach-kind latency panel: {panel_id}")
-            continue
-        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
-        if not any("pgc_signal_latency_breach_kind_24h" in expr for expr in exprs):
-            errors.append(f"panel {panel_id} must use breach-kind latency metric")
+        if not any("pgc_signal_latency_active_source_breaches_3h" in expr for expr in exprs):
+            errors.append(f"panel {panel_id} must use active source latency breaches")
 
     for panel_id in ACTIVE_SOURCE_LATENCY_PANEL_IDS:
         panel = panels_by_id.get(panel_id)
@@ -133,15 +135,6 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_source_health_sla_attention" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use source health SLA attention metric")
-
-    for panel_id in SOURCE_HEALTH_SLA_DRILLDOWN_PANEL_IDS:
-        panel = panels_by_id.get(panel_id)
-        if not panel:
-            errors.append(f"missing source health SLA drilldown panel: {panel_id}")
-            continue
-        exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
-        if not any("pgc_source_health_sla_attention_source" in expr for expr in exprs):
-            errors.append(f"panel {panel_id} must use source health SLA per-source metric")
 
     prometheus_targets = 0
     loki_targets = 0

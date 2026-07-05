@@ -84,12 +84,13 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 ### Row 🏁 首发榜单 — 对外口径 · 诊断
 | 面板 (id) | 指标 | 操作含义 |
 |------|------|---------|
-| 对决胜率·有一手源的比赛 (17) | `pgc_event_real_win_rate` | 速度：有源比赛我们更快的占比 |
+| 当前行动总数 (17) | owner action components | 现在需要 Pascal 处理的事项总数 |
 | 首发关注 (32) | `pgc_first_source_audit_attention` | 红了→去日报看清单加源/修源 |
-| 我方管线延迟 (33) | pipeline latency | 我们自己的处理耗时 |
+| 活跃高优先延迟 (33) | active T0/T1 source latency | 现在还有哪些高优先信号慢 |
 | 关键源现在挂了吗 (34) | canaries failed | 关键源健康 |
-| **榜单胜率·对外口径 (61)** | `pgc_first_source_win_rate` | 对外可引用的抢先率（大模型确认制 v2，日更） |
+| 信源 SLA (61) | `pgc_source_health_sla_attention` | 源级 poll/index/publish SLA 是否破线 |
 | 风险趋势 (37) | owner action components | 待处理事项是好转还是恶化 |
+| 活跃延迟源明细 (62) | active source latency drilldown | 直接定位 source_latency/source_feed_lag 源 |
 
 ## 演变记录
 
@@ -111,6 +112,7 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 
 | 2026-07-02 `#58/#59` | 榜单口径切换(大模型确认制 metric v2)配套文案：面板9断点标注+win_precision图例改'旧判断器准确率'；面板17讲清与榜单胜率差7倍原因(覆盖vs速度)；面板32改行动指引+审计端去噪(pgc#18) | 30 |
 | 2026-07-03 `#60`+本次 | 体检发现榜单胜率(对外口径v2)全板无处展示→加面板61(诊断区空位)；row30标题'已降级'→'对外口径·诊断'；**砍面板57旧判断器准确率**(其说明自述'低了不用管'，不过'看了会做什么'测试；数据仍在Prometheus/Loki) | **30**(26内容+4结构) |
+| 2026-07-05 | owner cockpit 日检发现缺少显式“当前行动总数”和“信源 SLA”stat；按净增为零原则，将面板17/61替换为这两个行动面板，趋势和明细仍保留在37/62。同步更新本地 dashboard validator，防止继续按旧 76 面板时代的 section/panel id 误报。 | **30**(26内容+4结构) |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
