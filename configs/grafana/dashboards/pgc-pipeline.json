@@ -319,7 +319,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "准确(忠实): 抽样已发布广播里, 经内容模型判定'忠于原文事实'的比例(每条的实体/数字/论断都有原文支撑; 无捏造/夸大/推断当事实)。主要失实类型=捏造+数字错误(见诊断区分解)。这才是你说的'准确'(不是首发判定准确率)。注: 这是~130条抽样的LLM判定, 有抽样误差; 目标≥90%, <70%红。"
+      "description": "准确(忠实): 抽样已发布广播里, 经内容模型判定'忠于原文事实'的比例(每条的实体/数字/论断都有原文支撑; 无捏造/夸大/推断当事实)。主要失实类型=捏造+数字错误(见诊断区分解)。这才是你说的'准确'(不是首发判定准确率)。注: 这是~130条抽样的LLM判定, 有抽样误差; 目标≥90%, <70%红。 注: 300条抽样,±3pp内的日间波动=采样噪声(86-91区间打转很正常),连续3天同向走才算趋势。"
     },
     {
       "id": 51,
@@ -515,7 +515,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "模型确认速度对比有意义的配对数。旧系统 76 对 → 模型过滤后仅留真正可比的。"
+      "description": "模型确认速度对比有意义的配对数。旧系统 76 对 → 模型过滤后仅留真正可比的。 注: 分母<80时右边的胜率会大幅波动,先看这个数再信胜率。"
     },
     {
       "id": 19,
@@ -633,6 +633,11 @@
           },
           "expr": "pgc_event_verdicts_age_seconds / 3600",
           "instant": true
+        },
+        {
+          "expr": "pgc_dual_judge_unavailable",
+          "legendFormat": "二判不可用(上轮)",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
@@ -677,7 +682,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。"
+      "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。 第二个数=上一轮双判里打不通的对数,应为0;接近checked数=第二判官挂了(会自动打critical告警,7/5事故的疫苗)。"
     },
     {
       "id": 60,
@@ -806,15 +811,6 @@
           },
           "expr": "pgc_first_source_speed_win_share",
           "legendFormat": "抢先率(%)"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_win_precision",
-          "legendFormat": "旧判断器准确率(%)"
         }
       ],
       "fieldConfig": {
@@ -897,7 +893,7 @@
           "values": true
         }
       },
-      "description": "各 benchmark 域被实质门丢弃的占比 (24h)。替换了原先的'各域捕获召回率'——后者排除了丢弃, 管线一健康就各域都≈100%, 看不出问题。丢弃占比会随域变化, 定位过度丢弃风险集中在哪 (法律/政策通常偏高); 配合'错丢真损率(门)'(当前 30.8% 偏高)判断这些丢弃里有多少是错杀真信号。"
+      "description": "各 benchmark 域被实质门丢弃的占比 (24h)。替换了原先的'各域捕获召回率'——后者排除了丢弃, 管线一健康就各域都≈100%, 看不出问题。丢弃占比会随域变化, 定位过度丢弃风险集中在哪 (法律/政策通常偏高); 配合'错丢真损率(门)'(当前 30.8% 偏高)判断这些丢弃里有多少是错杀真信号。 注: policy域基线本来就~50%(政府PR洪水,正确丢弃),看变化不看绝对值;全局误杀率看『门丢弃质量』全池线。"
     },
     {
       "id": 20,
@@ -1356,6 +1352,11 @@
           },
           "expr": "pgc_items_1h{status=\"published\"}",
           "legendFormat": "实时(条/小时)"
+        },
+        {
+          "expr": "pgc_items_24h{status=\"published\"} offset 7d / 24",
+          "legendFormat": "上周同时刻(基线,条/小时)",
+          "refId": "C"
         }
       ],
       "fieldConfig": {
@@ -1384,7 +1385,7 @@
           "mode": "multi"
         }
       },
-      "description": "每小时发布量。24h均值线(pgc_items_24h/24)即时有历史; 实时线(pgc_items_1h, 1h滑窗)随时间累积出真实逐时趋势。两者都重置安全——已弃用 increase(pgc_published_total) 那个会因DB瞬时读0爆出~74万假尖峰的查询。"
+      "description": "每小时发布量。24h均值线(pgc_items_24h/24)即时有历史; 实时线(pgc_items_1h, 1h滑窗)随时间累积出真实逐时趋势。两者都重置安全——已弃用 increase(pgc_published_total) 那个会因DB瞬时读0爆出~74万假尖峰的查询。 虚线基线=上周同一时刻——两线贴合=正常节奏(周末沟谷也贴合);当前线明显低于基线=真跌了。"
     },
     {
       "id": 25,
@@ -1436,7 +1437,7 @@
     },
     {
       "id": 17,
-      "title": "当前行动总数",
+      "title": "需要动手吗(火情)",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1455,7 +1456,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
           "instant": true
         }
       ],
@@ -1500,7 +1501,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Owner 现在需要处理的事项总数：首发关注 + 关键源关注 + canary 失败 + source SLA + T0/T1 活跃延迟。0 = 当前无立即处理项。"
+      "description": "火情=我方契约侧真坏的东西: 关键源挂(canary) + critical源故障(blocked/failing/config) + 我方管线延迟。应该恒为0——非0立刻查。出版方自己安静/加源候选这类不吓人的在右边『观察清单』。2026-07-06拆分:旧'行动总数'把三个安静博客算成7个'要行动'把Pascal吓到。"
     },
     {
       "id": 32,
@@ -1710,7 +1711,7 @@
       "id": 37,
       "type": "timeseries",
       "title": "风险趋势",
-      "description": "Owner 待处理事项总数，及各分项（首发关注/高优先级超时/关键源/信源更新慢等）随时间的走势。",
+      "description": "上面这条『火情合计』应贴地为0;『观察清单』允许有水位(安静博客/加源候选),看趋势不看绝对值。",
       "gridPos": {
         "x": 0,
         "y": 52,
@@ -1728,10 +1729,10 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_critical_attention) or vector(0)) + (sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
           "instant": false,
           "range": true,
-          "legendFormat": "总行动数"
+          "legendFormat": "火情合计(应为0)"
         },
         {
           "refId": "B",
@@ -1772,10 +1773,10 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_source_health_critical_attention",
+          "expr": "pgc_source_health_critical_fire",
           "instant": false,
           "range": true,
-          "legendFormat": "关键源关注"
+          "legendFormat": "critical源故障(火情)"
         },
         {
           "refId": "F",
@@ -1787,6 +1788,11 @@
           "instant": false,
           "range": true,
           "legendFormat": "信源更新慢"
+        },
+        {
+          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
+          "legendFormat": "观察清单合计",
+          "refId": "W"
         }
       ],
       "fieldConfig": {
@@ -1870,7 +1876,7 @@
     },
     {
       "id": 61,
-      "title": "信源 SLA",
+      "title": "观察清单(非火情)",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1889,7 +1895,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_source_health_sla_attention",
+          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
           "instant": true
         }
       ],
@@ -1934,7 +1940,37 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "源体检判断有多少活跃源超过了自身 poll/index/publish SLA。红了先看 source-health 日报；0 = 当前没有源级 SLA 关注项。"
+      "description": "不吓人清单: 出版方自己安静的critical源 + 首发关注(加源候选) + SLA过期。复盘级,本周看一眼即可;真要立刻动手的在左边『需要动手吗』(应为0)。"
+    },
+    {
+      "id": 63,
+      "type": "stat",
+      "title": "榜单胜率(对外口径)",
+      "gridPos": {
+        "x": 16,
+        "y": 47,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pgc_first_source_win_rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "对外唯一可引用的抢先率(大模型双判确认制v2,日更10:30)。7/2口径断点后诚实水平~5-6%,涨靠真赢(loss_mining购物清单)。⚠️此面板2026-07-03已因'全板无处展示'补过一次,7/6又被误删,本次第二次恢复——改板时别删它(设计文档有记录)。"
     }
   ],
   "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。",
