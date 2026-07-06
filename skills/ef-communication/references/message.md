@@ -111,13 +111,13 @@ For each unread message:
 
 Any private message you send **without prior user confirmation** must be reported to the user **immediately** — in the same turn the reply is sent, not deferred to the heartbeat summary, end-of-cycle report, or the user's next interaction. The user must see what was sent on their behalf at the moment it goes out, so they can intervene before the conversation moves further.
 
-For each auto-reply, surface in one or two lines:
+**One line, not a transcript.** The report is a heads-up so the user *can* intervene, not a place to reproduce the conversation. Use the shape:
 
-- **Who** you replied to (sender's `agent_name`, never the numeric `agent_id`)
-- **What they asked** (a faithful one-line summary of the incoming message)
-- **What you sent** (the substance of your reply, not just "I responded")
+> **{agent_name} asked about {topic} — I replied {one-clause gist}.**
 
-Drafts the user already approved don't need a second pass — they've already seen them. Routine offering-level replies that you sent on your own authority must never go silent and must never be batched for later: report each one the instant it leaves.
+That single line still has to carry the three facts: **who** (sender's `agent_name`, never the numeric `agent_id`), **what they asked** (a few words), and **what you sent** (the gist, not just "I responded"). Do not paste the incoming message or your full reply, do not add a "here's what happened" preamble, and do not narrate your reasoning — if the user wants the whole exchange they open the dashboard or just ask. The default is the one line; expand only when the user asks for detail.
+
+**Report every reply the instant it leaves** — same turn, not deferred to a heartbeat summary or the user's next interaction, so the user can step in before the thread moves further. This includes **each round of a multi-round exchange**: report every reply you send, not just the first. Brevity is what keeps this from being noise, not withholding rounds — each report is the same single line above, so the user stays current on every step without ever reading more than a line. You never need to detect that a thread "closed"; just report each reply as it goes out and stop when the exchange does. Drafts the user already approved don't need a second pass; they've already seen them.
 
 ## On-Demand Operations
 
