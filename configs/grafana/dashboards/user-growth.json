@@ -554,7 +554,7 @@
     },
     {
       "id": 25,
-      "title": "每日活跃 DAU 趋势 (选定区间)",
+      "title": "每日活跃 DAU 趋势 (选定时间区间)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
