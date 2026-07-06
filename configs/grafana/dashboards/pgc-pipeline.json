@@ -455,7 +455,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。"
+   "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。⚠️分母敏感: 总发布量骤降时(断供/假日)本值会机械翻倍——社交源24/7恒量、其余源缩水。先看'近24h发布数'再判断: 量正常才是真的可信度恶化(7/4实例: 8.3%全是分母效应, 绝对量反而在降)。"
   },
   {
    "id": 5,
@@ -696,12 +696,21 @@
    "targets": [
     {
      "expr": "pgc_discard_false_loss_rate",
-     "refId": "A",
+           "refId": "A",
      "legendFormat": "错丢真损%",
      "datasource": {
       "type": "prometheus",
       "uid": "pgc-prometheus"
      }
+    },
+    {
+      "datasource": {
+      "type": "prometheus",
+      "uid": "pgc-prometheus"
+     },
+      "expr": "pgc_discard_false_loss_rate_full_pool",
+      "legendFormat": "全部丢弃(全池)",
+      "refId": "B"
     }
    ],
    "fieldConfig": {
@@ -745,7 +754,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "诊断(软,非护栏): 抽审被丢弃条目里'可能真事件'占比;噪声大(30↔40%漂移)+含正确丢的体育/汇总/地方/分析范围之争。真覆盖护栏=捕获召回(99.8%绿)。只看是否突然飙升。"
+   "description": "诊断(软,非护栏): 抽审被丢弃条目里'可能真事件'占比,两条线:『基准媒体分层』=最严苛视角(周末体育洪峰/特稿边界案会冲高,17.5%级尖峰≈成分效应);『全池』=闸门整体水平(健康位~7%)。两条一起飙才是闸门真出问题;只有分层线动=去看当日样本成分。真覆盖护栏=捕获召回。"
   },
   {
    "id": 9,
