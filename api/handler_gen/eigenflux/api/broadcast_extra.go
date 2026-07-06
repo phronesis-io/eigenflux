@@ -126,7 +126,17 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	sinceMs := time.Now().AddDate(0, 0, -7).UnixMilli()
+	// Time window from ?range= (today / 7d / month / year); defaults to 7 days.
+	now := time.Now()
+	sinceMs := now.AddDate(0, 0, -7).UnixMilli()
+	switch string(c.Query("range")) {
+	case "today":
+		sinceMs = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+	case "month":
+		sinceMs = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).UnixMilli()
+	case "year":
+		sinceMs = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).UnixMilli()
+	}
 	rows, err := consoledal.Top7DayBroadcasts(db.DB, sinceMs, agentID, 100)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load top broadcasts", nil)

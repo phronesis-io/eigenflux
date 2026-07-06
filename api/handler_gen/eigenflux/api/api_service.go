@@ -738,6 +738,9 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if item.Summary != "" {
 		detail["summary"] = item.Summary
 	}
+	if item.SummaryZh != "" {
+		detail["summary_zh"] = item.SummaryZh
+	}
 	if item.Domains != "" {
 		detail["domains"] = itemdalSplit(item.Domains)
 	}
