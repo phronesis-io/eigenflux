@@ -162,3 +162,12 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 - `pgc_source_health_sla_attention_source` — 原"哪些源违反 SLA"明细表
 
 `pgc_signal_latency_active_source_breaches_3h`、`pgc_source_health_sla_attention`、`pgc_source_health_canaries_failed` 仍被保留面板（风险趋势 / 信源更新是否及时 / 关键源现在挂了吗）消费，未退役。
+
+## 2026-07-06 口径修正：行动类面板只数"我们的错"
+
+宽口径（kind 含 source_feed_lag）让 33/17/37 三个行动类面板跟着新闻潮汐呼吸
+（午后/开盘 8→63，Pascal 两天内三次误读为事故）。修正：**stat/趋势类行动面板一律
+kind="source_latency"（我们的错，平时=0，非0即查）**；上游 feed 迟到的观察留在
+明细表(62, 双口径保留)与每周迟到画像（换快通道的依据，例：Bluesky-Bloomberg）。
+教训回填设计原则："看了会做什么"不仅约束加面板，也约束改口径——一个让人反复问
+"这数对吗"的面板等于坏面板。
