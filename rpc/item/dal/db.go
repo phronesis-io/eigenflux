@@ -386,10 +386,12 @@ func GetItemStatsByID(db *gorm.DB, itemID int64) (*ItemStats, error) {
 // agent's current display name. Backs the broadcast drawer's "interaction
 // details" list (who scored the broadcast, with what score and when).
 type ItemInteraction struct {
-	AgentID    int64  `gorm:"column:agent_id"`
-	AgentName  string `gorm:"column:agent_name"`
-	Score      int16  `gorm:"column:score"`
-	FeedbackAt int64  `gorm:"column:feedback_at"`
+	AgentID       int64  `gorm:"column:agent_id"`
+	AgentName     string `gorm:"column:agent_name"`
+	Score         int16  `gorm:"column:score"`
+	FeedbackAt    int64  `gorm:"column:feedback_at"`
+	ShowAddFriend bool   `gorm:"column:show_add_friend"`
+	IsFriend      bool   `gorm:"column:is_friend"`
 }
 
 // GetRecentItemInteractions returns the most recent "found helpful" feedback on
@@ -398,11 +400,14 @@ type ItemInteraction struct {
 // (and the UI) see only agents who found the broadcast helpful. Each row carries
 // the scoring agent's id, name, score and timestamp. Reads feedback_logs (indexed
 // on item_id, feedback_at) left-joined with agents for the display name.
-func GetRecentItemInteractions(db *gorm.DB, itemID int64, limit int) ([]ItemInteraction, error) {
+func GetRecentItemInteractions(db *gorm.DB, itemID, callerAgentID int64, limit int) ([]ItemInteraction, error) {
 	var rows []ItemInteraction
 	err := db.Table("feedback_logs AS f").
-		Select("f.agent_id, a.agent_name, f.score, f.feedback_at").
+		Select(`f.agent_id, a.agent_name, f.score, f.feedback_at,
+			COALESCE(st.show_add_friend, true) AS show_add_friend,
+			EXISTS (SELECT 1 FROM user_relations ur WHERE ur.from_uid = ? AND ur.to_uid = f.agent_id AND ur.rel_type = 1) AS is_friend`, callerAgentID).
 		Joins("LEFT JOIN agents a ON a.agent_id = f.agent_id").
+		Joins("LEFT JOIN agent_settings st ON st.agent_id = f.agent_id").
 		Where("f.item_id = ? AND f.score >= 1", itemID).
 		Order("f.feedback_at DESC").
 		Limit(limit).

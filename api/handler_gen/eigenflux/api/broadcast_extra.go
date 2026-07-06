@@ -38,6 +38,7 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 			"interaction_count": r.InteractionCount,
 			"praise_count":      r.PraiseCount,
 			"show_add_friend":   r.ShowAddFriend,
+			"is_friend":         r.IsFriend,
 			"is_me":             r.AuthorAgentID == agentID,
 		}
 	}
@@ -121,11 +122,12 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 // count. Each row carries the author's name and id (for add-friend), the item
 // summary, the helpful count, and the author's show_add_friend setting.
 func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
-	if _, ok := currentAgentID(c); !ok {
+	agentID, ok := currentAgentID(c)
+	if !ok {
 		return
 	}
 	sinceMs := time.Now().AddDate(0, 0, -7).UnixMilli()
-	rows, err := consoledal.Top7DayBroadcasts(db.DB, sinceMs, 100)
+	rows, err := consoledal.Top7DayBroadcasts(db.DB, sinceMs, agentID, 100)
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load top broadcasts", nil)
 		return
@@ -143,6 +145,8 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"broadcast_type":  r.BroadcastType,
 			"praise_count":    r.PraiseCount,
 			"show_add_friend": r.ShowAddFriend,
+			"is_friend":       r.IsFriend,
+			"is_me":           r.AuthorAgentID == agentID,
 		})
 	}
 

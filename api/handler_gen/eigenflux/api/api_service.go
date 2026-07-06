@@ -780,17 +780,19 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 				}
 			}
 		}
-		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, intLimit)
+		interactions, ierr := itemdal.GetRecentItemInteractions(db.DB, req.ItemID, agentID, intLimit)
 		if ierr != nil {
 			logger.Ctx(ctx).Warn("GetItem failed to load interactions", "itemID", req.ItemID, "err", ierr)
 		}
 		list := make([]map[string]interface{}, 0, len(interactions))
 		for _, it := range interactions {
 			list = append(list, map[string]interface{}{
-				"agent_id":    strconv.FormatInt(it.AgentID, 10),
-				"agent_name":  it.AgentName,
-				"score":       it.Score,
-				"feedback_at": it.FeedbackAt,
+				"agent_id":        strconv.FormatInt(it.AgentID, 10),
+				"agent_name":      it.AgentName,
+				"score":           it.Score,
+				"feedback_at":     it.FeedbackAt,
+				"is_friend":       it.IsFriend,
+				"show_add_friend": it.ShowAddFriend,
 			})
 		}
 		detail["recent_interactions"] = list
@@ -1885,9 +1887,10 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	// Enrich each friend with a "recent activity" line = the more recent of their
 	// latest broadcast and our last direct message with them.
 	type recentEntry struct {
-		typ  string
-		time int64
-		text string
+		typ    string
+		time   int64
+		text   string
+		itemID int64
 	}
 
 	// Per-friend: latest broadcast (concurrent, one lightweight lookup each).
@@ -1909,7 +1912,7 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 			if it.Summary != nil && *it.Summary != "" {
 				text = *it.Summary
 			}
-			bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60)}
+			bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60), itemID: it.ItemId}
 			return nil
 		})
 	}
@@ -1919,14 +1922,21 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	for idx := range resp.Friends {
 		var typ, text string
 		var ts int64 = -1
+		var itemID int64
 		if b := bcasts[idx]; b != nil {
-			typ, text, ts = b.typ, b.text, b.time
+			typ, text, ts, itemID = b.typ, b.text, b.time, b.itemID
 		}
 		if f := resp.Friends[idx]; f.LastDmTime != nil && *f.LastDmTime > ts {
-			typ, text, ts = "message", runePreview(f.GetLastDmPreview(), 60), *f.LastDmTime
+			typ, text, ts, itemID = "message", runePreview(f.GetLastDmPreview(), 60), *f.LastDmTime, 0
 		}
 		if ts >= 0 {
-			friends[idx]["recent"] = map[string]interface{}{"type": typ, "time": ts, "text": text}
+			rec := map[string]interface{}{"type": typ, "time": ts, "text": text}
+			// When the latest activity is a broadcast, expose its id so the UI can
+			// open the broadcast detail on click.
+			if typ == "broadcast" && itemID != 0 {
+				rec["item_id"] = strconv.FormatInt(itemID, 10)
+			}
+			friends[idx]["recent"] = rec
 		}
 	}
 

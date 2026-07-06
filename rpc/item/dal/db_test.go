@@ -117,31 +117,37 @@ func TestGetRecentItemInteractions(t *testing.T) {
 		}
 	}
 
-	got, err := GetRecentItemInteractions(db.DB, itemID, 15)
+	callerAgent := int64(999900299)
+	got, err := GetRecentItemInteractions(db.DB, itemID, callerAgent, 15)
 	if err != nil {
 		t.Fatalf("GetRecentItemInteractions: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("want 3 interactions, got %d", len(got))
+	// Only "found helpful" feedback (score >= 1) is returned; the -1 ghost row is
+	// filtered at the interface layer.
+	if len(got) != 2 {
+		t.Fatalf("want 2 helpful interactions, got %d", len(got))
 	}
 	// Newest first.
-	if got[0].FeedbackAt != 3000 || got[1].FeedbackAt != 2000 || got[2].FeedbackAt != 1000 {
+	if got[0].FeedbackAt != 3000 || got[1].FeedbackAt != 1000 {
 		t.Errorf("not ordered newest-first: %+v", got)
 	}
-	// Name joins for known agent, empty for the ghost (frontend supplies a fallback).
+	// Name joins for the known agent; no friend relation set up, so is_friend is false.
 	if got[0].AgentID != namedAgent || got[0].AgentName != "Scout" || got[0].Score != 1 {
 		t.Errorf("row0 wrong: %+v", got[0])
 	}
-	if got[1].AgentID != ghostAgent || got[1].AgentName != "" || got[1].Score != -1 {
-		t.Errorf("row1 (ghost) wrong: %+v", got[1])
+	if got[1].AgentID != namedAgent || got[1].Score != 2 {
+		t.Errorf("row1 wrong: %+v", got[1])
+	}
+	if got[0].IsFriend {
+		t.Errorf("expected is_friend=false with no relation, got %+v", got[0])
 	}
 
 	// limit caps the result set.
-	limited, err := GetRecentItemInteractions(db.DB, itemID, 2)
+	limited, err := GetRecentItemInteractions(db.DB, itemID, callerAgent, 1)
 	if err != nil {
 		t.Fatalf("GetRecentItemInteractions limited: %v", err)
 	}
-	if len(limited) != 2 || limited[0].FeedbackAt != 3000 {
+	if len(limited) != 1 || limited[0].FeedbackAt != 3000 {
 		t.Errorf("limit not applied: %+v", limited)
 	}
 }

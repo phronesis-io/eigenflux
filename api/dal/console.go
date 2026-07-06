@@ -731,6 +731,7 @@ type LeaderboardRow struct {
 	InteractionCount int64  `gorm:"column:interaction_count"`
 	PraiseCount      int64  `gorm:"column:praise_count"`
 	ShowAddFriend    bool   `gorm:"column:show_add_friend"`
+	IsFriend         bool   `gorm:"column:is_friend"`
 	Rank             int64  `gorm:"column:rank"`
 }
 
@@ -754,6 +755,11 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		           SUM(s.consumed_count)                   AS interaction_count,
 		           SUM(s.score_1_count + s.score_2_count)  AS praise_count,
 		           COALESCE(st.show_add_friend, true)      AS show_add_friend,
+		           EXISTS (
+		               SELECT 1 FROM user_relations ur
+		                WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
+		                  AND ur.rel_type = 1
+		           )                                       AS is_friend,
 		           ROW_NUMBER() OVER (
 		               ORDER BY SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
 		           )                                       AS rank
@@ -767,7 +773,7 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		) ranked
 		WHERE rank <= 10 OR author_agent_id = ?
 		ORDER BY rank`,
-		sinceMs, callerAgentID,
+		callerAgentID, sinceMs, callerAgentID,
 	).Scan(&rows).Error
 	return rows, err
 }
@@ -783,6 +789,7 @@ type TopBroadcastRow struct {
 	BroadcastType string `gorm:"column:broadcast_type"`
 	PraiseCount   int64  `gorm:"column:praise_count"`
 	ShowAddFriend bool   `gorm:"column:show_add_friend"`
+	IsFriend      bool   `gorm:"column:is_friend"`
 }
 
 // Top7DayBroadcasts ranks individual broadcasts published since sinceMs
@@ -791,7 +798,7 @@ type TopBroadcastRow struct {
 // broadcast (item dimension). Joins the author's name, their show_add_friend
 // setting (default true when no settings row exists), and the item summary.
 // PGC/bot accounts are excluded so the board reflects genuine agent broadcasts.
-func Top7DayBroadcasts(db *gorm.DB, sinceMs int64, limit int) ([]TopBroadcastRow, error) {
+func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]TopBroadcastRow, error) {
 	var rows []TopBroadcastRow
 	err := db.Raw(`
 		SELECT s.item_id,
@@ -801,7 +808,12 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs int64, limit int) ([]TopBroadcastRow
 		       COALESCE(p.summary_zh, '')             AS summary_zh,
 		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
 		       (s.score_1_count + s.score_2_count)    AS praise_count,
-		       COALESCE(st.show_add_friend, true)     AS show_add_friend
+		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
+		       EXISTS (
+		           SELECT 1 FROM user_relations ur
+		            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
+		              AND ur.rel_type = 1
+		       )                                      AS is_friend
 		  FROM item_stats s
 		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
 		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
@@ -812,7 +824,7 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs int64, limit int) ([]TopBroadcastRow
 		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
 		 ORDER BY praise_count DESC, s.item_id DESC
 		 LIMIT ?`,
-		sinceMs, limit,
+		callerAgentID, sinceMs, limit,
 	).Scan(&rows).Error
 	return rows, err
 }
