@@ -392,16 +392,18 @@ type ItemInteraction struct {
 	FeedbackAt int64  `gorm:"column:feedback_at"`
 }
 
-// GetRecentItemInteractions returns the most recent scoring feedback on an item,
-// newest first, capped at limit. Each row carries the scoring agent's id, name,
-// score (-1/0/1/2) and timestamp. Reads feedback_logs (indexed on
-// item_id, feedback_at) left-joined with agents for the display name.
+// GetRecentItemInteractions returns the most recent "found helpful" feedback on
+// an item, newest first, capped at limit. Only helpful scores (1/2) are returned;
+// neutral (0) and not-helpful (-1) are filtered at this interface layer so callers
+// (and the UI) see only agents who found the broadcast helpful. Each row carries
+// the scoring agent's id, name, score and timestamp. Reads feedback_logs (indexed
+// on item_id, feedback_at) left-joined with agents for the display name.
 func GetRecentItemInteractions(db *gorm.DB, itemID int64, limit int) ([]ItemInteraction, error) {
 	var rows []ItemInteraction
 	err := db.Table("feedback_logs AS f").
 		Select("f.agent_id, a.agent_name, f.score, f.feedback_at").
 		Joins("LEFT JOIN agents a ON a.agent_id = f.agent_id").
-		Where("f.item_id = ?", itemID).
+		Where("f.item_id = ? AND f.score >= 1", itemID).
 		Order("f.feedback_at DESC").
 		Limit(limit).
 		Find(&rows).Error
@@ -447,15 +449,22 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	if timeFrom > 0 {
 		query = query.Where("item_stats.created_at >= ?", timeFrom)
 	}
+	orderBy := "item_stats.item_id DESC"
 	switch scoreFilter {
 	case "high":
 		query = query.Where("item_stats.total_score > ?", 10)
 	case "low":
 		query = query.Where("item_stats.total_score <= ?", 10)
+	case "hottest":
+		// "Hottest" = most found-helpful first (score 1/2 count), with item_id as a
+		// stable tiebreaker. The lastItemID cursor still bounds pages by item_id, so
+		// deep pagination in this mode is approximate; the first page — the common
+		// case for a hot ranking — is exact.
+		orderBy = "(item_stats.score_1_count + item_stats.score_2_count) DESC, item_stats.item_id DESC"
 	}
 	err := query.
 		Select("item_stats.*, processed_items.status").
-		Order("item_stats.item_id DESC").
+		Order(orderBy).
 		Limit(limit).
 		Find(&stats).Error
 	if err != nil {

@@ -194,6 +194,8 @@ func main() {
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
 	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
 	h.GET("/api/v1/broadcasts/rated", middleware.AuthMiddleware(), apihandler.MyRatedItems)
+	// Network-wide 7-day most-helpful broadcasts board (top 100 by helpful count).
+	h.GET("/api/v1/broadcasts/top", middleware.AuthMiddleware(), apihandler.TopBroadcasts)
 
 	// AgentRapport quiz (public marketing activity at /agti). Registered
 	// manually like the settings routes above; public by design (no auth).

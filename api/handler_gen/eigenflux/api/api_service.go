@@ -447,8 +447,11 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 			itemReq.TimeFrom = &v
 		}
 	}
-	if sf := string(c.Query("score_filter")); sf == "high" || sf == "low" {
-		itemReq.ScoreFilter = &sf
+	// Sort mode: "hottest" ranks by found-helpful count; anything else (default
+	// "latest") keeps the newest-first order. Reuses the RPC ScoreFilter field to
+	// carry the mode so no IDL/kitex regen is needed.
+	if s := string(c.Query("sort")); s == "hottest" {
+		itemReq.ScoreFilter = &s
 	}
 
 	resp, err := clients.ItemClient.GetMyItems(ctx, itemReq)
@@ -472,6 +475,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 			"score_1_count":       it.Score_1Count,
 			"score_2_count":       it.Score_2Count,
 			"total_score":         it.TotalScore,
+			"praise_count":        it.Score_1Count + it.Score_2Count,
 			"created_at":          it.GetCreatedAt(),
 			"updated_at":          it.UpdatedAt,
 		}
@@ -762,7 +766,9 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	// Interaction details (who scored this broadcast, with what score and when)
 	// are private to the author. Gate on ownership so only the author sees them.
 	if stats, statsErr := itemdal.GetItemStatsByID(db.DB, req.ItemID); statsErr == nil && stats.AuthorAgentID == agentID {
-		detail["interaction_total"] = stats.ScoreNeg1Count + stats.Score0Count + stats.Score1Count + stats.Score2Count
+		// Count only "found helpful" (1/2), matching GetRecentItemInteractions'
+		// interface-layer filter so the total lines up with the returned list.
+		detail["interaction_total"] = stats.Score1Count + stats.Score2Count
 		// Default to the 15 most recent; the drawer's "view all" passes a higher
 		// int_limit to pull the full list in one shot (capped to bound the payload).
 		intLimit := 15
@@ -1091,10 +1097,10 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 	messages := make([]map[string]interface{}, len(resp.Messages))
 	for i, msg := range resp.Messages {
 		messages[i] = map[string]interface{}{
-			"msg_id":        strconv.FormatInt(msg.MsgId, 10),
-			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
-			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
-			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
+			"msg_id":             strconv.FormatInt(msg.MsgId, 10),
+			"conv_id":            strconv.FormatInt(msg.ConvId, 10),
+			"sender_id":          strconv.FormatInt(msg.SenderId, 10),
+			"receiver_id":        strconv.FormatInt(msg.ReceiverId, 10),
 			"content":            msg.Content,
 			"is_read":            msg.IsRead,
 			"created_at":         msg.CreatedAt,
@@ -1294,10 +1300,10 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 	messages := make([]map[string]interface{}, len(resp.Messages))
 	for i, msg := range resp.Messages {
 		messages[i] = map[string]interface{}{
-			"msg_id":        strconv.FormatInt(msg.MsgId, 10),
-			"conv_id":       strconv.FormatInt(msg.ConvId, 10),
-			"sender_id":     strconv.FormatInt(msg.SenderId, 10),
-			"receiver_id":   strconv.FormatInt(msg.ReceiverId, 10),
+			"msg_id":             strconv.FormatInt(msg.MsgId, 10),
+			"conv_id":            strconv.FormatInt(msg.ConvId, 10),
+			"sender_id":          strconv.FormatInt(msg.SenderId, 10),
+			"receiver_id":        strconv.FormatInt(msg.ReceiverId, 10),
 			"content":            msg.Content,
 			"is_read":            msg.IsRead,
 			"created_at":         msg.CreatedAt,
@@ -2571,6 +2577,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"feed_poll_interval":       settings.FeedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"auto_comment":             settings.AutoComment,
+		"show_add_friend":          settings.ShowAddFriend,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
@@ -2645,6 +2652,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"feed_poll_interval":       feedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"auto_comment":             settings.AutoComment,
+		"show_add_friend":          settings.ShowAddFriend,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"updated_at":               settings.UpdatedAt,
@@ -2675,6 +2683,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
 		AutoReplyPM             *bool `json:"auto_reply_pm"`
 		AutoComment             *bool `json:"auto_comment"`
+		ShowAddFriend           *bool `json:"show_add_friend"`
 		OfficialPMOptout        *bool `json:"official_pm_optout"`
 	}
 	raw, _ := c.Body()
@@ -2686,7 +2695,7 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment); err != nil {
+	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment, body.ShowAddFriend); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
@@ -2854,8 +2863,9 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	// Apply updates. auto_reply_pm is parsed from a side struct because the
 	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
 	var extra struct {
-		AutoReplyPM *bool `json:"auto_reply_pm"`
-		AutoComment *bool `json:"auto_comment"`
+		AutoReplyPM   *bool `json:"auto_reply_pm"`
+		AutoComment   *bool `json:"auto_comment"`
+		ShowAddFriend *bool `json:"show_add_friend"`
 	}
 	_ = json.Unmarshal(body, &extra)
 	if req.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*req.FeedPollInterval) {
@@ -2875,6 +2885,9 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	}
 	if extra.AutoComment != nil {
 		current.AutoComment = *extra.AutoComment
+	}
+	if extra.ShowAddFriend != nil {
+		current.ShowAddFriend = *extra.ShowAddFriend
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {

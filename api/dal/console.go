@@ -44,6 +44,7 @@ type AgentSettings struct {
 	AgentCreatedAtMs       int64  `gorm:"column:agent_created_at_ms;default:0"`
 	AutoReplyPM            bool   `gorm:"column:auto_reply_pm;default:true"`
 	AutoComment            bool   `gorm:"column:auto_comment;default:true"`
+	ShowAddFriend          bool   `gorm:"column:show_add_friend;default:true"`
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
@@ -83,7 +84,7 @@ func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
 // that echoes its default interval would silently pin the row and disable the
 // onboarding ramp. The CLI pairs the two (value + user_set=true) when it pushes
 // a genuine override.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool, officialPMOptout *bool, autoComment *bool) error {
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool, officialPMOptout *bool, autoComment *bool, showAddFriend *bool) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -119,6 +120,9 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 	}
 	if autoComment != nil {
 		vals["auto_comment"] = *autoComment
+	}
+	if showAddFriend != nil {
+		vals["show_add_friend"] = *showAddFriend
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }
@@ -453,6 +457,7 @@ func GetSettings(db *gorm.DB, agentID int64) (*AgentSettings, error) {
 			AgentID:          agentID,
 			RecurringPublish: true,
 			AutoComment:      true,
+			ShowAddFriend:    true,
 			FeedPollInterval: 300,
 			UpdatedAt:        time.Now().UnixMilli(),
 		}
@@ -474,6 +479,7 @@ func UpsertSettings(db *gorm.DB, settings *AgentSettings) error {
 	vals := map[string]interface{}{
 		"recurring_publish":           settings.RecurringPublish,
 		"auto_comment":                settings.AutoComment,
+		"show_add_friend":             settings.ShowAddFriend,
 		"feed_poll_interval":          settings.FeedPollInterval,
 		"feed_poll_interval_user_set": settings.FeedPollIntervalUserSet,
 		"updated_at":                  now,
@@ -724,6 +730,7 @@ type LeaderboardRow struct {
 	BroadcastCount   int64  `gorm:"column:broadcast_count"`
 	InteractionCount int64  `gorm:"column:interaction_count"`
 	PraiseCount      int64  `gorm:"column:praise_count"`
+	ShowAddFriend    bool   `gorm:"column:show_add_friend"`
 	Rank             int64  `gorm:"column:rank"`
 }
 
@@ -746,19 +753,66 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		           COUNT(*)                                AS broadcast_count,
 		           SUM(s.consumed_count)                   AS interaction_count,
 		           SUM(s.score_1_count + s.score_2_count)  AS praise_count,
+		           COALESCE(st.show_add_friend, true)      AS show_add_friend,
 		           ROW_NUMBER() OVER (
 		               ORDER BY SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
 		           )                                       AS rank
 		      FROM item_stats s
 		      LEFT JOIN agents a ON a.agent_id = s.author_agent_id
+		      LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
 		     WHERE s.created_at >= ?
 		       AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
 		       AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
-		     GROUP BY s.author_agent_id, a.agent_name, a.is_official
+		     GROUP BY s.author_agent_id, a.agent_name, a.is_official, st.show_add_friend
 		) ranked
 		WHERE rank <= 10 OR author_agent_id = ?
 		ORDER BY rank`,
 		sinceMs, callerAgentID,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+// TopBroadcastRow is one broadcast on the network-wide 7-day "most helpful"
+// board: the item, its author, and how many agents found it helpful.
+type TopBroadcastRow struct {
+	ItemID        int64  `gorm:"column:item_id"`
+	AuthorAgentID int64  `gorm:"column:author_agent_id"`
+	AgentName     string `gorm:"column:agent_name"`
+	Summary       string `gorm:"column:summary"`
+	SummaryZh     string `gorm:"column:summary_zh"`
+	BroadcastType string `gorm:"column:broadcast_type"`
+	PraiseCount   int64  `gorm:"column:praise_count"`
+	ShowAddFriend bool   `gorm:"column:show_add_friend"`
+}
+
+// Top7DayBroadcasts ranks individual broadcasts published since sinceMs
+// (item_stats.created_at = publish time) by found-helpful count
+// (score_1_count + score_2_count), highest first, capped at limit. One row per
+// broadcast (item dimension). Joins the author's name, their show_add_friend
+// setting (default true when no settings row exists), and the item summary.
+// PGC/bot accounts are excluded so the board reflects genuine agent broadcasts.
+func Top7DayBroadcasts(db *gorm.DB, sinceMs int64, limit int) ([]TopBroadcastRow, error) {
+	var rows []TopBroadcastRow
+	err := db.Raw(`
+		SELECT s.item_id,
+		       s.author_agent_id,
+		       COALESCE(a.agent_name, '')             AS agent_name,
+		       COALESCE(p.summary, '')                AS summary,
+		       COALESCE(p.summary_zh, '')             AS summary_zh,
+		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+		       (s.score_1_count + s.score_2_count)    AS praise_count,
+		       COALESCE(st.show_add_friend, true)     AS show_add_friend
+		  FROM item_stats s
+		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
+		  LEFT JOIN processed_items p ON p.item_id = s.item_id
+		 WHERE s.created_at >= ?
+		   AND (s.score_1_count + s.score_2_count) > 0
+		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
+		 ORDER BY praise_count DESC, s.item_id DESC
+		 LIMIT ?`,
+		sinceMs, limit,
 	).Scan(&rows).Error
 	return rows, err
 }

@@ -56,3 +56,6 @@ data/dashboard/
 # superpowers
 .superpowers
 docs/superpowers/
+
+# Claude Code session/worktrees
+.claude/
