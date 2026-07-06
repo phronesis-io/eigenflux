@@ -22,6 +22,7 @@ type ProcessedItem struct {
 	ItemID           int64   `gorm:"column:item_id;primaryKey"`
 	Status           int16   `gorm:"column:status;type:smallint;not null;default:0"`
 	Summary          string  `gorm:"column:summary;type:text;default:null"`
+	SummaryZh        string  `gorm:"column:summary_zh;type:text;default:null"`
 	BroadcastType    string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
 	Domains          string  `gorm:"column:domains;type:text;default:null"`
 	Keywords         string  `gorm:"column:keywords;type:text;default:null"`
