@@ -47,12 +47,13 @@ SOURCE_HEALTH_SLA_PANEL_IDS = {
     61,  # 信源 SLA
 }
 
+# 2026-07-06 语义拆分：17=火情(我方契约侧真坏的, 恒0)、61=观察清单(出版方安静/
+# 加源候选/SLA, 允许有水位)。风险趋势(37)双线。63=榜单胜率(对外口径)——它已经
+# 两次被改板误删, 从此由本校验器守护(见下方 OUTWARD_METRIC_MUST_EXIST)。
 OWNER_COCKPIT_PANELS = {
     17: [
-        "pgc_first_source_audit_attention",
-        "pgc_source_health_critical_attention",
         "pgc_source_health_canaries_failed",
-        "pgc_source_health_sla_attention",
+        "pgc_source_health_critical_fire",
         "pgc_signal_latency_active_source_breaches_3h",
     ],
     32: ["pgc_first_source_audit_attention"],
@@ -61,9 +62,20 @@ OWNER_COCKPIT_PANELS = {
     36: ["pgc_twitterapi_credits_days_to_empty"],
     37: ["pgc_source_health_sla_attention"],
     39: ["pgc_newsapi_key_tokens_pct"],
-    61: ["pgc_source_health_sla_attention"],
+    61: [
+        "pgc_source_health_critical_watch",
+        "pgc_first_source_audit_attention",
+        "pgc_source_health_sla_attention",
+    ],
     62: ["pgc_signal_latency_active_source_breaches_3h"],
+    63: ["pgc_first_source_win_rate"],
 }
+
+# 全板必须存在的对外口径指标——不锚定到特定面板 id, 但必须有家。
+# 榜单胜率 2026-07-03 和 2026-07-06 两次被改板弄丢, 每次都靠人肉体检才发现。
+OUTWARD_METRIC_MUST_EXIST = [
+    "pgc_first_source_win_rate",
+]
 
 
 def load_dashboard(path: Path) -> dict:
@@ -104,6 +116,15 @@ def static_validate(dashboard: dict) -> list[str]:
         for term in required_terms:
             if term not in joined_expr:
                 errors.append(f"panel {panel_id} must use {term}")
+
+    all_exprs = "\n".join(
+        t.get("expr", "") for p in dashboard.get("panels", [])
+        for t in p.get("targets", []) or [])
+    for metric in OUTWARD_METRIC_MUST_EXIST:
+        if metric not in all_exprs:
+            errors.append(
+                f"outward metric {metric} has NO panel — it went homeless twice "
+                f"(2026-07-03, 2026-07-06); restore it before merging")
 
     for panel_id in ACTIONABLE_LATENCY_PANEL_IDS:
         panel = panels_by_id.get(panel_id)
