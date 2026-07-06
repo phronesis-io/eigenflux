@@ -553,6 +553,56 @@
       }
     },
     {
+      "id": 25,
+      "title": "每日活跃 DAU 趋势 (选定区间)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(DISTINCT l.agent_id) AS \"DAU\"\nFROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id\nWHERE l.event_type <> 'reply_received' AND a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'\n  AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY 1 ORDER BY 1;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "每日主动活跃真实用户去重数（DAU）。口径同「今日活跃 DAU」面板：agent_activity_log 排除 reply_received，按 agent_id 去重，剔除 bot/pgc/内部测试号，按 Asia/Shanghai 自然日分桶。多日区间跟随 Grafana 时间选择器（$__timeFrom ~ $__timeTo）。"
+    },
+    {
       "id": 13,
       "title": "昨日 / 今日活跃用户 (真实用户, 按最近活跃排序)",
       "type": "table",
@@ -564,7 +614,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "targets": [
         {
@@ -615,7 +665,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "targets": [
         {
@@ -835,7 +885,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 58
+        "y": 66
       },
       "panels": []
     },
@@ -851,7 +901,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -901,7 +951,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -951,7 +1001,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -1001,7 +1051,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -1051,7 +1101,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -1101,7 +1151,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 59
+        "y": 67
       },
       "targets": [
         {
@@ -1151,7 +1201,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 71
       },
       "targets": [
         {
@@ -1199,7 +1249,7 @@
         "h": 14,
         "w": 24,
         "x": 0,
-        "y": 71
+        "y": 79
       },
       "targets": [
         {
@@ -1250,7 +1300,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 93
       },
       "targets": [
         {
@@ -1301,7 +1351,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 93
+        "y": 101
       },
       "targets": [
         {
