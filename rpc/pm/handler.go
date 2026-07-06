@@ -504,6 +504,12 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	if nameErr != nil {
 		liveNames = map[int64]string{} // non-fatal: fall back to the snapshot name
 	}
+	// Current friendship for the page's peers, in one query. Drives the
+	// broadcast_comment / non_friend split (looked up by peerID in the loop).
+	friendSet, friendErr := dal.FriendSet(db.DB, req.AgentId, peerIDs)
+	if friendErr != nil {
+		friendSet = map[int64]bool{} // non-fatal: treat all as non-friend
+	}
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
@@ -538,6 +544,13 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 		if r, ok := remarks[peerID]; ok {
 			info.Remark = &r
 		}
+		// Current friendship + derived three-bucket category (friend /
+		// broadcast_comment / non_friend). Read live so a conversation moves
+		// buckets when the pair adds/removes each other — no backfill.
+		isFriend := friendSet[peerID]
+		info.IsFriend = &isFriend
+		category := dal.Category(conv.OriginType, isFriend)
+		info.Category = &category
 		// Last message preview (rune-safe: a byte cut can split a UTF-8 char)
 		lastMsg, msgErr := dal.GetLastMessage(db.DB, conv.ConvID)
 		if msgErr == nil && lastMsg != nil {
@@ -1156,8 +1169,9 @@ func (s *PMServiceImpl) GetUnreadCount(ctx context.Context, req *pm.GetUnreadCou
 		logger.Ctx(ctx).Error("GetUnreadCount failed", "agentID", req.AgentId, "err", err)
 		return &pm.GetUnreadCountResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to count"}}, nil
 	}
-	bc, fr, _ := dal.CountUnreadByOrigin(db.DB, req.AgentId)
-	return &pm.GetUnreadCountResp{Count: n, CountBroadcast: &bc, CountFriend: &fr, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	comment, nonFriend, fr, _ := dal.CountUnreadByOrigin(db.DB, req.AgentId)
+	bc := comment + nonFriend // back-compat: count_broadcast = comment + non_friend
+	return &pm.GetUnreadCountResp{Count: n, CountBroadcast: &bc, CountBroadcastComment: &comment, CountNonFriend: &nonFriend, CountFriend: &fr, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
 // MarkConvRead marks all messages the agent received in a conversation as read.

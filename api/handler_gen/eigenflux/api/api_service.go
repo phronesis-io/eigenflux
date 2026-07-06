@@ -1194,6 +1194,8 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"unread_count":         conv.GetUnreadCount(),
 			"msg_count":            conv.GetMsgCount(),
 			"origin_type":          conv.GetOriginType(),
+			"is_friend":            conv.GetIsFriend(),
+			"category":             conv.GetCategory(),
 		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
 			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
@@ -1369,9 +1371,11 @@ func GetUnreadBreakdown(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"total":     resp.Count,
-		"broadcast": resp.GetCountBroadcast(),
-		"friend":    resp.GetCountFriend(),
+		"total":             resp.Count,
+		"broadcast":         resp.GetCountBroadcast(),
+		"broadcast_comment": resp.GetCountBroadcastComment(),
+		"non_friend":        resp.GetCountNonFriend(),
+		"friend":            resp.GetCountFriend(),
 	})
 }
 

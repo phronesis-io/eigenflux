@@ -55,7 +55,7 @@ struct ListConversationsReq {
     1: required i64 agent_id
     2: optional i64 cursor        // last conv updated_at
     3: optional i32 limit
-    4: optional string origin_type // "item" or "friend"
+    4: optional string origin_type // "broadcast" or "friend"
 }
 
 struct ConversationInfo {
@@ -72,6 +72,8 @@ struct ConversationInfo {
     12: optional i32 unread_count
     13: optional i32 msg_count
     14: optional string remark    // requester's remark for the peer (from user_relations)
+    15: optional bool is_friend    // peer is currently a friend (user_relations rel_type=1)
+    16: optional string category   // derived: "friend" | "broadcast_comment" | "non_friend"
 }
 
 struct ListConversationsResp {
@@ -224,8 +226,10 @@ struct GetUnreadCountReq {
 
 struct GetUnreadCountResp {
     1: required i64 count
-    2: optional i64 count_broadcast   // unread in broadcast discussions
+    2: optional i64 count_broadcast   // unread broadcast discussions (= comment + non_friend, back-compat)
     3: optional i64 count_friend      // unread in direct messages
+    4: optional i64 count_broadcast_comment  // unread broadcast discussions with a current friend
+    5: optional i64 count_non_friend         // unread broadcast discussions with a non-friend
     255: required base.BaseResp base_resp
 }
 

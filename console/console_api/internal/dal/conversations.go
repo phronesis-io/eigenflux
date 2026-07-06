@@ -21,6 +21,7 @@ type Conversation struct {
 	UpdatedAt        int64  `gorm:"column:updated_at"`
 	ParticipantAName string `gorm:"column:participant_a_name"`
 	ParticipantBName string `gorm:"column:participant_b_name"`
+	IsFriend         bool   `gorm:"column:is_friend"` // derived: the two participants are currently friends
 }
 
 func (Conversation) TableName() string { return "conversations" }
@@ -66,7 +67,11 @@ func ListConversations(db *gorm.DB, params ListConversationsParams) ([]Conversat
 
 	var rows []Conversation
 	offset := (params.Page - 1) * params.PageSize
+	// Derive is_friend for each conversation: the two participants are currently
+	// friends (user_relations rel_type=1, symmetric so one direction suffices).
+	// Added on Find only, so the Count above is unaffected.
 	err := query.
+		Select("conversations.*, EXISTS (SELECT 1 FROM user_relations r WHERE r.from_uid = conversations.participant_a AND r.to_uid = conversations.participant_b AND r.rel_type = 1) AS is_friend").
 		Order("updated_at DESC").
 		Offset(int(offset)).
 		Limit(int(params.PageSize)).

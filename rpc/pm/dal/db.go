@@ -248,24 +248,38 @@ func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
 	return count, err
 }
 
-// CountUnreadByOrigin returns the agent's unread message counts split by the
-// conversation origin ("broadcast" discussions vs "friend" direct messages).
-func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcast, friend int64, err error) {
+// CountUnreadByOrigin returns the agent's unread message counts split into three
+// buckets: friend (origin_type='friend'), broadcast_comment (broadcast origin
+// where the peer is currently a friend), and non_friend (broadcast origin with a
+// non-friend). Friendship is read live from user_relations (rel_type=1); the peer
+// is whichever participant is not the receiver.
+func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcastComment, nonFriend, friend int64, err error) {
 	type row struct {
-		OriginType string
-		N          int64
+		Bucket string
+		N      int64
 	}
 	var rows []row
 	err = db.Raw(
-		`SELECT c.origin_type AS origin_type, COUNT(*) AS n
+		`SELECT CASE
+		     WHEN c.origin_type = 'friend' THEN 'friend'
+		     WHEN EXISTS (
+		         SELECT 1 FROM user_relations r
+		         WHERE r.from_uid = ?
+		           AND r.to_uid = CASE WHEN c.participant_a = ? THEN c.participant_b ELSE c.participant_a END
+		           AND r.rel_type = 1
+		     ) THEN 'broadcast_comment'
+		     ELSE 'non_friend'
+		   END AS bucket, COUNT(*) AS n
 		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
 		 WHERE pm.receiver_id = ? AND pm.is_read = false
-		 GROUP BY c.origin_type`, agentID,
+		 GROUP BY bucket`, agentID, agentID, agentID,
 	).Scan(&rows).Error
 	for _, r := range rows {
-		switch r.OriginType {
-		case "broadcast":
-			broadcast = r.N
+		switch r.Bucket {
+		case "broadcast_comment":
+			broadcastComment = r.N
+		case "non_friend":
+			nonFriend = r.N
 		case "friend":
 			friend = r.N
 		}

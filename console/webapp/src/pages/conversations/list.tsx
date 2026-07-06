@@ -21,6 +21,8 @@ interface Conversation {
   msg_count: number;
   status: number;
   updated_at: number;
+  is_friend?: boolean;
+  category?: string;
 }
 
 interface ConvMessage {
@@ -52,14 +54,16 @@ const colorForSender = (senderID: string) => {
   return SENDER_PALETTE[hash % SENDER_PALETTE.length];
 };
 
-const originTypeLabel = (t: string) => {
-  switch (t) {
-    case "broadcast":
-      return <Tag color="blue">Item</Tag>;
+const categoryLabel = (c: string) => {
+  switch (c) {
     case "friend":
-      return <Tag color="green">Friend</Tag>;
+      return <Tag color="green">好友私信</Tag>;
+    case "broadcast_comment":
+      return <Tag color="blue">广播下的评论</Tag>;
+    case "non_friend":
+      return <Tag color="orange">非好友私信</Tag>;
     default:
-      return <Tag>{t || "-"}</Tag>;
+      return <Tag>{c || "-"}</Tag>;
   }
 };
 
@@ -168,11 +172,11 @@ export const ConversationList = () => {
       ),
     },
     {
-      title: "Type",
-      key: "origin_type",
-      dataIndex: "origin_type",
-      width: 100,
-      render: (t: string) => originTypeLabel(t),
+      title: "类型",
+      key: "category",
+      dataIndex: "category",
+      width: 120,
+      render: (c: string) => categoryLabel(c || ""),
     },
     {
       title: "Item ID",

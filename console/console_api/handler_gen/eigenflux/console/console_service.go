@@ -1389,6 +1389,8 @@ type ConsoleConversationInfo struct {
 	MsgCount         int32  `json:"msg_count"`
 	Status           int16  `json:"status"`
 	UpdatedAt        int64  `json:"updated_at"`
+	IsFriend         bool   `json:"is_friend"`
+	Category         string `json:"category"` // friend | broadcast_comment | non_friend
 }
 
 type ListConversationsData struct {
@@ -1435,6 +1437,15 @@ func toConsoleConversationInfo(c dal.Conversation) ConsoleConversationInfo {
 		MsgCount:         c.MsgCount,
 		Status:           c.Status,
 		UpdatedAt:        c.UpdatedAt,
+		IsFriend:         c.IsFriend,
+	}
+	// Derive the three-bucket category (admin view: friendship is between the two
+	// participants). broadcast + friends → comment; broadcast + not → non_friend.
+	info.Category = "non_friend"
+	if c.OriginType == "friend" {
+		info.Category = "friend"
+	} else if c.IsFriend {
+		info.Category = "broadcast_comment"
 	}
 	if c.OriginType == "broadcast" && c.OriginID > 0 {
 		info.OriginID = strconv.FormatInt(c.OriginID, 10)

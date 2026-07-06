@@ -645,6 +645,8 @@ type ConversationInfo struct {
 	UnreadCount        *int32  `thrift:"unread_count,12,optional" frugal:"12,optional,i32" json:"unread_count,omitempty"`
 	MsgCount           *int32  `thrift:"msg_count,13,optional" frugal:"13,optional,i32" json:"msg_count,omitempty"`
 	Remark             *string `thrift:"remark,14,optional" frugal:"14,optional,string" json:"remark,omitempty"`
+	IsFriend           *bool   `thrift:"is_friend,15,optional" frugal:"15,optional,bool" json:"is_friend,omitempty"`
+	Category           *string `thrift:"category,16,optional" frugal:"16,optional,string" json:"category,omitempty"`
 }
 
 func NewConversationInfo() *ConversationInfo {
@@ -750,6 +752,24 @@ func (p *ConversationInfo) GetRemark() (v string) {
 	}
 	return *p.Remark
 }
+
+var ConversationInfo_IsFriend_DEFAULT bool
+
+func (p *ConversationInfo) GetIsFriend() (v bool) {
+	if !p.IsSetIsFriend() {
+		return ConversationInfo_IsFriend_DEFAULT
+	}
+	return *p.IsFriend
+}
+
+var ConversationInfo_Category_DEFAULT string
+
+func (p *ConversationInfo) GetCategory() (v string) {
+	if !p.IsSetCategory() {
+		return ConversationInfo_Category_DEFAULT
+	}
+	return *p.Category
+}
 func (p *ConversationInfo) SetConvId(val int64) {
 	p.ConvId = val
 }
@@ -789,6 +809,12 @@ func (p *ConversationInfo) SetMsgCount(val *int32) {
 func (p *ConversationInfo) SetRemark(val *string) {
 	p.Remark = val
 }
+func (p *ConversationInfo) SetIsFriend(val *bool) {
+	p.IsFriend = val
+}
+func (p *ConversationInfo) SetCategory(val *string) {
+	p.Category = val
+}
 
 func (p *ConversationInfo) IsSetParticipantAName() bool {
 	return p.ParticipantAName != nil
@@ -826,6 +852,14 @@ func (p *ConversationInfo) IsSetRemark() bool {
 	return p.Remark != nil
 }
 
+func (p *ConversationInfo) IsSetIsFriend() bool {
+	return p.IsFriend != nil
+}
+
+func (p *ConversationInfo) IsSetCategory() bool {
+	return p.Category != nil
+}
+
 func (p *ConversationInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -847,6 +881,8 @@ var fieldIDToName_ConversationInfo = map[int16]string{
 	12: "unread_count",
 	13: "msg_count",
 	14: "remark",
+	15: "is_friend",
+	16: "category",
 }
 
 type ListConversationsResp struct {
@@ -2248,10 +2284,12 @@ var fieldIDToName_GetUnreadCountReq = map[int16]string{
 }
 
 type GetUnreadCountResp struct {
-	Count          int64          `thrift:"count,1,required" frugal:"1,required,i64" json:"count"`
-	CountBroadcast *int64         `thrift:"count_broadcast,2,optional" frugal:"2,optional,i64" json:"count_broadcast,omitempty"`
-	CountFriend    *int64         `thrift:"count_friend,3,optional" frugal:"3,optional,i64" json:"count_friend,omitempty"`
-	BaseResp       *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	Count                 int64          `thrift:"count,1,required" frugal:"1,required,i64" json:"count"`
+	CountBroadcast        *int64         `thrift:"count_broadcast,2,optional" frugal:"2,optional,i64" json:"count_broadcast,omitempty"`
+	CountFriend           *int64         `thrift:"count_friend,3,optional" frugal:"3,optional,i64" json:"count_friend,omitempty"`
+	CountBroadcastComment *int64         `thrift:"count_broadcast_comment,4,optional" frugal:"4,optional,i64" json:"count_broadcast_comment,omitempty"`
+	CountNonFriend        *int64         `thrift:"count_non_friend,5,optional" frugal:"5,optional,i64" json:"count_non_friend,omitempty"`
+	BaseResp              *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewGetUnreadCountResp() *GetUnreadCountResp {
@@ -2283,6 +2321,24 @@ func (p *GetUnreadCountResp) GetCountFriend() (v int64) {
 	return *p.CountFriend
 }
 
+var GetUnreadCountResp_CountBroadcastComment_DEFAULT int64
+
+func (p *GetUnreadCountResp) GetCountBroadcastComment() (v int64) {
+	if !p.IsSetCountBroadcastComment() {
+		return GetUnreadCountResp_CountBroadcastComment_DEFAULT
+	}
+	return *p.CountBroadcastComment
+}
+
+var GetUnreadCountResp_CountNonFriend_DEFAULT int64
+
+func (p *GetUnreadCountResp) GetCountNonFriend() (v int64) {
+	if !p.IsSetCountNonFriend() {
+		return GetUnreadCountResp_CountNonFriend_DEFAULT
+	}
+	return *p.CountNonFriend
+}
+
 var GetUnreadCountResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *GetUnreadCountResp) GetBaseResp() (v *base.BaseResp) {
@@ -2300,6 +2356,12 @@ func (p *GetUnreadCountResp) SetCountBroadcast(val *int64) {
 func (p *GetUnreadCountResp) SetCountFriend(val *int64) {
 	p.CountFriend = val
 }
+func (p *GetUnreadCountResp) SetCountBroadcastComment(val *int64) {
+	p.CountBroadcastComment = val
+}
+func (p *GetUnreadCountResp) SetCountNonFriend(val *int64) {
+	p.CountNonFriend = val
+}
 func (p *GetUnreadCountResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
 }
@@ -2310,6 +2372,14 @@ func (p *GetUnreadCountResp) IsSetCountBroadcast() bool {
 
 func (p *GetUnreadCountResp) IsSetCountFriend() bool {
 	return p.CountFriend != nil
+}
+
+func (p *GetUnreadCountResp) IsSetCountBroadcastComment() bool {
+	return p.CountBroadcastComment != nil
+}
+
+func (p *GetUnreadCountResp) IsSetCountNonFriend() bool {
+	return p.CountNonFriend != nil
 }
 
 func (p *GetUnreadCountResp) IsSetBaseResp() bool {
@@ -2327,6 +2397,8 @@ var fieldIDToName_GetUnreadCountResp = map[int16]string{
 	1:   "count",
 	2:   "count_broadcast",
 	3:   "count_friend",
+	4:   "count_broadcast_comment",
+	5:   "count_non_friend",
 	255: "base_resp",
 }
 

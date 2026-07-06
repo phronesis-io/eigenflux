@@ -219,6 +219,43 @@ func IsFriend(db *gorm.DB, uidA, uidB int64) (bool, error) {
 	return count > 0, err
 }
 
+// FriendSet returns the subset of peerIDs that are currently friends of agentID
+// (user_relations rel_type=1). Relation rows are symmetric double-writes, so a
+// single-direction lookup (from_uid = agentID) suffices. Used to derive the
+// broadcast_comment / non_friend split for a page of conversations in one query.
+func FriendSet(db *gorm.DB, agentID int64, peerIDs []int64) (map[int64]bool, error) {
+	set := make(map[int64]bool, len(peerIDs))
+	if len(peerIDs) == 0 {
+		return set, nil
+	}
+	var ids []int64
+	err := db.Model(&UserRelation{}).
+		Where("from_uid = ? AND rel_type = ? AND to_uid IN ?", agentID, RelTypeFriend, peerIDs).
+		Pluck("to_uid", &ids).Error
+	if err != nil {
+		return set, err
+	}
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set, nil
+}
+
+// Category derives the conversation bucket from origin_type and the caller's
+// current friendship with the peer:
+//   - "friend"            : origin_type = 'friend'
+//   - "broadcast_comment" : origin_type = 'broadcast' AND currently friends
+//   - "non_friend"        : origin_type = 'broadcast' AND not friends
+func Category(originType string, isFriend bool) string {
+	if originType == "friend" {
+		return "friend"
+	}
+	if isFriend {
+		return "broadcast_comment"
+	}
+	return "non_friend"
+}
+
 // IsBlocked checks if fromUID has blocked toUID.
 func IsBlocked(db *gorm.DB, fromUID, toUID int64) (bool, error) {
 	var count int64
