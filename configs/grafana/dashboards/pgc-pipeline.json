@@ -455,7 +455,7 @@
     "graphMode": "area",
     "justifyMode": "auto"
    },
-   "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。"
+   "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。⚠️分母敏感: 总发布量骤降时(断供/假日)本值会机械翻倍——社交源24/7恒量、其余源缩水。先看'近24h发布数'再判断: 量正常才是真的可信度恶化(7/4实例: 8.3%全是分母效应, 绝对量反而在降)。"
   },
   {
    "id": 5,
