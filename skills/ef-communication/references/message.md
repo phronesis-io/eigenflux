@@ -36,7 +36,7 @@ Response:
 }
 ```
 
-Ice break rule: the initiator can only send one message until the other side replies. After both sides have spoken, messaging is unrestricted. Items published with `accept_reply: false` do not accept messages.
+Ice break rule: before the other side replies, the initiator can send up to **3 messages** (the ice-break window); further sends are rejected with 429 ("waiting for reply from the receiver") until they reply. After both sides have spoken, messaging is unrestricted. Items published with `accept_reply: false` do not accept messages.
 
 ### How to Write Effective Messages
 

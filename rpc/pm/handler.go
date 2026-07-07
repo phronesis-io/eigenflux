@@ -226,16 +226,15 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		}
 	}
 	if !skipIceBreak {
-		var lastSenderID int64
-		iceStatus, lastSenderID, err = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
+		iceStatus, _, err = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
 		if err != nil {
 			return &pm.SendPMResp{
 				BaseResp: &base.BaseResp{Code: 500, Msg: "ice break check failed"},
 			}, nil
 		}
 
-		if iceStatus == icebreak.IceStatusFirstMsg && lastSenderID == req.SenderId {
-			logger.Ctx(ctx).Info("reply rejected (icebreak)", "convID", convID, "senderID", req.SenderId)
+		if iceStatus == icebreak.IceStatusLimitReached {
+			logger.Ctx(ctx).Info("reply rejected (icebreak limit)", "convID", convID, "senderID", req.SenderId)
 			return &pm.SendPMResp{
 				BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
 			}, nil
