@@ -1521,7 +1521,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": true
         }
       ],
@@ -1640,7 +1640,7 @@
       "id": 33,
       "type": "stat",
       "title": "活跃高优先延迟",
-      "description": "统计 T0/T1 在 3h 窗口内仍活跃的 actionable 延迟(source_latency + source_feed_lag)。source_latency=我方管线慢, source_feed_lag=上游 feed 晚到但需要评估换快通道/补源。看下方明细表定位具体来源和原因。",
+      "description": "统计 T0/T1 在 3h 窗口内仍活跃的 actionable 延迟条目(source_latency + source_feed_lag)。source_latency=我方管线慢, source_feed_lag=上游 feed 晚到但需要评估换快通道/补源。同一条目会在 index/push 两个测量点各记一次，这里取两点中的较大值=去重后的条目数(修正前两点相加, 46 实为 ~30)。看下方明细表定位具体来源和原因。",
       "gridPos": {
         "x": 8,
         "y": 47,
@@ -1658,7 +1658,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
+          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
           "instant": true
         }
       ],
@@ -1794,7 +1794,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": false,
           "range": true,
           "legendFormat": "火情合计(应为0)"
@@ -1816,7 +1816,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
+          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
           "instant": false,
           "range": true,
           "legendFormat": "高优先级延迟"
