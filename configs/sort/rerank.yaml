@@ -4,3 +4,11 @@ policies:
       - broadcast_type: alert
         max_age: 12h
         action: drop
+  - name: boost
+    boost_rules:
+      - field: type
+        values: [supply, demand]
+        weight: 1.3
+      - field: source_type
+        values: [original]
+        weight: 1.2

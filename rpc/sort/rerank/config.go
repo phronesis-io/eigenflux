@@ -13,14 +13,21 @@ type Config struct {
 }
 
 type PolicyConfig struct {
-	Name      string                    `yaml:"name"`
-	ItemRules []ItemFreshnessRuleConfig `yaml:"item_rules"`
+	Name       string                    `yaml:"name"`
+	ItemRules  []ItemFreshnessRuleConfig `yaml:"item_rules"`
+	BoostRules []BoostRuleConfig         `yaml:"boost_rules"`
 }
 
 type ItemFreshnessRuleConfig struct {
 	BroadcastType string `yaml:"broadcast_type"`
 	MaxAge        string `yaml:"max_age"`
 	Action        string `yaml:"action"`
+}
+
+type BoostRuleConfig struct {
+	Field  string   `yaml:"field"`
+	Values []string `yaml:"values"`
+	Weight float64  `yaml:"weight"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -44,6 +51,12 @@ func (c *Config) NewPolicies(now func() time.Time) ([]Policy, error) {
 		switch pc.Name {
 		case "freshness":
 			policy, err := pc.newFreshnessPolicy(now)
+			if err != nil {
+				return nil, err
+			}
+			policies = append(policies, policy)
+		case "boost":
+			policy, err := pc.newBoostPolicy()
 			if err != nil {
 				return nil, err
 			}
@@ -76,6 +89,27 @@ func (pc PolicyConfig) newFreshnessPolicy(now func() time.Time) (*FreshnessPolic
 		})
 	}
 	return &FreshnessPolicy{ItemRules: rules, Now: now}, nil
+}
+
+func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
+	rules := make([]BoostRule, 0, len(pc.BoostRules))
+	for _, rc := range pc.BoostRules {
+		if rc.Field != "type" && rc.Field != "source_type" {
+			return nil, fmt.Errorf("boost rule uses unsupported field %q", rc.Field)
+		}
+		if len(rc.Values) == 0 {
+			return nil, fmt.Errorf("boost rule for field %q has no values", rc.Field)
+		}
+		if rc.Weight <= 0 {
+			return nil, fmt.Errorf("boost rule for field %q has non-positive weight %v", rc.Field, rc.Weight)
+		}
+		rules = append(rules, BoostRule{
+			Field:  rc.Field,
+			Values: rc.Values,
+			Weight: rc.Weight,
+		})
+	}
+	return &BoostPolicy{Rules: rules}, nil
 }
 
 func parseConfigDuration(s string) (time.Duration, error) {

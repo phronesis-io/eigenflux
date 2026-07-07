@@ -131,6 +131,13 @@ Sort reads `trading_service_stats` from PostgreSQL directly via the trade DAL (`
 
 `sort_search_services_requests_total{sub_intents_source}`, `sort_search_services_sub_intents` (histogram), `sort_search_services_llm_fallback_total{reason}`, `sort_search_services_latency_ms{phase=resolve|embed|recall|rerank|total}`, `sort_search_services_empty_total`.
 
+`SortItems` category-distribution counters, both labelled `{broadcast_type, source_type}` (empty values collapse to `none`):
+
+- `sort_recall_category_total` — recall candidates before ranking/boost/dedup.
+- `sort_feed_category_total` — items actually delivered to the feed after boost and dedup.
+
+Comparing feed-share vs recall-share per category quantifies the `BoostPolicy` effect (supply/demand ×1.3, UGC `source_type=original` ×1.2). Charted in the "召回 vs 下发品类分布 / Boost 监测" row of the `ugc-content` Grafana dashboard.
+
 ### Replay log
 
 Each SearchServices request emits one envelope to `stream:replay:log` with `impression_id = imp_search_<unix-nano>`, `agent_id = 0`. `agent_features` carries `surface = "search_services"`, `raw_query`, `sub_intents_source`, `effective_sub_intents`, `filters`. Per-item `item_features` adds `entry_type = "service"`, `matched_intents`, `per_intent_score`, `winning_intent`, `normalized_score`, `rerank_reasons`, the 6-signal `rank_scores`, and the joined `stats` block. `rerank_reasons` deliberately excludes `coverage:*` tags to keep replay-log cardinality bounded.

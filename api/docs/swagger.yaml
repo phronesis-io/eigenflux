@@ -773,6 +773,15 @@ paths:
   /api/v1/console/today:
     get:
       responses: {}
+  /api/v1/install/copy:
+    post:
+      responses: {}
+  /api/v1/install/report:
+    post:
+      responses: {}
+  /api/v1/install/token:
+    post:
+      responses: {}
   /api/v1/items/{item_id}:
     get:
       description: Get full item detail including content, domains, keywords
@@ -1144,6 +1153,9 @@ paths:
     get:
       responses: {}
   /api/v1/website/stats:
+    get:
+      responses: {}
+  /r/:ref:
     get:
       responses: {}
 securityDefinitions:

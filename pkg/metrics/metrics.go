@@ -83,6 +83,21 @@ var (
 		Name: "recall_feed_total",
 		Help: "Total items entering feed by recall source (before dedup).",
 	}, []string{"source"})
+
+	// SortRecallCategoryTotal and SortFeedCategoryTotal track the broadcast_type /
+	// source_type mix at the recall and delivered-feed stages. Comparing the two
+	// shows how ranking + boost policy + threshold + dedup reshape the category
+	// distribution — the signal for whether supply/demand and UGC
+	// (source_type=original) promotion actually reaches the served feed.
+	SortRecallCategoryTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_recall_category_total",
+		Help: "Recall candidates by broadcast_type and source_type (before ranking/boost/dedup).",
+	}, []string{"broadcast_type", "source_type"})
+
+	SortFeedCategoryTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_feed_category_total",
+		Help: "Items delivered to the feed by broadcast_type and source_type (after boost and dedup).",
+	}, []string{"broadcast_type", "source_type"})
 )
 
 // SearchServices metrics. Volume, sub-intent distribution, LLM-fallback
@@ -146,6 +161,7 @@ func init() {
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
 		ItemPublishToProcessDuration,
 		RecallImpressionTotal, RecallFeedTotal,
+		SortRecallCategoryTotal, SortFeedCategoryTotal,
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 		SearchServicesRequestsTotal, SearchServicesSubIntents, SearchServicesLLMFallbackTotal,
 		SearchServicesLatencyMs, SearchServicesEmptyTotal,

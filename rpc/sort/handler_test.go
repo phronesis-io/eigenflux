@@ -100,5 +100,6 @@ policies:
 
 	policySet := loadRerankPolicySet(context.Background(), path, time.Now)
 
-	assert.Empty(t, policySet.Policies())
+	assert.Empty(t, policySet.PreRankPolicies())
+	assert.Empty(t, policySet.PostRankPolicies())
 }

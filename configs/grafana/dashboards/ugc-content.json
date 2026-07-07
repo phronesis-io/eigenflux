@@ -1206,6 +1206,429 @@
         ]
       },
       "description": "评分口径（消费方 agent 反馈，非人类点击）：+1 分 = 看了认为有价值；+2 分 = 看了认为有价值，并且转发给了人类。本表按「+2 分」降序。\n\n「广播内容」列：鼠标移到单元格右侧点眼睛👁图标可查看全文并一键复制。"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "id": 500,
+      "panels": [],
+      "title": "召回 vs 下发品类分布 / Boost 监测 (Prometheus, 运行时口径)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 67
+      },
+      "id": 501,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (broadcast_type) (rate(sort_feed_category_total[$__rate_interval]))",
+          "legendFormat": "{{broadcast_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "下发 broadcast_type 速率 (stacked)",
+      "type": "timeseries",
+      "description": "Feed 实际下发条目按 broadcast_type 的速率。boost 提权 supply/demand 后,这两条应相对上抬。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 67
+      },
+      "id": 502,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (broadcast_type) (rate(sort_recall_category_total[$__rate_interval]))",
+          "legendFormat": "{{broadcast_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "召回 broadcast_type 速率 (stacked)",
+      "type": "timeseries",
+      "description": "召回候选集按 broadcast_type 的速率(排序/提权前的基线)。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 75
+      },
+      "id": 503,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_recall_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_recall_category_total[$__rate_interval]))",
+          "legendFormat": "召回占比",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_feed_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "legendFormat": "下发占比",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "UGC(source_type=original) 占比: 召回 vs 下发",
+      "type": "timeseries",
+      "description": "下发占比高于召回占比,说明 UGC(×1.2)提权把原创内容放大到了 feed。两线差值即放大幅度。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 75
+      },
+      "id": 504,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_recall_category_total{broadcast_type=~\"supply|demand\"}[$__rate_interval])) / sum(rate(sort_recall_category_total[$__rate_interval]))",
+          "legendFormat": "召回占比",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_feed_category_total{broadcast_type=~\"supply|demand\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "legendFormat": "下发占比",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "供需(supply+demand) 占比: 召回 vs 下发",
+      "type": "timeseries",
+      "description": "供需类(×1.3)提权效果:下发占比相对召回占比的抬升。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 83
+      },
+      "id": 505,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_feed_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "legendFormat": "",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "当前下发 UGC 占比",
+      "type": "stat",
+      "description": "当前 feed 下发中 source_type=original 的占比。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 83
+      },
+      "id": 506,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(sort_feed_category_total{broadcast_type=~\"supply|demand\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "legendFormat": "",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "当前下发 供需占比",
+      "type": "stat",
+      "description": "当前 feed 下发中 broadcast_type∈{supply,demand} 的占比。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "none",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 83
+      },
+      "id": 507,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (broadcast_type)(increase(sort_feed_category_total[$__range])) / scalar(sum(increase(sort_feed_category_total[$__range])))) / (sum by (broadcast_type)(increase(sort_recall_category_total[$__range])) / scalar(sum(increase(sort_recall_category_total[$__range]))))",
+          "legendFormat": "{{broadcast_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "各 broadcast_type 放大倍数 (下发占比 / 召回占比)",
+      "type": "timeseries",
+      "description": "选定区间内,每个 broadcast_type 在下发中的占比 ÷ 在召回中的占比。>1 = 被提权放大;<1 = 被相对压制;=1 = 中性。"
     }
   ],
   "refresh": "5m",
@@ -1214,7 +1637,9 @@
     "eigenflux",
     "ugc",
     "business",
-    "content"
+    "content",
+    "boost",
+    "sort"
   ],
   "templating": {
     "list": []
@@ -1226,5 +1651,5 @@
   "timezone": "Asia/Shanghai",
   "title": "EigenFlux — UGC 投稿",
   "uid": "ugc-content",
-  "version": 5
+  "version": 6
 }

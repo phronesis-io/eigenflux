@@ -26,8 +26,9 @@ The rerank layer lives inside the sort service because sort owns feed compositio
 
 - `Reranker` — built with `rerank.New(policies...)`; `Rerank(cands, limit)` runs the policies in order, then truncates.
 - `Policy` interface — `Name() string`, `Apply([]rank.Candidate) []rank.Candidate`. Implementations must be pure (no I/O, no goroutines).
-- Seven built-in policies:
+- Eight built-in policies:
   - **FreshnessPolicy** — drops item candidates by type-aware age rules loaded from `configs/sort/rerank.yaml`. The default rule is `broadcast_type: alert`, `max_age: 6h`, `action: drop`. `SortItems` applies this policy after recall and before typed item ranking/exploration so stale alerts cannot re-enter through exploration slots.
+  - **BoostPolicy** — multiplies item candidate scores by operator-tuned category weights, then re-sorts by descending score. Each `BoostRule` matches a source field (`type` = broadcast_type, or `source_type`) against a value set and applies `Weight`; multiple matching rules compound (e.g. a UGC demand item hit by both `type ∈ {supply,demand}` ×1.3 and `source_type ∈ {original}` ×1.2 lands at ×1.56). Only mutates `*BasicCandidate`; services and unknown sources pass through. `SortItems` applies this policy *after* item ranking (so score edits survive) and *before* the relevance threshold split (so a boosted item can cross into the served set). Configured under `configs/sort/rerank.yaml`. Reads category fields via the `ItemBoostFields()` source interface.
   - **DedupPolicy** — drops duplicates by `Fingerprint`. Put it first.
   - **NormalizePolicy** — rescales scores per type. `Method: MinMax` maps each type group to `[0, 1]`; `Method: ZScore` standardises. Only mutates `*BasicCandidate`; other Candidate implementations pass through.
   - **CoveragePolicy** — guarantees each *intent* (string label off `*BasicCandidate.MatchedIntents()`) appears at least `FloorPerIntent` times in the top-`Limit` window. Iterates protected intents alphabetically; for each, swaps the highest-scoring outside-window match in for the lowest-scoring inside-window non-match, locking the satisfied slot to prevent later intents from evicting it. `Importance` (intent → [0,1]) filters which intents are protected — those below `ImportanceThreshold` drift naturally on score. Used by `SearchServices`. Does NOT call `AddReason` (intent-name cardinality would pollute replay aggregation).
@@ -41,6 +42,8 @@ The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} �
 
 `SortItems` reads `configs/sort/rerank.yaml` once during Sort startup. A missing or invalid file logs a warning and disables configured item rerank policies for that process.
 
+`SortItems` splits configured policies into a pre-rank stage (freshness drops, applied to recall candidates) and a post-rank stage (boosts, applied to ranked items before the relevance threshold split).
+
 ```yaml
 policies:
   - name: freshness
@@ -48,6 +51,14 @@ policies:
       - broadcast_type: alert
         max_age: 6h
         action: drop
+  - name: boost
+    boost_rules:
+      - field: type
+        values: [supply, demand]
+        weight: 1.3
+      - field: source_type
+        values: [original]   # UGC
+        weight: 1.2
 ```
 
 ### Canonical Composition

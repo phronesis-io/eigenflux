@@ -507,11 +507,12 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
-	// Record recall source feed composition
+	// Record recall source feed composition and recall-stage category mix.
 	for _, item := range esItems {
 		for _, name := range recallsource.Names(sourceMap[item.ID]) {
 			metrics.RecallFeedTotal.WithLabelValues(name).Inc()
 		}
+		recordRecallCategory(item)
 	}
 
 	esItemMap := make(map[int64]sortDal.Item, len(esItems))
@@ -523,6 +524,10 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	// Collapse same-group candidates first so thresholding and final selection operate
 	// on distinct groups instead of repeated near-duplicates.
 	allRanked := rankerInstance.Rank(esItems, userProfile, len(esItems))
+	// Operator boosts (supply/demand, UGC) run here — after ranking so the score
+	// edits survive, before the threshold split so a boosted item can cross into
+	// the served set.
+	allRanked = applyPostRankBoost(ctx, allRanked, esItemMap)
 	allRanked, collapsedCount := collapseRankedByGroup(allRanked, esItemMap)
 	logger.Ctx(ctx).Debug("group collapse", "before", len(esItems), "after", len(allRanked), "filtered", collapsedCount)
 
@@ -634,6 +639,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			continue
 		}
 		itemIDs = append(itemIDs, c.itemID)
+		if item, ok := esItemMap[c.itemID]; ok {
+			recordFeedCategory(item)
+		}
 		agentFeatCopy := agentFeaturesStr
 		itemFeatCopy := c.itemFeatures
 		sortedItems = append(sortedItems, &sort.SortedItem{

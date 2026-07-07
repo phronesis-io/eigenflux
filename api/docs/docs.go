@@ -317,6 +317,21 @@ const docTemplate = `{
                 "responses": {}
             }
         },
+        "/api/v1/install/copy": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/install/report": {
+            "post": {
+                "responses": {}
+            }
+        },
+        "/api/v1/install/token": {
+            "post": {
+                "responses": {}
+            }
+        },
         "/api/v1/items/events": {
             "post": {
                 "security": [
@@ -907,6 +922,11 @@ const docTemplate = `{
             }
         },
         "/api/v1/website/stats": {
+            "get": {
+                "responses": {}
+            }
+        },
+        "/r/:ref": {
             "get": {
                 "responses": {}
             }

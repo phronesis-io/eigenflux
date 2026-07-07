@@ -57,5 +57,14 @@ data/dashboard/
 .superpowers
 docs/superpowers/
 
+<<<<<<< Updated upstream
 # Claude Code session/worktrees
 .claude/
+=======
+# trellis and local agent tooling
+.trellis/
+.cursor/
+.claude/
+.agents/
+docs/agents/
+>>>>>>> Stashed changes
