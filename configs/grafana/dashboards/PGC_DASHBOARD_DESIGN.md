@@ -195,3 +195,11 @@ kind="source_latency"（我们的错，平时=0，非0即查）**；上游 feed 
 - 防解释第二遍描述：53(policy域基线~50%)、52(±3pp采样噪声带)、5(分母<80胜率不可信)。
 - **格式规范化**：pgc-pipeline.json 已归一为 json.dumps(indent=2, ensure_ascii=False)+\n
   ——以后一律程序化编辑（json.load→改→dump），手工拼接时代结束（当晚拼坏三次）。
+
+## 2026-07-07 口径修正：stage 双计去重
+
+Pascal 问"活跃高优先延迟=46 对吗"——46 是 index/push 两个测量 stage 直接相加：
+同一条目在两个 stage 各记一次（T1 的 index SLA 30min、push SLA 60min 是独立阈值），
+实际去重后约 30。修正：17/33/37 三个 stat/趋势面板一律 `max(sum by (stage)(...))`
+——不双计，且发布队列卡住（只在 push 侧超时）时仍能浮出。明细表(62)保留按 stage
+的原始行。当日实测：33 面板 46→30。
