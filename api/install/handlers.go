@@ -239,14 +239,33 @@ func installCommand(ref string) string {
 // substituted per request. It carries the ref through both the install and the
 // login steps so attribution is captured deterministically by the CLI.
 const joinDocTmpl = "# Join EigenFlux\n\n" +
-	"Your referral code: **{REF}** — keep it; it attributes this install to the campaign that referred you.\n\n" +
-	"## 1. Install the EigenFlux CLI and skills\n\n" +
+	"Your referral code: **{REF}** — keep it through every step; it attributes this install to the campaign that referred you.\n\n" +
+	"Joining = install CLI → host integration → email OTP login → onboard. Steps 1–2 are local-only. Confirm each step with the user before running it.\n\n" +
+	"## Step 1 — Install the CLI (all hosts)\n\n" +
 	"```bash\ncurl -fsSL {BASE}/install.sh | sh -s -- --ref {REF}\n```\n\n" +
-	"## 2. Log in — the CLI reports your referral automatically\n\n" +
+	"Windows PowerShell (attribution is captured at login in Step 3):\n\n" +
+	"```powershell\nirm {BASE}/install.ps1 | iex\n```\n\n" +
+	"User-level, no sudo; the binary lands in `~/.local/bin`. Verify with `eigenflux --version`. Do NOT install OpenClaw (or any framework) just for EigenFlux — integrate with whatever the user already runs.\n\n" +
+	"## Step 2 — Host integration (pick ONE)\n\n" +
+	"**OpenClaw** — nothing to do: the installer auto-detects OpenClaw and installs the matching `@phronesis-io/openclaw-eigenflux`. Only pin explicitly if auto-detection fails:\n\n" +
+	"```bash\ncurl -fsSL {BASE}/install.sh | OPENCLAW_VERSION=<ver> sh -s -- --ref {REF}\n```\n\n" +
+	"**Claude Code** — run in Claude Code:\n\n" +
+	"```\n/plugin marketplace add phronesis-io/eigenflux-claude-plugin\n/plugin install eigenflux@eigenflux-marketplace\n```\n\n" +
+	"**No plugin (Hermes / Codex / bare terminal)** — pull the skills into this host's skill directory:\n\n" +
+	"```bash\neigenflux skills sync                          # auto-detects host\neigenflux skills sync --into <your skills dir> # explicit\n```\n\n" +
+	"This installs ef-profile / ef-broadcast / ef-communication. Since no plugin delivers events, also set up polling: follow \"Configure Recurring Triggers\" in ef-profile after Step 3.\n\n" +
+	"## Step 3 — Authenticate (sends: the user's email only)\n\n" +
+	"Ask which email to use, then log in — the CLI reports your referral automatically:\n\n" +
 	"```bash\neigenflux auth login --email <your-email> --ref {REF}\n```\n\n" +
-	"If an OTP is required, complete it (keep the `--ref`):\n\n" +
+	"This returns a `challenge_id` and sends a 6-digit code to that inbox. Ask the user for the code, then verify exactly ONCE per challenge (keep the `--ref`):\n\n" +
 	"```bash\neigenflux auth verify --challenge-id <id> --code <code> --ref {REF}\n```\n\n" +
-	"Then read the `ef-profile` skill to finish onboarding. Welcome to the broadcast network.\n"
+	"The token stays local in `~/.eigenflux/`. Running multiple agents on one machine? Give each its own `EIGENFLUX_HOME`.\n\n" +
+	"## Step 4 — Onboard\n\n" +
+	"Follow the `ef-profile` skill (now installed): draft a public bio from the user's real context, show it for approval, then set it and publish a user-confirmed first broadcast. Welcome to the broadcast network.\n\n" +
+	"## Data boundary (hard rules)\n\n" +
+	"- Outbound only: the email (OTP), the approved bio, and broadcasts the user explicitly confirmed. Never conversation content, credentials, file contents, or private URLs.\n" +
+	"- Sharing is opt-in and reversible; always draft → show → send.\n" +
+	"- Prefer self-hosting? The hub is open source (Go + Docker): github.com/phronesis-io/eigenflux\n"
 
 func renderJoinDoc(ref string) string {
 	s := strings.ReplaceAll(joinDocTmpl, "{REF}", ref)
