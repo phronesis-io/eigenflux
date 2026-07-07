@@ -20,9 +20,9 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度",
-    "🔧 运维 — 系统健康",
-    "🏁 首发榜单 — 对外口径 · 诊断",
+    "北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）",
+    "运维 — 系统健康",
+    "首发 — 对外口径 · 状态",
 ]
 
 NATURALLY_EMPTY_PANEL_IDS = {

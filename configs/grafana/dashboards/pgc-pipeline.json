@@ -33,13 +33,13 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## PGC 北极星 — 价值(信号) 为顶, 覆盖·准确·速度 为护栏\n- **信号率(价值)**: 广播的是否是对 agent 有价值的信号, 而非噪声。**顶层目标**。\n- **护栏·覆盖**: 每个领域都在广播(无整域盲区)。\n- **护栏·准确**: 忠于原文事实, 无捏造。\n- **护栏·速度**: 事件→入库延迟(越接近T0越好)。\n- 三条护栏需各自保持绿; 顶层看价值。只测量不抑制。"
+        "content": "## PGC 北极星 — 信号价值为顶层，覆盖 / 准确 / 速度为护栏\n- **信号率（价值）**：广播的是否是对接收方有价值的信号，而非噪声。顶层目标。\n- **护栏 · 覆盖**：每个领域都在正常广播，无整域盲区。\n- **护栏 · 准确**：忠于原文事实，无捏造。\n- **护栏 · 速度**：事件发生到入库的延迟，越低越好。\n- 三条护栏各自保持绿色，顶层看价值。只测量，不抑制。"
       }
     },
     {
       "id": 2,
       "type": "row",
-      "title": "🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度",
+      "title": "北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -51,7 +51,7 @@
     },
     {
       "id": 54,
-      "title": "信号率 (价值·顶层)",
+      "title": "信号率（北极星）",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -115,11 +115,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "价值(顶层): 抽样已发布广播里, 经模型判定是'对陌生AI agent有价值的信号'(非体育/人情/本地琐事/梗/吹捧噪声)的比例。这是北极星的顶——覆盖/准确/速度只是护栏。只测量不抑制(PGC保持广播+接收方过滤)。<85%黄, <60%红。"
+      "description": "抽样已发布广播中，被模型判定为对接收方有价值信号的比例（排除体育赛果、人情故事、本地琐事等噪声）。北极星顶层指标，只测量、不做发布抑制。目标 ≥85%，低于 60% 红。"
     },
     {
       "id": 56,
-      "title": "错分类率 (域填错%)",
+      "title": "错分类率",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -183,11 +183,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "错分类率: 抽样广播里 EF-facing 域标注明显错的比例(miscat/judged)。原为绝对计数(随样本量漂移),改成率更诚实。<12%绿。"
+      "description": "抽样广播中领域标注明显错误的比例。低于 12% 为绿。"
     },
     {
       "id": 50,
-      "title": "护栏·捕获召回(管线)",
+      "title": "护栏 · 捕获召回",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -251,11 +251,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "捕获召回(管线健康): benchmark 源里 PGC 决定处理的条目中, 链路成功交付(published+dedup)的比例; 分母只含 交付+捕获失败(error_extract/error_llm), 不含'故意丢弃'(那是实质门的判断, 不是故障)。低=抓取/解析坏了(如付费墙)。各域低=该域源付费墙(law=National Law Review 5/5 抓取失败)。门是否错丢真事件由'错丢真损率'单独衡量。"
+      "description": "基准信源中决定处理的条目里，链路成功交付的比例（含判定为重复）。分母不含有意丢弃——那是内容判断，不是故障。数值低说明抓取或解析故障（常见原因：付费墙）。"
     },
     {
       "id": 52,
-      "title": "护栏·忠实率(准确)",
+      "title": "护栏 · 忠实率",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -319,11 +319,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "准确(忠实): 抽样已发布广播里, 经内容模型判定'忠于原文事实'的比例(每条的实体/数字/论断都有原文支撑; 无捏造/夸大/推断当事实)。主要失实类型=捏造+数字错误(见诊断区分解)。这才是你说的'准确'(不是首发判定准确率)。注: 这是~130条抽样的LLM判定, 有抽样误差; 目标≥90%, <70%红。 注: 300条抽样,±3pp内的日间波动=采样噪声(86-91区间打转很正常),连续3天同向走才算趋势。"
+      "description": "抽样已发布广播中，模型判定内容忠于原文事实的比例（实体、数字、论断均有原文支撑，无捏造或推断当事实）。约 130 条抽样，存在 ±3 个百分点的正常波动。目标 ≥90%，低于 70% 红。"
     },
     {
       "id": 51,
-      "title": "护栏·首源入库 (速度)",
+      "title": "护栏 · 首源入库速度",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -387,11 +387,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "速度(你的定义, 真实测量): 一手源发布→我们入库的中位分钟数(越接近T0越好)。p50≈2分钟=对典型首源很快; 慢尾(p90 见运维)多是期刊/registry回填日期或慢RSS=换源待办。替换了原先误导的 event_latency(8.7h, 基于LLM猜测的T0+取两侧min的小样本)。"
+      "description": "一手源发布到入库的中位分钟数，越低越好。慢尾（p90）多为期刊类回填日期或上游 RSS 缓慢，属换源待办，不代表管线故障。"
     },
     {
       "id": 58,
-      "title": "护栏·低可信占比",
+      "title": "护栏 · 低可信来源占比",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -455,11 +455,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "信源可信度(决策#3): 来自 unverified+low 信源的广播占比。低=好。可信度标签按 source_class 推导(官方/监管=high, 社区/未知=unverified), 写入 EF 收到的 evidence, 让接收方据此加权。不做抑制。⚠️分母敏感: 总发布量骤降时(断供/假日)本值会机械翻倍——社交源24/7恒量、其余源缩水。先看'近24h发布数'再判断: 量正常才是真的可信度恶化(7/4实例: 8.3%全是分母效应, 绝对量反而在降)。"
+      "description": "来自未验证或低可信信源的广播占比，越低越好。可信度按信源类型推导（官方、监管机构为高），随内容一并发布，由接收方自行加权。注意：总发布量骤降时（上游断供、假日）该值会被动放大。"
     },
     {
       "id": 5,
-      "title": "真实对决（模型验证）",
+      "title": "有效对决数",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -515,7 +515,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "模型确认速度对比有意义的配对数。旧系统 76 对 → 模型过滤后仅留真正可比的。 注: 分母<80时右边的胜率会大幅波动,先看这个数再信胜率。"
+      "description": "模型确认为真正可比的速度对决数量。低于 80 时右侧胜率波动大，先看此数再看胜率。"
     },
     {
       "id": 19,
@@ -608,7 +608,7 @@
         "graphMode": "none",
         "justifyMode": "auto"
       },
-      "description": "真实对决中，我们抢先的次数（赢）和对照媒体更快的次数（输）。"
+      "description": "有效对决中，我们抢先的次数与对照媒体更快的次数。"
     },
     {
       "id": 7,
@@ -682,11 +682,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "距上次模型判定运行的时间。每小时 systemd timer 自动执行。超过 2h 说明 timer 可能卡了。 第二个数=上一轮双判里打不通的对数,应为0;接近checked数=第二判官挂了(会自动打critical告警,7/5事故的疫苗)。"
+      "description": "距上次模型判定运行的时间。每小时自动执行，超过 2 小时说明调度可能卡住。第二个数为上一轮双判中不可用的对数：应为 0，接近总数说明第二判定服务故障（已配自动告警）。"
     },
     {
       "id": 60,
-      "title": "诊断·门丢弃质量 (软信号)",
+      "title": "诊断 · 丢弃质量",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -759,11 +759,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "诊断(软,非护栏): 抽审被丢弃条目里'可能真事件'占比,两条线:『基准媒体分层』=最严苛视角(周末体育洪峰/特稿边界案会冲高,17.5%级尖峰≈成分效应);『全池』=闸门整体水平(健康位~7%)。两条一起飙才是闸门真出问题;只有分层线动=去看当日样本成分。真覆盖护栏=捕获召回。"
+      "description": "抽审被丢弃条目中可能为真实事件的占比。『基准媒体分层』为最严苛视角，受当日样本成分影响会出现尖峰；『全池』反映闸门整体水平（健康位约 7%）。两条同时升高才说明闸门有问题，只有分层线波动时先看当日样本成分。"
     },
     {
       "id": 9,
-      "title": "首发: 准确率 · 抢先率 · 延迟走势",
+      "title": "首发走势 — 抢先率与延迟",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -838,11 +838,11 @@
           "mode": "multi"
         }
       },
-      "description": "事件延迟（越低越好）和真实胜率走势。模型每 ~30 分钟重算。注意：2026-07-02 起榜单改为'大模型确认才算抢先'（口径v2），抢先率跨这一天不可比；'旧判断器准确率'只反映老算法，不影响对外数字。"
+      "description": "事件延迟（越低越好）与真实胜率走势，模型约每 30 分钟重算。2026-07-02 起改为模型确认口径，抢先率跨该日不可比。"
     },
     {
       "id": 53,
-      "title": "各域丢弃占比 (高=该域多被门丢弃)",
+      "title": "各领域丢弃占比",
       "type": "barchart",
       "datasource": {
         "type": "prometheus",
@@ -893,12 +893,12 @@
           "values": true
         }
       },
-      "description": "各 benchmark 域被实质门丢弃的占比 (24h)。替换了原先的'各域捕获召回率'——后者排除了丢弃, 管线一健康就各域都≈100%, 看不出问题。丢弃占比会随域变化, 定位过度丢弃风险集中在哪 (法律/政策通常偏高); 配合'错丢真损率(门)'(当前 30.8% 偏高)判断这些丢弃里有多少是错杀真信号。 注: policy域基线本来就~50%(政府PR洪水,正确丢弃),看变化不看绝对值;全局误杀率看『门丢弃质量』全池线。"
+      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（法律、政策通常偏高），结合『诊断 · 丢弃质量』判断其中有多少误杀。"
     },
     {
       "id": 20,
       "type": "row",
-      "title": "🔧 运维 — 系统健康",
+      "title": "运维 — 系统健康",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -910,7 +910,7 @@
     },
     {
       "id": 21,
-      "title": "近 24h 发布数",
+      "title": "近 24 小时发布数",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -975,7 +975,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "过去 24 小时推送到 EigenFlux 的内容数。为 0 说明管道挂了。 [reset-safe: pgc_items_24h, was increase(pgc_published_total) = same spike bug]"
+      "description": "过去 24 小时发布到 EigenFlux 的条目数。为 0 说明管线故障。"
     },
     {
       "id": 22,
@@ -1043,11 +1043,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "当前未完成处理的内容总数。持续增长说明某阶段卡住。"
+      "description": "等待处理的条目总数。持续增长说明某个阶段卡住。"
     },
     {
       "id": 23,
-      "title": "Worker 最大空闲",
+      "title": "后台任务最大空闲",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1111,13 +1111,13 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "最慢的 worker 距上次运行多久。超过 600s 可能卡住。"
+      "description": "最久未运行的后台任务距上次运行的时间。超过 600 秒可能卡住。"
     },
     {
       "id": 36,
       "type": "stat",
-      "title": "Twitter 还能撑几天",
-      "description": "按当前消耗速度，twitterapi.io 付费额度还能用多少天。",
+      "title": "Twitter 额度余量（天）",
+      "description": "按当前消耗速度，twitterapi.io 付费额度剩余可用天数。",
       "gridPos": {
         "x": 12,
         "y": 26,
@@ -1184,8 +1184,8 @@
     {
       "id": 39,
       "type": "stat",
-      "title": "NewsAPI 用量(每把 key)",
-      "description": "每把 NewsAPI key 本月已用比例(1号=主 key)。任何一把用光都会单独变红。以前只看全部 key 的合计,主 key 用光时面板还是绿的,这次拆开看。",
+      "title": "NewsAPI 月度用量 · 按 key",
+      "description": "每个 NewsAPI key 本月已用比例（1 号为主 key）。任何一个用尽都会单独变红。",
       "gridPos": {
         "x": 16,
         "y": 26,
@@ -1254,8 +1254,8 @@
     {
       "id": 40,
       "type": "stat",
-      "title": "ScraperAPI 用量",
-      "description": "本月 ScraperAPI credits 已用比例。用于 IP 被封的信源代理抓取。",
+      "title": "ScraperAPI 月度用量",
+      "description": "本月 ScraperAPI 额度已用比例。用于被封锁站点的代理抓取。",
       "gridPos": {
         "x": 20,
         "y": 26,
@@ -1323,8 +1323,8 @@
     {
       "id": 64,
       "type": "bargauge",
-      "title": "NewsAPI 今天各组用了多少(有硬上限)",
-      "description": "每组新闻主题今天用掉的 NewsAPI 配额,分母是这组的每日上限(2026-07-07 起代码强制:到顶当天停抓,第二天自动补上积压,所以顶到 100% 走平是设计行为,不是坏了)。八组上限加起来正好等于月度配额的日均线。组名: A央行公司事件 B科技巨头 C亚太地缘 C2全球地缘军事 D能源宏观 E医药 F创投并购 G网络安全。要担心的形态只有一种: 某组连续多天 100% —— 说明这组的量被上限长期压着,积压在滚,该给它调上限或收窄这组的抓取范围。",
+      "title": "NewsAPI 今日用量 · 按主题组",
+      "description": "各主题组今日 NewsAPI 用量占其每日硬上限的比例。到达上限当天停抓、次日自动补齐积压，因此顶到 100% 走平属设计行为。唯一需要行动的形态：某组连续多天 100%，说明上限长期压量，应上调上限或收窄该组抓取范围。组别：A 央行与公司事件、B 科技巨头、C 亚太地缘、C2 全球地缘与军事、D 能源宏观、E 医药、F 创投并购、G 网络安全。八组上限之和等于月度配额的日均线。",
       "gridPos": {
         "x": 0,
         "y": 31,
@@ -1387,7 +1387,7 @@
     },
     {
       "id": 24,
-      "title": "发布量趋势 (条/小时)",
+      "title": "发布量趋势（条 / 小时）",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -1450,11 +1450,11 @@
           "mode": "multi"
         }
       },
-      "description": "每小时发布量。24h均值线(pgc_items_24h/24)即时有历史; 实时线(pgc_items_1h, 1h滑窗)随时间累积出真实逐时趋势。两者都重置安全——已弃用 increase(pgc_published_total) 那个会因DB瞬时读0爆出~74万假尖峰的查询。 虚线基线=上周同一时刻——两线贴合=正常节奏(周末沟谷也贴合);当前线明显低于基线=真跌了。"
+      "description": "每小时发布量，虚线为上周同一时刻基线。两线贴合说明节奏正常。"
     },
     {
       "id": 25,
-      "title": "Pipeline 日志",
+      "title": "管线日志",
       "type": "logs",
       "datasource": {
         "type": "loki",
@@ -1491,7 +1491,7 @@
     {
       "id": 30,
       "type": "row",
-      "title": "🏁 首发榜单 — 对外口径 · 诊断",
+      "title": "首发 — 对外口径 · 状态",
       "gridPos": {
         "x": 0,
         "y": 46,
@@ -1502,7 +1502,7 @@
     },
     {
       "id": 17,
-      "title": "需要动手吗(火情)",
+      "title": "待处理故障",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1566,13 +1566,13 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "火情=我方契约侧真坏的东西: 关键源挂(canary) + critical源故障(blocked/failing/config) + 我方管线延迟。应该恒为0——非0立刻查。出版方自己安静/加源候选这类不吓人的在右边『观察清单』。2026-07-06拆分:旧'行动总数'把三个安静博客算成7个'要行动'把Pascal吓到。"
+      "description": "我方侧真实故障的总数：关键源探活失败 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『观察清单』。"
     },
     {
       "id": 32,
       "type": "stat",
       "title": "首发关注",
-      "description": "审计发现'应该有一手源、但我们没配上（或配了却一直没出稿）'的大事件数。变红（≥5）= 打开当日源健康日报看清单，把缺的源加上或修好。纯市场评述、体育比分这类天生没有一手源的事件已排除，不会再混进来。",
+      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。达到 5 变红：查看当日源健康日报，补齐或修复对应信源。纯市场评述、体育比分等天生无一手源的事件已排除。",
       "gridPos": {
         "x": 4,
         "y": 47,
@@ -1640,7 +1640,7 @@
       "id": 33,
       "type": "stat",
       "title": "活跃高优先延迟",
-      "description": "统计 T0/T1 在 3h 窗口内仍活跃的 actionable 延迟条目(source_latency + source_feed_lag)。source_latency=我方管线慢, source_feed_lag=上游 feed 晚到但需要评估换快通道/补源。同一条目会在 index/push 两个测量点各记一次，这里取两点中的较大值=去重后的条目数(修正前两点相加, 46 实为 ~30)。看下方明细表定位具体来源和原因。",
+      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（source_latency，应为 0）与上游发布晚到（source_feed_lag，需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。具体来源见下方明细表。",
       "gridPos": {
         "x": 8,
         "y": 47,
@@ -1707,8 +1707,8 @@
     {
       "id": 34,
       "type": "stat",
-      "title": "关键源现在挂了吗",
-      "description": "必须保活的关键信源探活检查，当前失败的数量。",
+      "title": "关键源探活失败数",
+      "description": "必须保活的关键信源当前探活失败的数量。",
       "gridPos": {
         "x": 12,
         "y": 47,
@@ -1776,7 +1776,7 @@
       "id": 37,
       "type": "timeseries",
       "title": "风险趋势",
-      "description": "上面这条『火情合计』应贴地为0;『观察清单』允许有水位(安静博客/加源候选),看趋势不看绝对值。",
+      "description": "『待处理故障』应贴地为 0；『观察清单』允许有水位，看趋势不看绝对值。",
       "gridPos": {
         "x": 0,
         "y": 52,
@@ -1797,7 +1797,7 @@
           "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": false,
           "range": true,
-          "legendFormat": "火情合计(应为0)"
+          "legendFormat": "待处理故障（应为 0）"
         },
         {
           "refId": "B",
@@ -1819,7 +1819,7 @@
           "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
           "instant": false,
           "range": true,
-          "legendFormat": "高优先级延迟"
+          "legendFormat": "高优先延迟"
         },
         {
           "refId": "D",
@@ -1890,7 +1890,7 @@
       "id": 62,
       "type": "table",
       "title": "活跃延迟源明细",
-      "description": "近 3h 内最需要处理的高优先延迟源。kind=source_latency 优先查抓取/适配器；kind=source_feed_lag 优先找更快一手源或降低该 RSS 的速度预期。",
+      "description": "近 3 小时高优先延迟条目按来源明细。source_latency 优先查抓取与适配器；source_feed_lag 优先评估更快的一手渠道。",
       "gridPos": {
         "x": 0,
         "y": 59,
@@ -1941,7 +1941,7 @@
     },
     {
       "id": 61,
-      "title": "观察清单(非火情)",
+      "title": "观察清单",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -2005,12 +2005,12 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "不吓人清单: 出版方自己安静的critical源 + 首发关注(加源候选) + SLA过期。复盘级,本周看一眼即可;真要立刻动手的在左边『需要动手吗』(应为0)。"
+      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『待处理故障』。"
     },
     {
       "id": 63,
       "type": "stat",
-      "title": "榜单胜率(对外口径)",
+      "title": "抢先率（对外口径）",
       "gridPos": {
         "x": 16,
         "y": 47,
@@ -2035,7 +2035,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "对外唯一可引用的抢先率(大模型双判确认制v2,日更10:30)。7/2口径断点后诚实水平~5-6%,涨靠真赢(loss_mining购物清单)。⚠️此面板2026-07-03已因'全板无处展示'补过一次,7/6又被误删,本次第二次恢复——改板时别删它(设计文档有记录)。"
+      "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
     }
   ],
   "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。",
