@@ -1333,7 +1333,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "pgc-prometheus"
       },
       "targets": [
         {
