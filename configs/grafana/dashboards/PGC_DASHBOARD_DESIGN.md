@@ -162,7 +162,14 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 - `pgc_broadcast_reliability_share_pct` — 原"信源可信度构成"
 - `pgc_source_health_sla_attention_source` — 原"哪些源违反 SLA"明细表
 
-`pgc_signal_latency_active_source_breaches_3h`、`pgc_source_health_sla_attention`、`pgc_source_health_canaries_failed` 仍被保留面板（风险趋势 / 信源更新是否及时 / 关键源现在挂了吗）消费，未退役。
+`pgc_signal_latency_active_source_breaches_3h`、`pgc_source_health_sla_attention`、`pgc_source_health_canaries_failed` 仍被保留面板（风险趋势 / 信源更新是否及时 / 关键源现在挂了吗）消费，未退役。`活跃高优先延迟` 和风险趋势里的同名序列统计 `source_latency` 与 `source_feed_lag`，避免上游 feed 晚到的 T0/T1 active breach 只出现在明细表、首屏 stat 却为 0。
+
+## 2026-07-07 口径修正：低延迟 owner 视图必须看见 feed-lag
+
+日检发现 7/6 收窄后，`活跃高优先延迟` 只看 `source_latency`，会把 `source_feed_lag`
+这类同样 actionable 的 T0/T1 慢源从首屏 stat 和风险趋势中藏掉。修正：面板 33 和风险
+趋势里的“高优先级延迟”序列恢复为 `source_latency|source_feed_lag`；面板 17
+`需要动手吗(火情)` 仍只看我方契约侧故障，避免把上游潮汐误报为生产事故。
 
 ## 2026-07-06 口径修正：行动类面板只数"我们的错"
 
