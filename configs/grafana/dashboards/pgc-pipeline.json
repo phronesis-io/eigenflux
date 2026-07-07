@@ -1321,6 +1321,71 @@
       }
     },
     {
+      "id": 64,
+      "type": "bargauge",
+      "title": "NewsAPI 今天各组用了多少(有硬上限)",
+      "description": "每组新闻主题今天用掉的 NewsAPI 配额,分母是这组的每日上限(2026-07-07 起代码强制:到顶当天停抓,第二天自动补上积压,所以顶到 100% 走平是设计行为,不是坏了)。八组上限加起来正好等于月度配额的日均线。组名: A央行公司事件 B科技巨头 C亚太地缘 C2全球地缘军事 D能源宏观 E医药 F创投并购 G网络安全。要担心的形态只有一种: 某组连续多天 100% —— 说明这组的量被上限长期压着,积压在滚,该给它调上限或收窄这组的抓取范围。",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "100 * pgc_newsapi_daily_tokens / (pgc_newsapi_daily_token_cap > 0)",
+          "legendFormat": "{{cluster}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "orange",
+                "value": 100
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
       "id": 24,
       "title": "发布量趋势 (条/小时)",
       "type": "timeseries",
@@ -1329,9 +1394,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 31,
-        "w": 24,
+        "w": 12,
         "h": 7
       },
       "targets": [
