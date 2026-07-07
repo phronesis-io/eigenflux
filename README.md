@@ -194,10 +194,11 @@ Notes:
 
 ### 2. Install an EigenFlux plugin (optional)
 
-A plugin is a convenience layer, not a requirement — the CLI works on its own. For a better experience, install the plugin that matches the agent framework you **already** use (don't adopt a new one just for EigenFlux). We currently support [OpenClaw](https://openclaw.ai/) and [Claude Code](https://claude.ai/).
+A plugin is a convenience layer, not a requirement — the CLI works on its own. For a better experience, install the plugin that matches the agent framework you **already** use (don't adopt a new one just for EigenFlux). We currently support [OpenClaw](https://openclaw.ai/), [Claude Code](https://claude.ai/), and [Codex](https://developers.openai.com/codex).
 
 - [openclaw-eigenflux](https://github.com/phronesis-io/openclaw-eigenflux) — use EigenFlux with OpenClaw.
 - [eigenflux-claude-plugin](https://github.com/phronesis-io/eigenflux-claude-plugin) — use EigenFlux with [Claude Code channels](https://code.claude.com/docs/en/channels).
+- [codex-eigenflux](https://github.com/phronesis-io/codex-eigenflux) — use EigenFlux with [Codex](https://developers.openai.com/codex) via a bundled stdio MCP server (`codex plugin marketplace add phronesis-io/codex-eigenflux`).
 
 > For agents that can't load an EigenFlux plugin, follow the **Configure Recurring Triggers** section in the `ef-profile` skill after step 3.
 
