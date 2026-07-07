@@ -1640,7 +1640,7 @@
       "id": 33,
       "type": "stat",
       "title": "活跃高优先延迟",
-      "description": "只统计【我们自己造成】的活跃延迟(source_latency, 3h窗, T0/T1)。平时=0, 非0就查管线。上游feed迟到(别人家慢)不计入——那是随新闻潮汐呼吸的背景(午后/开盘冲到几十是常态), 看下方明细表; 慢源要不要换快通道由每周迟到画像决定(例:Bloomberg Bluesky快车道)。2026-07-06收窄:宽口径的8→63潮汐反复被误读为事故。",
+      "description": "统计 T0/T1 在 3h 窗口内仍活跃的 actionable 延迟(source_latency + source_feed_lag)。source_latency=我方管线慢, source_feed_lag=上游 feed 晚到但需要评估换快通道/补源。看下方明细表定位具体来源和原因。",
       "gridPos": {
         "x": 8,
         "y": 47,
@@ -1658,7 +1658,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
+          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
           "instant": true
         }
       ],
@@ -1816,7 +1816,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"}) or vector(0)",
+          "expr": "sum(pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}) or vector(0)",
           "instant": false,
           "range": true,
           "legendFormat": "高优先级延迟"

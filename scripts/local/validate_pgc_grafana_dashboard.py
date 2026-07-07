@@ -134,6 +134,10 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_signal_latency_active_source_breaches_3h" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use active source latency breaches")
+        if not any("source_latency" in expr and "source_feed_lag" in expr for expr in exprs):
+            errors.append(
+                f"panel {panel_id} must count actionable source_latency/source_feed_lag rows"
+            )
 
     for panel_id in ACTIVE_SOURCE_LATENCY_PANEL_IDS:
         panel = panels_by_id.get(panel_id)
