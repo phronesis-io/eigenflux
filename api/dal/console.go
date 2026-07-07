@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/tagnorm"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -523,9 +524,10 @@ func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*Toda
 }
 
 // Beat coverage queries: per-keyword counts over a time window. An item's tag
-// set is its keywords ∪ domains (split, trim, lower); a beat keyword matches
-// an item when it is in that set — the same lowercase exact-overlap notion the
-// feed recall uses.
+// set is its keywords ∪ domains (split, then tagnorm.Normalize); a beat keyword
+// matches an item when its normalized form is in that set — the same
+// separator-agnostic exact-overlap notion the feed recall ranking uses. Beat
+// names must be normalized the same way before lookup (see GetBeatCoverage).
 
 // BeatItemTags is one item's topic tags (comma-separated columns).
 type BeatItemTags struct {
@@ -533,12 +535,14 @@ type BeatItemTags struct {
 	Domains  string `gorm:"column:domains"`
 }
 
-// TagSet returns the item's deduplicated lowercase tag set.
+// TagSet returns the item's deduplicated, separator-normalized tag set
+// (keywords ∪ domains). Normalization folds "ai agents" and "ai-agents" onto
+// one key so beats match regardless of hyphen/space convention.
 func (t BeatItemTags) TagSet() map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, raw := range []string{t.Keywords, t.Domains} {
 		for _, tag := range strings.Split(raw, ",") {
-			tag = strings.TrimSpace(strings.ToLower(tag))
+			tag = tagnorm.Normalize(tag)
 			if tag != "" {
 				set[tag] = struct{}{}
 			}
@@ -547,8 +551,8 @@ func (t BeatItemTags) TagSet() map[string]struct{} {
 	return set
 }
 
-// CountBeatMatches returns, per beat keyword (already lowercased), how many
-// rows contain it in their tag set.
+// CountBeatMatches returns, per beat keyword (already tagnorm-normalized by the
+// caller), how many rows contain it in their normalized tag set.
 func CountBeatMatches(rows []BeatItemTags, beats []string) map[string]int64 {
 	counts := make(map[string]int64, len(beats))
 	for _, row := range rows {
@@ -572,7 +576,9 @@ type BeatSignalAgg struct {
 const beatSignalsCacheTTL = 5 * time.Minute
 
 func beatSignalsCacheKey(window string) string {
-	return "cache:beat_signals:" + window
+	// v2: tag counts are now keyed by tagnorm.Normalize (separators stripped).
+	// Bumping the version discards any pre-normalization cached aggregates.
+	return "cache:beat_signals:v2:" + window
 }
 
 // GetNetworkSignalAgg aggregates published items network-wide since sinceMs.

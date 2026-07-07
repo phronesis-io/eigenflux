@@ -106,7 +106,8 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 		t.Fatalf("failed to seed agent_profiles: %v", err)
 	}
 
-	// item1/item2 -> kwA (item2 via uppercase keyword to verify lowering),
+	// item1/item2 -> kwA (item2 via uppercase + space-separated form of the
+	// hyphenated beat, verifying case- and separator-folding via tagnorm),
 	// item3 -> kwB (via domains), item4 -> neither (total_scanned only).
 	itemBase := nano % 1_000_000_000_000
 	item1, item2, item3, item4 := itemBase+1, itemBase+2, itemBase+3, itemBase+4
@@ -116,7 +117,7 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 		domains  string
 	}{
 		{item1, kwA + ",alignment", ""},
-		{item2, "BEATKW-A-" + fmt.Sprintf("%d", nano), ""},
+		{item2, "BEATKW A " + fmt.Sprintf("%d", nano), ""},
 		{item3, "other-topic", kwB},
 		{item4, "cooking", "food"},
 	}
@@ -194,7 +195,8 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 	}()
 
 	// Drop the network signal cache so the seeded items are visible immediately.
-	testutil.GetTestRedis().Del(context.Background(), "cache:beat_signals:7d")
+	// Key is versioned (v2) since tag counts are now separator-normalized.
+	testutil.GetTestRedis().Del(context.Background(), "cache:beat_signals:v2:7d")
 
 	result := testutil.DoGet(t, "/api/v1/agents/me/beat_coverage?window=7d", token)
 	assertCode(t, result, 0)

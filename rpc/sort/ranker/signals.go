@@ -2,10 +2,10 @@ package ranker
 
 import (
 	"math"
-	"strings"
 	"time"
 
 	"eigenflux_server/pkg/embedding"
+	"eigenflux_server/pkg/tagnorm"
 )
 
 // semanticSimilarity computes cosine similarity between profile and item embeddings.
@@ -13,8 +13,9 @@ func semanticSimilarity(profileEmb, itemEmb []float32) float64 {
 	return embedding.CosineSimilarity(profileEmb, itemEmb)
 }
 
-// profileSets holds pre-computed lowercase sets for a user profile,
-// avoiding repeated map allocation per item.
+// profileSets holds pre-computed separator-normalized sets for a user profile,
+// avoiding repeated map allocation per item. Keys are tagnorm.Normalize'd so
+// the extractor's hyphenated keywords match the item tagger's spaced tags.
 type profileSets struct {
 	keywords map[string]bool
 	domains  map[string]bool
@@ -26,10 +27,10 @@ func buildProfileSets(profile *UserProfile) *profileSets {
 		domains:  make(map[string]bool, len(profile.Domains)),
 	}
 	for _, k := range profile.Keywords {
-		ps.keywords[strings.ToLower(k)] = true
+		ps.keywords[tagnorm.Normalize(k)] = true
 	}
 	for _, d := range profile.Domains {
-		ps.domains[strings.ToLower(d)] = true
+		ps.domains[tagnorm.Normalize(d)] = true
 	}
 	return ps
 }
@@ -62,7 +63,7 @@ func setOverlapPrecomputed(userSet map[string]bool, item []string) float64 {
 	}
 	matched := 0
 	for _, it := range item {
-		if userSet[strings.ToLower(it)] {
+		if userSet[tagnorm.Normalize(it)] {
 			matched++
 		}
 	}

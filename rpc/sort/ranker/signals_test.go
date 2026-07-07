@@ -110,3 +110,15 @@ func TestKeywordOverlap_Empty(t *testing.T) {
 	score := keywordOverlap(ps, []string{"AI"}, []string{"tech"})
 	assert.InDelta(t, 0.0, score, 0.001)
 }
+
+// Profile keywords come from the extractor (hyphenated: "ai-agents") while item
+// tags come from the tagger (spaced: "ai agents"). tagnorm folds both onto one
+// key so they must overlap despite the differing separator convention.
+func TestKeywordOverlap_SeparatorAgnostic(t *testing.T) {
+	ps := buildProfileSets(&UserProfile{
+		Keywords: []string{"ai-agents", "multi-agent-architecture"},
+		Domains:  []string{"ai-infra"},
+	})
+	score := keywordOverlap(ps, []string{"ai agents", "multi agent architecture"}, []string{"ai infra"})
+	assert.InDelta(t, 1.0, score, 0.001, "hyphenated beats must match spaced item tags")
+}
