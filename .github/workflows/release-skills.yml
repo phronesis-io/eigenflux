@@ -1,0 +1,75 @@
+name: Release Skills
+
+# Publishes the EigenFlux skills bundle to Cloudflare R2 (skills/latest + cli/latest)
+# WITHOUT a CLI binary release — the CI equivalent of running
+# cli/scripts/release-skills.sh locally. Clients pick up the change on their next
+# `skills sync` by comparing the manifest content-hash `revision`.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY  (a scoped R2 API token, Object R/W on the bucket)
+#   R2_ENDPOINT, R2_BUCKET, R2_PUBLIC_URL   (non-secret account values; kept as secrets for simplicity)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'                    # the skills source of truth
+      - 'cli/internal/skills/types.go' # ProdAllowlist — which skills get packaged
+      - 'cli/.cli.config'              # SKILLS_MIN_CLI_VERSION / SKILLS_REVISION
+  workflow_dispatch:                   # manual "Run workflow" button
+
+permissions:
+  contents: read
+
+# One publish at a time — the job overwrites the same skills/latest objects.
+concurrency:
+  group: release-skills
+  cancel-in-progress: false
+
+jobs:
+  release-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      # release-skills.sh calls `gtar`; on Ubuntu the default `tar` IS GNU tar.
+      - name: Provide gtar
+        run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
+
+      - name: Verify toolchain (gtar / aws / shasum / go)
+        run: |
+          gtar --version | head -1
+          aws --version
+          shasum -a 256 /dev/null >/dev/null && echo "shasum: ok"
+          go version
+
+      - name: Publish skills to R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: bash cli/scripts/release-skills.sh
+
+      - name: Summarize published revision
+        if: always()
+        env:
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: |
+          if [ -f build/cli/manifest.json ]; then
+            rev=$(grep -o '"revision"[^,]*' build/cli/manifest.json | head -1)
+            echo "### Skills published" >> "$GITHUB_STEP_SUMMARY"
+            echo "- built manifest: \`${rev}\`" >> "$GITHUB_STEP_SUMMARY"
+            live=$(curl -fsS "${R2_PUBLIC_URL}/skills/latest/manifest.json" | grep -o '"revision"[^,]*' | head -1 || echo "unavailable")
+            echo "- live on R2: \`${live}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No manifest built — publish step did not reach the build stage." >> "$GITHUB_STEP_SUMMARY"
+          fi
