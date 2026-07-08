@@ -1662,7 +1662,7 @@
     },
     {
       "id": 32,
-      "title": "达人邀请排行榜 (选定时间区间 · 注册归因为准, 安装/落地看漏斗损耗)",
+      "title": "达人邀请排行榜 (选定时间区间 · 落地→安装→注册漏斗, 排序按注册归因)",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -1681,7 +1681,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT a.agent_name AS \"用户名\", a.email AS \"邮箱\", ic.code AS \"邀请码\", (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AS \"邀请注册数\", count(t.token) FILTER (WHERE t.status = 'installed') AS \"安装数\", count(t.token) AS \"落地数\" FROM invite_codes ic JOIN agents a ON a.agent_id = ic.agent_id LEFT JOIN install_tokens t ON t.invite_code = ic.code AND to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() WHERE ic.kind = 'kol' GROUP BY a.agent_name, a.email, ic.code HAVING (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) > 0 OR count(t.token) > 0 ORDER BY \"邀请注册数\" DESC, \"安装数\" DESC, \"落地数\" DESC LIMIT 100;",
+          "rawSql": "SELECT a.agent_name AS \"用户名\", a.email AS \"邮箱\", ic.code AS \"邀请码\", count(t.token) AS \"落地数\", count(t.token) FILTER (WHERE t.status = 'installed') AS \"安装数\", (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AS \"邀请注册数\" FROM invite_codes ic JOIN agents a ON a.agent_id = ic.agent_id LEFT JOIN install_tokens t ON t.invite_code = ic.code AND to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() WHERE ic.kind = 'kol' GROUP BY a.agent_name, a.email, ic.code HAVING (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) > 0 OR count(t.token) > 0 ORDER BY \"邀请注册数\" DESC, \"安装数\" DESC, \"落地数\" DESC LIMIT 100;",
           "format": "table"
         }
       ],
