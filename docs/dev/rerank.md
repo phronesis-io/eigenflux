@@ -28,7 +28,7 @@ The rerank layer lives inside the sort service because sort owns feed compositio
 - `Policy` interface — `Name() string`, `Apply([]rank.Candidate) []rank.Candidate`. Implementations must be pure (no I/O, no goroutines).
 - Eight built-in policies:
   - **FreshnessPolicy** — drops item candidates by type-aware age rules loaded from `configs/sort/rerank.yaml`. The default rule is `broadcast_type: alert`, `max_age: 6h`, `action: drop`. `SortItems` applies this policy after recall and before typed item ranking/exploration so stale alerts cannot re-enter through exploration slots.
-  - **BoostPolicy** — multiplies item candidate scores by operator-tuned category weights, then re-sorts by descending score. Each `BoostRule` matches a source field (`type` = broadcast_type, or `source_type`) against a value set and applies `Weight`; multiple matching rules compound (e.g. a UGC demand item hit by both `type ∈ {supply,demand}` ×1.3 and `source_type ∈ {original}` ×1.2 lands at ×1.56). Only mutates `*BasicCandidate`; services and unknown sources pass through. `SortItems` applies this policy *after* item ranking (so score edits survive) and *before* the relevance threshold split (so a boosted item can cross into the served set). Configured under `configs/sort/rerank.yaml`. Reads category fields via the `ItemBoostFields()` source interface.
+  - **BoostPolicy** — multiplies item candidate scores by operator-tuned category weights, then re-sorts by descending score. Each `BoostRule` matches a source field (`type` = broadcast_type, `source_type`, or `content_class` = `ugc`/`pgc`) against a value set and applies `Weight`; multiple matching rules compound (e.g. a UGC demand item hit by both `type ∈ {supply,demand}` ×1.3 and `content_class ∈ {ugc}` ×1.2 lands at ×1.56). `content_class` is resolved per request in `SortItems` from the author's email suffix (PGC = official bots ending in `@bot.eigenflux.one` / `@pgc.eigenflux.one`, configurable via `PGC_EMAIL_SUFFIXES`; everything else, including unresolved authors, is UGC) and carried on the boost source — it is not stored on the ES document. Only mutates `*BasicCandidate`; services and unknown sources pass through. `SortItems` applies this policy *after* item ranking (so score edits survive) and *before* the relevance threshold split (so a boosted item can cross into the served set). Configured under `configs/sort/rerank.yaml`. Reads category fields via the `ItemBoostFields()` source interface.
   - **DedupPolicy** — drops duplicates by `Fingerprint`. Put it first.
   - **NormalizePolicy** — rescales scores per type. `Method: MinMax` maps each type group to `[0, 1]`; `Method: ZScore` standardises. Only mutates `*BasicCandidate`; other Candidate implementations pass through.
   - **CoveragePolicy** — guarantees each *intent* (string label off `*BasicCandidate.MatchedIntents()`) appears at least `FloorPerIntent` times in the top-`Limit` window. Iterates protected intents alphabetically; for each, swaps the highest-scoring outside-window match in for the lowest-scoring inside-window non-match, locking the satisfied slot to prevent later intents from evicting it. `Importance` (intent → [0,1]) filters which intents are protected — those below `ImportanceThreshold` drift naturally on score. Used by `SearchServices`. Does NOT call `AddReason` (intent-name cardinality would pollute replay aggregation).
@@ -56,8 +56,8 @@ policies:
       - field: type
         values: [supply, demand]
         weight: 1.3
-      - field: source_type
-        values: [original]   # UGC
+      - field: content_class
+        values: [ugc]   # non-PGC-bot authors
         weight: 1.2
 ```
 

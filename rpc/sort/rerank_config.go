@@ -69,14 +69,17 @@ func (l *rerankPolicySet) filter(keep func(rerank.Policy) bool) []rerank.Policy 
 
 type itemRerankSource struct {
 	item sortDal.Item
+	// contentClass is "ugc"/"pgc" resolved at request time from the author's
+	// email suffix (empty for the pre-rank freshness path, which never reads it).
+	contentClass string
 }
 
 func (s itemRerankSource) ItemFreshnessFields() (string, time.Time) {
 	return s.item.Type, s.item.UpdatedAt
 }
 
-func (s itemRerankSource) ItemBoostFields() (string, string) {
-	return s.item.Type, s.item.SourceType
+func (s itemRerankSource) ItemBoostFields() (string, string, string) {
+	return s.item.Type, s.item.SourceType, s.contentClass
 }
 
 func applyItemRerankPolicies(ctx context.Context, items []sortDal.Item, sourceMap map[int64]recallsource.Source) []sortDal.Item {
@@ -128,7 +131,7 @@ func applyItemRerankPolicies(ctx context.Context, items []sortDal.Item, sourceMa
 // boosted score. It runs after ranking so the score edits survive, and before
 // the relevance threshold split so a boosted item can cross into the served set.
 // Only RankedItem.Score is rewritten; the per-signal breakdown is left intact.
-func applyPostRankBoost(ctx context.Context, ranked []ranker.RankedItem, itemMap map[int64]sortDal.Item) []ranker.RankedItem {
+func applyPostRankBoost(ctx context.Context, ranked []ranker.RankedItem, itemMap map[int64]sortDal.Item, contentClassByItem map[int64]string) []ranker.RankedItem {
 	if itemRerankPolicies == nil {
 		return ranked
 	}
@@ -146,7 +149,7 @@ func applyPostRankBoost(ctx context.Context, ranked []ranker.RankedItem, itemMap
 			rank.CandidateItem,
 			ri.Score,
 			nil,
-			itemRerankSource{item: itemMap[ri.ItemID]},
+			itemRerankSource{item: itemMap[ri.ItemID], contentClass: contentClassByItem[ri.ItemID]},
 		))
 	}
 

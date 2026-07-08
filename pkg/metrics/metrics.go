@@ -85,19 +85,20 @@ var (
 	}, []string{"source"})
 
 	// SortRecallCategoryTotal and SortFeedCategoryTotal track the broadcast_type /
-	// source_type mix at the recall and delivered-feed stages. Comparing the two
+	// content_class mix at the recall and delivered-feed stages. Comparing the two
 	// shows how ranking + boost policy + threshold + dedup reshape the category
 	// distribution — the signal for whether supply/demand and UGC
-	// (source_type=original) promotion actually reaches the served feed.
+	// (content_class=ugc, i.e. non-PGC-bot authors) promotion actually reaches the
+	// served feed.
 	SortRecallCategoryTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "sort_recall_category_total",
-		Help: "Recall candidates by broadcast_type and source_type (before ranking/boost/dedup).",
-	}, []string{"broadcast_type", "source_type"})
+		Help: "Recall candidates by broadcast_type and content_class (before ranking/boost/dedup).",
+	}, []string{"broadcast_type", "content_class"})
 
 	SortFeedCategoryTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "sort_feed_category_total",
-		Help: "Items delivered to the feed by broadcast_type and source_type (after boost and dedup).",
-	}, []string{"broadcast_type", "source_type"})
+		Help: "Items delivered to the feed by broadcast_type and content_class (after boost and dedup).",
+	}, []string{"broadcast_type", "content_class"})
 )
 
 // SearchServices metrics. Volume, sub-intent distribution, LLM-fallback

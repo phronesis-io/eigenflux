@@ -1371,7 +1371,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(sort_recall_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_recall_category_total[$__rate_interval]))",
+          "expr": "sum(rate(sort_recall_category_total{content_class=\"ugc\"}[$__rate_interval])) / sum(rate(sort_recall_category_total[$__rate_interval]))",
           "legendFormat": "召回占比",
           "range": true,
           "refId": "A"
@@ -1382,15 +1382,15 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(sort_feed_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "expr": "sum(rate(sort_feed_category_total{content_class=\"ugc\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
           "legendFormat": "下发占比",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "UGC(source_type=original) 占比: 召回 vs 下发",
+      "title": "UGC(content_class=ugc) 占比: 召回 vs 下发",
       "type": "timeseries",
-      "description": "下发占比高于召回占比,说明 UGC(×1.2)提权把原创内容放大到了 feed。两线差值即放大幅度。"
+      "description": "content_class=ugc = 作者非官方 bot(邮箱后缀非 @bot.eigenflux.one/@pgc.eigenflux.one)。下发占比高于召回占比,说明 UGC(×1.2)提权把真实用户内容放大到了 feed。两线差值即放大幅度。"
     },
     {
       "datasource": {
@@ -1506,7 +1506,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(sort_feed_category_total{source_type=\"original\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
+          "expr": "sum(rate(sort_feed_category_total{content_class=\"ugc\"}[$__rate_interval])) / sum(rate(sort_feed_category_total[$__rate_interval]))",
           "legendFormat": "",
           "range": true,
           "refId": "A"
@@ -1514,7 +1514,7 @@
       ],
       "title": "当前下发 UGC 占比",
       "type": "stat",
-      "description": "当前 feed 下发中 source_type=original 的占比。"
+      "description": "当前 feed 下发中 content_class=ugc(作者非官方 bot)的占比。"
     },
     {
       "datasource": {

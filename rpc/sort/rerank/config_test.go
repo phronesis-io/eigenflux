@@ -51,8 +51,8 @@ policies:
       - field: type
         values: [supply, demand]
         weight: 1.3
-      - field: source_type
-        values: [original]
+      - field: content_class
+        values: [ugc]
         weight: 1.2
 `), 0o644)
 	require.NoError(t, err)
@@ -69,7 +69,8 @@ policies:
 	assert.Equal(t, "type", policy.Rules[0].Field)
 	assert.Equal(t, []string{"supply", "demand"}, policy.Rules[0].Values)
 	assert.Equal(t, 1.3, policy.Rules[0].Weight)
-	assert.Equal(t, "source_type", policy.Rules[1].Field)
+	assert.Equal(t, "content_class", policy.Rules[1].Field)
+	assert.Equal(t, []string{"ugc"}, policy.Rules[1].Values)
 	assert.Equal(t, 1.2, policy.Rules[1].Weight)
 }
 

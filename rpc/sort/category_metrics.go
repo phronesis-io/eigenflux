@@ -6,27 +6,28 @@ import (
 )
 
 // categoryLabels maps an item's boost-relevant category fields to Prometheus
-// label values. Empty broadcast_type or source_type collapse to "none" so the
-// label set stays bounded to the DB CHECK domains (broadcast_type ∈
-// {supply,demand,info,alert}, source_type ∈ {original,curated,forwarded}).
-func categoryLabels(item sortDal.Item) (broadcastType, sourceType string) {
+// label values. Empty broadcast_type collapses to "none" so the label set stays
+// bounded to the DB CHECK domain (broadcast_type ∈ {supply,demand,info,alert}).
+// contentClass is "ugc"/"pgc" resolved from the author's email suffix; empty
+// collapses to "none".
+func categoryLabels(item sortDal.Item, contentClass string) (broadcastType, cc string) {
 	broadcastType = item.Type
 	if broadcastType == "" {
 		broadcastType = "none"
 	}
-	sourceType = item.SourceType
-	if sourceType == "" {
-		sourceType = "none"
+	cc = contentClass
+	if cc == "" {
+		cc = "none"
 	}
-	return broadcastType, sourceType
+	return broadcastType, cc
 }
 
-func recordRecallCategory(item sortDal.Item) {
-	bt, st := categoryLabels(item)
-	metrics.SortRecallCategoryTotal.WithLabelValues(bt, st).Inc()
+func recordRecallCategory(item sortDal.Item, contentClass string) {
+	bt, cc := categoryLabels(item, contentClass)
+	metrics.SortRecallCategoryTotal.WithLabelValues(bt, cc).Inc()
 }
 
-func recordFeedCategory(item sortDal.Item) {
-	bt, st := categoryLabels(item)
-	metrics.SortFeedCategoryTotal.WithLabelValues(bt, st).Inc()
+func recordFeedCategory(item sortDal.Item, contentClass string) {
+	bt, cc := categoryLabels(item, contentClass)
+	metrics.SortFeedCategoryTotal.WithLabelValues(bt, cc).Inc()
 }
