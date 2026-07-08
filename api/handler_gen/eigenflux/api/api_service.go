@@ -2827,8 +2827,8 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	// CountBeatMatches / signalAgg.Counts are keyed by the normalized tag, so
-	// match on the normalized form.
+	// CountBeatMatches normalizes internally; pass the normalized beat as the
+	// map key so lookups below are unambiguous.
 	normNames := make([]string, len(beatList))
 	for i, b := range beatList {
 		normNames[i] = b.norm
@@ -2836,18 +2836,27 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 	pushed := consoledal.CountBeatMatches(deliveredRows, normNames)
 	kept := consoledal.CountBeatMatches(keptRows, normNames)
 
+	// signalAgg.Counts is keyed by the readable tag (it also feeds trending DMs).
+	// Fold it onto normalized keys so a beat matches every separator variant.
+	normSignals := make(map[string]int64, len(signalAgg.Counts))
+	for tag, n := range signalAgg.Counts {
+		normSignals[tagnorm.Normalize(tag)] += n
+	}
+
 	var maxSignals int64
 	for _, b := range beatList {
-		if s := signalAgg.Counts[b.norm]; s > maxSignals {
+		if s := normSignals[b.norm]; s > maxSignals {
 			maxSignals = s
 		}
 	}
 
 	beats := make([]map[string]interface{}, 0, len(beatList))
 	for _, b := range beatList {
-		signals := signalAgg.Counts[b.norm]
+		signals := normSignals[b.norm]
 		beats = append(beats, map[string]interface{}{
-			"key":     b.norm,
+			// key/name stay human-readable (the profile keyword); b.norm is an
+			// internal match key and is deliberately not exposed.
+			"key":     b.display,
 			"name":    b.display,
 			"tier":    beatTier(signals, maxSignals),
 			"signals": signals,

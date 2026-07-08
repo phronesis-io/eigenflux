@@ -9,9 +9,11 @@
 // lowercase exact match therefore only ever fires on single-word tags, which
 // is why most multi-word beats score zero on the Coverage view.
 //
-// Stripping separators before comparing folds every convention onto one
-// canonical form ("ai agents", "ai-agents", "aiagents" -> "aiagents"), which
-// maximizes recall without losing the hyphenated-on-both-sides terms. See the
+// Stripping separators before comparing folds the ASCII separator conventions
+// (space, hyphen, underscore) onto one canonical form ("ai agents",
+// "ai-agents", "aiagents" -> "aiagents"), which maximizes recall without losing
+// the hyphenated-on-both-sides terms. It does NOT fold lexical synonyms or
+// non-ASCII separators (en-dash, NBSP, tab); those remain distinct. See the
 // beat/Coverage matching in api/dal/console.go and the ranking keyword-overlap
 // signal in rpc/sort/ranker/signals.go.
 package tagnorm

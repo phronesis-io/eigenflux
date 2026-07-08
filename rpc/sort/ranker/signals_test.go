@@ -122,3 +122,12 @@ func TestKeywordOverlap_SeparatorAgnostic(t *testing.T) {
 	score := keywordOverlap(ps, []string{"ai agents", "multi agent architecture"}, []string{"ai infra"})
 	assert.InDelta(t, 1.0, score, 0.001, "hyphenated beats must match spaced item tags")
 }
+
+// An item carrying both separator variants of the same tag ("ai agents" and
+// "ai-agents" both normalize to "aiagents") must count once, not twice, so the
+// overlap ratio stays 1/2 (aiagents, blockchain) rather than being skewed.
+func TestKeywordOverlap_DedupsItemVariants(t *testing.T) {
+	ps := buildProfileSets(&UserProfile{Keywords: []string{"ai-agents"}})
+	score := keywordOverlap(ps, []string{"ai agents", "ai-agents", "blockchain"}, nil)
+	assert.InDelta(t, 0.5, score, 0.001)
+}

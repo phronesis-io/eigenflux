@@ -57,17 +57,29 @@ func keywordOverlap(ps *profileSets, itemKeywords, itemDomains []string) float64
 }
 
 // setOverlapPrecomputed returns |A ∩ B| / |B| using a pre-computed user set.
+// Item tags are normalized and deduplicated first so that a single item
+// carrying both separator variants ("ai agents" and "ai-agents") counts once
+// in both numerator and denominator instead of skewing the ratio.
 func setOverlapPrecomputed(userSet map[string]bool, item []string) float64 {
 	if len(userSet) == 0 || len(item) == 0 {
 		return 0.0
 	}
-	matched := 0
+	itemSet := make(map[string]bool, len(item))
 	for _, it := range item {
-		if userSet[tagnorm.Normalize(it)] {
+		if n := tagnorm.Normalize(it); n != "" {
+			itemSet[n] = true
+		}
+	}
+	if len(itemSet) == 0 {
+		return 0.0
+	}
+	matched := 0
+	for n := range itemSet {
+		if userSet[n] {
 			matched++
 		}
 	}
-	return float64(matched) / float64(len(item))
+	return float64(matched) / float64(len(itemSet))
 }
 
 // freshnessScore computes freshness based on broadcast_type.

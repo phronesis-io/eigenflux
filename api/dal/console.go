@@ -524,10 +524,10 @@ func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*Toda
 }
 
 // Beat coverage queries: per-keyword counts over a time window. An item's tag
-// set is its keywords ∪ domains (split, then tagnorm.Normalize); a beat keyword
-// matches an item when its normalized form is in that set — the same
-// separator-agnostic exact-overlap notion the feed recall ranking uses. Beat
-// names must be normalized the same way before lookup (see GetBeatCoverage).
+// set is its keywords ∪ domains. Beat matching is separator-agnostic (via
+// NormTagSet / tagnorm), but the readable TagSet is kept intact because the same
+// GetNetworkSignalAgg aggregate feeds user-facing surfaces (trending / feed
+// rescue DMs) that must show "ai agents", not the normalized "aiagents".
 
 // BeatItemTags is one item's topic tags (comma-separated columns).
 type BeatItemTags struct {
@@ -535,14 +535,15 @@ type BeatItemTags struct {
 	Domains  string `gorm:"column:domains"`
 }
 
-// TagSet returns the item's deduplicated, separator-normalized tag set
-// (keywords ∪ domains). Normalization folds "ai agents" and "ai-agents" onto
-// one key so beats match regardless of hyphen/space convention.
+// TagSet returns the item's deduplicated lowercase tag set (keywords ∪ domains),
+// preserving the raw separator convention. This is the human-readable aggregate;
+// GetNetworkSignalAgg keys its Counts on it and downstream DMs display those
+// keys verbatim. Beat matching uses NormTagSet instead.
 func (t BeatItemTags) TagSet() map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, raw := range []string{t.Keywords, t.Domains} {
 		for _, tag := range strings.Split(raw, ",") {
-			tag = tagnorm.Normalize(tag)
+			tag = strings.TrimSpace(strings.ToLower(tag))
 			if tag != "" {
 				set[tag] = struct{}{}
 			}
@@ -551,14 +552,35 @@ func (t BeatItemTags) TagSet() map[string]struct{} {
 	return set
 }
 
-// CountBeatMatches returns, per beat keyword (already tagnorm-normalized by the
-// caller), how many rows contain it in their normalized tag set.
+// NormTagSet is TagSet with each tag canonicalized via tagnorm.Normalize, for
+// separator-agnostic beat matching (folds "ai agents" and "ai-agents" onto one
+// key). Kept separate from TagSet so the readable aggregate is unaffected.
+func (t BeatItemTags) NormTagSet() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, raw := range []string{t.Keywords, t.Domains} {
+		for _, tag := range strings.Split(raw, ",") {
+			if tag = tagnorm.Normalize(tag); tag != "" {
+				set[tag] = struct{}{}
+			}
+		}
+	}
+	return set
+}
+
+// CountBeatMatches returns, per beat, how many rows contain it. Both the beat
+// and the item tags are separator-normalized internally, so callers may pass
+// raw or already-normalized beats and hyphen/space variants still match. The
+// result is keyed by the beat string as passed in.
 func CountBeatMatches(rows []BeatItemTags, beats []string) map[string]int64 {
+	norm := make([]string, len(beats))
+	for i, b := range beats {
+		norm[i] = tagnorm.Normalize(b)
+	}
 	counts := make(map[string]int64, len(beats))
 	for _, row := range rows {
-		set := row.TagSet()
-		for _, beat := range beats {
-			if _, ok := set[beat]; ok {
+		set := row.NormTagSet()
+		for i, beat := range beats {
+			if _, ok := set[norm[i]]; ok {
 				counts[beat]++
 			}
 		}
@@ -576,9 +598,7 @@ type BeatSignalAgg struct {
 const beatSignalsCacheTTL = 5 * time.Minute
 
 func beatSignalsCacheKey(window string) string {
-	// v2: tag counts are now keyed by tagnorm.Normalize (separators stripped).
-	// Bumping the version discards any pre-normalization cached aggregates.
-	return "cache:beat_signals:v2:" + window
+	return "cache:beat_signals:" + window
 }
 
 // GetNetworkSignalAgg aggregates published items network-wide since sinceMs.
