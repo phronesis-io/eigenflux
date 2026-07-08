@@ -20,6 +20,7 @@ var inviteRefRe = regexp.MustCompile(`EF-[0-9A-Za-z]{8}`)
 const (
 	inviterEmail = "invite_kol@test.com"
 	inviteeEmail = "invite_new@test.com"
+	paidEmail    = "invite_paid@test.com"
 )
 
 func cleanupInvite(t *testing.T) {
@@ -32,7 +33,7 @@ func cleanupInvite(t *testing.T) {
 			(SELECT agent_id FROM agents WHERE email IN ($1, $2)))`, inviterEmail, inviteeEmail)
 	testutil.TestDB.Exec(`DELETE FROM invite_codes WHERE agent_id IN
 		(SELECT agent_id FROM agents WHERE email IN ($1, $2))`, inviterEmail, inviteeEmail)
-	testutil.CleanupTestEmails(t, inviterEmail, inviteeEmail)
+	testutil.CleanupTestEmails(t, inviterEmail, inviteeEmail, paidEmail)
 }
 
 // TestInviteCodeFlow covers the stable-invite-code path end to end: a KOL's
@@ -112,6 +113,13 @@ func TestInviteCodeFlow(t *testing.T) {
 	if invitedBy != code || inviterAgent != kolID {
 		t.Fatalf("invitee should be attributed to %s/%d, got %s/%d", code, kolID, invitedBy, inviterAgent)
 	}
+	// The same verified report also pins the user-level acquisition channel.
+	var acq string
+	testutil.TestDB.QueryRow(
+		`SELECT acquisition_channel FROM agents WHERE agent_id = $1`, inviteeID).Scan(&acq)
+	if acq != "user" {
+		t.Fatalf("invitee acquisition_channel should be 'user', got %q", acq)
+	}
 
 	// --- first-wins + registration window: a later invite ref must not
 	// overwrite the attribution (the agent also registered before this ref was
@@ -158,6 +166,27 @@ func TestInviteCodeFlow(t *testing.T) {
 	// still attributes the KOL.
 	if attr4["channel"] != "redskills" {
 		t.Fatalf("explicit utm_source should keep the platform channel, got %v", attr4["channel"])
+	}
+
+	// --- paid path (no invite code): the verified report pins the platform
+	// channel onto the user, leaving invite attribution empty ---
+	paidMint := testutil.DoPost(t, "/api/v1/install/token", map[string]interface{}{
+		"utm_source": "xiaohongshu",
+	}, "")
+	paidRef := paidMint["data"].(map[string]interface{})["ref"].(string)
+	_, paidID, _ := testutil.LoginAndGetToken(t, paidEmail)
+	testutil.DoPost(t, "/api/v1/install/report", map[string]interface{}{
+		"ref": paidRef,
+		"metadata": map[string]interface{}{
+			"via": "cli", "agent_id": strconv.FormatInt(paidID, 10), "email": paidEmail,
+		},
+	}, "")
+	var paidAcq, paidInvited string
+	testutil.TestDB.QueryRow(
+		`SELECT acquisition_channel, invited_by_code FROM agents WHERE agent_id = $1`, paidID).
+		Scan(&paidAcq, &paidInvited)
+	if paidAcq != "xiaohongshu" || paidInvited != "" {
+		t.Fatalf("paid signup should pin channel xiaohongshu with no invite, got %q/%q", paidAcq, paidInvited)
 	}
 }
 

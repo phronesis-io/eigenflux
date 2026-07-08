@@ -11,7 +11,39 @@
   },
   "timezone": "Asia/Shanghai",
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "paid_platform",
+        "label": "投放平台",
+        "type": "custom",
+        "query": "全部 : all, 小红书 : xiaohongshu, X : twitter",
+        "current": {
+          "text": "全部",
+          "value": "all",
+          "selected": true
+        },
+        "options": [
+          {
+            "text": "全部",
+            "value": "all",
+            "selected": true
+          },
+          {
+            "text": "小红书",
+            "value": "xiaohongshu",
+            "selected": false
+          },
+          {
+            "text": "X",
+            "value": "twitter",
+            "selected": false
+          }
+        ],
+        "includeAll": false,
+        "multi": false,
+        "hide": 0
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -274,7 +306,7 @@
     },
     {
       "id": 6,
-      "title": "每日新增用户趋势 (近30天 · 按来源堆叠: 达人邀请/渠道/自然及其他)",
+      "title": "每日新增用户趋势 (近30天 · 按来源堆叠: 邀请/投放/自然)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -293,7 +325,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time,\n  CASE WHEN a.invited_by_code = '' THEN '自然及其他'\n       WHEN ic.kind = 'kol' THEN '达人邀请'\n       WHEN ic.kind = 'channel' THEN coalesce(nullif(ic.name,''), '渠道')\n       ELSE '其他邀请' END AS metric,\n  count(*) AS value\nFROM agents a LEFT JOIN invite_codes ic ON ic.code = a.invited_by_code\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time,\n  CASE WHEN a.invited_by_code <> '' AND ic.kind = 'kol' THEN '用户邀请'\n       WHEN a.invited_by_code <> '' AND ic.kind = 'channel' THEN coalesce(nullif(ic.name,''), '渠道')\n       WHEN a.invited_by_code <> '' THEN '其他邀请'\n       WHEN a.acquisition_channel = 'xiaohongshu' THEN '小红书投放'\n       WHEN a.acquisition_channel = 'twitter' THEN 'X投放'\n       WHEN a.acquisition_channel NOT IN ('', 'unknown', 'user') THEN a.acquisition_channel\n       ELSE '自然及其他' END AS metric,\n  count(*) AS value\nFROM agents a LEFT JOIN invite_codes ic ON ic.code = a.invited_by_code\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1, 2 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -1195,7 +1227,7 @@
     },
     {
       "id": 21,
-      "title": "付费每日趋势 (落地 / 复制 / 抓取 / 安装 / 101回传 / 102回传)",
+      "title": "付费每日趋势 (落地 / 复制 / 抓取 / 安装 / 101回传 / 102回传 · 右上角可选投放平台)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -1215,7 +1247,7 @@
             "uid": "postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE copied_at>0) AS \"复制\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\", count(*) FILTER (WHERE cb101_code=0) AS \"101回传\", count(*) FILTER (WHERE cb102_code=0) AS \"102回传\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE copied_at>0) AS \"复制\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\", count(*) FILTER (WHERE cb101_code=0) AS \"101回传\", count(*) FILTER (WHERE cb102_code=0) AS \"102回传\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND ('$paid_platform' = 'all' OR channel = '$paid_platform') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
         }
       ],
       "fieldConfig": {

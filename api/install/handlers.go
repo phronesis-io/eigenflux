@@ -173,10 +173,11 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	fireXHSCallback(t.Token, EventInstall)
 	fireXAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
-	// which for an invite-coded ref pins 被谁邀请 onto the agent (first-wins).
-	// Runs on every report, not just the conversion — install.sh reports first
-	// without an identity, the CLI reports again with one.
-	attributeInvitedAgent(t, body.Metadata)
+	// which pins the acquisition channel — and for an invite-coded ref, 被谁邀请
+	// — onto the agent (first-wins). Runs on every report, not just the
+	// conversion — install.sh reports first without an identity, the CLI
+	// reports again with one.
+	attributeReportedAgent(t, body.Metadata)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"converted": converted,
 		"attribution": map[string]interface{}{

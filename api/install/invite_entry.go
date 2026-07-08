@@ -86,23 +86,26 @@ func metadataAgentID(md map[string]any) int64 {
 	return id
 }
 
-// attributeInvitedAgent writes the registration attribution for an invited
-// agent: agents.invited_by_code / inviter_agent_id / invited_at, first report
-// wins (the conditional UPDATE only matches while invited_by_code is empty).
+// attributeReportedAgent writes user-level acquisition attribution when an
+// install report carries a verified identity: agents.acquisition_channel for
+// every attributable token (paid / channel / personal alike), plus
+// invited_by_code / inviter_agent_id / invited_at when the token carries an
+// invite code. All writes are first-wins (the conditional UPDATEs only match
+// while the column is still empty).
 //
 // /install/report is public (install.sh reports pre-auth), so the identity in
 // metadata is untrusted. Guards against forged attribution:
 //   - the report must carry BOTH the agent_id and the account's email, and the
 //     pair must match the agents row (emails are not exposed on any public
 //     surface, unlike agent ids);
-//   - the agent must have REGISTERED AFTER this invite entry was minted — an
-//     invite can only claim signups it plausibly caused, so existing accounts
-//     can never be hijacked onto someone's leaderboard;
-//   - self-invites (a KOL installing through their own code) are skipped.
+//   - the agent must have REGISTERED AFTER this entry was minted — an entry
+//     can only claim signups it plausibly caused, so existing accounts can
+//     never be hijacked onto someone's leaderboard or channel;
+//   - self-invites (a user installing through their own code) are skipped.
 //
 // Best effort — a failure here must never fail the install report.
-func attributeInvitedAgent(t *Token, md map[string]any) {
-	if t == nil || t.InviteCode == "" {
+func attributeReportedAgent(t *Token, md map[string]any) {
+	if t == nil {
 		return
 	}
 	agentID := metadataAgentID(md)
@@ -120,7 +123,26 @@ func attributeInvitedAgent(t *Token, md map[string]any) {
 		return
 	}
 	if strings.ToLower(agent.Email) != email || agent.CreatedAt < t.CreatedAt {
-		event("install_invite_attr_rejected", t.Token, "agent_id", agentID)
+		event("install_attr_rejected", t.Token, "agent_id", agentID)
+		return
+	}
+
+	// User-level acquisition channel: which bucket brought this signup. Skipped
+	// for unbucketed entries ("unknown"/empty carry no signal worth pinning).
+	if t.Channel != "" && t.Channel != "unknown" {
+		res := db.DB.Exec(
+			`UPDATE agents SET acquisition_channel = ?
+			  WHERE agent_id = ? AND acquisition_channel = ''`,
+			t.Channel, agentID)
+		if res.Error != nil {
+			logger.Default().Warn("install",
+				"ev", "acq_channel_error", "ref", t.Token, "agent_id", agentID, "err", res.Error.Error())
+		} else if res.RowsAffected == 1 {
+			event("install_acq_channel", t.Token, "channel", t.Channel, "agent_id", agentID)
+		}
+	}
+
+	if t.InviteCode == "" {
 		return
 	}
 	ic, err := invite.GetByCode(db.DB, t.InviteCode)
