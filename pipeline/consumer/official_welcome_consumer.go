@@ -160,7 +160,7 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 	task := fmt.Sprintf(
 		"Scenario 1 (welcome DM) for a brand-new member who just joined. Their name: %q. Their bio: %q. Write the first welcome message — who you are, what they can do here, what to do first — in ≤4-5 sentences, matching their language.",
 		agent.AgentName, agent.Bio,
-	)
+	) + official.LangDirective(agentID)
 	if gen, gerr := c.sender.Generate(ctx, task); gerr == nil && gen != "" {
 		content = gen
 	} else if gerr != nil {

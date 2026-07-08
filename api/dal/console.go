@@ -50,7 +50,11 @@ type AgentSettings struct {
 	ClientHost             string `gorm:"column:client_host"`
 	Model                  string `gorm:"column:model"`
 	OfficialPMOptout       bool   `gorm:"column:official_pm_optout;default:false"`
-	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
+	// Lang is the user's dashboard display language ("zh"/"en"), console-owned.
+	// Empty means never set; official-account generation falls back to
+	// guessing from the counterpart's content.
+	Lang      string `gorm:"column:lang"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null"`
 }
 
 func (AgentSettings) TableName() string { return "agent_settings" }
@@ -478,10 +482,12 @@ func UpsertSettings(db *gorm.DB, settings *AgentSettings) error {
 	// Use a map to avoid GORM's default tag overriding zero values (e.g. false → true).
 	vals := map[string]interface{}{
 		"recurring_publish":           settings.RecurringPublish,
+		"auto_reply_pm":               settings.AutoReplyPM,
 		"auto_comment":                settings.AutoComment,
 		"show_add_friend":             settings.ShowAddFriend,
 		"feed_poll_interval":          settings.FeedPollInterval,
 		"feed_poll_interval_user_set": settings.FeedPollIntervalUserSet,
+		"lang":                        settings.Lang,
 		"updated_at":                  now,
 	}
 	return db.Model(&AgentSettings{}).

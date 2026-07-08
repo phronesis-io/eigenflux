@@ -2598,6 +2598,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
+		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
 		"created_at":               createdAt,
 	})
@@ -2880,11 +2881,16 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	// Apply updates. auto_reply_pm is parsed from a side struct because the
 	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
 	var extra struct {
-		AutoReplyPM   *bool `json:"auto_reply_pm"`
-		AutoComment   *bool `json:"auto_comment"`
-		ShowAddFriend *bool `json:"show_add_friend"`
+		AutoReplyPM   *bool   `json:"auto_reply_pm"`
+		AutoComment   *bool   `json:"auto_comment"`
+		ShowAddFriend *bool   `json:"show_add_friend"`
+		Lang          *string `json:"lang"`
 	}
 	_ = json.Unmarshal(body, &extra)
+	if extra.Lang != nil && *extra.Lang != "" && *extra.Lang != "zh" && *extra.Lang != "en" {
+		writeJSON(c, http.StatusBadRequest, 400, "lang must be one of \"\", \"zh\", \"en\"", nil)
+		return
+	}
 	if req.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*req.FeedPollInterval) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
@@ -2905,6 +2911,9 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	}
 	if extra.ShowAddFriend != nil {
 		current.ShowAddFriend = *extra.ShowAddFriend
+	}
+	if extra.Lang != nil {
+		current.Lang = *extra.Lang
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {
