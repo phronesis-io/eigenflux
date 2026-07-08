@@ -35,6 +35,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/followuplog"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -399,6 +400,11 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	// Agent-reported feed delivery preference (empty for the common case).
 	if s, sErr := consoledal.GetSettings(db.DB, agentID); sErr == nil {
 		profileMap["feed_delivery_preference"] = s.FeedDeliveryPreference
+	}
+	// Stable KOL invite code (lazily ensured, so pre-feature accounts get one on
+	// their first dashboard load); best-effort — absent on error.
+	if ic, icErr := invite.EnsureForAgent(db.DB, agentID); icErr == nil && ic != nil {
+		profileMap["invite_code"] = ic.Code
 	}
 
 	data := map[string]interface{}{

@@ -31,6 +31,11 @@ type Token struct {
 	// Lang is the entry language the visitor saw on the landing page ('en'/'zh'),
 	// for per-language conversion breakdown.
 	Lang string `gorm:"column:lang;not null;default:''"`
+	// InviteCode is the stable KOL/channel code (EFI-xxxxxx, see pkg/invite) the
+	// entry carried, when it came through an invite link rather than a paid ad.
+	// The invite code is resolved into this one-shot token at entry time; empty
+	// for all non-invite traffic.
+	InviteCode string `gorm:"column:invite_code;not null;default:''"`
 	// CopiedAt is set the first time the visitor copies the install command on the
 	// landing page — the shallow-conversion signal that fires 聚光 event_type 101.
 	CopiedAt int64 `gorm:"column:copied_at;not null;default:0"`

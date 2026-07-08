@@ -1389,6 +1389,429 @@
           "countRows": false
         }
       }
+    },
+    {
+      "id": 26,
+      "title": "自然引流 / Referral Growth (达人邀请码 EFI- + 渠道码归因)",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 109
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 27,
+      "title": "邀请落地 (mint)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 110
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE invite_code <> '' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 28,
+      "title": "邀请安装",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 110
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE invite_code <> '' AND status = 'installed' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 29,
+      "title": "邀请注册 (invited_by 归因)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 110
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT count(*) AS v FROM agents WHERE invited_by_code <> '' AND to_timestamp(invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 30,
+      "title": "邀请安装转化率",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 110
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status = 'installed') / NULLIF(count(*),0), 1) AS v FROM install_tokens WHERE invite_code <> '' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 31,
+      "title": "自然引流每日趋势 (落地 / 抓取 / 安装 / 注册归因)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 114
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\" FROM install_tokens WHERE invite_code <> '' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(invited_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"注册归因\" FROM agents WHERE invited_by_code <> '' AND to_timestamp(invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 32,
+      "title": "达人邀请排行榜 (选定时间区间 · 注册归因为准, 安装/落地看漏斗损耗)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 122
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT a.agent_name AS \"用户名\", a.email AS \"邮箱\", ic.code AS \"邀请码\", (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AS \"邀请注册数\", count(t.token) FILTER (WHERE t.status = 'installed') AS \"安装数\", count(t.token) AS \"落地数\" FROM invite_codes ic JOIN agents a ON a.agent_id = ic.agent_id LEFT JOIN install_tokens t ON t.invite_code = ic.code AND to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() WHERE ic.kind = 'kol' GROUP BY a.agent_name, a.email, ic.code HAVING (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) > 0 OR count(t.token) > 0 ORDER BY \"邀请注册数\" DESC, \"安装数\" DESC, \"落地数\" DESC LIMIT 100;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
+    },
+    {
+      "id": 33,
+      "title": "其他渠道引流 (渠道码归因: redskills 等)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 134
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT ic.name AS \"渠道\", ic.code AS \"渠道码\", count(t.token) AS \"落地\", count(t.token) FILTER (WHERE t.fetched_at > 0) AS \"抓取\", count(t.token) FILTER (WHERE t.status = 'installed') AS \"安装\", (SELECT count(*) FROM agents inv WHERE inv.invited_by_code = ic.code AND to_timestamp(inv.invited_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AS \"注册归因\", round(100.0 * count(t.token) FILTER (WHERE t.status = 'installed') / NULLIF(count(t.token),0), 1) AS \"安装转化率%\", ic.note AS \"备注\" FROM invite_codes ic LEFT JOIN install_tokens t ON t.invite_code = ic.code AND to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() WHERE ic.kind = 'channel' GROUP BY ic.name, ic.code, ic.note ORDER BY \"安装\" DESC, \"落地\" DESC;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": false,
+          "countRows": false
+        }
+      }
+    },
+    {
+      "id": 34,
+      "title": "前 100 邀请明细 (每次邀请进入 = 一行, 看 抓取/安装 是否走通)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 142
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT to_char(to_timestamp(t.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", t.token AS \"ref\", t.invite_code AS \"邀请码\", CASE ic.kind WHEN 'kol' THEN '达人' WHEN 'channel' THEN '渠道' ELSE '·' END AS \"类型\", coalesce(nullif(a.agent_name,''), nullif(ic.name,''), '·') AS \"达人/渠道\", t.channel AS \"渠道桶\", t.referrer AS \"referrer\", CASE WHEN t.fetched_at > 0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN t.status = 'installed' THEN '✓' ELSE '·' END AS \"安装\", t.report_count AS \"上报\" FROM install_tokens t LEFT JOIN invite_codes ic ON ic.code = t.invite_code LEFT JOIN agents a ON a.agent_id = ic.agent_id AND ic.kind = 'kol' WHERE t.invite_code <> '' ORDER BY t.created_at DESC LIMIT 100;",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "enablePagination": true,
+          "countRows": false
+        }
+      }
     }
   ]
 }

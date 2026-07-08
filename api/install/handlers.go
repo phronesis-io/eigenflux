@@ -13,6 +13,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/logger"
 )
 
@@ -54,6 +55,10 @@ type mintBody struct {
 	ClickID string `json:"click_id"` // Xiaohongshu 聚光
 	Twclid  string `json:"twclid"`   // X (Twitter) Ads
 	Lang    string `json:"lang"`     // entry language shown on the page ('en'/'zh')
+	// InviteCode is the stable KOL/channel code from the landing URL's ?ic=
+	// (see pkg/invite). Malformed or unknown codes degrade to an unattributed
+	// mint rather than an error.
+	InviteCode string `json:"invite_code"`
 }
 
 // normalizeLang keeps only the two supported entry languages; anything else
@@ -103,11 +108,20 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		ClientIP:    ip,
 		CreatedAt:   time.Now().UnixMilli(),
 	}
+	if ic := lookupInviteCode(body.InviteCode); ic != nil {
+		t.InviteCode = ic.Code
+		// An explicit utm_source still names the platform the link was posted
+		// on; only an otherwise-unknown entry falls back to the invite bucket.
+		if t.Channel == "unknown" {
+			t.Channel = ic.TokenChannel()
+		}
+	}
 	if err := CreateToken(db.DB, t); err != nil {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	event("install_ref_new", t.Token, "channel", t.Channel, "paid", t.ClickID != "" || t.Twclid != "")
+	event("install_ref_new", t.Token, "channel", t.Channel,
+		"paid", t.ClickID != "" || t.Twclid != "", "invite_code", t.InviteCode)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"ref":     t.Token,
 		"command": installCommand(t.Token),
@@ -156,10 +170,16 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	// Deep conversion: install success fires 聚光 event_type 102 (exactly-once
 	// per ref; retried by later reports if a prior attempt failed).
 	fireXHSCallback(t.Token, EventInstall)
+	// Registration attribution: the CLI's login-time report carries agent_id,
+	// which for an invite-coded ref pins 被谁邀请 onto the agent (first-wins).
+	// Runs on every report, not just the conversion — install.sh reports first
+	// without an identity, the CLI reports again with one.
+	attributeInvitedAgent(t, body.Metadata)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"converted": converted,
 		"attribution": map[string]interface{}{
 			"ref":          t.Token,
+			"invite_code":  t.InviteCode,
 			"channel":      t.Channel,
 			"utm_source":   t.UTMSource,
 			"utm_medium":   t.UTMMedium,
@@ -210,6 +230,38 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 // @router /r/:ref [GET]
 func serveRef(_ context.Context, c *app.RequestContext) {
 	ref := c.Param("ref")
+	// Stable invite codes (EFI-, KOL/channel) enter here too: resolve the code
+	// into a fresh one-shot token (this fetch IS the entry — fetched_at is
+	// stamped at mint) and serve the join doc under the new token, so the
+	// existing install/report funnel applies unchanged downstream.
+	if invite.ValidFormat(ref) {
+		ic := lookupInviteCode(ref)
+		if ic == nil {
+			c.Data(http.StatusNotFound, "text/markdown; charset=utf-8",
+				[]byte("# Unknown invite code\n\nThis invite link is not active.\n"))
+			return
+		}
+		// Link unfurlers fetching a publicly posted invite URL get the doc but
+		// mint nothing — bots must not count as landings in the KOL funnel.
+		if isPreviewBot(string(c.GetHeader("User-Agent"))) {
+			event("install_invite_bot", ic.Code)
+			c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ic.Code)))
+			return
+		}
+		if !limiter.Allow(clientIP(c)) {
+			c.Data(http.StatusTooManyRequests, "text/markdown; charset=utf-8",
+				[]byte("# Rate limited\n\nToo many requests, try again in a minute.\n"))
+			return
+		}
+		t, err := mintForInvite(ic, string(c.GetHeader("Referer")), clientIP(c))
+		if err != nil {
+			c.Data(http.StatusInternalServerError, "text/markdown; charset=utf-8", []byte("# Error\n"))
+			return
+		}
+		event("install_invite_fetch", t.Token, "invite_code", ic.Code, "channel", t.Channel)
+		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(t.Token)))
+		return
+	}
 	if !ValidTokenFormat(ref) {
 		c.Data(http.StatusBadRequest, "text/markdown; charset=utf-8",
 			[]byte("# Invalid referral code\n\nExpected the form EF-xxxxxxxx.\n"))

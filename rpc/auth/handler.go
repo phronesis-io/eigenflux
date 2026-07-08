@@ -18,6 +18,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/email"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/auth/dal"
@@ -204,6 +205,14 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 			}, nil
 		}
 		isNew = true
+		// Every real user owns a stable invite code from day one (KOL growth
+		// attribution). Best-effort: also lazily ensured on dashboard reads and
+		// backfillable via scripts/invite_backfill.
+		if !invite.IsInternalEmail(normalizedEmail) {
+			if _, icErr := invite.EnsureForAgent(db.DB, agent.AgentID); icErr != nil {
+				logger.Default().Warn("invite code ensure failed", "agent_id", agent.AgentID, "err", icErr.Error())
+			}
+		}
 	}
 
 	now := time.Now().UnixMilli()
