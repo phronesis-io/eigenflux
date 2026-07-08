@@ -1763,6 +1763,63 @@
       }
     },
     {
+      "id": 35,
+      "title": "渠道每日引流趋势 (一渠道一线 · 落地/安装)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 142
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(t.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, ic.name || ' 落地' AS metric, count(*) AS value FROM install_tokens t JOIN invite_codes ic ON ic.code = t.invite_code AND ic.kind = 'channel' WHERE to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1, 2 ORDER BY 1;"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(t.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, ic.name || ' 安装' AS metric, count(*) AS value FROM install_tokens t JOIN invite_codes ic ON ic.code = t.invite_code AND ic.kind = 'channel' WHERE t.status = 'installed' AND to_timestamp(t.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1, 2 ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
       "id": 34,
       "title": "前 100 邀请明细 (每次邀请进入 = 一行, 看 抓取/安装 是否走通)",
       "type": "table",
@@ -1774,7 +1831,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 142
+        "y": 150
       },
       "targets": [
         {
