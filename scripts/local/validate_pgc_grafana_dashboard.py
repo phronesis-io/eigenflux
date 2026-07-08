@@ -20,20 +20,16 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度",
-    "🔧 运维 — 系统健康",
-    "🏁 首发榜单 — 对外口径 · 诊断",
+    "北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）",
+    "运维 — 系统健康",
+    "首发 — 状态与对外口径",
 ]
 
-NATURALLY_EMPTY_PANEL_IDS = {
-    10,   # 异常来源榜: no rows when every failing source is already blocked or healthy.
-    108,  # 即将被 block 的来源: no rows is the ideal steady state.
-    407,  # SLA 破线分布: no rows is the ideal low-latency steady state.
-    409,  # SLA 破线原因: no rows is ideal when there is no latency debt.
-    410,  # 活跃拖慢信源: no rows is ideal when no source is currently breaching.
-    412,  # 违反 source SLA 的源: no rows is the ideal source-health steady state.
-    908,  # 现在先处理哪些信源: no rows is ideal when no source is active-breaching.
-}
+# Panels whose empty prod result is the ideal steady state (e.g. a failure list).
+# 2026-07-08: emptied — every previous entry was a 76-panel-era id that no longer
+# exists; a reused id would silently inherit the exemption. Add ids back only for
+# panels that exist AND are legitimately empty when healthy.
+NATURALLY_EMPTY_PANEL_IDS: set[int] = set()
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
     33,  # 活跃高优先延迟
@@ -44,12 +40,13 @@ ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
 }
 
 SOURCE_HEALTH_SLA_PANEL_IDS = {
-    61,  # 信源 SLA
+    61,  # 观察清单 (旧名 信源 SLA)
 }
 
-# 2026-07-06 语义拆分：17=火情(我方契约侧真坏的, 恒0)、61=观察清单(出版方安静/
-# 加源候选/SLA, 允许有水位)。风险趋势(37)双线。63=榜单胜率(对外口径)——它已经
-# 两次被改板误删, 从此由本校验器守护(见下方 OUTWARD_METRIC_MUST_EXIST)。
+# 2026-07-06 语义拆分：17=待处理故障(旧名 火情; 我方契约侧真坏的, 恒0)、61=观察清单
+# (旧名 信源 SLA; 出版方安静/加源候选/超期, 允许有水位)。风险趋势(37)双线。
+# 63=抢先率（对外口径）(旧名 榜单胜率)——它已经两次被改板误删, 从此由本校验器守护
+# (见下方 OUTWARD_METRIC_MUST_EXIST)。
 OWNER_COCKPIT_PANELS = {
     17: [
         "pgc_source_health_canaries_failed",
@@ -62,12 +59,14 @@ OWNER_COCKPIT_PANELS = {
     36: ["pgc_twitterapi_credits_days_to_empty"],
     37: ["pgc_source_health_sla_attention"],
     39: ["pgc_newsapi_key_tokens_pct"],
+    40: ["pgc_scraperapi_credits_pct"],
     61: [
         "pgc_source_health_critical_watch",
         "pgc_first_source_audit_attention",
         "pgc_source_health_sla_attention",
     ],
     62: ["pgc_signal_latency_active_source_breaches_3h"],
+    64: ["pgc_newsapi_daily_tokens", "pgc_newsapi_daily_token_cap"],
     63: ["pgc_first_source_win_rate"],
 }
 
@@ -100,7 +99,46 @@ def static_validate(dashboard: dict) -> list[str]:
     if dashboard.get("title") != "EigenFlux - PGC Pipeline":
         errors.append("dashboard title must be EigenFlux - PGC Pipeline")
 
-    row_titles = [p.get("title") for p in dashboard.get("panels", []) if p.get("type") == "row"]
+    panels = dashboard.get("panels", [])
+    ids = [p.get("id") for p in panels]
+    dupes = {i for i in ids if ids.count(i) > 1}
+    if dupes:
+        errors.append(f"duplicate panel ids: {sorted(dupes)}")
+
+    rects = []
+    for panel in panels:
+        g = panel.get("gridPos") or {}
+        if not all(k in g for k in ("x", "y", "w", "h")):
+            errors.append(f"panel {panel.get('id')} has invalid gridPos: {g}")
+            continue
+        rects.append((panel.get("id"), g["x"], g["y"], g["w"], g["h"]))
+    for i, (id_a, ax, ay, aw, ah) in enumerate(rects):
+        for id_b, bx, by, bw, bh in rects[i + 1:]:
+            if ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah:
+                errors.append(f"gridPos overlap between panels {id_a} and {id_b}")
+
+    # 面板预算闸: 设计文档「怎么改」规定净增为零、目标上限 25(2026-07-08 现状 29)。
+    # 超过现状即为净增, 必须先删一个再加一个。
+    content_count = sum(1 for p in panels if p.get("type") not in ("row", "text"))
+    if content_count > 29:
+        errors.append(
+            f"content panel count {content_count} exceeds the 29 ratchet — the design doc"
+            " requires net-zero additions (target ceiling 25); remove one before adding one")
+
+    # 黑话闸(设计原则#1): 标题与图例不得裸出英文黑话。描述里已解释的术语不在此列。
+    import re as _re
+    banned = _re.compile(r"critical|SLA|canary|p9\d|kind=", _re.IGNORECASE)
+    for panel in panels:
+        title = panel.get("title") or ""
+        if banned.search(title):
+            errors.append(f"panel {panel.get('id')} title contains banned jargon: {title!r}")
+        for target in panel.get("targets", []) or []:
+            legend = target.get("legendFormat") or ""
+            if banned.search(legend):
+                errors.append(
+                    f"panel {panel.get('id')} legend contains banned jargon: {legend!r}")
+
+    row_titles = [p.get("title") for p in panels if p.get("type") == "row"]
     for section in EXPECTED_SECTIONS:
         if section not in row_titles:
             errors.append(f"missing section row: {section}")
