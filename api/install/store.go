@@ -149,3 +149,24 @@ func ReportInstall(db *gorm.DB, token string) (converted bool, t *Token, err err
 	}
 	return converted, t, nil
 }
+
+func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+	res := db.Model(&Token{}).
+		Where("token = ? AND x_cb102_code <> 0 AND twclid <> ''", ref).
+		Update("x_cb102_sent_at", time.Now().UnixMilli())
+	if res.Error != nil {
+		return false, nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return false, nil, nil
+	}
+	var tok Token
+	if err := db.Where("token = ?", ref).First(&tok).Error; err != nil {
+		return false, nil, err
+	}
+	return true, &tok, nil
+}
+
+func SetXInstallCallbackCode(db *gorm.DB, ref string, code int) error {
+	return db.Model(&Token{}).Where("token = ?", ref).Update("x_cb102_code", code).Error
+}
