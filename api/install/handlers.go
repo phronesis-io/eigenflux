@@ -34,6 +34,7 @@ var (
 func Register(h *server.Hertz, baseURL string) {
 	publicBaseURL = strings.TrimRight(baseURL, "/")
 	initXHSConfig() // read env here — .env is loaded by the time Register runs
+	initXAdsConfig()
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
@@ -170,6 +171,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	// Deep conversion: install success fires 聚光 event_type 102 (exactly-once
 	// per ref; retried by later reports if a prior attempt failed).
 	fireXHSCallback(t.Token, EventInstall)
+	fireXAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
 	// which for an invite-coded ref pins 被谁邀请 onto the agent (first-wins).
 	// Runs on every report, not just the conversion — install.sh reports first

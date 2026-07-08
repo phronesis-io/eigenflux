@@ -78,6 +78,9 @@ Examples:
 		// Best-effort: a sync failure must never break the poll itself.
 		if cfg, err := config.Load(); err == nil {
 			_ = SyncSettings(cfg)
+			// Same heartbeat, same best-effort contract: keep skills fresh for
+			// bare-CLI / heartbeat users (throttled to once/day, offline-safe).
+			maybeSyncSkills(cfg)
 		}
 		return nil
 	},

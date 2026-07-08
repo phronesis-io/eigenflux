@@ -76,7 +76,10 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 		return
 	}
 
-	// One generation per cycle, shared by all recipients (bounds LLM cost).
+	// One generation per language per cycle, shared by all recipients with that
+	// preference (bounds LLM cost). The base variant covers members with no
+	// stored preference; "zh"/"en" variants are generated lazily on the first
+	// recipient that needs them.
 	task := fmt.Sprintf(
 		"Scenario 4 (network-wide trending topics, periodic). The current trending topics across the network are: %s. Write the periodic trending DM: curated, at most %d, each with one line on why it's worth a look, and a light way to mute or reduce frequency.",
 		strings.Join(topics, ", "), cfg.OfficialTrendingPickN,
@@ -86,6 +89,7 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 		logger.Default().Warn("official trending: generate failed", "err", err)
 		return
 	}
+	variants := map[string]string{"": content}
 
 	fullCooldown := time.Duration(cfg.OfficialTrendingIntervalSec) * time.Second
 	if fullCooldown <= 0 {
@@ -114,7 +118,19 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, cd) {
 				continue
 			}
-			if !oc.Send(ctx, officialID, f.AgentID, content) {
+			lang := official.LangOf(f.AgentID)
+			msg, ok := variants[lang]
+			if !ok {
+				gen, gerr := oc.Generate(ctx, task+official.DirectiveForLang(lang))
+				if gerr != nil || gen == "" {
+					oc.CooldownRelease(ctx, "trending", f.AgentID)
+					logger.Default().Warn("official trending: generate variant failed", "lang", lang, "err", gerr)
+					continue
+				}
+				variants[lang] = gen
+				msg = gen
+			}
+			if !oc.Send(ctx, officialID, f.AgentID, msg) {
 				oc.CooldownRelease(ctx, "trending", f.AgentID)
 				continue
 			}

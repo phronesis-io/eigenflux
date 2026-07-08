@@ -507,12 +507,16 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 	}
 
+	// Resolve UGC/PGC content class once per request (author email suffix lookup);
+	// reused by the recall/feed category metrics and the UGC boost.
+	contentClassByItem := resolveContentClasses(ctx, esItems)
+
 	// Record recall source feed composition and recall-stage category mix.
 	for _, item := range esItems {
 		for _, name := range recallsource.Names(sourceMap[item.ID]) {
 			metrics.RecallFeedTotal.WithLabelValues(name).Inc()
 		}
-		recordRecallCategory(item)
+		recordRecallCategory(item, contentClassByItem[item.ID])
 	}
 
 	esItemMap := make(map[int64]sortDal.Item, len(esItems))
@@ -527,7 +531,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	// Operator boosts (supply/demand, UGC) run here — after ranking so the score
 	// edits survive, before the threshold split so a boosted item can cross into
 	// the served set.
-	allRanked = applyPostRankBoost(ctx, allRanked, esItemMap)
+	allRanked = applyPostRankBoost(ctx, allRanked, esItemMap, contentClassByItem)
 	allRanked, collapsedCount := collapseRankedByGroup(allRanked, esItemMap)
 	logger.Ctx(ctx).Debug("group collapse", "before", len(esItems), "after", len(allRanked), "filtered", collapsedCount)
 
@@ -640,7 +644,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 		itemIDs = append(itemIDs, c.itemID)
 		if item, ok := esItemMap[c.itemID]; ok {
-			recordFeedCategory(item)
+			recordFeedCategory(item, contentClassByItem[c.itemID])
 		}
 		agentFeatCopy := agentFeaturesStr
 		itemFeatCopy := c.itemFeatures

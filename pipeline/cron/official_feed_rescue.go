@@ -128,9 +128,9 @@ func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.C
 				goto done
 			}
 			task := fmt.Sprintf(
-				"Scenario 3 (topic-recommendation DM, feed quiet). The member's declared domains are: %s. Their feed in these areas has been quiet over the last %d days (only %d items). Network-wide hot topics right now: %s. Pick 1-2 concrete topics/directions relevant to their declared interests; suggest they broaden a domain or update their profile to catch more; leave a light opt-out.",
+				"Scenario 3 (topic-recommendation DM, feed quiet). The member's declared domains are: %s. Their feed in these areas has been quiet over the last %d days (only %d items). Network-wide hot topics right now: %s. Pick 1-2 concrete topics/directions relevant to their declared interests; suggest they broaden a domain or update their profile to catch more; leave a light opt-out. Match their language.",
 				strings.Join(domains, ", "), windowDays, cnt, strings.Join(hotTopics, ", "),
-			)
+			) + official.LangDirective(f.AgentID)
 			content, gerr := oc.Generate(ctx, task)
 			llmBudget--
 			if gerr != nil || content == "" {

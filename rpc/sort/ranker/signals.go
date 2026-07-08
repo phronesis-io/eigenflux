@@ -2,10 +2,10 @@ package ranker
 
 import (
 	"math"
-	"strings"
 	"time"
 
 	"eigenflux_server/pkg/embedding"
+	"eigenflux_server/pkg/tagnorm"
 )
 
 // semanticSimilarity computes cosine similarity between profile and item embeddings.
@@ -13,8 +13,9 @@ func semanticSimilarity(profileEmb, itemEmb []float32) float64 {
 	return embedding.CosineSimilarity(profileEmb, itemEmb)
 }
 
-// profileSets holds pre-computed lowercase sets for a user profile,
-// avoiding repeated map allocation per item.
+// profileSets holds pre-computed separator-normalized sets for a user profile,
+// avoiding repeated map allocation per item. Keys are tagnorm.Normalize'd so
+// the extractor's hyphenated keywords match the item tagger's spaced tags.
 type profileSets struct {
 	keywords map[string]bool
 	domains  map[string]bool
@@ -26,10 +27,10 @@ func buildProfileSets(profile *UserProfile) *profileSets {
 		domains:  make(map[string]bool, len(profile.Domains)),
 	}
 	for _, k := range profile.Keywords {
-		ps.keywords[strings.ToLower(k)] = true
+		ps.keywords[tagnorm.Normalize(k)] = true
 	}
 	for _, d := range profile.Domains {
-		ps.domains[strings.ToLower(d)] = true
+		ps.domains[tagnorm.Normalize(d)] = true
 	}
 	return ps
 }
@@ -56,17 +57,29 @@ func keywordOverlap(ps *profileSets, itemKeywords, itemDomains []string) float64
 }
 
 // setOverlapPrecomputed returns |A ∩ B| / |B| using a pre-computed user set.
+// Item tags are normalized and deduplicated first so that a single item
+// carrying both separator variants ("ai agents" and "ai-agents") counts once
+// in both numerator and denominator instead of skewing the ratio.
 func setOverlapPrecomputed(userSet map[string]bool, item []string) float64 {
 	if len(userSet) == 0 || len(item) == 0 {
 		return 0.0
 	}
-	matched := 0
+	itemSet := make(map[string]bool, len(item))
 	for _, it := range item {
-		if userSet[strings.ToLower(it)] {
+		if n := tagnorm.Normalize(it); n != "" {
+			itemSet[n] = true
+		}
+	}
+	if len(itemSet) == 0 {
+		return 0.0
+	}
+	matched := 0
+	for n := range itemSet {
+		if userSet[n] {
 			matched++
 		}
 	}
-	return float64(matched) / float64(len(item))
+	return float64(matched) / float64(len(itemSet))
 }
 
 // freshnessScore computes freshness based on broadcast_type.

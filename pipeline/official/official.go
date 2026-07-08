@@ -171,6 +171,37 @@ func allowWindow(ctx context.Context, key string, ttl time.Duration, limit int) 
 	return n <= int64(limit)
 }
 
+// LangOf returns the member's dashboard language preference
+// (agent_settings.lang, "zh"/"en"), or "" when they never chose one.
+func LangOf(agentID int64) string {
+	s, err := apidal.GetSettings(db.DB, agentID)
+	if err != nil {
+		return ""
+	}
+	if s.Lang == "zh" || s.Lang == "en" {
+		return s.Lang
+	}
+	return ""
+}
+
+// LangDirective returns a prompt suffix pinning the reply language to the
+// member's dashboard preference. Empty when the member never chose a language,
+// so callers keep their guess-from-content wording as the fallback.
+func LangDirective(agentID int64) string {
+	return DirectiveForLang(LangOf(agentID))
+}
+
+// DirectiveForLang is the prompt suffix for an already-resolved preference.
+func DirectiveForLang(lang string) string {
+	switch lang {
+	case "zh":
+		return " The member's dashboard language is Chinese: write the whole message in natural, native-quality Simplified Chinese."
+	case "en":
+		return " The member's dashboard language is English: write the whole message in English."
+	}
+	return ""
+}
+
 // Generate renders the official persona prompt with a task-specific instruction
 // and returns the model's message text.
 func (s *Sender) Generate(ctx context.Context, task string) (string, error) {

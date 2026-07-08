@@ -349,6 +349,43 @@ func TestConsoleSettingsUpdatePartial(t *testing.T) {
 	}
 }
 
+func TestConsoleSettingsLang(t *testing.T) {
+	testutil.WaitForAPI(t)
+	email := fmt.Sprintf("console-settings-lang-%d@test.com", time.Now().UnixNano()%1_000_000)
+	token, _, _ := testutil.LoginAndGetToken(t, email)
+
+	// Default: never set.
+	getResult := testutil.DoGet(t, "/api/v1/console/settings", token)
+	assertCode(t, getResult, 0)
+	if lang := getResult["data"].(map[string]interface{})["lang"].(string); lang != "" {
+		t.Fatalf("expected empty lang by default, got %q", lang)
+	}
+
+	// Dashboard mirrors its display language.
+	putResult := testutil.DoPut(t, "/api/v1/console/settings", map[string]interface{}{
+		"lang": "zh",
+	}, token)
+	assertCode(t, putResult, 0)
+
+	getResult = testutil.DoGet(t, "/api/v1/console/settings", token)
+	assertCode(t, getResult, 0)
+	if lang := getResult["data"].(map[string]interface{})["lang"].(string); lang != "zh" {
+		t.Fatalf("expected lang=zh after update, got %q", lang)
+	}
+
+	// Only ""/"zh"/"en" are accepted.
+	badResult := testutil.DoPut(t, "/api/v1/console/settings", map[string]interface{}{
+		"lang": "fr",
+	}, token)
+	if code := int(badResult["code"].(float64)); code == 0 {
+		t.Fatal("expected non-zero code for invalid lang")
+	}
+	getResult = testutil.DoGet(t, "/api/v1/console/settings", token)
+	if lang := getResult["data"].(map[string]interface{})["lang"].(string); lang != "zh" {
+		t.Fatalf("invalid lang must not overwrite, expected zh, got %q", lang)
+	}
+}
+
 // ---------- Auth Code + Exchange ----------
 
 func TestConsoleAuthCodeGeneration(t *testing.T) {

@@ -9,6 +9,6 @@ policies:
       - field: type
         values: [supply, demand]
         weight: 1.3
-      - field: source_type
-        values: [original]
+      - field: content_class
+        values: [ugc]
         weight: 1.2

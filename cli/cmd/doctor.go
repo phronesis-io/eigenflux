@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
@@ -18,7 +20,16 @@ type doctorReport struct {
 	Writable      bool                `json:"writable"`
 	Stale         bool                `json:"stale"`
 	Skills        []skills.LocalSkill `json:"skills"`
+	AutoSync      autoSyncStatus      `json:"auto_sync"`
 	Hint          string              `json:"hint,omitempty"`
+}
+
+// autoSyncStatus surfaces the last background (heartbeat) skills refresh so ops
+// can confirm the once/day auto-sync is actually firing.
+type autoSyncStatus struct {
+	LastAttemptUnix int64  `json:"last_attempt_unix"`
+	LastResult      string `json:"last_result,omitempty"`
+	LastRevision    string `json:"last_revision,omitempty"`
 }
 
 var doctorCmd = &cobra.Command{
@@ -45,6 +56,13 @@ silently corrupted or hand-modified.`,
 		rep.Writable = isWritableDir(dir)
 		if err == nil {
 			rep.Stale = skillsStale(dir)
+		}
+		if st := skills.LoadAutoSyncState(config.HomeDir()); st.LastAttemptUnix > 0 {
+			rep.AutoSync = autoSyncStatus{
+				LastAttemptUnix: st.LastAttemptUnix,
+				LastResult:      st.LastResult,
+				LastRevision:    st.LastRevision,
+			}
 		}
 		if rep.Outdated {
 			rep.Hint = "the CLI binary is out of date — upgrade it: curl -fsSL https://www.eigenflux.ai/install.sh | sh (skills update independently via 'eigenflux skills sync')"
@@ -84,6 +102,12 @@ func printDoctorTable(rep doctorReport) {
 	}
 	fmt.Println()
 	fmt.Printf("Skills dir: %s (host=%s, writable=%t, stale=%t)\n", rep.SkillsDir, rep.HostDetected, rep.Writable, rep.Stale)
+	if rep.AutoSync.LastAttemptUnix > 0 {
+		fmt.Printf("Auto-sync:  last %s (result=%s)\n",
+			time.Unix(rep.AutoSync.LastAttemptUnix, 0).Format(time.RFC3339), rep.AutoSync.LastResult)
+	} else {
+		fmt.Println("Auto-sync:  never run yet (fires on the feed-poll heartbeat, ~once/day)")
+	}
 	if len(rep.Skills) == 0 {
 		fmt.Println("  (no skills installed — run 'eigenflux skills sync')")
 	}

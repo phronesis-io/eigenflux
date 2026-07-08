@@ -158,7 +158,8 @@ type Config struct {
 	EnableHotRecall          bool   // Enable hot_recall from Redis (default: true)
 	EnableNewRecall          bool   // Enable new_recall from Redis (default: true)
 	EnableTwoTowerRecall     bool   // Enable precomputed two_tower recall from Redis (default: false)
-	EnableServiceMix         bool   // Mix trading services into the SortItems feed (default: false)
+	PGCEmailSuffixes         []string // author email suffixes classifying a broadcast as PGC (official bots); everything else is UGC. Drives the sort UGC boost and category metrics
+	EnableServiceMix         bool     // Mix trading services into the SortItems feed (default: false)
 	ServiceMixRecallSize     int    // Max service candidates to recall before rerank (default: 50)
 	RecallRedisNamespace     string // Redis key namespace for recall indices (default: "rec")
 	TwoTowerRecallRedisKey   string // Redis recall output key for two_tower candidates (default: "two_tower_recall")
@@ -321,6 +322,7 @@ func Load() *Config {
 		KNNRecallCandidates:           getEnvInt("KNN_RECALL_CANDIDATES", 300),
 		EnableHotRecall:               getEnvBool("ENABLE_HOT_RECALL", true),
 		EnableNewRecall:               getEnvBool("ENABLE_NEW_RECALL", true),
+		PGCEmailSuffixes:              getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"}),
 		EnableServiceMix:              getEnvBool("ENABLE_SERVICE_MIX", false),
 		ServiceMixRecallSize:          getEnvInt("SERVICE_MIX_RECALL_SIZE", 50),
 		EnableTwoTowerRecall:          getEnvBool("ENABLE_TWO_TOWER_RECALL", false),

@@ -12,21 +12,22 @@ import (
 type testItemBoostSource struct {
 	broadcastType string
 	sourceType    string
+	contentClass  string
 }
 
-func (s testItemBoostSource) ItemBoostFields() (string, string) {
-	return s.broadcastType, s.sourceType
+func (s testItemBoostSource) ItemBoostFields() (string, string, string) {
+	return s.broadcastType, s.sourceType, s.contentClass
 }
 
-func boostCand(id int64, score float64, broadcastType, sourceType string) *rank.BasicCandidate {
+func boostCand(id int64, score float64, broadcastType, contentClass string) *rank.BasicCandidate {
 	return rank.NewCandidate(id, rank.CandidateItem, score, nil,
-		testItemBoostSource{broadcastType: broadcastType, sourceType: sourceType})
+		testItemBoostSource{broadcastType: broadcastType, contentClass: contentClass})
 }
 
 func TestBoostPolicy_MultipliesAndResorts(t *testing.T) {
 	// supply starts below info but ×1.3 overtakes it.
-	info := boostCand(1, 1.0, "info", "curated")
-	supply := boostCand(2, 0.8, "supply", "curated")
+	info := boostCand(1, 1.0, "info", "pgc")
+	supply := boostCand(2, 0.8, "supply", "pgc")
 
 	policy := &BoostPolicy{Rules: []BoostRule{
 		{Field: "type", Values: []string{"supply", "demand"}, Weight: 1.3},
@@ -43,21 +44,21 @@ func TestBoostPolicy_MultipliesAndResorts(t *testing.T) {
 
 func TestBoostPolicy_RulesCompound(t *testing.T) {
 	// A UGC demand item matches both rules: ×1.3 ×1.2 = ×1.56.
-	c := boostCand(1, 1.0, "demand", "original")
+	c := boostCand(1, 1.0, "demand", "ugc")
 
 	policy := &BoostPolicy{Rules: []BoostRule{
 		{Field: "type", Values: []string{"supply", "demand"}, Weight: 1.3},
-		{Field: "source_type", Values: []string{"original"}, Weight: 1.2},
+		{Field: "content_class", Values: []string{"ugc"}, Weight: 1.2},
 	}}
 	policy.Apply([]rank.Candidate{c})
 
 	assert.InDelta(t, 1.56, c.Score(), 1e-9)
 	assert.Contains(t, c.Reasons(), "boost:type=demand")
-	assert.Contains(t, c.Reasons(), "boost:source_type=original")
+	assert.Contains(t, c.Reasons(), "boost:content_class=ugc")
 }
 
 func TestBoostPolicy_NoMatchLeavesScore(t *testing.T) {
-	c := boostCand(1, 0.5, "info", "curated")
+	c := boostCand(1, 0.5, "info", "pgc")
 
 	policy := &BoostPolicy{Rules: []BoostRule{
 		{Field: "type", Values: []string{"supply"}, Weight: 1.3},
@@ -84,7 +85,7 @@ func TestBoostPolicy_IgnoresServicesAndUnknownSources(t *testing.T) {
 }
 
 func TestBoostPolicy_EmptyRulesPassThrough(t *testing.T) {
-	c := boostCand(1, 0.5, "supply", "original")
+	c := boostCand(1, 0.5, "supply", "ugc")
 	policy := &BoostPolicy{}
 	out := policy.Apply([]rank.Candidate{c})
 	require.Len(t, out, 1)

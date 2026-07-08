@@ -41,6 +41,7 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/stats"
+	"eigenflux_server/pkg/tagnorm"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
 
@@ -2604,6 +2605,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
+		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
 		"created_at":               createdAt,
 	})
@@ -2791,18 +2793,24 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Beat names are the agent's profile keywords, lowercased and deduplicated.
-	beatNames := make([]string, 0, len(resp.Agent.Keywords))
+	// Beat names are the agent's profile keywords. We keep the lowercased form
+	// for display but match on the separator-normalized form, so a hyphenated
+	// beat ("ai-agents") lines up with the item tagger's spaced form
+	// ("ai agents"). Dedup by the normalized key so convention-variant
+	// duplicates collapse into one beat.
+	type beatName struct{ display, norm string }
+	beatList := make([]beatName, 0, len(resp.Agent.Keywords))
 	seen := make(map[string]bool, len(resp.Agent.Keywords))
 	for _, kw := range resp.Agent.Keywords {
-		kw = strings.TrimSpace(strings.ToLower(kw))
-		if kw == "" || seen[kw] {
+		display := strings.TrimSpace(strings.ToLower(kw))
+		norm := tagnorm.Normalize(kw)
+		if norm == "" || seen[norm] {
 			continue
 		}
-		seen[kw] = true
-		beatNames = append(beatNames, kw)
+		seen[norm] = true
+		beatList = append(beatList, beatName{display: display, norm: norm})
 	}
-	if len(beatNames) == 0 {
+	if len(beatList) == 0 {
 		writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 			"window":        window,
 			"total_scanned": 0,
@@ -2826,26 +2834,41 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	pushed := consoledal.CountBeatMatches(deliveredRows, beatNames)
-	kept := consoledal.CountBeatMatches(keptRows, beatNames)
+	// CountBeatMatches normalizes internally; pass the normalized beat as the
+	// map key so lookups below are unambiguous.
+	normNames := make([]string, len(beatList))
+	for i, b := range beatList {
+		normNames[i] = b.norm
+	}
+	pushed := consoledal.CountBeatMatches(deliveredRows, normNames)
+	kept := consoledal.CountBeatMatches(keptRows, normNames)
+
+	// signalAgg.Counts is keyed by the readable tag (it also feeds trending DMs).
+	// Fold it onto normalized keys so a beat matches every separator variant.
+	normSignals := make(map[string]int64, len(signalAgg.Counts))
+	for tag, n := range signalAgg.Counts {
+		normSignals[tagnorm.Normalize(tag)] += n
+	}
 
 	var maxSignals int64
-	for _, name := range beatNames {
-		if s := signalAgg.Counts[name]; s > maxSignals {
+	for _, b := range beatList {
+		if s := normSignals[b.norm]; s > maxSignals {
 			maxSignals = s
 		}
 	}
 
-	beats := make([]map[string]interface{}, 0, len(beatNames))
-	for _, name := range beatNames {
-		signals := signalAgg.Counts[name]
+	beats := make([]map[string]interface{}, 0, len(beatList))
+	for _, b := range beatList {
+		signals := normSignals[b.norm]
 		beats = append(beats, map[string]interface{}{
-			"key":     name,
-			"name":    name,
+			// key/name stay human-readable (the profile keyword); b.norm is an
+			// internal match key and is deliberately not exposed.
+			"key":     b.display,
+			"name":    b.display,
 			"tier":    beatTier(signals, maxSignals),
 			"signals": signals,
-			"pushed":  pushed[name],
-			"kept":    kept[name],
+			"pushed":  pushed[b.norm],
+			"kept":    kept[b.norm],
 		})
 	}
 	sort.SliceStable(beats, func(i, j int) bool {
@@ -2886,11 +2909,16 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	// Apply updates. auto_reply_pm is parsed from a side struct because the
 	// hz-generated ConsoleUpdateSettingsReq predates it (avoids an IDL regen).
 	var extra struct {
-		AutoReplyPM   *bool `json:"auto_reply_pm"`
-		AutoComment   *bool `json:"auto_comment"`
-		ShowAddFriend *bool `json:"show_add_friend"`
+		AutoReplyPM   *bool   `json:"auto_reply_pm"`
+		AutoComment   *bool   `json:"auto_comment"`
+		ShowAddFriend *bool   `json:"show_add_friend"`
+		Lang          *string `json:"lang"`
 	}
 	_ = json.Unmarshal(body, &extra)
+	if extra.Lang != nil && *extra.Lang != "" && *extra.Lang != "zh" && *extra.Lang != "en" {
+		writeJSON(c, http.StatusBadRequest, 400, "lang must be one of \"\", \"zh\", \"en\"", nil)
+		return
+	}
 	if req.FeedPollInterval != nil && !consoledal.FeedPollIntervalInRange(*req.FeedPollInterval) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
@@ -2911,6 +2939,9 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 	}
 	if extra.ShowAddFriend != nil {
 		current.ShowAddFriend = *extra.ShowAddFriend
+	}
+	if extra.Lang != nil {
+		current.Lang = *extra.Lang
 	}
 
 	if err := consoledal.UpsertSettings(db.DB, current); err != nil {

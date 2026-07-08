@@ -7,7 +7,8 @@ import (
 )
 
 // BoostRule multiplies the score of an item candidate whose Field value is in
-// Values by Weight. Field is one of "type" (broadcast_type) or "source_type".
+// Values by Weight. Field is one of "type" (broadcast_type), "source_type", or
+// "content_class" (ugc/pgc, derived from the author's email suffix).
 type BoostRule struct {
 	Field  string
 	Values []string
@@ -80,12 +81,13 @@ func containsValue(values []string, target string) bool {
 // itemBoostFields is implemented by rerank sources that can expose the category
 // fields a BoostPolicy reads. Mirrors the itemFreshnessFields pattern.
 type itemBoostFieldsProvider interface {
-	ItemBoostFields() (broadcastType string, sourceType string)
+	ItemBoostFields() (broadcastType string, sourceType string, contentClass string)
 }
 
 type boostFields struct {
 	BroadcastType string
 	SourceType    string
+	ContentClass  string
 }
 
 func (f boostFields) value(field string) string {
@@ -94,6 +96,8 @@ func (f boostFields) value(field string) string {
 		return f.BroadcastType
 	case "source_type":
 		return f.SourceType
+	case "content_class":
+		return f.ContentClass
 	default:
 		return ""
 	}
@@ -104,8 +108,8 @@ func itemBoostFields(src any) (boostFields, bool) {
 		return boostFields{}, false
 	}
 	if v, ok := src.(itemBoostFieldsProvider); ok {
-		bt, st := v.ItemBoostFields()
-		return boostFields{BroadcastType: bt, SourceType: st}, true
+		bt, st, cc := v.ItemBoostFields()
+		return boostFields{BroadcastType: bt, SourceType: st, ContentClass: cc}, true
 	}
 	return boostFields{}, false
 }

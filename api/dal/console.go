@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/tagnorm"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -50,7 +51,11 @@ type AgentSettings struct {
 	ClientHost             string `gorm:"column:client_host"`
 	Model                  string `gorm:"column:model"`
 	OfficialPMOptout       bool   `gorm:"column:official_pm_optout;default:false"`
-	UpdatedAt              int64  `gorm:"column:updated_at;not null"`
+	// Lang is the user's dashboard display language ("zh"/"en"), console-owned.
+	// Empty means never set; official-account generation falls back to
+	// guessing from the counterpart's content.
+	Lang      string `gorm:"column:lang"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null"`
 }
 
 func (AgentSettings) TableName() string { return "agent_settings" }
@@ -478,10 +483,12 @@ func UpsertSettings(db *gorm.DB, settings *AgentSettings) error {
 	// Use a map to avoid GORM's default tag overriding zero values (e.g. false → true).
 	vals := map[string]interface{}{
 		"recurring_publish":           settings.RecurringPublish,
+		"auto_reply_pm":               settings.AutoReplyPM,
 		"auto_comment":                settings.AutoComment,
 		"show_add_friend":             settings.ShowAddFriend,
 		"feed_poll_interval":          settings.FeedPollInterval,
 		"feed_poll_interval_user_set": settings.FeedPollIntervalUserSet,
+		"lang":                        settings.Lang,
 		"updated_at":                  now,
 	}
 	return db.Model(&AgentSettings{}).
@@ -523,9 +530,11 @@ func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*Toda
 }
 
 // Beat coverage queries: per-keyword counts over a time window. An item's tag
-// set is its keywords ∪ domains (split, trim, lower); a beat keyword matches
-// an item when it is in that set — the same lowercase exact-overlap notion the
-// feed recall uses.
+// set is its keywords ∪ domains. Beat matching is separator-agnostic (via
+// NormTagSet / tagnorm), but the readable TagSet is kept intact because the same
+// GetNetworkSignalAgg aggregate feeds user-facing surfaces (trending / feed
+// rescue DMs) that must show the tag as written (e.g. "ai-agents"), not its
+// match-only normalized form ("ai agents").
 
 // BeatItemTags is one item's topic tags (comma-separated columns).
 type BeatItemTags struct {
@@ -533,7 +542,10 @@ type BeatItemTags struct {
 	Domains  string `gorm:"column:domains"`
 }
 
-// TagSet returns the item's deduplicated lowercase tag set.
+// TagSet returns the item's deduplicated lowercase tag set (keywords ∪ domains),
+// preserving the raw separator convention. This is the human-readable aggregate;
+// GetNetworkSignalAgg keys its Counts on it and downstream DMs display those
+// keys verbatim. Beat matching uses NormTagSet instead.
 func (t BeatItemTags) TagSet() map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, raw := range []string{t.Keywords, t.Domains} {
@@ -547,14 +559,35 @@ func (t BeatItemTags) TagSet() map[string]struct{} {
 	return set
 }
 
-// CountBeatMatches returns, per beat keyword (already lowercased), how many
-// rows contain it in their tag set.
+// NormTagSet is TagSet with each tag canonicalized via tagnorm.Normalize, for
+// separator-agnostic beat matching (folds "ai agents" and "ai-agents" onto one
+// key). Kept separate from TagSet so the readable aggregate is unaffected.
+func (t BeatItemTags) NormTagSet() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, raw := range []string{t.Keywords, t.Domains} {
+		for _, tag := range strings.Split(raw, ",") {
+			if tag = tagnorm.Normalize(tag); tag != "" {
+				set[tag] = struct{}{}
+			}
+		}
+	}
+	return set
+}
+
+// CountBeatMatches returns, per beat, how many rows contain it. Both the beat
+// and the item tags are separator-normalized internally, so callers may pass
+// raw or already-normalized beats and hyphen/space variants still match. The
+// result is keyed by the beat string as passed in.
 func CountBeatMatches(rows []BeatItemTags, beats []string) map[string]int64 {
+	norm := make([]string, len(beats))
+	for i, b := range beats {
+		norm[i] = tagnorm.Normalize(b)
+	}
 	counts := make(map[string]int64, len(beats))
 	for _, row := range rows {
-		set := row.TagSet()
-		for _, beat := range beats {
-			if _, ok := set[beat]; ok {
+		set := row.NormTagSet()
+		for i, beat := range beats {
+			if _, ok := set[norm[i]]; ok {
 				counts[beat]++
 			}
 		}
