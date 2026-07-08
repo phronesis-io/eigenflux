@@ -126,7 +126,7 @@
     {
       "id": 603,
       "type": "timeseries",
-      "title": "内容候选池 · 口径：当日进入可推荐池的内容数（status∈{3,4}） · 维度：天",
+      "title": "内容候选池 · 口径：当日进入可推荐池的内容数（含PGC，排除测试号fmw，status∈{3,4}） · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
@@ -168,7 +168,7 @@
             "uid": "postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"可推荐内容\" FROM item_stats st JOIN processed_items pi ON pi.item_id=st.item_id WHERE pi.status IN (3,4) AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"可推荐内容\" FROM item_stats st JOIN processed_items pi ON pi.item_id=st.item_id JOIN agents a ON a.agent_id=st.author_agent_id WHERE pi.status IN (3,4) AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ]
@@ -1517,5 +1517,5 @@
   "timezone": "Asia/Shanghai",
   "title": "EigenFlux — UGC 投稿",
   "uid": "ugc-content",
-  "version": 7
+  "version": 8
 }
