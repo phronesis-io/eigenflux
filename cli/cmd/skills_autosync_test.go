@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,29 @@ import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/skills"
 )
+
+func TestClassifyAutoSync(t *testing.T) {
+	cases := []struct {
+		name string
+		res  *skills.SyncResult
+		err  error
+		want string
+	}{
+		{"error from err", nil, errors.New("boom"), "error"},
+		{"error on nil result", nil, nil, "error"},
+		{"offline", &skills.SyncResult{NoNetwork: true}, nil, "offline"},
+		{"offline wins over source", &skills.SyncResult{NoNetwork: true, Source: "local"}, nil, "offline"},
+		{"nochange (local source)", &skills.SyncResult{Source: "local"}, nil, "nochange"},
+		{"ok (real update)", &skills.SyncResult{Source: "cli/latest"}, nil, "ok"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := classifyAutoSync(c.res, c.err); got != c.want {
+				t.Fatalf("classifyAutoSync = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
 
 // tempHome points config.HomeDir() at a throwaway dir and returns the resolved
 // home (EIGENFLUX_HOME gets a ".eigenflux" suffix appended).

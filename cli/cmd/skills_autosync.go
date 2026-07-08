@@ -17,20 +17,27 @@ const (
 	skillSyncIntervalKey = "skill_sync_interval_hours"
 
 	defaultSkillSyncTTL = 24 * time.Hour
-	// autoSkillSyncTimeout bounds the one-per-TTL blocking sync so a slow CDN
-	// can never stall the heartbeat for long. `--if-stale` means the common
-	// case is a single small manifest GET; only a real revision change downloads
-	// the (tiny) skills tarball.
-	autoSkillSyncTimeout = 10 * time.Second
+	// maxSkillSyncHours clamps a user- or backend-supplied interval to [1h, 1y].
+	// The clamp is applied to the raw hour count BEFORE multiplying by
+	// time.Hour, so an absurd value (e.g. pushed by a compromised backend) can
+	// never overflow time.Duration into a negative TTL — which would flip the
+	// throttle gate permanently open and hammer the CDN every heartbeat.
+	minSkillSyncHours = 1
+	maxSkillSyncHours = 365 * 24
+	// autoSkillSyncTimeout bounds a SINGLE CDN request. A due heartbeat does a
+	// few small GETs (manifest, then a tiny tarball only on a real change), so
+	// worst-case blocking is a small multiple of this — not a hard per-sync cap.
+	autoSkillSyncTimeout = 5 * time.Second
 )
 
 // maybeSyncSkills is a best-effort, throttled background skill refresh meant to
-// hang off the feed-poll heartbeat. It NEVER returns an error and blocks for at
-// most autoSkillSyncTimeout, and only once per TTL (default 24h) — the rest of
-// the heartbeats just read a small local state file and return. It writes to
-// the host's autodetected skill-load dir (terminal => ~/.agents/skills);
-// plugin hosts that load their own bundle are refreshed by the plugin's own
-// periodic sync, not this hook.
+// hang off the feed-poll heartbeat. It NEVER returns an error and does real work
+// at most once per TTL (default 24h) — the rest of the heartbeats just read a
+// small local state file and return. When it does run, network is bounded per
+// request (autoSkillSyncTimeout); the disk swap is not, so on the ~once/day
+// update it can block a few seconds. It writes to the host's autodetected
+// skill-load dir (terminal => ~/.agents/skills); plugin hosts that load their
+// own bundle are refreshed by the plugin's own periodic sync, not this hook.
 func maybeSyncSkills(cfg *config.Config) {
 	if cfg == nil || cfg.GetKV(autoSkillSyncKey) == "false" {
 		return
@@ -38,7 +45,9 @@ func maybeSyncSkills(cfg *config.Config) {
 
 	ttl := defaultSkillSyncTTL
 	if v := cfg.GetKV(skillSyncIntervalKey); v != "" {
-		if h, err := strconv.Atoi(v); err == nil && h > 0 {
+		// Clamp the hour count before multiplying (overflow-safe); out-of-range
+		// or non-numeric falls back to the default TTL.
+		if h, err := strconv.Atoi(v); err == nil && h >= minSkillSyncHours && h <= maxSkillSyncHours {
 			ttl = time.Duration(h) * time.Hour
 		}
 	}
