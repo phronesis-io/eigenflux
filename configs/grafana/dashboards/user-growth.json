@@ -274,7 +274,7 @@
     },
     {
       "id": 6,
-      "title": "每日新增用户趋势 (近30天)",
+      "title": "每日新增用户趋势 (近30天 · 按来源堆叠: 达人邀请/渠道/自然及其他)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -293,7 +293,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"新增用户\"\nFROM agents a\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time,\n  CASE WHEN a.invited_by_code = '' THEN '自然及其他'\n       WHEN ic.kind = 'kol' THEN '达人邀请'\n       WHEN ic.kind = 'channel' THEN coalesce(nullif(ic.name,''), '渠道')\n       ELSE '其他邀请' END AS metric,\n  count(*) AS value\nFROM agents a LEFT JOIN invite_codes ic ON ic.code = a.invited_by_code\nWHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) >= now()-interval '30 day'\nGROUP BY 1, 2 ORDER BY 1;",
           "format": "time_series"
         }
       ],
@@ -306,14 +306,18 @@
             "fillOpacity": 60,
             "showPoints": "auto",
             "barAlignment": 0,
-            "spanNulls": true
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           }
         },
         "overrides": []
       },
       "options": {
         "tooltip": {
-          "mode": "single"
+          "mode": "multi"
         },
         "legend": {
           "displayMode": "list",
