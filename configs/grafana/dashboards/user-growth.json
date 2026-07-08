@@ -1844,7 +1844,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT to_char(to_timestamp(t.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", t.token AS \"ref\", t.invite_code AS \"邀请码\", CASE ic.kind WHEN 'kol' THEN '达人' WHEN 'channel' THEN '渠道' ELSE '·' END AS \"类型\", coalesce(nullif(a.agent_name,''), nullif(ic.name,''), '·') AS \"达人/渠道\", t.channel AS \"渠道桶\", t.referrer AS \"referrer\", CASE WHEN t.fetched_at > 0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN t.status = 'installed' THEN '✓' ELSE '·' END AS \"安装\", t.report_count AS \"上报\" FROM install_tokens t LEFT JOIN invite_codes ic ON ic.code = t.invite_code LEFT JOIN agents a ON a.agent_id = ic.agent_id AND ic.kind = 'kol' WHERE t.invite_code <> '' ORDER BY t.created_at DESC LIMIT 100;",
+          "rawSql": "SELECT to_char(to_timestamp(t.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", t.token AS \"ref\", t.invite_code AS \"邀请码\", CASE ic.kind WHEN 'kol' THEN '用户' WHEN 'channel' THEN '渠道' ELSE '·' END AS \"类型\", coalesce(nullif(a.agent_name,''), nullif(ic.name,''), '·') AS \"用户/渠道\", t.channel AS \"渠道桶\", t.referrer AS \"referrer\", CASE WHEN t.fetched_at > 0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN t.status = 'installed' THEN '✓' ELSE '·' END AS \"安装\", t.report_count AS \"上报\" FROM install_tokens t LEFT JOIN invite_codes ic ON ic.code = t.invite_code LEFT JOIN agents a ON a.agent_id = ic.agent_id AND ic.kind = 'kol' WHERE t.invite_code <> '' ORDER BY t.created_at DESC LIMIT 100;",
           "format": "table"
         }
       ],
