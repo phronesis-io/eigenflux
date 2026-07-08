@@ -106,7 +106,8 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 		t.Fatalf("failed to seed agent_profiles: %v", err)
 	}
 
-	// item1/item2 -> kwA (item2 via uppercase keyword to verify lowering),
+	// item1/item2 -> kwA (item2 via uppercase + space-separated form of the
+	// hyphenated beat, verifying case- and separator-folding via tagnorm),
 	// item3 -> kwB (via domains), item4 -> neither (total_scanned only).
 	itemBase := nano % 1_000_000_000_000
 	item1, item2, item3, item4 := itemBase+1, itemBase+2, itemBase+3, itemBase+4
@@ -116,7 +117,7 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 		domains  string
 	}{
 		{item1, kwA + ",alignment", ""},
-		{item2, "BEATKW-A-" + fmt.Sprintf("%d", nano), ""},
+		{item2, "BEATKW A " + fmt.Sprintf("%d", nano), ""},
 		{item3, "other-topic", kwB},
 		{item4, "cooking", "food"},
 	}
@@ -252,5 +253,69 @@ func TestBeatCoverageSeededCounts(t *testing.T) {
 	// ratio 1/2 = 0.5 -> active (>=0.45, <0.7)
 	if second["tier"] != "active" {
 		t.Fatalf("expected %s tier=active (ratio 0.5), got %v", kwB, second["tier"])
+	}
+}
+
+// Two profile keywords that are separator variants of one another
+// ("zbeat-<n>" and "zbeat <n>") must collapse into a SINGLE beat, keep a
+// readable display name (not the separator-stripped norm), and count a
+// spaced-form item exactly once — regression guard for the dedup-by-norm and
+// display/norm split in GetBeatCoverage.
+func TestBeatCoverageDedupsNormVariants(t *testing.T) {
+	testutil.WaitForAPI(t)
+	nano := time.Now().UnixNano()
+	email := fmt.Sprintf("beat-dedup-%d@test.com", nano%1_000_000)
+	token, agentID, _ := testutil.LoginAndGetToken(t, email)
+
+	hyphen := fmt.Sprintf("zbeat-%d", nano) // -> zbeat<nano>
+	spaced := fmt.Sprintf("zbeat %d", nano) // -> zbeat<nano> (same norm)
+	nowMs := time.Now().UnixMilli()
+	if _, err := testutil.TestDB.Exec(`
+		INSERT INTO agent_profiles (agent_id, status, keywords, updated_at)
+		VALUES ($1, 3, $2, $3)
+		ON CONFLICT (agent_id) DO UPDATE SET keywords = $2, status = 3, updated_at = $3`,
+		agentID, hyphen+","+spaced, nowMs,
+	); err != nil {
+		t.Fatalf("seed agent_profiles: %v", err)
+	}
+
+	itemID := (nano % 1_000_000_000_000) + 7
+	if _, err := testutil.TestDB.Exec(
+		`INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES ($1, $2, 'dedup seed', $3)`,
+		itemID, agentID, nowMs,
+	); err != nil {
+		t.Fatalf("seed raw_items: %v", err)
+	}
+	if _, err := testutil.TestDB.Exec(
+		`INSERT INTO processed_items (item_id, status, keywords, domains, updated_at) VALUES ($1, 3, $2, '', $3)`,
+		itemID, spaced, nowMs,
+	); err != nil {
+		t.Fatalf("seed processed_items: %v", err)
+	}
+	defer func() {
+		testutil.TestDB.Exec(`DELETE FROM processed_items WHERE item_id = $1`, itemID)
+		testutil.TestDB.Exec(`DELETE FROM raw_items WHERE item_id = $1`, itemID)
+	}()
+
+	testutil.GetTestRedis().Del(context.Background(), "cache:beat_signals:7d")
+
+	result := testutil.DoGet(t, "/api/v1/agents/me/beat_coverage?window=7d", token)
+	assertCode(t, result, 0)
+	data := result["data"].(map[string]interface{})
+	beats := data["beats"].([]interface{})
+	if len(beats) != 1 {
+		t.Fatalf("expected the 2 variant keywords to collapse into 1 beat, got %d: %v", len(beats), beats)
+	}
+	b := beats[0].(map[string]interface{})
+	// Display name keeps a readable separator, not the stripped norm; key mirrors it.
+	if b["name"] != hyphen {
+		t.Fatalf("expected readable display name %q, got %v", hyphen, b["name"])
+	}
+	if b["key"] != b["name"] {
+		t.Fatalf("expected key==name (both readable), got key=%v name=%v", b["key"], b["name"])
+	}
+	// The spaced-form item counted exactly once for the collapsed beat.
+	if got := int64(b["signals"].(float64)); got != 1 {
+		t.Fatalf("expected signals=1 (item counted once), got %d", got)
 	}
 }

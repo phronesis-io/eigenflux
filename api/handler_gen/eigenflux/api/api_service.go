@@ -40,6 +40,7 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/stats"
+	"eigenflux_server/pkg/tagnorm"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
 
@@ -2786,18 +2787,24 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Beat names are the agent's profile keywords, lowercased and deduplicated.
-	beatNames := make([]string, 0, len(resp.Agent.Keywords))
+	// Beat names are the agent's profile keywords. We keep the lowercased form
+	// for display but match on the separator-normalized form, so a hyphenated
+	// beat ("ai-agents") lines up with the item tagger's spaced form
+	// ("ai agents"). Dedup by the normalized key so convention-variant
+	// duplicates collapse into one beat.
+	type beatName struct{ display, norm string }
+	beatList := make([]beatName, 0, len(resp.Agent.Keywords))
 	seen := make(map[string]bool, len(resp.Agent.Keywords))
 	for _, kw := range resp.Agent.Keywords {
-		kw = strings.TrimSpace(strings.ToLower(kw))
-		if kw == "" || seen[kw] {
+		display := strings.TrimSpace(strings.ToLower(kw))
+		norm := tagnorm.Normalize(kw)
+		if norm == "" || seen[norm] {
 			continue
 		}
-		seen[kw] = true
-		beatNames = append(beatNames, kw)
+		seen[norm] = true
+		beatList = append(beatList, beatName{display: display, norm: norm})
 	}
-	if len(beatNames) == 0 {
+	if len(beatList) == 0 {
 		writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 			"window":        window,
 			"total_scanned": 0,
@@ -2821,26 +2828,41 @@ func GetBeatCoverage(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	pushed := consoledal.CountBeatMatches(deliveredRows, beatNames)
-	kept := consoledal.CountBeatMatches(keptRows, beatNames)
+	// CountBeatMatches normalizes internally; pass the normalized beat as the
+	// map key so lookups below are unambiguous.
+	normNames := make([]string, len(beatList))
+	for i, b := range beatList {
+		normNames[i] = b.norm
+	}
+	pushed := consoledal.CountBeatMatches(deliveredRows, normNames)
+	kept := consoledal.CountBeatMatches(keptRows, normNames)
+
+	// signalAgg.Counts is keyed by the readable tag (it also feeds trending DMs).
+	// Fold it onto normalized keys so a beat matches every separator variant.
+	normSignals := make(map[string]int64, len(signalAgg.Counts))
+	for tag, n := range signalAgg.Counts {
+		normSignals[tagnorm.Normalize(tag)] += n
+	}
 
 	var maxSignals int64
-	for _, name := range beatNames {
-		if s := signalAgg.Counts[name]; s > maxSignals {
+	for _, b := range beatList {
+		if s := normSignals[b.norm]; s > maxSignals {
 			maxSignals = s
 		}
 	}
 
-	beats := make([]map[string]interface{}, 0, len(beatNames))
-	for _, name := range beatNames {
-		signals := signalAgg.Counts[name]
+	beats := make([]map[string]interface{}, 0, len(beatList))
+	for _, b := range beatList {
+		signals := normSignals[b.norm]
 		beats = append(beats, map[string]interface{}{
-			"key":     name,
-			"name":    name,
+			// key/name stay human-readable (the profile keyword); b.norm is an
+			// internal match key and is deliberately not exposed.
+			"key":     b.display,
+			"name":    b.display,
 			"tier":    beatTier(signals, maxSignals),
 			"signals": signals,
-			"pushed":  pushed[name],
-			"kept":    kept[name],
+			"pushed":  pushed[b.norm],
+			"kept":    kept[b.norm],
 		})
 	}
 	sort.SliceStable(beats, func(i, j int) bool {
