@@ -4,6 +4,9 @@
 
 ## 北极星指标
 
+**北极星 = 信号价值**（2026-06-29 重定义）：广播的是否是对接收方有价值的信号（面板 54 信号率），
+覆盖 / 准确 / 速度是三条护栏。以下为速度轴与对决口径的指标定义：
+
 **事件延迟** = 从事件实际发生到我们首次抓取的时间（模型从文章内容提取事件时间 T_event，
 用 indexed_at 作为抓取时间）。
 
@@ -21,8 +24,8 @@
 
 这块 Grafana 看板（uid: `pgc-pipeline`）回答 **四个问题**：
 
-1. **事件延迟多少** — 中位数、胜率、赢输对比、数据年龄
-2. **现在要看哪里** — action count、首发关注、active latency、canary、source SLA、Twitter runway、风险趋势、source drilldown
+1. **北极星与护栏怎么样** — 信号率、覆盖 / 准确 / 速度、赢输对比、数据年龄
+2. **现在要看哪里** — 待处理故障、观察清单、首发关注、活跃延迟、额度余量、风险趋势、来源明细
 3. **趋势怎样** — 延迟和胜率时序线
 4. **系统还活着吗** — 24h 发布量、队列积压、日志（底部运维保底）
 
@@ -50,48 +53,49 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
   `pgc_event_shadow_llm_win_claims`、`pgc_event_gate_won_llm_rejected`、
   `pgc_event_gate_missed_llm_won`（暂未上面板，按"看了会做什么"原则先不加）。
 
-## 面板结构（2026-07-03 版本）
+## 面板结构（2026-07-08 版本）
 
-内容面板 26 个（另有 3 个 row 分隔 + 1 个 text 头部说明）。
+内容面板 29 个（另有 3 个 row 分隔 + 1 个 text 头部说明）。
 
-### Row 🎯 北极星 — 价值(信号) ▸ 护栏: 覆盖·准确·速度
+### Row 北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）
 | 面板 (id) | Prometheus 指标 | 操作含义 |
 |------|----------------|---------|
-| 信号率·价值顶层 (54) | signal quality | 北极星顶层 — 广播里真信号占比 |
+| 信号率（北极星）(54) | signal quality | 北极星顶层 — 广播里真信号占比 |
 | 错分类率 (56) | misclassification | 域填错% — 高了修分类 |
 | 护栏·捕获召回 (50) | coverage recall | 管线是否漏抓大事件 |
-| 护栏·忠实率 (52) | faithfulness | 广播是否忠于原文 |
-| 护栏·首源入库·速度 (51) | event latency | 事件发生→入库多快 |
+| 护栏 · 忠实率 (52) | faithfulness | 广播是否忠于原文 |
+| 护栏 · 首源入库速度 (51) | event latency | 事件发生→入库多快 |
 | 护栏 · 低可信来源占比 (58) | broadcast reliability | 低可信源广播占比 |
-| 真实对决·模型验证 (5) | `pgc_event_meaningful_races` | 评测分母，太小=无统计意义 |
+| 有效对决数 (5) | `pgc_event_meaningful_races` | 评测分母，太小=无统计意义 |
 | 赢/输 (19) | `pgc_event_real_wins/losses` | 绝对数 |
 | 判定数据年龄 (7) | `pgc_event_verdicts_age_seconds` | 超 2h = timer 卡了 |
-| 诊断·门丢弃质量 (60) | discard quality | 软信号：门是否错杀真事件 |
-| 首发走势 (9) | latency/胜率/抢先率/旧判断器准确率 | 趋势；**7/2 有口径断点标注** |
-| 各域丢弃占比 (53) | discard by domain | 哪个域被门丢得多 |
+| 诊断 · 丢弃质量 (60) | 错丢率（基准分层 / 全池）| 软信号：门是否错杀真事件，两线同升才是闸门问题 |
+| 首发走势 — 抢先率与延迟 (9) | latency / 胜率 / 抢先率 | 趋势；**7/2 有口径断点标注** |
+| 各领域丢弃占比 (53) | discard by domain | 哪个域被门丢得多 |
 
-### Row 🔧 运维 — 系统健康
+### Row 运维 — 系统健康
 | 面板 (id) | 指标 | 操作含义 |
 |------|------|---------|
 | 近 24h 发布数 (21) | published 24h | 为 0 = 管道挂了 |
 | 队列积压 (22) | queue depth | 持续增长 = 某阶段卡住 |
 | 后台任务最大空闲 (23) | worker idle | 超时 = worker 可能死了 |
 | Twitter 额度余量 (36) | credits runway | 付费额度预警 |
-| NewsAPI 月度用量·按 key (39) / ScraperAPI 用量 (40) | api usage | 付费额度预警。NewsAPI 按 key 分开显示(`pgc_newsapi_key_tokens_pct`,1号=主):合计口径会把单把用光的 key 平均掉(7/4 主 key 烧干时合计仍 ~40% 绿) |
+| NewsAPI 月度用量 · 按密钥 (39) / ScraperAPI 月度用量 (40) | api usage | 付费额度预警。NewsAPI 按密钥分开显示(`pgc_newsapi_key_tokens_pct`,1号=主):合计口径会把单把用光的密钥平均掉(7/4 主密钥烧干时合计仍 ~40% 绿) |
 | NewsAPI 今日用量 · 按主题组 (64) | `pgc_newsapi_daily_tokens` / `pgc_newsapi_daily_token_cap` | 日上限执行情况(2026-07-07 起代码强制,八组上限总和=146=月配额日均线)。顶到 100% 走平=设计行为;要行动的形态只有"某组连续多天 100%"(上限长期压量,该调上限或收窄范围) |
 | 发布量趋势 (24) | published/h | 吞吐节奏(与 64 并排,w12) |
-| Pipeline 日志 (25) | Loki | 排障 |
+| 管线日志 (25) | Loki | 排障 |
 
-### Row 🏁 首发榜单 — 对外口径 · 诊断
+### Row 首发 — 状态与对外口径
 | 面板 (id) | 指标 | 操作含义 |
 |------|------|---------|
-| 当前行动总数 (17) | owner action components | 现在需要 Pascal 处理的事项总数 |
+| 待处理故障 (17) | canaries_failed + critical_fire + 我方管线延迟 | 我方侧故障合计，恒 0，非 0 立即排查（红）；7/6 语义拆分后不含上游观察项 |
 | 首发关注 (32) | `pgc_first_source_audit_attention` | 红了→去日报看清单加源/修源 |
 | 活跃高优先延迟 (33) | active T0/T1 source latency | 现在还有哪些高优先信号慢 |
 | 关键源探活失败数 (34) | canaries failed | 关键源健康 |
-| 信源 SLA (61) | `pgc_source_health_sla_attention` | 源级 poll/index/publish SLA 是否破线 |
+| 抢先率（对外口径）(63) | `pgc_first_source_win_rate` | **全板唯一对外可引用数字**，受保护条款约束（见 2026-07-06 节），删除即事故 |
+| 观察清单 (61) | critical_watch + audit_attention + sla_attention 之和 | 不紧急观察项，允许有水位（黄 15 / 红 30），每周过一遍 |
 | 风险趋势 (37) | owner action components | 待处理事项是好转还是恶化 |
-| 活跃延迟源明细 (62) | active source latency drilldown | 直接定位 source_latency/source_feed_lag 源 |
+| 活跃延迟源明细 (62) | 迟到来源明细（已去重转译）| 定位迟到来源：我方管线慢 → 查抓取解析；上游晚发 → 评估换快渠道 |
 
 ## 演变记录
 
@@ -109,11 +113,13 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 | 2026-06-23 | 加 owner cockpit，删除低优先级延迟分布和旧坏源面板 | **25** |
 | 2026-06-29 | 迁移至价值(信号)为顶 + 覆盖/准确/速度护栏 (北极星重定义) | ~30 |
 | 2026-06-30 | 清理：删 8 个空的双语 row(总览/Owner Cockpit 等历史遗留空壳); 修护栏区两处面板重叠(51/58、7/60 共占 x16); 各域召回→各域丢弃占比(召回排除丢弃后恒≈100%, 无信号); 两个 Deep Dive row 改名区分(诊断·对标 / 工程诊断·信号延迟) | **44** (含 4 row+text) |
-| 2026-07-01 | Pascal 反馈"看不懂"驱动的黑话清理。砍：噪声泄漏(按类型)、哪些类别需要马上处理/当前哪些信源正在拖慢(与"现在先处理哪些信源"同源数据切3刀)、这些超时是事故还是回补噪音(原始kind枚举表)、源SLA关注(与🔬row重复)；整个🔬工程诊断row全砍(7面板，清一色原始Prometheus多列标签表，改名也救不了)；信源可信度构成(按标签占比)；各源延迟明细(同款原始标签表)。剩余面板去黑话：`Source SLA 是否破线`→信源更新是否及时、`哪些源违反 SLA`→哪些信源更新慢了、`Canary 失败`→关键源探活失败数、`Twitter runway`→Twitter 还能撑几天，相关英文 description 一并译成中文 | **30** |
+| 2026-07-01 | Pascal 反馈"看不懂"驱动的黑话清理。砍：噪声泄漏(按类型)、哪些类别需要马上处理/当前哪些信源正在拖慢(与"现在先处理哪些信源"同源数据切3刀)、这些超时是事故还是回补噪音(原始kind枚举表)、源SLA关注(与🔬row重复)；整个🔬工程诊断row全砍(7面板，清一色原始Prometheus多列标签表，改名也救不了)；信源可信度构成(按标签占比)；各源延迟明细(同款原始标签表)。剩余面板去黑话：`Source SLA 是否破线`→信源更新是否及时、`哪些源违反 SLA`→哪些信源更新慢了、`Canary 失败`→关键源现在挂了吗、`Twitter runway`→Twitter 还能撑几天，相关英文 description 一并译成中文 | **30** |
 
 | 2026-07-02 `#58/#59` | 榜单口径切换(大模型确认制 metric v2)配套文案：面板9断点标注+win_precision图例改'旧判断器准确率'；面板17讲清与榜单胜率差7倍原因(覆盖vs速度)；面板32改行动指引+审计端去噪(pgc#18) | 30 |
 | 2026-07-03 `#60`+本次 | 体检发现榜单胜率(对外口径v2)全板无处展示→加面板61(诊断区空位)；row30标题'已降级'→'对外口径·诊断'；**砍面板57旧判断器准确率**(其说明自述'低了不用管'，不过'看了会做什么'测试；数据仍在Prometheus/Loki) | **30**(26内容+4结构) |
 | 2026-07-05 | owner cockpit 日检发现缺少显式“当前行动总数”和“信源 SLA”stat；按净增为零原则，将面板17/61替换为这两个行动面板，趋势和明细仍保留在37/62。同步更新本地 dashboard validator，防止继续按旧 76 面板时代的 section/panel id 误报。 | **30**(26内容+4结构) |
+| 2026-07-06~07 `#62~#67` | 全板评审落地 + 行动语义拆分(17/61) + NewsAPI 日耗面板(64) + 判定年龄第二值(7) + 发布量基线(24) | **33**(29内容+4结构) |
+| 2026-07-08 `#69` | 合并 #67/#68 + 全板措辞统一 + 对抗评审 25 项修正（阈值按 7 天实测重校、面板 62 去重转译、单位/图例/虚线落实、validator 结构闸） | **33**(29内容+4结构) |
 
 **教训**：76 面板之所以出现，是因为每次有新指标就加面板，没人问"看了会做什么"。
 回退之所以发生，是因为另一个 session 看到"面板少了"就以为是 bug。
@@ -123,8 +129,8 @@ eigenflux-pgc `docs/plans/2026-07-01-llm-verdict-authority.md`。
 
 1. 先读完本文档的设计原则。
 2. 新面板必须回答"看了之后我会做什么动作"。
-3. 内容面板以 25 为目标上限（2026-07-03 现状 26，历史欠账）：**净增为零，要加必须同 PR 先砍一个**，有机会就向 25 收敛。
-4. 改完跑 `python3 -c "import json; json.load(open('pgc-pipeline.json'))"` 验证 JSON。
+3. 内容面板以 25 为目标上限（2026-07-08 现状 29，历史欠账）：**净增为零，要加必须同 PR 先砍一个**，有机会就向 25 收敛。validator 会在超过现状时报错。
+4. 改完在仓库根目录跑 `python3 scripts/local/validate_pgc_grafana_dashboard.py`（结构闸：重复 id / gridPos 重叠 / 面板预算 / 黑话 / 关键面板锚定）。上线前可选加 `--ssh-host aliapmo --prometheus-url http://localhost:9091` 对 prod 逐条验查询（两个参数必须同时给）。
 5. 推到 main 后，SSH 到 aliapmo 执行 `cd /data/git/eigenflux && git pull && docker compose -f docker-compose.monitor.yml restart grafana`。
 6. 更新本文档的面板结构表和演变记录。
 
@@ -141,7 +147,8 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 
 以下旧 leaderboard 指标不再有 dashboard 面板消费，但 Gauge 定义仍在 `metrics.py` 中（避免 scrape error）：
 - `pgc_first_source_confident_win_rate` — 旧北极星
-- `pgc_first_source_win_rate` / `pgc_first_source_win_rate_by_domain`
+- `pgc_first_source_win_rate_by_domain`
+- ~~`pgc_first_source_win_rate`~~ — **2026-07-03 起由面板 63 抢先率（对外口径）重新消费**，受保护条款约束（见 2026-07-06 节），勿按本节处理
 - `pgc_first_source_losses_by_reason`
 - `pgc_first_source_no_first_party`
 - `pgc_first_source_leaderboard_age_seconds`
@@ -169,7 +176,7 @@ Datasource uid `pgc-prometheus` 指向 `pgc-prometheus` Docker 容器（端口 9
 日检发现 7/6 收窄后，`活跃高优先延迟` 只看 `source_latency`，会把 `source_feed_lag`
 这类同样 actionable 的 T0/T1 慢源从首屏 stat 和风险趋势中藏掉。修正：面板 33 和风险
 趋势里的“高优先级延迟”序列恢复为 `source_latency|source_feed_lag`；面板 17
-`待处理故障` 仍只看我方契约侧故障，避免把上游潮汐误报为生产事故。
+`需要动手吗(火情)` 仍只看我方契约侧故障，避免把上游潮汐误报为生产事故。
 
 ## 2026-07-06 口径修正：行动类面板只数"我们的错"
 
@@ -182,10 +189,10 @@ kind="source_latency"（我们的错，平时=0，非0即查）**；上游 feed 
 
 ## 2026-07-06 全板评审落地（Pascal: "整个面板还有啥要改进的"）
 
-- **面板 63 抢先率（对外口径） 第二次恢复**——7/3 补过一次(当时叫61)，后被改成信源SLA
+- **面板 63 榜单胜率(对外口径) 第二次恢复**——7/3 补过一次(当时叫61)，后被改成信源SLA
   又homeless。**保护条款：这是全板唯一对外可引用数字，改板前先搜 pgc_first_source_win_rate
   确认有家，删它=事故。**
-- 行动语义拆分：17=待处理故障(火情, canary+critical_fire+我方延迟, 恒0)、61=观察清单
+- 行动语义拆分：17=需要动手吗(火情, canary+critical_fire+我方延迟, 恒0)、61=观察清单
   (critical_watch+首发关注+SLA, 允许有水位)。背景：旧"行动总数"把3个安静博客算成
   "7个要行动"吓到 Pascal。风险趋势(37)同步双线。
 - 发布量趋势(24)加"上周同时刻"offset 7d 基线——"是不是发少了"直接看图。
@@ -208,9 +215,33 @@ Pascal 问"活跃高优先延迟=46 对吗"——46 是 index/push 两个测量 
 ## 2026-07-07 全板措辞与风格统一（Pascal: plain professional clean clear）
 
 - 三个 row 标题去 emoji；聊天式提问标题一律改为简洁名词短语（"需要动手吗(火情)"→"待处理故障"、
-  "关键源现在挂了吗"→"关键源探活失败数"、"NewsAPI 今天各组用了多少"→"NewsAPI 今日用量 · 按主题组"）。
+  "关键源现在挂了吗"→"关键源探活失败数"、"NewsAPI 今天各组用了多少"→"NewsAPI 今日用量 · 按主题组"、
+  "榜单胜率(对外口径)"→"抢先率（对外口径）"）。图例同步："火情合计(应为0)"→"待处理故障（应为 0）"、
+  "高优先级延迟"→"高优先延迟"。
 - 描述统一为三段式：测什么 / 什么算正常 / 什么时候要行动。删除描述里的内部变更史
   （"替换了原先误导的…""7/6又被误删…"），这类记录只留在本文档。人名不进面板。
 - 面板 63 的防删说明保留一句（对外口径唯一，删除即事故），其余历史细节在本文档。
 - 本节以前小节里出现的旧面板名是历史记录，以当前 JSON 为准。validator
   （scripts/local/validate_pgc_grafana_dashboard.py）的 row 名单已同步。
+
+
+## 2026-07-08 对抗评审轮（合并 PR #69 前，4 维 32 agent）
+
+Pascal 批准前的全板对抗评审（PromQL 逐条实测 / JSON 完整性 / 措辞新眼 / 文档与部署），
+25 项确认全部修正。要点：
+
+- **阈值与文字必须同一句话**：17 恒0语义→非0即红；33 是潮汐观察量，按 7 天实测
+  （中位 29 / p90 171 / 峰 520）重校为黄 150 / 红 400 且只染数值不染底；61 观察清单
+  实测最高 13→黄 15 / 红 30 只染数值。教训：改描述时没人对照 thresholds，从此
+  "描述说正常的水位不许把面板染红"。
+- **面板 62 表格转译**：原始 topk(12) 双 stage 混排加不出任何面板上的数——改为
+  按条目去重（max by source,kind）+ 列名/枚举全转中文（我方管线慢 / 上游晚发），
+  与 33 同口径可对账。
+- **面板 64 诚实化**：cap 执行有 +1 越顶（上限越小越明显，E/F/G 实测 111–120%），
+  max 100→125、描述写清越顶属正常；管线侧 off-by-one 另开 eigenflux-pgc PR 修。
+- 落实虚线基线(24)、二判计数单位(7)、percent 单位(53)、看板级 description 北极星、
+  37/60 图例、p90→"最慢的一成条目"、key→密钥。
+- validator 新增结构闸：重复 id / gridPos 重叠 / 面板预算(>29 报错) / 黑话扫描
+  (critical|SLA|canary|p9x|kind=，标题与图例)；清空 76 面板时代的空豁免 id。
+- 本文档：历史小节恢复当时的旧面板名（历史记录不改写），速查表全面同步 JSON，
+  已退役指标表为 pgc_first_source_win_rate 加"已被 63 重新消费"标注。

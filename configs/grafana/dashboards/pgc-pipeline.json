@@ -387,7 +387,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "一手源发布到入库的中位分钟数，越低越好。慢尾（p90）多为期刊类回填日期或上游 RSS 缓慢，属换源待办，不代表管线故障。"
+      "description": "一手源发布到入库的中位分钟数，越低越好。最慢的一成条目多为期刊类回填日期或上游 RSS 缓慢，属换源待办，不代表管线故障。"
     },
     {
       "id": 58,
@@ -666,7 +666,40 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "二判不可用(上轮)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -702,7 +735,7 @@
         {
           "expr": "pgc_discard_false_loss_rate",
           "refId": "A",
-          "legendFormat": "错丢真损%",
+          "legendFormat": "错丢率（基准分层）",
           "datasource": {
             "type": "prometheus",
             "uid": "pgc-prometheus"
@@ -714,7 +747,7 @@
             "uid": "pgc-prometheus"
           },
           "expr": "pgc_discard_false_loss_rate_full_pool",
-          "legendFormat": "全部丢弃(全池)",
+          "legendFormat": "错丢率（全池）",
           "refId": "B"
         }
       ],
@@ -759,7 +792,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "抽审被丢弃条目中可能为真实事件的占比。『基准媒体分层』为最严苛视角，受当日样本成分影响会出现尖峰；『全池』反映闸门整体水平（健康位约 7%）。两条同时升高才说明闸门有问题，只有分层线波动时先看当日样本成分。"
+      "description": "抽审被丢弃条目中可能为真实事件的占比。「错丢率（基准分层）」为最严苛视角，受当日样本成分影响会出现尖峰；「错丢率（全池）」反映闸门整体水平（健康位约 7%）。两条同时升高才说明闸门有问题，只有分层线波动时先看当日样本成分。"
     },
     {
       "id": 9,
@@ -838,7 +871,7 @@
           "mode": "multi"
         }
       },
-      "description": "事件延迟（越低越好）与真实胜率走势，模型约每 30 分钟重算。2026-07-02 起改为模型确认口径，抢先率跨该日不可比。"
+      "description": "事件延迟（越低越好）与真实胜率走势，模型约每 30 分钟重算。2026-07-02 起改为模型确认口径，抢先率跨该日不可比。「结构延迟」只统计官方刊物类事件（上游本身按天出数）；「可追延迟」是全部事件的中位延迟，是我们能努力压低的主口径。"
     },
     {
       "id": 53,
@@ -868,7 +901,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "percent",
           "custom": {
             "fillOpacity": 80,
             "lineWidth": 1
@@ -893,7 +926,7 @@
           "values": true
         }
       },
-      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（法律、政策通常偏高），结合『诊断 · 丢弃质量』判断其中有多少误杀。"
+      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（政策域通常偏高），结合「诊断 · 丢弃质量」判断其中有多少误杀。"
     },
     {
       "id": 20,
@@ -1184,8 +1217,8 @@
     {
       "id": 39,
       "type": "stat",
-      "title": "NewsAPI 月度用量 · 按 key",
-      "description": "每个 NewsAPI key 本月已用比例（1 号为主 key）。任何一个用尽都会单独变红。",
+      "title": "NewsAPI 月度用量 · 按密钥",
+      "description": "每个 NewsAPI 密钥本月已用比例（1 号为主密钥）。任何一个用尽都会单独变红。",
       "gridPos": {
         "x": 16,
         "y": 26,
@@ -1204,7 +1237,7 @@
             "uid": "pgc-prometheus"
           },
           "expr": "pgc_newsapi_key_tokens_pct",
-          "legendFormat": "{{key}}号key",
+          "legendFormat": "{{key}} 号密钥",
           "instant": true
         }
       ],
@@ -1324,7 +1357,7 @@
       "id": 64,
       "type": "bargauge",
       "title": "NewsAPI 今日用量 · 按主题组",
-      "description": "各主题组今日 NewsAPI 用量占其每日硬上限的比例。到达上限当天停抓、次日自动补齐积压，因此顶到 100% 走平属设计行为。唯一需要行动的形态：某组连续多天 100%，说明上限长期压量，应上调上限或收窄该组抓取范围。组别：A 央行与公司事件、B 科技巨头、C 亚太地缘、C2 全球地缘与军事、D 能源宏观、E 医药、F 创投并购、G 网络安全。八组上限之和等于月度配额的日均线。",
+      "description": "各主题组今日 NewsAPI 用量占其每日上限的比例。到达上限当天停抓：最后一次抓取可能略微跨过上限（上限越小的组超得越明显，按当前配置最多约 +20%），属正常，次日自动补齐积压。唯一需要行动的形态：某组连续多天 ≥100%，说明上限长期压量，应上调上限或收窄该组抓取范围。组别：A 央行与公司事件、B 科技巨头、C 亚太地缘、C2 全球地缘与军事、D 能源宏观、E 医药、F 创投并购、G 网络安全。八组上限之和等于月度配额的日均线。",
       "gridPos": {
         "x": 0,
         "y": 31,
@@ -1347,7 +1380,7 @@
         "defaults": {
           "unit": "percent",
           "min": 0,
-          "max": 100,
+          "max": 125,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1439,7 +1472,34 @@
             "mode": "palette-classic"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "上周同时刻(基线,条/小时)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -1491,7 +1551,7 @@
     {
       "id": 30,
       "type": "row",
-      "title": "首发 — 对外口径 · 状态",
+      "title": "首发 — 状态与对外口径",
       "gridPos": {
         "x": 0,
         "y": 46,
@@ -1540,12 +1600,8 @@
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 1
-              },
-              {
                 "color": "red",
-                "value": 5
+                "value": 1
               }
             ]
           }
@@ -1640,7 +1696,7 @@
       "id": 33,
       "type": "stat",
       "title": "活跃高优先延迟",
-      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（source_latency，应为 0）与上游发布晚到（source_feed_lag，需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。具体来源见下方明细表。",
+      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「待处理故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
       "gridPos": {
         "x": 8,
         "y": 47,
@@ -1678,11 +1734,11 @@
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 150
               },
               {
                 "color": "red",
-                "value": 5
+                "value": 400
               }
             ]
           }
@@ -1699,7 +1755,7 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
       }
@@ -1708,7 +1764,7 @@
       "id": 34,
       "type": "stat",
       "title": "关键源探活失败数",
-      "description": "必须保活的关键信源当前探活失败的数量。",
+      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「待处理故障」。",
       "gridPos": {
         "x": 12,
         "y": 47,
@@ -1830,7 +1886,7 @@
           "expr": "pgc_source_health_canaries_failed",
           "instant": false,
           "range": true,
-          "legendFormat": "关键源挂了"
+          "legendFormat": "关键源探活失败"
         },
         {
           "refId": "E",
@@ -1841,7 +1897,7 @@
           "expr": "pgc_source_health_critical_fire",
           "instant": false,
           "range": true,
-          "legendFormat": "critical源故障(火情)"
+          "legendFormat": "关键信源故障"
         },
         {
           "refId": "F",
@@ -1890,7 +1946,7 @@
       "id": 62,
       "type": "table",
       "title": "活跃延迟源明细",
-      "description": "近 3 小时高优先延迟条目按来源明细。source_latency 优先查抓取与适配器；source_feed_lag 优先评估更快的一手渠道。",
+      "description": "近 3 小时高优先迟到条目按来源明细，与上方「活跃高优先延迟」同口径（同一条目只计一次）。「我方管线慢」的行优先查抓取与解析；「上游晚发」的行优先评估更快的一手渠道。最多显示前 50 行。",
       "gridPos": {
         "x": 0,
         "y": 59,
@@ -1908,9 +1964,8 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "topk(12, pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})",
-          "instant": true,
-          "legendFormat": "{{source}} · {{stage}} · {{kind}}"
+          "expr": "topk(50, max by (source, kind, source_tier) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}))",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -1922,7 +1977,22 @@
               "type": "auto"
             },
             "inspect": false
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "source_latency": {
+                  "text": "我方管线慢",
+                  "index": 0
+                },
+                "source_feed_lag": {
+                  "text": "上游晚发",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -1937,7 +2007,29 @@
           "countRows": false,
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "source": "来源",
+              "kind": "原因",
+              "source_tier": "优先级",
+              "Value": "迟到条目数"
+            },
+            "indexByName": {
+              "source": 0,
+              "kind": 1,
+              "source_tier": 2,
+              "Value": 3
+            }
+          }
+        }
+      ]
     },
     {
       "id": 61,
@@ -1980,11 +2072,11 @@
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 15
               },
               {
                 "color": "red",
-                "value": 5
+                "value": 30
               }
             ]
           }
@@ -2001,7 +2093,7 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
       },
@@ -2038,6 +2130,6 @@
       "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
     }
   ],
-  "description": "北极星：事件延迟中位数 — 从事件发生到我们抓到，中间隔了多久。模型验证每对文章的真实关系。",
+  "description": "北极星：信号价值为顶层，覆盖 / 准确 / 速度为护栏。详见板首说明。",
   "version": 1
 }
