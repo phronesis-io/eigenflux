@@ -63,8 +63,8 @@ func TestIsInternalEmail(t *testing.T) {
 
 func TestTokenChannel(t *testing.T) {
 	kol := &Code{Kind: KindKOL, Name: ""}
-	if kol.TokenChannel() != "kol" {
-		t.Errorf("KOL code should bucket as kol, got %q", kol.TokenChannel())
+	if kol.TokenChannel() != "user" {
+		t.Errorf("KOL code should bucket as user, got %q", kol.TokenChannel())
 	}
 	ch := &Code{Kind: KindChannel, Name: "redskills"}
 	if ch.TokenChannel() != "redskills" {

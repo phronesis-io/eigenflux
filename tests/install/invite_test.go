@@ -70,8 +70,8 @@ func TestInviteCodeFlow(t *testing.T) {
 		"metadata": map[string]string{"os": "Linux", "via": "install.sh"},
 	}, "")
 	attr := rep["data"].(map[string]interface{})["attribution"].(map[string]interface{})
-	if attr["invite_code"] != code || attr["channel"] != "kol" {
-		t.Fatalf("invite mint should carry invite_code=%s channel=kol, got %v", code, attr)
+	if attr["invite_code"] != code || attr["channel"] != "user" {
+		t.Fatalf("invite mint should carry invite_code=%s channel=user, got %v", code, attr)
 	}
 	if rep["data"].(map[string]interface{})["converted"] != true {
 		t.Fatalf("first report should convert")

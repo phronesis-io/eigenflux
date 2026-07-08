@@ -164,10 +164,11 @@ func EnsureChannel(db *gorm.DB, name, note string) (c *Code, created bool, err e
 
 // TokenChannel resolves the install_tokens.channel bucket an invite-code entry
 // should record when the visit carries no explicit utm_source: the channel's
-// own name, or "kol" for personal codes.
+// own name, or "user" for personal codes (every user owns one — not only KOLs,
+// so the bucket is named after the audience, not the kind constant).
 func (c *Code) TokenChannel() string {
 	if c.Kind == KindChannel && c.Name != "" {
 		return c.Name
 	}
-	return KindKOL
+	return "user"
 }
