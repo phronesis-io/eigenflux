@@ -7,280 +7,47 @@
   "links": [],
   "panels": [
     {
+      "id": 600,
+      "type": "row",
       "collapsed": false,
+      "title": "UGC 指标 / 维度:天(CST) · DAU=当日有活动(agent_activity_log)的真实用户 · 插件用户=agent_settings.mode=plugin · 真实用户已排除 bot/pgc/测试号 · 活动类数据自 2026-06-04 起",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 0
       },
-      "id": 100,
-      "panels": [],
-      "title": "投稿总量 / Volume (真实用户 UGC, 已排除 bot/pgc)",
-      "type": "row"
+      "panels": []
     },
     {
+      "id": 601,
+      "type": "timeseries",
+      "title": "投稿数 · 口径：每日全平台投稿总数（含PGC，仅排除测试号） · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
       },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 0,
         "y": 1
-      },
-      "id": 101,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT count(*) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
-          "refId": "A"
-        }
-      ],
-      "title": "今日投稿总量 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 1
-      },
-      "id": 102,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT count(*) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) >= now()-interval '7 day';",
-          "refId": "A"
-        }
-      ],
-      "title": "近7日投稿总量 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 1
-      },
-      "id": 103,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT count(*) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
-          "refId": "A"
-        }
-      ],
-      "title": "选定时间区间投稿总量 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 1
-      },
-      "id": 104,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT count(*) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com';",
-          "refId": "A"
-        }
-      ],
-      "title": "累计投稿总量 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "lineWidth": 1,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
             "showPoints": "auto",
-            "spanNulls": true
+            "spanNulls": true,
+            "pointSize": 5
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 5
-      },
-      "id": 105,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -297,460 +64,94 @@
             "uid": "postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"投稿总量\" FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"投稿数\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
-      ],
-      "title": "每日投稿总量趋势 (选定时间区间)",
-      "type": "timeseries"
+      ]
     },
     {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 13
-      },
-      "id": 200,
-      "panels": [],
-      "title": "人均投稿 & 比例 / Per-user & Ratio",
-      "type": "row"
-    },
-    {
+      "id": 602,
+      "type": "timeseries",
+      "title": "投稿类型 · 口径：demand/info/alert/supply 各占每日投稿总数比例 · 堆叠折线 · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short",
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 14
-      },
-      "id": 201,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT round(count(*)::numeric / nullif(count(DISTINCT st.author_agent_id),0), 2) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date;",
-          "refId": "A"
-        }
-      ],
-      "title": "今日人均投稿数 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short",
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 14
-      },
-      "id": 202,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT round(count(*)::numeric / nullif(count(DISTINCT st.author_agent_id),0), 2) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) >= now()-interval '7 day';",
-          "refId": "A"
-        }
-      ],
-      "title": "近7日人均投稿数 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short",
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 14
-      },
-      "id": 203,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT round(count(*)::numeric / nullif(count(DISTINCT st.author_agent_id),0), 2) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
-          "refId": "A"
-        }
-      ],
-      "title": "选定时间区间人均投稿数 (广播)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent",
-          "decimals": 1
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 14
-      },
-      "id": 204,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com') / nullif(count(*),0), 1) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE to_timestamp(st.created_at/1000.0) >= now()-interval '7 day' AND a.email <> 'fmw19990718@gmail.com';",
-          "refId": "A"
-        }
-      ],
-      "title": "UGC 占全网广播比例 (近7日)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent",
-          "decimals": 1
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 18
-      },
-      "id": 205,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT round(100.0 * (SELECT count(DISTINCT st.author_agent_id) FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) / nullif((SELECT count(*) FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com'),0), 1) AS v;",
-          "refId": "A"
-        }
-      ],
-      "title": "投稿用户参与率 (选定时间区间)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 22
-      },
-      "id": 206,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT count(DISTINCT st.author_agent_id) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
-          "refId": "A"
-        }
-      ],
-      "title": "选定时间区间投稿用户数 (人)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 1,
-            "showPoints": "auto",
-            "spanNulls": true
-          },
-          "unit": "short"
-        },
-        "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 18,
-        "x": 6,
-        "y": 18
-      },
-      "id": 207,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(count(*)::numeric / nullif(count(DISTINCT st.author_agent_id),0),2) AS \"人均投稿\" FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
-          "refId": "A"
-        }
-      ],
-      "title": "每日人均投稿数趋势 (选定时间区间)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
+        "w": 12,
+        "x": 12,
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 1,
+            "fillOpacity": 30,
+            "lineWidth": 2,
             "showPoints": "auto",
-            "spanNulls": true
+            "spanNulls": true,
+            "pointSize": 5,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
           },
           "unit": "percent"
         },
         "overrides": []
       },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0*count(*) FILTER(WHERE pi.broadcast_type='demand')/nullif(count(*),0),1) AS \"demand\", round(100.0*count(*) FILTER(WHERE pi.broadcast_type='info')/nullif(count(*),0),1) AS \"info\", round(100.0*count(*) FILTER(WHERE pi.broadcast_type='alert')/nullif(count(*),0),1) AS \"alert\", round(100.0*count(*) FILTER(WHERE pi.broadcast_type='supply')/nullif(count(*),0),1) AS \"supply\" FROM item_stats st JOIN processed_items pi ON pi.item_id=st.item_id JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 603,
+      "type": "timeseries",
+      "title": "内容候选池 · 口径：当日进入可推荐池的内容数（status∈{3,4}） · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
-        "y": 26
+        "y": 9
       },
-      "id": 208,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
       "options": {
         "legend": {
           "displayMode": "list",
@@ -767,58 +168,98 @@
             "uid": "postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0 * count(*) FILTER (WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com') / nullif(count(*),0),1) AS \"UGC占比%\" FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() AND a.email <> 'fmw19990718@gmail.com' GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"可推荐内容\" FROM item_stats st JOIN processed_items pi ON pi.item_id=st.item_id WHERE pi.status IN (3,4) AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
-      ],
-      "title": "每日 UGC 占全网广播比例趋势 (选定时间区间)",
-      "type": "timeseries"
+      ]
     },
     {
+      "id": 604,
+      "type": "timeseries",
+      "title": "UGC投稿占比 · 口径：UGC投稿数 / 每日投稿总数 · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent",
-          "decimals": 1
+          "unit": "percent"
         },
         "overrides": []
       },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0*count(*) FILTER(WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com')/nullif(count(*),0),1) AS \"UGC占比\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 605,
+      "type": "timeseries",
+      "title": "插件渗透率 · 口径：插件用户DAU / DAU · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "gridPos": {
-        "h": 4,
-        "w": 8,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 34
+        "y": 17
       },
-      "id": 209,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
         },
-        "textMode": "auto"
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "targets": [
         {
@@ -826,60 +267,49 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "format": "table",
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE st.consumed_count > 0) / nullif(count(*),0), 1) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "time_series",
+          "rawSql": "SELECT d AS time, round(100.0*count(DISTINCT agent_id) FILTER(WHERE is_plugin)/nullif(count(DISTINCT agent_id),0),1) AS \"插件渗透率\" FROM (SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, l.agent_id, (s.mode='plugin') is_plugin FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id LEFT JOIN agent_settings s ON s.agent_id=l.agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) t GROUP BY d ORDER BY d;",
           "refId": "A"
         }
-      ],
-      "title": "真实用户广播触达率 (选定时间区间)",
-      "type": "stat",
-      "description": "口径：真实用户(已排除 bot/pgc)发出的广播中，至少有一次曝光(consumed_count>0)的占比。"
+      ]
     },
     {
+      "id": 606,
+      "type": "timeseries",
+      "title": "投稿率 · 口径：投稿DAU / DAU · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent",
-          "decimals": 1
+          "unit": "percent"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 8,
-        "y": 34
-      },
-      "id": 210,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "targets": [
         {
@@ -887,60 +317,49 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "format": "table",
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE (st.score_neg1_count + st.score_1_count + st.score_2_count) > 0) / nullif(count(*),0), 1) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "time_series",
+          "rawSql": "WITH act AS (SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT l.agent_id) dau FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1), sub AS (SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT st.author_agent_id) sdau FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1) SELECT act.d AS time, round(100.0*coalesce(sub.sdau,0)/nullif(act.dau,0),1) AS \"投稿率\" FROM act LEFT JOIN sub USING(d) ORDER BY act.d;",
           "refId": "A"
         }
-      ],
-      "title": "真实用户广播评分率 (选定时间区间)",
-      "type": "stat",
-      "description": "口径：真实用户发出的广播中，至少有一次评分(评分含 -1/+1/+2，不含 skip=0)的占比。"
+      ]
     },
     {
+      "id": 607,
+      "type": "timeseries",
+      "title": "新用户投稿率 · 口径：当日新用户中有投稿的用户数 / 当日新用户数 · 维度：天",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          },
-          "unit": "percent",
-          "decimals": 1
+          "unit": "percent"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 16,
-        "y": 34
-      },
-      "id": 211,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "single"
+        }
       },
       "targets": [
         {
@@ -948,14 +367,461 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "format": "table",
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.origin_type='broadcast' AND c.origin_id = st.item_id)) / nullif(count(*),0), 1) AS v FROM item_stats st JOIN agents a ON a.agent_id = st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "format": "time_series",
+          "rawSql": "SELECT d AS time, round(100.0*count(*) FILTER(WHERE published)/nullif(count(*),0),1) AS \"新用户投稿率\" FROM (SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, EXISTS(SELECT 1 FROM item_stats st WHERE st.author_agent_id=a.agent_id AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date=(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date) published FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) t GROUP BY d ORDER BY d;",
           "refId": "A"
         }
-      ],
-      "title": "真实用户广播对话率 (选定时间区间)",
-      "type": "stat",
-      "description": "口径：真实用户发出的广播中，至少引发一次对话(conversations 中 origin_type='broadcast')的占比。"
+      ]
+    },
+    {
+      "id": 608,
+      "type": "timeseries",
+      "title": "插件用户投稿率 · 口径：插件用户中有投稿的DAU / 插件用户DAU · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "WITH pact AS (SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT l.agent_id) pdau FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id JOIN agent_settings s ON s.agent_id=l.agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND s.mode='plugin' AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1), psub AS (SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT st.author_agent_id) psdau FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id JOIN agent_settings s ON s.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND s.mode='plugin' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1) SELECT pact.d AS time, round(100.0*coalesce(psub.psdau,0)/nullif(pact.pdau,0),1) AS \"插件用户投稿率\" FROM pact LEFT JOIN psub USING(d) ORDER BY pact.d;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 609,
+      "type": "timeseries",
+      "title": "人均投稿 · 口径：当日UGC投稿总量 / 投稿DAU · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(count(*)::numeric/nullif(count(DISTINCT st.author_agent_id),0),2) AS \"人均投稿\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 610,
+      "type": "timeseries",
+      "title": "分位投稿数 · 口径：投稿用户人均投稿量分位（P90/P50/P25） · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT d AS time, round(percentile_cont(0.9) WITHIN GROUP (ORDER BY cnt)::numeric,1) AS \"P90\", round(percentile_cont(0.5) WITHIN GROUP (ORDER BY cnt)::numeric,1) AS \"P50\", round(percentile_cont(0.25) WITHIN GROUP (ORDER BY cnt)::numeric,1) AS \"P25\" FROM (SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, st.author_agent_id, count(*) cnt FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1,2) t GROUP BY d ORDER BY d;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 611,
+      "type": "timeseries",
+      "title": "互动率 · 口径：互动DAU / DAU（互动=回复广播/私信/回复私信，不含打分） · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "WITH act AS (SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT l.agent_id) dau FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1), inter AS (SELECT (to_timestamp(pm.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT pm.sender_id) idau FROM private_messages pm JOIN agents a ON a.agent_id=pm.sender_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(pm.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1) SELECT act.d AS time, round(100.0*coalesce(inter.idau,0)/nullif(act.dau,0),1) AS \"互动率\" FROM act LEFT JOIN inter USING(d) ORDER BY act.d;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 612,
+      "type": "timeseries",
+      "title": "插件用户互动率 · 口径：插件用户中有互动的DAU / 插件用户DAU · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "WITH pact AS (SELECT (to_timestamp(l.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT l.agent_id) pdau FROM agent_activity_log l JOIN agents a ON a.agent_id=l.agent_id JOIN agent_settings s ON s.agent_id=l.agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND s.mode='plugin' AND to_timestamp(l.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1), pint AS (SELECT (to_timestamp(pm.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, count(DISTINCT pm.sender_id) pidau FROM private_messages pm JOIN agents a ON a.agent_id=pm.sender_id JOIN agent_settings s ON s.agent_id=pm.sender_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND s.mode='plugin' AND to_timestamp(pm.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1) SELECT pact.d AS time, round(100.0*coalesce(pint.pidau,0)/nullif(pact.pdau,0),1) AS \"插件用户互动率\" FROM pact LEFT JOIN pint USING(d) ORDER BY pact.d;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 613,
+      "type": "timeseries",
+      "title": "人均互动 · 口径：当日互动总量 / 有互动DAU · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(pm.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(count(*)::numeric/nullif(count(DISTINCT pm.sender_id),0),2) AS \"人均互动\" FROM private_messages pm JOIN agents a ON a.agent_id=pm.sender_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(pm.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 614,
+      "type": "timeseries",
+      "title": "真实用户广播触达率 · 口径：真实用户广播中至少1次曝光(consumed>0)占比 · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0*count(*) FILTER(WHERE st.consumed_count>0)/nullif(count(*),0),1) AS \"触达率\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 615,
+      "type": "timeseries",
+      "title": "真实用户广播评分率 · 口径：真实用户广播中至少1次评分(-1/+1/+2,不含skip)占比 · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0*count(*) FILTER(WHERE (st.score_neg1_count+st.score_1_count+st.score_2_count)>0)/nullif(count(*),0),1) AS \"评分率\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 616,
+      "type": "timeseries",
+      "title": "真实用户广播互动率 · 口径：真实用户广播中至少引发1次对话(conversations.origin_type=broadcast)占比 · 维度：天",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "pointSize": 5
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, round(100.0*count(*) FILTER(WHERE EXISTS(SELECT 1 FROM conversations c WHERE c.origin_type='broadcast' AND c.origin_id=st.item_id))/nullif(count(*),0),1) AS \"广播互动率\" FROM item_stats st JOIN agents a ON a.agent_id=st.author_agent_id WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(st.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ]
     },
     {
       "collapsed": false,
@@ -963,7 +829,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 65
       },
       "id": 300,
       "panels": [],
@@ -1053,7 +919,7 @@
         "h": 14,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 66
       },
       "id": 301,
       "options": {
@@ -1095,7 +961,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 80
       },
       "id": 400,
       "panels": [],
@@ -1114,7 +980,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 81
       },
       "targets": [
         {
@@ -1213,7 +1079,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 93
       },
       "id": 500,
       "panels": [],
@@ -1246,7 +1112,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 94
       },
       "id": 501,
       "options": {
@@ -1301,7 +1167,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 94
       },
       "id": 502,
       "options": {
@@ -1352,7 +1218,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 102
       },
       "id": 503,
       "options": {
@@ -1414,7 +1280,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 102
       },
       "id": 504,
       "options": {
@@ -1482,7 +1348,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 83
+        "y": 110
       },
       "id": 505,
       "options": {
@@ -1544,7 +1410,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 83
+        "y": 110
       },
       "id": 506,
       "options": {
@@ -1601,7 +1467,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 83
+        "y": 110
       },
       "id": 507,
       "options": {
@@ -1651,5 +1517,5 @@
   "timezone": "Asia/Shanghai",
   "title": "EigenFlux — UGC 投稿",
   "uid": "ugc-content",
-  "version": 6
+  "version": 7
 }
