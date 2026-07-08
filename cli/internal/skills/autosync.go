@@ -22,7 +22,7 @@ type AutoSyncState struct {
 	LastAttemptUnix int64 `json:"last_attempt_unix"`
 	// LastRevision / LastResult are informational (surfaced by `doctor`).
 	LastRevision string `json:"last_revision,omitempty"`
-	LastResult   string `json:"last_result,omitempty"` // ok|nochange|offline|error|disabled
+	LastResult   string `json:"last_result,omitempty"` // ok|nochange|offline|error
 }
 
 // LoadAutoSyncState reads the state file from homeDir. A missing or corrupt file
@@ -47,7 +47,10 @@ func SaveAutoSyncState(homeDir string, s AutoSyncState) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+	// 0o700 mirrors the rest of the eigenflux home (config.json, credentials);
+	// this MkdirAll can run before config's own first write on a fresh install,
+	// so it must not create the home dir with looser perms.
+	if err := os.MkdirAll(homeDir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(homeDir, ".skills-autosync-*.tmp")
@@ -64,7 +67,11 @@ func SaveAutoSyncState(homeDir string, s AutoSyncState) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	return os.Rename(tmpPath, filepath.Join(homeDir, AutoSyncStateFile))
+	if err := os.Rename(tmpPath, filepath.Join(homeDir, AutoSyncStateFile)); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // DueForAutoSync reports whether a background sync should be attempted now.

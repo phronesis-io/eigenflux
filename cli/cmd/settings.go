@@ -133,7 +133,14 @@ func SyncSettings(cfg *config.Config) error {
 	if err := json.Unmarshal(resp.Data, &remote); err != nil {
 		return err
 	}
-	skip := map[string]bool{"mode": true, "updated_at": true}
+	// mode/updated_at are meta. auto_skill_sync / skill_sync_interval_hours are
+	// client-local safety controls (throttle + kill switch for the background
+	// skill refresh) and must NOT be settable by the backend — otherwise a
+	// compromised backend could disable updates or overflow the throttle.
+	skip := map[string]bool{
+		"mode": true, "updated_at": true,
+		autoSkillSyncKey: true, skillSyncIntervalKey: true,
+	}
 	for k, v := range remote {
 		if skip[k] {
 			continue
