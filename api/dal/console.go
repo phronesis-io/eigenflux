@@ -533,7 +533,8 @@ func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*Toda
 // set is its keywords ∪ domains. Beat matching is separator-agnostic (via
 // NormTagSet / tagnorm), but the readable TagSet is kept intact because the same
 // GetNetworkSignalAgg aggregate feeds user-facing surfaces (trending / feed
-// rescue DMs) that must show "ai agents", not the normalized "aiagents".
+// rescue DMs) that must show the tag as written (e.g. "ai-agents"), not its
+// match-only normalized form ("ai agents").
 
 // BeatItemTags is one item's topic tags (comma-separated columns).
 type BeatItemTags struct {

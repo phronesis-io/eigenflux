@@ -124,8 +124,8 @@ func TestKeywordOverlap_SeparatorAgnostic(t *testing.T) {
 }
 
 // An item carrying both separator variants of the same tag ("ai agents" and
-// "ai-agents" both normalize to "aiagents") must count once, not twice, so the
-// overlap ratio stays 1/2 (aiagents, blockchain) rather than being skewed.
+// "ai-agents" both normalize to "ai agents") must count once, not twice, so the
+// overlap ratio stays 1/2 ("ai agents", blockchain) rather than being skewed.
 func TestKeywordOverlap_DedupsItemVariants(t *testing.T) {
 	ps := buildProfileSets(&UserProfile{Keywords: []string{"ai-agents"}})
 	score := keywordOverlap(ps, []string{"ai agents", "ai-agents", "blockchain"}, nil)
