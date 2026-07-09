@@ -1,0 +1,8 @@
+# Root notification policy: route every Grafana-managed alert to the
+# Alertmanager forwarder (see contact-points.yml). Grouping/flood control is
+# then handled centrally in configs/alertmanager/alertmanager.yml.
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: alertmanager
+    group_by: ["alertname"]

@@ -1,0 +1,142 @@
+# External alert rules evaluated on the monitor host (aliapmo in cloud).
+# These are the independent watchers for the app host: they must keep working
+# when the app host (aliap) is down, so they only depend on Prometheus itself.
+#
+# Copied verbatim into the prometheus-config volume by the prometheus-init
+# container (no METRICS_HOST substitution needed here). Delivery goes through
+# Alertmanager (see configs/alertmanager/alertmanager.yml).
+
+groups:
+  - name: pgc-pipeline
+    rules:
+      # pgc-viewer /metrics endpoint stopped answering scrapes. Covers pipeline
+      # process death, aliap reboot with the service down, network partition.
+      - alert: PGCMetricsEndpointDown
+        expr: up{job="pgc-pipeline"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PGC pipeline metrics endpoint is down"
+          description: >-
+            Prometheus on the monitor host has not been able to scrape the PGC
+            pipeline metrics endpoint ({{ $labels.instance }}) for 5 minutes.
+            The pipeline and its in-process Lark alerter are likely dead too,
+            so this external alert may be the only signal.
+
+      # The scrape target vanished entirely (no up series at all): a broken
+      # Prometheus config edit, a deleted scrape job, or Prometheus losing its
+      # config volume. up==0 rules can never fire in that state, so this rule
+      # backstops them.
+      - alert: PGCScrapeTargetAbsent
+        expr: absent(up{job="pgc-pipeline"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PGC pipeline scrape target is missing from Prometheus"
+          description: >-
+            No up{job="pgc-pipeline"} series exists. The scrape job was removed
+            or the Prometheus config is broken; the endpoint-down alert cannot
+            fire in this state.
+
+      # Dead-man's switch on the pipeline's own refresh loop: pgc-viewer stamps
+      # pgc_metrics_last_refresh_success_timestamp (epoch seconds, one series
+      # per refresh step) on every successful refresh. If /metrics keeps
+      # serving from a stale cache while every refresh fails, up stays 1 but
+      # this age keeps growing.
+      - alert: PGCMetricsRefreshStalled
+        expr: time() - max(pgc_metrics_last_refresh_success_timestamp) > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PGC pipeline metrics are stale (all refreshes failing)"
+          description: >-
+            No metrics refresh step inside pgc-viewer has succeeded for over 30
+            minutes even though the endpoint still answers scrapes. The metrics
+            surface is frozen; dashboard numbers are stale.
+
+      # Backstop for the rule above: if the heartbeat metric is renamed or
+      # stops being exported, the staleness rule silently goes blind. Warn
+      # instead of trusting silence.
+      - alert: PGCHeartbeatMetricAbsent
+        expr: >-
+          absent(pgc_metrics_last_refresh_success_timestamp)
+          and on() up{job="pgc-pipeline"} == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PGC heartbeat metric disappeared while the endpoint is up"
+          description: >-
+            pgc_metrics_last_refresh_success_timestamp is no longer exported
+            although the pgc-pipeline target is up. The staleness dead-man's
+            switch cannot work until the metric is restored or the rule is
+            updated to the new name.
+
+  - name: host
+    rules:
+      # node_exporter down or host unreachable. Covers both the app host
+      # (job=node-app-host, requires node_exporter installed on aliap; see
+      # docs/dev/infra.md) and the monitor host itself (job=node-monitor-host,
+      # compose service).
+      - alert: HostDown
+        expr: up{job=~"node-.+"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host metrics gone: {{ $labels.job }}"
+          description: >-
+            node_exporter at {{ $labels.instance }} ({{ $labels.job }}) has not
+            answered scrapes for 5 minutes. Either the host is down/unreachable
+            or node_exporter stopped.
+
+      # The app host carries a 10GB+ WAL SQLite plus unbounded item_timeline
+      # growth; a full disk wedges the pipeline silently.
+      - alert: HostDiskAlmostFull
+        expr: >-
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660"}
+           / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660"}) < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk almost full on {{ $labels.job }}: {{ $labels.mountpoint }}"
+          description: >-
+            Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }}
+            ({{ $labels.job }}) has less than 10% free space left.
+
+      - alert: HostDiskFullIn72h
+        expr: >-
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660"}[12h], 72 * 3600) <= 0
+          and
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660"}
+           / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660"}) < 0.30
+        for: 4h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk trending to full within 72h on {{ $labels.job }}: {{ $labels.mountpoint }}"
+          description: >-
+            At the current 12h growth rate, filesystem {{ $labels.mountpoint }}
+            on {{ $labels.instance }} ({{ $labels.job }}) will be full within 3
+            days. Prune item_timeline / WAL / backups before it wedges SQLite.
+
+  - name: meta
+    rules:
+      # Always-firing watchdog proving the Prometheus->Alertmanager pipeline is
+      # alive. Routed to the null receiver in alertmanager.yml; point an
+      # external dead-man's-switch service (one that pages when it STOPS
+      # receiving) at it to close the last gap: "the monitor host itself died".
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Alerting pipeline heartbeat (expected to always fire)"
+          description: >-
+            This alert is always firing on purpose to prove the alerting
+            pipeline works. It is routed to a null receiver; wire it to an
+            external dead-man's-switch service to detect monitor-host death.

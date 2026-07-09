@@ -17,7 +17,10 @@ Monitoring services are defined in `docker-compose.monitor.yml` (separate from c
 
 - **Jaeger** (`:16686`): Trace storage and timeline visualization
 - **Loki** (`:3122`): Log aggregation with traceId correlation
+- **Prometheus** (`:9090`): Metrics scraping + alert rule evaluation
+- **Alertmanager** (`127.0.0.1:9093`): External alert delivery (see "External Alerting" below)
 - **Grafana** (`:3123`): Unified query UI (Jaeger traces + Loki logs)
+- **node_exporter** (compose network only, cloud `public` profile): Host disk/memory/cpu metrics for the monitor host
 
 Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `MONITOR_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local structured stdout logging only -- no tracing overhead.
 
@@ -123,8 +126,32 @@ docker compose -f docker-compose.monitor.yml up -d
 
 `METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup.
 
-Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887) from the monitor server.
+Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887, 9100 for node_exporter) from the monitor server.
 
 **Dashboard provisioning**: All 3 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
 
 Set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics.
+
+### External Alerting
+
+The monitor server is the independent watcher for the app server: it must be able to page someone even when the app host (and every alerter running on it, e.g. the PGC pipeline's in-process Lark alerter) is dead. The pieces:
+
+- **Alert rules** — `configs/prometheus/alert_rules.yml`, copied into the prometheus-config volume by `prometheus-init`. Covers: PGC metrics endpoint down / scrape target absent, a dead-man's switch on `pgc_metrics_last_refresh_success_timestamp` (metrics surface frozen while `up` stays 1), host down, disk <10% free, disk predicted full within 72h, and an always-firing `Watchdog` heartbeat.
+- **Alertmanager** — `alertmanager` compose service (config template `configs/alertmanager/alertmanager.yml`). Alerts are grouped per `alertname`+`job`, criticals re-notify every 4h, warnings every 24h. Delivery goes to the webhook in `ALERTMANAGER_LARK_WEBHOOK`.
+- **`ALERTMANAGER_LARK_WEBHOOK`** (`.env` on the monitor host, **required in cloud**) — must be a different channel than the Lark webhook the app host uses, so the alert path shares no fate with the thing it watches. `alertmanager-init` substitutes it into the config at startup (Alertmanager has no env expansion); the secret never lives in git. Alertmanager POSTs its standard JSON payload — a plain Lark custom bot rejects that format, so point the URL at a Lark Anycross flow or a small formatting bridge.
+- **Host metrics** — the `node-exporter` compose service covers the monitor host (job `node-monitor-host`; cloud-only `public` profile, since binding `/` is not shared on Docker Desktop — the target is expectedly down in local dev). The app server needs its own node_exporter listening on 9100 (job `node-app-host`), e.g.:
+
+  ```bash
+  docker run -d --name node_exporter --restart unless-stopped \
+    --net host --pid host -v /:/host:ro,rslave \
+    prom/node-exporter:v1.9.1 --path.rootfs=/host
+  ```
+
+  Until it runs (and 9100 is open to the monitor server), the `node-app-host` target is down and `HostDown` fires for it — install it as part of the same rollout.
+- **Grafana-managed alerts** — `configs/grafana/alerting/` provisions a contact point that forwards to the stack's Alertmanager and makes it the root notification policy. Alerts created in the Grafana UI therefore deliver through the same channel instead of the factory placeholder email (`<example@email.com>`, no SMTP) that silently dropped everything.
+- **Watchdog** — routed to Alertmanager's null receiver by design. To also catch "the monitor host itself died", point an external dead-man's-switch service (one that pages when it *stops* receiving) at this alert.
+- **Remaining known gap** — if the monitor host dies and no dead-man's-switch service is wired to the Watchdog, nothing pages. Everything else (app host death, pipeline death, webhook rot on the app side) is now covered externally.
+
+**Grafana anonymous access**: compose defaults are anonymous=enabled with read-only Viewer role — a redeploy with a missing `.env` can no longer come up anonymously administrable. On the internet-facing cloud instance set `GF_AUTH_ANONYMOUS_ENABLED=false` (dashboards query the prod business DB); use Grafana's per-dashboard public-dashboards feature if something should stay public.
+
+**End-to-end test** after deploying: `docker compose -f docker-compose.monitor.yml stop node-exporter` (or stop node_exporter on the app host), wait ~6 minutes, confirm the `HostDown` notification arrives on the alert channel, then start it again and confirm the resolved notification.

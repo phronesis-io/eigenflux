@@ -1,0 +1,43 @@
+# Alertmanager config TEMPLATE. Do not point Alertmanager at this file
+# directly: the literal token ALERTMANAGER_LARK_WEBHOOK below is substituted
+# by the alertmanager-init container (same sed pattern as prometheus-init /
+# METRICS_HOST) from the ALERTMANAGER_LARK_WEBHOOK env var, and the result is
+# written to the alertmanager-config volume. Alertmanager configs have no
+# native env expansion, hence the init step. The secret webhook URL therefore
+# never lives in this repo — set it in the monitor host's .env.
+#
+# The webhook must NOT be the Lark webhook the pgc pipeline itself uses on the
+# app host: the whole point of this channel is to share no fate with it. Note
+# Alertmanager posts its own JSON payload (version "4"); a Lark custom bot
+# expects {"msg_type": ...} and will reject it, so point the URL at an
+# endpoint that accepts arbitrary JSON (Lark Anycross flow / a tiny formatting
+# bridge). See docs/dev/infra.md "External alerting".
+
+route:
+  receiver: lark-ops
+  group_by: ["alertname", "job"]
+  # Wait for same-group alerts to batch before the first notification, then
+  # send group updates at most every 10m — one incident, one message thread,
+  # no flood.
+  group_wait: 1m
+  group_interval: 10m
+  repeat_interval: 24h
+  routes:
+    # Always-firing heartbeat (see alert_rules.yml "Watchdog"): deliberately
+    # swallowed here. Wire an external dead-man's-switch service to it to
+    # detect death of the monitor host itself.
+    - receiver: "null"
+      matchers:
+        - alertname = "Watchdog"
+    # Critical alerts re-notify more often while unresolved.
+    - receiver: lark-ops
+      matchers:
+        - severity = "critical"
+      repeat_interval: 4h
+
+receivers:
+  - name: "null"
+  - name: lark-ops
+    webhook_configs:
+      - url: "ALERTMANAGER_LARK_WEBHOOK"
+        send_resolved: true

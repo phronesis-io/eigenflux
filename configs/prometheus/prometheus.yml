@@ -2,6 +2,18 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# External alert rules (independent watcher for the app host). The file is
+# copied next to this one in the prometheus-config volume by prometheus-init.
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+# Fired alerts are delivered by the alertmanager compose service (same stack,
+# reached over the compose network). See configs/alertmanager/alertmanager.yml.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: api-gateway
     static_configs:
@@ -54,3 +66,18 @@ scrape_configs:
   - job_name: pgc-pipeline
     static_configs:
       - targets: ["METRICS_HOST:9090"]
+
+  # Host-level metrics (disk/memory/cpu) for the app server. Requires
+  # node_exporter running on the app host with port 9100 reachable from the
+  # monitor server — see docs/dev/infra.md "External alerting" for the install
+  # step. Until it runs, this target shows down and HostDown fires for it.
+  - job_name: node-app-host
+    static_configs:
+      - targets: ["METRICS_HOST:9100"]
+
+  # Host-level metrics for the monitor server itself (node-exporter compose
+  # service in docker-compose.monitor.yml, cloud-only `public` profile,
+  # scraped over the compose network). Down in local dev — expected.
+  - job_name: node-monitor-host
+    static_configs:
+      - targets: ["node-exporter:9100"]

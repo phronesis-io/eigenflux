@@ -1,6 +1,6 @@
 name: eigenflux-monitor
 
-# Shared monitoring stack (Jaeger + Loki + Grafana).
+# Shared monitoring stack (Jaeger + Loki + Grafana + Alertmanager + node_exporter).
 # Not tied to any specific project — start once, use for all local dev projects.
 #
 # Usage:
@@ -50,7 +50,8 @@ services:
       prometheus-init:
         condition: service_completed_successfully
 
-  # Generates prometheus.yml with METRICS_HOST replaced.
+  # Generates prometheus.yml with METRICS_HOST replaced and copies the alert
+  # rules alongside it.
   # Local: defaults to host.docker.internal (services on host).
   # Cloud: set METRICS_HOST to the app server's internal IP.
   prometheus-init:
@@ -59,20 +60,81 @@ services:
       - METRICS_HOST=${METRICS_HOST:-host.docker.internal}
     volumes:
       - ./configs/prometheus/prometheus.yml:/template/prometheus.yml:ro
+      - ./configs/prometheus/alert_rules.yml:/template/alert_rules.yml:ro
       - prometheus-config:/etc/prometheus
-    command: sh -c 'sed "s|METRICS_HOST|$$METRICS_HOST|g" /template/prometheus.yml > /etc/prometheus/prometheus.yml'
+    command: sh -c 'sed "s|METRICS_HOST|$$METRICS_HOST|g" /template/prometheus.yml > /etc/prometheus/prometheus.yml && cp /template/alert_rules.yml /etc/prometheus/alert_rules.yml'
+
+  # External alert delivery (independent of the app host and of the pipeline's
+  # own Lark webhook). Prometheus fires the rules in
+  # configs/prometheus/alert_rules.yml at this service over the compose
+  # network; delivery goes to ALERTMANAGER_LARK_WEBHOOK (set it in .env on the
+  # monitor host — REQUIRED in cloud, otherwise alerts die on a localhost
+  # placeholder). Host port binds 127.0.0.1 by default: nothing new is exposed
+  # on an internet-facing monitor host.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    ports:
+      - "${ALERTMANAGER_BIND:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - alertmanager-config:/etc/alertmanager
+      - alertmanager-data:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9093/-/healthy || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      alertmanager-init:
+        condition: service_completed_successfully
+
+  # Generates alertmanager.yml with the webhook URL substituted (Alertmanager
+  # has no native env expansion; same sed pattern as prometheus-init). The
+  # secret webhook URL lives only in the monitor host's .env, never in git.
+  alertmanager-init:
+    image: busybox:1.37
+    environment:
+      - ALERTMANAGER_LARK_WEBHOOK=${ALERTMANAGER_LARK_WEBHOOK:-http://127.0.0.1:9/unconfigured-set-ALERTMANAGER_LARK_WEBHOOK}
+    volumes:
+      - ./configs/alertmanager/alertmanager.yml:/template/alertmanager.yml:ro
+      - alertmanager-config:/etc/alertmanager
+    command: sh -c 'sed "s|ALERTMANAGER_LARK_WEBHOOK|$$ALERTMANAGER_LARK_WEBHOOK|g" /template/alertmanager.yml > /etc/alertmanager/alertmanager.yml'
+
+  # Host-level metrics (disk/memory/cpu) for the machine running this stack —
+  # in cloud that is the monitor server itself. Cloud only (`public` profile,
+  # started alongside caddy): binding / is not shared on Docker Desktop, so
+  # this service cannot run in macOS local dev — the node-monitor-host scrape
+  # target simply stays down there. The app server needs its own node_exporter
+  # on port 9100 (see docs/dev/infra.md "External alerting"). Scraped by
+  # prometheus as node-exporter:9100 over the compose network; no host port
+  # published.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: ["public"]
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.6.0
     ports:
-      # Local dev binds 0.0.0.0:3123 (anonymous Admin, as before). In cloud set
-      # GRAFANA_BIND=127.0.0.1 so the only public entry is Caddy/HTTPS.
+      # Local dev binds 0.0.0.0:3123. In cloud set GRAFANA_BIND=127.0.0.1 so
+      # the only public entry is Caddy/HTTPS.
       - "${GRAFANA_BIND:-0.0.0.0}:${GRAFANA_PORT:-3123}:3000"
     environment:
-      # Auth defaults preserve the local dev experience (anonymous Admin, no
-      # login). In cloud override these in .env to require login.
+      # Fail-safe auth defaults: anonymous falls back to read-only Viewer, so
+      # a cloud redeploy with a missing .env override can never come up as an
+      # anonymously-administrable internet-facing instance. Local dev: log in
+      # as admin (GF_SECURITY_ADMIN_PASSWORD) to edit, or set
+      # GF_AUTH_ANONYMOUS_ORG_ROLE=Admin in your local .env. Cloud: set
+      # GF_AUTH_ANONYMOUS_ENABLED=false — the dashboards query the prod
+      # business DB and should not be world-readable.
       - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-true}
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Viewer}
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       - GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL:-}
       # PostgreSQL datasource connection (consumed by configs/grafana/datasources.yml).
@@ -93,6 +155,10 @@ services:
       - ./configs/grafana/datasources.yml:/etc/grafana/provisioning/datasources/ds.yml
       - ./configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards
+      # Contact point + root notification policy forwarding Grafana-managed
+      # alerts to the alertmanager service (replaces the no-op factory email
+      # placeholder that silently swallowed UI-created alerts).
+      - ./configs/grafana/alerting:/etc/grafana/provisioning/alerting
     depends_on:
       jaeger:
         condition: service_healthy
@@ -129,6 +195,8 @@ services:
 
 volumes:
   prometheus-config:
+  alertmanager-config:
+  alertmanager-data:
   grafana-data:
   caddy-data:
   caddy-config:

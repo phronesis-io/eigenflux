@@ -1,0 +1,14 @@
+# Provisioned Grafana contact point: forward any Grafana-managed alert to the
+# stack's Alertmanager (docker-compose.monitor.yml), which delivers through
+# the ALERTMANAGER_LARK_WEBHOOK channel. This replaces the factory
+# "grafana-default-email" placeholder (<example@email.com>, no SMTP) that
+# silently swallowed every alert created in the Grafana UI.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: alertmanager
+    receivers:
+      - uid: alertmanager-forward
+        type: prometheus-alertmanager
+        settings:
+          url: http://alertmanager:9093
