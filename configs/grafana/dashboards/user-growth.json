@@ -423,8 +423,8 @@
     },
     {
       "id": 46,
-      "title": "Onboard 综合 · 每日各步漏斗率 · 口径：按用户(邮箱去重), 分母统一=当日进入 onboard 新用户; 次留=注册次日有主动活跃 (未过完的 D+1 显示为空)",
-      "type": "timeseries",
+      "title": "Onboard 综合 · 每日漏斗表 · 各步均为相对『进入 onboard 基数』的比例 · 口径：按用户(邮箱去重); 次留=注册次日有主动活跃 (未过完的 D+1 显示为空)",
+      "type": "table",
       "datasource": {
         "type": "postgres",
         "uid": "postgres"
@@ -442,57 +442,83 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n),\nflags AS (\n  SELECT t.email, t.d,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND (c.status=1 OR c.attempt_count>0)\n      AND (to_timestamp(c.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS submitted,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND c.status=1 AND c.consumed_at IS NOT NULL\n      AND (to_timestamp(c.consumed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS verified,\n    EXISTS(SELECT 1 FROM agents a WHERE a.email=t.email AND a.profile_completed_at IS NOT NULL\n      AND (to_timestamp(a.profile_completed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS intro,\n    EXISTS(SELECT 1 FROM agents a JOIN item_stats st ON st.author_agent_id=a.agent_id WHERE a.email=t.email\n      AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS published,\n    EXISTS(SELECT 1 FROM agents a JOIN agent_activity_log la ON la.agent_id=a.agent_id WHERE a.email=t.email\n      AND la.event_type <> 'reply_received'\n      AND (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d + 1) AS retained\n  FROM cohort t\n)\nSELECT d AS time,\n  100.0 AS \"1 进入 onboard (基数)\",\n  round(100.0*count(*) FILTER (WHERE submitted)/nullif(count(*),0),1) AS \"2 填写验证码\",\n  round(100.0*count(*) FILTER (WHERE verified)/nullif(count(*),0),1) AS \"3 验证通过\",\n  round(100.0*count(*) FILTER (WHERE intro)/nullif(count(*),0),1) AS \"4 提交自我介绍\",\n  round(100.0*count(*) FILTER (WHERE published)/nullif(count(*),0),1) AS \"5 首日投稿\",\n  CASE WHEN d + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\n    THEN round(100.0*count(*) FILTER (WHERE retained)/nullif(count(*),0),1) END AS \"6 次日留存\"\nFROM flags GROUP BY d ORDER BY d;",
-          "format": "time_series"
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n),\nflags AS (\n  SELECT t.email, t.d,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND (c.status=1 OR c.attempt_count>0)\n      AND (to_timestamp(c.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS submitted,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND c.status=1 AND c.consumed_at IS NOT NULL\n      AND (to_timestamp(c.consumed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS verified,\n    EXISTS(SELECT 1 FROM agents a WHERE a.email=t.email AND a.profile_completed_at IS NOT NULL\n      AND (to_timestamp(a.profile_completed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS intro,\n    EXISTS(SELECT 1 FROM agents a JOIN item_stats st ON st.author_agent_id=a.agent_id WHERE a.email=t.email\n      AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS published,\n    EXISTS(SELECT 1 FROM agents a JOIN agent_activity_log la ON la.agent_id=a.agent_id WHERE a.email=t.email\n      AND la.event_type <> 'reply_received'\n      AND (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d + 1) AS retained\n  FROM cohort t\n)\nSELECT to_char(d,'YYYY-MM-DD') AS \"日期\",\n  count(*) AS \"进入 onboard (基数·人)\",\n  round(100.0*count(*) FILTER (WHERE submitted)/nullif(count(*),0),1) AS \"2 填写验证码\",\n  round(100.0*count(*) FILTER (WHERE verified)/nullif(count(*),0),1) AS \"3 验证通过\",\n  round(100.0*count(*) FILTER (WHERE intro)/nullif(count(*),0),1) AS \"4 提交自我介绍\",\n  round(100.0*count(*) FILTER (WHERE published)/nullif(count(*),0),1) AS \"5 首日投稿\",\n  CASE WHEN d + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\n    THEN round(100.0*count(*) FILTER (WHERE retained)/nullif(count(*),0),1) END AS \"6 次日留存\"\nFROM flags GROUP BY d ORDER BY d DESC;",
+          "format": "table"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "showPoints": "auto",
-            "barAlignment": 0,
-            "spanNulls": true
+            "align": "auto",
+            "displayMode": "auto"
           }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "1 进入 onboard (基数)"
+              "options": "2 填写验证码"
             },
             "properties": [
               {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    4,
-                    4
-                  ],
-                  "fill": "dash"
-                }
-              },
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3 验证通过"
+            },
+            "properties": [
               {
-                "id": "custom.fillOpacity",
-                "value": 0
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4 提交自我介绍"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5 首日投稿"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "6 次日留存"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
               }
             ]
           }
         ]
       },
       "options": {
-        "tooltip": {
-          "mode": "multi"
-        },
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "showHeader": true,
+        "sortBy": []
       }
     },
     {
@@ -2239,5 +2265,5 @@
       }
     }
   ],
-  "version": 2
+  "version": 3
 }
