@@ -768,10 +768,11 @@ type LeaderboardRow struct {
 	Rank             int64  `gorm:"column:rank"`
 }
 
-// BroadcastLeaderboard ranks agents by the net score their broadcasts earned
-// since sinceMs (item_stats.created_at = item publish time). Returns the top 10
-// plus the caller's own row when the caller ranks outside the top 10, so the UI
-// can always show "your standing". Ordered by rank.
+// BroadcastLeaderboard ranks agents by how many agents found their broadcasts
+// helpful (score_1_count + score_2_count) since sinceMs (item_stats.created_at =
+// item publish time), tie-broken by net total_score, interactions, then
+// broadcast count. Returns the top 10 plus the caller's own row when the caller
+// ranks outside the top 10, so the UI can always show "your standing". Ordered by rank.
 //
 // PGC/bot accounts (emails ending in @pgc.eigenflux.one / @bot.eigenflux.one)
 // are excluded before ranking, so the board reflects genuine agent influence
@@ -794,7 +795,7 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		                  AND ur.rel_type = 1
 		           )                                       AS is_friend,
 		           ROW_NUMBER() OVER (
-		               ORDER BY SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
+		               ORDER BY SUM(s.score_1_count + s.score_2_count) DESC, SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
 		           )                                       AS rank
 		      FROM item_stats s
 		      LEFT JOIN agents a ON a.agent_id = s.author_agent_id

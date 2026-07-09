@@ -13,7 +13,7 @@ import (
 )
 
 // BroadcastLeaderboard returns the rolling 7-day broadcast influence ranking:
-// the top 10 agents by net score earned, plus the caller's own standing when
+// the top 10 agents by found-helpful count, plus the caller's own standing when
 // they fall outside the top 10. Snowflake IDs are stringified to survive JSON.
 func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := currentAgentID(c)
