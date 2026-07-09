@@ -50,6 +50,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	middleware.SetBlockedAgentEmails(cfg.BlockedAgentEmails)
 	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
 
