@@ -409,6 +409,264 @@
       }
     },
     {
+      "id": 40,
+      "title": "Onboard 漏斗 / Onboarding Funnel (新用户, 已排除 bot/pgc · 分母=当日首次触发验证码发送的新邮箱)",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "title": "Onboard 1 · 进入 onboard = 验证码发送 · 口径：当日首次触发验证码发送的新邮箱数（服务端最早埋点, 无更早『进入流程』事件, 故展示人数）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n)\nSELECT d AS time, count(*) AS \"进入 onboard 新用户数\" FROM cohort GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 42,
+      "title": "Onboard 2 · 填写验证码成功率 · 口径：当日提交过验证码的新用户 / 当日进入 onboard 新用户",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n)\nSELECT d AS time, round(100.0*count(*) FILTER (WHERE hit)/nullif(count(*),0),1) AS \"填写验证码成功率\"\nFROM (\n  SELECT t.email, t.d, EXISTS(\n    SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND (c.status=1 OR c.attempt_count>0)\n    AND (to_timestamp(c.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d\n  ) AS hit FROM cohort t\n) x GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "title": "Onboard 3 · 验证码通过率 · 口径：当日通过邮箱验证的新用户 / 当日进入 onboard 新用户",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n)\nSELECT d AS time, round(100.0*count(*) FILTER (WHERE hit)/nullif(count(*),0),1) AS \"验证码通过率\"\nFROM (\n  SELECT t.email, t.d, EXISTS(\n    SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND c.status=1 AND c.consumed_at IS NOT NULL\n    AND (to_timestamp(c.consumed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d\n  ) AS hit FROM cohort t\n) x GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 44,
+      "title": "Onboard 4 · 提交自我介绍率 · 口径：当日提交自我介绍的新用户 / 当日进入 onboard 新用户",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n)\nSELECT d AS time, round(100.0*count(*) FILTER (WHERE hit)/nullif(count(*),0),1) AS \"提交自我介绍率\"\nFROM (\n  SELECT t.email, t.d, EXISTS(\n    SELECT 1 FROM agents a WHERE a.email=t.email AND a.profile_completed_at IS NOT NULL\n    AND (to_timestamp(a.profile_completed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d\n  ) AS hit FROM cohort t\n) x GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 45,
+      "title": "Onboard 5 · 新用户投稿率 · 口径：当日新用户中有投稿的用户数 / 当日新用户数（同步自 UGC 看板）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT d AS time, round(100.0*count(*) FILTER(WHERE published)/nullif(count(*),0),1) AS \"新用户投稿率\" FROM (SELECT a.agent_id, (to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date d, EXISTS(SELECT 1 FROM item_stats st WHERE st.author_agent_id=a.agent_id AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date=(to_timestamp(a.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date) published FROM agents a WHERE a.email NOT LIKE '%bot.eigenflux%' AND a.email NOT LIKE '%pgc.eigenflux%' AND a.email <> 'fmw19990718@gmail.com' AND to_timestamp(a.created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) t GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
       "id": 7,
       "title": "留存 / Retention",
       "type": "row",
@@ -417,7 +675,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 50
       },
       "panels": []
     },
@@ -433,7 +691,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 26
+        "y": 51
       },
       "targets": [
         {
@@ -492,7 +750,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 30
+        "y": 55
       },
       "targets": [
         {
@@ -551,7 +809,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 26
+        "y": 51
       },
       "targets": [
         {
@@ -600,7 +858,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 59
       },
       "targets": [
         {
@@ -650,7 +908,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 67
       },
       "targets": [
         {
@@ -701,7 +959,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 79
       },
       "targets": [
         {
@@ -921,7 +1179,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 91
       },
       "panels": []
     },
@@ -937,7 +1195,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -987,7 +1245,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -1037,7 +1295,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -1087,7 +1345,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -1137,7 +1395,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -1187,7 +1445,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 67
+        "y": 92
       },
       "targets": [
         {
@@ -1237,7 +1495,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 71
+        "y": 96
       },
       "targets": [
         {
@@ -1285,7 +1543,7 @@
         "h": 14,
         "w": 24,
         "x": 0,
-        "y": 79
+        "y": 104
       },
       "targets": [
         {
@@ -1336,7 +1594,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 93
+        "y": 118
       },
       "targets": [
         {
@@ -1387,7 +1645,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 101
+        "y": 126
       },
       "targets": [
         {
@@ -1434,7 +1692,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 109
+        "y": 134
       },
       "collapsed": false,
       "panels": []
@@ -1451,7 +1709,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 110
+        "y": 135
       },
       "targets": [
         {
@@ -1501,7 +1759,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 110
+        "y": 135
       },
       "targets": [
         {
@@ -1551,7 +1809,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 110
+        "y": 135
       },
       "targets": [
         {
@@ -1601,7 +1859,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 110
+        "y": 135
       },
       "targets": [
         {
@@ -1651,7 +1909,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 114
+        "y": 139
       },
       "targets": [
         {
@@ -1708,7 +1966,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 122
+        "y": 147
       },
       "targets": [
         {
@@ -1759,7 +2017,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 134
+        "y": 159
       },
       "targets": [
         {
@@ -1810,7 +2068,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 142
+        "y": 167
       },
       "targets": [
         {
@@ -1867,7 +2125,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 150
+        "y": 175
       },
       "targets": [
         {
@@ -1906,5 +2164,6 @@
         }
       }
     }
-  ]
+  ],
+  "version": 1
 }
