@@ -518,7 +518,13 @@
       },
       "options": {
         "showHeader": true,
-        "sortBy": []
+        "sortBy": [],
+        "footer": {
+          "show": false,
+          "reducer": [],
+          "countRows": false,
+          "enablePagination": true
+        }
       }
     },
     {
@@ -2265,5 +2271,5 @@
       }
     }
   ],
-  "version": 3
+  "version": 4
 }
