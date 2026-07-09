@@ -155,16 +155,17 @@ type Config struct {
 	EnableKNNRecall          bool
 	KNNRecallK               int
 	KNNRecallCandidates      int
-	EnableHotRecall          bool   // Enable hot_recall from Redis (default: true)
-	EnableNewRecall          bool   // Enable new_recall from Redis (default: true)
-	EnableTwoTowerRecall     bool   // Enable precomputed two_tower recall from Redis (default: false)
+	EnableHotRecall          bool     // Enable hot_recall from Redis (default: true)
+	EnableNewRecall          bool     // Enable new_recall from Redis (default: true)
+	EnableTwoTowerRecall     bool     // Enable precomputed two_tower recall from Redis (default: false)
 	PGCEmailSuffixes         []string // author email suffixes classifying a broadcast as PGC (official bots); everything else is UGC. Drives the sort UGC boost and category metrics
+	BlockedAgentEmails       []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
 	EnableServiceMix         bool     // Mix trading services into the SortItems feed (default: false)
-	ServiceMixRecallSize     int    // Max service candidates to recall before rerank (default: 50)
-	RecallRedisNamespace     string // Redis key namespace for recall indices (default: "rec")
-	TwoTowerRecallRedisKey   string // Redis recall output key for two_tower candidates (default: "two_tower_recall")
-	TwoTowerRecallK          int    // Top-K for two-tower Redis candidates (default: 50)
-	TwoTowerRecallCandidates int    // Deprecated; retained for env compatibility
+	ServiceMixRecallSize     int      // Max service candidates to recall before rerank (default: 50)
+	RecallRedisNamespace     string   // Redis key namespace for recall indices (default: "rec")
+	TwoTowerRecallRedisKey   string   // Redis recall output key for two_tower candidates (default: "two_tower_recall")
+	TwoTowerRecallK          int      // Top-K for two-tower Redis candidates (default: 50)
+	TwoTowerRecallCandidates int      // Deprecated; retained for env compatibility
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -323,6 +324,7 @@ func Load() *Config {
 		EnableHotRecall:               getEnvBool("ENABLE_HOT_RECALL", true),
 		EnableNewRecall:               getEnvBool("ENABLE_NEW_RECALL", true),
 		PGCEmailSuffixes:              getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"}),
+		BlockedAgentEmails:            getEnvStringList("BLOCKED_AGENT_EMAILS", []string{"fmw19990718@gmail.com"}),
 		EnableServiceMix:              getEnvBool("ENABLE_SERVICE_MIX", false),
 		ServiceMixRecallSize:          getEnvInt("SERVICE_MIX_RECALL_SIZE", 50),
 		EnableTwoTowerRecall:          getEnvBool("ENABLE_TWO_TOWER_RECALL", false),
