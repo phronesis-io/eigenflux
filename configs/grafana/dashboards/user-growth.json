@@ -422,6 +422,80 @@
       "panels": []
     },
     {
+      "id": 46,
+      "title": "Onboard 综合 · 每日各步漏斗率 · 口径：按用户(邮箱去重), 分母统一=当日进入 onboard 新用户; 次留=注册次日有主动活跃 (未过完的 D+1 显示为空)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "WITH first_ch AS (\n  SELECT c.email, min(c.created_at) AS first_at\n  FROM auth_email_challenges c\n  WHERE c.email IS NOT NULL AND c.email NOT LIKE '%bot.eigenflux%' AND c.email NOT LIKE '%pgc.eigenflux%' AND c.email <> 'fmw19990718@gmail.com'\n  GROUP BY 1\n),\ncohort AS (\n  SELECT f.email, (to_timestamp(f.first_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS d\n  FROM first_ch f\n  WHERE to_timestamp(f.first_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo()\n),\nflags AS (\n  SELECT t.email, t.d,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND (c.status=1 OR c.attempt_count>0)\n      AND (to_timestamp(c.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS submitted,\n    EXISTS(SELECT 1 FROM auth_email_challenges c WHERE c.email=t.email AND c.status=1 AND c.consumed_at IS NOT NULL\n      AND (to_timestamp(c.consumed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS verified,\n    EXISTS(SELECT 1 FROM agents a WHERE a.email=t.email AND a.profile_completed_at IS NOT NULL\n      AND (to_timestamp(a.profile_completed_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS intro,\n    EXISTS(SELECT 1 FROM agents a JOIN item_stats st ON st.author_agent_id=a.agent_id WHERE a.email=t.email\n      AND (to_timestamp(st.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d) AS published,\n    EXISTS(SELECT 1 FROM agents a JOIN agent_activity_log la ON la.agent_id=a.agent_id WHERE a.email=t.email\n      AND la.event_type <> 'reply_received'\n      AND (to_timestamp(la.created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date = t.d + 1) AS retained\n  FROM cohort t\n)\nSELECT d AS time,\n  100.0 AS \"1 进入 onboard (基数)\",\n  round(100.0*count(*) FILTER (WHERE submitted)/nullif(count(*),0),1) AS \"2 填写验证码\",\n  round(100.0*count(*) FILTER (WHERE verified)/nullif(count(*),0),1) AS \"3 验证通过\",\n  round(100.0*count(*) FILTER (WHERE intro)/nullif(count(*),0),1) AS \"4 提交自我介绍\",\n  round(100.0*count(*) FILTER (WHERE published)/nullif(count(*),0),1) AS \"5 首日投稿\",\n  CASE WHEN d + 1 <= (now() AT TIME ZONE 'Asia/Shanghai')::date\n    THEN round(100.0*count(*) FILTER (WHERE retained)/nullif(count(*),0),1) END AS \"6 次日留存\"\nFROM flags GROUP BY d ORDER BY d;",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "showPoints": "auto",
+            "barAlignment": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 进入 onboard (基数)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    4,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
       "id": 41,
       "title": "Onboard 1 · 进入 onboard = 验证码发送 · 口径：当日首次触发验证码发送的新邮箱数（服务端最早埋点, 无更早『进入流程』事件, 故展示人数）",
       "type": "timeseries",
@@ -433,7 +507,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 35
       },
       "targets": [
         {
@@ -482,7 +556,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 35
       },
       "targets": [
         {
@@ -531,7 +605,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 43
       },
       "targets": [
         {
@@ -580,7 +654,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 43
       },
       "targets": [
         {
@@ -629,7 +703,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 51
       },
       "targets": [
         {
@@ -675,7 +749,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 59
       },
       "panels": []
     },
@@ -691,7 +765,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 51
+        "y": 60
       },
       "targets": [
         {
@@ -750,7 +824,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 55
+        "y": 64
       },
       "targets": [
         {
@@ -809,7 +883,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 51
+        "y": 60
       },
       "targets": [
         {
@@ -858,7 +932,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 68
       },
       "targets": [
         {
@@ -908,7 +982,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 67
+        "y": 76
       },
       "targets": [
         {
@@ -959,7 +1033,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 79
+        "y": 88
       },
       "targets": [
         {
@@ -1179,7 +1253,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 100
       },
       "panels": []
     },
@@ -1195,7 +1269,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1245,7 +1319,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1295,7 +1369,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1345,7 +1419,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1395,7 +1469,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1445,7 +1519,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 92
+        "y": 101
       },
       "targets": [
         {
@@ -1495,7 +1569,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 105
       },
       "targets": [
         {
@@ -1543,7 +1617,7 @@
         "h": 14,
         "w": 24,
         "x": 0,
-        "y": 104
+        "y": 113
       },
       "targets": [
         {
@@ -1594,7 +1668,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 127
       },
       "targets": [
         {
@@ -1645,7 +1719,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 126
+        "y": 135
       },
       "targets": [
         {
@@ -1692,7 +1766,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 134
+        "y": 143
       },
       "collapsed": false,
       "panels": []
@@ -1709,7 +1783,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 135
+        "y": 144
       },
       "targets": [
         {
@@ -1759,7 +1833,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 135
+        "y": 144
       },
       "targets": [
         {
@@ -1809,7 +1883,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 135
+        "y": 144
       },
       "targets": [
         {
@@ -1859,7 +1933,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 135
+        "y": 144
       },
       "targets": [
         {
@@ -1909,7 +1983,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 139
+        "y": 148
       },
       "targets": [
         {
@@ -1966,7 +2040,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 147
+        "y": 156
       },
       "targets": [
         {
@@ -2017,7 +2091,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 159
+        "y": 168
       },
       "targets": [
         {
@@ -2068,7 +2142,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 167
+        "y": 176
       },
       "targets": [
         {
@@ -2125,7 +2199,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 175
+        "y": 184
       },
       "targets": [
         {
@@ -2165,5 +2239,5 @@
       }
     }
   ],
-  "version": 1
+  "version": 2
 }
