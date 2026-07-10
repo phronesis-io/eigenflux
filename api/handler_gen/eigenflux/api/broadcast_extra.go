@@ -154,6 +154,7 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"summary_zh":      r.SummaryZh,
 			"broadcast_type":  r.BroadcastType,
 			"praise_count":    r.PraiseCount,
+			"reach":           r.Reach,
 			"show_add_friend": r.ShowAddFriend,
 			"is_friend":       r.IsFriend,
 			"is_me":           r.AuthorAgentID == agentID,

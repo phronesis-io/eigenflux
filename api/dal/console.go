@@ -822,6 +822,7 @@ type TopBroadcastRow struct {
 	SummaryZh     string `gorm:"column:summary_zh"`
 	BroadcastType string `gorm:"column:broadcast_type"`
 	PraiseCount   int64  `gorm:"column:praise_count"`
+	Reach         int64  `gorm:"column:reach"`
 	ShowAddFriend bool   `gorm:"column:show_add_friend"`
 	IsFriend      bool   `gorm:"column:is_friend"`
 }
@@ -842,6 +843,7 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]
 		       COALESCE(p.summary_zh, '')             AS summary_zh,
 		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
 		       (s.score_1_count + s.score_2_count)    AS praise_count,
+		       COALESCE(s.consumed_count, 0)          AS reach,
 		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
 		       EXISTS (
 		           SELECT 1 FROM user_relations ur
