@@ -36,6 +36,7 @@ func main() {
 
 	db.Init(cfg.PgDSN)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 
 	etcdEndpoints := splitEtcdEndpoints(cfg.EtcdAddr)
 

@@ -42,6 +42,7 @@ func main() {
 	db.Init(cfg.PgDSN)
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 
 	etcdEndpoints := splitEtcdEndpoints(cfg.EtcdAddr)
 	impressionIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{

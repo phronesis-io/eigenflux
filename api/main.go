@@ -68,6 +68,7 @@ func main() {
 
 	// Init Redis (for publishing stream messages)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 	log.Println("Redis connected")
 
 	// Init etcd resolver

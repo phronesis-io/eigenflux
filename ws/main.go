@@ -36,6 +36,7 @@ func main() {
 	// Redis (for Pub/Sub subscription).
 	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 
 	// etcd resolver for RPC clients.
 	etcdEndpoints := strings.Split(cfg.EtcdAddr, ",")

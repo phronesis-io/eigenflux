@@ -30,12 +30,49 @@ func Init(addr, password string) {
 	}
 }
 
-// Publish sends a message to a Redis Stream
+// defaultStreamMaxLen is the approximate length cap applied by Publish to every
+// stream except those in streamsExemptFromCap. XACK only clears a message from
+// the consumer group PEL; it never removes the entry from the stream, so
+// without a cap streams grow until Redis OOMs. Override via SetDefaultStreamMaxLen.
+var defaultStreamMaxLen int64 = 20000
+
+// streamsExemptFromCap lists ingestion streams that must stay unbounded. MAXLEN
+// trims by entry ID regardless of consumer-group pending state, so a producer
+// that legitimately bursts far ahead of its consumer (bulk requeue/backfill on
+// these streams) would have its unconsumed entries silently trimmed and lost.
+// Their memory is instead reclaimed by a consumed-offset (MINID) trim, not here.
+var streamsExemptFromCap = map[string]bool{
+	"stream:item:publish":   true,
+	"stream:profile:update": true,
+	"stream:trade:service":  true,
+}
+
+// SetDefaultStreamMaxLen overrides the cap applied by Publish. A non-positive
+// value disables capping for all non-exempt streams.
+func SetDefaultStreamMaxLen(n int64) {
+	defaultStreamMaxLen = n
+}
+
+// Publish sends a message to a Redis Stream, applying defaultStreamMaxLen unless
+// the stream is exempt (ingestion streams that must not lose unconsumed entries).
 func Publish(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
-	return RDB.XAdd(ctx, &redis.XAddArgs{
-		Stream: stream,
-		Values: values,
-	}).Result()
+	maxLen := defaultStreamMaxLen
+	if streamsExemptFromCap[stream] {
+		maxLen = 0
+	}
+	return PublishCapped(ctx, stream, maxLen, values)
+}
+
+// PublishCapped sends a message with an explicit approximate length bound,
+// bypassing the exempt list and default cap. MaxLen with Approx lets Redis trim
+// old entries cheaply at insert time. A non-positive maxLen writes unbounded.
+func PublishCapped(ctx context.Context, stream string, maxLen int64, values map[string]interface{}) (string, error) {
+	args := &redis.XAddArgs{Stream: stream, Values: values}
+	if maxLen > 0 {
+		args.MaxLen = maxLen
+		args.Approx = true
+	}
+	return RDB.XAdd(ctx, args).Result()
 }
 
 // EnsureConsumerGroup creates a consumer group if it doesn't exist

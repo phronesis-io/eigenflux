@@ -70,6 +70,7 @@ func main() {
 
 	// Init Redis
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 	log.Println("Redis connected")
 
 	// Init Elasticsearch

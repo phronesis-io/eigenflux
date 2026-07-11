@@ -91,6 +91,7 @@ type Config struct {
 	EnableReplayLog             bool     // Enable replay log publishing in FeedService (default: true)
 	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
+	MqStreamMaxLen              int64    // approximate cap on Redis Stream length applied by mq.Publish (default 20000, <=0 disables); ingestion streams are exempt
 
 	// Official account (singleton new-user guide / first contact)
 	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
@@ -265,6 +266,7 @@ func Load() *Config {
 		EnableReplayLog:               getEnvBool("ENABLE_REPLAY_LOG", true),
 		ReplayLogRetentionDays:        getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
 		ReplayLogCleanupIntervalSec:   getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
+		MqStreamMaxLen:                getEnvInt64("MQ_STREAM_MAXLEN", 20000),
 		OfficialAgentEmail:            getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
 		OfficialAgentName:             getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
 		OfficialAgentBio:              getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),

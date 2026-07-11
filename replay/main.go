@@ -38,6 +38,7 @@ func main() {
 	db.Init(cfg.PgDSN)
 
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 	bf = bloomfilter.NewBloomFilter(mq.RDB)
 
 	baseCfg = ranker.NewRankerConfig(cfg)

@@ -63,6 +63,7 @@ func main() {
 
 	// Initialize Redis (for caching and bloom filter)
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 
 	// Initialize Bloom Filter (for group_id deduplication)
 	bf = bloomfilter.NewBloomFilter(mq.RDB)

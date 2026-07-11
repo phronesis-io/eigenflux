@@ -44,6 +44,7 @@ func main() {
 	log.Println("PostgreSQL connected")
 
 	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	mq.SetDefaultStreamMaxLen(cfg.MqStreamMaxLen)
 	log.Println("Redis connected")
 
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {
