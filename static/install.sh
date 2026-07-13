@@ -270,6 +270,9 @@ migrate_config() {
 # ── Step 4: Detect and configure AI agents ────────────────────
 
 setup_agents() {
+  # Opt-out: skip all agent/plugin auto-setup (CLI + skills still install).
+  [ -n "${EIGENFLUX_SKIP_AGENT_SETUP:-}" ] && { info "EIGENFLUX_SKIP_AGENT_SETUP set; skipping agent plugin setup"; return 0; }
+
   # `curl | sh` runs in a non-interactive, non-login shell that does not
   # source ~/.zshrc or ~/.zprofile, so Homebrew's bin dirs may be missing
   # from PATH. Add the standard locations so brew-installed tools (openclaw)
@@ -340,11 +343,17 @@ setup_agents() {
 
     PLUGIN_CHANGED=false
     if [ "$PLUGIN_INSTALLED" = "false" ]; then
+      # Each call is wrapped in `if` so a plugin failure never aborts the
+      # whole installer under `set -e` (it would silently skip every branch
+      # below, e.g. Codex setup on a dual-host machine).
       if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
         info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
-        install_openclaw_plugin "$PLUGIN_SPEC"
-        ok "OpenClaw plugin installed"
-        PLUGIN_CHANGED=true
+        if install_openclaw_plugin "$PLUGIN_SPEC"; then
+          ok "OpenClaw plugin installed"
+          PLUGIN_CHANGED=true
+        else
+          info "OpenClaw plugin install failed; run manually: openclaw plugins install ${PLUGIN_SPEC}"
+        fi
       else
         printf "OpenClaw detected. Install the openclaw-eigenflux plugin automatically? [Y/n] "
         read -r REPLY < /dev/tty || REPLY=""
@@ -354,16 +363,22 @@ setup_agents() {
             ;;
           *)
             info "Installing ${PLUGIN_SPEC}..."
-            install_openclaw_plugin "$PLUGIN_SPEC"
-            ok "OpenClaw plugin installed"
-            PLUGIN_CHANGED=true
+            if install_openclaw_plugin "$PLUGIN_SPEC"; then
+              ok "OpenClaw plugin installed"
+              PLUGIN_CHANGED=true
+            else
+              info "OpenClaw plugin install failed; run manually: openclaw plugins install ${PLUGIN_SPEC}"
+            fi
             ;;
         esac
       fi
     else
-      install_openclaw_plugin "$PLUGIN_SPEC"
-      ok "OpenClaw plugin aligned to ${PLUGIN_SPEC}"
-      PLUGIN_CHANGED=true
+      if install_openclaw_plugin "$PLUGIN_SPEC"; then
+        ok "OpenClaw plugin aligned to ${PLUGIN_SPEC}"
+        PLUGIN_CHANGED=true
+      else
+        info "OpenClaw plugin update failed; run manually: openclaw plugins install ${PLUGIN_SPEC}"
+      fi
     fi
 
     if [ "$PLUGIN_CHANGED" = "true" ]; then
@@ -371,6 +386,102 @@ setup_agents() {
       openclaw gateway restart 2>/dev/null && \
         ok "OpenClaw gateway restarted" || \
         info "OpenClaw gateway restart failed; run 'openclaw gateway restart' manually"
+    fi
+  fi
+
+  # Codex: install the codex-eigenflux plugin (bundled stdio MCP server that
+  # exposes the feed/messages as tools and guarantees skills sync on startup).
+  # ChatGPT desktop app users often have no `codex` on PATH — on macOS the CLI
+  # ships inside the app bundle (/Applications or ~/Applications), so fall
+  # back to those paths. Linux/WSL: codex only ships via PATH installs
+  # (npm/brew), no bundle fallback needed.
+  # Install commands / app paths / the "codex-eigenflux@eigenflux" id mirror
+  # the codex-eigenflux repo (README, .agents/plugins/marketplace.json) and
+  # the ef-profile skill's Case A2 — keep them in sync.
+  CODEX_BIN=""
+  if command -v codex >/dev/null 2>&1; then
+    CODEX_BIN="codex"
+  elif [ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
+    CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
+  elif [ -x "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
+    CODEX_BIN="$HOME/Applications/ChatGPT.app/Contents/Resources/codex"
+  fi
+
+  # Is the plugin actually installed? Prefer machine-readable output: the
+  # default `plugin list --json` contains ONLY installed plugins, so a hit is
+  # unambiguous. The table fallback (old CLIs) must exclude marketplace rows
+  # and "not installed" entries — plain grep is famously fooled by them.
+  codex_plugin_installed() {
+    if "$CODEX_BIN" plugin list --json >/dev/null 2>&1; then
+      "$CODEX_BIN" plugin list --json 2>/dev/null | grep -q '"codex-eigenflux@'
+    else
+      "$CODEX_BIN" plugin list 2>/dev/null | grep -E '^codex-eigenflux@' | grep -iqv "not installed"
+    fi
+  }
+
+  install_codex_plugin() {
+    # Both steps are required: `marketplace add` only registers the repo,
+    # `plugin add` installs from it. Only an "already exists" error from
+    # marketplace add is benign — anything else (network, auth, a marketplace
+    # named `eigenflux` pointing at a DIFFERENT repo) must surface, not be
+    # swallowed: a squatted name would make `plugin add` install foreign code.
+    mkt_err=$("$CODEX_BIN" plugin marketplace add phronesis-io/codex-eigenflux 2>&1 >/dev/null) || {
+      case "$mkt_err" in
+        *[Aa]lready*) : ;;
+        *)
+          info "marketplace add failed: $(printf '%s' "$mkt_err" | tail -2)"
+          info "If a marketplace named 'eigenflux' exists but points elsewhere, inspect it:"
+          info "  $CODEX_BIN plugin marketplace list   (remove with: plugin marketplace remove eigenflux)"
+          ;;
+      esac
+    }
+    add_status=0
+    add_err=$("$CODEX_BIN" plugin add codex-eigenflux@eigenflux 2>&1 >/dev/null) || add_status=$?
+    # Verify the end state instead of trusting exit codes — a swallowed
+    # marketplace failure above can make `plugin add` "succeed" meaninglessly.
+    if [ "$add_status" = "0" ] && codex_plugin_installed; then
+      ok "Codex plugin installed (registers an MCP server in ~/.codex/config.toml; loads in NEW Codex sessions)"
+      info "Uninstall anytime: $CODEX_BIN plugin remove codex-eigenflux@eigenflux"
+    else
+      info "Codex plugin install failed:"
+      [ -n "$add_err" ] && printf '%s\n' "$add_err" | tail -3
+      info "Run manually:"
+      info "  $CODEX_BIN plugin marketplace add phronesis-io/codex-eigenflux"
+      info "  $CODEX_BIN plugin add codex-eigenflux@eigenflux"
+    fi
+  }
+
+  if [ -n "$CODEX_BIN" ]; then
+    info ""
+    info "Codex environment detected."
+
+    if codex_plugin_installed; then
+      # Refresh the git marketplace snapshot so future installs/updates pick
+      # up the latest plugin; codex has no direct plugin-update command yet.
+      "$CODEX_BIN" plugin marketplace upgrade eigenflux >/dev/null 2>&1 || true
+      info "Codex plugin already installed; refreshed marketplace snapshot"
+    else
+      # Interactivity is decided by /dev/tty alone: stdout may be piped
+      # (`... | tee log`) while the user is still there to answer. `-r` only
+      # checks permission bits, so actually try opening it — without a
+      # controlling terminal the open fails (e.g. cron/CI).
+      if ! ( : < /dev/tty ) 2>/dev/null; then
+        info "Non-interactive shell; installing the codex-eigenflux plugin automatically"
+        info "(writes ~/.codex/config.toml and registers an MCP server for future Codex sessions;"
+        info " set EIGENFLUX_SKIP_AGENT_SETUP=1 to skip agent setup entirely)"
+        install_codex_plugin
+      else
+        printf "Codex detected. Install the codex-eigenflux plugin (registers an MCP server in ~/.codex/config.toml)? [Y/n] "
+        read -r REPLY < /dev/tty || REPLY=""
+        case "$REPLY" in
+          [nN]|[nN][oO])
+            info "Skipped Codex plugin installation"
+            ;;
+          *)
+            install_codex_plugin
+            ;;
+        esac
+      fi
     fi
   fi
 }
