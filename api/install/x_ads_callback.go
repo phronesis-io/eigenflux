@@ -28,6 +28,8 @@ var (
 	xAdsAPIVersion     string
 	xAdsAccountID      string
 	xPixelID           string
+	xTokenEventID      string
+	xCopyEventID       string
 	xInstallEventID    string
 	xConsumerKey       string
 	xConsumerSecret    string
@@ -43,7 +45,9 @@ func initXAdsConfig() {
 	xAdsAPIVersion = strings.Trim(envStr("X_ADS_API_VERSION", "12"), "/")
 	xAdsAccountID = envStr("X_ADS_ACCOUNT_ID", "")
 	xPixelID = envStr("X_PIXEL_ID", "rcmcb")
-	xInstallEventID = envStr("X_INSTALL_EVENT_ID", "tw-rcmcb-rdiwm")
+	xTokenEventID = envStr("X_TOKEN_CREATED_EVENT_ID", "tw-rcmcb-rdiw5")
+	xCopyEventID = envStr("X_COPY_COMMAND_EVENT_ID", "tw-rcmcb-rdiw6")
+	xInstallEventID = envStr("X_INSTALL_EVENT_ID", "tw-rcmcb-rdiw7")
 	xConsumerKey = envStr("X_CONSUMER_KEY", "")
 	xConsumerSecret = envStr("X_CONSUMER_SECRET", "")
 	xAccessToken = envStr("X_ACCESS_TOKEN", "")
@@ -54,36 +58,70 @@ func initXAdsConfig() {
 }
 
 func xAdsConfigured() bool {
-	return xAdsAccountID != "" && xPixelID != "" && xInstallEventID != "" && xConsumerKey != "" && xConsumerSecret != "" && xAccessToken != "" && xAccessTokenSecret != ""
+	return xAdsAccountID != "" && xPixelID != "" && xTokenEventID != "" && xCopyEventID != "" && xInstallEventID != "" && xConsumerKey != "" && xConsumerSecret != "" && xAccessToken != "" && xAccessTokenSecret != ""
 }
 
-func fireXAdsInstallCallback(ref string) {
+type xAdsFunnelEvent struct {
+	name    string
+	eventID string
+	codeCol string
+	sentCol string
+}
+
+var (
+	xAdsTokenCreated = xAdsFunnelEvent{name: "token_created", codeCol: "x_cb_token_code", sentCol: "x_cb_token_sent_at"}
+	xAdsCopyCommand  = xAdsFunnelEvent{name: "copy_command", codeCol: "x_cb_copy_code", sentCol: "x_cb_copy_sent_at"}
+	xAdsInstall      = xAdsFunnelEvent{name: "install_complete", codeCol: "x_cb102_code", sentCol: "x_cb102_sent_at"}
+)
+
+func configuredXAdsEvent(event xAdsFunnelEvent) xAdsFunnelEvent {
+	switch event.name {
+	case "token_created":
+		event.eventID = xTokenEventID
+	case "copy_command":
+		event.eventID = xCopyEventID
+	case "install_complete":
+		event.eventID = xInstallEventID
+	}
+	return event
+}
+
+func fireXAdsTokenCreatedCallback(ref string) { fireXAdsCallback(ref, xAdsTokenCreated) }
+func fireXAdsCopyCommandCallback(ref string)  { fireXAdsCallback(ref, xAdsCopyCommand) }
+func fireXAdsInstallCallback(ref string)      { fireXAdsCallback(ref, xAdsInstall) }
+
+func fireXAdsCallback(ref string, funnel xAdsFunnelEvent) {
 	if !xCallbackEnabled || !xAdsConfigured() {
 		return
 	}
+	funnel = configuredXAdsEvent(funnel)
 	go func() {
-		won, t, err := ClaimXInstallCallback(db.DB, ref)
+		won, t, err := ClaimXAdsCallback(db.DB, ref, funnel)
 		if err != nil {
-			logger.Default().Error("install x ads callback claim failed", "ref", ref, "err", err)
+			logger.Default().Error("X Ads callback claim failed", "ref", ref, "event", funnel.name, "err", err)
 			return
 		}
 		if !won || t.Twclid == "" {
 			return
 		}
-		code, err := reportXAdsInstallConversion(t.Token, t.Twclid, t.ReportedAt)
+		code, err := reportXAdsConversion(t.Token, t.Twclid, t.ReportedAt, funnel.eventID, funnel.name)
 		if err != nil {
-			logger.Default().Error("install x ads callback failed", "ref", ref, "code", code, "err", err)
+			logger.Default().Error("X Ads callback failed", "ref", ref, "event", funnel.name, "code", code, "err", err)
 		}
-		if e := SetXInstallCallbackCode(db.DB, ref, code); e != nil {
-			logger.Default().Error("install x ads callback set code failed", "ref", ref, "err", e)
+		if e := SetXAdsCallbackCode(db.DB, ref, funnel, code); e != nil {
+			logger.Default().Error("X Ads callback set code failed", "ref", ref, "event", funnel.name, "err", e)
 		}
 		if code == 0 {
-			event("install_callback_x_ads", ref, "channel", t.Channel, "event_id", xInstallEventID)
+			event("install_callback_x_ads", ref, "channel", t.Channel, "funnel_event", funnel.name, "event_id", funnel.eventID)
 		}
 	}()
 }
 
 func reportXAdsInstallConversion(ref, twclid string, reportedAt int64) (int, error) {
+	return reportXAdsConversion(ref, twclid, reportedAt, xInstallEventID, "install_complete")
+}
+
+func reportXAdsConversion(ref, twclid string, reportedAt int64, eventID, funnelEvent string) (int, error) {
 	conversionTime := time.Now().UTC()
 	if reportedAt > 0 {
 		conversionTime = time.UnixMilli(reportedAt).UTC()
@@ -92,12 +130,10 @@ func reportXAdsInstallConversion(ref, twclid string, reportedAt int64) (int, err
 		"conversions": []map[string]interface{}{
 			{
 				"conversion_time": conversionTime.Format(time.RFC3339Nano),
-				"event_id":        xInstallEventID,
-				"identifiers": []map[string]string{
-					{"twclid": twclid},
-				},
-				"conversion_id": ref,
-				"description":   "EigenFlux install complete",
+				"event_id":        eventID,
+				"identifiers":     []map[string]string{{"twclid": twclid}},
+				"conversion_id":   fmt.Sprintf("%s:%s", funnelEvent, ref),
+				"description":     "EigenFlux " + strings.ReplaceAll(funnelEvent, "_", " "),
 			},
 		},
 	}
