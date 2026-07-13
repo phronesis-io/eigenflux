@@ -26,28 +26,17 @@ import (
 
 // Sender is the shared entry point for acting as the official account.
 type Sender struct {
-	pm           pmservice.Client
-	llm          *llm.Client
-	prompts      *llm.PromptRegistry
-	cfg          *config.Config
-	whitelist    map[string]struct{}
-	testSuffixes []string
+	pm      pmservice.Client
+	llm     *llm.Client
+	prompts *llm.PromptRegistry
+	cfg     *config.Config
 
 	mu         sync.Mutex
 	officialID int64
 }
 
 func NewSender(cfg *config.Config, pmClient pmservice.Client, llmClient *llm.Client, prompts *llm.PromptRegistry) *Sender {
-	wl := map[string]struct{}{}
-	for _, e := range cfg.OfficialPMWhitelist {
-		if n := strings.ToLower(strings.TrimSpace(e)); n != "" {
-			wl[n] = struct{}{}
-		}
-	}
-	if len(wl) == 0 {
-		wl = nil
-	}
-	return &Sender{pm: pmClient, llm: llmClient, prompts: prompts, cfg: cfg, whitelist: wl, testSuffixes: cfg.OfficialTestEmailSuffixes}
+	return &Sender{pm: pmClient, llm: llmClient, prompts: prompts, cfg: cfg}
 }
 
 // ResolveOfficialID looks up the official account's agent_id by email and caches
@@ -67,16 +56,10 @@ func (s *Sender) ResolveOfficialID() int64 {
 }
 
 // PassesGate reports whether the official account may message target: they must
-// be friends, pass the staged-rollout whitelist (test suffixes bypass it), and
-// not have opted out.
+// be friends and not have opted out.
 func (s *Sender) PassesGate(officialID, targetID int64, targetEmail string) bool {
 	if friend, err := pmdal.IsFriend(db.DB, officialID, targetID); err != nil || !friend {
 		return false
-	}
-	if s.whitelist != nil && !config.EmailMatchesAnySuffix(targetEmail, s.testSuffixes) {
-		if _, ok := s.whitelist[strings.ToLower(strings.TrimSpace(targetEmail))]; !ok {
-			return false
-		}
 	}
 	if cfgs, err := apidal.GetSettings(db.DB, targetID); err == nil && cfgs.OfficialPMOptout {
 		return false
@@ -85,34 +68,13 @@ func (s *Sender) PassesGate(officialID, targetID int64, targetEmail string) bool
 }
 
 // ChatGate is like PassesGate but for user-initiated chat (#2): it requires
-// friendship and the staged-rollout whitelist (test suffixes bypass it), but
-// ignores the proactive-PM opt-out — a user who DMs the official account wants
-// a reply regardless of having muted proactive pushes.
+// friendship but ignores the proactive-PM opt-out — a user who DMs the official
+// account wants a reply regardless of having muted proactive pushes.
 func (s *Sender) ChatGate(officialID, userID int64, userEmail string) bool {
 	if friend, err := pmdal.IsFriend(db.DB, officialID, userID); err != nil || !friend {
 		return false
 	}
-	if s.whitelist != nil && !config.EmailMatchesAnySuffix(userEmail, s.testSuffixes) {
-		if _, ok := s.whitelist[strings.ToLower(strings.TrimSpace(userEmail))]; !ok {
-			return false
-		}
-	}
 	return true
-}
-
-// IsTestRecipient reports whether the recipient is a test account (matches a
-// configured test suffix, or the PM whitelist). Used to deliver the proactive
-// PMs (#4/#5) daily for testing instead of at the normal cadence.
-func (s *Sender) IsTestRecipient(email string) bool {
-	if config.EmailMatchesAnySuffix(email, s.testSuffixes) {
-		return true
-	}
-	if s.whitelist != nil {
-		if _, ok := s.whitelist[strings.ToLower(strings.TrimSpace(email))]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // CooldownAcquire SETNX-gates a per-feature, per-user cooldown. Returns true

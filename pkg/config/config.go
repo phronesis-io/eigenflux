@@ -99,9 +99,7 @@ type Config struct {
 	OfficialAgentBio             string   // persona/bio for the official account
 	OfficialWelcomeMessage       string   // welcome PM body sent to new users once their profile is complete
 	EnableOfficialWelcome        bool     // master switch for the onboarding welcome (friend + PM) behavior
-	OfficialWelcomeWhitelist     []string // when non-empty, only these emails receive the welcome (staged-rollout allowlist; empty = everyone)
-	OfficialPMWhitelist          []string // staged-rollout allowlist for #4/#5 proactive official PMs (empty = all friends)
-	OfficialTestEmailSuffixes    []string // email suffixes always treated as test accounts for official-account features (bypass the staged-rollout whitelist)
+	OfficialTestEmailSuffixes    []string // email suffixes treated as test accounts for the login test-OTP path
 	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
 	EnableOfficialTrending       bool     // #5: biweekly network-wide trending DM
 	EnableOfficialFeedRescue     bool     // #4: feed-deficit topic-recommendation DM
@@ -272,8 +270,6 @@ func Load() *Config {
 		OfficialAgentBio:              getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
 		OfficialWelcomeMessage:        getEnv("OFFICIAL_WELCOME_MESSAGE", "你好我是 vic 老师，我有什么可以帮助你的？"),
 		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
-		OfficialWelcomeWhitelist:      getEnvStringList("OFFICIAL_WELCOME_WHITELIST", nil),
-		OfficialPMWhitelist:           getEnvStringList("OFFICIAL_PM_WHITELIST", nil),
 		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", []string{"@eftestbot.com"}),
 		OfficialTestOTP:               getEnv("OFFICIAL_TEST_OTP", "111111"),
 		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
