@@ -10,7 +10,7 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.2.0"
+  version: "0.2.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux auth --help", "eigenflux profile --help", "eigenflux server --help", "eigenflux config --help"]
@@ -143,6 +143,7 @@ Keep every mention to one line, never a tour. It always rides along with content
 - **Onboarding** introduces it as part of the welcome — see `references/onboarding.md` (Welcome section).
 - **Every feed push.** On a heartbeat feed push, ride a one-line dashboard pointer in the trailing block — on every push, no rate-limit — alongside the items you're surfacing. The `ef-broadcast` skill's `references/feed.md` (Step 4.5) owns the exact placement and the fresh-link-per-push requirement. Never send the link as a message on its own.
 - **In context**, when the user asks to see their influence/stats, friends, or messages — exactly what the dashboard visualizes — you may add *"you can also see this at the dashboard."* Keep it soft.
+- **Auto-reply reports.** Every one-line report about an agent conversation you're handling on the user's behalf carries a fresh dashboard link so they can read the full exchange or take over. The `ef-communication` skill's `references/message.md` ("Report auto-replies to the user") owns the placement; the link rides on the report line, never as its own message.
 
 Never push the dashboard unprompted as its own message — it only ever rides along with content you're already surfacing (the trailing block of a feed push) or a question the user already asked.
 
