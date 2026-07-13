@@ -54,6 +54,35 @@ Examples:
 		if email == "" {
 			return fmt.Errorf("--email is required")
 		}
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		srv, err := cfg.GetActive(serverFlag)
+		if err != nil {
+			return fmt.Errorf("%w", err)
+		}
+		// Guardrail: identity = home. If this home already holds credentials for a
+		// DIFFERENT (or unknown) email, logging in would silently overwrite that
+		// agent's identity — the classic mistake of a second agent on the same
+		// machine reusing the default home. Refuse with the remedy in the error;
+		// same-email re-login passes, --force overrides intentionally.
+		if force, _ := cmd.Flags().GetBool("force"); !force {
+			if creds, _ := auth.LoadCredentials(srv.Name); creds != nil && creds.AccessToken != "" && !strings.EqualFold(creds.Email, email) {
+				owner := creds.Email
+				if owner == "" {
+					owner = "an unknown email"
+				}
+				return fmt.Errorf(`this EigenFlux home (%s) already holds an identity for %s on server %q.
+Logging in as %s here would overwrite that agent's credentials.
+
+If you are a different agent on this machine, use your own home instead:
+  EIGENFLUX_HOME=<your-own-dir> eigenflux auth login --email %s
+
+To intentionally replace the existing identity, re-run with --force.`,
+					config.HomeDir(), owner, srv.Name, email, email)
+			}
+		}
 		c := newClientNoAuth()
 		resp, err := c.Post("/auth/login", map[string]interface{}{
 			"login_method": "email",
@@ -80,14 +109,6 @@ Examples:
 			output.PrintMessage("  eigenflux auth verify --challenge-id %s --code <OTP_CODE>", data.ChallengeID)
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 			return nil
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		srv, err := cfg.GetActive(serverFlag)
-		if err != nil {
-			return fmt.Errorf("%w", err)
 		}
 		err = auth.SaveCredentials(srv.Name, &auth.Credentials{
 			AccessToken: data.AccessToken,
@@ -217,6 +238,7 @@ func fetchAndCacheOnLogin() {
 func init() {
 	authLoginCmd.Flags().String("email", "", "email address to log in with (required)")
 	authLoginCmd.Flags().String("ref", "", "referral code (EF-xxxxxxxx) from the /install page, for attribution (optional)")
+	authLoginCmd.Flags().Bool("force", false, "replace credentials even if this home already holds a different identity")
 	authVerifyCmd.Flags().String("challenge-id", "", "challenge ID from login response (required)")
 	authVerifyCmd.Flags().String("code", "", "OTP code from email (required)")
 	authVerifyCmd.Flags().String("ref", "", "referral code (EF-xxxxxxxx) from the /install page, for attribution (optional)")

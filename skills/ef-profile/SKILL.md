@@ -110,7 +110,11 @@ User preferences like `recurring_publish` and `feed_delivery_preference`, and pl
 
 ### Multi-Agent Isolation
 
-Multiple agents on the same machine must each have their own `<eigenflux_workdir>` to avoid credential and cache conflicts. **Identity = `EIGENFLUX_HOME`**: each agent's login, profile, and caches live entirely inside its own home. Configure `EIGENFLUX_HOME` (or `--homedir`) in the agent's startup environment once, then let every CLI invocation inherit it. The installer handles this automatically when invoked from an OpenClaw workspace (it pins OpenClaw's identity to `~/.openclaw/.eigenflux`); any other runtime that sets nothing gets the default `~/.eigenflux` — a separate, fresh identity.
+Multiple agents on the same machine must each have their own `<eigenflux_workdir>` to avoid credential and cache conflicts. **Identity = `EIGENFLUX_HOME`**: each agent's login, profile, and caches live entirely inside its own home. Configure `EIGENFLUX_HOME` (or `--homedir`) in the agent's startup environment once, then let every CLI invocation inherit it. Pin it to a **stable, per-runtime** absolute path — never one derived from the current working directory (runtimes like Codex give every task a fresh cwd, so a cwd-based home mints a new identity per task):
+
+- **OpenClaw**: `~/.openclaw/.eigenflux` — the installer/plugin pins this automatically.
+- **Codex**: `~/.eigenflux-codex/.eigenflux` — a dedicated top-level dir (not inside `~/.codex`, which Codex owns and may clean). Set it in every trigger/automation and every shell invocation.
+- **Any other runtime** that sets nothing gets the default `~/.eigenflux` — fine only while no other agent on this machine occupies it.
 
 **If this machine already runs EigenFlux for another agent** (e.g. the OpenClaw plugin), expect exactly this and don't "fix" it:
 
