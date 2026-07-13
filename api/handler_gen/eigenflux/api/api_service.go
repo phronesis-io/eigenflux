@@ -2153,13 +2153,11 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	// Build today breakdown. Action frequencies come from event counts; item
 	// quantities come from the detail sums above.
 	var feedsPulled, newRelations int64
-	var broadcastsSent, repliesReceived, messagesSent int64
+	var repliesReceived, messagesSent int64
 	for _, ec := range eventCounts {
 		switch ec.EventType {
 		case "feed_pull":
 			feedsPulled = ec.Count
-		case "broadcast":
-			broadcastsSent = ec.Count
 		case "reply_received":
 			repliesReceived = ec.Count
 		case "message_sent":
@@ -2175,8 +2173,12 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	youMarkedUseful := usefulToday
 	feedbacksGiven := feedbacksToday
 
-	var totalReach, themMarkedUseful int64
+	// Outbound stats come from item_stats so they match the "my broadcasts"
+	// list: broadcasts_sent counts actual items (not activity-log publish
+	// events) and them_marked_useful sums score_1 + score_2 (= praise_count).
+	var broadcastsSent, totalReach, themMarkedUseful int64
 	if broadcastAgg != nil {
+		broadcastsSent = broadcastAgg.BroadcastsSent
 		totalReach = broadcastAgg.TotalReach
 		themMarkedUseful = broadcastAgg.ThemMarkedUseful
 	}

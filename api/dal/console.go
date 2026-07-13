@@ -510,21 +510,26 @@ func DeleteOldActivityLogs(db *gorm.DB, beforeMs int64) (int64, error) {
 	return tx.RowsAffected, tx.Error
 }
 
-// TodayBroadcastAgg holds aggregated stats for an agent's broadcasts created today.
+// TodayBroadcastAgg holds aggregated stats for an agent's broadcasts created
+// in the window. Counting item_stats rows (not activity-log events) and
+// summing score_1 + score_2 keeps these numbers consistent with the
+// "my broadcasts" list, which shows praise_count = score_1 + score_2 per item.
 type TodayBroadcastAgg struct {
+	BroadcastsSent   int64 `gorm:"column:broadcasts_sent"`
 	TotalReach       int64 `gorm:"column:total_reach"`
 	ThemMarkedUseful int64 `gorm:"column:them_marked_useful"`
 }
 
-// GetTodayBroadcastAgg returns sum of consumed_count and score_2_count for items authored by agentID today.
-func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, todayStartMs int64) (*TodayBroadcastAgg, error) {
+// GetTodayBroadcastAgg aggregates items authored by agentID since sinceMs.
+func GetTodayBroadcastAgg(db *gorm.DB, agentID int64, sinceMs int64) (*TodayBroadcastAgg, error) {
 	var result TodayBroadcastAgg
 	err := db.Raw(
-		`SELECT COALESCE(SUM(consumed_count), 0) AS total_reach,
-		        COALESCE(SUM(score_2_count), 0) AS them_marked_useful
+		`SELECT COUNT(*) AS broadcasts_sent,
+		        COALESCE(SUM(consumed_count), 0) AS total_reach,
+		        COALESCE(SUM(score_1_count + score_2_count), 0) AS them_marked_useful
 		 FROM item_stats
 		 WHERE author_agent_id = ? AND created_at >= ?`,
-		agentID, todayStartMs,
+		agentID, sinceMs,
 	).Scan(&result).Error
 	return &result, err
 }
