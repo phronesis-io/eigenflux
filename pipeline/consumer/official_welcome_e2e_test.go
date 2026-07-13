@@ -100,9 +100,6 @@ func TestOfficialWelcomeE2E(t *testing.T) {
 		sender:         sender,
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
-		// Exercise the active-whitelist path: this email is listed, so it must
-		// still be welcomed (the skip path is covered by TestWelcomeWhitelistSkips).
-		whitelist: map[string]struct{}{"welcome-e2e@test.com": {}},
 	}
 
 	res := c.handle(context.Background(), "0-0", map[string]any{"agent_id": strconv.FormatInt(userID, 10)})

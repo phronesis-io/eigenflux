@@ -111,11 +111,7 @@ func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Cli
 			if !oc.PassesGate(officialID, f.AgentID, agent.Email) {
 				continue
 			}
-			cd := fullCooldown
-			if oc.IsTestRecipient(agent.Email) {
-				cd = 24 * time.Hour // test accounts: daily
-			}
-			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, cd) {
+			if !oc.CooldownAcquire(ctx, "trending", f.AgentID, fullCooldown) {
 				continue
 			}
 			lang := official.LangOf(f.AgentID)
