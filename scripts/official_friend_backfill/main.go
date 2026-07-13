@@ -101,13 +101,21 @@ func main() {
 	close(work)
 	wg.Wait()
 
+	// The official account's friend cache key is the same for every backfilled
+	// user, so invalidate it exactly once here rather than once per worker.
+	if created > 0 {
+		_ = relations.InvalidateFriendCache(ctx, mq.RDB, officialID)
+	}
+
 	log.Printf("backfill done: created=%d skipped(already friend)=%d failed=%d total=%d",
 		created, skipped, failed, len(targets))
 }
 
-// ensureOfficialFriend mirrors OfficialWelcomeConsumer.ensureFriendship: build
-// the symmetric relation in a locked transaction (idempotent), then invalidate
-// both friend caches so PMService sees the new relation. No welcome PM is sent.
+// ensureOfficialFriend mirrors OfficialWelcomeConsumer.ensureFriendship: accept
+// any pending request between the pair, build the symmetric relation in a locked
+// transaction (idempotent), then invalidate the user's friend cache. The
+// official account's own cache is the same key for every user, so the caller
+// invalidates it once after all workers finish. No welcome PM is sent.
 func ensureOfficialFriend(ctx context.Context, officialID, userID int64) result {
 	created := false
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
@@ -121,6 +129,8 @@ func ensureOfficialFriend(ctx context.Context, officialID, userID int64) result 
 		if isFriend {
 			return nil
 		}
+		acceptPendingRequest(tx, userID, officialID)
+		acceptPendingRequest(tx, officialID, userID)
 		if err := pmdal.CreateFriendRelation(tx, officialID, userID, officialFriendRemark, ""); err != nil {
 			return err
 		}
@@ -134,9 +144,19 @@ func ensureOfficialFriend(ctx context.Context, officialID, userID int64) result 
 	if !created {
 		return resultSkipped
 	}
-	_ = relations.InvalidateFriendCache(ctx, mq.RDB, officialID)
 	_ = relations.InvalidateFriendCache(ctx, mq.RDB, userID)
 	return resultCreated
+}
+
+// acceptPendingRequest accepts a pending friend request from fromUID to toUID
+// (if any) so friend_requests stays consistent with the relation we build —
+// mirrors OfficialWelcomeConsumer.acceptPendingRequest.
+func acceptPendingRequest(tx *gorm.DB, fromUID, toUID int64) {
+	req, err := pmdal.GetFriendRequestBetweenForUpdate(tx, fromUID, toUID)
+	if err != nil || req == nil {
+		return
+	}
+	_, _ = pmdal.UpdateRequestStatusIfPending(tx, req.ID, pmdal.RequestStatusAccepted)
 }
 
 // loadTargets returns agent_ids that should be friended: profile-complete,
@@ -144,7 +164,7 @@ func ensureOfficialFriend(ctx context.Context, officialID, userID int64) result 
 // have not blocked it.
 func loadTargets(officialID int64, limit int) ([]int64, error) {
 	var ids []int64
-	q := db.DB.Raw(`
+	sql := `
 		SELECT a.agent_id
 		  FROM agents a
 		 WHERE a.is_official = FALSE
@@ -155,13 +175,14 @@ func loadTargets(officialID int64, limit int) ([]int64, error) {
 		   AND NOT EXISTS (
 		         SELECT 1 FROM user_relations ur
 		          WHERE ur.from_uid = a.agent_id AND ur.to_uid = ? AND ur.rel_type = ?)
-		 ORDER BY a.agent_id ASC`,
-		officialID, pmdal.RelTypeFriend, officialID, pmdal.RelTypeBlock)
-	if err := q.Scan(&ids).Error; err != nil {
-		return nil, err
+		 ORDER BY a.agent_id ASC`
+	args := []any{officialID, pmdal.RelTypeFriend, officialID, pmdal.RelTypeBlock}
+	if limit > 0 {
+		sql += " LIMIT ?"
+		args = append(args, limit)
 	}
-	if limit > 0 && len(ids) > limit {
-		ids = ids[:limit]
+	if err := db.DB.Raw(sql, args...).Scan(&ids).Error; err != nil {
+		return nil, err
 	}
 	return ids, nil
 }
