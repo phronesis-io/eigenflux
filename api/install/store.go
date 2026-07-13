@@ -150,10 +150,22 @@ func ReportInstall(db *gorm.DB, token string) (converted bool, t *Token, err err
 	return converted, t, nil
 }
 
+const xInstallCallbackLease = time.Minute
+
+// xInstallCallbackClaimable reports whether a previous callback attempt has
+// either never been claimed or its in-flight lease has expired. The database
+// UPDATE in ClaimXInstallCallback applies this predicate atomically, so several
+// duplicate install reports cannot concurrently send the same conversion.
+func xInstallCallbackClaimable(sentAt, now int64) bool {
+	return sentAt == 0 || sentAt < now-xInstallCallbackLease.Milliseconds()
+}
+
 func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+	now := time.Now().UnixMilli()
+	leaseCutoff := now - xInstallCallbackLease.Milliseconds()
 	res := db.Model(&Token{}).
-		Where("token = ? AND x_cb102_code <> 0 AND twclid <> ''", ref).
-		Update("x_cb102_sent_at", time.Now().UnixMilli())
+		Where("token = ? AND x_cb102_code <> 0 AND twclid <> '' AND (x_cb102_sent_at = 0 OR x_cb102_sent_at < ?)", ref, leaseCutoff).
+		Update("x_cb102_sent_at", now)
 	if res.Error != nil {
 		return false, nil, res.Error
 	}

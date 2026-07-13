@@ -117,3 +117,24 @@ func TestCallbackCols(t *testing.T) {
 		t.Fatalf("unknown event should default to cb101, got %s", c)
 	}
 }
+
+func TestXInstallCallbackClaimable(t *testing.T) {
+	now := int64(10 * 60 * 1000)
+	tests := []struct {
+		name   string
+		sentAt int64
+		want   bool
+	}{
+		{name: "never claimed", sentAt: 0, want: true},
+		{name: "active lease", sentAt: now - xInstallCallbackLease.Milliseconds() + 1, want: false},
+		{name: "lease boundary", sentAt: now - xInstallCallbackLease.Milliseconds(), want: false},
+		{name: "expired lease", sentAt: now - xInstallCallbackLease.Milliseconds() - 1, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := xInstallCallbackClaimable(tt.sentAt, now); got != tt.want {
+				t.Fatalf("xInstallCallbackClaimable(%d, %d) = %v, want %v", tt.sentAt, now, got, tt.want)
+			}
+		})
+	}
+}
