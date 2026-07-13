@@ -43,12 +43,18 @@ type Token struct {
 	// cb101 = copy click (event_type 101), cb102 = install success (event_type
 	// 102). Code: -1 not attempted, 0 accepted (terminal), >0 platform error,
 	// -2 transport error. Non-zero is re-claimable by a later trigger.
-	Cb101Code    int   `gorm:"column:cb101_code;not null;default:-1"`
-	Cb101SentAt  int64 `gorm:"column:cb101_sent_at;not null;default:0"`
-	Cb102Code    int   `gorm:"column:cb102_code;not null;default:-1"`
-	Cb102SentAt  int64 `gorm:"column:cb102_sent_at;not null;default:0"`
-	XCb102Code   int   `gorm:"column:x_cb102_code;not null;default:-1"`
-	XCb102SentAt int64 `gorm:"column:x_cb102_sent_at;not null;default:0"`
+	Cb101Code   int   `gorm:"column:cb101_code;not null;default:-1"`
+	Cb101SentAt int64 `gorm:"column:cb101_sent_at;not null;default:0"`
+	Cb102Code   int   `gorm:"column:cb102_code;not null;default:-1"`
+	Cb102SentAt int64 `gorm:"column:cb102_sent_at;not null;default:0"`
+	// X Ads CAPI callbacks are tracked independently for the server-confirmed
+	// token-created, command-copied, and install-complete funnel stages.
+	XCbTokenCode   int   `gorm:"column:x_cb_token_code;not null;default:-1"`
+	XCbTokenSentAt int64 `gorm:"column:x_cb_token_sent_at;not null;default:0"`
+	XCbCopyCode    int   `gorm:"column:x_cb_copy_code;not null;default:-1"`
+	XCbCopySentAt  int64 `gorm:"column:x_cb_copy_sent_at;not null;default:0"`
+	XCb102Code     int   `gorm:"column:x_cb102_code;not null;default:-1"`
+	XCb102SentAt   int64 `gorm:"column:x_cb102_sent_at;not null;default:0"`
 	// CallbackSentAt / CallbackCode are the legacy single-event callback columns,
 	// superseded by the cb101/cb102 pair above; kept for backward compatibility.
 	CallbackSentAt int64 `gorm:"column:callback_sent_at;not null;default:0"`

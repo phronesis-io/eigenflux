@@ -160,12 +160,12 @@ func xInstallCallbackClaimable(sentAt, now int64) bool {
 	return sentAt == 0 || sentAt < now-xInstallCallbackLease.Milliseconds()
 }
 
-func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+func ClaimXAdsCallback(db *gorm.DB, ref string, event xAdsFunnelEvent) (won bool, t *Token, err error) {
 	now := time.Now().UnixMilli()
 	leaseCutoff := now - xInstallCallbackLease.Milliseconds()
 	res := db.Model(&Token{}).
-		Where("token = ? AND x_cb102_code <> 0 AND twclid <> '' AND (x_cb102_sent_at = 0 OR x_cb102_sent_at < ?)", ref, leaseCutoff).
-		Update("x_cb102_sent_at", now)
+		Where(fmt.Sprintf("token = ? AND %s <> 0 AND twclid <> '' AND (%s = 0 OR %s < ?)", event.codeCol, event.sentCol, event.sentCol), ref, leaseCutoff).
+		Update(event.sentCol, now)
 	if res.Error != nil {
 		return false, nil, res.Error
 	}
@@ -179,6 +179,14 @@ func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err err
 	return true, &tok, nil
 }
 
+func SetXAdsCallbackCode(db *gorm.DB, ref string, event xAdsFunnelEvent, code int) error {
+	return db.Model(&Token{}).Where("token = ?", ref).Update(event.codeCol, code).Error
+}
+
+func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+	return ClaimXAdsCallback(db, ref, xAdsInstall)
+}
+
 func SetXInstallCallbackCode(db *gorm.DB, ref string, code int) error {
-	return db.Model(&Token{}).Where("token = ?", ref).Update("x_cb102_code", code).Error
+	return SetXAdsCallbackCode(db, ref, xAdsInstall, code)
 }

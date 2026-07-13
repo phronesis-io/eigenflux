@@ -123,6 +123,9 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
 		"paid", t.ClickID != "" || t.Twclid != "", "invite_code", t.InviteCode)
+	// The token is now durably created; report this server-confirmed funnel
+	// stage to X when it came from an X ad click.
+	fireXAdsTokenCreatedCallback(t.Token)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"ref":     t.Token,
 		"command": installCommand(t.Token),
@@ -223,6 +226,8 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 	if t != nil {
 		event("install_copy", t.Token, "channel", t.Channel)
 		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
+		// Copy was confirmed by the server and is idempotent per ref.
+		fireXAdsCopyCommandCallback(t.Token)
 	}
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref})
 }
