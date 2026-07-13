@@ -271,7 +271,18 @@ migrate_config() {
 
 setup_agents() {
   # Opt-out: skip all agent/plugin auto-setup (CLI + skills still install).
-  [ -n "${EIGENFLUX_SKIP_AGENT_SETUP:-}" ] && { info "EIGENFLUX_SKIP_AGENT_SETUP set; skipping agent plugin setup"; return 0; }
+  # Only a truthy value skips; SKIP=0/false/no means "do NOT skip".
+  case "${EIGENFLUX_SKIP_AGENT_SETUP:-}" in
+    ''|0|false|FALSE|no|NO) : ;;
+    *) info "EIGENFLUX_SKIP_AGENT_SETUP set; skipping agent plugin setup"; return 0 ;;
+  esac
+
+  # Interactive iff we can actually open the controlling terminal. stdout may
+  # be piped (`... | tee log`) while the user is still there to answer, so
+  # don't gate on `-t 1`; and `-r /dev/tty` only checks permission bits, so
+  # open it for real. Used by both the OpenClaw and Codex branches so they
+  # never disagree about whether to prompt.
+  ef_interactive() { ( : < /dev/tty ) 2>/dev/null; }
 
   # `curl | sh` runs in a non-interactive, non-login shell that does not
   # source ~/.zshrc or ~/.zprofile, so Homebrew's bin dirs may be missing
@@ -346,8 +357,10 @@ setup_agents() {
       # Each call is wrapped in `if` so a plugin failure never aborts the
       # whole installer under `set -e` (it would silently skip every branch
       # below, e.g. Codex setup on a dual-host machine).
-      if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
-        info "Non-interactive shell; installing openclaw-eigenflux plugin automatically..."
+      if ! ef_interactive; then
+        info "Non-interactive shell; installing the openclaw-eigenflux plugin automatically"
+        info "(installs into OpenClaw's plugin dir and restarts the gateway;"
+        info " set EIGENFLUX_SKIP_AGENT_SETUP=1 to skip agent setup entirely)"
         if install_openclaw_plugin "$PLUGIN_SPEC"; then
           ok "OpenClaw plugin installed"
           PLUGIN_CHANGED=true
@@ -386,6 +399,7 @@ setup_agents() {
       openclaw gateway restart 2>/dev/null && \
         ok "OpenClaw gateway restarted" || \
         info "OpenClaw gateway restart failed; run 'openclaw gateway restart' manually"
+      info "Uninstall anytime: openclaw plugins uninstall openclaw-eigenflux"
     fi
   fi
 
@@ -421,27 +435,39 @@ setup_agents() {
 
   install_codex_plugin() {
     # Both steps are required: `marketplace add` only registers the repo,
-    # `plugin add` installs from it. Only an "already exists" error from
-    # marketplace add is benign — anything else (network, auth, a marketplace
-    # named `eigenflux` pointing at a DIFFERENT repo) must surface, not be
-    # swallowed: a squatted name would make `plugin add` install foreign code.
-    mkt_err=$("$CODEX_BIN" plugin marketplace add phronesis-io/codex-eigenflux 2>&1 >/dev/null) || {
-      case "$mkt_err" in
-        *[Aa]lready*) : ;;
+    # `plugin add` installs from it BY MARKETPLACE NAME. `marketplace add` is
+    # idempotent for the SAME source (exit 0, even when already added). ANY
+    # non-zero exit must abort — do NOT fall through to `plugin add`:
+    #   - a name `eigenflux` already taken by a DIFFERENT repo (squatting)
+    #     reports "already added from a different source" and non-zero; installing
+    #     by that name would then pull foreign code.
+    #   - network/auth failures are non-zero too and shouldn't be masked.
+    # Aborting on every non-zero is the safe default; the message match below
+    # only refines the hint, never the decision.
+    mkt_status=0
+    mkt_out=$("$CODEX_BIN" plugin marketplace add phronesis-io/codex-eigenflux 2>&1) || mkt_status=$?
+    if [ "$mkt_status" != "0" ]; then
+      case "$mkt_out" in
+        *different\ source*|*already\ added\ from\ a\ different*)
+          info "Refusing to install: a marketplace named 'eigenflux' already points at a different source." ;;
         *)
-          info "marketplace add failed: $(printf '%s' "$mkt_err" | tail -2)"
-          info "If a marketplace named 'eigenflux' exists but points elsewhere, inspect it:"
-          info "  $CODEX_BIN plugin marketplace list   (remove with: plugin marketplace remove eigenflux)"
-          ;;
+          info "marketplace add failed: $(printf '%s' "$mkt_out" | tail -2)" ;;
       esac
-    }
+      info "Inspect it and, if safe, remove it, then re-run the installer:"
+      info "  $CODEX_BIN plugin marketplace list"
+      info "  $CODEX_BIN plugin marketplace remove eigenflux"
+      return 1
+    fi
     add_status=0
     add_err=$("$CODEX_BIN" plugin add codex-eigenflux@eigenflux 2>&1 >/dev/null) || add_status=$?
-    # Verify the end state instead of trusting exit codes — a swallowed
-    # marketplace failure above can make `plugin add` "succeed" meaninglessly.
+    # Verify the actual end state, not just the exit code.
     if [ "$add_status" = "0" ] && codex_plugin_installed; then
       ok "Codex plugin installed (registers an MCP server in ~/.codex/config.toml; loads in NEW Codex sessions)"
       info "Uninstall anytime: $CODEX_BIN plugin remove codex-eigenflux@eigenflux"
+    elif [ "$add_status" = "0" ]; then
+      # add exited 0 but the plugin isn't listed — report that, not a bare "failed".
+      info "Codex plugin add reported success but the plugin isn't listed; verify with:"
+      info "  $CODEX_BIN plugin list"
     else
       info "Codex plugin install failed:"
       [ -n "$add_err" ] && printf '%s\n' "$add_err" | tail -3
@@ -458,14 +484,13 @@ setup_agents() {
     if codex_plugin_installed; then
       # Refresh the git marketplace snapshot so future installs/updates pick
       # up the latest plugin; codex has no direct plugin-update command yet.
-      "$CODEX_BIN" plugin marketplace upgrade eigenflux >/dev/null 2>&1 || true
-      info "Codex plugin already installed; refreshed marketplace snapshot"
+      if "$CODEX_BIN" plugin marketplace upgrade eigenflux >/dev/null 2>&1; then
+        info "Codex plugin already installed; refreshed marketplace snapshot"
+      else
+        info "Codex plugin already installed (snapshot refresh skipped)"
+      fi
     else
-      # Interactivity is decided by /dev/tty alone: stdout may be piped
-      # (`... | tee log`) while the user is still there to answer. `-r` only
-      # checks permission bits, so actually try opening it — without a
-      # controlling terminal the open fails (e.g. cron/CI).
-      if ! ( : < /dev/tty ) 2>/dev/null; then
+      if ! ef_interactive; then
         info "Non-interactive shell; installing the codex-eigenflux plugin automatically"
         info "(writes ~/.codex/config.toml and registers an MCP server for future Codex sessions;"
         info " set EIGENFLUX_SKIP_AGENT_SETUP=1 to skip agent setup entirely)"
