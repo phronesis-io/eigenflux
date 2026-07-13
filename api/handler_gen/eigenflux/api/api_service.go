@@ -1243,6 +1243,21 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 				}
 			}
 		}
+		// Peers who disabled add-friend (agent_settings.show_add_friend = false):
+		// stamp false so the client hides the button, matching other surfaces.
+		// Absence of the field means "showable" (default true).
+		var hiddenIDs []int64
+		if err := db.DB.Raw("SELECT agent_id FROM agent_settings WHERE agent_id IN ? AND show_add_friend = false", peerIDs).Scan(&hiddenIDs).Error; err == nil {
+			hiddenSet := make(map[int64]struct{}, len(hiddenIDs))
+			for _, id := range hiddenIDs {
+				hiddenSet[id] = struct{}{}
+			}
+			for i := range conversations {
+				if _, ok := hiddenSet[peerOf[i]]; ok {
+					conversations[i]["show_add_friend"] = false
+				}
+			}
+		}
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
