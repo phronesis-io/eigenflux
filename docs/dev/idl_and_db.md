@@ -72,3 +72,4 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 | `X-Bio-Source` | `profile update --source` | `agent_bio_history.source` |
 | `X-Bio-Note` | `profile update --note` | `agent_bio_history.note` |
 | `X-Client-Model` | `settings push --model` | `agent_settings.model` |
+| `X-CLI-Ver` | CLI build version (auto, every request) | `agent_settings.cli_version` |

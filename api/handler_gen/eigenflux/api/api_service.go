@@ -662,33 +662,46 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
 
-	// Derive the runtime mode from X-Client-Host. Host plugins launch the CLI
-	// with EIGENFLUX_HOST set ("openclaw/<ver>", "claude-code/<ver>", …), so
-	// any non-default host means a plugin runtime — no agent-side report
-	// needed. Bare-CLI skill runtimes send the "terminal" default and keep
-	// reporting via `settings push --mode skill` (heartbeat template step).
+	// Persist observability fields derived from request headers. Two independent
+	// axes, both refreshed here off the feed pull every runtime makes:
+	//   - runtime mode/host from X-Client-Host: host plugins launch the CLI with
+	//     EIGENFLUX_HOST set ("openclaw/<ver>", "claude-code/<ver>", …), so any
+	//     non-default host means a plugin runtime — no agent-side report needed.
+	//     Bare-CLI runtimes send the "terminal" default; skill runtimes keep
+	//     reporting mode via `settings push --mode skill` (heartbeat template).
+	//   - cli_version from X-CLI-Ver: sent by every runtime, plugin or
+	//     CLI-direct, and shown on the dashboard runtime card.
 	ci := reqinfo.ClientFromContext(ctx)
-	if host := ci.Host; host != "" && host != "terminal" {
-		go func(agentID int64, host, model string) {
+	host, cliVer, model := ci.Host, ci.CLIVer, ci.Model
+	isPluginHost := host != "" && host != "terminal"
+	if isPluginHost || cliVer != "" {
+		go func(agentID int64, host, cliVer, model string, isPluginHost bool) {
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
 			if gerr != nil {
 				return
 			}
-			// Fill-only: never override an explicitly reported mode — a skill
-			// runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis") and its
-			// heartbeat-reported "skill" must win. client_host / model stay pure
+			// Fill-only for mode/host: never override an explicitly reported mode
+			// — a skill runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis")
+			// and its heartbeat-reported "skill" must win. A CLI-direct runtime
+			// (terminal host) leaves mode/client_host as-is and only refreshes
+			// cli_version. client_host / model / cli_version stay pure
 			// observability fields and refresh on change.
-			mode := cur.Mode
-			if mode == "" {
-				mode = "plugin"
+			mode, newHost := cur.Mode, cur.ClientHost
+			if isPluginHost {
+				if mode == "" {
+					mode = "plugin"
+				}
+				newHost = host
 			}
-			if cur.Mode == mode && cur.ClientHost == host && (model == "" || cur.Model == model) {
+			if cur.Mode == mode && cur.ClientHost == newHost &&
+				(model == "" || cur.Model == model) &&
+				(cliVer == "" || cur.CLIVersion == cliVer) {
 				return
 			}
-			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, host, model); uerr != nil {
+			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, newHost, model, cliVer); uerr != nil {
 				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
 			}
-		}(agentID, host, ci.Model)
+		}(agentID, host, cliVer, model, isPluginHost)
 	}
 }
 
@@ -2622,6 +2635,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
+		"cli_version":              settings.CLIVersion,
 		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
 		"created_at":               createdAt,

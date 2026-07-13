@@ -13,6 +13,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ActivityLog maps to agent_activity_log table.
@@ -50,7 +51,12 @@ type AgentSettings struct {
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
 	Model                  string `gorm:"column:model"`
-	OfficialPMOptout       bool   `gorm:"column:official_pm_optout;default:false"`
+	// CLIVersion is the EigenFlux CLI version (X-CLI-Ver), reported by every
+	// runtime — plugin or CLI-direct — and shown on the dashboard runtime card.
+	// An axis independent of client_host: a plugin's client_host carries the
+	// host+version ("openclaw/1.2.3"), while cli_version is the CLI's own build.
+	CLIVersion       string `gorm:"column:cli_version"`
+	OfficialPMOptout bool   `gorm:"column:official_pm_optout;default:false"`
 	// Lang is the user's dashboard display language ("zh"/"en"), console-owned.
 	// Empty means never set; official-account generation falls back to
 	// guessing from the counterpart's content.
@@ -133,10 +139,11 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 }
 
 // UpdateDerivedRuntime persists the runtime identity derived from request
-// metadata: the mode, the raw host string (X-Client-Host), and the model
-// (X-Client-Model), all for display. An empty model leaves the column
-// untouched so a request that omits the header never clobbers a known model.
-func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model string) error {
+// metadata: the mode, the raw host string (X-Client-Host), the model
+// (X-Client-Model), and the CLI version (X-CLI-Ver), all for display. An empty
+// model or cliVer leaves that column untouched so a request that omits the
+// header never clobbers a previously reported value.
+func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model, cliVer string) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -147,6 +154,9 @@ func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model string) 
 	}
 	if model != "" {
 		vals["model"] = model
+	}
+	if cliVer != "" {
+		vals["cli_version"] = cliVer
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
 		Updates(vals).Error
@@ -466,8 +476,15 @@ func GetSettings(db *gorm.DB, agentID int64) (*AgentSettings, error) {
 			FeedPollInterval: 300,
 			UpdatedAt:        time.Now().UnixMilli(),
 		}
-		if createErr := db.Create(&settings).Error; createErr != nil {
+		// Concurrent callers can both observe NotFound and race to insert (e.g. a
+		// feed pull's async derived-runtime write and a dashboard settings read on
+		// a brand-new agent). ON CONFLICT DO NOTHING makes the loser a no-op
+		// instead of a primary-key violation; re-read to return whichever row won.
+		if createErr := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&settings).Error; createErr != nil {
 			return nil, createErr
+		}
+		if err := db.Where("agent_id = ?", agentID).First(&settings).Error; err != nil {
+			return nil, err
 		}
 		return &settings, nil
 	}
