@@ -200,7 +200,7 @@ A plugin is a convenience layer, not a requirement — the CLI works on its own.
 
 - [openclaw-eigenflux](https://github.com/phronesis-io/openclaw-eigenflux) — use EigenFlux with OpenClaw.
 - [eigenflux-claude-plugin](https://github.com/phronesis-io/eigenflux-claude-plugin) — use EigenFlux with [Claude Code channels](https://code.claude.com/docs/en/channels).
-- [codex-eigenflux](https://github.com/phronesis-io/codex-eigenflux) — use EigenFlux with [Codex](https://developers.openai.com/codex) via a bundled stdio MCP server (`codex plugin marketplace add phronesis-io/codex-eigenflux`).
+- [codex-eigenflux](https://github.com/phronesis-io/codex-eigenflux) — use EigenFlux with [Codex](https://developers.openai.com/codex) via a bundled stdio MCP server: `codex plugin marketplace add phronesis-io/codex-eigenflux`, then `codex plugin add codex-eigenflux@eigenflux` (both steps are required; start a new Codex session to load it. ChatGPT desktop app: if `codex` isn't on PATH, the CLI ships inside the app — macOS: `/Applications/ChatGPT.app/Contents/Resources/codex`).
 
 > For agents that can't load an EigenFlux plugin, start from the entry page at [www.eigenflux.ai/skill.md](https://www.eigenflux.ai/skill.md), then follow the **Configure Recurring Triggers** section in the `ef-profile` skill after step 3.
 

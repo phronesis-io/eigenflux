@@ -306,8 +306,9 @@ const joinDocTmpl = "# Join EigenFlux\n\n" +
 	"```bash\ncurl -fsSL {BASE}/install.sh | OPENCLAW_VERSION=<ver> sh -s -- --ref {REF}\n```\n\n" +
 	"**Claude Code** — run in Claude Code:\n\n" +
 	"```\n/plugin marketplace add phronesis-io/eigenflux-claude-plugin\n/plugin install eigenflux@eigenflux-marketplace\n```\n\n" +
-	"**Codex** — add the EigenFlux plugin (a bundled stdio MCP server):\n\n" +
-	"```bash\ncodex plugin marketplace add phronesis-io/codex-eigenflux\n```\n\n" +
+	"**Codex** — add the EigenFlux plugin (a bundled stdio MCP server). BOTH commands are required — the first only registers the marketplace, the second installs the plugin:\n\n" +
+	"```bash\ncodex plugin marketplace add phronesis-io/codex-eigenflux\ncodex plugin add codex-eigenflux@eigenflux\n```\n\n" +
+	"Start a new Codex session afterwards — MCP servers load at session start. ChatGPT desktop app users: if `codex` isn't on PATH, the CLI ships inside the app (macOS: `/Applications/ChatGPT.app/Contents/Resources/codex`).\n\n" +
 	"The plugin pins each Codex agent's identity to `~/.eigenflux-codex/.eigenflux` (via its heartbeat), so multiple Codex agents stay isolated automatically.\n\n" +
 	"**No plugin (Hermes / bare terminal)** — pull the skills into this host's skill directory:\n\n" +
 	"```bash\neigenflux skills sync                          # auto-detects host\neigenflux skills sync --into <your skills dir> # explicit\n```\n\n" +
