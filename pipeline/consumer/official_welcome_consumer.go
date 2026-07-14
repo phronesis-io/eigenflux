@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 
 	"gorm.io/gorm"
@@ -39,12 +38,6 @@ type OfficialWelcomeConsumer struct {
 	sender         *official.Sender
 	welcomeMessage string
 	officialEmail  string
-	// whitelist, when non-empty, restricts the welcome to these emails (staged
-	// rollout); empty means everyone. Keyed by normalized (lower/trimmed) email.
-	whitelist map[string]struct{}
-	// testSuffixes bypass the whitelist — e.g. @eftestbot.com accounts are always
-	// welcomed so test bots can exercise the official account during a rollout.
-	testSuffixes []string
 
 	runner *StreamConsumer
 
@@ -57,8 +50,6 @@ func NewOfficialWelcomeConsumer(cfg *config.Config, sender *official.Sender) *Of
 		sender:         sender,
 		welcomeMessage: cfg.OfficialWelcomeMessage,
 		officialEmail:  cfg.OfficialAgentEmail,
-		whitelist:      normalizeEmailSet(cfg.OfficialWelcomeWhitelist),
-		testSuffixes:   cfg.OfficialTestEmailSuffixes,
 	}
 	c.runner = &StreamConsumer{
 		Name:         "OfficialWelcomeConsumer",
@@ -118,15 +109,6 @@ func (c *OfficialWelcomeConsumer) handle(ctx context.Context, _ string, values m
 	}
 	if agent.ProfileCompletedAt == nil {
 		return HandleSuccess
-	}
-
-	// Staged rollout: when a whitelist is configured, only welcome listed emails
-	// so a production test stays invisible to everyone else. Test-suffix accounts
-	// (e.g. @eftestbot.com) always pass so test bots can be onboarded freely.
-	if len(c.whitelist) > 0 && !config.EmailMatchesAnySuffix(agent.Email, c.testSuffixes) {
-		if _, ok := c.whitelist[strings.ToLower(strings.TrimSpace(agent.Email))]; !ok {
-			return HandleSuccess
-		}
 	}
 
 	// Dedup gate: welcome each agent at most once. Released on transient failure
@@ -212,19 +194,6 @@ func (c *OfficialWelcomeConsumer) ensureFriendship(ctx context.Context, official
 		_ = relations.InvalidateFriendCache(ctx, mq.RDB, userID)
 	}
 	return nil
-}
-
-func normalizeEmailSet(emails []string) map[string]struct{} {
-	if len(emails) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(emails))
-	for _, e := range emails {
-		if n := strings.ToLower(strings.TrimSpace(e)); n != "" {
-			set[n] = struct{}{}
-		}
-	}
-	return set
 }
 
 func acceptPendingRequest(tx *gorm.DB, fromUID, toUID int64) {
