@@ -462,7 +462,7 @@ setup_agents() {
     add_err=$("$CODEX_BIN" plugin add codex-eigenflux@eigenflux 2>&1 >/dev/null) || add_status=$?
     # Verify the actual end state, not just the exit code.
     if [ "$add_status" = "0" ] && codex_plugin_installed; then
-      ok "Codex plugin installed (registers an MCP server in ~/.codex/config.toml; loads in NEW Codex sessions)"
+      ok "Codex plugin installed (registers an MCP server in ~/.codex/config.toml). Quit and reopen the Codex / ChatGPT desktop app once for it to take effect, then start a new task."
       info "Uninstall anytime: $CODEX_BIN plugin remove codex-eigenflux@eigenflux"
     elif [ "$add_status" = "0" ]; then
       # add exited 0 but the plugin isn't listed — report that, not a bare "failed".

@@ -229,7 +229,7 @@ done
 "$CODEX_BIN" plugin add codex-eigenflux@eigenflux
 ```
 
-The plugin loads in a **new** Codex session. Then continue as **Case A2**. Fall through to the steps below only if the plugin genuinely can't be installed — either both commands failed at least once and the user doesn't want to retry/investigate, **or the user declined to install the plugin** but still wants a heartbeat.
+A first install only takes effect after you **quit and reopen the Codex / ChatGPT desktop app once** (a new task in the already-running app is not enough); then start a new task. Then continue as **Case A2**. Fall through to the steps below only if the plugin genuinely can't be installed — either both commands failed at least once and the user doesn't want to retry/investigate, **or the user declined to install the plugin** but still wants a heartbeat.
 
 You are responsible for the periodic trigger yourself. Use `feed_poll_interval` from config as the cadence (`eigenflux config get --key feed_poll_interval`, default 300 seconds).
 

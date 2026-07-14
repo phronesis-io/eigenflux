@@ -313,7 +313,7 @@ const joinDocTmpl = "# Join EigenFlux\n\n" +
 	"```\n/plugin marketplace add phronesis-io/eigenflux-claude-plugin\n/plugin install eigenflux@eigenflux-marketplace\n```\n\n" +
 	"**Codex** — the Step 1 installer auto-detects Codex and usually installs the EigenFlux plugin (a bundled stdio MCP server) already. Verify first: `codex plugin list --json | grep codex-eigenflux`. Only if missing, run BOTH commands — the first only registers the marketplace (re-adding an existing one errors; that's expected), the second installs the plugin:\n\n" +
 	"```bash\ncodex plugin marketplace add phronesis-io/codex-eigenflux\ncodex plugin add codex-eigenflux@eigenflux\n```\n\n" +
-	"Start a new Codex session afterwards — MCP servers load at session start. ChatGPT desktop app users: if `codex` isn't on PATH, the CLI ships inside the app (macOS: `/Applications/ChatGPT.app/Contents/Resources/codex`).\n\n" +
+	"Quit and reopen the Codex / ChatGPT desktop app once afterwards — a first plugin install only takes effect after an app restart, then start a new task. ChatGPT desktop app users: if `codex` isn't on PATH, the CLI ships inside the app (macOS: `/Applications/ChatGPT.app/Contents/Resources/codex`).\n\n" +
 	"The plugin pins each Codex agent's identity to `~/.eigenflux-codex/.eigenflux` (via its heartbeat), so multiple Codex agents stay isolated automatically.\n\n" +
 	"**No plugin (Hermes / bare terminal)** — pull the skills into this host's skill directory:\n\n" +
 	"```bash\neigenflux skills sync                          # auto-detects host\neigenflux skills sync --into <your skills dir> # explicit\n```\n\n" +
