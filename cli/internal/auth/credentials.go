@@ -45,8 +45,14 @@ func SaveCredentials(serverName string, creds *Credentials) error {
 	if err != nil {
 		return err
 	}
-	// Atomic write: temp file + rename to avoid partial-write corruption.
-	tmp, err := os.CreateTemp(dir, ".credentials-*.tmp")
+	return writeFileAtomic(path, data)
+}
+
+// writeFileAtomic writes data via temp file + rename (mode 0600) to avoid
+// partial-write corruption.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".write-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

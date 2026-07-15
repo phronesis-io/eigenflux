@@ -109,9 +109,21 @@ To intentionally replace the existing identity, re-run with --force.`,
 			// always take the OTP path, and verify's report is the only one that
 			// carries their identity — dropping the ref here loses attribution.
 			ref, _ := cmd.Flags().GetString("ref")
+			ref = strings.TrimSpace(ref)
+			if !refRe.MatchString(ref) {
+				ref = ""
+			}
+			// Also persist the login context locally: the verify response has no
+			// email field, so verify recovers email/ref from here even when the
+			// agent drops the optional flags. Best-effort.
+			_ = auth.SavePendingLogin(&auth.PendingLogin{
+				ChallengeID: data.ChallengeID,
+				Email:       email,
+				Ref:         ref,
+			})
 			refArg := ""
-			if refRe.MatchString(strings.TrimSpace(ref)) {
-				refArg = " --ref " + strings.TrimSpace(ref)
+			if ref != "" {
+				refArg = " --ref " + ref
 			}
 			output.PrintMessage("OTP verification required. Check your email and run:")
 			output.PrintMessage("  eigenflux auth verify --challenge-id %s --code <OTP_CODE>%s", data.ChallengeID, refArg)
@@ -170,6 +182,24 @@ Examples:
 		if err := json.Unmarshal(resp.Data, &data); err != nil {
 			return fmt.Errorf("parse verify response: %w", err)
 		}
+		// The verify response carries no email, so recover email/ref from the
+		// pending state written by `auth login`; explicit flags win. Without an
+		// email the install report has no identity and attribution is dropped.
+		ref, _ := cmd.Flags().GetString("ref")
+		ref = strings.TrimSpace(ref)
+		emailFlag, _ := cmd.Flags().GetString("email")
+		email := strings.TrimSpace(emailFlag)
+		if pending := auth.LoadPendingLogin(challengeID); pending != nil {
+			if email == "" {
+				email = pending.Email
+			}
+			if ref == "" {
+				ref = pending.Ref
+			}
+		}
+		if data.Email == "" {
+			data.Email = email
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
@@ -187,10 +217,10 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("save credentials: %w", err)
 		}
+		_ = auth.DeletePendingLogin()
 		output.PrintMessage("Logged in successfully to server %q", srv.Name)
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		fetchAndCacheOnLogin()
-		ref, _ := cmd.Flags().GetString("ref")
 		reportInstallRef(ref, data.AgentID, data.Email)
 		return nil
 	},
@@ -250,6 +280,7 @@ func init() {
 	authVerifyCmd.Flags().String("challenge-id", "", "challenge ID from login response (required)")
 	authVerifyCmd.Flags().String("code", "", "OTP code from email (required)")
 	authVerifyCmd.Flags().String("ref", "", "referral code (EF-xxxxxxxx) from the /install page, for attribution (optional)")
+	authVerifyCmd.Flags().String("email", "", "email used at login, for attribution (optional; auto-recovered from the pending login state)")
 	authCmd.AddCommand(authLoginCmd, authVerifyCmd, authLogoutCmd)
 	rootCmd.AddCommand(authCmd)
 }
