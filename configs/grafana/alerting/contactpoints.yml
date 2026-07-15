@@ -1,0 +1,22 @@
+# Grafana → PGC viewer relay → Lark ops group.
+#
+# Grafana 11.6 webhook contact points send a FIXED JSON schema that a Lark
+# custom-bot webhook rejects (silent-drop channel). The viewer on the app
+# host exposes POST /grafana-alert (eigenflux-pgc rsspipe/grafana_relay.py,
+# deployed 2026-07-15) which reformats to a plain-Chinese Lark card and
+# reuses the pipeline's delivery bookkeeping / dead-man alerting.
+#
+# $METRICS_HOST and $GRAFANA_ALERT_TOKEN come from the monitor host's .env
+# via the grafana service environment (docker-compose.monitor.yml) — the
+# internal IP and the shared secret stay out of the repo.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: pgc-lark-relay
+    receivers:
+      - uid: pgc-lark-relay
+        type: webhook
+        settings:
+          url: http://$METRICS_HOST:9090/grafana-alert?token=$GRAFANA_ALERT_TOKEN
+          httpMethod: POST
+        disableResolveMessage: false

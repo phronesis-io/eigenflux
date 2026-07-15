@@ -1,0 +1,11 @@
+# Route every alert to the Lark relay. group_by alertname so one flapping
+# rule batches into one card instead of spamming the group; repeat every 4h
+# while still firing (the boss-group rule: don't cry wolf, don't go silent).
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: pgc-lark-relay
+    group_by: ["alertname"]
+    group_wait: 1m
+    group_interval: 10m
+    repeat_interval: 4h

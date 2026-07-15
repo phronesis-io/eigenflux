@@ -84,6 +84,11 @@ services:
       - GRAFANA_PG_USER=${GRAFANA_PG_USER:-eigenflux}
       - GRAFANA_PG_PASSWORD=${GRAFANA_PG_PASSWORD:-eigenflux123}
       - GRAFANA_PG_DATABASE=${GRAFANA_PG_DATABASE:-eigenflux}
+      # Alerting contact point (configs/grafana/alerting/contactpoints.yml)
+      # interpolates these: the PGC viewer's internal address and the shared
+      # relay token both live in .env, never in the repo.
+      - METRICS_HOST=${METRICS_HOST:-host.docker.internal}
+      - GRAFANA_ALERT_TOKEN=${GRAFANA_ALERT_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -93,6 +98,7 @@ services:
       - ./configs/grafana/datasources.yml:/etc/grafana/provisioning/datasources/ds.yml
       - ./configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./configs/grafana/alerting:/etc/grafana/provisioning/alerting
     depends_on:
       jaeger:
         condition: service_healthy
