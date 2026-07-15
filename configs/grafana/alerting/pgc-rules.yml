@@ -105,7 +105,7 @@ groups:
         noDataState: OK
         execErrState: OK
         annotations:
-          summary: NewsAPI key {{ $labels.key }} 本月额度已用超过 90%——再不管，月底前用这个 key 的 NewsAPI 簇会熄火（基线：7/15 月中用量 53%；按 key 告警是因为合计口径会藏住单个耗尽的 key，2026-07-05 教训）。
+          summary: NewsAPI 本月额度已用超过 90%——再不管，月底前 NewsAPI 各簇会集体熄火（基线：7/15 月中用量 53%；2026-07-15 起只用单 key，指标仍按 key 导出故用 per-key 序列）。
         labels:
           service: pgc
         data:
