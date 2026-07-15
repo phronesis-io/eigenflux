@@ -70,7 +70,7 @@
     },
     {
       "id": 2,
-      "title": "今日新增",
+      "title": "今日新增（完成注册流程的用户数）",
       "type": "stat",
       "datasource": {
         "type": "postgres",
