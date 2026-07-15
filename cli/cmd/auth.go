@@ -105,8 +105,16 @@ To intentionally replace the existing identity, re-run with --force.`,
 			return fmt.Errorf("parse login response: %w", err)
 		}
 		if data.VerificationRequired {
+			// The printed command must carry --ref through to verify: new users
+			// always take the OTP path, and verify's report is the only one that
+			// carries their identity — dropping the ref here loses attribution.
+			ref, _ := cmd.Flags().GetString("ref")
+			refArg := ""
+			if refRe.MatchString(strings.TrimSpace(ref)) {
+				refArg = " --ref " + strings.TrimSpace(ref)
+			}
 			output.PrintMessage("OTP verification required. Check your email and run:")
-			output.PrintMessage("  eigenflux auth verify --challenge-id %s --code <OTP_CODE>", data.ChallengeID)
+			output.PrintMessage("  eigenflux auth verify --challenge-id %s --code <OTP_CODE>%s", data.ChallengeID, refArg)
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 			return nil
 		}
