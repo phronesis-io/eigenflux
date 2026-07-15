@@ -1,0 +1,155 @@
+# PGC 链路告警规则（2026-07-15 首批，来源=7/12 巡检遗留的"外部告警为零"账）。
+#
+# 措辞规则：annotations.summary 是最终出现在 Lark 卡片上的句子——说人话、
+# 无黑话、一句话说清"什么坏了 + 多久了/差多少"。中继端(grafana_relay)只排版
+# 不改写。阈值备注了 2026-07-15 的观测基线，改阈值前先看当天真实值。
+#
+# noDataState 取向：链路可见性规则(停摆/刷新/火警)在 NoData 时也告警——
+# 抓不到指标本身就是事故(6/20 日志文档 17 天静默失败的教训)；额度类规则
+# NoData 不告警，避免抓取抖动引发狼来了。
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: pgc-alerts
+    folder: PGC 告警
+    interval: 1m
+    rules:
+      - uid: pgc-pipeline-dead
+        title: PGC 管道停摆
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 抓取/处理/发布至少一个工序超过 30 分钟没有运行（正常最慢的抓取工序约 4 分钟一轮），或者监控完全抓不到管道指标了。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: max(pgc_worker_last_run_age_seconds)
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1800] }
+
+      - uid: pgc-metrics-stale
+        title: PGC 指标刷新停滞
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 看板背后的指标已经超过 1 小时没有刷新成功——面板上的数字可能是旧的，别据此判断链路健康。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: time() - min(pgc_metrics_last_refresh_success_timestamp)
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3600] }
+
+      - uid: pgc-source-fire
+        title: PGC 信源体检火警
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 信源体检发现"火警"级问题——某个重点信源族可能整体熄火了（对照 2026-06 那次静默 50 小时的教训，这条必须当天处理）。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: pgc_source_health_critical_fire
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: pgc-newsapi-budget
+        title: NewsAPI 月额度告急
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: NewsAPI 本月额度已用超过 90%——再不管，月底前 NewsAPI 各簇会集体熄火（基线：7/15 月中用量 53%）。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: pgc_newsapi_tokens_pct
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+
+      - uid: pgc-scraperapi-credits
+        title: ScraperAPI 额度告急
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: ScraperAPI 本月 credits 已用超过 90%——Reddit 全量 42 个源和多个代理源都靠它，烧干会一起断（基线：7/15 用量 31%）。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: pgc_scraperapi_credits_pct
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
