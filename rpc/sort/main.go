@@ -131,6 +131,9 @@ func main() {
 	if cfg.EnableNewRecall {
 		recallSources = append(recallSources, recallsource.NewRedisRecallSource(recallReader, "new_recall", recallsource.NewRecall, "new_recall"))
 	}
+	if cfg.EnableNewUGCRecall {
+		recallSources = append(recallSources, recallsource.NewRedisRecallSource(recallReader, "new_ugc_recall", recallsource.NewUGC, "new_ugc_recall"))
+	}
 	if cfg.EnableTwoTowerRecall {
 		recallSources = append(recallSources, recallsource.NewTwoTowerRecallSource(recallReader, cfg.TwoTowerRecallRedisKey, cfg.TwoTowerRecallK))
 	}

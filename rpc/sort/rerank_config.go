@@ -13,7 +13,8 @@ import (
 )
 
 type rerankPolicySet struct {
-	policies []rerank.Policy
+	policies    []rerank.Policy
+	injectRules []rerank.InjectRuleConfig
 }
 
 func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time) *rerankPolicySet {
@@ -33,8 +34,17 @@ func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time)
 		logger.Ctx(ctx).Warn("rerank config invalid; continuing without configured policies", "path", path, "err", err)
 		return &rerankPolicySet{}
 	}
-	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies))
-	return &rerankPolicySet{policies: policies}
+	injectRules := cfg.InjectRules()
+	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies), "injectRules", len(injectRules))
+	return &rerankPolicySet{policies: policies, injectRules: injectRules}
+}
+
+// InjectRules returns the configured force-insertion rules, or nil when none.
+func (l *rerankPolicySet) InjectRules() []rerank.InjectRuleConfig {
+	if l == nil {
+		return nil
+	}
+	return l.injectRules
 }
 
 // PreRankPolicies returns policies that run on recall candidates before item

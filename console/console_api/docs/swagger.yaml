@@ -227,8 +227,13 @@ definitions:
     type: object
   console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo:
     properties:
+      category:
+        description: friend | broadcast_comment | non_friend
+        type: string
       conv_id:
         type: string
+      is_friend:
+        type: boolean
       last_sender_id:
         type: string
       last_sender_name:

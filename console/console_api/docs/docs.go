@@ -1340,8 +1340,15 @@ const docTemplate = `{
         "console_eigenflux_ai_handler_gen_eigenflux_console.ConsoleConversationInfo": {
             "type": "object",
             "properties": {
+                "category": {
+                    "description": "friend | broadcast_comment | non_friend",
+                    "type": "string"
+                },
                 "conv_id": {
                     "type": "string"
+                },
+                "is_friend": {
+                    "type": "boolean"
                 },
                 "last_sender_id": {
                     "type": "string"

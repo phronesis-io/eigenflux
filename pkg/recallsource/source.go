@@ -12,6 +12,7 @@ const (
 	HotRecall                    // 0x08
 	NewRecall                    // 0x10
 	Friend                       // 0x20
+	NewUGC                       // 0x40
 )
 
 func (s Source) Has(flag Source) bool    { return s&flag != 0 }
@@ -51,6 +52,9 @@ func Names(s Source) []string {
 	}
 	if s.Has(Friend) {
 		names = append(names, "friend")
+	}
+	if s.Has(NewUGC) {
+		names = append(names, "new_ugc_recall")
 	}
 	return names
 }

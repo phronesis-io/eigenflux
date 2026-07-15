@@ -156,6 +156,7 @@ type Config struct {
 	KNNRecallCandidates      int
 	EnableHotRecall          bool     // Enable hot_recall from Redis (default: true)
 	EnableNewRecall          bool     // Enable new_recall from Redis (default: true)
+	EnableNewUGCRecall       bool     // Enable new_ugc recall from Redis: un-exposed UGC candidates written by the offline service. Force-insertion is configured in configs/sort/rerank.yaml (name: inject) (default: false)
 	EnableTwoTowerRecall     bool     // Enable precomputed two_tower recall from Redis (default: false)
 	PGCEmailSuffixes         []string // author email suffixes classifying a broadcast as PGC (official bots); everything else is UGC. Drives the sort UGC boost and category metrics
 	BlockedAgentEmails       []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
@@ -321,6 +322,7 @@ func Load() *Config {
 		KNNRecallCandidates:           getEnvInt("KNN_RECALL_CANDIDATES", 300),
 		EnableHotRecall:               getEnvBool("ENABLE_HOT_RECALL", true),
 		EnableNewRecall:               getEnvBool("ENABLE_NEW_RECALL", true),
+		EnableNewUGCRecall:            getEnvBool("ENABLE_NEW_UGC_RECALL", false),
 		PGCEmailSuffixes:              getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"}),
 		BlockedAgentEmails:            getEnvStringList("BLOCKED_AGENT_EMAILS", []string{"fmw19990718@gmail.com"}),
 		EnableServiceMix:              getEnvBool("ENABLE_SERVICE_MIX", false),

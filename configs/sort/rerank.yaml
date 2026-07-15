@@ -12,3 +12,9 @@ policies:
       - field: content_class
         values: [ugc]
         weight: 1.2
+  - name: inject
+    inject_rules:
+      - source: new_ugc_recall   # match against recallsource.Names label
+        count: 1                 # at most one force-insert per feed refresh
+        positions: []            # unspecified → front-fill
+        claim_ttl: 90m           # skip re-inserting a delivered item this long (spans one offline index refresh, ~1h)

@@ -84,6 +84,16 @@ var (
 		Help: "Total items entering feed by recall source (before dedup).",
 	}, []string{"source"})
 
+	// NewUGCInjectedTotal counts un-exposed UGC items force-inserted into a
+	// reserved feed slot by InjectPolicy and delivered (survived dedup + limit).
+	// This is the "exposure guarantee fired" signal, distinct from
+	// recall_impression_total{source="new_ugc_recall"} which also counts
+	// new_ugc_recall items that ranked into the feed naturally.
+	NewUGCInjectedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sort_new_ugc_injected_total",
+		Help: "Total un-exposed UGC items force-inserted into a reserved feed slot and delivered.",
+	})
+
 	// SortRecallCategoryTotal and SortFeedCategoryTotal track the broadcast_type /
 	// content_class mix at the recall and delivered-feed stages. Comparing the two
 	// shows how ranking + boost policy + threshold + dedup reshape the category
@@ -161,7 +171,7 @@ func init() {
 		RPCRequestDuration, RPCRequestsTotal,
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
 		ItemPublishToProcessDuration,
-		RecallImpressionTotal, RecallFeedTotal,
+		RecallImpressionTotal, RecallFeedTotal, NewUGCInjectedTotal,
 		SortRecallCategoryTotal, SortFeedCategoryTotal,
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 		SearchServicesRequestsTotal, SearchServicesSubIntents, SearchServicesLLMFallbackTotal,

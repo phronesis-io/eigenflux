@@ -179,6 +179,36 @@ func augmentItemFeaturesJSON(existing string, reasons []string, normalizedScore 
 	return string(out)
 }
 
+// withRerankReasons merges rerank reason tags into an existing item_features
+// JSON string, preserving any reasons already present. Returns the input
+// unchanged on parse/serialize failure.
+func withRerankReasons(existing string, reasons []string) string {
+	if len(reasons) == 0 {
+		return existing
+	}
+	feat := map[string]any{}
+	if existing != "" {
+		_ = json.Unmarshal([]byte(existing), &feat)
+		if feat == nil {
+			feat = map[string]any{}
+		}
+	}
+	merged := reasons
+	if prev, ok := feat["rerank_reasons"].([]any); ok {
+		for _, p := range prev {
+			if s, ok := p.(string); ok {
+				merged = append(merged, s)
+			}
+		}
+	}
+	feat["rerank_reasons"] = merged
+	out, err := json.Marshal(feat)
+	if err != nil {
+		return existing
+	}
+	return string(out)
+}
+
 // buildServiceFeaturesJSON constructs the item_features payload for a service
 // candidate. The schema mirrors the item-features JSON where possible
 // (entry_type, rank_scores, recall_source, rerank_reasons, normalized_score)

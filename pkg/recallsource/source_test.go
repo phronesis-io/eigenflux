@@ -42,6 +42,8 @@ func TestSourceNames(t *testing.T) {
 		{TwoTower, []string{"two_tower"}},
 		{Keyword | KNN, []string{"keyword", "knn"}},
 		{Keyword | KNN | TwoTower, []string{"keyword", "knn", "two_tower"}},
+		{NewUGC, []string{"new_ugc_recall"}},
+		{Keyword | NewUGC, []string{"keyword", "new_ugc_recall"}},
 	}
 
 	for _, tt := range tests {
@@ -67,5 +69,8 @@ func TestSourceBitValues(t *testing.T) {
 	}
 	if TwoTower != 4 {
 		t.Errorf("TwoTower = %d, want 4", TwoTower)
+	}
+	if NewUGC != 0x40 {
+		t.Errorf("NewUGC = %d, want 64", NewUGC)
 	}
 }

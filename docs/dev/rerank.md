@@ -35,6 +35,7 @@ The rerank layer lives inside the sort service because sort owns feed compositio
   - **BoundsPolicy** — `Bounds map[CandidateType]Bound{Floor, Ceiling}` plus `Limit int`. Ceiling > 0 trims to the top-N by score per type. When `Limit > 0`, Floor is enforced by tail-replacement: after the ceiling pass, for each type with `Floor` greater than its count in the first `Limit` positions, the lowest-scoring non-matching slot inside the window is swapped for the highest-scoring matching candidate outside the window. With `Limit <= 0` Floor degrades to informational (the policy cannot fabricate candidates that recall did not return).
   - **RatioPolicy** — `CycleSize` and `TypeCounts` describe the target interleave (e.g. `{item: 5, service: 1}` over a cycle of 6). Underflow falls through to whichever queue still has candidates.
   - **SlotPolicy** — pins specific 0-indexed positions to a target type. Top-scoring unused candidate of that type is promoted. Place this last so positional overrides win over interleave rhythm.
+  - **InjectPolicy** — force-inserts up to `Count` candidates matching a caller-supplied `Match func(rank.Candidate) bool` predicate into reserved `Positions` (0-indexed; empty → front-fill), so they survive a later top-N truncation even when their score would not place them there. Channel-agnostic by design: the predicate decides eligibility, so the same policy backs any forced-insertion need — only the predicate changes. Because input is score-ordered it picks the highest-scoring matches first, giving relevance-first / coverage-fallback for free. Displaced candidates shift down; injected candidates get an `inject:<pos>` reason. Used by `SortItems` for the UGC exposure guarantee. Configured declaratively under `configs/sort/rerank.yaml` (`name: inject`): each `inject_rule` carries a `source` (matched against the candidate's `recallsource.Names` label, e.g. `new_ugc_recall`), a `count`, and optional `positions`. The rule carries only parameters — the sort handler builds the runtime predicate (a closure that checks the request-scoped recall-source map for the rule's `source` label), so the `rank`/`rerank` packages stay free of any `recallsource` dependency and a new forced-insertion channel is added purely in YAML.
 
 The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} → Coverage → Bounds{Ceiling: 10}`. `SortItems` additionally has a configurable pre-rank item policy chain loaded from `configs/sort/rerank.yaml`, currently used for freshness hard limits. See `docs/dev/sort.md` for the surrounding handler flow.
 
@@ -59,7 +60,15 @@ policies:
       - field: content_class
         values: [ugc]   # non-PGC-bot authors
         weight: 1.2
+  - name: inject
+    inject_rules:
+      - source: new_ugc_recall   # recallsource.Names label of the channel to force-insert from
+        count: 1                 # at most one force-insert per feed refresh
+        positions: []            # empty → front-fill; e.g. [3] pins position 3
+        claim_ttl: 90m           # Redis re-insertion throttle; empty disables (see below)
 ```
+
+`claim_ttl` is consumed by the sort handler, not the policy: after a matched item is force-inserted **and delivered**, the handler claims it in Redis (`SET NX EX claim_ttl`) and excludes already-claimed items from the predicate on subsequent feeds. This throttles re-insertion across the lag between a real-time consume and the periodic offline recall-index refresh, so each item is force-inserted roughly once instead of into every feed for the whole refresh window. Empty `claim_ttl` disables the throttle. The `rerank` package only parses/validates the value (`InjectRuleConfig.ParsedClaimTTL`); the Redis I/O stays in the handler so policies remain pure.
 
 ### Canonical Composition
 

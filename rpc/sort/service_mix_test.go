@@ -11,6 +11,31 @@ import (
 	"eigenflux_server/rpc/sort/serviceranker"
 )
 
+func TestWithRerankReasons_MergesIntoExistingFeatures(t *testing.T) {
+	existing := `{"broadcast_type":"info","recall_source_names":["new_ugc_recall"]}`
+	out := withRerankReasons(existing, []string{"inject:3"})
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, "info", got["broadcast_type"])
+	assert.Equal(t, []any{"new_ugc_recall"}, got["recall_source_names"])
+	assert.Equal(t, []any{"inject:3"}, got["rerank_reasons"])
+}
+
+func TestWithRerankReasons_AppendsToExistingReasons(t *testing.T) {
+	existing := `{"rerank_reasons":["normalize:minmax"]}`
+	out := withRerankReasons(existing, []string{"inject:0"})
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.ElementsMatch(t, []any{"inject:0", "normalize:minmax"}, got["rerank_reasons"])
+}
+
+func TestWithRerankReasons_EmptyReasonsReturnsInput(t *testing.T) {
+	existing := `{"broadcast_type":"info"}`
+	assert.Equal(t, existing, withRerankReasons(existing, nil))
+}
+
 func TestAugmentItemFeaturesJSON_PreservesExistingFields(t *testing.T) {
 	existing := `{"broadcast_type":"news","domains":["ai"],"rank_scores":{"semantic":0.42}}`
 	out := augmentItemFeaturesJSON(existing, []string{"normalize:minmax"}, 0.77)

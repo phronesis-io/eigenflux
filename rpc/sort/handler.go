@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,11 +19,14 @@ import (
 	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/pkg/reqinfo"
 	profileDal "eigenflux_server/rpc/profile/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
+	"eigenflux_server/rpc/sort/rank"
 	"eigenflux_server/rpc/sort/ranker"
+	"eigenflux_server/rpc/sort/rerank"
 )
 
 // SortServiceESImpl implements SortService using Elasticsearch
@@ -541,9 +545,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	ranked := make([]ranker.RankedItem, 0, len(allRanked))
 	filteredItems := make([]ranker.RankedItem, 0)
 	for _, ri := range allRanked {
-		// Friend-feed items bypass the relevance threshold; they still pass through
-		// group-collapse (above) and bloom dedup (below).
-		if ri.Score >= rankerCfg.MinRelevanceScore || sourceMap[ri.ItemID].Has(recallsource.Friend) {
+		// Friend-feed and new-UGC guarantee items bypass the relevance threshold;
+		// they still pass through group-collapse (above) and bloom dedup (below).
+		if ri.Score >= rankerCfg.MinRelevanceScore ||
+			sourceMap[ri.ItemID].Has(recallsource.Friend) ||
+			sourceMap[ri.ItemID].Has(recallsource.NewUGC) {
 			ranked = append(ranked, ri)
 		} else {
 			filteredItems = append(filteredItems, ri)
@@ -611,6 +617,77 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		})
 	}
 
+	// Force-insert configured recall channels into reserved feed positions.
+	// Injected candidates (e.g. un-exposed UGC from new_ugc_recall) bypass the
+	// relevance threshold above; the generic InjectPolicy then pulls the
+	// highest-scoring ones into the configured slots so a low-relevance
+	// candidate still survives the top-N truncation below. Rules come from
+	// configs/sort/rerank.yaml (name: inject); matching by recall-source label
+	// keeps the policy channel-agnostic — a new channel is added purely in YAML.
+	injectReasons := map[int64][]string{}
+	injectClaimTTL := time.Duration(0)
+	if injectRules := itemRerankPolicies.InjectRules(); len(injectRules) > 0 && len(candidates) > 0 {
+		// Real-time claim filter: the offline recall index refreshes only
+		// periodically, so a just-exposed item lingers in it until the next
+		// refresh. Skip items already force-inserted (claimed) recently so each
+		// is injected ~once, not into every feed across the whole refresh
+		// window. Batch the check to one round trip over the injectable IDs.
+		var injectableIDs []int64
+		for _, c := range candidates {
+			names := recallsource.Names(sourceMap[c.itemID])
+			for _, rule := range injectRules {
+				if slices.Contains(names, rule.Source) {
+					injectableIDs = append(injectableIDs, c.itemID)
+					break
+				}
+			}
+		}
+		claimed := fetchInjectClaims(ctx, mq.RDB, injectableIDs)
+
+		rc := make([]rank.Candidate, len(candidates))
+		for i, c := range candidates {
+			rc[i] = rank.NewCandidate(c.itemID, rank.CandidateItem, c.score, nil, nil)
+		}
+
+		for _, rule := range injectRules {
+			label := rule.Source
+			if ttl, _ := rule.ParsedClaimTTL(); ttl > injectClaimTTL {
+				injectClaimTTL = ttl
+			}
+			rc = (&rerank.InjectPolicy{
+				Match: func(c rank.Candidate) bool {
+					if claimed[c.ID()] {
+						return false
+					}
+					return slices.Contains(recallsource.Names(sourceMap[c.ID()]), label)
+				},
+				Count:     rule.Count,
+				Positions: rule.Positions,
+			}).Apply(rc)
+		}
+
+		if len(rc) == len(candidates) {
+			byID := make(map[int64]candidateItem, len(candidates))
+			for _, c := range candidates {
+				byID[c.itemID] = c
+			}
+			newCands := make([]candidateItem, 0, len(rc))
+			for _, c := range rc {
+				if ci, ok := byID[c.ID()]; ok {
+					newCands = append(newCands, ci)
+				}
+				if bc, ok := c.(*rank.BasicCandidate); ok {
+					if rs := bc.Reasons(); len(rs) > 0 {
+						injectReasons[c.ID()] = rs
+					}
+				}
+			}
+			if len(newCands) == len(candidates) {
+				candidates = newCands
+			}
+		}
+	}
+
 	// Bloom filter dedup by group_id (unless disabled in dev/test)
 	seenGroupIDs := make(map[int64]bool)
 	if !cfg.ShouldDisableDedup() && bf != nil {
@@ -636,6 +713,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	// Filter and collect final item IDs (delivery list)
 	itemIDs := make([]int64, 0, limit)
 	sortedItems := make([]*sort.SortedItem, 0, limit+len(filteredItems))
+	var deliveredInjected []int64
 	dedupedCount := 0
 	for _, c := range candidates {
 		if c.groupID != 0 && seenGroupIDs[c.groupID] {
@@ -648,6 +726,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		}
 		agentFeatCopy := agentFeaturesStr
 		itemFeatCopy := c.itemFeatures
+		if rs, ok := injectReasons[c.itemID]; ok {
+			itemFeatCopy = withRerankReasons(c.itemFeatures, rs)
+			metrics.NewUGCInjectedTotal.Inc()
+			deliveredInjected = append(deliveredInjected, c.itemID)
+		}
 		sortedItems = append(sortedItems, &sort.SortedItem{
 			ItemId:        c.itemID,
 			Score:         c.score,
@@ -658,6 +741,11 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			break
 		}
 	}
+
+	// Claim the items we actually force-inserted so the next feeds skip them
+	// until the offline index catches up (see fetchInjectClaims). Claim only on
+	// real delivery — an item dropped by dedup/limit should stay eligible.
+	claimInjectedItems(ctx, mq.RDB, deliveredInjected, injectClaimTTL)
 
 	logger.Ctx(ctx).Info("dedup result", "filtered", dedupedCount, "returned", len(itemIDs))
 

@@ -13,9 +13,10 @@ type Config struct {
 }
 
 type PolicyConfig struct {
-	Name       string                    `yaml:"name"`
-	ItemRules  []ItemFreshnessRuleConfig `yaml:"item_rules"`
-	BoostRules []BoostRuleConfig         `yaml:"boost_rules"`
+	Name        string                    `yaml:"name"`
+	ItemRules   []ItemFreshnessRuleConfig `yaml:"item_rules"`
+	BoostRules  []BoostRuleConfig         `yaml:"boost_rules"`
+	InjectRules []InjectRuleConfig        `yaml:"inject_rules"`
 }
 
 type ItemFreshnessRuleConfig struct {
@@ -28,6 +29,26 @@ type BoostRuleConfig struct {
 	Field  string   `yaml:"field"`
 	Values []string `yaml:"values"`
 	Weight float64  `yaml:"weight"`
+}
+
+// InjectRuleConfig declares a force-insertion rule: pull up to Count candidates
+// recalled from the named source (matched against recallsource.Names labels)
+// into Positions. Empty Positions front-fills. The rule carries only
+// parameters; the runtime InjectPolicy predicate is built by the sort handler,
+// which owns the per-request recall-source map.
+//
+// ClaimTTL (a Go duration string, e.g. "90m") throttles re-insertion: after an
+// item is force-inserted and delivered, the handler marks it in Redis for this
+// long so subsequent feeds skip it. Because the offline recall index refreshes
+// only periodically, a just-exposed item lingers in the index until the next
+// refresh; the claim bridges that lag so each item is force-inserted ~once
+// instead of into every feed across the whole refresh window. Empty disables
+// the claim (no throttle).
+type InjectRuleConfig struct {
+	Source    string `yaml:"source"`
+	Count     int    `yaml:"count"`
+	Positions []int  `yaml:"positions"`
+	ClaimTTL  string `yaml:"claim_ttl"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -61,11 +82,62 @@ func (c *Config) NewPolicies(now func() time.Time) ([]Policy, error) {
 				return nil, err
 			}
 			policies = append(policies, policy)
+		case "inject":
+			// Inject rules carry only parameters; the runnable InjectPolicy needs
+			// the per-request recall-source map, so it is built by the handler
+			// (see Config.InjectRules) rather than added to the generic chain.
+			if err := pc.validateInjectRules(); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("unknown rerank policy %q", pc.Name)
 		}
 	}
 	return policies, nil
+}
+
+// InjectRules returns every inject_rule declared under any policy named
+// "inject", flattened in declaration order.
+func (c *Config) InjectRules() []InjectRuleConfig {
+	if c == nil {
+		return nil
+	}
+	var rules []InjectRuleConfig
+	for _, pc := range c.Policies {
+		if pc.Name == "inject" {
+			rules = append(rules, pc.InjectRules...)
+		}
+	}
+	return rules
+}
+
+// ParsedClaimTTL parses ClaimTTL into a duration. Empty → 0 (no claim). Reuses
+// the same duration grammar as the rest of the rerank config (supports a "d"
+// day suffix).
+func (r InjectRuleConfig) ParsedClaimTTL() (time.Duration, error) {
+	return parseConfigDuration(r.ClaimTTL)
+}
+
+func (pc PolicyConfig) validateInjectRules() error {
+	for _, rc := range pc.InjectRules {
+		if rc.Source == "" {
+			return fmt.Errorf("inject rule has empty source")
+		}
+		if rc.Count <= 0 {
+			return fmt.Errorf("inject rule for source %q has non-positive count %d", rc.Source, rc.Count)
+		}
+		for _, p := range rc.Positions {
+			if p < 0 {
+				return fmt.Errorf("inject rule for source %q has negative position %d", rc.Source, p)
+			}
+		}
+		if rc.ClaimTTL != "" {
+			if _, err := parseConfigDuration(rc.ClaimTTL); err != nil {
+				return fmt.Errorf("inject rule for source %q has invalid claim_ttl %q: %w", rc.Source, rc.ClaimTTL, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (pc PolicyConfig) newFreshnessPolicy(now func() time.Time) (*FreshnessPolicy, error) {

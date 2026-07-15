@@ -106,6 +106,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `ENABLE_HOT_RECALL` | `true` | Enables Redis-backed `hot_recall` offline recall source |
 | `ENABLE_NEW_RECALL` | `true` | Enables Redis-backed `new_recall` offline recall source |
 | `ENABLE_TWO_TOWER_RECALL` | `false` | Enables precomputed two-tower Redis candidates from the offline recall job |
+| `ENABLE_NEW_UGC_RECALL` | `false` | Enables the Redis-backed `new_ugc` recall channel (un-exposed UGC written by the offline service). Force-insertion is configured declaratively in `configs/sort/rerank.yaml` (`name: inject`), not via env |
 | `REC_REDIS_NAMESPACE` | `rec` | Namespace prefix for offline recall Redis keys |
 | `TWO_TOWER_RECALL_REDIS_KEY` | `two_tower_recall` | Offline output key for per-user two-tower candidates |
 | `TWO_TOWER_RECALL_K` | `50` | Maximum precomputed two-tower candidates read per user |
