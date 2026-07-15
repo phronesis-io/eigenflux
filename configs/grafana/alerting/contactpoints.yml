@@ -17,6 +17,6 @@ contactPoints:
       - uid: pgc-lark-relay
         type: webhook
         settings:
-          url: http://$METRICS_HOST:9090/grafana-alert?token=$GRAFANA_ALERT_TOKEN
+          url: http://${METRICS_HOST}:9090/grafana-alert?token=${GRAFANA_ALERT_TOKEN}
           httpMethod: POST
         disableResolveMessage: false

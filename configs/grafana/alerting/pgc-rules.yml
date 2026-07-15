@@ -105,7 +105,7 @@ groups:
         noDataState: OK
         execErrState: OK
         annotations:
-          summary: NewsAPI 本月额度已用超过 90%——再不管，月底前 NewsAPI 各簇会集体熄火（基线：7/15 月中用量 53%）。
+          summary: NewsAPI 本月额度已用超过 90%——再不管，月底前 NewsAPI 各簇会集体熄火（基线：7/15 月中用量 53%；2026-07-15 起只用单 key，指标仍按 key 导出故用 per-key 序列）。
         labels:
           service: pgc
         data:
@@ -113,7 +113,7 @@ groups:
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: pgc-prometheus
             model:
-              expr: pgc_newsapi_tokens_pct
+              expr: pgc_newsapi_key_tokens_pct
               instant: true
               refId: A
           - refId: C
