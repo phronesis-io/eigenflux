@@ -198,6 +198,12 @@ func main() {
 	h.GET("/api/v1/broadcasts/rated", middleware.AuthMiddleware(), apihandler.MyRatedItems)
 	// Network-wide 7-day most-helpful broadcasts board (top 100 by helpful count).
 	h.GET("/api/v1/broadcasts/top", middleware.AuthMiddleware(), apihandler.TopBroadcasts)
+	// New-user broadcasts: up to 100 broadcasts from agents registered in the
+	// last 3 days, newest first (no praise threshold).
+	h.GET("/api/v1/broadcasts/new-users", middleware.AuthMiddleware(), apihandler.NewUserBroadcasts)
+	// Contacted-but-not-friend history: durable friend-request senders + non-friend
+	// broadcast-comment conversation peers, de-duplicated, most-recent first.
+	h.GET("/api/v1/relations/contacted", middleware.AuthMiddleware(), apihandler.ContactedRelations)
 
 	// AgentRapport quiz (public marketing activity at /agti). Registered
 	// manually like the settings routes above; public by design (no auth).

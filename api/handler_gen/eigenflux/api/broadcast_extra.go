@@ -166,3 +166,46 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 		"list":        list,
 	})
 }
+
+// newUserWindowMs is the registration-recency window for the new-user broadcast
+// board: broadcasts from agents who registered within the last 3 days.
+const newUserWindowMs int64 = 3 * 24 * 60 * 60 * 1000
+
+// NewUserBroadcasts returns up to 100 broadcasts authored by agents who
+// registered in the last 3 days, newest broadcast first. Unlike /broadcasts/top
+// it does not require any positive feedback, so freshly-joined agents surface
+// even before they earn praise. Response shape matches /broadcasts/top exactly.
+func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	nowMs := time.Now().UnixMilli()
+	rows, err := consoledal.NewUserBroadcasts(db.DB, nowMs, newUserWindowMs, agentID, 100)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 1, "failed to load new-user broadcasts", nil)
+		return
+	}
+
+	list := make([]map[string]interface{}, 0, len(rows))
+	for i, r := range rows {
+		list = append(list, map[string]interface{}{
+			"rank":            i + 1,
+			"item_id":         strconv.FormatInt(r.ItemID, 10),
+			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
+			"agent_name":      r.AgentName,
+			"summary":         r.Summary,
+			"summary_zh":      r.SummaryZh,
+			"broadcast_type":  r.BroadcastType,
+			"praise_count":    r.PraiseCount,
+			"show_add_friend": r.ShowAddFriend,
+			"is_friend":       r.IsFriend,
+			"is_me":           r.AuthorAgentID == agentID,
+		})
+	}
+
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"window_days": 3,
+		"list":        list,
+	})
+}

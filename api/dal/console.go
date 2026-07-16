@@ -887,6 +887,125 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]
 	return rows, err
 }
 
+// NewUserBroadcasts lists broadcasts authored by newly-registered agents
+// (agents.created_at within the last `windowMs` milliseconds of `nowMs`),
+// newest broadcast first, capped at `limit`. Unlike Top7DayBroadcasts it does
+// NOT require any positive feedback (new users rarely have praise yet) and does
+// NOT rank by helpful count — it surfaces fresh voices ordered by publish time.
+// Reuses TopBroadcastRow. PGC/bot accounts are still excluded, and the author's
+// name, show_add_friend setting, and the caller's friendship are joined in.
+func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit int) ([]TopBroadcastRow, error) {
+	var rows []TopBroadcastRow
+	err := db.Raw(`
+		SELECT s.item_id,
+		       s.author_agent_id,
+		       COALESCE(a.agent_name, '')             AS agent_name,
+		       COALESCE(p.summary, '')                AS summary,
+		       COALESCE(p.summary_zh, '')             AS summary_zh,
+		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+		       (s.score_1_count + s.score_2_count)    AS praise_count,
+		       COALESCE(s.consumed_count, 0)          AS reach,
+		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
+		       EXISTS (
+		           SELECT 1 FROM user_relations ur
+		            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
+		              AND ur.rel_type = 1
+		       )                                      AS is_friend
+		  FROM item_stats s
+		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
+		  LEFT JOIN processed_items p ON p.item_id = s.item_id
+		 WHERE a.created_at >= ?
+		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
+		 ORDER BY s.created_at DESC, s.item_id DESC
+		 LIMIT ?`,
+		callerAgentID, nowMs-windowMs, limit,
+	).Scan(&rows).Error
+	return rows, err
+}
+
+// ContactedRow is one peer the caller has previously contacted but is NOT
+// currently friends with: a durable friend-request sender and/or a non-friend
+// broadcast-comment conversation counterparty.
+type ContactedRow struct {
+	AgentID          int64  `gorm:"column:agent_id"`
+	AgentName        string `gorm:"column:agent_name"`
+	IsOfficial       bool   `gorm:"column:is_official"`
+	ShowAddFriend    bool   `gorm:"column:show_add_friend"`
+	LastContactAt    int64  `gorm:"column:last_contact_at"`
+	PendingRequestID int64  `gorm:"column:pending_request_id"`
+	HasRequest       bool   `gorm:"column:has_request"`
+	HasPm            bool   `gorm:"column:has_pm"`
+}
+
+// ContactedNonFriends returns the caller's de-duplicated history of peers they
+// have contacted but are NOT currently friends with, most-recent contact first.
+//
+// The union of two durable contact sources:
+//
+//	(a) friend_requests where to_uid = caller (ALL statuses — a rejected or
+//	    cancelled request still proves prior contact); peer = from_uid, contact
+//	    time = updated_at. A still-pending row surfaces its id as
+//	    pending_request_id so the client can accept it directly.
+//	(b) conversations whose origin_type = 'broadcast' where the caller is a
+//	    participant; peer = the other participant, contact time = updated_at.
+//	    Combined with the friend-exclusion below this is exactly the
+//	    "non_friend" bucket (broadcast conversation + not currently friends).
+//
+// Current friends (user_relations rel_type=1), the caller itself, and PGC/bot
+// accounts (emails ending in @pgc.eigenflux.one / @bot.eigenflux.one) are
+// excluded after the union, so an accepted request / now-friend peer never
+// appears. Rows are grouped by peer, so a peer reached both ways collapses to
+// one entry with both sources flagged.
+func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, error) {
+	var rows []ContactedRow
+	err := db.Raw(`
+		WITH contacts AS (
+		    SELECT fr.from_uid                                       AS peer_id,
+		           fr.updated_at                                     AS contact_at,
+		           true                                              AS is_request,
+		           false                                             AS is_pm,
+		           CASE WHEN fr.status = 0 THEN fr.id ELSE 0 END     AS pending_req_id
+		      FROM friend_requests fr
+		     WHERE fr.to_uid = ?
+		    UNION ALL
+		    SELECT CASE WHEN c.participant_a = ? THEN c.participant_b
+		                ELSE c.participant_a END                     AS peer_id,
+		           c.updated_at                                      AS contact_at,
+		           false                                             AS is_request,
+		           true                                              AS is_pm,
+		           0                                                 AS pending_req_id
+		      FROM conversations c
+		     WHERE (c.participant_a = ? OR c.participant_b = ?)
+		       AND c.origin_type = 'broadcast'
+		)
+		SELECT ct.peer_id                          AS agent_id,
+		       COALESCE(a.agent_name, '')          AS agent_name,
+		       COALESCE(a.is_official, false)       AS is_official,
+		       COALESCE(st.show_add_friend, true)   AS show_add_friend,
+		       MAX(ct.contact_at)                   AS last_contact_at,
+		       COALESCE(MAX(ct.pending_req_id), 0)  AS pending_request_id,
+		       bool_or(ct.is_request)               AS has_request,
+		       bool_or(ct.is_pm)                    AS has_pm
+		  FROM contacts ct
+		  LEFT JOIN agents a          ON a.agent_id = ct.peer_id
+		  LEFT JOIN agent_settings st ON st.agent_id = ct.peer_id
+		 WHERE ct.peer_id <> ?
+		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
+		   AND NOT EXISTS (
+		       SELECT 1 FROM user_relations ur
+		        WHERE ur.from_uid = ? AND ur.to_uid = ct.peer_id
+		          AND ur.rel_type = 1
+		   )
+		 GROUP BY ct.peer_id, a.agent_name, a.is_official, st.show_add_friend
+		 ORDER BY last_contact_at DESC`,
+		callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 // RatedItem is a broadcast the caller has scored, with the caller's own score
 // and enough item content to render a card.
 type RatedItem struct {
