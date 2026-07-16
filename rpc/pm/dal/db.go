@@ -272,6 +272,7 @@ func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcastComment, nonFrien
 		   END AS bucket, COUNT(*) AS n
 		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
 		 WHERE pm.receiver_id = ? AND pm.is_read = false
+		   AND (c.origin_type = 'friend' OR c.msg_count >= 2)
 		 GROUP BY bucket`, agentID, agentID, agentID,
 	).Scan(&rows).Error
 	for _, r := range rows {
