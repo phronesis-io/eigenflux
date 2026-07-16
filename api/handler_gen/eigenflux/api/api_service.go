@@ -2107,11 +2107,15 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		return nil
 	})
 
-	// Parallel: total unread message count (for the messages nav badge).
+	// Parallel: unread count for the messages nav badge. Matches what the Messages
+	// page actually shows — friend DMs + ice-broken non-friend threads — so it
+	// excludes broadcast-comment discussions (their own tab was removed) and cold
+	// single-comment non-friend pings (hidden until a reply). Otherwise the badge
+	// would count messages the user can't reach/clear from Messages.
 	g.Go(func() error {
 		uresp, err := clients.PMClient.GetUnreadCount(gCtx, &pmrpc.GetUnreadCountReq{AgentId: agentID})
 		if err == nil && uresp.BaseResp != nil && uresp.BaseResp.Code == 0 {
-			unreadCount = uresp.Count
+			unreadCount = uresp.GetCountFriend() + uresp.GetCountNonFriend()
 		}
 		return nil
 	})
