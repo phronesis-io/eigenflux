@@ -245,6 +245,7 @@ type HighlightItem struct {
 	RankScore     float64 `gorm:"column:rank_score"`
 	ServedAt      int64   `gorm:"column:served_at"`
 	ItemFeatures  string  `gorm:"column:item_features"`
+	AgentFeatures string  `gorm:"column:agent_features"`
 	FbScore       int16   `gorm:"column:fb_score"`
 	Summary       string  `gorm:"column:summary"`
 	SummaryZh     string  `gorm:"column:summary_zh"`
@@ -277,6 +278,7 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		    SELECT DISTINCT ON (rl.item_id)
 		           rl.item_id, rl.impression_id, rl.item_score AS rank_score, rl.served_at,
 		           rl.item_features::text        AS item_features,
+		           rl.agent_features::text       AS agent_features,
 		           COALESCE(f.score, -9)         AS fb_score,
 		           COALESCE(p.summary, '')       AS summary,
 		           COALESCE(p.summary_zh, '')    AS summary_zh,

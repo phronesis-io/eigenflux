@@ -2447,8 +2447,16 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 
 	// Derive a one-line push reason from the ranking factors captured at
 	// serve time: keyword hit > semantic affinity > freshness.
-	deriveReason := func(featuresJSON string) (string, string) {
-		var f struct {
+	//
+	// For a keyword hit the term must be the user's *own* interest keyword
+	// that this item also carries — i.e. item.keywords ∩ agent.keywords — not
+	// the item's own headline tag. Both snapshots come from the same
+	// replay_logs row (item_features / agent_features). If there is no
+	// intersection (or agent_features is empty on legacy rows) we fall through
+	// to the semantic / freshness branches rather than mislabel the item's
+	// broadcast tag as "your interest".
+	deriveReason := func(agentFeaturesJSON, itemFeaturesJSON string) (string, string) {
+		var item struct {
 			Keywords   []string `json:"keywords"`
 			Domains    []string `json:"domains"`
 			Timeliness string   `json:"timeliness"`
@@ -2458,18 +2466,43 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 				Freshness float64 `json:"freshness"`
 			} `json:"rank_scores"`
 		}
-		if json.Unmarshal([]byte(featuresJSON), &f) != nil {
+		if json.Unmarshal([]byte(itemFeaturesJSON), &item) != nil {
 			return "", ""
 		}
+		var agent struct {
+			Keywords []string `json:"keywords"`
+		}
+		// agent_features is optional (empty on legacy rows); ignore parse errors.
+		_ = json.Unmarshal([]byte(agentFeaturesJSON), &agent)
+
+		if item.RankScores.Keyword > 0 && len(item.Keywords) > 0 && len(agent.Keywords) > 0 {
+			// Case-insensitive intersection: keyword storage isn't guaranteed
+			// normalized across the two snapshots.
+			itemSet := make(map[string]struct{}, len(item.Keywords))
+			for _, kw := range item.Keywords {
+				if k := strings.ToLower(strings.TrimSpace(kw)); k != "" {
+					itemSet[k] = struct{}{}
+				}
+			}
+			for _, akw := range agent.Keywords {
+				norm := strings.ToLower(strings.TrimSpace(akw))
+				if norm == "" {
+					continue
+				}
+				if _, ok := itemSet[norm]; ok {
+					// Return the user's own keyword as they follow it.
+					return "keyword", strings.TrimSpace(akw)
+				}
+			}
+			// No real hit on a user keyword — fall through.
+		}
 		switch {
-		case f.RankScores.Keyword > 0 && len(f.Keywords) > 0:
-			return "keyword", f.Keywords[0]
-		case f.RankScores.Semantic >= 0.3 && len(f.Domains) > 0:
-			return "semantic", f.Domains[0]
-		case f.RankScores.Freshness >= 0.8 && (f.Timeliness == "breaking" || f.Timeliness == "timely"):
-			return "fresh", f.Timeliness
-		case len(f.Domains) > 0:
-			return "semantic", f.Domains[0]
+		case item.RankScores.Semantic >= 0.3 && len(item.Domains) > 0:
+			return "semantic", item.Domains[0]
+		case item.RankScores.Freshness >= 0.8 && (item.Timeliness == "breaking" || item.Timeliness == "timely"):
+			return "fresh", item.Timeliness
+		case len(item.Domains) > 0:
+			return "semantic", item.Domains[0]
 		}
 		return "", ""
 	}
@@ -2502,7 +2535,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			authorBio = bio
 		}
 
-		reasonType, reasonTerm := deriveReason(it.ItemFeatures)
+		reasonType, reasonTerm := deriveReason(it.AgentFeatures, it.ItemFeatures)
 		hl := map[string]interface{}{
 			"item_id":        strconv.FormatInt(it.ItemID, 10),
 			"impression_id":  it.ImpressionID,
