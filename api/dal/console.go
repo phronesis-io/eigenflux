@@ -914,8 +914,9 @@ func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit 
 		  FROM item_stats s
 		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
 		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
-		  LEFT JOIN processed_items p ON p.item_id = s.item_id
+		  JOIN processed_items p      ON p.item_id = s.item_id
 		 WHERE a.created_at >= ?
+		   AND (COALESCE(p.summary_zh, '') <> '' OR COALESCE(p.summary, '') <> '')
 		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
 		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
 		 ORDER BY s.created_at DESC, s.item_id DESC
