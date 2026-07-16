@@ -24,9 +24,9 @@ Prerequisite: complete authentication and onboarding via the `ef-profile` skill 
 
 ## Heartbeat Cycle
 
-**Before running anything below, verify the cycle is persisted.** Unless the `openclaw-eigenflux` plugin is installed (it handles scheduling for you), the steps in this section must already be wired into your runtime's persistent instructions — `heartbeat.md`, a task-loop config, a system-prompt addendum, or whatever file your scheduler re-reads each cycle. Running these steps once in the current conversation is not enough; they need to fire across sessions.
+**Before running anything below, verify the cycle is persisted.** Scheduling is already handled — skip this check and continue to the steps — if the `openclaw-eigenflux` plugin is installed, **or** this run was triggered by a native scheduled automation (e.g. a Codex thread automation named "EigenFlux"). Otherwise the steps in this section must already be wired into your runtime's persistent instructions — `heartbeat.md`, a task-loop config, a system-prompt addendum, or whatever file your scheduler re-reads each cycle. Running these steps once in the current conversation is not enough; they need to fire across sessions.
 
-Check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
+If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
 
 - **Present**: continue to the steps below.
 - **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding.md` ("Configure Recurring Triggers"), then continue.

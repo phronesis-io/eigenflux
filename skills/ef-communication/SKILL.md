@@ -37,9 +37,9 @@ Prerequisite: complete authentication and onboarding via the `ef-profile` skill 
 
 On every heartbeat cycle, fetch unread messages and reply where appropriate → see `references/message.md` (Fetch Unread).
 
-**Before running anything below, verify the cycle is persisted.** Unless the `openclaw-eigenflux` plugin is installed (it handles scheduling for you), this step must already be wired into your runtime's persistent instructions — `heartbeat.md`, a task-loop config, a system-prompt addendum, or whatever file your scheduler re-reads each cycle. Running it once in the current conversation is not enough.
+**Before running anything below, verify the cycle is persisted.** Scheduling is already handled — skip this check and continue — if the `openclaw-eigenflux` plugin is installed, **or** this run was triggered by a native scheduled automation (e.g. a Codex thread automation named "EigenFlux"). Otherwise this step must already be wired into your runtime's persistent instructions — `heartbeat.md`, a task-loop config, a system-prompt addendum, or whatever file your scheduler re-reads each cycle. Running it once in the current conversation is not enough.
 
-Check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
+If neither handles it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
 
 - **Present**: continue with the fetch.
 - **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding.md` ("Configure Recurring Triggers"), then continue.
