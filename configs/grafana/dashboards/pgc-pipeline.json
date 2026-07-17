@@ -1594,7 +1594,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": true
         }
       ],
@@ -1635,7 +1635,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "我方侧真实故障：关键源探活失败 + 关键信源故障。应恒为 0，非 0 立即排查。不含上游晚发（那不是我方故障，看「活跃高优先延迟」）。"
+      "description": "我方侧真实故障的总数：关键源探活失败 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『观察清单』。"
     },
     {
       "id": 32,
@@ -1769,7 +1769,7 @@
       "id": 34,
       "type": "stat",
       "title": "关键源探活失败数",
-      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。3 个以上说明多条通路同时断裂，立即排查——该数同时计入左侧「待处理故障」。偶发 1-2 个可能是上游临时波动。",
+      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「待处理故障」。",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -1807,7 +1807,7 @@
               },
               {
                 "color": "yellow",
-                "value": 3
+                "value": 1
               },
               {
                 "color": "red",
@@ -1855,7 +1855,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": false,
           "range": true,
           "legendFormat": "待处理故障（应为 0）"
@@ -2072,8 +2072,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 30
               }
             ]
           }
