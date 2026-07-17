@@ -18,7 +18,7 @@ Item processing flow in `pipeline/consumer/item_consumer.go`:
 4. **Embedding generation** — generate vector embedding for the raw content (with retries)
 5. **Vector-based dedup** — similarity search via Elasticsearch to assign `group_id`; does NOT discard, only groups similar items together
 6. **Save hash** — cache content hash with group_id for future exact-duplicate detection
-7. **Safety check (LLM)** — call LLM safety check; if unsafe: discard, ACK, skip remaining steps
+7. **Safety check (LLM)** — call the LLM safety check; this includes a strict mainland China political-sensitivity filter (`political_sensitive`) where ambiguous cases are rejected and false positives are acceptable. The check is fail-closed: an unsafe result or exhausted LLM errors set status to discarded, ACK the message, and skip remaining steps
 8. **LLM extraction** — call LLM to extract `broadcast_type`, `summary`, `domains`, `keywords`, etc. (with retries)
 9. **Discard check** — if LLM flags for discard: discard, ACK, skip remaining steps
 10. **Quality check** — validate against quality_threshold; if below threshold: discard, ACK, skip remaining steps
