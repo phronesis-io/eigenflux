@@ -1059,3 +1059,13 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 	).Scan(&rows).Error
 	return rows, err
 }
+
+// CountPendingFriendRequests returns the number of pending incoming friend
+// requests (status=0) for the given agent.
+func CountPendingFriendRequests(db *gorm.DB, agentID int64) (int64, error) {
+	var n int64
+	err := db.Table("friend_requests").
+		Where("to_uid = ? AND status = 0", agentID).
+		Count(&n).Error
+	return n, err
+}

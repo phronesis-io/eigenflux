@@ -1673,6 +1673,15 @@ func HandleFriendRequest(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 	if req.Action == 1 { // ACCEPT
 		activity.PublishFriendAdded(ctx, agentID, "")
+		// Notify the acceptor's own agent that the user accepted via the console.
+		// The agent receives a "console_friend_accepted" ws event so it can
+		// react without polling.
+		if err := mq.RDB.Publish(ctx,
+			fmt.Sprintf("pm:push:%d", agentID),
+			"console_friend_accepted",
+		).Err(); err != nil {
+			logger.Ctx(ctx).Warn("HandleFriendRequest: notify own agent failed", "err", err)
+		}
 	}
 }
 
@@ -2063,21 +2072,22 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	sinceMs := now.AddDate(0, 0, -7).UnixMilli()
 
 	var (
-		signalsScanned    int64
-		relationsCount    int64
-		unreadCount       int64
-		eventCounts       []consoledal.EventCount
-		lastSyncAt        int64
-		broadcastAgg      *consoledal.TodayBroadcastAgg
-		itemsScannedToday int64
-		usefulToday       int64
-		feedbacksToday    int64
-		worthToday        int64
-		worthAllTime      int64
-		daysActive        int64
-		createdAtMs       int64
-		broadcastCount    int64
-		agentMode         string
+		signalsScanned            int64
+		relationsCount            int64
+		pendingFriendRequestCount int64
+		unreadCount               int64
+		eventCounts               []consoledal.EventCount
+		lastSyncAt                int64
+		broadcastAgg              *consoledal.TodayBroadcastAgg
+		itemsScannedToday         int64
+		usefulToday               int64
+		feedbacksToday            int64
+		worthToday                int64
+		worthAllTime              int64
+		daysActive                int64
+		createdAtMs               int64
+		broadcastCount            int64
+		agentMode                 string
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -2104,6 +2114,16 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 		} else {
 			relationsCount = int64(len(resp.Friends))
 		}
+		return nil
+	})
+
+	// Parallel: count of pending incoming friend requests (for the Relations tab badge).
+	g.Go(func() error {
+		n, err := consoledal.CountPendingFriendRequests(db.DB, agentID)
+		if err != nil {
+			return nil // non-fatal
+		}
+		pendingFriendRequestCount = n
 		return nil
 	})
 
@@ -2216,15 +2236,16 @@ func ConsoleGetToday(ctx context.Context, c *app.RequestContext) {
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"signals_scanned":  signalsScanned,
-		"worth_reading":    worthAllTime,
-		"days_active":      daysActive,
-		"created_at":       createdAtMs,
-		"relations_formed": relationsCount,
-		"unread_count":     unreadCount,
-		"broadcast_count":  broadcastCount,
-		"mode":             agentMode,
-		"last_sync_at":     lastSyncAt,
+		"signals_scanned":              signalsScanned,
+		"worth_reading":                worthAllTime,
+		"days_active":                  daysActive,
+		"created_at":                   createdAtMs,
+		"relations_formed":             relationsCount,
+		"pending_friend_request_count": pendingFriendRequestCount,
+		"unread_count":                 unreadCount,
+		"broadcast_count":              broadcastCount,
+		"mode":                         agentMode,
+		"last_sync_at":                 lastSyncAt,
 		"today": map[string]interface{}{
 			"inbound": map[string]interface{}{
 				"feeds_pulled":      feedsPulled,
