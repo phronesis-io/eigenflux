@@ -158,11 +158,11 @@
               },
               {
                 "color": "yellow",
-                "value": 12
+                "value": 18
               },
               {
                 "color": "red",
-                "value": 20
+                "value": 30
               }
             ]
           }
@@ -183,7 +183,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "抽样广播中领域标注明显错误的比例。低于 12% 为绿。"
+      "description": "抽样广播中领域标注明显错误的比例。常态约 10-15%，受样本成分波动。超过 18% 值得排查分类 prompt，超过 30% 说明分类逻辑可能有系统性问题。"
     },
     {
       "id": 50,
@@ -362,11 +362,11 @@
               },
               {
                 "color": "yellow",
-                "value": 5
+                "value": 15
               },
               {
                 "color": "red",
-                "value": 30
+                "value": 45
               }
             ]
           }
@@ -383,11 +383,11 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "一手源发布到入库的中位分钟数，越低越好。最慢的一成条目多为期刊类回填日期或上游 RSS 缓慢，属换源待办，不代表管线故障。"
+      "description": "一手源发布到入库的中位分钟数，越低越好。常态约 5-10 分钟。超过 15 分钟说明轮询频率可能需要提高或有上游缓慢，超过 45 分钟说明管线卡住。"
     },
     {
       "id": 58,
@@ -587,7 +587,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "red"
+                  "fixedColor": "semi-dark-purple"
                 }
               }
             ]
@@ -691,8 +691,12 @@
                       "value": null
                     },
                     {
+                      "color": "yellow",
+                      "value": 10
+                    },
+                    {
                       "color": "red",
-                      "value": 1
+                      "value": 20
                     }
                   ]
                 }
@@ -1590,7 +1594,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0))",
           "instant": true
         }
       ],
@@ -1631,13 +1635,13 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "我方侧真实故障的总数：关键源探活失败 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『观察清单』。"
+      "description": "我方侧真实故障：关键源探活失败 + 关键信源故障。应恒为 0，非 0 立即排查。不含上游晚发（那不是我方故障，看「活跃高优先延迟」）。"
     },
     {
       "id": 32,
       "type": "stat",
       "title": "首发关注",
-      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。达到 5 变红：查看当日源健康日报，补齐或修复对应信源。纯市场评述、体育比分等天生无一手源的事件已排除。",
+      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。属于待办清单，不是故障——数字本身无好坏，有空时挑高价值的补。",
       "gridPos": {
         "x": 4,
         "y": 1,
@@ -1670,16 +1674,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
               }
             ]
           }
@@ -1696,7 +1692,7 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
       }
@@ -1773,7 +1769,7 @@
       "id": 34,
       "type": "stat",
       "title": "关键源探活失败数",
-      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「待处理故障」。",
+      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。3 个以上说明多条通路同时断裂，立即排查——该数同时计入左侧「待处理故障」。偶发 1-2 个可能是上游临时波动。",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -1811,7 +1807,7 @@
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 3
               },
               {
                 "color": "red",
@@ -1859,7 +1855,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0))",
           "instant": false,
           "range": true,
           "legendFormat": "待处理故障（应为 0）"
@@ -2076,16 +2072,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 30
               }
             ]
           }
