@@ -27,7 +27,7 @@ After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests 
 
 ## Test Accounts (fixed OTP, no IP whitelist)
 
-Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` (default `@eftestbot.com`) log in with the fixed `OFFICIAL_TEST_OTP` (default `111111`): no email is sent and **no IP whitelist is required**, so test bots can sign in from anywhere to exercise the official account. Checked before the mock-OTP path in `isOTPMatched`. Set `OFFICIAL_TEST_OTP` empty to disable. ⚠️ This is a sign-in backdoor for the configured domain — only use a domain you control, and disable it for a full GA.
+Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` log in with the fixed `OFFICIAL_TEST_OTP`: no email is sent and **no IP whitelist is required**, so test bots can sign in from anywhere to exercise the official account. Entries starting with `@` match by domain suffix; entries that are full addresses match exactly (`bot1@example.com` is not matched by `xbot1@example.com`). Checked before the mock-OTP path in `isOTPMatched`. Both variables default to empty, which disables the path entirely — real values live only in the deployment's `.env`, never in code. ⚠️ This is a sign-in backdoor for the matched accounts — prefer exact addresses on a domain you control, and disable it for a full GA.
 
 ## Configuration
 

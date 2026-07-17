@@ -169,6 +169,26 @@ func TestTestAccountOTP(t *testing.T) {
 		}
 	})
 
+	t.Run("exact_address_entry_matches_only_that_account", func(t *testing.T) {
+		svc := &AuthServiceImpl{
+			testEmailSuffixes: []string{"kairui1@pgc.example.com"},
+			testOTP:           "111111",
+		}
+		exact := "kairui1@pgc.example.com"
+		ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &exact, ClientIP: &noIP}
+		if !svc.isOTPMatched("111111", ch) {
+			t.Fatal("expected fixed test OTP to pass for the exact test address")
+		}
+		spoof := "xkairui1@pgc.example.com"
+		spoofCh := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &spoof, ClientIP: &noIP}
+		if svc.isOTPMatched("111111", spoofCh) {
+			t.Fatal("full-address entry must not match a longer email ending with it")
+		}
+		if !svc.isOTPMatched("654321", spoofCh) {
+			t.Fatal("non-test email should stay on the normal hash path")
+		}
+	})
+
 	t.Run("non_test_email_unaffected", func(t *testing.T) {
 		realEmail := "real@gmail.com"
 		ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &realEmail, ClientIP: &noIP}

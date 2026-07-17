@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestEmailMatchesAnySuffix(t *testing.T) {
-	suffixes := []string{"@eftestbot.com"}
+	suffixes := []string{"@eftestbot.com", "kairui1@pgc.example.com"}
 	cases := []struct {
 		email string
 		want  bool
@@ -14,6 +14,10 @@ func TestEmailMatchesAnySuffix(t *testing.T) {
 		{"real@gmail.com", false},
 		{"eftestbot.com@gmail.com", false}, // suffix must be at the end
 		{"", false},
+		{"kairui1@pgc.example.com", true},   // full-address entry matches exactly
+		{"KaiRui1@pgc.example.com", true},   // exact match is case-insensitive
+		{"xkairui1@pgc.example.com", false}, // full-address entry must not match by suffix
+		{"kairui2@pgc.example.com", false},  // other addresses on the same domain don't match
 	}
 	for _, c := range cases {
 		if got := EmailMatchesAnySuffix(c.email, suffixes); got != c.want {

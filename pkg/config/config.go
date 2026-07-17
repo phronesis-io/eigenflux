@@ -99,8 +99,8 @@ type Config struct {
 	OfficialAgentBio             string   // persona/bio for the official account
 	OfficialWelcomeMessage       string   // welcome PM body sent to new users once their profile is complete
 	EnableOfficialWelcome        bool     // master switch for the onboarding welcome (friend + PM) behavior
-	OfficialTestEmailSuffixes    []string // email suffixes treated as test accounts for the login test-OTP path
-	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty disables the test-login path
+	OfficialTestEmailSuffixes    []string // test-account matchers for the login test-OTP path: "@domain" entries match by suffix, full-address entries match exactly; empty (default) disables
+	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty (default) disables the test-login path
 	EnableOfficialTrending       bool     // #5: biweekly network-wide trending DM
 	EnableOfficialFeedRescue     bool     // #4: feed-deficit topic-recommendation DM
 	OfficialTrendingIntervalSec  int      // #5 cadence (default 14d)
@@ -271,8 +271,8 @@ func Load() *Config {
 		OfficialAgentBio:              getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
 		OfficialWelcomeMessage:        getEnv("OFFICIAL_WELCOME_MESSAGE", "你好我是 vic 老师，我有什么可以帮助你的？"),
 		EnableOfficialWelcome:         getEnvBool("ENABLE_OFFICIAL_WELCOME", true),
-		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", []string{"@eftestbot.com"}),
-		OfficialTestOTP:               getEnv("OFFICIAL_TEST_OTP", "111111"),
+		OfficialTestEmailSuffixes:     getEnvStringList("OFFICIAL_TEST_EMAIL_SUFFIXES", nil),
+		OfficialTestOTP:               getEnv("OFFICIAL_TEST_OTP", ""),
 		EnableOfficialTrending:        getEnvBool("ENABLE_OFFICIAL_TRENDING", true),
 		EnableOfficialFeedRescue:      getEnvBool("ENABLE_OFFICIAL_FEED_RESCUE", true),
 		OfficialTrendingIntervalSec:   getEnvInt("OFFICIAL_TRENDING_INTERVAL_SEC", 14*86400),
@@ -458,9 +458,12 @@ func getEnvFloat(key string, fallback float64) float64 {
 
 // getEnvStringList parses a comma-separated env var into a string slice.
 // Each element is trimmed and lowercased. Empty elements are skipped.
-// EmailMatchesAnySuffix reports whether email ends with any of the given
-// suffixes (case-insensitive). Used to treat e.g. @eftestbot.com accounts as
-// test accounts for official-account features.
+// EmailMatchesAnySuffix reports whether email matches any of the given
+// entries (case-insensitive). Entries starting with "@" match by suffix
+// (e.g. "@example.com"); entries containing a local part are full addresses
+// and must match exactly, so "bot1@example.com" cannot be hit by
+// "xbot1@example.com". Used for test-account matching in official-account
+// features and the login test-OTP path.
 func EmailMatchesAnySuffix(email string, suffixes []string) bool {
 	e := strings.ToLower(strings.TrimSpace(email))
 	if e == "" {
@@ -468,7 +471,16 @@ func EmailMatchesAnySuffix(email string, suffixes []string) bool {
 	}
 	for _, s := range suffixes {
 		s = strings.ToLower(strings.TrimSpace(s))
-		if s != "" && strings.HasSuffix(e, s) {
+		if s == "" {
+			continue
+		}
+		if strings.HasPrefix(s, "@") {
+			if strings.HasSuffix(e, s) {
+				return true
+			}
+			continue
+		}
+		if e == s {
 			return true
 		}
 	}

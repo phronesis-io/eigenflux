@@ -16,6 +16,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/auth"
 	"eigenflux_server/kitex_gen/eigenflux/base"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/email"
 	"eigenflux_server/pkg/invite"
@@ -35,7 +36,7 @@ type AuthServiceImpl struct {
 	mockUniversalOTP         string
 	mockOTPEmailSuffix       []string // e.g. ["@test.com"]
 	mockOTPIPWhitelist       []string // e.g. ["10.0.0.1"]
-	testEmailSuffixes        []string // e.g. ["@eftestbot.com"] — test accounts that log in with a fixed OTP, no IP whitelist
+	testEmailSuffixes        []string // test-account matchers ("@domain" = suffix, full address = exact) that log in with a fixed OTP, no IP whitelist
 	testOTP                  string   // fixed OTP for testEmailSuffixes; empty disables the test-login path
 	agentIDGen               interface {
 		NextID() (int64, error)
@@ -73,20 +74,15 @@ func (s *AuthServiceImpl) isMockOTPBypass(emailAddr, clientIP string) bool {
 	return s.isMockOTPEmail(emailAddr) && s.isMockOTPIPAllowed(clientIP)
 }
 
-// isTestAccountEmail reports whether the email is a test account (suffix match)
-// that logs in with the fixed testOTP. Unlike the mock path it requires no IP
-// whitelist, so test bots can sign in from anywhere. Empty testOTP disables it.
+// isTestAccountEmail reports whether the email is a test account that logs in
+// with the fixed testOTP: "@domain" entries match by suffix, full addresses
+// match exactly. Unlike the mock path it requires no IP whitelist, so test
+// bots can sign in from anywhere. Empty testOTP disables it.
 func (s *AuthServiceImpl) isTestAccountEmail(emailAddr string) bool {
 	if s.testOTP == "" || len(s.testEmailSuffixes) == 0 {
 		return false
 	}
-	lowerEmail := strings.ToLower(strings.TrimSpace(emailAddr))
-	for _, suffix := range s.testEmailSuffixes {
-		if suffix = strings.ToLower(strings.TrimSpace(suffix)); suffix != "" && strings.HasSuffix(lowerEmail, suffix) {
-			return true
-		}
-	}
-	return false
+	return config.EmailMatchesAnySuffix(emailAddr, s.testEmailSuffixes)
 }
 
 func (s *AuthServiceImpl) isOTPMatched(code string, challenge *dal.AuthEmailChallenge) bool {
