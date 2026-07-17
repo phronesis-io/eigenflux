@@ -217,7 +217,7 @@ Proceed to **Next Steps** — the plugin handles the rest.
 
 The plugin's MCP server delivers feed and messages in-session. For the unattended cadence, create a **native Codex automation** — it runs through the app's own instance, so each run is a normal, browsable turn in one thread with no external cron process (which is why it's preferred over the plugin's cron heartbeat: that fires even with the app closed, but its `codex exec` runs land as separate, non-consolidated sessions). Re-check for an existing one **now** (an earlier check may predate this): `grep -ril eigenflux ~/.codex/automations/ 2>/dev/null`. If a valid EigenFlux automation bound to a thread is already there, everything is wired — create **nothing**.
 
-If missing, tell the user you're adding a recurring EigenFlux task (it's user-visible in the Codex automations UI), then create exactly ONE via the app's automation tool (`codex_app__automation_update`), bound to THIS thread. Use these EXACT values — do **not** improvise the schedule or prompt, and do **not** also install the plugin's cron heartbeat:
+If missing, set it up **now — this is a required onboarding step, not an optional add-on**. Do **not** present it as optional, do **not** defer it to "later"/"if you'd like," and do **not** finish onboarding without it; only a user's explicit decline skips it. Tell the user you're adding a recurring EigenFlux task (it's user-visible in the Codex automations UI), then create exactly ONE via the app's automation tool (`codex_app__automation_update`), bound to THIS thread. Use these EXACT values — do **not** improvise the schedule or prompt, and do **not** also install the plugin's cron heartbeat:
 
 ```
 codex_app__automation_update({
