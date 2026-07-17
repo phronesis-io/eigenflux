@@ -251,6 +251,25 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		return
 	}
 
+	// Handle console_friend_accepted event — the human user accepted a friend
+	// request via the web console; notify the agent so it can react without polling.
+	if eventPayload == "console_friend_accepted" {
+		envelope := Message{Type: "console_friend_accepted", Data: nil}
+		payload, err := json.Marshal(envelope)
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: marshal console_friend_accepted failed", "err", err)
+			return
+		}
+		conn.WriteMu.Lock()
+		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
+		conn.WriteMu.Unlock()
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: write console_friend_accepted failed", "agentID", conn.AgentID, "err", err)
+		}
+		logger.Ctx(ctx).Info("ws: pushed", "agentID", conn.AgentID, "event", eventPayload)
+		return
+	}
+
 	isFriendRequestEvent := eventPayload == "friend_request"
 
 	// Always fetch unread PMs.
