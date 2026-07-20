@@ -143,6 +143,13 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 	case "friend":
 		countCond = "msg_count >= 1"
 		originFilter = " AND origin_type = ?"
+	case "broadcast_all":
+		// Complete superset of broadcast-originated conversations regardless of
+		// the ice-break threshold (msg_count >= 1). The Relations "contacted
+		// non-friends" tab pages through this and keeps category = non_friend.
+		// NOTE: not a real origin_type value — do NOT add a literal origin filter,
+		// or it would match zero rows.
+		countCond = "origin_type <> 'friend' AND msg_count >= 1"
 	case "":
 		countCond = "((origin_type = 'friend' AND msg_count >= 1) OR (origin_type <> 'friend' AND msg_count >= 2))"
 	default:
