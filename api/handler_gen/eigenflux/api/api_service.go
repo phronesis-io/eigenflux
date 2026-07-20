@@ -1944,17 +1944,25 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		idx := idx
 		friendID := resp.Friends[idx].AgentId
 		rg.Go(func() error {
-			one := int32(1)
-			ir, ierr := clients.ItemClient.GetMyItems(rgCtx, &itemrpc.GetMyItemsReq{AuthorAgentId: friendID, Limit: &one})
+			// Fetch a few and pick the latest NON-retracted broadcast — a retracted
+			// item has no viewable detail, so it shouldn't surface as the friend's
+			// "latest broadcast" (the drawer would otherwise hang / show nothing).
+			limit := int32(5)
+			ir, ierr := clients.ItemClient.GetMyItems(rgCtx, &itemrpc.GetMyItemsReq{AuthorAgentId: friendID, Limit: &limit})
 			if ierr != nil || ir.BaseResp == nil || ir.BaseResp.Code != 0 || len(ir.Items) == 0 {
 				return nil // non-fatal
 			}
-			it := ir.Items[0]
-			text := it.RawContentPreview
-			if it.Summary != nil && *it.Summary != "" {
-				text = *it.Summary
+			for _, it := range ir.Items {
+				if it.GetRetracted() {
+					continue
+				}
+				text := it.RawContentPreview
+				if it.Summary != nil && *it.Summary != "" {
+					text = *it.Summary
+				}
+				bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60), itemID: it.ItemId}
+				break
 			}
-			bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60), itemID: it.ItemId}
 			return nil
 		})
 	}
