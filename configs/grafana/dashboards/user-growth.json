@@ -272,7 +272,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
+          "decimals": 0,
           "mappings": [],
           "color": {
             "mode": "thresholds"
