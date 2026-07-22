@@ -1010,7 +1010,7 @@
     },
     {
       "id": 22,
-      "title": "队列积压",
+      "title": "队列持续积压",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1029,7 +1029,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "sum(pgc_queue_fetched + pgc_queue_extracting + pgc_queue_extracted + pgc_queue_processing + pgc_queue_done) or vector(0)",
+          "expr": "min_over_time((sum(pgc_queue_fetched + pgc_queue_extracting + pgc_queue_extracted + pgc_queue_processing + pgc_queue_done) or vector(0))[2h:5m])",
           "instant": true
         }
       ],
@@ -1074,7 +1074,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "等待处理的条目总数。持续增长说明某个阶段卡住。"
+      "description": "过去 2 小时内队列积压的最低水位——只有积压持续 2 小时从未消化回落，这个数才会升高。正常为 0：上游脉冲（arXiv 中午波、安全通告波）会把瞬时积压冲到几百上千，但 1-2 小时内消化完，不会触动本面板。数值升高变黄/变红 = 判决或发布环节真的卡住了（worker 心跳正常也可能发生，对照 7/5 双判全部超时的形态），先查管线日志和二判可用性。"
     },
     {
       "id": 23,

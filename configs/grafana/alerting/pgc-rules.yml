@@ -98,6 +98,34 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0] }
 
+      - uid: pgc-queue-stuck
+        title: PGC 判决队列持续积压
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 判决队列的积压已经持续 2 小时没有消化回落（上游脉冲正常 1-2 小时内消化完）——处理/判决/发布环节大概率卡住了。worker 心跳正常时也会发生这种事故（对照 7/5 二判全部超时那次），所以"管道停摆"没响不代表没事。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              expr: min_over_time((sum(pgc_queue_fetched + pgc_queue_extracting + pgc_queue_extracted + pgc_queue_processing + pgc_queue_done) or vector(0))[2h:5m])
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [500] }
+
       - uid: pgc-newsapi-budget
         title: NewsAPI 月额度告急
         condition: C
