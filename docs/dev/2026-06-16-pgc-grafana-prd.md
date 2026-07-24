@@ -12,6 +12,10 @@ Revision: 2026-06-18, latency breach-kind panel added so operators can tell true
 Revision: 2026-06-18, source reliability panels now expose `pgc_source_health_sla_attention` so registry-defined per-source SLA failures are visible beside canary and critical-source failures.
 Revision: 2026-06-18, source reliability now includes a per-source SLA offender table backed by `pgc_source_health_sla_attention_source`.
 Revision: 2026-06-19, added a first-screen owner cockpit modeled after User Growth: one KPI row plus trend/drilldown panels answering whether PGC is missing signals, slow, source-unhealthy, or close to external API budget limits.
+Revision: 2026-07-24, owner-language redesign: the first screen now asks what
+needs action; value/coverage/correctness/speed are peer product outcomes; the
+NewsAPI topic panel shows cursor freshness instead of token burn so healthy
+HTTP calls cannot hide day-old coverage.
 
 ## Problem
 

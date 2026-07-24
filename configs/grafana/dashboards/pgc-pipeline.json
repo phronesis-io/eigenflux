@@ -24,7 +24,7 @@
     {
       "id": 2,
       "type": "row",
-      "title": "北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）",
+      "title": "产品结果 — 有价值 · 没漏掉 · 可信 · 够快",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -36,7 +36,7 @@
     },
     {
       "id": 54,
-      "title": "信号率（北极星）",
+      "title": "收到的内容有多少值得看",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -100,11 +100,11 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "抽样已发布广播中，被模型判定为对接收方有价值信号的比例（排除体育赛果、人情故事、本地琐事等噪声）。北极星顶层指标，只测量、不做发布抑制。目标 ≥85%，低于 60% 红。"
+      "description": "抽样已发布广播中，被模型判定为对接收方有价值信号的比例（排除体育赛果、人情故事、本地琐事等噪声）。这是四个产品结果之一，只测量、不做发布抑制。目标 ≥85%，低于 60% 红。"
     },
     {
       "id": 56,
-      "title": "错分类率",
+      "title": "有多少内容分错了类",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -172,7 +172,7 @@
     },
     {
       "id": 50,
-      "title": "护栏 · 捕获召回",
+      "title": "有多少内容抓到并发出",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -240,7 +240,7 @@
     },
     {
       "id": 52,
-      "title": "护栏 · 忠实率",
+      "title": "转述有没有歪曲原文",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -308,7 +308,7 @@
     },
     {
       "id": 51,
-      "title": "护栏 · 首源入库速度",
+      "title": "一手信息通常多久入库",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -376,7 +376,7 @@
     },
     {
       "id": 58,
-      "title": "护栏 · 低可信来源占比",
+      "title": "来自低可信来源的内容",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -444,7 +444,7 @@
     },
     {
       "id": 5,
-      "title": "有效对决数",
+      "title": "可公平比较的事件数",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -504,7 +504,7 @@
     },
     {
       "id": 19,
-      "title": "赢 / 输",
+      "title": "比媒体更早 / 更晚",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -597,7 +597,7 @@
     },
     {
       "id": 7,
-      "title": "判定数据年龄",
+      "title": "判定结果多久没更新",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -708,7 +708,7 @@
     },
     {
       "id": 60,
-      "title": "诊断 · 丢弃质量",
+      "title": "误删真实信息的比例",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -785,7 +785,7 @@
     },
     {
       "id": 9,
-      "title": "首发走势 — 抢先率与延迟",
+      "title": "抢先和延迟趋势",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -873,7 +873,7 @@
     },
     {
       "id": 53,
-      "title": "各领域丢弃占比",
+      "title": "哪些领域最容易被丢弃",
       "type": "barchart",
       "datasource": {
         "type": "prometheus",
@@ -929,7 +929,7 @@
     {
       "id": 20,
       "type": "row",
-      "title": "运维 — 系统健康",
+      "title": "系统是否正常",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -941,7 +941,7 @@
     },
     {
       "id": 21,
-      "title": "近 24 小时发布数",
+      "title": "过去 24 小时发出多少",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1010,7 +1010,7 @@
     },
     {
       "id": 22,
-      "title": "队列持续积压",
+      "title": "有没有持续积压",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1078,7 +1078,7 @@
     },
     {
       "id": 23,
-      "title": "后台任务最大空闲",
+      "title": "后台任务多久没运行",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1147,7 +1147,7 @@
     {
       "id": 36,
       "type": "stat",
-      "title": "Twitter 额度余量（天）",
+      "title": "Twitter 额度还能用多久",
       "description": "按当前消耗速度，twitterapi.io 付费额度剩余可用天数。",
       "gridPos": {
         "x": 12,
@@ -1215,7 +1215,7 @@
     {
       "id": 39,
       "type": "stat",
-      "title": "NewsAPI 月度用量 · 按密钥",
+      "title": "NewsAPI 各账号本月已用",
       "description": "每个 NewsAPI 密钥本月已用比例（1 号为主密钥）。任何一个用尽都会单独变红。",
       "gridPos": {
         "x": 16,
@@ -1285,7 +1285,7 @@
     {
       "id": 40,
       "type": "stat",
-      "title": "ScraperAPI 月度用量",
+      "title": "网页代理本月已用",
       "description": "本月 ScraperAPI 额度已用比例。用于被封锁站点的代理抓取。",
       "gridPos": {
         "x": 20,
@@ -1353,9 +1353,9 @@
     },
     {
       "id": 64,
-      "type": "bargauge",
-      "title": "NewsAPI 今日用量 · 按主题组",
-      "description": "各主题组今日 NewsAPI 用量占其每日上限的比例。到达上限当天停抓：最后一次抓取可能略微跨过上限（上限越小的组超得越明显，按当前配置最多约 +20%），属正常，次日自动补齐积压。唯一需要行动的形态：某组连续多天 ≥100%，说明上限长期压量，应上调上限或收窄该组抓取范围。组别：A 央行与公司事件、B 科技巨头、C 亚太地缘、C2 全球地缘与军事、D 能源宏观、E 医药、F 创投并购、G 网络安全。八组上限之和等于月度配额的日均线。",
+      "type": "table",
+      "title": "NewsAPI 哪些主题已经落后",
+      "description": "NewsAPI 是二级覆盖雷达，不是一手信源。这里显示每个主题抓到的最新文章距离现在多久，以及允许的最大时间。状态为「开始落后」需要当天调整；「严重落后」会实时推送告警，避免把旧消息当新消息送出。",
       "gridPos": {
         "x": 0,
         "y": 41,
@@ -1368,57 +1368,110 @@
       },
       "targets": [
         {
-          "expr": "100 * pgc_newsapi_daily_tokens / (pgc_newsapi_daily_token_cap > 0)",
-          "legendFormat": "{{cluster}}",
+          "expr": "pgc_newsapi_cursor_lag_hours",
           "refId": "A",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 125,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+          "unit": "hours",
+          "decimals": 1,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
               },
               {
-                "color": "yellow",
-                "value": 85
-              },
-              {
-                "color": "orange",
-                "value": 100
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "新鲜": {
+                        "text": "新鲜",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "开始落后": {
+                        "text": "开始落后",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "严重落后": {
+                        "text": "严重落后",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "无数据": {
+                        "text": "无数据",
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
               }
             ]
-          },
-          "color": {
-            "mode": "thresholds"
           }
-        },
-        "overrides": []
+        ]
       },
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
           ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      }
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "cluster": true
+            },
+            "renameByName": {
+              "topic": "主题",
+              "Value": "当前落后（小时）",
+              "target_hours": "承诺不超过（小时）",
+              "state": "状态"
+            },
+            "indexByName": {
+              "topic": 0,
+              "Value": 1,
+              "target_hours": 2,
+              "state": 3
+            }
+          }
+        }
+      ]
     },
     {
       "id": 24,
-      "title": "发布量趋势（条 / 小时）",
+      "title": "发布节奏是否异常",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -1512,7 +1565,7 @@
     },
     {
       "id": 25,
-      "title": "管线日志",
+      "title": "原始日志（工程师排障）",
       "type": "logs",
       "datasource": {
         "type": "loki",
@@ -1549,7 +1602,7 @@
     {
       "id": 30,
       "type": "row",
-      "title": "首发 — 状态与对外口径",
+      "title": "现在需要处理什么",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -1560,7 +1613,7 @@
     },
     {
       "id": 17,
-      "title": "待处理故障",
+      "title": "真实故障",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -1620,12 +1673,12 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "我方侧真实故障的总数：关键源探活失败 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『观察清单』。"
+      "description": "我方侧真实故障的总数：关键来源断路 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『本周待办』。"
     },
     {
       "id": 32,
       "type": "stat",
-      "title": "首发关注",
+      "title": "应补的一手来源",
       "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。属于待办清单，不是故障——数字本身无好坏，有空时挑高价值的补。",
       "gridPos": {
         "x": 16,
@@ -1685,8 +1738,8 @@
     {
       "id": 33,
       "type": "stat",
-      "title": "活跃高优先延迟",
-      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「待处理故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
+      "title": "重要消息正在迟到",
+      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「真实故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
       "gridPos": {
         "x": 8,
         "y": 1,
@@ -1753,8 +1806,8 @@
     {
       "id": 34,
       "type": "stat",
-      "title": "关键源探活失败数",
-      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「待处理故障」。",
+      "title": "关键来源断路",
+      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「真实故障」。",
       "gridPos": {
         "x": 4,
         "y": 1,
@@ -1821,8 +1874,8 @@
     {
       "id": 37,
       "type": "timeseries",
-      "title": "风险趋势",
-      "description": "『待处理故障』应贴地为 0；『观察清单』允许有水位，看趋势不看绝对值。",
+      "title": "问题有没有变多",
+      "description": "『真实故障』应贴地为 0；『本周待办』允许有水位，看趋势不看绝对值。",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -1843,7 +1896,7 @@
           "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": false,
           "range": true,
-          "legendFormat": "待处理故障（应为 0）"
+          "legendFormat": "真实故障（应为 0）"
         },
         {
           "refId": "B",
@@ -1854,7 +1907,7 @@
           "expr": "pgc_first_source_audit_attention",
           "instant": false,
           "range": true,
-          "legendFormat": "首发关注"
+          "legendFormat": "应补的一手来源"
         },
         {
           "refId": "C",
@@ -1902,7 +1955,7 @@
         },
         {
           "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
-          "legendFormat": "观察清单合计",
+          "legendFormat": "本周待办合计",
           "refId": "W"
         }
       ],
@@ -1935,8 +1988,8 @@
     {
       "id": 62,
       "type": "table",
-      "title": "活跃延迟源明细",
-      "description": "近 3 小时高优先迟到条目按来源明细，与上方「活跃高优先延迟」同口径（同一条目只计一次）。「我方管线慢」的行优先查抓取与解析；「上游晚发」的行优先评估更快的一手渠道。最多显示前 50 行。",
+      "title": "哪些来源正在迟到",
+      "description": "近 3 小时高优先迟到条目按来源明细，与上方「重要消息正在迟到」同口径（同一条目只计一次）。「我方管线慢」的行优先查抓取与解析；「上游晚发」的行优先评估更快的一手渠道。最多显示前 50 行。",
       "gridPos": {
         "x": 12,
         "y": 6,
@@ -2023,7 +2076,7 @@
     },
     {
       "id": 61,
-      "title": "观察清单",
+      "title": "本周待办",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -2087,12 +2140,12 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『待处理故障』。"
+      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『真实故障』。"
     },
     {
       "id": 63,
       "type": "stat",
-      "title": "抢先率（对外口径）",
+      "title": "我们比媒体更早的比例",
       "gridPos": {
         "x": 20,
         "y": 1,
@@ -2120,6 +2173,6 @@
       "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
     }
   ],
-  "description": "北极星 = 信号价值（信号率）；覆盖 / 准确 / 速度为三条护栏，各自保持绿色。红 = 现在动手，绿 = 常态，蓝 = 信息/待办。只测量，不抑制。",
+  "description": "PGC 是低时延信号网络：价值、覆盖、准确、速度四个结果独立判断，任何一个都不能被其余绿灯掩盖。红 = 现在动手，绿 = 常态，蓝 = 信息/待办。",
   "version": 1
 }

@@ -20,9 +20,9 @@ from pathlib import Path
 
 
 EXPECTED_SECTIONS = [
-    "北极星 — 信号价值 · 护栏（覆盖 / 准确 / 速度）",
-    "运维 — 系统健康",
-    "首发 — 状态与对外口径",
+    "产品结果 — 有价值 · 没漏掉 · 可信 · 够快",
+    "系统是否正常",
+    "现在需要处理什么",
 ]
 
 # Panels whose empty prod result is the ideal steady state (e.g. a failure list).
@@ -66,7 +66,7 @@ OWNER_COCKPIT_PANELS = {
         "pgc_source_health_sla_attention",
     ],
     62: ["pgc_signal_latency_active_source_breaches_3h"],
-    64: ["pgc_newsapi_daily_tokens", "pgc_newsapi_daily_token_cap"],
+    64: ["pgc_newsapi_cursor_lag_hours"],
     63: ["pgc_first_source_win_rate"],
 }
 
