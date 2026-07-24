@@ -62,7 +62,18 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "等待质检",
+                  "color": "blue",
+                  "index": 0
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -1370,7 +1381,8 @@
         {
           "expr": "pgc_newsapi_cursor_lag_hours",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "format": "table"
         }
       ],
       "fieldConfig": {
@@ -2008,7 +2020,8 @@
             "uid": "pgc-prometheus"
           },
           "expr": "topk(50, max by (source, kind, source_tier) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}))",
-          "instant": true
+          "instant": true,
+          "format": "table"
         }
       ],
       "fieldConfig": {

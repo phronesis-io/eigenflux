@@ -138,12 +138,31 @@ def static_validate(dashboard: dict) -> list[str]:
                 errors.append(
                     f"panel {panel.get('id')} legend contains banned jargon: {legend!r}")
 
+        if panel.get("type") == "table":
+            for target in panel.get("targets", []) or []:
+                if target.get("expr") and target.get("format") != "table":
+                    errors.append(
+                        f"table panel {panel.get('id')} must request Prometheus table format"
+                    )
+
     row_titles = [p.get("title") for p in panels if p.get("type") == "row"]
     for section in EXPECTED_SECTIONS:
         if section not in row_titles:
             errors.append(f"missing section row: {section}")
 
     panels_by_id = {panel.get("id"): panel for panel in dashboard.get("panels", [])}
+    signal_rate = panels_by_id.get(54)
+    signal_rate_mappings = (
+        signal_rate.get("fieldConfig", {}).get("defaults", {}).get("mappings", [])
+        if signal_rate
+        else []
+    )
+    if not any(
+        mapping.get("options", {}).get("-1", {}).get("text") == "等待质检"
+        for mapping in signal_rate_mappings
+    ):
+        errors.append("panel 54 must render the -1 sentinel as 等待质检")
+
     for panel_id, required_terms in OWNER_COCKPIT_PANELS.items():
         panel = panels_by_id.get(panel_id)
         if not panel:

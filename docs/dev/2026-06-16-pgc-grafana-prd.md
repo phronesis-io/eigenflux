@@ -203,6 +203,10 @@ only generic crawler/source-health charts.
   the production Prometheus query sweep.
 - Production checkout is clean after deployment except ignored operational
   backups.
+- Prometheus table panels request `format=table`, so source/topic labels render
+  as owner-readable columns rather than raw series strings.
+- Missing quality-review data renders as `等待质检`; the internal `-1` sentinel
+  must never be shown as a negative product score.
 
 ## Follow-Ups
 
