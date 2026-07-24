@@ -1463,7 +1463,10 @@
           "options": {
             "excludeByName": {
               "Time": true,
-              "cluster": true
+              "cluster": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
             },
             "renameByName": {
               "topic": "主题",

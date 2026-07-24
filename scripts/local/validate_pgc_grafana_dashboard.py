@@ -163,6 +163,21 @@ def static_validate(dashboard: dict) -> list[str]:
     ):
         errors.append("panel 54 must render the -1 sentinel as 等待质检")
 
+    newsapi_table = panels_by_id.get(64)
+    newsapi_transforms = newsapi_table.get("transformations", []) if newsapi_table else []
+    newsapi_excluded_fields = {
+        name
+        for transform in newsapi_transforms
+        for name, excluded in transform.get("options", {}).get("excludeByName", {}).items()
+        if excluded
+    }
+    missing_internal_fields = {"__name__", "instance", "job"} - newsapi_excluded_fields
+    if missing_internal_fields:
+        errors.append(
+            "panel 64 must hide internal Prometheus fields: "
+            + ", ".join(sorted(missing_internal_fields))
+        )
+
     for panel_id, required_terms in OWNER_COCKPIT_PANELS.items():
         panel = panels_by_id.get(panel_id)
         if not panel:
