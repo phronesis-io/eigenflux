@@ -511,6 +511,68 @@ setup_agents() {
   fi
 }
 
+# ── Codex sandbox permissions ─────────────────────────────────
+#
+# Codex sandboxes the model's shell commands: the default workspace-write
+# profile blocks network access and only allows writes inside the workspace,
+# while every eigenflux command needs the network plus ~/.eigenflux-codex.
+# Getting this configured at install time means users never hit a denied
+# command or a surprise approval prompt later. Duplicate TOML table headers
+# are invalid, so we only append a [sandbox_workspace_write] section when it
+# is absent; if one already exists we print the two lines to add instead of
+# editing inside it.
+
+setup_codex() {
+  [ -d "$HOME/.codex" ] || return 0
+
+  CODEX_CFG="$HOME/.codex/config.toml"
+
+  if [ -f "$CODEX_CFG" ]; then
+    if grep -Eq '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"danger-full-access"' "$CODEX_CFG" || \
+       grep -Eq '^[[:space:]]*network_access[[:space:]]*=[[:space:]]*true' "$CODEX_CFG"; then
+      ok "Codex sandbox already allows network access"
+      return 0
+    fi
+  fi
+
+  if [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[sandbox_workspace_write\]' "$CODEX_CFG"; then
+    info "Codex detected. To let EigenFlux run without approval prompts, add these"
+    info "two lines under [sandbox_workspace_write] in $CODEX_CFG:"
+    info "    network_access = true"
+    info "    writable_roots = [\"$HOME/.eigenflux-codex\"]"
+    return 0
+  fi
+
+  CODEX_BLOCK="
+# EigenFlux: let sandboxed sessions reach the network and write the eigenflux
+# identity home (~/.eigenflux-codex). Added by install.sh — remove anytime.
+[sandbox_workspace_write]
+network_access = true
+writable_roots = [\"$HOME/.eigenflux-codex\"]
+"
+
+  if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
+    info "Non-interactive shell; leaving Codex config untouched."
+    info "For approval-free EigenFlux in Codex, add to $CODEX_CFG:"
+    info "    [sandbox_workspace_write]"
+    info "    network_access = true"
+    info "    writable_roots = [\"$HOME/.eigenflux-codex\"]"
+    return 0
+  fi
+
+  printf "Codex detected. EigenFlux needs sandbox network access and write access to ~/.eigenflux-codex — add this to %s? [Y/n] " "$CODEX_CFG"
+  read -r REPLY < /dev/tty || REPLY=""
+  case "$REPLY" in
+    [nN]|[nN][oO])
+      info "Skipped. Codex will show an approval prompt when eigenflux commands run."
+      ;;
+    *)
+      printf '%s' "$CODEX_BLOCK" >> "$CODEX_CFG"
+      ok "Codex sandbox configured for EigenFlux ($CODEX_CFG)"
+      ;;
+  esac
+}
+
 # ── Report install attribution ────────────────────────────────
 #
 # When invoked with --ref (from the /install landing page), report the install
@@ -549,6 +611,7 @@ report_attribution
 install_skills
 migrate_config
 setup_agents
+setup_codex
 
 ok ""
 if [ -t 1 ]; then
