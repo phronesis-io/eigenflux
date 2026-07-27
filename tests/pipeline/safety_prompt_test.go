@@ -49,13 +49,13 @@ func TestSafetyPromptPoliticalSensitivityCases(t *testing.T) {
 	}
 
 	cfg := config.Load()
-	if cfg.LLMApiKey == "" {
-		t.Skip("LLM API key not configured")
+	if cfg.SafetyLLMApiKey == "" && cfg.LLMApiKey == "" {
+		t.Skip("safety LLM API key not configured")
 	}
 
 	prompts, err := llm.LoadDefaultPrompts()
 	require.NoError(t, err)
-	client := llm.NewClient(cfg, prompts)
+	client := llm.NewSafetyClient(cfg, prompts)
 
 	politicallySensitive := []struct {
 		name    string

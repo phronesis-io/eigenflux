@@ -52,6 +52,9 @@ type Config struct {
 	LLMTaskDecomposeModel       string // cheaper model for SearchServices sub-intent decomposition; falls back to LLMModel when empty
 	LLMMaxTokens                int
 	LLMReasoningEffort          string
+	SafetyLLMApiKey             string // Volcengine Ark key for the safety filter; falls back to LLMApiKey when empty
+	SafetyLLMBaseURL            string // Volcengine Ark base URL for the safety filter; used verbatim (no /v1 suffixing)
+	SafetyLLMModel              string // Volcengine Ark model name or endpoint ID for the safety filter
 	EmbeddingProvider           string // "openai" or "ollama"
 	EmbeddingApiKey             string
 	EmbeddingBaseURL            string
@@ -226,6 +229,9 @@ func Load() *Config {
 		LLMTaskDecomposeModel:         getEnv("LLM_TASK_DECOMPOSE_MODEL", ""),
 		LLMMaxTokens:                  getEnvInt("LLM_MAX_TOKENS", 4096),
 		LLMReasoningEffort:            getEnv("LLM_REASONING_EFFORT", "low"),
+		SafetyLLMApiKey:               getEnv("SAFETY_LLM_API_KEY", ""),
+		SafetyLLMBaseURL:              getEnv("SAFETY_LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+		SafetyLLMModel:                getEnv("SAFETY_LLM_MODEL", ""),
 		EmbeddingProvider:             embeddingProvider,
 		EmbeddingApiKey:               getEnv("EMBEDDING_API_KEY", ""),
 		EmbeddingBaseURL:              getEnv("EMBEDDING_BASE_URL", ""),

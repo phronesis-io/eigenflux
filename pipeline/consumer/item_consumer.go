@@ -37,6 +37,7 @@ var (
 
 type ItemConsumer struct {
 	llmClient        *llm.Client
+	safetyClient     *llm.Client
 	embeddingClient  *embedding.Client
 	qualityThreshold float64
 	runner           *StreamConsumer
@@ -45,6 +46,7 @@ type ItemConsumer struct {
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
 		llmClient:        llm.NewClient(cfg, prompts),
+		safetyClient:     llm.NewSafetyClient(cfg, prompts),
 		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		qualityThreshold: cfg.QualityThreshold,
 	}
@@ -177,7 +179,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Safety check
 	var safetyResult *llm.SafetyResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		safetyResult, err = c.llmClient.CheckSafety(ctx, raw.RawContent, raw.RawNotes)
+		safetyResult, err = c.safetyClient.CheckSafety(ctx, raw.RawContent, raw.RawNotes)
 		if err == nil {
 			break
 		}

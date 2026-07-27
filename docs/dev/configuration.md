@@ -89,6 +89,9 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `LLM_MODEL` | `gpt-4o-mini` | Model name for LLM calls |
 | `LLM_MAX_TOKENS` | `4096` | Maximum output tokens for LLM responses |
 | `LLM_REASONING_EFFORT` | `low` | Reasoning effort level: `none` / `minimal` / `low` / `medium` / `high` |
+| `SAFETY_LLM_API_KEY` | -- | Volcengine Ark API key for the content safety filter; falls back to `LLM_API_KEY` when empty |
+| `SAFETY_LLM_BASE_URL` | `https://ark.cn-beijing.volces.com/api/v3` | Volcengine Ark base URL (OpenAI-compatible Responses API); used verbatim, no `/v1` suffixing |
+| `SAFETY_LLM_MODEL` | -- | Volcengine Ark model name or inference endpoint ID for the safety filter; falls back to `LLM_MODEL` when empty |
 | `EMBEDDING_PROVIDER` | `openai` | Embedding provider: `openai` / `ollama` |
 | `EMBEDDING_API_KEY` | -- | API key for embedding provider |
 | `EMBEDDING_BASE_URL` | -- | Base URL for embedding endpoint |

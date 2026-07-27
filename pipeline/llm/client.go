@@ -37,6 +37,33 @@ func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
 	}
 }
 
+// NewSafetyClient builds a client dedicated to the safety filter, pointed at
+// Volcengine Ark's OpenAI-compatible Responses API. Ark's base URL ends in
+// /api/v3 and must be used verbatim, so it bypasses normalizeBaseURL. API key
+// and model fall back to the main LLM config when their Safety* env vars are
+// empty. Reasoning is off by default since several Doubao tiers reject it.
+func NewSafetyClient(cfg *config.Config, prompts *PromptRegistry) *Client {
+	apiKey := cfg.SafetyLLMApiKey
+	if apiKey == "" {
+		apiKey = cfg.LLMApiKey
+	}
+	model := cfg.SafetyLLMModel
+	if model == "" {
+		model = cfg.LLMModel
+	}
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithBaseURL(strings.TrimRight(strings.TrimSpace(cfg.SafetyLLMBaseURL), "/")),
+	}
+	return &Client{
+		client:          openai.NewClient(opts...),
+		model:           model,
+		maxTokens:       cfg.LLMMaxTokens,
+		reasoningEffort: shared.ReasoningEffort(reasoningOff),
+		prompts:         prompts,
+	}
+}
+
 type ExtractResult struct {
 	Summary          string   `json:"summary"`
 	BroadcastType    string   `json:"broadcast_type"`
