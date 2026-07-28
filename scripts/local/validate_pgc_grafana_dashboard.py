@@ -19,10 +19,14 @@ import urllib.request
 from pathlib import Path
 
 
+# 2026-07-28 重排：北极星换成一个数，四个产品结果百分比合并进「每个数字有多可信」。
 EXPECTED_SECTIONS = [
-    "产品结果 — 有价值 · 没漏掉 · 可信 · 够快",
-    "系统是否正常",
+    "北极星 — 今天做成了什么",
+    "止损线 — 红了就停下来处理",
     "现在需要处理什么",
+    "丢了什么 · 为什么",
+    "每个数字有多可信",
+    "系统是否正常",
 ]
 
 # Panels whose empty prod result is the ideal steady state (e.g. a failure list).
@@ -35,9 +39,9 @@ ACTIONABLE_LATENCY_PANEL_IDS = {
     33,  # 活跃高优先延迟
 }
 
-ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
-    62,  # 活跃延迟源明细
-}
+# 2026-07-28: 62(哪些来源正在迟到) 并入 76 台账的「抓到了但慢」桶——同一件事
+# 不再占两格。明细仍可从 33 的告警和 Loki 查到。
+ACTIVE_SOURCE_LATENCY_PANEL_IDS: set[int] = set()
 
 SOURCE_HEALTH_SLA_PANEL_IDS = {
     61,  # 观察清单 (旧名 信源 SLA)
@@ -58,17 +62,33 @@ OWNER_COCKPIT_PANELS = {
     34: ["pgc_source_health_canaries_failed"],
     36: ["pgc_twitterapi_credits_days_to_empty"],
     37: ["pgc_source_health_sla_attention"],
-    39: ["pgc_newsapi_key_tokens_pct"],
-    40: ["pgc_scraperapi_credits_pct"],
+    78: ["pgc_newsapi_key_tokens_pct", "pgc_scraperapi_credits_pct"],
     61: [
         "pgc_source_health_critical_watch",
         "pgc_first_source_audit_attention",
         "pgc_source_health_sla_attention",
     ],
-    62: ["pgc_signal_latency_active_source_breaches_3h"],
     64: ["pgc_newsapi_cursor_lag_hours"],
     63: ["pgc_first_source_win_rate"],
+    # 2026-07-28 新锚：北极星与「测量本身还在跑吗」。前者删掉=看板失去主指标，
+    # 后者删掉=又回到审计静默停摆两天没人知道的状态。
+    19: ["pgc_event_real_wins", "pgc_north_star_state"],
+    74: ["pgc_audit_last_success_timestamp"],
+    73: ["pgc_broadcast_unfaithful_24h"],
+    76: ["pgc_loss_ledger_events"],
+    77: ["pgc_metric_value", "pgc_metric_sample_size", "pgc_metric_ci_halfwidth"],
 }
+
+# 诚实契约闸(2026-07-28): 抽样得出的比率，必须能在板上看到它的样本量，否则
+# 读者无法判断一次波动是真的变化还是噪声。实测教训：忠实率 87% 对目标线 90%、
+# n=300 时误差 ±3.8 点——两者统计上分不开，而面板上完全看不出来。
+# 值 -> 它的样本量在哪里被看到。新增百分比面板必须在这里登记，否则校验失败。
+SAMPLED_RATE_PANELS = {
+    63: "77 诚实度表的「确认抢先条数」行",
+}
+# 不是抽样得出的比率(账单、进度、全量占比这类精确值)，不需要样本量。
+# 53 各域丢弃占比 = 24h 全量 discarded/all_bench，不是抽样估计。
+EXACT_RATIO_PANELS = {78, 53}
 
 # 全板必须存在的对外口径指标——不锚定到特定面板 id, 但必须有家。
 # 榜单胜率 2026-07-03 和 2026-07-06 两次被改板弄丢, 每次都靠人肉体检才发现。
@@ -120,14 +140,16 @@ def static_validate(dashboard: dict) -> list[str]:
     # 面板预算闸: 设计文档「怎么改」规定净增为零、目标上限 25(2026-07-08 现状 29)。
     # 超过现状即为净增, 必须先删一个再加一个。
     content_count = sum(1 for p in panels if p.get("type") not in ("row", "text"))
-    if content_count > 29:
+    if content_count > 23:
         errors.append(
-            f"content panel count {content_count} exceeds the 29 ratchet — the design doc"
-            " requires net-zero additions (target ceiling 25); remove one before adding one")
+            f"content panel count {content_count} exceeds the 23 ratchet — the design doc"
+            " requires net-zero additions; remove one before adding one")
 
     # 黑话闸(设计原则#1): 标题与图例不得裸出英文黑话。描述里已解释的术语不在此列。
     import re as _re
-    banned = _re.compile(r"critical|SLA|canary|p9\d|kind=", _re.IGNORECASE)
+    banned = _re.compile(
+        r"critical|SLA|canary|p9\d|kind=|wilson|置信区间|fail-closed|deferred|stratum|分层",
+        _re.IGNORECASE)
     for panel in panels:
         title = panel.get("title") or ""
         if banned.search(title):
@@ -145,23 +167,38 @@ def static_validate(dashboard: dict) -> list[str]:
                         f"table panel {panel.get('id')} must request Prometheus table format"
                     )
 
+    # 诚实契约闸：百分比面板要么是精确比率，要么必须登记它的样本量在哪。
+    for panel in panels:
+        pid = panel.get("id")
+        if panel.get("type") in ("row", "text"):
+            continue
+        unit = (panel.get("fieldConfig", {}).get("defaults", {}) or {}).get("unit")
+        if unit != "percent" or pid in EXACT_RATIO_PANELS or pid in SAMPLED_RATE_PANELS:
+            continue
+        errors.append(
+            f"panel {pid} shows a percentage but its sample size is nowhere on the"
+            " board — register it in SAMPLED_RATE_PANELS (or EXACT_RATIO_PANELS if it"
+            " is not a sampled estimate). A rate without its n cannot be read.")
+
     row_titles = [p.get("title") for p in panels if p.get("type") == "row"]
     for section in EXPECTED_SECTIONS:
         if section not in row_titles:
             errors.append(f"missing section row: {section}")
 
     panels_by_id = {panel.get("id"): panel for panel in dashboard.get("panels", [])}
-    signal_rate = panels_by_id.get(54)
-    signal_rate_mappings = (
-        signal_rate.get("fieldConfig", {}).get("defaults", {}).get("mappings", [])
-        if signal_rate
+    # 无数据 != 0 (2026-07-28 铁律)。原本盯的是 54 信号率, 该面板已并入 77;
+    # 现在盯 73「今天说错话的条数」——止损线上显示 0 比显示错的数还危险。
+    said_wrong = panels_by_id.get(73)
+    said_wrong_mappings = (
+        said_wrong.get("fieldConfig", {}).get("defaults", {}).get("mappings", [])
+        if said_wrong
         else []
     )
     if not any(
         mapping.get("options", {}).get("-1", {}).get("text") == "等待质检"
-        for mapping in signal_rate_mappings
+        for mapping in said_wrong_mappings
     ):
-        errors.append("panel 54 must render the -1 sentinel as 等待质检")
+        errors.append("panel 73 must render the -1 sentinel as 等待质检")
 
     newsapi_table = panels_by_id.get(64)
     newsapi_transforms = newsapi_table.get("transformations", []) if newsapi_table else []
