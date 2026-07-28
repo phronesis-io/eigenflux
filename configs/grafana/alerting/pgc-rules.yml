@@ -181,3 +181,73 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [90] }
+
+      # ── 2026-07-28：测量层存活 ─────────────────────────────────────────
+      # 补的是一个整类盲区：以前这里只盯"管线活着吗"，没有一条规则盯"衡量
+      # 管线的那套东西还活着吗"。实测后果——三个日更审计与小时级判决任务
+      # 共用一把锁 /tmp/eigenflux-pgc-judge.lock，日更审计抢不到锁就按
+      # `flock --wait 3600` 超时退出（2026-07-28 实测 13:00:00 启动、
+      # 14:00:00 退出、状态码 1），报告陈旧 72 小时而面板照常显示旧数字。
+      # eigenflux-pgc 侧 rsspipe/metrics.py 的 AUDIT-FRESHNESS CONTRACT 注释
+      # 点名依赖下面这条规则；改名或删除请回去同步那段注释。
+      - uid: pgc-audit-stale
+        title: PGC 审计停摆
+        condition: C
+        for: 15m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 质量审计（内容值得看的比例 / 转述是否忠于原文 / 是否误删真实信息）已经超过 36 小时没有出过新结果——看板上这几个数字是旧的，别据此判断内容质量。常见原因是审计抢不到判决锁被挤掉。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              # 三个日更审计取最旧的一个。周期 24h，阈值 36h＝漏跑一次后
+              # 约 12 小时报警，既能抓单次漏跑又不会因为跑得慢而抖动
+              # （报告是在跑完时才写的，跑得慢不会推高年龄）。
+              expr: max({__name__=~"pgc_broadcast_faithfulness_age_seconds|pgc_broadcast_signal_age_seconds|pgc_discard_audit_age_seconds"})
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [129600] }
+
+      - uid: pgc-verdicts-stale
+        title: PGC 判决结果停更
+        condition: C
+        for: 15m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 抢先/落后的判决结果已经超过 6 小时没有更新——首屏的"确认抢先条数"和胜负对比都是旧的。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              # 每小时一轮，但 04:00-06:00 UTC 是留给日更审计的维护窗口，
+              # 所以正常最大年龄约 220 分钟；6h 阈值留足余量。窗口定义见
+              # eigenflux-pgc deploy/pgc-event-verdicts.timer。
+              expr: pgc_event_verdicts_age_seconds
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [21600] }
