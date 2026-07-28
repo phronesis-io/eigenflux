@@ -31,6 +31,58 @@ DASHBOARD = Path(__file__).resolve().parents[2] / (
 _ICONS = {"red": "🔴", "orange": "🟠", "yellow": "🟡", "green": "🟢", "blue": "🔵"}
 
 
+def series_name(target: dict, series: dict) -> str:
+    """The name Grafana matches byName overrides against.
+
+    legendFormat wins when it has no {{label}} template in it, which is the
+    only form our panels use for a fixed second series (e.g. "状态").
+    """
+    legend = (target.get("legendFormat") or "").strip()
+    if legend and "{{" not in legend:
+        return legend
+    return series.get("metric", {}).get("__name__", "")
+
+
+def apply_overrides(panel: dict, name: str, steps: list[dict], mappings: list):
+    """Resolve per-series overrides the way Grafana does.
+
+    Added 2026-07-28: without this the tool judged EVERY series by the panel's
+    default thresholds, so a mapped status series ("0 = normal") was reported
+    as a red 0 next to a perfectly healthy star. A colour checker that cannot
+    see overrides reports colours the board does not have — which is the same
+    class of blind check this whole sweep was about.
+    """
+    for override in panel.get("fieldConfig", {}).get("overrides", []) or []:
+        matcher = override.get("matcher") or {}
+        if matcher.get("id") != "byName" or matcher.get("options") != name:
+            continue
+        for prop in override.get("properties", []) or []:
+            if prop.get("id") == "thresholds":
+                steps = (prop.get("value") or {}).get("steps", steps)
+            elif prop.get("id") == "mappings":
+                mappings = prop.get("value") or mappings
+    return steps, mappings
+
+
+def mapped(value: float, mappings: list):
+    """Value mappings win over thresholds for both text and colour."""
+    for mapping in mappings or []:
+        opts = mapping.get("options") or {}
+        if mapping.get("type") == "value":
+            for raw, spec in opts.items():
+                try:
+                    if float(raw) == value:
+                        return spec.get("text"), spec.get("color")
+                except (TypeError, ValueError):
+                    continue
+        elif mapping.get("type") == "range":
+            lo, hi = opts.get("from"), opts.get("to")
+            if (lo is None or value >= lo) and (hi is None or value <= hi):
+                spec = opts.get("result") or {}
+                return spec.get("text"), spec.get("color")
+    return None, None
+
+
 def color_for(value: float, steps: list[dict]) -> str:
     current = steps[0].get("color", "?")
     for step in steps[1:]:
@@ -58,11 +110,15 @@ def main() -> int:
             .get("thresholds", {})
             .get("steps", [])
         )
-        exprs = [t["expr"] for t in panel.get("targets", []) if t.get("expr")]
-        if not steps or not exprs:
+        default_mappings = (
+            panel.get("fieldConfig", {}).get("defaults", {}).get("mappings", []) or []
+        )
+        targets = [t for t in panel.get("targets", []) if t.get("expr")]
+        if not steps or not targets:
             continue
         print(f"[{panel.get('id')}] {panel.get('title')}")
-        for expr in exprs:
+        for target in targets:
+            expr = target["expr"]
             prom_expr = expr.replace("$__rate_interval", args.rate_window)
             try:
                 result = query_prometheus(
@@ -82,11 +138,15 @@ def main() -> int:
                     for k, v in series.get("metric", {}).items()
                     if k not in ("__name__", "instance", "job")
                 )
-                color = color_for(value, steps)
+                name = series_name(target, series)
+                s_steps, s_maps = apply_overrides(panel, name, steps, default_mappings)
+                text, mapped_color = mapped(value, s_maps)
+                color = mapped_color or color_for(value, s_steps)
                 if color in ("red", "orange", "yellow"):
                     attention += 1
                 icon = _ICONS.get(color, f"[{color}]")
-                print(f"  {icon} {value:g}  {labels}")
+                shown = f"{value:g}" if text is None else f"{text} ({value:g})"
+                print(f"  {icon} {shown}  {labels}")
         print()
     print(f"{attention} value(s) off green — investigate each before calling "
           "the board healthy; 0 alerts firing is NOT the same claim.")
