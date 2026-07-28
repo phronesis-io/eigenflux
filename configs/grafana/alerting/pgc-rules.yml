@@ -85,7 +85,14 @@ groups:
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: pgc-prometheus
             model:
-              expr: pgc_source_health_critical_fire
+              # 2026-07-28: 只在体检快照还新鲜时才认这个火警。信源体检报告
+              # 是每天 09:45 CST 才重跑一次的快照，所以问题修好之后它还会
+              # 继续烧到第二天——当天实测过：供应商 08:32 UTC 换好证书、源在
+              # 10:03-10:09 UTC 全部恢复轮询，而火警仍基于 01:46 UTC 那份
+              # 故障期快照在响。`or vector(0)` 是必须的：本规则 noDataState
+              # 是 Alerting，光用 `and on()` 会把陈旧变成空、空又变成告警。
+              # 快照本身陈旧了由「PGC 审计停摆」负责喊，不会没人管。
+              expr: (pgc_source_health_critical_fire and on() (pgc_source_health_report_age_seconds < 129600)) or vector(0)
               instant: true
               refId: A
           - refId: C
@@ -197,7 +204,7 @@ groups:
         noDataState: Alerting
         execErrState: Alerting
         annotations:
-          summary: 质量审计（内容值得看的比例 / 转述是否忠于原文 / 是否误删真实信息）已经超过 36 小时没有出过新结果——看板上这几个数字是旧的，别据此判断内容质量。常见原因是审计抢不到判决锁被挤掉。
+          summary: 每日体检（内容值得看的比例 / 转述是否忠于原文 / 是否误删真实信息 / 信源体检）已经超过 36 小时没有出过新结果——看板上这几个数字是旧的，别据此判断内容质量。常见原因是审计抢不到判决锁被挤掉。
         labels:
           service: pgc
         data:
@@ -208,7 +215,7 @@ groups:
               # 三个日更审计取最旧的一个。周期 24h，阈值 36h＝漏跑一次后
               # 约 12 小时报警，既能抓单次漏跑又不会因为跑得慢而抖动
               # （报告是在跑完时才写的，跑得慢不会推高年龄）。
-              expr: max({__name__=~"pgc_broadcast_faithfulness_age_seconds|pgc_broadcast_signal_age_seconds|pgc_discard_audit_age_seconds"})
+              expr: max({__name__=~"pgc_broadcast_faithfulness_age_seconds|pgc_broadcast_signal_age_seconds|pgc_discard_audit_age_seconds|pgc_source_health_report_age_seconds"})
               instant: true
               refId: A
           - refId: C
