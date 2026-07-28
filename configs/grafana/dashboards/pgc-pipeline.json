@@ -22,21 +22,21 @@
   ],
   "panels": [
     {
-      "id": 2,
+      "id": 100,
       "type": "row",
-      "title": "产品结果 — 有价值 · 没漏掉 · 可信 · 够快",
+      "title": "北极星 — 今天做成了什么",
       "collapsed": false,
+      "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 0,
         "w": 24,
         "h": 1
-      },
-      "panels": []
+      }
     },
     {
-      "id": 54,
-      "title": "收到的内容有多少值得看",
+      "id": 21,
+      "title": "今天发出多少条",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -44,8 +44,8 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 14,
-        "w": 12,
+        "y": 1,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -55,25 +55,15 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_broadcast_signal_rate",
-          "instant": true
+          "expr": "pgc_items_24h{status=\"published\"}",
+          "instant": true,
+          "legendFormat": "近24h发布"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "-1": {
-                  "text": "等待质检",
-                  "color": "blue",
-                  "index": 0
-                }
-              }
-            }
-          ],
+          "unit": "short",
+          "mappings": [],
           "color": {
             "mode": "thresholds"
           },
@@ -86,11 +76,11 @@
               },
               {
                 "color": "yellow",
-                "value": 60
+                "value": 2000
               },
               {
                 "color": "green",
-                "value": 85
+                "value": 4000
               }
             ]
           }
@@ -111,20 +101,20 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "抽样已发布广播中，被模型判定为对接收方有价值信号的比例（排除体育赛果、人情故事、本地琐事等噪声）。这是四个产品结果之一，只测量、不做发布抑制。目标 ≥85%，低于 60% 红。"
+      "description": "零延迟的断线探针：今天真正发出去多少条。\n正常：工作日数千条。\n要行动：掉到 2000 以下，或直接为 0——管线断了。它今天告诉你还活着，右边三个后天才告诉你有没有用。"
     },
     {
-      "id": 56,
-      "title": "有多少内容分错了类",
+      "id": 19,
+      "title": "确认抢先条数",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 12,
-        "y": 14,
-        "w": 12,
+        "x": 6,
+        "y": 1,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -134,13 +124,581 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_broadcast_miscategorized / pgc_broadcast_signal_judged * 100",
+          "expr": "pgc_event_real_wins",
+          "instant": true,
+          "legendFormat": "确认抢先"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_north_star_state",
+          "instant": true,
+          "legendFormat": "状态"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "重新校准中",
+                        "color": "blue",
+                        "index": 1
+                      },
+                      "2": {
+                        "text": "无数据",
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "description": "北极星：两家判官都确认、且我们确实更早的事件数（过去 24 小时）。\n正常：50 条以上，状态为「正常」。\n要行动：状态是「无数据」就先修测量，不要解读数字；状态是「重新校准中」说明判官提示词刚换、判决缓存还冷，此时不要读趋势。"
+    },
+    {
+      "id": 71,
+      "title": "比媒体早多久",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_event_lead_on_win_median_minutes",
+          "instant": true,
+          "legendFormat": "中位抢先",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 60
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "抢先送达的那些事件，我们比媒体早多少（中间值）。\n正常：一小时以上。\n要行动：掉到半小时以下，说明赢的都是险胜，抢先随时会翻成落后。"
+    },
+    {
+      "id": 72,
+      "title": "还没判完的条数",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_event_wins_pending",
+          "instant": true,
+          "legendFormat": "待判",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "无数据",
+                  "color": "red"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "无数据",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "抢先要两家判官都确认才算数，没判完的一律不计入左边的「确认抢先条数」。\n正常：0。\n要行动：这个数一大，就说明左边那个数是被低估的——先看判官算力，不要先怀疑产品。"
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "止损线 — 红了就停下来处理",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 73,
+      "title": "今天说错话的条数",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_broadcast_unfaithful_24h",
+          "instant": true,
+          "legendFormat": "条/天",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "pgc_broadcast_faithfulness_weighted_pct",
+          "instant": true,
+          "legendFormat": "忠实率（两层加权）",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "等待质检",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "转述歪曲了原文的广播条数（估计值，已覆盖全部两层，包括只凭标题广播的那一层）。\n⚠️ 阈值校准中，暂不染色：首日实测约 344 条/天，而按老口径只看完整来源层会显示 99.5% 忠实，两者是同一个事实。拉满三天分布后再定红线——先拍一个数上去，只会让人第一天就看见红色然后学会忽略它。\n怎么读：这个数的大头来自「仅标题」那一层，它的误差范围也最大（见下方诚实度表）。"
+    },
+    {
+      "id": 74,
+      "title": "测量本身是否还在跑",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - pgc_audit_last_success_timestamp) / 3600",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "pgc_audit_failed_total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 100000,
+                "to": null,
+                "result": {
+                  "text": "从来没跑过",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "audit": "审计",
+              "Value #A": "多久没出结果（小时）",
+              "Value #B": "累计失败次数"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "多久没出结果（小时）",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "description": "质量审计自己还活着吗。日更的三项超过 36 小时、判决超过 6 小时就该动手。\n正常：日更项都在 24 小时上下，判决项在几小时内。\n要行动：某项时间一直涨，或失败次数在涨。最常见的原因是抢不到判决锁被挤掉，这种情况脚本什么都不写，面板会继续显示旧数字——这一栏就是为了让它露出来。"
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "现在需要处理什么",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 17,
+      "title": "真实故障",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "我方侧真实故障的总数：关键来源断路 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『本周待办』。"
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "关键来源断路",
+      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「真实故障」。",
+      "gridPos": {
+        "x": 4,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_canaries_failed",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
           "mappings": [],
           "color": {
             "mode": "thresholds"
@@ -154,7 +712,142 @@
               },
               {
                 "color": "yellow",
-                "value": 18
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "重要消息正在迟到",
+      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「真实故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
+      "gridPos": {
+        "x": 8,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 150
+              },
+              {
+                "color": "red",
+                "value": 400
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 61,
+      "title": "本周待办",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 15
               },
               {
                 "color": "red",
@@ -179,21 +872,22 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "抽样广播中领域标注明显错误的比例。常态约 10-15%，受样本成分波动。超过 18% 值得排查分类 prompt，超过 30% 说明分类逻辑可能有系统性问题。"
+      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『真实故障』。"
     },
     {
-      "id": 50,
-      "title": "有多少内容抓到并发出",
+      "id": 32,
       "type": "stat",
+      "title": "应补的一手来源",
+      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。属于待办清单，不是故障——数字本身无好坏，有空时挑高价值的补。",
+      "gridPos": {
+        "x": 16,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 19,
-        "w": 6,
-        "h": 4
       },
       "targets": [
         {
@@ -202,279 +896,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_coverage_recall_pct",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 90
-              },
-              {
-                "color": "green",
-                "value": 97
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "基准信源中决定处理的条目里，链路成功交付的比例（含判定为重复）。分母不含有意丢弃——那是内容判断，不是故障。数值低说明抓取或解析故障（常见原因：付费墙）。"
-    },
-    {
-      "id": 52,
-      "title": "转述有没有歪曲原文",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 19,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_broadcast_faithfulness_pct",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "green",
-                "value": 90
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "抽样已发布广播中，模型判定内容忠于原文事实的比例（实体、数字、论断均有原文支撑，无捏造或推断当事实）。约 130 条抽样，存在 ±3 个百分点的正常波动。目标 ≥90%，低于 70% 红。"
-    },
-    {
-      "id": 51,
-      "title": "一手信息通常多久入库",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 19,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_first_party_ingest_median_minutes",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "m",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 45
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "一手源发布到入库的中位分钟数，越低越好。常态约 5-10 分钟。超过 15 分钟说明轮询频率可能需要提高或有上游缓慢，超过 45 分钟说明管线卡住。"
-    },
-    {
-      "id": 58,
-      "title": "来自低可信来源的内容",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 19,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "pgc_broadcast_low_trust_pct",
-          "refId": "A",
-          "legendFormat": "低可信%",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 25
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "来自未验证或低可信信源的广播占比，越低越好。可信度按信源类型推导（官方、监管机构为高），随内容一并发布，由接收方自行加权。注意：总发布量骤降时（上游断供、假日）该值会被动放大。"
-    },
-    {
-      "id": 5,
-      "title": "可公平比较的事件数",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 23,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_meaningful_races",
+          "expr": "pgc_first_source_audit_attention",
           "instant": true
         }
       ],
@@ -510,289 +932,364 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
-      },
-      "description": "模型确认为真正可比的速度对决数量。低于 80 时右侧胜率波动大，先看此数再看胜率。"
+      }
     },
     {
-      "id": 19,
-      "title": "比媒体更早 / 更晚",
+      "id": 63,
       "type": "stat",
+      "title": "我们比媒体更早的比例",
+      "gridPos": {
+        "x": 20,
+        "y": 14,
+        "w": 4,
+        "h": 5
+      },
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
       },
-      "gridPos": {
-        "x": 6,
-        "y": 23,
-        "w": 6,
-        "h": 4
-      },
       "targets": [
         {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_real_wins",
-          "instant": true,
-          "legendFormat": "赢"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_real_losses",
-          "instant": true,
-          "legendFormat": "输"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "赢"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "输"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "semi-dark-purple"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "description": "有效对决中，我们抢先的次数与对照媒体更快的次数。"
-    },
-    {
-      "id": 7,
-      "title": "判定结果多久没更新",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 23,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_event_verdicts_age_seconds / 3600",
-          "instant": true
-        },
-        {
-          "expr": "pgc_dual_judge_unavailable",
-          "legendFormat": "其中二判不可用",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "h",
-          "decimals": 1,
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 2
-              },
-              {
-                "color": "red",
-                "value": 6
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "其中二判不可用"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "yellow",
-                      "value": 10
-                    },
-                    {
-                      "color": "red",
-                      "value": 20
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "距上次模型判定运行的时间。每小时自动执行，超过 2 小时说明调度可能卡住。第二个数为上一轮双判中不可用的对数：应为 0，接近总数说明第二判定服务故障（已配自动告警）。"
-    },
-    {
-      "id": 60,
-      "title": "误删真实信息的比例",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 23,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "pgc_discard_false_loss_rate",
-          "refId": "A",
-          "legendFormat": "严苛口径",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_discard_false_loss_rate_full_pool",
-          "legendFormat": "整体水平",
-          "refId": "B"
+          "expr": "pgc_first_source_win_rate",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "丢了什么 · 为什么",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 76,
+      "title": "今天丢了什么 · 按原因",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 14,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_loss_ledger_events",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "还测不出来",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "reason": "原因",
+              "Value": "事件数"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
               {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 45
-              },
-              {
-                "color": "red",
-                "value": 65
+                "field": "事件数",
+                "desc": true
               }
             ]
+          }
+        }
+      ],
+      "description": "过去 24 小时丢掉的事件，按原因排序。这是「这周该做什么」的唯一来源——按最大的那一桶下手。\n「还测不出来」是诚实的空白，不是零：那些桶目前没有数据来源，不代表那里没有损失。\n注意：「抓到了但慢」目前偏高——赢要两家判官确认、输只要一家，抽样实测约四成落后是配错事件。"
+    },
+    {
+      "id": 53,
+      "title": "哪些领域最容易被丢弃",
+      "type": "barchart",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 20,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_coverage_discard_share_by_domain",
+          "legendFormat": "{{domain}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1
           }
         },
         "overrides": []
       },
       "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
+          "values": true
+        }
       },
-      "description": "抽审被丢弃条目中可能为真实事件的占比。「严苛口径」只看基准信源、受当日样本成分影响会尖峰；「整体水平」看全部丢弃（健康位约 7%）。两条同时升高才说明闸门有问题，只有严苛线波动时先看当日样本成分。"
+      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（政策域通常偏高），结合「诊断 · 丢弃质量」判断其中有多少误杀。"
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "每个数字有多可信",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 77,
+      "title": "每个数字有多可信",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_metric_value",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "pgc_metric_sample_size",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "expr": "pgc_metric_ci_halfwidth",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "expr": "pgc_metric_unjudged",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "expr": "pgc_metric_excluded_population",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "不适用",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "metric": "指标",
+              "Value #A": "值",
+              "Value #B": "看了多少条",
+              "Value #C": "误差范围（±）",
+              "Value #D": "抽了没判成",
+              "Value #E": "没算进去的"
+            },
+            "indexByName": {}
+          }
+        }
+      ],
+      "description": "每个数字的底细。一个比率脱离这几列就没法判断该不该信它。\n怎么读：值和目标线的差如果小于「误差范围」，两者其实分不开；「抽了没判成」一大，比率就有偏；「没算进去的」是这个数按定义完全没覆盖的人群。\n要行动：误差范围比你关心的变化还大 = 先把样本量加上去，别急着解读波动。"
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "趋势",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 1
+      }
     },
     {
       "id": 9,
@@ -804,7 +1301,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 39,
         "w": 12,
         "h": 8
       },
@@ -883,18 +1380,19 @@
       "description": "事件延迟（越低越好）与胜率走势，模型约每 30 分钟重算。**看「可赢胜率」**：只算我们本可以更快的对决——对手在转发或汇编别人的信息（通稿/转载），或对手发布的本身就是官方公告（那说明我们自己的官方源线慢了）。它低了才该行动（加快轮询/补一手源）。「总胜率」把记者独家原创也算进分母，那类对决世界上不存在更早的源，输了不是管线慢（2026-07-16 实测约六成输局属此类）——总胜率低但可赢胜率高 = 新闻结构，不是故障。2026-07-02 起模型确认口径，2026-07-16 起有可赢/总口径两条线，跨断点不可比。"
     },
     {
-      "id": 53,
-      "title": "哪些领域最容易被丢弃",
-      "type": "barchart",
+      "id": 37,
+      "type": "timeseries",
+      "title": "问题有没有变多",
+      "description": "『真实故障』应贴地为 0；『本周待办』允许有水位，看趋势不看绝对值。",
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 27,
-        "w": 12,
-        "h": 8
       },
       "targets": [
         {
@@ -903,17 +1401,84 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "pgc_coverage_discard_share_by_domain",
-          "legendFormat": "{{domain}}",
-          "instant": true
+          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "真实故障（应为 0）"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_first_source_audit_attention",
+          "instant": false,
+          "range": true,
+          "legendFormat": "应补的一手来源"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
+          "instant": false,
+          "range": true,
+          "legendFormat": "高优先延迟"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_canaries_failed",
+          "instant": false,
+          "range": true,
+          "legendFormat": "关键源探活失败"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_critical_fire",
+          "instant": false,
+          "range": true,
+          "legendFormat": "关键信源故障"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_sla_attention",
+          "instant": false,
+          "range": true,
+          "legendFormat": "信源更新慢"
+        },
+        {
+          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
+          "legendFormat": "本周待办合计",
+          "refId": "W"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
+          "unit": "short",
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "color": {
+            "mode": "palette-classic"
           }
         },
         "overrides": []
@@ -921,103 +1486,25 @@
       "options": {
         "legend": {
           "displayMode": "list",
-          "placement": "right"
+          "placement": "bottom"
         },
         "tooltip": {
-          "mode": "single"
-        },
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
+          "mode": "multi"
         }
-      },
-      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（政策域通常偏高），结合「诊断 · 丢弃质量」判断其中有多少误杀。"
+      }
     },
     {
       "id": 20,
       "type": "row",
       "title": "系统是否正常",
       "collapsed": false,
+      "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 47,
         "w": 24,
         "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 21,
-      "title": "过去 24 小时发出多少",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 36,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_items_24h{status=\"published\"}",
-          "instant": true,
-          "legendFormat": "近24h发布"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "green",
-                "value": 200
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "过去 24 小时发布到 EigenFlux 的条目数。为 0 说明管线故障。"
+      }
     },
     {
       "id": 22,
@@ -1028,9 +1515,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 4,
-        "y": 36,
-        "w": 4,
+        "x": 0,
+        "y": 48,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -1096,9 +1583,9 @@
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 8,
-        "y": 36,
-        "w": 4,
+        "x": 6,
+        "y": 48,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -1162,8 +1649,8 @@
       "description": "按当前消耗速度，twitterapi.io 付费额度剩余可用天数。",
       "gridPos": {
         "x": 12,
-        "y": 36,
-        "w": 4,
+        "y": 48,
+        "w": 6,
         "h": 5
       },
       "datasource": {
@@ -1224,36 +1711,44 @@
       }
     },
     {
-      "id": 39,
+      "id": 78,
+      "title": "付费额度本月已用",
       "type": "stat",
-      "title": "NewsAPI 各账号本月已用",
-      "description": "每个 NewsAPI 密钥本月已用比例（1 号为主密钥）。任何一个用尽都会单独变红。",
-      "gridPos": {
-        "x": 16,
-        "y": 36,
-        "w": 4,
-        "h": 5
-      },
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
       },
+      "gridPos": {
+        "x": 18,
+        "y": 48,
+        "w": 6,
+        "h": 5
+      },
       "targets": [
         {
           "refId": "A",
+          "expr": "pgc_newsapi_key_tokens_pct",
+          "instant": true,
+          "legendFormat": "NewsAPI {{key}} 号密钥",
           "datasource": {
             "type": "prometheus",
             "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_newsapi_key_tokens_pct",
-          "legendFormat": "{{key}} 号密钥",
-          "instant": true
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "pgc_scraperapi_credits_pct",
+          "instant": true,
+          "legendFormat": "网页代理",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 0,
           "mappings": [],
           "color": {
             "mode": "thresholds"
@@ -1274,7 +1769,8 @@
                 "value": 90
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -1291,76 +1787,8 @@
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 40,
-      "type": "stat",
-      "title": "网页代理本月已用",
-      "description": "本月 ScraperAPI 额度已用比例。用于被封锁站点的代理抓取。",
-      "gridPos": {
-        "x": 20,
-        "y": 36,
-        "w": 4,
-        "h": 5
       },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_scraperapi_credits_pct",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 0,
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      }
+      "description": "本月各付费额度的已用比例。任一用尽都会单独变红。\n正常：低于对应的月进度。\n要行动：超过 90% —— NewsAPI 烧干会掉二级覆盖，代理烧干会一起断掉被封锁的站点。"
     },
     {
       "id": 64,
@@ -1369,8 +1797,8 @@
       "description": "NewsAPI 是二级覆盖雷达，不是一手信源。这里显示每个主题抓到的最新文章距离现在多久，以及允许的最大时间。状态为「开始落后」需要当天调整；「严重落后」会实时推送告警，避免把旧消息当新消息送出。",
       "gridPos": {
         "x": 0,
-        "y": 41,
-        "w": 12,
+        "y": 53,
+        "w": 24,
         "h": 7
       },
       "datasource": {
@@ -1485,100 +1913,6 @@
       ]
     },
     {
-      "id": 24,
-      "title": "发布节奏是否异常",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 41,
-        "w": 12,
-        "h": 7
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_items_24h{status=\"published\"} / 24",
-          "legendFormat": "24h均值(条/小时)"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_items_1h{status=\"published\"}",
-          "legendFormat": "实时(条/小时)"
-        },
-        {
-          "expr": "pgc_items_24h{status=\"published\"} offset 7d / 24",
-          "legendFormat": "上周同时刻(基线,条/小时)",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": true,
-            "lineInterpolation": "smooth"
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "上周同时刻(基线,条/小时)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    10
-                  ]
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "description": "每小时发布量，虚线为上周同一时刻基线。两线贴合说明节奏正常。"
-    },
-    {
       "id": 25,
       "title": "原始日志（工程师排障）",
       "type": "logs",
@@ -1588,7 +1922,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 60,
         "w": 24,
         "h": 8
       },
@@ -1613,582 +1947,8 @@
         "sortOrder": "Descending",
         "dedupStrategy": "none"
       }
-    },
-    {
-      "id": 30,
-      "type": "row",
-      "title": "现在需要处理什么",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 1
-      },
-      "collapsed": false
-    },
-    {
-      "id": 17,
-      "title": "真实故障",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "我方侧真实故障的总数：关键来源断路 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『本周待办』。"
-    },
-    {
-      "id": 32,
-      "type": "stat",
-      "title": "应补的一手来源",
-      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。属于待办清单，不是故障——数字本身无好坏，有空时挑高价值的补。",
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_first_source_audit_attention",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 33,
-      "type": "stat",
-      "title": "重要消息正在迟到",
-      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「真实故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
-      "gridPos": {
-        "x": 8,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 150
-              },
-              {
-                "color": "red",
-                "value": 400
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 34,
-      "type": "stat",
-      "title": "关键来源断路",
-      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「真实故障」。",
-      "gridPos": {
-        "x": 4,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_canaries_failed",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 37,
-      "type": "timeseries",
-      "title": "问题有没有变多",
-      "description": "『真实故障』应贴地为 0；『本周待办』允许有水位，看趋势不看绝对值。",
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
-          "instant": false,
-          "range": true,
-          "legendFormat": "真实故障（应为 0）"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_first_source_audit_attention",
-          "instant": false,
-          "range": true,
-          "legendFormat": "应补的一手来源"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
-          "instant": false,
-          "range": true,
-          "legendFormat": "高优先延迟"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_canaries_failed",
-          "instant": false,
-          "range": true,
-          "legendFormat": "关键源探活失败"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_critical_fire",
-          "instant": false,
-          "range": true,
-          "legendFormat": "关键信源故障"
-        },
-        {
-          "refId": "F",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_sla_attention",
-          "instant": false,
-          "range": true,
-          "legendFormat": "信源更新慢"
-        },
-        {
-          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
-          "legendFormat": "本周待办合计",
-          "refId": "W"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 62,
-      "type": "table",
-      "title": "哪些来源正在迟到",
-      "description": "近 3 小时高优先迟到条目按来源明细，与上方「重要消息正在迟到」同口径（同一条目只计一次）。「我方管线慢」的行优先查抓取与解析；「上游晚发」的行优先评估更快的一手渠道。最多显示前 50 行。",
-      "gridPos": {
-        "x": 12,
-        "y": 6,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "topk(50, max by (source, kind, source_tier) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"}))",
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "source_latency": {
-                  "text": "我方管线慢",
-                  "index": 0
-                },
-                "source_feed_lag": {
-                  "text": "上游晚发",
-                  "index": 1
-                }
-              }
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "countRows": false,
-          "fields": ""
-        }
-      },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true
-            },
-            "renameByName": {
-              "source": "来源",
-              "kind": "原因",
-              "source_tier": "优先级",
-              "Value": "迟到条目数"
-            },
-            "indexByName": {
-              "source": 0,
-              "kind": 1,
-              "source_tier": 2,
-              "Value": 3
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": 61,
-      "title": "本周待办",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 30
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『真实故障』。"
-    },
-    {
-      "id": 63,
-      "type": "stat",
-      "title": "我们比媒体更早的比例",
-      "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
-        "h": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "expr": "pgc_first_source_win_rate",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 1
-        },
-        "overrides": []
-      },
-      "options": {},
-      "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
     }
   ],
-  "description": "PGC 是低时延信号网络：价值、覆盖、准确、速度四个结果独立判断，任何一个都不能被其余绿灯掩盖。红 = 现在动手，绿 = 常态，蓝 = 信息/待办。",
+  "description": "北极星＝今天确认抢先了多少条。下面三层：红了就停手的止损线、丢了什么的台账、以及每个数字有多可信。",
   "version": 1
 }
