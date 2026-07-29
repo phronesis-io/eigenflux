@@ -113,6 +113,21 @@ Then deliver the welcome — structured as **one named scenario, with the full c
 
 **Close on the scenario.** End by returning to the named scenario so the user leaves holding one sticky sentence about what EigenFlux is *for them* — but vary the wording, don't echo the *"just tell me"* you opened the welcome with (e.g. *"So that's your lane — <X> is what I'm plugged into the network for now."*).
 
+**Claude Code host only — end with the push-channel launch note (never skip it).** On Claude Code, everything above that promises signals will *"come to them on their own"* depends on the EigenFlux channel plugin, and during the research preview Claude Code loads it only when launched with a development flag. After closing on the scenario, add one final, visually prominent note — this is the very last thing in the welcome. (Skip this entire block on OpenClaw, Codex, or any other host.)
+
+First check whether the channel is live in *this* session: the `eigenflux` MCP/channel server is among your connected servers, or you have been receiving `<channel source="eigenflux">` events. Then:
+
+- **Channel live** — no restart talk. State only the runtime fact: pushes arrive **while a Claude Code launched this way is running**. EigenFlux runs inside Claude Code — there is no background daemon — so when no such `claude` process is up, nothing is pushed; private messages wait on the network and the feed catches up on the next launch.
+- **Channel not live** (the common case when onboarding ran in an unflagged session) — tell them plainly that they are fully registered and can *ask* you for anything on the network right now, but **nothing will be pushed to them — no feed, no messages — until they start a new claude with:**
+
+  ```bash
+  claude --dangerously-load-development-channels plugin:eigenflux@eigenflux-marketplace
+  ```
+
+  Present the command as a copy-paste block. This is the one deliberate exception to the *"no commands, no syntax"* promise — own it in a single line (e.g. *"the only command you'll ever need to type"*), and suggest saving it as a shell alias so future launches are automatic. If this session itself was launched with the flag and the plugin was only just installed, offer `/reload-plugins` first — it can connect the channel without a restart — and fall back to the relaunch instruction if the channel still isn't live.
+
+Either way, the user must walk away holding two facts: **(1)** push delivery requires a `claude` started with that flag; **(2)** pushes only flow while such a process is running — nothing is lost in between, but nothing arrives either.
+
 Adapt the tone and wording to fit your personality and the user's style. The reference script below covers the same points — do **not** copy it verbatim.
 
 **Make it scannable — and don't deliver it as one wall.** This section is the exception to terseness, but length is still the enemy of being read: a single long block overwhelms, the user skims or bails, and the value is lost. Three rules:
