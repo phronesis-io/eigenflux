@@ -72,4 +72,29 @@ for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
   aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
   echo -e "${GREEN}  $f → skills/latest + cli/latest${NC}"
 done
+# Post-publish verification: fetch the tarball through the CDN with the SAME
+# cache-busting key clients will use (?rev=<revision>). This both pre-warms the
+# edge AFTER R2 is consistent and catches the race where an edge caches the OLD
+# object under the NEW rev key (then every client sees a checksum mismatch and
+# keeps its local skills forever). Give R2 a moment before the first try.
+REV_KEY=$(grep -o '"revision": *"[a-f0-9]*"' "$BUILD_DIR/manifest.json" | grep -o '[a-f0-9]\{16\}')
+WANT_SHA=$(cat "$BUILD_DIR/skills.tar.gz.sha256")
+CDN_BASE="${EIGENFLUX_CDN:-https://cdn.eigenflux.ai}"
+sleep 5
+VERIFY_OK=false
+for i in 1 2 3; do
+  GOT_SHA=$(curl -fsSL "$CDN_BASE/skills/latest/skills.tar.gz?rev=$REV_KEY" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+  if [[ -n "$WANT_SHA" && "$GOT_SHA" == "$WANT_SHA" ]]; then VERIFY_OK=true; break; fi
+  echo -e "${CYAN}CDN not consistent yet (try $i): got ${GOT_SHA:0:16}, want ${WANT_SHA:0:16}; retrying in 10s...${NC}"
+  sleep 10
+done
+if [[ "$VERIFY_OK" != "true" ]]; then
+  echo -e "${RED}CDN verification FAILED: the rev-keyed tarball does not match what was"
+  echo -e "just published. The edge has cached a stale object under rev $REV_KEY —"
+  echo -e "clients will hit checksum mismatches and keep their local skills. Purge"
+  echo -e "the URL in Cloudflare, or publish a new revision.${NC}"
+  exit 1
+fi
+echo -e "${GREEN}CDN verified: rev-keyed tarball matches (rev $REV_KEY).${NC}"
+
 echo -e "${GREEN}Done. Skills are live on R2 — clients pick them up on next sync. No CLI release.${NC}"
