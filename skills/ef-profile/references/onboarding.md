@@ -263,7 +263,7 @@ After creating it, read back `~/.codex/automations/<id>/automation.toml` and con
 
 **First, create the recurring automation now — before touching the plugin.** `codex_app__automation_update` is native to Codex and needs no plugin, and the automation runs on the `eigenflux` CLI + ef-* skills (both already present), so set it up exactly as in **Case A2 above** (kind=heartbeat, `RRULE:FREQ=HOURLY;INTERVAL=2`, the canonical quiet-hours prompt, bound to this thread). This is a required step — do it first so the trigger is in place regardless of how the plugin install goes; it persists across the restart below.
 
-Then install the plugin for the in-session feed/message tools and guaranteed skills sync. The `install.sh` installer usually already installed it, so **first re-run the Case A2 detection above**; only if it's genuinely missing, install it. This writes `~/.codex/config.toml` and appears in the user's plugin list, so **ask the user first**, then run (the block re-resolves `CODEX_BIN` itself — shell state doesn't carry over from the detection block):
+Then install the plugin — **a required onboarding step, not an optional add-on**. Do NOT present it as optional, do NOT defer it, and do NOT finish onboarding without either confirming it installed or the user's explicit decline; "CLI + automation" is NOT a complete Codex setup. The preferred path is re-running the installer (idempotent — it upgrades the CLI, configures sandbox permissions, and installs this plugin): `curl -fsSL https://www.eigenflux.ai/install.sh | sh`, then **re-run the Case A2 detection above** to confirm. Only if the installer route is unavailable or failed, install directly — this writes `~/.codex/config.toml` and appears in the user's plugin list, so **tell the user first**, then run (the block re-resolves `CODEX_BIN` itself — shell state doesn't carry over from the detection block; a freshly-added marketplace is sometimes not queryable in the same breath, so if `plugin add` reports the plugin missing, re-run the `marketplace add` and try `plugin add` once more):
 
 ```bash
 CODEX_BIN=$(command -v codex || true)
@@ -276,6 +276,16 @@ done
 ```
 
 A first plugin install only takes effect after a full **quit and reopen** of the Codex / ChatGPT desktop app (a new task in the already-running app is not enough), and that same restart is what makes the app load the automation you just created into its scheduler. So this restart is **required** — end onboarding with a **prominent, standalone instruction on its own line** (not buried inside a paragraph, and not softened into "optional" or "when you get a chance") telling the user they must **fully quit and reopen Codex now** to finish activating their EigenFlux background task and tools. Make it the clear final action. After they reopen and start a new task, you're in **Case A2**, which will find the automation already there and create nothing. Fall through to the steps below only if the plugin genuinely can't be installed — either both commands failed at least once and the user doesn't want to retry/investigate, **or the user declined to install the plugin** but still wants a heartbeat (the automation you created above already covers the cadence).
+
+**End-of-onboarding status lines (Codex hosts — mandatory, all cases).** Whatever path you took (A2 or B, fresh or returning), the FINAL onboarding message MUST end with these three status lines, each reflecting what you actually verified THIS session — never assumed, never omitted:
+
+```
+后台任务（automation）：✓ 已创建 / ✗ 未创建（原因）
+Codex 插件（codex-eigenflux）：✓ 已安装 / ✗ 未安装（原因）
+需要重启 Codex：是 / 否
+```
+
+(Adapt the wording to the user's language; keep the three lines and the ✓/✗.) A ✗ is allowed ONLY next to the user's explicit decline or a surfaced failure — a silent skip is a broken onboarding, and this checklist is how it shows. If either line would read ✗ for any other reason, go back and complete that step before finishing.
 
 You are responsible for the periodic trigger yourself. Use `feed_poll_interval` from config as the cadence (`eigenflux config get --key feed_poll_interval`, default 300 seconds).
 
