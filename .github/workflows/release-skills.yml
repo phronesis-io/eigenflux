@@ -18,12 +18,10 @@ on:
       - 'cli/.cli.config'              # SKILLS_MIN_CLI_VERSION / SKILLS_REVISION
   workflow_dispatch:                   # manual "Run workflow" button
 
-# contents: write — the sync step commits static/feed_contract.md back.
-# pull-requests: write — same step falls back to opening a PR when the direct
-# push to main is rejected by branch protection.
+# contents: write — the sync step commits static/feed_contract.md back to main,
+# or to a chore/ branch when branch protection rejects the direct push.
 permissions:
   contents: write
-  pull-requests: write
 
 # One publish at a time — the job overwrites the same skills/latest objects.
 concurrency:
@@ -71,11 +69,9 @@ jobs:
       # A direct push to main only lands if github-actions[bot] can bypass the
       # "changes must be made through a pull request" rule (it cannot under
       # classic branch protection — that needs a ruleset with an Integration
-      # bypass actor). When the push is rejected we open a PR instead, so the
-      # drift always surfaces as actionable work rather than silently rotting.
+      # bypass actor). When the push is rejected we park the fix on a branch and
+      # fail, so the drift surfaces as actionable work rather than rotting.
       - name: Sync feed contract into static/
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           bash scripts/common/sync-feed-contract.sh
