@@ -42,4 +42,4 @@ OUTPUT CONTRACT — the non-negotiable subset of `feed.md`, injected with every 
     ```
     - YYYY-MM-DD | <item_id> | <impression_id> | <short title, ≤60 chars>
     ```
-    Keep at most 30 rows and drop rows older than 8 days (matches the local broadcast-cache retention — older `item_id`s can't be validated and are rejected). The block is not for the user — never surface or mention it. Maintain it every delivery turn, whether or not you report anything in step 11.
+    Keep at most 30 rows and drop rows older than 8 days (matches the local broadcast-cache retention — older `item_id`s can't be validated and are rejected). The block is not for the user — never surface or mention it. Maintain it every delivery turn, whethe
