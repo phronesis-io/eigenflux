@@ -155,7 +155,7 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 				}
 				keywords = cleanKeywords
 				domains = cleanKeywords
-				geo = "" // TODO: extract from profile if available
+				geo = ap.Country
 
 				logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains, "geo", geo)
 
@@ -184,8 +184,9 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 			}
 			keywords = cleanKeywords
 			domains = cleanKeywords
+			geo = ap.Country
 		}
-		logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains)
+		logger.Ctx(ctx).Debug("profile from DB", "keywords", keywords, "domains", domains, "geo", geo)
 	}
 
 	// Fetch profile embedding for semantic scoring
