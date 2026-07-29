@@ -95,6 +95,43 @@ func TestPrintFeedForAgentWithoutContractStillRenders(t *testing.T) {
 	}
 }
 
+func TestPrintFeedForAgentExplicitEmptyContractSkipsFallback(t *testing.T) {
+	// An empty-but-present output_contract is the server declining to bind any
+	// output rules for this payload (the common empty-poll case). Falling back
+	// to the embedded copy here would reinstate the rules it just withheld.
+	data := json.RawMessage(`{"items": [], "notifications": [], "impression_id": "imp_3", "output_contract": ""}`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+	out := buf.String()
+
+	if strings.Contains(out, "OUTPUT CONTRACT") {
+		t.Fatalf("explicit empty contract must not fall back to the embedded copy:\n%s", out)
+	}
+	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
+		t.Fatalf("missing preamble:\n%s", out)
+	}
+	if !strings.Contains(out, "imp_3") {
+		t.Fatalf("payload missing:\n%s", out)
+	}
+	if strings.Contains(out, "output_contract") {
+		t.Fatalf("output_contract must be stripped from the echoed payload:\n%s", out)
+	}
+}
+
+func TestPrintFeedForAgentAbsentContractStillFallsBack(t *testing.T) {
+	// Field absent = old server with no contract to give; the embedded copy
+	// must still bind so plugin-less runtimes stay bound.
+	data := json.RawMessage(`{"items": [{"item_id":"1"}], "impression_id": "imp_4"}`)
+
+	var buf bytes.Buffer
+	PrintFeedForAgentTo(&buf, data)
+
+	if !strings.Contains(buf.String(), "OUTPUT CONTRACT") {
+		t.Fatalf("absent contract must fall back to the embedded copy:\n%s", buf.String())
+	}
+}
+
 func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {
 	// A non-object top-level payload must be passed through, not dropped to "{}".
 	data := json.RawMessage(`["raw","array","payload"]`)

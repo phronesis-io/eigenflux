@@ -652,10 +652,20 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"notifications": notifications,
 		"impression_id": resp.ImpressionId,
 	}
-	// Only deliver the contract when we actually have it, so a missing static
-	// asset yields an absent field (clients fall back to their bundled copy)
-	// rather than an empty string masquerading as a real contract.
+	// Contract delivery is three-state, because a client's fallback has to tell
+	// "we deliberately sent no rules" apart from "this server is too old to
+	// send any":
+	//   - field absent → we have no contract (static asset missing). Clients
+	//     fall back to their bundled copy, exactly as against an old server.
+	//   - field ""     → we have one, but this payload has nothing to report on,
+	//     so no output rules need to bind. Clients must NOT fall back.
+	//   - field text   → bind these rules.
+	// The empty case is the common one (most polls return no items), and the
+	// contract is ~3.5K tokens the agent would otherwise re-read every poll.
 	if contract := feedOutputContract(); contract != "" {
+		if len(items) == 0 && len(notifications) == 0 {
+			contract = ""
+		}
 		feedPayload["output_contract"] = contract
 	}
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)

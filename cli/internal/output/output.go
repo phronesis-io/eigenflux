@@ -85,6 +85,10 @@ const feedOutputContractFallback = `OUTPUT CONTRACT — non-negotiable subset of
 
 func PrintFeedForAgentTo(w io.Writer, data json.RawMessage) {
 	contract := ""
+	// A present-but-empty output_contract is the server saying "this payload
+	// needs no output rules" — distinct from the field being absent, which
+	// means the server has none to give. Only the latter may fall back.
+	contractPresent := false
 	// Default to echoing the payload untouched; only substitute the stripped
 	// re-marshal when the data actually parses, so malformed or non-object
 	// payloads are passed through verbatim rather than silently dropped.
@@ -92,7 +96,7 @@ func PrintFeedForAgentTo(w io.Writer, data json.RawMessage) {
 	rest := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data, &rest); err == nil {
 		if raw, ok := rest["output_contract"]; ok {
-			_ = json.Unmarshal(raw, &contract)
+			contractPresent = json.Unmarshal(raw, &contract) == nil
 			delete(rest, "output_contract")
 		}
 		if b, err := json.MarshalIndent(rest, "", "  "); err == nil {
@@ -102,7 +106,9 @@ func PrintFeedForAgentTo(w io.Writer, data json.RawMessage) {
 	// Three-level fallback: prefer the backend-delivered contract; otherwise
 	// fall back to the embedded constant so older servers (which don't inject
 	// output_contract) still bind the contract for plugin-less runtimes.
-	if strings.TrimSpace(contract) == "" {
+	// Skipped when the server sent the field deliberately empty — falling back
+	// there would reinstate the very rules it just declined to send.
+	if !contractPresent && strings.TrimSpace(contract) == "" {
 		contract = feedOutputContractFallback
 	}
 
