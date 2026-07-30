@@ -2702,9 +2702,17 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		createdAt = ar.Agent.CreatedAt
 	}
 
+	// Mirror GetMySettings: until the user pins feed_poll_interval explicitly,
+	// the effective cadence is the onboarding ramp, not the stored default —
+	// otherwise the dashboard shows 300s while the agent actually polls at 3600s.
+	feedPollInterval := settings.FeedPollInterval
+	if !settings.FeedPollIntervalUserSet {
+		feedPollInterval = feedPollRampSec(ctx, agentID, settings)
+	}
+
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
-		"feed_poll_interval":       settings.FeedPollInterval,
+		"feed_poll_interval":       feedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"auto_comment":             settings.AutoComment,
 		"show_add_friend":          settings.ShowAddFriend,
