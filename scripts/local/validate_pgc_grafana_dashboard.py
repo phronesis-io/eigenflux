@@ -19,36 +19,43 @@ import urllib.request
 from pathlib import Path
 
 
-# 2026-07-28 重排：北极星换成一个数，四个产品结果百分比合并进「每个数字有多可信」。
+# 2026-07-31 重排：每一层都用老板能直接回答的问题命名，并把模糊总数
+# 下钻到具体来源和具体报道。
 EXPECTED_SECTIONS = [
-    "北极星 — 今天做成了什么",
-    "止损线 — 红了就停下来处理",
-    "现在需要处理什么",
-    "丢了什么 · 为什么",
-    "每个数字有多可信",
-    "系统是否正常",
+    "结果 — 今天做成了什么",
+    "质量 — 今天有没有伤害用户",
+    "行动 — 现在具体要处理什么",
+    "漏文 — 到底漏了什么，为什么",
+    "可信度 — 这些数字能不能信",
+    "趋势 — 最近有没有变好",
+    "运行 — 信源、积压与额度是否健康",
 ]
 
 # Panels whose empty prod result is the ideal steady state (e.g. a failure list).
 # 2026-07-08: emptied — every previous entry was a 76-panel-era id that no longer
 # exists; a reused id would silently inherit the exemption. Add ids back only for
 # panels that exist AND are legitimately empty when healthy.
-NATURALLY_EMPTY_PANEL_IDS: set[int] = set()
+NATURALLY_EMPTY_PANEL_IDS = {
+    80,  # 没有任何来源延迟时，明细表为空就是健康
+    81,  # 没有一手来源空缺线索时，明细表为空就是健康
+}
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
     33,  # 活跃高优先延迟
 }
 
-# 2026-07-28: 62(哪些来源正在迟到) 并入 76 台账的「抓到了但慢」桶——同一件事
-# 不再占两格。明细仍可从 33 的告警和 Loki 查到。
-ACTIVE_SOURCE_LATENCY_PANEL_IDS: set[int] = set()
-
-SOURCE_HEALTH_SLA_PANEL_IDS = {
-    61,  # 观察清单 (旧名 信源 SLA)
+# 2026-07-31: 80 恢复来源级明细。用户不应为了理解一个总数去翻日志。
+ACTIVE_SOURCE_LATENCY_PANEL_IDS = {
+    80,
 }
 
-# 2026-07-06 语义拆分：17=待处理故障(旧名 火情; 我方契约侧真坏的, 恒0)、61=观察清单
-# (旧名 信源 SLA; 出版方安静/加源候选/超期, 允许有水位)。风险趋势(37)双线。
+SOURCE_HEALTH_SLA_PANEL_IDS = {
+    23,
+}
+
+# 2026-07-06 语义拆分：17=待处理故障（我方契约侧真坏的，恒 0）。
+# 2026-07-31: 删除把多种原因揉成一个数的 61，来源现状集中到 23，
+# 具体迟到与一手源空缺分别由 80/81 展开。
 # 63=抢先率（对外口径）(旧名 榜单胜率)——它已经两次被改板误删, 从此由本校验器守护
 # (见下方 OUTWARD_METRIC_MUST_EXIST)。
 OWNER_COCKPIT_PANELS = {
@@ -61,11 +68,13 @@ OWNER_COCKPIT_PANELS = {
     33: ["pgc_signal_latency_active_source_breaches_3h"],
     34: ["pgc_source_health_canaries_failed"],
     36: ["pgc_twitterapi_credits_days_to_empty"],
-    37: ["pgc_source_health_sla_attention"],
     78: ["pgc_newsapi_key_tokens_pct", "pgc_scraperapi_credits_pct"],
-    61: [
+    23: [
+        "pgc_source_health_active_sources",
+        "pgc_source_health_configured_sources",
+        "pgc_source_health_blocked_sources",
+        "pgc_source_health_failing_high_sources",
         "pgc_source_health_critical_watch",
-        "pgc_first_source_audit_attention",
         "pgc_source_health_sla_attention",
     ],
     64: ["pgc_newsapi_cursor_lag_hours"],
@@ -75,6 +84,9 @@ OWNER_COCKPIT_PANELS = {
     19: ["pgc_event_real_wins", "pgc_north_star_state"],
     74: ["pgc_audit_last_success_timestamp"],
     73: ["pgc_broadcast_unfaithful_24h"],
+    79: ["pgc_broadcast_faithfulness_weighted_pct"],
+    80: ["pgc_signal_latency_active_source_breaches_3h"],
+    81: ["pgc_first_source_audit_attention_item_info"],
     76: ["pgc_loss_ledger_events"],
     77: ["pgc_metric_value", "pgc_metric_sample_size", "pgc_metric_ci_halfwidth"],
     53: ["pgc_discard_audit_dual_review"],
@@ -86,6 +98,7 @@ OWNER_COCKPIT_PANELS = {
 # 值 -> 它的样本量在哪里被看到。新增百分比面板必须在这里登记，否则校验失败。
 SAMPLED_RATE_PANELS = {
     63: "77 诚实度表的「确认抢先条数」行",
+    79: "77 诚实度表的「转述忠于原文」行",
 }
 # 不是抽样得出的比率(账单、进度、全量占比这类精确值)，不需要样本量。
 # 53 各域丢弃占比 = 24h 全量 discarded/all_bench，不是抽样估计。
@@ -244,9 +257,13 @@ def static_validate(dashboard: dict) -> list[str]:
         exprs = [target.get("expr", "") for target in panel.get("targets", []) or []]
         if not any("pgc_signal_latency_active_source_breaches_3h" in expr for expr in exprs):
             errors.append(f"panel {panel_id} must use active source latency breaches")
-        if not any("source_latency" in expr and "source_feed_lag" in expr for expr in exprs):
+        if not any("source_latency" in expr for expr in exprs):
             errors.append(
-                f"panel {panel_id} must count actionable source_latency/source_feed_lag rows"
+                f"panel {panel_id} must count PGC-owned source_latency rows"
+            )
+        if any("source_feed_lag" in expr for expr in exprs):
+            errors.append(
+                f"panel {panel_id} must not mix upstream source_feed_lag into PGC-owned latency"
             )
 
     for panel_id in ACTIVE_SOURCE_LATENCY_PANEL_IDS:
@@ -293,8 +310,6 @@ def static_validate(dashboard: dict) -> list[str]:
 
     if prometheus_targets < 20:
         errors.append(f"expected at least 20 Prometheus targets, found {prometheus_targets}")
-    if loki_targets < 1:
-        errors.append("expected at least one Loki target")
     return errors
 
 

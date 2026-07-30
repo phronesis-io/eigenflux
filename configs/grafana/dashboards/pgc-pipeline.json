@@ -24,7 +24,7 @@
     {
       "id": 100,
       "type": "row",
-      "title": "北极星 — 今天做成了什么",
+      "title": "结果 — 今天做成了什么",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -36,7 +36,7 @@
     },
     {
       "id": 21,
-      "title": "今天发出多少条",
+      "title": "今天发出了多少条信号",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -105,7 +105,7 @@
     },
     {
       "id": 19,
-      "title": "确认抢先条数",
+      "title": "今天确认抢先了多少条",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -230,7 +230,7 @@
     },
     {
       "id": 71,
-      "title": "比媒体早多久",
+      "title": "抢先时通常早了多久",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -300,7 +300,7 @@
     },
     {
       "id": 72,
-      "title": "还没判完的条数",
+      "title": "还有多少条没判完",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -391,7 +391,7 @@
     {
       "id": 101,
       "type": "row",
-      "title": "止损线 — 红了就停下来处理",
+      "title": "质量 — 今天有没有伤害用户",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -403,7 +403,7 @@
     },
     {
       "id": 73,
-      "title": "今天说错话的条数",
+      "title": "可能转述不准的条数（估计）",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -412,7 +412,7 @@
       "gridPos": {
         "x": 0,
         "y": 7,
-        "w": 12,
+        "w": 6,
         "h": 6
       },
       "targets": [
@@ -421,16 +421,6 @@
           "expr": "pgc_broadcast_unfaithful_24h",
           "instant": true,
           "legendFormat": "条/天",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        },
-        {
-          "refId": "B",
-          "expr": "pgc_broadcast_faithfulness_weighted_pct",
-          "instant": true,
-          "legendFormat": "忠实率（两层加权）",
           "datasource": {
             "type": "prometheus",
             "uid": "pgc-prometheus"
@@ -477,16 +467,97 @@
           "values": false
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
+        "textMode": "auto",
+        "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "转述歪曲了原文的广播条数（估计值，已覆盖全部两层，包括只凭标题广播的那一层）。\n⚠️ 阈值校准中，暂不染色：首日实测约 344 条/天，而按老口径只看完整来源层会显示 99.5% 忠实，两者是同一个事实。拉满三天分布后再定红线——先拍一个数上去，只会让人第一天就看见红色然后学会忽略它。\n怎么读：这个数的大头来自「仅标题」那一层，它的误差范围也最大（见下方诚实度表）。"
+      "description": "这是质检对全量广播的估计，不是 428 篇已经逐篇确认的错误。大头来自只能拿到标题的来源，因此先用蓝色表示「需要继续校准」，不把它伪装成已确认事故。\n要行动：先看右侧忠实率和下方样本量；连续三天恶化，再按来源抽样追查。"
+    },
+    {
+      "id": 79,
+      "title": "转述忠实率",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 7,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_broadcast_faithfulness_weighted_pct",
+          "instant": true,
+          "legendFormat": "忠实率",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "等待质检",
+                  "color": "text",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "description": "广播是否忠于原文。这个百分比来自抽样估计，必须和下方「看了多少条、误差多大」一起读。\n正常：99% 以上；95%–99% 需要当天抽查；低于 95% 立即处理。"
     },
     {
       "id": 74,
-      "title": "测量本身是否还在跑",
+      "title": "质检有没有停",
       "type": "table",
       "datasource": {
         "type": "prometheus",
@@ -602,7 +673,7 @@
     {
       "id": 30,
       "type": "row",
-      "title": "现在需要处理什么",
+      "title": "行动 — 现在具体要处理什么",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -614,7 +685,7 @@
     },
     {
       "id": 17,
-      "title": "真实故障",
+      "title": "需要立刻处理的故障",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -623,7 +694,7 @@
       "gridPos": {
         "x": 0,
         "y": 14,
-        "w": 4,
+        "w": 5,
         "h": 5
       },
       "targets": [
@@ -674,17 +745,17 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "我方侧真实故障的总数：关键来源断路 + 关键信源故障 + 我方管线延迟。应恒为 0，非 0 立即排查。上游自身安静、待加源候选等不紧急的项在右侧『本周待办』。"
+      "description": "PGC 自己能修、且会伤害用户的故障总数：关键来源断路、关键信源故障、PGC 自己造成的迟到。应恒为 0；非 0 立即处理。"
     },
     {
       "id": 34,
       "type": "stat",
-      "title": "关键来源断路",
-      "description": "必须保活的关键信源（探活 = 定期试抓验证通路）当前失败的数量。正常为 0。非 0 说明我方对该源的抓取通路已断（含被对方封锁），立即排查——该数同时计入左侧「真实故障」。",
+      "title": "关键来源断了几个",
+      "description": "必须保活的关键来源当前失败的数量。正常为 0；非 0 说明抓取通路已断或被对方封锁，立即排查。这个数字已计入左侧故障总数。",
       "gridPos": {
-        "x": 4,
+        "x": 5,
         "y": 14,
-        "w": 4,
+        "w": 5,
         "h": 5
       },
       "datasource": {
@@ -747,12 +818,12 @@
     {
       "id": 33,
       "type": "stat",
-      "title": "重要消息正在迟到",
-      "description": "高优先（T0/T1）信源近 3 小时内仍活跃的迟到条目数，含两类：我方管线慢（应为 0，另计入「真实故障」）与上游发布晚到（需评估是否换更快渠道）。同一条目只计一次（按测量点去重取较大值）。常态潮位约 10–40，午后 / 开盘高峰可达 200–300（多为上游晚发）；持续超过 150 看下方明细评估换更快渠道，超过 400 属异常涌高。具体来源见下方明细表。",
+      "title": "PGC 自己造成的迟到",
+      "description": "高优先来源近 3 小时内，因为 PGC 抓取、处理或发布太慢而迟到的条数。这里不混入“上游自己晚发”。正常为 0；非 0 立即看下方来源明细。",
       "gridPos": {
-        "x": 8,
+        "x": 10,
         "y": 14,
-        "w": 4,
+        "w": 5,
         "h": 5
       },
       "datasource": {
@@ -766,7 +837,7 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
+          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0)",
           "instant": true
         }
       ],
@@ -786,11 +857,11 @@
               },
               {
                 "color": "yellow",
-                "value": 150
+                "value": 1
               },
               {
                 "color": "red",
-                "value": 400
+                "value": 10
               }
             ]
           }
@@ -807,88 +878,20 @@
         },
         "orientation": "auto",
         "textMode": "auto",
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "auto"
       }
     },
     {
-      "id": 61,
-      "title": "本周待办",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 14,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 30
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "无需立即处理的观察项：上游自身安静的关键源、待加源候选、超期项。每周过一遍即可；需要立即处理的在左侧『真实故障』。"
-    },
-    {
       "id": 32,
       "type": "stat",
-      "title": "应补的一手来源",
-      "description": "审计发现应有一手源但未配置（或配置后长期无产出）的重大事件数。属于待办清单，不是故障——数字本身无好坏，有空时挑高价值的补。",
+      "title": "一手来源空缺线索",
+      "description": "审计发现“媒体已经报道，但对应一手来源未配置或没抓到”的线索数。它不是已经确认的漏文；下方会逐篇列出报道、原因和建议动作。",
       "gridPos": {
-        "x": 16,
+        "x": 15,
         "y": 14,
-        "w": 4,
+        "w": 5,
         "h": 5
       },
       "datasource": {
@@ -968,17 +971,331 @@
         "overrides": []
       },
       "options": {},
-      "description": "对外唯一可引用的抢先率（模型双判确认制，每日 10:30 更新）。当前诚实水平约 5-6%，提升靠补齐输局对应的信源。注意：此面板为全板唯一对外口径，删除即事故（设计文档有保护条款）。"
+      "description": "对外可引用的抢先率：在可比较事件里，PGC 比基准媒体更早的比例。必须和下方样本量一起读；提升主要靠修慢源和补一手来源。"
+    },
+    {
+      "id": 80,
+      "title": "哪些来源正在拖慢",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(20, sum by (source, source_tier, kind) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\",stage=\"source_to_index\"}))",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "原因"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "source_latency": {
+                        "text": "PGC 抓取或处理慢",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "source_feed_lag": {
+                        "text": "上游来源自己晚发",
+                        "color": "blue",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "优先级"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "T0": {
+                        "text": "必须第一时间",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "T1": {
+                        "text": "高优先",
+                        "color": "yellow",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "source": "来源",
+              "source_tier": "优先级",
+              "kind": "原因",
+              "Value": "近 3 小时迟到条数"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "近 3 小时迟到条数",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "description": "这里把模糊的“78 条迟到”拆到具体来源。红色是 PGC 自己能修的慢；蓝色是上游来源本身晚发，需要找更快的一手渠道。按迟到条数从高到低处理。"
+    },
+    {
+      "id": 81,
+      "title": "哪篇报道暴露了一手来源空缺",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pgc_first_source_audit_attention_item_info",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "级别"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "text": "立刻处理",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "warn": {
+                        "text": "本周处理",
+                        "color": "yellow",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "原因"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "primary_source_not_configured": {
+                        "text": "一手来源未配置",
+                        "color": "yellow",
+                        "index": 0
+                      },
+                      "textual_source_configured_but_quiet": {
+                        "text": "已配置，但没抓到",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "coverage_seen_before_benchmark_primary_missing": {
+                        "text": "有二级覆盖，一手仍缺",
+                        "color": "yellow",
+                        "index": 2
+                      },
+                      "media_cited_no_first_party": {
+                        "text": "媒体提到一手来源，但未收录",
+                        "color": "yellow",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "原文"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "打开原文",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "severity": "级别",
+              "verdict": "原因",
+              "benchmark_source": "报道来源",
+              "benchmark_category": "领域",
+              "benchmark_title": "报道标题",
+              "benchmark_url": "原文",
+              "action": "建议动作"
+            },
+            "indexByName": {}
+          }
+        }
+      ],
+      "description": "不再只给你一个“5”。每一行都是一篇具体报道：谁先报道、标题是什么、为什么暴露了一手来源空缺、下一步该补什么。点击「原文」即可复盘。"
     },
     {
       "id": 102,
       "type": "row",
-      "title": "丢了什么 · 为什么",
+      "title": "漏文 — 到底漏了什么，为什么",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 28,
         "w": 24,
         "h": 1
       }
@@ -993,7 +1310,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 29,
         "w": 14,
         "h": 8
       },
@@ -1089,7 +1406,7 @@
       },
       "gridPos": {
         "x": 14,
-        "y": 20,
+        "y": 29,
         "w": 10,
         "h": 8
       },
@@ -1133,7 +1450,132 @@
             "mode": "palette-classic"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "第一判官疑似"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixedColor",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "两家确认真漏"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "第二判官否决"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixedColor",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "判官不可用"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "还没复核完"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -1155,19 +1597,19 @@
     {
       "id": 103,
       "type": "row",
-      "title": "每个数字有多可信",
+      "title": "可信度 — 这些数字能不能信",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 37,
         "w": 24,
         "h": 1
       }
     },
     {
       "id": 77,
-      "title": "每个数字有多可信",
+      "title": "这些数字看了多少条，误差有多大",
       "type": "table",
       "datasource": {
         "type": "prometheus",
@@ -1175,7 +1617,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 38,
         "w": 24,
         "h": 9
       },
@@ -1305,19 +1747,19 @@
     {
       "id": 104,
       "type": "row",
-      "title": "趋势",
+      "title": "趋势 — 最近有没有变好",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 47,
         "w": 24,
         "h": 1
       }
     },
     {
       "id": 9,
-      "title": "抢先和延迟趋势",
+      "title": "抢先率和延迟最近有没有变好",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -1325,8 +1767,8 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 39,
-        "w": 12,
+        "y": 48,
+        "w": 24,
         "h": 8
       },
       "targets": [
@@ -1404,128 +1846,14 @@
       "description": "事件延迟（越低越好）与胜率走势，模型约每 30 分钟重算。**看「可赢胜率」**：只算我们本可以更快的对决——对手在转发或汇编别人的信息（通稿/转载），或对手发布的本身就是官方公告（那说明我们自己的官方源线慢了）。它低了才该行动（加快轮询/补一手源）。「总胜率」把记者独家原创也算进分母，那类对决世界上不存在更早的源，输了不是管线慢（2026-07-16 实测约六成输局属此类）——总胜率低但可赢胜率高 = 新闻结构，不是故障。2026-07-02 起模型确认口径，2026-07-16 起有可赢/总口径两条线，跨断点不可比。"
     },
     {
-      "id": 37,
-      "type": "timeseries",
-      "title": "问题有没有变多",
-      "description": "『真实故障』应贴地为 0；『本周待办』允许有水位，看趋势不看绝对值。",
-      "gridPos": {
-        "x": 12,
-        "y": 39,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "(sum(pgc_source_health_canaries_failed) or vector(0)) + (sum(pgc_source_health_critical_fire) or vector(0)) + (max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=\"source_latency\"})) or vector(0))",
-          "instant": false,
-          "range": true,
-          "legendFormat": "真实故障（应为 0）"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_first_source_audit_attention",
-          "instant": false,
-          "range": true,
-          "legendFormat": "应补的一手来源"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "max(sum by (stage) (pgc_signal_latency_active_source_breaches_3h{source_tier=~\"T0|T1\",kind=~\"source_latency|source_feed_lag\"})) or vector(0)",
-          "instant": false,
-          "range": true,
-          "legendFormat": "高优先延迟"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_canaries_failed",
-          "instant": false,
-          "range": true,
-          "legendFormat": "关键源探活失败"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_critical_fire",
-          "instant": false,
-          "range": true,
-          "legendFormat": "关键信源故障"
-        },
-        {
-          "refId": "F",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_source_health_sla_attention",
-          "instant": false,
-          "range": true,
-          "legendFormat": "信源更新慢"
-        },
-        {
-          "expr": "(sum(pgc_source_health_critical_watch) or vector(0)) + (sum(pgc_first_source_audit_attention) or vector(0)) + (sum(pgc_source_health_sla_attention) or vector(0))",
-          "legendFormat": "本周待办合计",
-          "refId": "W"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
       "id": 20,
       "type": "row",
-      "title": "系统是否正常",
+      "title": "运行 — 信源、积压与额度是否健康",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 56,
         "w": 24,
         "h": 1
       }
@@ -1540,8 +1868,8 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 48,
-        "w": 6,
+        "y": 57,
+        "w": 4,
         "h": 5
       },
       "targets": [
@@ -1600,16 +1928,16 @@
     },
     {
       "id": 23,
-      "title": "后台任务多久没运行",
+      "title": "信源现在是什么情况",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
       },
       "gridPos": {
-        "x": 6,
-        "y": 48,
-        "w": 6,
+        "x": 4,
+        "y": 57,
+        "w": 8,
         "h": 5
       },
       "targets": [
@@ -1619,36 +1947,196 @@
             "type": "prometheus",
             "uid": "pgc-prometheus"
           },
-          "expr": "max(pgc_worker_last_run_age_seconds)",
-          "instant": true
+          "expr": "pgc_source_health_active_sources",
+          "instant": true,
+          "legendFormat": "正在运行"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_configured_sources",
+          "instant": true,
+          "legendFormat": "已配置"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_blocked_sources",
+          "instant": true,
+          "legendFormat": "被封"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_failing_high_sources",
+          "instant": true,
+          "legendFormat": "高风险失败"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_sla_attention",
+          "instant": true,
+          "legendFormat": "超时需处理"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pgc-prometheus"
+          },
+          "expr": "pgc_source_health_critical_watch",
+          "instant": true,
+          "legendFormat": "关键源观察"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "short",
           "mappings": [],
           "color": {
-            "mode": "thresholds"
+            "mode": "fixedColor",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "被封"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "高风险失败"
+            },
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
               },
               {
-                "color": "yellow",
-                "value": 600
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "超时需处理"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
               },
               {
-                "color": "red",
-                "value": 1800
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "关键源观察"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    }
+                  ]
+                }
               }
             ]
           }
-        },
-        "overrides": []
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -1658,13 +2146,13 @@
           "fields": "",
           "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto"
       },
-      "description": "最久未运行的后台任务距上次运行的时间。超过 600 秒可能卡住。"
+      "description": "直接回答信源现状：配置、运行、被封、高风险失败、更新超时和关键源观察分别有多少。红色当天处理；黄色逐个评估是否换接口或补更快渠道。"
     },
     {
       "id": 36,
@@ -1673,7 +2161,7 @@
       "description": "按当前消耗速度，twitterapi.io 付费额度剩余可用天数。",
       "gridPos": {
         "x": 12,
-        "y": 48,
+        "y": 57,
         "w": 6,
         "h": 5
       },
@@ -1744,7 +2232,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 48,
+        "y": 57,
         "w": 6,
         "h": 5
       },
@@ -1821,7 +2309,7 @@
       "description": "NewsAPI 是二级覆盖雷达，不是一手信源。这里显示每个主题抓到的最新文章距离现在多久，以及允许的最大时间。状态为「开始落后」需要当天调整；「严重落后」会实时推送告警，避免把旧消息当新消息送出。",
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 62,
         "w": 24,
         "h": 7
       },
@@ -1935,44 +2423,8 @@
           }
         }
       ]
-    },
-    {
-      "id": 25,
-      "title": "原始日志（工程师排障）",
-      "type": "logs",
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 60,
-        "w": 24,
-        "h": 8
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "{service=\"pgc-pipeline\"}",
-          "maxLines": 200
-        }
-      ],
-      "options": {
-        "showTime": true,
-        "showLabels": false,
-        "showCommonLabels": false,
-        "wrapLogMessage": true,
-        "prettifyLogMessage": true,
-        "enableLogDetails": true,
-        "sortOrder": "Descending",
-        "dedupStrategy": "none"
-      }
     }
   ],
-  "description": "北极星＝今天确认抢先了多少条。下面三层：红了就停手的止损线、丢了什么的台账、以及每个数字有多可信。",
-  "version": 2
+  "description": "老板视角：先看今天交付了什么，再看是否伤害用户、具体哪一个来源或哪一篇文章需要处理，最后看信源与额度是否健康。",
+  "version": 3
 }

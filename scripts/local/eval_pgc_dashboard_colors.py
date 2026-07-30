@@ -43,7 +43,13 @@ def series_name(target: dict, series: dict) -> str:
     return series.get("metric", {}).get("__name__", "")
 
 
-def apply_overrides(panel: dict, name: str, steps: list[dict], mappings: list):
+def apply_overrides(
+    panel: dict,
+    name: str,
+    steps: list[dict],
+    mappings: list,
+    color: dict,
+):
     """Resolve per-series overrides the way Grafana does.
 
     Added 2026-07-28: without this the tool judged EVERY series by the panel's
@@ -61,7 +67,9 @@ def apply_overrides(panel: dict, name: str, steps: list[dict], mappings: list):
                 steps = (prop.get("value") or {}).get("steps", steps)
             elif prop.get("id") == "mappings":
                 mappings = prop.get("value") or mappings
-    return steps, mappings
+            elif prop.get("id") == "color":
+                color = prop.get("value") or color
+    return steps, mappings, color
 
 
 def mapped(value: float, mappings: list):
@@ -113,8 +121,11 @@ def main() -> int:
         default_mappings = (
             panel.get("fieldConfig", {}).get("defaults", {}).get("mappings", []) or []
         )
+        default_color = (
+            panel.get("fieldConfig", {}).get("defaults", {}).get("color", {}) or {}
+        )
         targets = [t for t in panel.get("targets", []) if t.get("expr")]
-        if not steps or not targets:
+        if not targets:
             continue
         print(f"[{panel.get('id')}] {panel.get('title')}")
         for target in targets:
@@ -139,9 +150,18 @@ def main() -> int:
                     if k not in ("__name__", "instance", "job")
                 )
                 name = series_name(target, series)
-                s_steps, s_maps = apply_overrides(panel, name, steps, default_mappings)
+                s_steps, s_maps, s_color = apply_overrides(
+                    panel, name, steps, default_mappings, default_color
+                )
                 text, mapped_color = mapped(value, s_maps)
-                color = mapped_color or color_for(value, s_steps)
+                if mapped_color:
+                    color = mapped_color
+                elif s_color.get("mode") == "fixedColor":
+                    color = s_color.get("fixedColor", "text")
+                elif s_steps:
+                    color = color_for(value, s_steps)
+                else:
+                    continue
                 if color in ("red", "orange", "yellow"):
                     attention += 1
                 icon = _ICONS.get(color, f"[{color}]")
