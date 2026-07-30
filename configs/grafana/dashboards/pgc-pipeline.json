@@ -1168,10 +1168,10 @@
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "原文"
+      {
+        "matcher": {
+          "id": "byName",
+          "options": "原文"
             },
             "properties": [
               {
@@ -1186,10 +1186,46 @@
               },
               {
                 "id": "custom.width",
-                "value": 90
-              }
-            ]
+            "value": 90
           }
+        ]
+      },
+      {
+        "matcher": {
+          "id": "byName",
+          "options": "报道标题"
+        },
+        "properties": [
+          {
+            "id": "custom.width",
+            "value": 440
+          }
+        ]
+      },
+      {
+        "matcher": {
+          "id": "byName",
+          "options": "报道来源"
+        },
+        "properties": [
+          {
+            "id": "custom.width",
+            "value": 180
+          }
+        ]
+      },
+      {
+        "matcher": {
+          "id": "byName",
+          "options": "原因"
+        },
+        "properties": [
+          {
+            "id": "custom.width",
+            "value": 230
+          }
+        ]
+      }
         ]
       },
       "options": {
@@ -2544,21 +2580,21 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
+        "excludeByName": {
+          "Time": true,
+          "Value": true,
+          "__name__": true,
+          "detail": true,
+          "instance": true,
+          "job": true
             },
             "renameByName": {
               "source": "来源",
-              "category": "领域",
-              "source_tier": "优先级",
-              "issue": "问题",
-              "detail": "证据",
-              "last_error": "最近错误",
-              "source_url": "来源地址"
+          "category": "领域",
+          "source_tier": "优先级",
+          "issue": "问题",
+          "last_error": "最近错误",
+          "source_url": "来源地址"
             },
             "indexByName": {}
           }

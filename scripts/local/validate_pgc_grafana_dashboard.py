@@ -267,6 +267,24 @@ def static_validate(dashboard: dict) -> list[str]:
             "owner-facing reason and linked evidence are sufficient"
         )
 
+    source_health_panel = panels_by_id.get(82)
+    source_health_transforms = (
+        source_health_panel.get("transformations", []) if source_health_panel else []
+    )
+    source_health_excluded_fields = {
+        name
+        for transform in source_health_transforms
+        for name, excluded in transform.get("options", {})
+        .get("excludeByName", {})
+        .items()
+        if excluded
+    }
+    if source_health_panel and "detail" not in source_health_excluded_fields:
+        errors.append(
+            "panel 82 must hide the internal detail label; "
+            "owner-facing issue, source, and last error provide the evidence"
+        )
+
     all_exprs = "\n".join(
         t.get("expr", "") for p in dashboard.get("panels", [])
         for t in p.get("targets", []) or [])
