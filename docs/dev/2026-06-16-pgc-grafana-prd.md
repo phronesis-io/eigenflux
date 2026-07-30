@@ -120,7 +120,7 @@ only generic crawler/source-health charts.
    - Twitter 额度还能使用多久
    - NewsAPI 与网页代理本月额度
    - NewsAPI 每个主题是否新鲜
-   - 当前有问题的具体来源、问题类型、证据、最近错误和来源地址
+   - 当前有问题的具体来源、中文问题类型、最近错误和来源地址
 
 ## Acceptance Criteria
 
@@ -139,6 +139,9 @@ only generic crawler/source-health charts.
   available for investigation.
 - Evidence-heavy action and source-health tables use the full dashboard width
   so titles, source names, and failure evidence remain readable.
+- Owner-facing tables hide internal English diagnostics such as `action`,
+  `auto-permanent`, and `quiet_7d`; the mapped Chinese problem, linked source,
+  and exact last error remain visible.
 - The first-source detail metric is bounded to at most 25 current attention
   records and clears old label sets on every refresh.
 - Estimated wrong-item count and faithfulness percentage are separate panels;
