@@ -1081,8 +1081,8 @@
     },
     {
       "id": 53,
-      "title": "哪些领域最容易被丢弃",
-      "type": "barchart",
+      "title": "误删复核 · 到底是真的漏了还是判官误报",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "pgc-prometheus"
@@ -1096,43 +1096,61 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          },
-          "expr": "pgc_coverage_discard_share_by_domain",
-          "legendFormat": "{{domain}}",
+          "expr": "pgc_discard_audit_dual_review{state=\"candidates\"}",
+          "legendFormat": "第一判官疑似",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "pgc_discard_audit_dual_review{state=\"confirmed\"}",
+          "legendFormat": "两家确认真漏",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "pgc_discard_audit_dual_review{state=\"vetoed\"}",
+          "legendFormat": "第二判官否决",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "pgc_discard_audit_dual_review{state=\"unavailable\"}",
+          "legendFormat": "判官不可用",
+          "instant": true
+        },
+        {
+          "refId": "E",
+          "expr": "pgc_discard_audit_dual_review{state=\"deferred\"}",
+          "legendFormat": "还没复核完",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "tooltip": {
-          "mode": "single"
-        },
-        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
-          "values": true
-        }
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true
       },
-      "description": "各基准领域被实质闸门丢弃的比例（24 小时）。用于定位丢弃集中在哪个领域（政策域通常偏高），结合「诊断 · 丢弃质量」判断其中有多少误杀。"
+      "description": "先看「两家确认真漏」，它才进入误删率和损失台账。第一判官的疑似数不能直接当事故：第二判官否决，通常说明标题像新闻，但 PGC 实际拿到的只是空正文、栏目页或表单壳。\n要行动：确认真漏 > 0 时，按左侧原因台账修抓取或筛选；「判官不可用」或「还没复核完」> 0 时，先修测量，暂时不要解读误删率。"
     },
     {
       "id": 103,
@@ -1956,5 +1974,5 @@
     }
   ],
   "description": "北极星＝今天确认抢先了多少条。下面三层：红了就停手的止损线、丢了什么的台账、以及每个数字有多可信。",
-  "version": 1
+  "version": 2
 }
