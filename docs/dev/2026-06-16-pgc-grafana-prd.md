@@ -16,6 +16,11 @@ Revision: 2026-07-24, owner-language redesign: the first screen now asks what
 needs action; value/coverage/correctness/speed are peer product outcomes; the
 NewsAPI topic panel shows cursor freshness instead of token burn so healthy
 HTTP calls cannot hide day-old coverage.
+Revision: 2026-07-31, production visual acceptance and owner-comprehension
+redesign: separate estimated wrong-item count from faithfulness percentage;
+separate PGC-owned latency from upstream publication lag; replace opaque totals
+with source-level and article-level evidence tables; expose current source
+inventory; remove raw logs and duplicate trend panels from the owner surface.
 
 ## Problem
 
@@ -48,12 +53,12 @@ only generic crawler/source-health charts.
   signal, not only as JSON/webhook detail.
 - Put active actionable latency failures in the first visible SLA panels, while
   keeping 24h and raw breach counters available as review/diagnostic evidence.
-- Separate delivery, source health, quality/cost, diagnostics, and logs.
+- Separate delivery, source health, quality, speed, and paid capacity.
 - Prefer rates, rolling windows, and ratios over raw lifetime totals when the
   question is operational.
 - Keep drilldown panels close to the summary metric they explain.
-- Use the stable Grafana datasource UID `pgc-prometheus` for PGC Prometheus
-  panels and `loki` for logs.
+- Use the stable Grafana datasource UID `pgc-prometheus` for every dashboard
+  panel.
 - Keep the dashboard provisionable from JSON and testable through Grafana's API.
 
 ## Non-Goals
@@ -64,139 +69,85 @@ only generic crawler/source-health charts.
   cockpit, while webhooks remain the push-alert surface.
 - This PRD does not create alert rules. Alerting can be layered on top once the
   dashboard panels settle.
+- Raw logs remain available to engineers in Loki, but do not occupy the owner
+  dashboard. A user should never need to read logs to understand a red number.
 
 ## Users
 
-- On-call engineer: needs to know whether PGC is stuck, degraded, or merely
-  noisy.
+- Owner / executive: needs each panel to answer a concrete product question,
+  with a named source or article behind every action count.
 - Product/operator: needs to see whether important sources and topics are being
   delivered.
+- On-call engineer: needs to know whether PGC is stuck, degraded, or merely
+  observing upstream publication lag.
 - Backend engineer: needs to isolate whether a problem is crawl, extract, LLM,
   publish, source inventory, or external API budget.
 
 ## Dashboard Structure
 
-1. 总览 / Owner Cockpit
-   - 现在需要立刻处理几件事
-   - 一手复盘还有多少待处理
-   - 高优先级信号仍在超时吗
-   - Canary 是否全绿
-   - Source SLA 是否破线
-   - TwitterAPI 还能撑多久
-   - 关键风险是在上升还是下降
-   - 现在先处理哪些信源
+1. 结果 — 今天做成了什么
+   - 今天发出了多少条信号
+   - 今天确认抢先了多少条
+   - 抢先时通常早了多久
+   - 我们比媒体更早的比例
 
-2. 一手有没有漏 / First-Source Coverage
-   - 今天有多少一手问题要处理
-   - 严重漏配/晚到有多少
-   - 审计刚刚跑过吗
-   - 今天审了多少 benchmark
-   - 一手问题是在变多还是变少
-   - 问题属于哪种类型
-   - 问题严重到什么程度
-   - 一手源库覆盖够不够
+2. 质量 — 今天有没有伤害用户
+   - 可能转述不准的条数（明确标为估计）
+   - 转述忠实率（明确显示百分号）
+   - 质检有没有停
 
-3. 信号够不够快 / Signal Latency
-   - 现在高优先级信号还在超时吗
-   - 官方源多久进入 PGC
-   - 机器源是否保持低延迟
-   - 高优先级信号多久发出去
-   - 哪类源最晚被我们看到
-   - 哪类源最晚发给下游
-   - 哪些类别需要马上处理
-   - 这些超时是事故还是回补噪音
-   - 当前哪些信源正在拖慢
+3. 行动 — 现在具体要处理什么
+   - PGC 自己能修的故障数
+   - 关键来源断了几个
+   - PGC 自己造成的迟到
+   - 一手来源空缺线索
+   - 哪些来源正在拖慢：来源名、优先级、PGC 慢或上游晚发、迟到条数
+   - 哪篇报道暴露一手来源空缺：标题、原文、原因、建议动作
 
-4. 每条信号卡在哪一跳 / Event Timeline
-   - 链路事实还在写入吗
-   - 24h 写了多少链路事件
-   - 24h 有多少内容可复盘
-   - 24h 有多少推送证据
-   - 链路证据是否稳定增长
-   - 慢/断在哪个阶段
+4. 漏文 — 到底漏了什么，为什么
+   - 过去 24 小时的损失按原因拆分
+   - 第一判官疑似、两家确认真漏、二判否决、不可用、未完成分别显示
 
-5. 信源是否可靠 / Source Reliability
-   - Canary 有没有失败
-   - 关键源是否需要处理
-   - 信源 SLA 是否破线
-   - 健康报告刚刚跑过吗
-   - 活跃源覆盖率够不够
-   - 源健康是在变好还是变差
-   - 哪些源违反 SLA
-   - 哪些 Canary 失败
-   - 哪些源被 block
-   - 哪些源快被 block
+5. 可信度 — 这些数字能不能信
+   - 指标值、样本量、误差范围、没判成数量、未覆盖人群同表展示
 
-6. 内容有没有送达 / Delivery
-   - 近 1 小时发出多少
-   - 队列是否积压
-   - 当前有多少阻塞源
-   - NewsAPI 预算是否安全
-   - TwitterAPI 还能撑多久
-   - 外部 API 检查是否异常
-   - 发布量是否稳定
-   - 队列卡在哪个状态
-   - 24h 内容状态分布
-   - 哪些来源贡献最多
-   - 哪些来源正在异常
+6. 趋势 — 最近有没有变好
+   - 抢先率和延迟放在一张趋势图中，避免重复趋势面板
 
-7. 生产链路是否健康 / Pipeline Health
-   - 哪些源连续失败
-   - Worker 是否卡住
-   - LLM 是否在报错
-   - FD 是否有压力
-   - 来源转化是否健康
-   - 哪些来源最热
-
-8. 质量和成本是否失控 / Quality & Cost
-   - LLM 调用是否稳定
-   - LLM p95 是否变慢
-   - Token 成本是否异常
-   - Signal Gate 是否过严
-   - 端到端发布是否超时
-
-9. 工程诊断 / Deep Dive
-   - Worker 心跳明细
-   - 各阶段耗时
-   - 错误压力是否升高
-   - Pipeline 日志
+7. 运行 — 信源、积压与额度是否健康
+   - 是否持续积压
+   - 配置、运行、被封、高风险失败、超时需处理、关键源观察的来源数
+   - Twitter 额度还能使用多久
+   - NewsAPI 与网页代理本月额度
+   - NewsAPI 每个主题是否新鲜
+   - 当前有问题的具体来源、问题类型、证据、最近错误和来源地址
 
 ## Acceptance Criteria
 
 - Grafana dashboard loads with no "data source not found" errors.
 - Every Prometheus panel uses `uid=pgc-prometheus`.
-- Loki log panel uses `uid=loki`.
-- The first screen is an owner cockpit, not an engineering deep dive: it must
-  include the row `总览 / Owner Cockpit`, stat panels for immediate action count,
-  first-source attention, active T0/T1 latency, canary failures, source SLA
-  failures, and TwitterAPI days-to-empty, plus one trend panel and one active
-  source drilldown table.
-- First-source audit panels query `pgc_first_source_audit_*` metrics and return
-  non-empty frames in production.
-- Low-latency panels query `pgc_signal_latency_*` metrics and return production
-  data where appropriate; first-screen SLA breach panels use
-  `pgc_signal_latency_actionable_breaches_3h`, while 24h actionable/raw breach
-  metrics remain available for review. The active SLA breach table is allowed
-  to be empty when no class/tier has current actionable breaches.
-- The latency breach-kind panel queries `pgc_signal_latency_breach_kind_24h` so
-  operators can explain why raw SLA debt is not always an active first-source
-  incident.
-- The active source latency panel queries
-  `pgc_signal_latency_active_source_breaches_3h{kind=~"source_latency|source_feed_lag"}`,
-  so an owner can see the exact source names currently dragging the
-  low-latency promise instead of stopping at class/tier aggregates. The `kind`
-  label distinguishes PGC/processing/polling latency from upstream RSS feed lag;
-  non-actionable active reasons remain visible in the adjacent breach-kind
-  panel.
-- Source reliability includes a stat panel for
-  `pgc_source_health_sla_attention{job="pgc-pipeline"}` and the source-health
-  trend panel includes the same series, so registry-defined poll-gap, quiet, and
-  blocked-source SLA failures are visible in both current-state and historical
-  views.
-- The source SLA drilldown table queries
-  `pgc_source_health_sla_attention_source{job="pgc-pipeline"}` and is allowed
-  to be empty in the healthy state; when non-empty it must expose source name,
-  category, source type/class/tier, stable reason, and critical label.
+- The owner dashboard contains no raw log panel and no opaque total whose
+  components cannot be explained nearby.
+- `PGC 自己造成的迟到` only counts `kind="source_latency"`; it must not mix
+  upstream `source_feed_lag` into a PGC fault.
+- `哪些来源正在拖慢` includes both `source_latency` and `source_feed_lag` and
+  exposes source name, priority, reason, and three-hour count.
+- `哪篇报道暴露了一手来源空缺` queries
+  `pgc_first_source_audit_attention_item_info` and exposes title, original URL,
+  benchmark source, category, reason, severity, and action.
+- The first-source detail metric is bounded to at most 25 current attention
+  records and clears old label sets on every refresh.
+- Estimated wrong-item count and faithfulness percentage are separate panels;
+  the count is explicitly labeled as estimated and the rate uses a percent unit.
+- Every sampled percentage identifies its sample-size row in the trust table.
+- Source status shows configured, active, blocked, high-failure, SLA-attention,
+  and critical-watch counts rather than worker internals.
+- `具体哪些信源有问题` queries
+  `pgc_source_health_problem_source_info`, is bounded to 50 current rows, and
+  clears stale rows whenever the source-health report changes or disappears.
+- The discard dual-review panel colors zero confirmed losses green, suspected
+  candidates yellow, vetoes blue, and any unavailable or unfinished review as
+  yellow/red.
 - Representative panel queries return non-empty frames through Grafana API.
 - Dashboard JSON is valid, provisionable, and committed to git.
 - `scripts/local/validate_pgc_grafana_dashboard.py` passes static validation and
