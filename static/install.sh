@@ -26,6 +26,9 @@ err()  { printf "${RED}%s${NC}\n" "$1" >&2; }
 # to its ad campaign). Parsed up front; unknown args are ignored so existing
 # `curl | sh` invocations are unaffected.
 INSTALL_REF=""
+# Explicit "who is running me" declaration, for hosts that invoke the installer
+# on the user's behalf. Beats every env sniff in detect_invoking_host below.
+HOST_FLAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --ref)
@@ -34,15 +37,106 @@ while [ $# -gt 0 ]; do
       [ $# -gt 0 ] && shift
       ;;
     --ref=*) INSTALL_REF="${1#*=}"; shift ;;
+    --host)
+      HOST_FLAG="${2:-}"
+      shift
+      [ $# -gt 0 ] && shift
+      ;;
+    --host=*) HOST_FLAG="${1#*=}"; shift ;;
     --help|-h)
       printf 'Usage: curl -fsSL %s/install.sh | sh -s -- [options]\n\n' "$EIGENFLUX_API_URL"
       printf '  --ref EF-xxxxxxxx   Referral code from the /install page (optional)\n'
-      printf '  --help             Show this help\n'
+      printf '  --host NAME         Host doing the install: openclaw|claude-code|codex|terminal\n'
+      printf '                      (default: auto-detected from the environment)\n'
+      printf '  --help              Show this help\n\n'
+      printf 'Environment:\n'
+      printf '  EIGENFLUX_SETUP_HOSTS       "all", or a comma-separated host list, to also set up\n'
+      printf '                              hosts other than the one running the installer\n'
+      printf '  EIGENFLUX_SKIP_AGENT_SETUP  Skip all host setup (CLI + skills still install)\n'
       exit 0
       ;;
     *) shift ;;
   esac
 done
+
+# ── Which host is running this installer? ─────────────────────
+#
+# A machine can have OpenClaw, Codex and Claude Code installed at once. Probing
+# for what EXISTS answers "who could use EigenFlux", not "who asked for it" —
+# and setting up all three because the user installed from one of them writes
+# other hosts' config files uninvited. So resolve the *invoking* host and, by
+# default, set up only that one.
+#
+# Precedence, most to least authoritative:
+#   1. --host             explicit, for hosts invoking us on the user's behalf
+#   2. EIGENFLUX_HOST     the CLI's own convention ("claude-code/0.0.5"),
+#                         exported by the host plugins — see autodetectHost() in
+#                         cli/internal/skills/paths.go. Same vocabulary here.
+#   3. host-specific env  set by the host in the shells it spawns. CLAUDECODE is
+#                         verified to survive `curl … | sh`. The CODEX_* names
+#                         come from the codex binary but are NOT verified live;
+#                         if they are unset in practice, detection falls through
+#                         to "" below, which restores the previous
+#                         set-up-everything behaviour. No regression either way.
+#   4. ""                 unknown invoker (a plain terminal, CI, a wrapper we
+#                         don't know). No basis to single out one host, so every
+#                         detected host is set up — the original behaviour.
+detect_invoking_host() {
+  if [ -n "$HOST_FLAG" ]; then
+    printf '%s' "$HOST_FLAG"
+    return 0
+  fi
+  if [ -n "${EIGENFLUX_HOST:-}" ]; then
+    # "claude-code/0.0.5" -> "claude-code"
+    printf '%s' "${EIGENFLUX_HOST%%/*}"
+    return 0
+  fi
+  if [ -n "${CLAUDECODE:-}" ]; then
+    printf 'claude-code'
+    return 0
+  fi
+  if [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; then
+    printf 'codex'
+    return 0
+  fi
+  printf ''
+}
+
+INVOKING_HOST=$(detect_invoking_host)
+
+# Hosts present on this machine but deliberately left alone, so the summary at
+# the end can name them and say how to set them up.
+SKIPPED_HOSTS=""
+
+note_skipped_host() {
+  case " $SKIPPED_HOSTS " in
+    *" $1 "*) : ;;
+    *) SKIPPED_HOSTS="$SKIPPED_HOSTS $1" ;;
+  esac
+}
+
+# Should host $1 be set up on this run?
+#
+#   EIGENFLUX_SETUP_HOSTS=all               -> yes, every host (opt back in to
+#                                              the old set-up-everything sweep)
+#   EIGENFLUX_SETUP_HOSTS=codex,claude-code -> yes, if listed
+#   invoking host unknown                   -> yes (nothing better to go on)
+#   otherwise                               -> only the invoking host
+#
+# Returns 1 (and records the host) when it should be skipped. Callers run under
+# `set -e`, so only ever use it as a condition — `ef_should_setup x || { …; }`,
+# never as a bare statement, which would abort the installer.
+ef_should_setup() {
+  case ",${EIGENFLUX_SETUP_HOSTS:-}," in
+    ,,) : ;;
+    *,all,*|*,ALL,*) return 0 ;;
+    *",$1,"*) return 0 ;;
+  esac
+  [ -z "$INVOKING_HOST" ] && return 0
+  [ "$INVOKING_HOST" = "$1" ] && return 0
+  note_skipped_host "$1"
+  return 1
+}
 
 # ── Step 1: Install CLI binary ────────────────────────────────
 
@@ -185,8 +279,17 @@ install_skills() {
   # explicitly: at install time the host statedir/env may not be ready, so
   # autodetect could misroute. (gate-4: openclaw/codex/terminal all load
   # ~/.agents/skills; only claude-code uses ~/.claude/skills.)
+  #
+  # Route by the host actually running the installer. Probing for ~/.openclaw
+  # instead would send a Claude Code user's skills to ~/.agents/skills purely
+  # because OpenClaw is also on the machine — the wrong directory for the host
+  # that asked. Only fall back to that probe when the invoker is unknown, where
+  # it remains the best available guess.
   HOST_ARG=""
-  [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw"
+  case "$INVOKING_HOST" in
+    openclaw|claude-code|codex|terminal) HOST_ARG="--host $INVOKING_HOST" ;;
+    *) [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw" ;;
+  esac
 
   if [ -n "$EF_BIN" ] && "$EF_BIN" skills sync $HOST_ARG >/dev/null 2>&1; then
     ok "EigenFlux skills synced from R2"
@@ -300,7 +403,7 @@ setup_agents() {
     export PATH
   fi
 
-  if command -v openclaw >/dev/null 2>&1; then
+  if command -v openclaw >/dev/null 2>&1 && ef_should_setup openclaw; then
     info ""
     info "OpenClaw environment detected."
 
@@ -477,7 +580,7 @@ setup_agents() {
     fi
   }
 
-  if [ -n "$CODEX_BIN" ]; then
+  if [ -n "$CODEX_BIN" ] && ef_should_setup codex; then
     info ""
     info "Codex environment detected."
 
@@ -678,7 +781,7 @@ setup_agents() {
     fi
   }
 
-  if command -v claude >/dev/null 2>&1; then
+  if command -v claude >/dev/null 2>&1 && ef_should_setup claude-code; then
     info ""
     info "Claude Code environment detected."
 
@@ -755,23 +858,27 @@ setup_agents() {
 #      network plus ~/.eigenflux-codex. Duplicate TOML table headers are
 #      invalid, so we only append a [sandbox_workspace_write] section when it
 #      is absent; if one exists we print the two lines to add instead.
-#   2. The codex-eigenflux plugin — the deterministic install channel. Agent-
-#      driven installs (the ef-profile onboarding) are best-effort and get
-#      skipped under friction; the installer is the reliable path, same as
-#      the OpenClaw plugin above.
+#
+# Sandbox permissions only. Installing the plugin belongs to the Codex branch in
+# setup_agents, which already resolves the binary, checks whether the plugin is
+# present, refreshes the marketplace snapshot when it is, and aborts on a
+# marketplace-name conflict. Calling install_codex_plugin from here as well ran
+# `marketplace add` + `plugin add` a second time on every install and printed the
+# "quit and reopen Codex" line twice.
 
 setup_codex() {
   [ -d "$HOME/.codex" ] || return 0
   # Honor the documented opt-out here too. Without this, EIGENFLUX_SKIP_AGENT_SETUP
   # returned early from setup_agents but this function still wrote
-  # ~/.codex/config.toml and installed the plugin, making the "skip agent setup
-  # entirely" every branch prints a promise the installer did not keep.
+  # ~/.codex/config.toml, making the "skip agent setup entirely" every branch
+  # prints a promise the installer did not keep.
   case "${EIGENFLUX_SKIP_AGENT_SETUP:-}" in
     ''|0|false|FALSE|no|NO) : ;;
     *) return 0 ;;
   esac
+  # Codex config belongs to Codex: don't touch it when another host is installing.
+  ef_should_setup codex || return 0
   configure_codex_sandbox
-  install_codex_plugin || true
 }
 
 configure_codex_sandbox() {
@@ -927,6 +1034,16 @@ install_skills
 migrate_config
 setup_agents
 setup_codex
+
+# Name the hosts we found but left alone, so "it didn't set up my Codex" is an
+# informed outcome rather than a silent one.
+if [ -n "$SKIPPED_HOSTS" ]; then
+  info ""
+  info "Left untouched on this machine:$SKIPPED_HOSTS"
+  info "(only ${INVOKING_HOST:-this host} was set up — nothing else was modified)."
+  info "To set them up, run the installer from inside that host, or:"
+  info "  EIGENFLUX_SETUP_HOSTS=all curl -fsSL $EIGENFLUX_API_URL/install.sh | sh"
+fi
 
 ok ""
 if [ -t 1 ]; then
