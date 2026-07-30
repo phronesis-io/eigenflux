@@ -38,6 +38,7 @@ EXPECTED_SECTIONS = [
 NATURALLY_EMPTY_PANEL_IDS = {
     80,  # 没有任何来源延迟时，明细表为空就是健康
     81,  # 没有一手来源空缺线索时，明细表为空就是健康
+    82,  # 没有当前信源问题时，明细表为空就是健康
 }
 
 ACTIONABLE_LATENCY_PANEL_IDS = {
@@ -87,6 +88,7 @@ OWNER_COCKPIT_PANELS = {
     79: ["pgc_broadcast_faithfulness_weighted_pct"],
     80: ["pgc_signal_latency_active_source_breaches_3h"],
     81: ["pgc_first_source_audit_attention_item_info"],
+    82: ["pgc_source_health_problem_source_info"],
     76: ["pgc_loss_ledger_events"],
     77: ["pgc_metric_value", "pgc_metric_sample_size", "pgc_metric_ci_halfwidth"],
     53: ["pgc_discard_audit_dual_review"],

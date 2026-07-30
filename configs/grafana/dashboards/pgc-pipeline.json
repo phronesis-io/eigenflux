@@ -299,96 +299,6 @@
       "description": "抢先送达的那些事件，我们比媒体早多少（中间值）。\n正常：一小时以上。\n要行动：掉到半小时以下，说明赢的都是险胜，抢先随时会翻成落后。"
     },
     {
-      "id": 72,
-      "title": "还有多少条没判完",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pgc-prometheus"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 1,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "pgc_event_wins_pending",
-          "instant": true,
-          "legendFormat": "待判",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "pgc-prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "无数据",
-                  "color": "red"
-                }
-              }
-            },
-            {
-              "type": "value",
-              "options": {
-                "-1": {
-                  "text": "无数据",
-                  "color": "text",
-                  "index": 0
-                }
-              }
-            }
-          ],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "red",
-                "value": 200
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "description": "抢先要两家判官都确认才算数，没判完的一律不计入左边的「确认抢先条数」。\n正常：0。\n要行动：这个数一大，就说明左边那个数是被低估的——先看判官算力，不要先怀疑产品。"
-    },
-    {
       "id": 101,
       "type": "row",
       "title": "质量 — 今天有没有伤害用户",
@@ -694,7 +604,7 @@
       "gridPos": {
         "x": 0,
         "y": 14,
-        "w": 5,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -753,9 +663,9 @@
       "title": "关键来源断了几个",
       "description": "必须保活的关键来源当前失败的数量。正常为 0；非 0 说明抓取通路已断或被对方封锁，立即排查。这个数字已计入左侧故障总数。",
       "gridPos": {
-        "x": 5,
+        "x": 6,
         "y": 14,
-        "w": 5,
+        "w": 6,
         "h": 5
       },
       "datasource": {
@@ -821,9 +731,9 @@
       "title": "PGC 自己造成的迟到",
       "description": "高优先来源近 3 小时内，因为 PGC 抓取、处理或发布太慢而迟到的条数。这里不混入“上游自己晚发”。正常为 0；非 0 立即看下方来源明细。",
       "gridPos": {
-        "x": 10,
+        "x": 12,
         "y": 14,
-        "w": 5,
+        "w": 6,
         "h": 5
       },
       "datasource": {
@@ -889,9 +799,9 @@
       "title": "一手来源空缺线索",
       "description": "审计发现“媒体已经报道，但对应一手来源未配置或没抓到”的线索数。它不是已经确认的漏文；下方会逐篇列出报道、原因和建议动作。",
       "gridPos": {
-        "x": 15,
+        "x": 18,
         "y": 14,
-        "w": 5,
+        "w": 6,
         "h": 5
       },
       "datasource": {
@@ -948,9 +858,9 @@
       "type": "stat",
       "title": "我们比媒体更早的比例",
       "gridPos": {
-        "x": 20,
-        "y": 14,
-        "w": 4,
+        "x": 18,
+        "y": 1,
+        "w": 6,
         "h": 5
       },
       "datasource": {
@@ -966,11 +876,44 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 1
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 40
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {},
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
       "description": "对外可引用的抢先率：在可比较事件里，PGC 比基准媒体更早的比例。必须和下方样本量一起读；提升主要靠修慢源和补一手来源。"
     },
     {
@@ -2310,8 +2253,8 @@
       "gridPos": {
         "x": 0,
         "y": 62,
-        "w": 24,
-        "h": 7
+        "w": 12,
+        "h": 9
       },
       "datasource": {
         "type": "prometheus",
@@ -2420,6 +2363,204 @@
               "target_hours": 2,
               "state": 3
             }
+          }
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "type": "table",
+      "title": "具体哪些信源有问题",
+      "description": "把上方「被封、高风险失败、更新超时、关键源观察」拆成具体来源。红色当天处理；黄色表示源近期安静或刚出现失败，需要判断是正常发布节奏还是该换更快渠道。点击来源地址可直接复盘。",
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pgc-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pgc_source_health_problem_source_info",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "问题"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical_fire": {
+                        "text": "关键来源故障",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "blocked": {
+                        "text": "抓取已封",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "failing_high": {
+                        "text": "连续抓取失败",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "blocked_sla": {
+                        "text": "被封且超过承诺",
+                        "color": "red",
+                        "index": 3
+                      },
+                      "poll_gap_sla": {
+                        "text": "超过轮询承诺",
+                        "color": "red",
+                        "index": 4
+                      },
+                      "quiet_sla": {
+                        "text": "超过无产出承诺",
+                        "color": "yellow",
+                        "index": 5
+                      },
+                      "critical_watch": {
+                        "text": "关键来源近期安静",
+                        "color": "yellow",
+                        "index": 6
+                      },
+                      "failing_low": {
+                        "text": "刚出现抓取失败",
+                        "color": "yellow",
+                        "index": 7
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "优先级"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "T0": {
+                        "text": "必须第一时间",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "T1": {
+                        "text": "高优先",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "T2": {
+                        "text": "覆盖来源",
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "T3": {
+                        "text": "长尾来源",
+                        "color": "text",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "来源地址"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "打开来源",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "source": "来源",
+              "category": "领域",
+              "source_tier": "优先级",
+              "issue": "问题",
+              "detail": "证据",
+              "last_error": "最近错误",
+              "source_url": "来源地址"
+            },
+            "indexByName": {}
           }
         }
       ]

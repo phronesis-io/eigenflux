@@ -89,7 +89,7 @@ only generic crawler/source-health charts.
    - 今天发出了多少条信号
    - 今天确认抢先了多少条
    - 抢先时通常早了多久
-   - 还有多少条没判完
+   - 我们比媒体更早的比例
 
 2. 质量 — 今天有没有伤害用户
    - 可能转述不准的条数（明确标为估计）
@@ -101,7 +101,6 @@ only generic crawler/source-health charts.
    - 关键来源断了几个
    - PGC 自己造成的迟到
    - 一手来源空缺线索
-   - 我们比媒体更早的比例
    - 哪些来源正在拖慢：来源名、优先级、PGC 慢或上游晚发、迟到条数
    - 哪篇报道暴露一手来源空缺：标题、原文、原因、建议动作
 
@@ -121,6 +120,7 @@ only generic crawler/source-health charts.
    - Twitter 额度还能使用多久
    - NewsAPI 与网页代理本月额度
    - NewsAPI 每个主题是否新鲜
+   - 当前有问题的具体来源、问题类型、证据、最近错误和来源地址
 
 ## Acceptance Criteria
 
@@ -142,6 +142,9 @@ only generic crawler/source-health charts.
 - Every sampled percentage identifies its sample-size row in the trust table.
 - Source status shows configured, active, blocked, high-failure, SLA-attention,
   and critical-watch counts rather than worker internals.
+- `具体哪些信源有问题` queries
+  `pgc_source_health_problem_source_info`, is bounded to 50 current rows, and
+  clears stale rows whenever the source-health report changes or disappears.
 - The discard dual-review panel colors zero confirmed losses green, suspected
   candidates yellow, vetoes blue, and any unavailable or unfinished review as
   yellow/red.
