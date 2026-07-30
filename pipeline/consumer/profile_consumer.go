@@ -8,6 +8,7 @@ import (
 
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
@@ -124,6 +125,10 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 		}
 	}
 	logger.Default().Info("ProfileConsumer agent keywords updated", "agentID", agentID, "keywords", keywords, "country", country)
+
+	// keywords project into the Card as interests_positive; refresh it now
+	// that extraction finished (the bio-triggered rebuild ran before this).
+	agentcard.PublishRebuild(ctx, agentID, "keywords_extracted")
 
 	// Generate profile embedding from bio + keywords + country (fire-and-forget)
 	go func() {

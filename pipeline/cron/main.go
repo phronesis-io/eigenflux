@@ -113,6 +113,7 @@ func main() {
 
 	// Start cron jobs
 	go StartAgentCountUpdater(ctx, cfg, mq.RDB)
+	go StartAgentCardUpdater(ctx, cfg, mq.RDB)
 	go StartStatsCalibrator(ctx, cfg, mq.RDB)
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)

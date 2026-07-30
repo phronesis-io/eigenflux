@@ -32,6 +32,7 @@ import (
 	traderpc "eigenflux_server/kitex_gen/eigenflux/trade"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/activity"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/followuplog"
@@ -345,6 +346,8 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 		// Surface bio updates in the console activity log (low-frequency).
 		activity.PublishProfileUpdate(ctx, agentID)
 	}
+	// name/bio project into the Agent Card; rebuild it asynchronously.
+	agentcard.PublishRebuild(ctx, agentID, "profile_update")
 
 	msg := "success"
 	if resp.ProfileJustCompleted != nil && *resp.ProfileJustCompleted {

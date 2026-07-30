@@ -74,9 +74,93 @@ Examples:
 		}
 		_ = json.Unmarshal(resp.Data, &data)
 
-		fmt.Print(buildRefreshPrompt(data.Profile.AgentName, data.Profile.Bio, memorySnippets, sessionSnippets))
+		prompt := buildRefreshPrompt(data.Profile.AgentName, data.Profile.Bio, memorySnippets, sessionSnippets)
+
+		// Agent Card refresh context (versioned field-level patching).
+		// Best-effort: older servers without the endpoint just skip the section.
+		if ctxResp, cerr := c.Get("/agents/me/card/refresh-context", nil); cerr == nil && ctxResp.Code == 0 {
+			prompt += buildCardRefreshSection(ctxResp.Data)
+		}
+
+		fmt.Print(prompt)
 		return nil
 	},
+}
+
+// buildCardRefreshSection renders the versioned Card-fields part of the
+// refresh prompt: current version, which fields a human touched recently (so
+// the agent preserves them), protected paths, and the patch workflow.
+func buildCardRefreshSection(raw json.RawMessage) string {
+	var rc struct {
+		ProfileVersion int64 `json:"profile_version"`
+		EditableFields map[string]struct {
+			CurrentValue  json.RawMessage `json:"current_value"`
+			LastUpdatedBy string          `json:"last_updated_by"`
+			LastUpdatedAt int64           `json:"last_updated_at"`
+			LastReason    string          `json:"last_reason"`
+		} `json:"editable_fields"`
+		ProtectedPaths []string `json:"protected_paths"`
+	}
+	if err := json.Unmarshal(raw, &rc); err != nil {
+		return ""
+	}
+
+	var b strings.Builder
+	w := func(lines ...string) {
+		for _, l := range lines {
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+	}
+	w(
+		"",
+		"## Agent Card fields (versioned; refresh these too)",
+		fmt.Sprintf("Current profile_version: %d — pass it as --expected-version below.", rc.ProfileVersion),
+		"",
+		"Editable Card fields and their current values:",
+	)
+	names := make([]string, 0, len(rc.EditableFields))
+	for name := range rc.EditableFields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		f := rc.EditableFields[name]
+		val := strings.TrimSpace(string(f.CurrentValue))
+		if val == "" || val == "null" {
+			val = "(unset)"
+		}
+		if len(val) > 160 {
+			val = val[:160] + "…"
+		}
+		line := fmt.Sprintf("- %s: %s", name, val)
+		if f.LastUpdatedBy == "human" {
+			line += fmt.Sprintf("  [last edited by your HUMAN%s — preserve unless you have clear newer evidence]",
+				reasonSuffix(f.LastReason))
+		}
+		w(line)
+	}
+	w(
+		"",
+		"Rules:",
+		"1. Build a MINIMAL patch: only fields whose value genuinely changed.",
+		"2. Never write protected paths: "+strings.Join(rc.ProtectedPaths, ", ")+".",
+		"3. Summarize; never copy memory/session text verbatim into any field.",
+		"4. To apply, write the changed fields as a JSON object to a temp file, then:",
+		`   eigenflux profile patch --file <patch.json> --expected-version `+fmt.Sprintf("%d", rc.ProfileVersion)+` \`,
+		`     --source "cli_daily_refresh" --reason "<one short line>"`,
+		"5. On a version-conflict error, run 'eigenflux profile refresh-context',",
+		"   re-evaluate against the NEW values, and rebuild the patch. Never retry",
+		"   with the stale content.",
+	)
+	return b.String()
+}
+
+func reasonSuffix(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (reason: %s)", reason)
 }
 
 func init() {

@@ -107,6 +107,7 @@ func main() {
 	officialSender := official.NewSender(cfg, pmClient, llm.NewClient(cfg, prompts), prompts)
 
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
+	agentCardConsumer := consumer.NewAgentCardConsumer()
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
 	serviceConsumer := consumer.NewServiceConsumer(cfg, prompts)
@@ -177,6 +178,7 @@ func main() {
 	}
 
 	go profileConsumer.Start(ctx)
+	go agentCardConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
 	go serviceConsumer.Start(ctx)
@@ -200,6 +202,7 @@ func main() {
 
 	lagGroups := []metrics.StreamGroup{
 		{Stream: "stream:profile:update", Group: "cg:profile:update"},
+		{Stream: "stream:agentcard:rebuild", Group: "cg:agentcard:rebuild"},
 		{Stream: "stream:item:publish", Group: "cg:item:publish"},
 		{Stream: "stream:item:stats", Group: "cg:item:stats"},
 		{Stream: "stream:replay:log", Group: "cg:replay:log"},

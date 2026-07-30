@@ -11,6 +11,8 @@ import (
 
 	"eigenflux_server/api/clients"
 	auth "eigenflux_server/kitex_gen/eigenflux/auth"
+	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
 )
 
@@ -80,6 +82,9 @@ func AuthMiddleware() app.HandlerFunc {
 		}
 
 		c.Set("agent_id", resp.AgentId)
+		// Card's last_active_at: throttled to one Redis write per agent per
+		// 5 minutes, off the request path.
+		go agentcard.TouchLastActive(context.Background(), mq.RDB, resp.AgentId)
 		ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyAgentID, strconv.FormatInt(resp.AgentId, 10))
 		if resp.Email != nil {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyEmail, *resp.Email)

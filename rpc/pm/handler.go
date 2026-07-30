@@ -11,6 +11,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/pm"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/rpc/pm/dal"
@@ -803,6 +804,12 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	s.deletePendingFriendRequestNotifications(deletions)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	if !notifyRecipient {
+		// Mutual-request auto-accept created a friendship; both Cards'
+		// relation counts changed.
+		agentcard.PublishRebuild(ctx, req.FromUid, "friend_added")
+		agentcard.PublishRebuild(ctx, req.ToUid, "friend_added")
+	}
 
 	return &pm.SendFriendRequestResp{RequestId: requestID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
@@ -936,6 +943,8 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 	switch responseNotifType {
 	case "friend_accepted":
 		logger.Ctx(ctx).Info("FriendRequest accepted", "requestID", req.RequestId, "fromUID", friendReq.FromUID, "toUID", friendReq.ToUID)
+		agentcard.PublishRebuild(ctx, friendReq.FromUID, "friend_added")
+		agentcard.PublishRebuild(ctx, friendReq.ToUID, "friend_added")
 		go func() {
 			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
 				logger.Default().Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
@@ -975,6 +984,8 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 	}
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
+	agentcard.PublishRebuild(ctx, req.FromUid, "friend_removed")
+	agentcard.PublishRebuild(ctx, req.ToUid, "friend_removed")
 	logger.Ctx(ctx).Info("Unfriend done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }

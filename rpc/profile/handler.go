@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/profile"
@@ -103,27 +107,31 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 		profileJustCompleted = true
 	}
 
-	if err := dal.UpdateAgentFields(db.DB, req.AgentId, updates); err != nil {
-		return &profile.UpdateProfileResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
-		}, nil
-	}
+	// The write, its audit records and the optimistic-lock version bump commit
+	// atomically, so field-level writers (PUT /agents/me/profile/fields) racing
+	// this legacy path get a clean 409 instead of a silent overwrite.
+	prov := reqinfo.BioProvenanceFromContext(ctx)
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.UpdateAgentFields(tx, req.AgentId, updates); err != nil {
+			return err
+		}
+		if err := dal.EnsureAgentProfileRow(tx, req.AgentId); err != nil {
+			return err
+		}
+		newVersion, err := dal.BumpProfileVersion(tx, req.AgentId)
+		if err != nil {
+			return err
+		}
 
-	// Reset profile status if bio changed (trigger reprocessing)
-	if bioChanged {
-		dal.UpdateAgentProfileStatus(db.DB, req.AgentId, 0)
-	}
-
-	// Record bio history only on a real change (not a no-op re-submit). This is
-	// both the daily bio history and the authoritative layer-2 telemetry that an
-	// automated refresh actually took effect. prov.Source / prov.Note are the
-	// agent's self-reported provenance (memory/session/broadcast), empty for a
-	// manual update.
-	if bioChanged && finalBio != agent.Bio {
-		prov := reqinfo.BioProvenanceFromContext(ctx)
-		if herr := dal.InsertBioHistory(db.DB, req.AgentId, agent.Bio, finalBio, prov.Source, prov.Note); herr != nil {
-			logger.Ctx(ctx).Warn("bio history insert failed", "agentID", req.AgentId, "err", herr)
-		} else {
+		// Record bio history only on a real change (not a no-op re-submit). This is
+		// both the daily bio history and the authoritative layer-2 telemetry that an
+		// automated refresh actually took effect. prov.Source / prov.Note are the
+		// agent's self-reported provenance (memory/session/broadcast), empty for a
+		// manual update.
+		if bioChanged && finalBio != agent.Bio {
+			if herr := dal.InsertBioHistory(tx, req.AgentId, agent.Bio, finalBio, prov.Source, prov.Note); herr != nil {
+				return herr
+			}
 			logger.Ctx(ctx).Info("bio_history_recorded",
 				"agentID", req.AgentId,
 				"source", prov.Source,
@@ -132,6 +140,52 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 				"new_len", len(finalBio),
 			)
 		}
+
+		// Generic change event mirroring what the field-level endpoint writes,
+		// so refresh-context sees legacy-path edits too. bio maps to the Card
+		// field name agent_description.
+		paths := make([]string, 0, 2)
+		prevVals := map[string]string{}
+		newVals := map[string]string{}
+		if _, ok := updates["agent_name"]; ok && finalAgentName != agent.AgentName {
+			paths = append(paths, "agent_name")
+			prevVals["agent_name"] = agent.AgentName
+			newVals["agent_name"] = finalAgentName
+		}
+		if bioChanged && finalBio != agent.Bio {
+			paths = append(paths, "agent_description")
+			prevVals["agent_description"] = agent.Bio
+			newVals["agent_description"] = finalBio
+		}
+		if len(paths) > 0 {
+			pathsJSON, _ := json.Marshal(paths)
+			prevJSON, _ := json.Marshal(prevVals)
+			newJSON, _ := json.Marshal(newVals)
+			if err := dal.InsertProfileChangeEvent(tx, &dal.ProfileChangeEvent{
+				AgentID:        req.AgentId,
+				SourceVersion:  newVersion,
+				ActorType:      "agent",
+				ActorID:        strconv.FormatInt(req.AgentId, 10),
+				Source:         prov.Source,
+				Reason:         prov.Note,
+				ChangedPaths:   string(pathsJSON),
+				PreviousValues: string(prevJSON),
+				NewValues:      string(newJSON),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return &profile.UpdateProfileResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
+		}, nil
+	}
+
+	// Reset profile status if bio changed (trigger reprocessing)
+	if bioChanged {
+		dal.UpdateAgentProfileStatus(db.DB, req.AgentId, 0)
 	}
 
 	return &profile.UpdateProfileResp{

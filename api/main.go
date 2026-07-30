@@ -22,6 +22,7 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 	swaggerFiles "github.com/swaggo/files"
 
+	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
 	_ "eigenflux_server/api/docs"
@@ -192,6 +193,9 @@ func main() {
 	// Messages: total/per-origin unread + mark-conversation-read.
 	h.GET("/api/v1/pm/unread", middleware.AuthMiddleware(), apihandler.GetUnreadBreakdown)
 	h.POST("/api/v1/pm/read", middleware.AuthMiddleware(), apihandler.MarkConvRead)
+
+	// Agent Card: read projections + field-level versioned profile writes.
+	agentcardapi.Register(h)
 
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
 	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
