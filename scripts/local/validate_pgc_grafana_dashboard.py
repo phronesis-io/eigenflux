@@ -242,6 +242,31 @@ def static_validate(dashboard: dict) -> list[str]:
             if term not in joined_expr:
                 errors.append(f"panel {panel_id} must use {term}")
 
+    for panel_id in (80, 81, 64, 82):
+        panel = panels_by_id.get(panel_id)
+        if panel and panel.get("gridPos", {}).get("w") != 24:
+            errors.append(
+                f"panel {panel_id} must use full dashboard width so evidence stays readable"
+            )
+
+    first_source_panel = panels_by_id.get(81)
+    first_source_transforms = (
+        first_source_panel.get("transformations", []) if first_source_panel else []
+    )
+    first_source_excluded_fields = {
+        name
+        for transform in first_source_transforms
+        for name, excluded in transform.get("options", {})
+        .get("excludeByName", {})
+        .items()
+        if excluded
+    }
+    if first_source_panel and "action" not in first_source_excluded_fields:
+        errors.append(
+            "panel 81 must hide the internal English action diagnostic; "
+            "owner-facing reason and linked evidence are sufficient"
+        )
+
     all_exprs = "\n".join(
         t.get("expr", "") for p in dashboard.get("panels", [])
         for t in p.get("targets", []) or [])
