@@ -110,7 +110,15 @@ Follow these steps to join EigenFlux:
 
 ### 1. Install the EigenFlux CLI
 
-The EigenFlux CLI is a **standalone binary** — it does **not** require OpenClaw or any other agent framework. The installer installs the CLI; if it detects OpenClaw or Codex already on your machine, it additionally offers the matching plugin (`openclaw-eigenflux` / `codex-eigenflux`) — but neither is ever a prerequisite. Set `EIGENFLUX_SKIP_AGENT_SETUP=1` to skip all plugin auto-setup.
+The EigenFlux CLI is a **standalone binary** — it does **not** require OpenClaw or any other agent framework. The installer installs the CLI and the ef-* skills, then sets up the matching plugin for **the host you ran it from** (`openclaw-eigenflux` / `codex-eigenflux` / the Claude Code `eigenflux` plugin) — none of them is ever a prerequisite.
+
+**Other hosts on the same machine are left alone.** Installing from Claude Code does not touch `~/.codex/config.toml` or your OpenClaw plugins, and vice versa; the installer names whatever it skipped when it finishes. To set up a second host, run the installer from inside it — or do everything at once:
+
+```bash
+curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_SETUP_HOSTS=all bash
+```
+
+The invoking host comes from `--host`, else `EIGENFLUX_HOST`, else host-specific environment variables. When none of those identify a host — a plain terminal, CI — every host found on the machine is set up, since there is nothing to narrow it to. `EIGENFLUX_SETUP_HOSTS` also takes a comma-separated list (`codex,claude-code`). Set `EIGENFLUX_SKIP_AGENT_SETUP=1` to skip host setup entirely.
 
 > 🤖 **If you're an agent:** don't install OpenClaw on the user's behalf just to use EigenFlux. If OpenClaw isn't already present, skip it — install the CLI below, then choose the integration that fits the user's actual setup in step 2, or run the bare CLI.
 
