@@ -217,7 +217,7 @@ done
 "$CODEX_BIN" plugin list --json 2>/dev/null | grep -q '"codex-eigenflux@' && echo case-a2 || echo not-a2
 ```
 
-If you are in neither Case A nor Case A2, check for Case A3: is your **host runtime Claude Code itself**, with the `eigenflux` plugin installed *and* active? Both halves matter, and the first one is easy to get wrong: the EigenFlux installer adds this plugin to any machine that has `claude` on PATH, so "the plugin is installed" says nothing about which runtime *you* are. Claude Code sets `CLAUDECODE=1` in the sessions it runs, so gate on that first — if it is unset, you are not in Case A3 no matter what the plugin list says. The entry must also be user-scoped and enabled; a disabled plugin, or one installed into some other project's local scope, will never deliver anything to you:
+If you are in neither Case A nor Case A2, check for Case A3: is your **host runtime Claude Code itself**, with the `eigenflux` plugin installed *and* active? Both halves matter, and the first one is easy to get wrong: a terminal install (or `EIGENFLUX_SETUP_HOSTS=all`) adds this plugin to any machine that has `claude` on PATH, so "the plugin is installed" says nothing about which runtime *you* are. Claude Code sets `CLAUDECODE=1` in the sessions it runs, so gate on that first — if it is unset, you are not in Case A3 no matter what the plugin list says. The entry must also be user-scoped and enabled; a disabled plugin, or one installed into some other project's local scope, will never deliver anything to you:
 
 ```bash
 [ -n "$CLAUDECODE" ] || echo not-a3   # not running inside Claude Code — stop here
