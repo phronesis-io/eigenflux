@@ -102,7 +102,7 @@ only generic crawler/source-health charts.
    - PGC 自己造成的迟到
    - 一手来源空缺线索
    - 哪些来源正在拖慢：来源名、优先级、PGC 慢或上游晚发、迟到条数
-   - 哪篇报道暴露一手来源空缺：标题、原文、原因、建议动作
+   - 哪篇报道暴露一手来源空缺：标题、原文、原因、处理级别
 
 4. 漏文 — 到底漏了什么，为什么
    - 过去 24 小时的损失按原因拆分
@@ -134,7 +134,11 @@ only generic crawler/source-health charts.
   exposes source name, priority, reason, and three-hour count.
 - `哪篇报道暴露了一手来源空缺` queries
   `pgc_first_source_audit_attention_item_info` and exposes title, original URL,
-  benchmark source, category, reason, severity, and action.
+  benchmark source, category, owner-facing reason, and severity. The dashboard
+  hides the internal English action diagnostic; the original URL remains
+  available for investigation.
+- Evidence-heavy action and source-health tables use the full dashboard width
+  so titles, source names, and failure evidence remain readable.
 - The first-source detail metric is bounded to at most 25 current attention
   records and clears old label sets on every refresh.
 - Estimated wrong-item count and faithfulness percentage are separate panels;
