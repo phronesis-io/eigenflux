@@ -77,6 +77,7 @@ OWNER_COCKPIT_PANELS = {
     73: ["pgc_broadcast_unfaithful_24h"],
     76: ["pgc_loss_ledger_events"],
     77: ["pgc_metric_value", "pgc_metric_sample_size", "pgc_metric_ci_halfwidth"],
+    53: ["pgc_discard_audit_dual_review"],
 }
 
 # 诚实契约闸(2026-07-28): 抽样得出的比率，必须能在板上看到它的样本量，否则
@@ -88,7 +89,7 @@ SAMPLED_RATE_PANELS = {
 }
 # 不是抽样得出的比率(账单、进度、全量占比这类精确值)，不需要样本量。
 # 53 各域丢弃占比 = 24h 全量 discarded/all_bench，不是抽样估计。
-EXACT_RATIO_PANELS = {78, 53}
+EXACT_RATIO_PANELS = {78}
 
 # 全板必须存在的对外口径指标——不锚定到特定面板 id, 但必须有家。
 # 榜单胜率 2026-07-03 和 2026-07-06 两次被改板弄丢, 每次都靠人肉体检才发现。
