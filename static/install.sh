@@ -494,7 +494,11 @@ setup_agents() {
         info "Non-interactive shell; installing the codex-eigenflux plugin automatically"
         info "(writes ~/.codex/config.toml and registers an MCP server for future Codex sessions;"
         info " set EIGENFLUX_SKIP_AGENT_SETUP=1 to skip agent setup entirely)"
-        install_codex_plugin
+        # `|| true`: the function reports its own outcome and returns 1 on
+        # failure. Under `set -e` a bare call aborts the whole installer and
+        # silently skips every step below — the failure mode the OpenClaw branch
+        # above is explicitly written to avoid.
+        install_codex_plugin || true
       else
         printf "Codex detected. Install the codex-eigenflux plugin (registers an MCP server in ~/.codex/config.toml)? [Y/n] "
         read -r REPLY < /dev/tty || REPLY=""
@@ -503,10 +507,240 @@ setup_agents() {
             info "Skipped Codex plugin installation"
             ;;
           *)
-            install_codex_plugin
+            install_codex_plugin || true
             ;;
         esac
       fi
+    fi
+  fi
+
+  # Claude Code: install the eigenflux plugin (a stdio MCP server using the
+  # `claude/channel` capability to push feed and DM updates into sessions).
+  # `claude plugin ...` is the non-interactive equivalent of the in-session
+  # `/plugin` command, so the installer can do this without a Claude session.
+  # The "eigenflux@eigenflux-marketplace" id mirrors the eigenflux-claude-plugin
+  # repo (.claude-plugin/marketplace.json) and the ef-profile skill's Case A3 —
+  # keep them in sync.
+  #
+  # The plugin runs src/channel.ts directly and bundles no runtime, so bun is a
+  # hard prerequisite. bun installs to ~/.bun/bin, which a `curl | sh` shell
+  # does not have on PATH, so probe that location too rather than trusting
+  # `command -v` alone.
+  ef_have_bun() {
+    command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]
+  }
+
+  # `plugin list --json` lists EVERY installed plugin, including ones the user
+  # disabled and ones installed into another project's local scope. Matching the
+  # id alone would report "installed" for a plugin that can never load in this
+  # user's sessions — and then skip the user-scope install that would have fixed
+  # it. So classify the entry instead of just detecting it. The JSON is collapsed
+  # and split on `{` so each entry lands on one line, keeping this to tr/grep
+  # with no jq dependency.
+  #
+  # Prints exactly one of: enabled | disabled | otherscope | unknown | none
+  claude_plugin_state() {
+    cpl_json=$(claude plugin list --json 2>/dev/null) || cpl_json=""
+    if [ -z "$cpl_json" ]; then
+      # Old CLI without --json. The table prints id, scope and status on separate
+      # lines, so it cannot answer scope/enabled — say so rather than guess.
+      if claude plugin list 2>/dev/null | grep -q 'eigenflux@eigenflux-marketplace'; then
+        echo unknown
+      else
+        echo none
+      fi
+      return 0
+    fi
+    cpl_entry=$(printf '%s' "$cpl_json" | tr -d ' \n' | tr '{' '\n' \
+      | grep -F '"id":"eigenflux@eigenflux-marketplace"' | head -1) || cpl_entry=""
+    if [ -z "$cpl_entry" ]; then echo none; return 0; fi
+    case "$cpl_entry" in
+      *'"scope":"user"'*) : ;;
+      *) echo otherscope; return 0 ;;
+    esac
+    case "$cpl_entry" in
+      *'"enabled":true'*) echo enabled ;;
+      *) echo disabled ;;
+    esac
+  }
+
+  # Installing the plugin is NOT enough to get pushes. Claude Code gates channel
+  # events on the session opting in via the command line, and `--dangerously-
+  # load-development-channels` is hidden from `--help` and documented upstream as
+  # "for local channel development only" with a confirmation dialog at startup —
+  # so state the cost plainly and let the user decide. It only admits the servers
+  # listed on the command line, not every plugin channel in the session.
+  claude_channel_hint() {
+    info ""
+    info "One more step, and it is deliberately yours to make. Claude Code only"
+    info "delivers channel events to sessions that opt in on the command line:"
+    info "  claude --dangerously-load-development-channels plugin:eigenflux@eigenflux-marketplace"
+    info "It admits only the server you list. Upstream marks this flag as being"
+    info "for local channel development only and shows a confirmation dialog at"
+    info "every startup, so weigh that before aliasing it — the dialog is the one"
+    info "guardrail Claude Code has for third-party channels."
+    info "The managed alternative (needs an admin) is allowedChannelPlugins in"
+    info "managed settings, which also requires channelsEnabled: true."
+    info "Without either, the plugin loads but stays silent. The ef-* skills and"
+    info "the eigenflux CLI work regardless."
+  }
+
+  # `marketplace add` is NOT a safe probe: on a name collision Claude Code logs
+  # "exists with different source — overwriting", deletes the old install
+  # location and proceeds, exiting 0. So a conflict can neither be detected from
+  # the exit code nor undone afterwards — it has to be refused BEFORE the add,
+  # while the registration is still there to inspect. Marketplace names are
+  # claimed by whoever registers last, which is also why the update path below is
+  # gated: it resolves by name, so a name taken over after install would other-
+  # wise be pulled and executed on the next installer run.
+  # Returns 0 only when the name is registered from a source that is NOT ours.
+  # An unreadable list (old CLI without --json) reports "no conflict" and lets the
+  # install proceed: that matches the behaviour before this check existed, and
+  # failing closed would make the plugin uninstallable on those CLIs.
+  claude_marketplace_conflicts() {
+    cmc_json=$(claude plugin marketplace list --json 2>/dev/null) || return 1
+    cmc_entry=$(printf '%s' "$cmc_json" | tr -d ' \n' | tr '{' '\n' \
+      | grep -F '"name":"eigenflux-marketplace"' | head -1) || cmc_entry=""
+    [ -n "$cmc_entry" ] || return 1
+    case "$cmc_entry" in
+      *phronesis-io/eigenflux-claude-plugin*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+
+  # Claude Code stores plugin and marketplace registrations in the user's global
+  # settings.json. Back it up before handing the file to another tool: this
+  # installer does not own that file and it commonly holds unrelated config.
+  claude_backup_settings() {
+    cbs_file="$HOME/.claude/settings.json"
+    [ -f "$cbs_file" ] || return 0
+    if cp "$cbs_file" "$cbs_file.ef-bak" 2>/dev/null; then
+      info "Backed up ~/.claude/settings.json to settings.json.ef-bak"
+    fi
+  }
+
+  claude_rollback_hint() {
+    info "To undo completely (uninstall alone leaves the marketplace registered):"
+    info "  claude plugin uninstall eigenflux@eigenflux-marketplace"
+    info "  claude plugin marketplace remove eigenflux-marketplace"
+  }
+
+  install_claude_plugin() {
+    if claude_marketplace_conflicts; then
+      info "Refusing to install: a marketplace named 'eigenflux-marketplace' is"
+      info "already registered from a different source. Adding ours would silently"
+      info "overwrite it, so nothing was changed. Inspect it, and if it is safe to"
+      info "replace, remove it and re-run the installer:"
+      info "  claude plugin marketplace list"
+      info "  claude plugin marketplace remove eigenflux-marketplace"
+      return 1
+    fi
+
+    claude_backup_settings
+
+    # Both steps are required: `marketplace add` only registers the repo,
+    # `plugin install` installs from it by marketplace name. Both clone from
+    # GitHub, and git has no default timeout — on a blocked or throttled network
+    # this would otherwise hang indefinitely with the output captured and no sign
+    # of life, so announce the fetch and let git give up on a stalled transfer.
+    info "Fetching the plugin from GitHub (may take a moment)..."
+    GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30
+    export GIT_HTTP_LOW_SPEED_LIMIT GIT_HTTP_LOW_SPEED_TIME
+
+    mkt_status=0
+    mkt_out=$(claude plugin marketplace add phronesis-io/eigenflux-claude-plugin 2>&1) || mkt_status=$?
+    if [ "$mkt_status" != "0" ]; then
+      info "marketplace add failed: $(printf '%s' "$mkt_out" | tail -2)"
+      info "If you are behind a proxy or a blocked network, configure it and re-run."
+      return 1
+    fi
+
+    # Capture both streams: the CLI reports plugin errors on stdout, so keeping
+    # stderr only would leave the failure branch below with nothing to print.
+    add_status=0
+    add_out=$(claude plugin install eigenflux@eigenflux-marketplace --scope user 2>&1) || add_status=$?
+    # Verify the actual end state, not just the exit code.
+    add_state=$(claude_plugin_state)
+    if [ "$add_status" = "0" ] && [ "$add_state" = "enabled" ]; then
+      ok "Claude Code plugin installed (user scope), active in your next session"
+      claude_channel_hint
+      claude_rollback_hint
+    elif [ "$add_status" = "0" ]; then
+      info "Claude Code plugin install reported success but the plugin is not"
+      info "active (state: ${add_state}); verify with:"
+      info "  claude plugin list"
+    else
+      info "Claude Code plugin install failed:"
+      [ -n "$add_out" ] && printf '%s\n' "$add_out" | tail -3
+      info "Run manually:"
+      info "  claude plugin marketplace add phronesis-io/eigenflux-claude-plugin"
+      info "  claude plugin install eigenflux@eigenflux-marketplace --scope user"
+    fi
+  }
+
+  if command -v claude >/dev/null 2>&1; then
+    info ""
+    info "Claude Code environment detected."
+
+    CLAUDE_STATE=$(claude_plugin_state)
+
+    if ! ef_have_bun; then
+      info "Skipping the Claude Code plugin: it runs on bun, which isn't installed."
+      info "Install bun and re-run this installer to add it:"
+      info "  curl -fsSL https://bun.sh/install | bash"
+    elif [ "$CLAUDE_STATE" = "disabled" ]; then
+      # The user turned it off deliberately. Say so and leave it alone — silently
+      # updating (and thereby re-arming) a plugin someone disabled is not ours to
+      # decide.
+      info "Claude Code plugin is installed but disabled; leaving it as you set it."
+      info "Re-enable it anytime: claude plugin enable eigenflux@eigenflux-marketplace"
+    elif [ "$CLAUDE_STATE" = "otherscope" ]; then
+      info "The eigenflux plugin is installed in a project/local scope, so it only"
+      info "loads inside that project. Install it for every session with:"
+      info "  claude plugin install eigenflux@eigenflux-marketplace --scope user"
+    elif [ "$CLAUDE_STATE" = "enabled" ] || [ "$CLAUDE_STATE" = "unknown" ]; then
+      # Updates resolve the plugin BY MARKETPLACE NAME and pull whatever that
+      # name currently points at, with no version to pin (the CLI has no --ref).
+      # An unattended installer run is the wrong place to silently execute newer
+      # third-party code, so updating is opt-in.
+      case "${EIGENFLUX_UPDATE_PLUGIN:-}" in
+        ''|0|false|FALSE|no|NO)
+          info "Claude Code plugin already installed (set EIGENFLUX_UPDATE_PLUGIN=1 to update it)"
+          ;;
+        *)
+          if claude_marketplace_conflicts; then
+            info "Not updating: 'eigenflux-marketplace' now points at a different"
+            info "source than ours. Inspect it before going further:"
+            info "  claude plugin marketplace list"
+          elif claude plugin update eigenflux@eigenflux-marketplace >/dev/null 2>&1; then
+            info "Claude Code plugin updated"
+          else
+            info "Claude Code plugin update failed; run it manually to see why:"
+            info "  claude plugin update eigenflux@eigenflux-marketplace"
+          fi
+          ;;
+      esac
+      claude_channel_hint
+    elif ! ef_interactive; then
+      info "Non-interactive shell; installing the eigenflux Claude Code plugin automatically"
+      info "(registers a marketplace and a channel MCP server in ~/.claude;"
+      info " set EIGENFLUX_SKIP_AGENT_SETUP=1 to skip agent setup entirely)"
+      # `|| true`: install_claude_plugin reports its own outcome and returns 1 on
+      # failure. Under `set -e` a bare call would abort the whole installer and
+      # silently skip every step below, including Codex setup — the exact failure
+      # the OpenClaw branch above guards against.
+      install_claude_plugin || true
+    else
+      printf "Claude Code detected. Install the eigenflux plugin (pushes feed and DMs into your sessions)? [Y/n] "
+      read -r REPLY < /dev/tty || REPLY=""
+      case "$REPLY" in
+        [nN]|[nN][oO])
+          info "Skipped Claude Code plugin installation"
+          ;;
+        *)
+          install_claude_plugin || true
+          ;;
+      esac
     fi
   fi
 }
@@ -528,8 +762,16 @@ setup_agents() {
 
 setup_codex() {
   [ -d "$HOME/.codex" ] || return 0
+  # Honor the documented opt-out here too. Without this, EIGENFLUX_SKIP_AGENT_SETUP
+  # returned early from setup_agents but this function still wrote
+  # ~/.codex/config.toml and installed the plugin, making the "skip agent setup
+  # entirely" every branch prints a promise the installer did not keep.
+  case "${EIGENFLUX_SKIP_AGENT_SETUP:-}" in
+    ''|0|false|FALSE|no|NO) : ;;
+    *) return 0 ;;
+  esac
   configure_codex_sandbox
-  install_codex_plugin
+  install_codex_plugin || true
 }
 
 configure_codex_sandbox() {
