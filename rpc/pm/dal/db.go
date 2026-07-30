@@ -113,7 +113,7 @@ func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 		Update("is_read", true).Error
 }
 
-// ListConversations retrieves ice-broken conversations (msg_count >= 2) for an agent.
+// ListConversations retrieves all listed conversations (msg_count >= 1) for an agent.
 // Uses UNION ALL on the two indexed columns to avoid OR-based sequential scan.
 func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
 	return ListConversationsFiltered(db, agentID, cursor, limit, "")
@@ -133,25 +133,24 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 	originFilter := ""
 	args := make([]interface{}, 0, 8)
 
-	// Listing threshold by origin type:
-	//   friend            → surface as soon as there is any message (>= 1); already
-	//                        friends, so no ice-breaking is required.
-	//   broadcast / other → require an ice-broken exchange (>= 2).
-	//   "" (all)          → apply each rule per origin_type.
-	countCond := "msg_count >= 2"
+	// Every origin type now lists from the first message (msg_count >= 1): the
+	// old >= 2 ice-break threshold hid conversations the user started themselves
+	// (their opening DM stayed invisible everywhere until the peer replied).
+	// "unbroken" above remains the dedicated inbound-awaiting-reply view; rows
+	// with msg_count = 1 can appear in both it and the broadcast list, and the
+	// dashboard dedupes by conv_id when it merges them.
+	countCond := "msg_count >= 1"
 	switch originType {
 	case "friend":
-		countCond = "msg_count >= 1"
 		originFilter = " AND origin_type = ?"
 	case "broadcast_all":
-		// Complete superset of broadcast-originated conversations regardless of
-		// the ice-break threshold (msg_count >= 1). The Relations "contacted
-		// non-friends" tab pages through this and keeps category = non_friend.
+		// Complete superset of broadcast-originated conversations (msg_count >= 1).
+		// The Relations "contacted non-friends" tab pages through this and keeps
+		// category = non_friend.
 		// NOTE: not a real origin_type value — do NOT add a literal origin filter,
 		// or it would match zero rows.
 		countCond = "origin_type <> 'friend' AND msg_count >= 1"
 	case "":
-		countCond = "((origin_type = 'friend' AND msg_count >= 1) OR (origin_type <> 'friend' AND msg_count >= 2))"
 	default:
 		originFilter = " AND origin_type = ?"
 	}
@@ -185,10 +184,11 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 
 // listUnbrokenInbound returns non-friend conversations where the other party
 // sent the first (and only) message and the user hasn't replied yet — inbound
-// DMs still waiting to be ice-broken. The >= 2 broadcast threshold hides these
-// from the Direct and Broadcast tabs, so the "non-friend" tab surfaces them and
+// DMs still waiting to be ice-broken. The "non-friend" tab surfaces these and
 // lets the user break the ice. last_sender_id <> agentID keeps it to messages
 // the user received, not first messages the user sent that went unanswered.
+// Since the >= 2 listing threshold was dropped these rows also appear in the
+// broadcast list; the dashboard dedupes by conv_id when merging the two.
 func listUnbrokenInbound(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
 	var convs []*Conversation
 	cond := "status = 0 AND origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
@@ -279,7 +279,6 @@ func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcastComment, nonFrien
 		   END AS bucket, COUNT(*) AS n
 		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
 		 WHERE pm.receiver_id = ? AND pm.is_read = false
-		   AND (c.origin_type = 'friend' OR c.msg_count >= 2)
 		 GROUP BY bucket`, agentID, agentID, agentID,
 	).Scan(&rows).Error
 	for _, r := range rows {
