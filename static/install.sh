@@ -104,6 +104,22 @@ detect_invoking_host() {
 
 INVOKING_HOST=$(detect_invoking_host)
 
+# Only these three have a host plugin to set up. Everything else identifies no
+# plugin host: "terminal" is what the CLI itself defaults EIGENFLUX_HOST to, and
+# a skill runtime may export a custom value entirely ("jarvis"). Normalize all of
+# them to "" so they mean "nothing to narrow to" and every detected host is set
+# up. Passing an unrecognized name straight through would match no host, quietly
+# setting up NOTHING — a silent no-op is the worst possible failure here.
+case "$INVOKING_HOST" in
+  openclaw|claude-code|codex) : ;;
+  ''|terminal) INVOKING_HOST="" ;;
+  *)
+    info "Unrecognized host \"$INVOKING_HOST\" (want openclaw|claude-code|codex);"
+    info "setting up every host found on this machine instead."
+    INVOKING_HOST=""
+    ;;
+esac
+
 # Hosts present on this machine but deliberately left alone, so the summary at
 # the end can name them and say how to set them up.
 SKIPPED_HOSTS=""
@@ -115,25 +131,30 @@ note_skipped_host() {
   esac
 }
 
-# Should host $1 be set up on this run?
+# Should host $1 be set up on this run? The set is the invoking host plus
+# whatever EIGENFLUX_SETUP_HOSTS adds — the variable is additive, so it can never
+# accidentally deselect the host the user is installing from:
 #
-#   EIGENFLUX_SETUP_HOSTS=all               -> yes, every host (opt back in to
-#                                              the old set-up-everything sweep)
+#   $1 is the invoking host                 -> yes, always
+#   EIGENFLUX_SETUP_HOSTS=all               -> yes, every host (the old sweep)
 #   EIGENFLUX_SETUP_HOSTS=codex,claude-code -> yes, if listed
-#   invoking host unknown                   -> yes (nothing better to go on)
-#   otherwise                               -> only the invoking host
+#   no list and no invoking host            -> yes (nothing to narrow to)
+#   otherwise                               -> no
+#
+# The "no list" arm is deliberately inside the case: with an explicit list and an
+# unidentified invoker, the list is the whole answer. Testing `-z $INVOKING_HOST`
+# before consulting the list would set up every host and ignore what was asked.
 #
 # Returns 1 (and records the host) when it should be skipped. Callers run under
 # `set -e`, so only ever use it as a condition — `ef_should_setup x || { …; }`,
 # never as a bare statement, which would abort the installer.
 ef_should_setup() {
+  [ -n "$INVOKING_HOST" ] && [ "$INVOKING_HOST" = "$1" ] && return 0
   case ",${EIGENFLUX_SETUP_HOSTS:-}," in
-    ,,) : ;;
     *,all,*|*,ALL,*) return 0 ;;
     *",$1,"*) return 0 ;;
+    ,,) [ -z "$INVOKING_HOST" ] && return 0 ;;
   esac
-  [ -z "$INVOKING_HOST" ] && return 0
-  [ "$INVOKING_HOST" = "$1" ] && return 0
   note_skipped_host "$1"
   return 1
 }
@@ -285,9 +306,10 @@ install_skills() {
   # because OpenClaw is also on the machine — the wrong directory for the host
   # that asked. Only fall back to that probe when the invoker is unknown, where
   # it remains the best available guess.
+  # INVOKING_HOST is already normalized to openclaw|claude-code|codex|"" above.
   HOST_ARG=""
   case "$INVOKING_HOST" in
-    openclaw|claude-code|codex|terminal) HOST_ARG="--host $INVOKING_HOST" ;;
+    openclaw|claude-code|codex) HOST_ARG="--host $INVOKING_HOST" ;;
     *) [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw" ;;
   esac
 
@@ -1040,8 +1062,8 @@ setup_codex
 if [ -n "$SKIPPED_HOSTS" ]; then
   info ""
   info "Left untouched on this machine:$SKIPPED_HOSTS"
-  info "(only ${INVOKING_HOST:-this host} was set up — nothing else was modified)."
-  info "To set them up, run the installer from inside that host, or:"
+  info "Their config files and plugins were not modified."
+  info "To set one up, run the installer from inside that host, or:"
   info "  EIGENFLUX_SETUP_HOSTS=all curl -fsSL $EIGENFLUX_API_URL/install.sh | sh"
 fi
 
