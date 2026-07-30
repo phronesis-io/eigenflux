@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"eigenflux_server/pipeline/official"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
@@ -192,6 +193,10 @@ func (c *OfficialWelcomeConsumer) ensureFriendship(ctx context.Context, official
 		// accept path does) or the welcome PM is rejected as "not friends".
 		_ = relations.InvalidateFriendCache(ctx, mq.RDB, officialID)
 		_ = relations.InvalidateFriendCache(ctx, mq.RDB, userID)
+		// Friend adds project into both Cards' relation counts — same contract
+		// as the pm handler's accept paths.
+		agentcard.PublishRebuild(ctx, officialID, "friend_added")
+		agentcard.PublishRebuild(ctx, userID, "friend_added")
 	}
 	return nil
 }

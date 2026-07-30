@@ -1044,6 +1044,10 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
 	s.deletePendingFriendRequestNotifications(deletions)
+	// Blocking removes any friend relation in the transaction above, so both
+	// Cards' relation counts changed.
+	agentcard.PublishRebuild(ctx, req.FromUid, "friend_removed")
+	agentcard.PublishRebuild(ctx, req.ToUid, "friend_removed")
 	logger.Ctx(ctx).Info("BlockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }

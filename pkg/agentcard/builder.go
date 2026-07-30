@@ -27,19 +27,27 @@ type TopItem struct {
 
 // Rebuild recomputes both card projections for one agent from the fact tables
 // and upserts agent_cards. Idempotent; safe to call from the stream consumer,
-// the cron reconciler, and read-on-miss paths concurrently (the upsert's
-// source_version guard resolves races).
+// the cron reconciler, and read-on-miss paths concurrently.
+//
+// Consistency model: profile_version MUST be read before every other fact.
+// Both profile write paths bump it in the same transaction as their writes,
+// so any commit that lands after this first read produces a strictly higher
+// version — and a rebuild event whose projection wins the upsert's
+// source_version guard. Reading the version later would let stale facts ride
+// in under the newest version number. For inputs that don't bump the version
+// (relations, keywords, influence), equal-version rebuilds are last-write-wins
+// by design; the hourly cron reconciler bounds any stale window.
 func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
+	profileVersion, profileData, err := profiledal.GetProfileVersionAndData(gdb, agentID)
+	if err != nil {
+		return err
+	}
+
 	agent, err := profiledal.GetAgentByID(gdb, agentID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrAgentNotFound
 		}
-		return err
-	}
-
-	profileVersion, profileData, err := profiledal.GetProfileVersionAndData(gdb, agentID)
-	if err != nil {
 		return err
 	}
 	var keywords []string

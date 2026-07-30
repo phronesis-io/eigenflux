@@ -27,12 +27,28 @@ type ProfileChangeEvent struct {
 
 func (ProfileChangeEvent) TableName() string { return "agent_profile_change_events" }
 
+// clampRunes bounds client-influenced strings to their column width. The
+// insert runs inside the caller's profile-write transaction, so an oversized
+// value (e.g. an unbounded X-Bio-Source / X-Request-ID header) must degrade
+// to truncation here, never to a varchar overflow that rolls the write back.
+func clampRunes(s string, max int) string {
+	rs := []rune(s)
+	if len(rs) <= max {
+		return s
+	}
+	return string(rs[:max])
+}
+
 // InsertProfileChangeEvent appends one change event. Meant to run inside the
 // same transaction as the profile write it describes.
 func InsertProfileChangeEvent(db *gorm.DB, ev *ProfileChangeEvent) error {
 	if ev.CreatedAt == 0 {
 		ev.CreatedAt = time.Now().UnixMilli()
 	}
+	ev.ActorType = clampRunes(ev.ActorType, 20)
+	ev.ActorID = clampRunes(ev.ActorID, 100)
+	ev.Source = clampRunes(ev.Source, 100)
+	ev.RequestID = clampRunes(ev.RequestID, 100)
 	if ev.ChangedPaths == "" {
 		ev.ChangedPaths = "[]"
 	}

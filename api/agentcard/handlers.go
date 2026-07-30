@@ -122,11 +122,18 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if viewerID != targetID {
-		if blocked, _ := pmdal.IsBlocked(db.DB, viewerID, targetID); blocked {
-			respond(c, http.StatusNotFound, 404, "agent not found", nil)
+		// Fail closed: if the block lookup errors we cannot prove the pair is
+		// unblocked, and serving the card anyway would leak through the shield.
+		blocked, err := pmdal.IsBlocked(db.DB, viewerID, targetID)
+		if err == nil && !blocked {
+			blocked, err = pmdal.IsBlocked(db.DB, targetID, viewerID)
+		}
+		if err != nil {
+			logger.Ctx(ctx).Error("GetPublicCard block check failed", "viewerID", viewerID, "targetID", targetID, "err", err)
+			respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
 			return
 		}
-		if blocked, _ := pmdal.IsBlocked(db.DB, targetID, viewerID); blocked {
+		if blocked {
 			respond(c, http.StatusNotFound, 404, "agent not found", nil)
 			return
 		}
@@ -170,11 +177,13 @@ func relationToViewer(viewerID, targetID int64) map[string]interface{} {
 }
 
 // allowPublicCardRead is a fixed-window Redis counter; fail-open on Redis
-// errors (rate limiting must not take the endpoint down).
+// errors (rate limiting must not take the endpoint down), but loudly — a
+// silent fail-open would hide that the limiter is off.
 func allowPublicCardRead(ctx context.Context, viewerID int64) bool {
 	key := fmt.Sprintf("agentcard:rl:%d:%d", viewerID, time.Now().Unix()/int64(publicCardRateWindow.Seconds()))
 	n, err := mq.RDB.Incr(ctx, key).Result()
 	if err != nil {
+		logger.Ctx(ctx).Warn("card rate limiter unavailable, failing open", "viewerID", viewerID, "err", err)
 		return true
 	}
 	if n == 1 {
@@ -393,16 +402,10 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 			}
 		}
 
-		v, conflicted, err := profiledal.ApplyVersionedProfileDataUpdate(tx, agentID, *req.ExpectedVersion, pdMerge)
-		if err != nil {
-			return err
-		}
-		if conflicted {
-			conflict = true
-			return errVersionConflict
-		}
-		newVersion = v
-
+		// Row-lock order MUST match the legacy UpdateProfile transaction
+		// (agents first, then agent_profiles) — the two paths run concurrently
+		// and opposite orders would AB-BA deadlock. A version conflict below
+		// rolls this agents write back with the rest of the transaction.
 		if len(agentsUpdates) > 0 {
 			if err := profiledal.UpdateAgentFields(tx, agentID, agentsUpdates); err != nil {
 				return err
@@ -415,6 +418,16 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 				}
 			}
 		}
+
+		v, conflicted, err := profiledal.ApplyVersionedProfileDataUpdate(tx, agentID, *req.ExpectedVersion, pdMerge)
+		if err != nil {
+			return err
+		}
+		if conflicted {
+			conflict = true
+			return errVersionConflict
+		}
+		newVersion = v
 
 		prevJSON, _ := json.Marshal(prevValues)
 		newJSON, _ := json.Marshal(newValues)
@@ -429,7 +442,7 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 			ChangedPaths:   string(pathsJSON),
 			PreviousValues: string(prevJSON),
 			NewValues:      string(newJSON),
-			RequestID:      string(c.GetHeader("X-Request-ID")),
+			RequestID:      truncate(string(c.GetHeader("X-Request-ID")), 100),
 		})
 	})
 	if err != nil {

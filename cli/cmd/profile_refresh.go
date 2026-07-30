@@ -130,8 +130,8 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 		if val == "" || val == "null" {
 			val = "(unset)"
 		}
-		if len(val) > 160 {
-			val = val[:160] + "…"
+		if rs := []rune(val); len(rs) > 160 { // rune-safe: byte slicing would split CJK
+			val = string(rs[:160]) + "…"
 		}
 		line := fmt.Sprintf("- %s: %s", name, val)
 		if f.LastUpdatedBy == "human" {

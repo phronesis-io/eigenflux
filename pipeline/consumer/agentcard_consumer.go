@@ -22,12 +22,16 @@ type AgentCardConsumer struct {
 func NewAgentCardConsumer() *AgentCardConsumer {
 	c := &AgentCardConsumer{}
 	c.runner = &StreamConsumer{
-		Name:                    "AgentCardConsumer",
-		Stream:                  agentcard.StreamRebuild,
-		Group:                   agentcard.GroupRebuild,
-		ConsumerName:            "agentcard-worker-1",
-		MetricsLabel:            "agentcard:rebuild",
-		Workers:                 4,
+		Name:         "AgentCardConsumer",
+		Stream:       agentcard.StreamRebuild,
+		Group:        agentcard.GroupRebuild,
+		ConsumerName: "agentcard-worker-1",
+		MetricsLabel: "agentcard:rebuild",
+		// Workers MUST stay 1: rebuilds for the same agent are not serialized
+		// anywhere else, and equal-version upserts are last-write-wins — two
+		// workers processing back-to-back events for one agent could commit a
+		// staler snapshot second. Event volume is low; serial is plenty.
+		Workers:                 1,
 		FatalOnGroupCreateError: true,
 		Handle:                  c.handle,
 	}
