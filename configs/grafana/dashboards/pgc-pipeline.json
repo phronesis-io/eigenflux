@@ -2499,6 +2499,10 @@
                     }
                   }
                 ]
+              },
+              {
+                "id": "custom.width",
+                "value": 170
               }
             ]
           },
@@ -2537,6 +2541,34 @@
                     }
                   }
                 ]
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "领域"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "来源"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
               }
             ]
           },
@@ -2558,7 +2590,22 @@
               },
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 110
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": ".+",
+                      "result": {
+                        "text": "打开来源",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -2586,7 +2633,8 @@
           "__name__": true,
           "detail": true,
           "instance": true,
-          "job": true
+          "job": true,
+          "last_error": true
             },
             "renameByName": {
               "source": "来源",
@@ -2596,7 +2644,13 @@
           "last_error": "最近错误",
           "source_url": "来源地址"
             },
-            "indexByName": {}
+            "indexByName": {
+              "category": 0,
+              "issue": 1,
+              "source": 2,
+              "source_tier": 3,
+              "source_url": 4
+            }
           }
         }
       ]

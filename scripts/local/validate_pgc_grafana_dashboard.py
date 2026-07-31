@@ -299,10 +299,15 @@ def static_validate(dashboard: dict) -> list[str]:
         .items()
         if excluded
     }
-    if source_health_panel and "detail" not in source_health_excluded_fields:
+    visible_internal_source_fields = {
+        "detail",
+        "last_error",
+    } - source_health_excluded_fields
+    if source_health_panel and visible_internal_source_fields:
         errors.append(
-            "panel 82 must hide the internal detail label; "
-            "owner-facing issue, source, and last error provide the evidence"
+            "panel 82 must hide raw internal diagnostics that make the owner "
+            "table unreadable: "
+            + ", ".join(sorted(visible_internal_source_fields))
         )
 
     all_exprs = "\n".join(
