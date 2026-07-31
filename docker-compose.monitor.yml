@@ -33,6 +33,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # Internal-only GDELT egress for PGC. GDELT rate-limits the app server's
+  # datacenter IP, while the monitoring host has a healthy route. The relay
+  # exposes one upstream path and accepts traffic only from the PGC host.
+  gdelt-relay:
+    image: nginx:1.27-alpine
+    profiles: ["pgc-relay"]
+    restart: unless-stopped
+    ports:
+      - "${GDELT_RELAY_BIND:-127.0.0.1}:${GDELT_RELAY_PORT:-3124}:8080"
+    volumes:
+      - ./configs/nginx/gdelt-relay.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz | grep -q '^ok$'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
   prometheus:
     image: prom/prometheus:v3.4.0
     ports:
