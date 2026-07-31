@@ -80,6 +80,10 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		// Pulling the context IS the evaluation the refresh prompt asks for.
+		// Stamping here is what lets "nothing changed, so no patch" settle the
+		// task instead of re-firing forever.
+		stampProfileChecked()
 		return nil
 	},
 }

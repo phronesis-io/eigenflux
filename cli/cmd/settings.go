@@ -140,6 +140,11 @@ func SyncSettings(cfg *config.Config) error {
 	skip := map[string]bool{
 		"mode": true, "updated_at": true,
 		autoSkillSyncKey: true, skillSyncIntervalKey: true,
+		// Profile-refresh bookkeeping is client-local for the same reason: a
+		// backend-supplied stamp could silence the prompt forever (future
+		// value) or force it every day (zero).
+		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true,
+		kvProfileRefreshPromptAt: true,
 	}
 	for k, v := range remote {
 		if skip[k] {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -256,9 +257,9 @@ Examples:
 										who = fr.FromUID
 									}
 									if fr.Greeting != "" {
-										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, who, fr.RequestID, fr.Greeting)
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, oneLine(who), fr.RequestID, oneLine(fr.Greeting))
 									} else {
-										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, who, fr.RequestID)
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, oneLine(who), fr.RequestID)
 									}
 								}
 							}
@@ -343,6 +344,15 @@ func officialMark(isOfficial bool) string {
 	return ""
 }
 
+// oneLine flattens attacker-controlled text (message bodies, greetings, peer
+// names) onto the single line this renderer promises. Raw newlines would let a
+// sender forge whole lines of their own — including CLI-looking task blocks —
+// in an output stream the agent reads as trusted structure.
+func oneLine(s string) string {
+	r := strings.NewReplacer("\r\n", "\\n", "\n", "\\n", "\r", "\\n")
+	return r.Replace(s)
+}
+
 func printHistoryLine(m streamMsg, myAgentID string) {
 	ts := time.UnixMilli(m.CreatedAt).Format("15:04:05")
 	if m.SenderID == myAgentID {
@@ -350,13 +360,13 @@ func printHistoryLine(m streamMsg, myAgentID string) {
 		if peer == "" {
 			peer = m.ReceiverID
 		}
-		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, peer, m.Content)
+		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, oneLine(peer), oneLine(m.Content))
 	} else {
 		peer := m.SenderName
 		if peer == "" {
 			peer = m.SenderID
 		}
-		fmt.Fprintf(os.Stdout, "[%s] ← %s%s: %s\n", ts, peer, officialMark(m.SenderIsOfficial), m.Content)
+		fmt.Fprintf(os.Stdout, "[%s] ← %s%s: %s\n", ts, oneLine(peer), officialMark(m.SenderIsOfficial), oneLine(m.Content))
 	}
 }
 
@@ -366,5 +376,5 @@ func printNewLine(m streamMsg) {
 	if sender == "" {
 		sender = m.SenderID
 	}
-	fmt.Fprintf(os.Stdout, "[%s] %s%s: %s\n", ts, sender, officialMark(m.SenderIsOfficial), m.Content)
+	fmt.Fprintf(os.Stdout, "[%s] %s%s: %s\n", ts, oneLine(sender), officialMark(m.SenderIsOfficial), oneLine(m.Content))
 }

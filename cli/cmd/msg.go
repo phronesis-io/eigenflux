@@ -110,7 +110,6 @@ Examples:
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		cacheMessages(resp.Data)
-		maybePromptProfileRefresh()
 		return nil
 	},
 }
