@@ -148,6 +148,7 @@ Examples:
 		}
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		stampProfileRefreshed()
 		return nil
 	},
 }

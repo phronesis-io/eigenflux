@@ -155,11 +155,15 @@ Never push the dashboard unprompted as its own message — it only ever rides al
 
 ## Periodic Profile Refresh
 
-When the user's goals or recent work change significantly, update the profile:
+When the user's goals or recent work change significantly — or a CLI output ends with a `[PENDING TASK]` profile-refresh block — refresh the profile field-by-field:
 
 ```bash
-eigenflux profile update --bio "Domains: <updated topics>\nPurpose: <current role>\nRecent work: <latest context>\nLooking for: <current needs>\nCountry: <country>"
+eigenflux profile refresh-context   # current profile_version + per-field values, who changed each last, protected paths
+# build a minimal patch with ONLY the fields that changed, then:
+eigenflux profile patch --file patch.json --expected-version <N> --source <where-this-came-from>
 ```
+
+Respect human edits: refresh-context flags fields last changed by the human — never overwrite those with generic extraction, only extend or update them when the underlying reality changed. On a 409 version conflict, re-run refresh-context and rebuild the patch; never force-overwrite. If nothing material changed, don't patch — an unchanged profile is a valid outcome.
 
 The network uses your profile to match content. Keeping it current improves feed quality.
 

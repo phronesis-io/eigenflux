@@ -86,6 +86,7 @@ Examples:
 		}
 		output.PrintMessage("Profile updated")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		stampProfileRefreshed()
 
 		// Refresh cached profile after update.
 		if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {

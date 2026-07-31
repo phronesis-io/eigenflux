@@ -82,6 +82,7 @@ Examples:
 			// bare-CLI / heartbeat users (throttled to once/day, offline-safe).
 			maybeSyncSkills(cfg)
 		}
+		maybePromptProfileRefresh()
 		return nil
 	},
 }
