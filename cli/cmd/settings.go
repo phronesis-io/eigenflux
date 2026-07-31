@@ -144,7 +144,6 @@ func SyncSettings(cfg *config.Config) error {
 		// backend-supplied stamp could silence the prompt forever (future
 		// value) or force it every day (zero).
 		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true,
-		kvProfileRefreshPromptAt: true,
 	}
 	for k, v := range remote {
 		if skip[k] {

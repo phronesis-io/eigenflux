@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -12,34 +14,26 @@ func TestShouldPromptProfileRefresh(t *testing.T) {
 	now := time.Now().Unix()
 	h := int64(3600)
 	stale := int64(profileRefreshStaleAfter / time.Second)
-	cool := int64(refreshPromptCooldown / time.Second)
 
 	cases := []struct {
-		name         string
-		lastTouch    int64
-		lastPrompted int64
-		want         bool
+		name      string
+		lastTouch int64
+		want      bool
 	}{
 		// No usable stamp never prompts — the caller seeds instead, so a CLI
 		// upgrade doesn't nag every agent at once.
-		{"no stamp", 0, 0, false},
-		{"no stamp, prompted long ago", 0, now - 100*h, false},
+		{"no stamp", 0, false},
+		{"negative stamp", -1, false},
 
-		{"touched 1h ago", now - h, 0, false},
-		{"touched just inside the window", now - (stale - 1), 0, false},
-		{"touched exactly at the window", now - stale, 0, true},
-		{"touched past the window", now - (stale + h), 0, true},
-
-		{"stale but prompted 1h ago", now - (stale + h), now - h, false},
-		{"stale, prompted just inside cooldown", now - (stale + h), now - (cool - 1), false},
-		{"stale, prompted exactly at cooldown", now - (stale + h), now - cool, true},
-		{"stale, prompted long ago", now - (stale + h), now - 100*h, true},
+		{"touched 1h ago", now - h, false},
+		{"touched just inside the window", now - (stale - 1), false},
+		{"touched exactly at the window", now - stale, true},
+		{"touched past the window", now - (stale + h), true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := shouldPromptProfileRefresh(c.lastTouch, c.lastPrompted, now); got != c.want {
-				t.Errorf("shouldPromptProfileRefresh(%d, %d) = %v, want %v",
-					c.lastTouch, c.lastPrompted, got, c.want)
+			if got := shouldPromptProfileRefresh(c.lastTouch, now); got != c.want {
+				t.Errorf("shouldPromptProfileRefresh(%d) = %v, want %v", c.lastTouch, got, c.want)
 			}
 		})
 	}
@@ -109,7 +103,7 @@ func TestStampsRoundTripAndSuppressPrompt(t *testing.T) {
 			if got <= 0 {
 				t.Fatalf("%s not persisted under the server scope the reader uses", tc.key)
 			}
-			if shouldPromptProfileRefresh(got, 0, now) {
+			if shouldPromptProfileRefresh(got, now) {
 				t.Errorf("a fresh %s must suppress the prompt", tc.key)
 			}
 		})
@@ -133,15 +127,13 @@ func TestMaybePromptSeedsOnFirstRun(t *testing.T) {
 	if seeded := serverKVUnix(cfg, srv.Name, kvProfileRefreshCheckedAt, now); seeded <= 0 {
 		t.Fatal("first run must seed the checked stamp")
 	}
-	if prompted := serverKVUnix(cfg, srv.Name, kvProfileRefreshPromptAt, now); prompted != 0 {
-		t.Errorf("first run must not prompt, got prompt stamp %d", prompted)
-	}
 }
 
-// Once overdue the prompt fires and records the cooldown; the next call inside
-// that cooldown must stay quiet.
-func TestMaybePromptWritesCooldownThenStaysQuiet(t *testing.T) {
-	tempHome(t)
+// Emitting must not consume any state. Callers that discard stderr (every
+// plugin adapter does) would otherwise spend the prompt on a block nobody can
+// read, starving the shell-side agent that shares the same config.
+func TestMaybePromptSpendsNoStateOnEmit(t *testing.T) {
+	home := tempHome(t)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -154,26 +146,49 @@ func TestMaybePromptWritesCooldownThenStaysQuiet(t *testing.T) {
 	if err := cfg.SetServerKV(srv.Name, kvProfileRefreshAt, strconv.FormatInt(overdue, 10)); err != nil {
 		t.Fatalf("seed overdue stamp: %v", err)
 	}
+	before, err := os.ReadFile(filepath.Join(home, "config.json"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
 
-	maybePromptProfileRefresh()
+	for i := 0; i < 3; i++ {
+		maybePromptProfileRefresh()
+	}
 
+	after, err := os.ReadFile(filepath.Join(home, "config.json"))
+	if err != nil {
+		t.Fatalf("re-read config: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("emitting the prompt mutated config:\nbefore: %s\nafter:  %s", before, after)
+	}
+
+	// And it must still consider itself overdue, i.e. keep prompting until an
+	// actual refresh or evaluation lands.
 	reloaded, err := config.Load()
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
 	now := time.Now().Unix()
-	first := serverKVUnix(reloaded, srv.Name, kvProfileRefreshPromptAt, now)
-	if first <= 0 {
-		t.Fatal("overdue profile must prompt and record the cooldown")
+	touch := maxInt64(
+		serverKVUnix(reloaded, srv.Name, kvProfileRefreshAt, now),
+		serverKVUnix(reloaded, srv.Name, kvProfileRefreshCheckedAt, now),
+	)
+	if !shouldPromptProfileRefresh(touch, now) {
+		t.Error("prompt went quiet without any refresh or evaluation landing")
 	}
 
-	maybePromptProfileRefresh()
-
-	again, err := config.Load()
+	// Evaluating settles it.
+	stampProfileChecked()
+	settled, err := config.Load()
 	if err != nil {
-		t.Fatalf("reload config: %v", err)
+		t.Fatalf("reload after check: %v", err)
 	}
-	if second := serverKVUnix(again, srv.Name, kvProfileRefreshPromptAt, now); second != first {
-		t.Errorf("second call inside cooldown rewrote the stamp: %d -> %d", first, second)
+	touch = maxInt64(
+		serverKVUnix(settled, srv.Name, kvProfileRefreshAt, now),
+		serverKVUnix(settled, srv.Name, kvProfileRefreshCheckedAt, now),
+	)
+	if shouldPromptProfileRefresh(touch, now) {
+		t.Error("evaluating the profile must settle the prompt")
 	}
 }
