@@ -299,22 +299,39 @@ def static_validate(dashboard: dict) -> list[str]:
         .items()
         if excluded
     }
-    visible_internal_source_fields = {
-        "detail",
-        "last_error",
-    } - source_health_excluded_fields
+    visible_internal_source_fields = {"last_error"} - source_health_excluded_fields
     if source_health_panel and visible_internal_source_fields:
         errors.append(
             "panel 82 must hide raw internal diagnostics that make the owner "
             "table unreadable: "
             + ", ".join(sorted(visible_internal_source_fields))
         )
+    source_health_renames = {
+        old: new
+        for transform in source_health_transforms
+        for old, new in transform.get("options", {}).get("renameByName", {}).items()
+    }
+    if source_health_panel and source_health_renames.get("detail") != "近7天结果":
+        errors.append(
+            "panel 82 may show detail only after renaming it to the owner-readable "
+            "近7天结果 column"
+        )
     source_health_exprs = [
         target.get("expr", "")
         for target in source_health_panel.get("targets", []) or []
     ] if source_health_panel else []
     if source_health_panel and not any(
-        "absent(pgc_source_health_problem_source_info)" in expr
+        "pgc_product_launch_source_quality" in expr
+        and "pgc_source_health_problem_source_info" in expr
+        for expr in source_health_exprs
+    ):
+        errors.append(
+            "panel 82 must show the four product-launch outcome rows alongside "
+            "ordinary source-health problems"
+        )
+    if source_health_panel and not any(
+        "absent(" in expr
+        and "pgc_source_health_problem_source_info" in expr
         and '"issue", "healthy"' in expr
         for expr in source_health_exprs
     ):

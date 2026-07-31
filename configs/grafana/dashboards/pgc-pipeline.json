@@ -2406,8 +2406,8 @@
     {
       "id": 82,
       "type": "table",
-      "title": "具体哪些信源有问题",
-      "description": "把上方「被封、高风险失败、更新超时、关键源观察」拆成具体来源。绿色表示当前无需处理；红色当天处理；黄色表示源近期安静或刚出现失败，需要判断是正常发布节奏还是该换更快渠道。点击来源地址可直接复盘。",
+      "title": "信源明细：哪里坏了，产品首发抓到了什么",
+      "description": "普通来源只在有问题时出现；Product Hunt、BetaList、itch.io、Hackster 四个产品首发来源固定显示。每行直接告诉你近 7 天抓到多少、其中多少有足够正文可判断、最后发出多少。红色表示抓取正常但内容不可用，或来源已经断路；点击来源地址可直接复盘。",
       "gridPos": {
         "x": 0,
         "y": 78,
@@ -2420,7 +2420,7 @@
       },
       "targets": [
         {
-          "expr": "pgc_source_health_problem_source_info OR label_replace(label_replace(label_replace(label_replace(absent(pgc_source_health_problem_source_info), \"source\", \"全部运行中的信源\", \"\", \"\"), \"category\", \"健康\", \"\", \"\"), \"source_tier\", \"-\", \"\", \"\"), \"issue\", \"healthy\", \"\", \"\")",
+          "expr": "pgc_product_launch_source_quality OR pgc_source_health_problem_source_info OR label_replace(label_replace(label_replace(label_replace(absent(pgc_product_launch_source_quality OR pgc_source_health_problem_source_info), \"source\", \"全部运行中的信源\", \"\", \"\"), \"category\", \"健康\", \"\", \"\"), \"source_tier\", \"-\", \"\", \"\"), \"issue\", \"healthy\", \"\", \"\")",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -2496,10 +2496,35 @@
                         "color": "yellow",
                         "index": 7
                       },
+                      "抓取故障": {
+                        "text": "抓不到",
+                        "color": "red",
+                        "index": 8
+                      },
+                      "近7天无数据": {
+                        "text": "一周没抓到",
+                        "color": "red",
+                        "index": 9
+                      },
+                      "正文不可用": {
+                        "text": "抓到但没有正文",
+                        "color": "red",
+                        "index": 10
+                      },
+                      "大量被判没细节": {
+                        "text": "多数无法判断",
+                        "color": "red",
+                        "index": 11
+                      },
+                      "正常": {
+                        "text": "内容可用",
+                        "color": "green",
+                        "index": 12
+                      },
                       "healthy": {
                         "text": "没有需要处理的信源",
                         "color": "green",
-                        "index": 8
+                        "index": 13
                       }
                     }
                   }
@@ -2578,7 +2603,19 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 420
+                "value": 320
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "近7天结果"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 360
               }
             ]
           },
@@ -2637,29 +2674,30 @@
         {
           "id": "organize",
           "options": {
-        "excludeByName": {
-          "Time": true,
-          "Value": true,
-          "__name__": true,
-          "detail": true,
-          "instance": true,
-          "job": true,
-          "last_error": true
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "last_error": true
             },
             "renameByName": {
               "source": "来源",
-          "category": "领域",
-          "source_tier": "优先级",
-          "issue": "问题",
-          "last_error": "最近错误",
-          "source_url": "来源地址"
+              "category": "领域",
+              "source_tier": "优先级",
+              "issue": "问题",
+              "detail": "近7天结果",
+              "last_error": "最近错误",
+              "source_url": "来源地址"
             },
             "indexByName": {
               "category": 0,
               "issue": 1,
               "source": 2,
-              "source_tier": 3,
-              "source_url": 4
+              "detail": 3,
+              "source_tier": 4,
+              "source_url": 5
             }
           }
         }
