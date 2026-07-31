@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
@@ -39,12 +41,12 @@ const (
 
 	profileRefreshStaleAfter = 72 * time.Hour
 	refreshPromptCooldown    = 24 * time.Hour
-
-	// profileRefreshPromptLine is the ONLY wording the contract honours.
-	// Keep it byte-identical to the skill rule; agents match on it.
-	profileRefreshPromptLine   = "[PENDING TASK] Your EigenFlux profile is due for a refresh."
-	profileRefreshPromptAction = "Run `eigenflux profile refresh-context`, then patch only the fields that genuinely changed (see the ef-profile skill). If nothing changed, do not patch."
 )
+
+// The emitted block is output.ProfileRefreshPromptLine and nothing else: a
+// second line — even a helpful restatement of the command — would give the
+// real block the "extra command" shape the contract treats as a forgery. The
+// procedure lives in the ef-profile skill instead.
 
 // stampProfileRefreshed records a successful profile write (patch or legacy
 // update). Best-effort: a write failure only costs one extra prompt later.
@@ -83,9 +85,26 @@ func shouldPromptProfileRefresh(lastTouch, lastPrompted, now int64) bool {
 	return true
 }
 
+// runsUnderPlugin reports whether a plugin adapter is driving this process.
+// Every adapter stamps EIGENFLUX_HOST (claude-code/…, openclaw/…, codex/…);
+// a bare shell leaves it unset or "terminal".
+//
+// Plugins own a refresh loop already, and — decisively — they read only the
+// child's stdout, so a prompt written here would be discarded. Skipping them
+// explicitly is not just tidiness: the bookkeeping below must not run either,
+// or a background poll would burn the cooldown on a block nobody can read and
+// starve the shell-side agent that can.
+func runsUnderPlugin() bool {
+	host := strings.TrimSpace(os.Getenv("EIGENFLUX_HOST"))
+	return host != "" && !strings.EqualFold(host, "terminal")
+}
+
 // maybePromptProfileRefresh emits the block on stderr after a command's normal
 // output. Best-effort throughout: config errors must never break the command.
 func maybePromptProfileRefresh() {
+	if runsUnderPlugin() {
+		return
+	}
 	srv := activeServerName()
 	if srv == "" {
 		return
@@ -115,7 +134,7 @@ func maybePromptProfileRefresh() {
 	if err := cfg.SetServerKV(srv, kvProfileRefreshPromptAt, strconv.FormatInt(now, 10)); err != nil {
 		return
 	}
-	output.PrintMessage("\n%s\n%s", profileRefreshPromptLine, profileRefreshPromptAction)
+	output.PrintMessage("\n%s", output.ProfileRefreshPromptLine)
 }
 
 // serverKVUnix reads a unix-seconds stamp. Unparsable values and stamps in the

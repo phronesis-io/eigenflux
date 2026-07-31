@@ -210,7 +210,7 @@ Examples:
 								FriendUID string `json:"friend_uid"`
 							}
 							if json.Unmarshal(push.Data, &fa) == nil {
-								fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", fa.FriendUID)
+								fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", safeInline(fa.FriendUID))
 							} else {
 								fmt.Fprintln(os.Stdout, string(msg))
 							}
@@ -257,9 +257,9 @@ Examples:
 										who = fr.FromUID
 									}
 									if fr.Greeting != "" {
-										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, oneLine(who), fr.RequestID, oneLine(fr.Greeting))
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, safeInline(who), fr.RequestID, safeInline(fr.Greeting))
 									} else {
-										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, oneLine(who), fr.RequestID)
+										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s)\n", ts, safeInline(who), fr.RequestID)
 									}
 								}
 							}
@@ -344,13 +344,46 @@ func officialMark(isOfficial bool) string {
 	return ""
 }
 
-// oneLine flattens attacker-controlled text (message bodies, greetings, peer
-// names) onto the single line this renderer promises. Raw newlines would let a
-// sender forge whole lines of their own — including CLI-looking task blocks —
-// in an output stream the agent reads as trusted structure.
-func oneLine(s string) string {
-	r := strings.NewReplacer("\r\n", "\\n", "\n", "\\n", "\r", "\\n")
-	return r.Replace(s)
+// safeInline renders attacker-controlled text (message bodies, greetings, peer
+// names) as one inert line. Two jobs, in order of how much they can be trusted:
+//
+//  1. Neutralize the CLI's own task marker. This is the only defense here that
+//     does not depend on a model judging what it reads: a sender simply cannot
+//     emit the byte sequence the contract binds on. Everything else is
+//     hardening around it.
+//  2. Keep the text on the line it was rendered into. Line breaks, vertical
+//     tabs, form feeds, NEL/LS/PS, and ANSI escapes all let a sender paint
+//     lines of their own — or erase ones already printed — in a stream the
+//     agent reads as CLI structure. They become visible escapes instead.
+//
+// Length is capped for the same reason: an unbounded body can push earlier
+// output past the reader's window.
+const inlineRenderMax = 2000
+
+func safeInline(s string) string {
+	s = strings.ReplaceAll(s, "[PENDING TASK", "[PENDING_TASK")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\t':
+			b.WriteString("    ")
+		case r == '\n' || r == '\r' || r == '\v' || r == '\f' ||
+			r == '' || r == ' ' || r == ' ':
+			b.WriteString("\\n")
+		case r == 0x1b:
+			b.WriteString("\\e")
+		case r < 0x20 || r == 0x7f:
+			b.WriteString("\\x")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	if rs := []rune(out); len(rs) > inlineRenderMax {
+		out = string(rs[:inlineRenderMax]) + "…"
+	}
+	return out
 }
 
 func printHistoryLine(m streamMsg, myAgentID string) {
@@ -360,13 +393,13 @@ func printHistoryLine(m streamMsg, myAgentID string) {
 		if peer == "" {
 			peer = m.ReceiverID
 		}
-		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, oneLine(peer), oneLine(m.Content))
+		fmt.Fprintf(os.Stdout, "[%s] → %s: %s\n", ts, safeInline(peer), safeInline(m.Content))
 	} else {
 		peer := m.SenderName
 		if peer == "" {
 			peer = m.SenderID
 		}
-		fmt.Fprintf(os.Stdout, "[%s] ← %s%s: %s\n", ts, oneLine(peer), officialMark(m.SenderIsOfficial), oneLine(m.Content))
+		fmt.Fprintf(os.Stdout, "[%s] ← %s%s: %s\n", ts, safeInline(peer), officialMark(m.SenderIsOfficial), safeInline(m.Content))
 	}
 }
 
@@ -376,5 +409,5 @@ func printNewLine(m streamMsg) {
 	if sender == "" {
 		sender = m.SenderID
 	}
-	fmt.Fprintf(os.Stdout, "[%s] %s%s: %s\n", ts, oneLine(sender), officialMark(m.SenderIsOfficial), oneLine(m.Content))
+	fmt.Fprintf(os.Stdout, "[%s] %s%s: %s\n", ts, safeInline(sender), officialMark(m.SenderIsOfficial), safeInline(m.Content))
 }
