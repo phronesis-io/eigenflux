@@ -1439,7 +1439,7 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixedColor",
+                  "mode": "fixed",
                   "fixedColor": "yellow"
                 }
               }
@@ -1484,7 +1484,7 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixedColor",
+                  "mode": "fixed",
                   "fixedColor": "blue"
                 }
               }
@@ -1986,7 +1986,7 @@
           "unit": "short",
           "mappings": [],
           "color": {
-            "mode": "fixedColor",
+            "mode": "fixed",
             "fixedColor": "blue"
           }
         },
