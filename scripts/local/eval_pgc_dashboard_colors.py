@@ -156,7 +156,7 @@ def main() -> int:
                 text, mapped_color = mapped(value, s_maps)
                 if mapped_color:
                     color = mapped_color
-                elif s_color.get("mode") == "fixedColor":
+                elif s_color.get("mode") == "fixed":
                     color = s_color.get("fixedColor", "text")
                 elif s_steps:
                     color = color_for(value, s_steps)

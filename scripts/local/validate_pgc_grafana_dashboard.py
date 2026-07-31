@@ -136,6 +136,26 @@ def static_validate(dashboard: dict) -> list[str]:
         errors.append("dashboard title must be EigenFlux - PGC Pipeline")
 
     panels = dashboard.get("panels", [])
+
+    def find_legacy_fixed_color(value, path: str = "dashboard") -> list[str]:
+        found: list[str] = []
+        if isinstance(value, dict):
+            if value.get("mode") == "fixedColor":
+                found.append(path)
+            for key, child in value.items():
+                found.extend(find_legacy_fixed_color(child, f"{path}.{key}"))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                found.extend(find_legacy_fixed_color(child, f"{path}[{index}]"))
+        return found
+
+    legacy_fixed_color_paths = find_legacy_fixed_color(dashboard)
+    if legacy_fixed_color_paths:
+        errors.append(
+            "Grafana color mode must be 'fixed', not unsupported 'fixedColor': "
+            + ", ".join(legacy_fixed_color_paths)
+        )
+
     ids = [p.get("id") for p in panels]
     dupes = {i for i in ids if ids.count(i) > 1}
     if dupes:
