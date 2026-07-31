@@ -2407,7 +2407,7 @@
       "id": 82,
       "type": "table",
       "title": "具体哪些信源有问题",
-      "description": "把上方「被封、高风险失败、更新超时、关键源观察」拆成具体来源。红色当天处理；黄色表示源近期安静或刚出现失败，需要判断是正常发布节奏还是该换更快渠道。点击来源地址可直接复盘。",
+      "description": "把上方「被封、高风险失败、更新超时、关键源观察」拆成具体来源。绿色表示当前无需处理；红色当天处理；黄色表示源近期安静或刚出现失败，需要判断是正常发布节奏还是该换更快渠道。点击来源地址可直接复盘。",
       "gridPos": {
         "x": 0,
         "y": 78,
@@ -2420,7 +2420,7 @@
       },
       "targets": [
         {
-          "expr": "pgc_source_health_problem_source_info",
+          "expr": "pgc_source_health_problem_source_info OR label_replace(label_replace(label_replace(label_replace(absent(pgc_source_health_problem_source_info), \"source\", \"全部运行中的信源\", \"\", \"\"), \"category\", \"健康\", \"\", \"\"), \"source_tier\", \"-\", \"\", \"\"), \"issue\", \"healthy\", \"\", \"\")",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -2495,6 +2495,11 @@
                         "text": "刚出现抓取失败",
                         "color": "yellow",
                         "index": 7
+                      },
+                      "healthy": {
+                        "text": "没有需要处理的信源",
+                        "color": "green",
+                        "index": 8
                       }
                     }
                   }
@@ -2537,6 +2542,11 @@
                         "text": "长尾来源",
                         "color": "text",
                         "index": 3
+                      },
+                      "-": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 4
                       }
                     }
                   }
