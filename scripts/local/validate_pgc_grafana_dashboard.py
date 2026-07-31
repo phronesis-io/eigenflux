@@ -309,6 +309,19 @@ def static_validate(dashboard: dict) -> list[str]:
             "table unreadable: "
             + ", ".join(sorted(visible_internal_source_fields))
         )
+    source_health_exprs = [
+        target.get("expr", "")
+        for target in source_health_panel.get("targets", []) or []
+    ] if source_health_panel else []
+    if source_health_panel and not any(
+        "absent(pgc_source_health_problem_source_info)" in expr
+        and '"issue", "healthy"' in expr
+        for expr in source_health_exprs
+    ):
+        errors.append(
+            "panel 82 must render an explicit healthy row instead of Grafana's "
+            "ambiguous English No data state"
+        )
 
     all_exprs = "\n".join(
         t.get("expr", "") for p in dashboard.get("panels", [])
