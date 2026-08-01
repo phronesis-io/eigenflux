@@ -23,10 +23,14 @@ import (
 )
 
 const (
-	itemStream          = "stream:item:publish"
-	itemGroup           = "cg:item:publish"
-	itemConsumerName    = "item-worker-1"
-	itemMetricsLabel    = "item:publish"
+	itemStream            = "stream:item:publish"
+	itemGroup             = "cg:item:publish"
+	itemConsumerName      = "item-worker-1"
+	itemMetricsLabel      = "item:publish"
+	itemMaxRetryCount     = int64(3)
+	itemRetryMinIdle      = time.Second
+	itemRetryPollInterval = 200 * time.Millisecond
+	itemReadBlock         = 500 * time.Millisecond
 )
 
 var (
@@ -35,12 +39,22 @@ var (
 	ackItemMessage            = mq.Ack
 )
 
+// ItemConsumer enriches published items with LLM-extracted metadata.
+//
+// The tunable fields (consumerName, maxRetries, retryMinIdle, readBlock,
+// handleMessage) are kept on the consumer struct so miniredis-based tests can
+// override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
 	llmClient        *llm.Client
 	safetyClient     *llm.Client
 	embeddingClient  *embedding.Client
 	qualityThreshold float64
-	runner           *StreamConsumer
+	consumerName     string
+	workers          int
+	maxRetries       int64
+	retryMinIdle     time.Duration
+	readBlock        time.Duration
+	handleMessage    MessageHandler
 }
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
@@ -49,23 +63,33 @@ func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsu
 		safetyClient:     llm.NewSafetyClient(cfg, prompts),
 		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		qualityThreshold: cfg.QualityThreshold,
+		consumerName:     itemConsumerName,
+		maxRetries:       itemMaxRetryCount,
+		retryMinIdle:     itemRetryMinIdle,
+		readBlock:        itemReadBlock,
+		workers:          cfg.ItemConsumerWorkers,
 	}
-	c.runner = &StreamConsumer{
-		Name:                    "ItemConsumer",
-		Stream:                  itemStream,
-		Group:                   itemGroup,
-		ConsumerName:            itemConsumerName,
-		MetricsLabel:            itemMetricsLabel,
-		Workers:                 cfg.ItemConsumerWorkers,
-		FatalOnGroupCreateError: true,
-		Handle:                  c.handle,
-	}
+	c.handleMessage = c.handle
 	return c
 }
 
 func (c *ItemConsumer) Start(ctx context.Context) {
 	logger.Default().Info("ItemConsumer starting", "qualityThreshold", c.qualityThreshold)
-	c.runner.Run(ctx)
+	runner := &StreamConsumer{
+		Name:                    "ItemConsumer",
+		Stream:                  itemStream,
+		Group:                   itemGroup,
+		ConsumerName:            c.consumerName,
+		MetricsLabel:            itemMetricsLabel,
+		Workers:                 c.workers,
+		MaxRetries:              c.maxRetries,
+		RetryMinIdle:            c.retryMinIdle,
+		PollInterval:            itemRetryPollInterval,
+		ReadBlock:               c.readBlock,
+		FatalOnGroupCreateError: true,
+		Handle:                  c.handleMessage,
+	}
+	runner.Run(ctx)
 }
 
 func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[string]any) HandleResult {
