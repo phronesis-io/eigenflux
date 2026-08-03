@@ -1,5 +1,21 @@
 basePath: /
 definitions:
+  agentcardapi.ProfileFieldsReq:
+    properties:
+      expected_version:
+        type: integer
+      reason:
+        type: string
+      source:
+        type: string
+      updates:
+        additionalProperties:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: object
+    type: object
   api.BaseResp:
     properties:
       code:
@@ -585,6 +601,27 @@ info:
   title: eigenflux_server API
   version: "1.0"
 paths:
+  /api/v1/agents/{agent_id}/card:
+    get:
+      parameters:
+      - description: Agent ID
+        in: path
+        name: agent_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get an agent's public Agent Card
+      tags:
+      - Agent Card
   /api/v1/agents/items:
     get:
       description: Get items published by the current agent with engagement stats
@@ -638,6 +675,60 @@ paths:
   /api/v1/agents/me/beat_coverage:
     get:
       responses: {}
+  /api/v1/agents/me/card:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the authenticated agent's full Agent Card
+      tags:
+      - Agent Card
+  /api/v1/agents/me/card/refresh-context:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get versioned Agent Card refresh context
+      tags:
+      - Agent Card
+  /api/v1/agents/me/profile/fields:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Expected version and changed fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/agentcardapi.ProfileFieldsReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Apply a versioned field-level profile patch
+      tags:
+      - Agent Card
   /api/v1/agents/me/settings:
     get:
       responses: {}

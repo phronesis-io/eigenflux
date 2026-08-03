@@ -23,6 +23,7 @@ import (
 	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
+	"eigenflux_server/rpc/sort/lrranker"
 	"eigenflux_server/rpc/sort/ranker"
 	"eigenflux_server/rpc/sort/serviceranker"
 )
@@ -33,6 +34,7 @@ var searchCache *cache.SearchCache
 var profileCache *cache.ProfileCache
 var rankerInstance *ranker.Ranker
 var rankerCfg *ranker.RankerConfig
+var lrManager *lrranker.Manager
 var itemRerankPolicies *rerankPolicySet
 var serviceRankerCfg *serviceranker.ServiceRankerConfig
 var embeddingCache *cache.EmbeddingCache
@@ -86,6 +88,21 @@ func main() {
 	rankerCfg = ranker.NewRankerConfig(cfg)
 	rankerInstance = ranker.New(rankerCfg)
 	itemRerankPolicies = loadRerankPolicySet(context.Background(), "configs/sort/rerank.yaml", time.Now)
+
+	// Initialize the LR ranker. When enabled and a valid model is present, it
+	// replaces the formula ordering of eligible items with the model's
+	// follow-up probability; otherwise sort transparently falls back to the
+	// formula ranker. The bundle is delivered to a local directory out-of-band.
+	lrReload, err := time.ParseDuration(cfg.LRRankerReloadInterval)
+	if err != nil {
+		lrReload = 60 * time.Second
+	}
+	lrManager = lrranker.NewManager(lrranker.Config{
+		Enabled:        cfg.LRRankerEnabled,
+		ModelPath:      cfg.LRRankerModelPath,
+		ReloadInterval: lrReload,
+	})
+	defer lrManager.Close()
 
 	// Initialize service ranker (used by SearchServices for the trading domain).
 	serviceRankerCfg = &serviceranker.ServiceRankerConfig{

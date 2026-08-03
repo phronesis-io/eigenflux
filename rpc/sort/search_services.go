@@ -504,7 +504,7 @@ func publishSearchReplay(ctx context.Context, req *sort.SearchServicesReq, sourc
 		return
 	}
 	impressionID := fmt.Sprintf("imp_search_%d", time.Now().UnixNano())
-	if err := replaylog.Publish(ctx, impressionID, 0, string(agentFeaturesJSON), served, true); err != nil {
+	if err := replaylog.Publish(ctx, impressionID, 0, string(agentFeaturesJSON), served); err != nil {
 		logger.Default().Warn("SearchServices replay publish failed", "err", err)
 	}
 }

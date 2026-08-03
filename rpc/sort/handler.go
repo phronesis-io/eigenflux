@@ -558,6 +558,30 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	}
 	logger.Ctx(ctx).Debug("relevance filter", "before", len(allRanked), "after", len(ranked), "filtered", len(filteredItems), "threshold", rankerCfg.MinRelevanceScore)
 
+	// LR ranker (hard cutover): when a valid model is loaded, reorder the
+	// eligible set by the model's follow-up probability, replacing the formula
+	// ordering. The eligibility gate above intentionally still uses the baseline
+	// score — its threshold semantics must not change on rollout. When no model
+	// is loaded (disabled, absent, or broken) sort keeps the formula order.
+	lrByID := scoreItemsWithLR(ranked, esItemMap, sourceMap, userProfile)
+	if len(lrByID) > 0 {
+		slices.SortStableFunc(ranked, func(a, b ranker.RankedItem) int {
+			pa, pb := lrByID[a.ItemID].Probability, lrByID[b.ItemID].Probability
+			switch {
+			case pa > pb:
+				return -1
+			case pa < pb:
+				return 1
+			default:
+				return 0
+			}
+		})
+	} else if lrManager.Enabled() && !lrManager.Available() {
+		// Enabled but no valid model loaded (absent/broken) — a genuine fallback
+		// to the baseline ranker. An empty eligible set is not counted here.
+		metrics.LRRankerFallbackTotal.WithLabelValues("no_model").Inc()
+	}
+
 	// Build set of ranked IDs for exploration exclusion
 	rankedIDs := make(map[int64]bool, len(ranked))
 	rankedGroupIDs := make(map[int64]bool, len(ranked))
@@ -609,11 +633,24 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		if item.ExpireTime != nil {
 			feat["expire_time"] = item.ExpireTime.UnixMilli()
 		}
+		// When the LR model scored this item, record its output and use the
+		// probability as the final ordering score so replay_logs.item_score
+		// attributes follow-up labels to the model version that produced them.
+		score := ri.Score
+		if res, ok := lrByID[ri.ItemID]; ok {
+			feat["lr_ranker"] = map[string]interface{}{
+				"model_version": res.ModelVersion,
+				"mode":          "replace",
+				"probability":   res.Probability,
+				"final_score":   res.Probability,
+			}
+			score = res.Probability
+		}
 		itemFeaturesJSON, _ := json.Marshal(feat)
 		candidates = append(candidates, candidateItem{
 			itemID:       ri.ItemID,
 			groupID:      item.GroupID,
-			score:        ri.Score,
+			score:        score,
 			itemFeatures: string(itemFeaturesJSON),
 		})
 	}

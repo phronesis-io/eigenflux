@@ -1,0 +1,79 @@
+{
+  "feature_contract_version": "lr_features_v2",
+  "cases": [
+    {
+      "name": "normalized_overlap_and_multi_recall",
+      "row": {
+        "served_at": 1767225600000,
+        "agent_features_json": {
+          "keywords": ["AI-Agents", "Python"],
+          "domains": ["Machine_Learning"],
+          "geo": "CN"
+        },
+        "item_features_json": {
+          "broadcast_type": "INFO",
+          "source_type": "curated",
+          "timeliness": "timely",
+          "lang": "zh-CN",
+          "keywords": ["ai agents", "go"],
+          "domains": ["machine learning"],
+          "geo": "cn",
+          "quality_score": 0.8,
+          "created_at": 1767139200000,
+          "expire_time": 1767312000000,
+          "recall_source_names": ["keyword", "new_ugc_recall"],
+          "rank_scores": {
+            "semantic": 0.4,
+            "keyword": 0.5,
+            "freshness": 0.9,
+            "total": 0.45,
+            "is_draft": false
+          }
+        }
+      },
+      "expected": {
+        "time.age_hours_log1p": 3.2188758248682006,
+        "time.time_to_expire_hours_log1p": 3.2188758248682006,
+        "cross.keyword_intersection_log1p": 0.6931471805599453,
+        "cross.keyword_overlap": 0.5,
+        "cross.domain_intersection_log1p": 0.6931471805599453,
+        "cross.domain_overlap": 1.0,
+        "cross.geo_match": 1.0,
+        "broadcast_type=info": 1.0,
+        "source_type=curated": 1.0,
+        "timeliness=timely": 1.0,
+        "lang=zh": 1.0,
+        "recall_source=keyword": 1.0,
+        "recall_source=new_ugc_recall": 1.0
+      },
+      "vector_sha256": "014eeb558d179466b1d5fc7a201c89562d8b326c0ab4448a03e4c87190c1cb86"
+    },
+    {
+      "name": "missing_and_unknown",
+      "row": {
+        "served_at": 1767225600000,
+        "agent_features_json": "{bad-json",
+        "item_features_json": {
+          "broadcast_type": "news",
+          "source_type": "syndicated",
+          "timeliness": "urgent",
+          "lang": "fr",
+          "rank_scores": {}
+        }
+      },
+      "expected": {
+        "missing.baseline.semantic": 1.0,
+        "missing.baseline.keyword": 1.0,
+        "missing.baseline.freshness": 1.0,
+        "missing.baseline.total": 1.0,
+        "missing.content.quality": 1.0,
+        "missing.time.created_at": 1.0,
+        "broadcast_type=other": 1.0,
+        "source_type=other": 1.0,
+        "timeliness=other": 1.0,
+        "lang=other": 1.0
+      },
+      "vector_sha256": "26b7884367531b11a0065399a1cb5d848c939e6867013e98a55eefed82f0fcf6"
+    }
+  ]
+}

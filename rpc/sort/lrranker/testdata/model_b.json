@@ -1,0 +1,669 @@
+{
+  "created_at": "2026-07-31T06:57:40+00:00",
+  "feature_contract_version": "lr_features_v2",
+  "intercept": -2.9492977545331382,
+  "model_type": "logistic_regression",
+  "model_version": "lr_20260731_1454_e69f47d",
+  "provenance": {
+    "config_sha256": "3bfc50f6b64d4970cbba9a18d63f689870d6572b748062efd1b1cf4f26975a3a",
+    "git_commit": "e69f47db07096dd36aa6e3d7b304f4fb7f4970bf",
+    "numpy": "2.4.6",
+    "platform": "macOS-15.3.1-arm64-arm-64bit",
+    "python": "3.12.13 (main, Mar  3 2026, 15:35:03) [Clang 21.1.4 ]",
+    "scikit_learn": "1.8.0"
+  },
+  "schema_version": 1,
+  "self_test_cases": [
+    {
+      "expected_logit": -2.0736911603079236,
+      "expected_probability": 0.11168032134529027,
+      "expected_vector_sha256": "5005b9820c35aaa56290ff961a46c58b7a694b67fd5b16b0f22c1fc7cdf0aff9",
+      "input": {
+        "agent_features_json": {
+          "domains": [
+            "ai-app-dev",
+            "software-dev",
+            "programming",
+            "github-pages",
+            "recruiting",
+            "finance"
+          ],
+          "geo": "",
+          "keywords": [
+            "ai-app-dev",
+            "software-dev",
+            "programming",
+            "github-pages",
+            "recruiting",
+            "finance"
+          ]
+        },
+        "item_features_json": {
+          "broadcast_type": "info",
+          "created_at": 1782829250000,
+          "domains": [
+            "finance",
+            "technology",
+            "policy"
+          ],
+          "expire_time": 1783036800000,
+          "geo": "US",
+          "group_id": 330351983154167808,
+          "keywords": [
+            "Micron Technology",
+            "Trump Accounts",
+            "530A accounts",
+            "corporate investment",
+            "family welfare",
+            "finance"
+          ],
+          "lang": "zh",
+          "quality_score": 0.75,
+          "rank_scores": {
+            "freshness": 1,
+            "is_draft": false,
+            "keyword": 0.25,
+            "semantic": 0.3658464238398605,
+            "total": 0.3426771390718884
+          },
+          "recall_source": 1,
+          "recall_source_names": [
+            "keyword"
+          ],
+          "source_type": "curated",
+          "timeliness": "timely",
+          "updated_at": 1782829407437
+        },
+        "served_at": 1782835203370
+      },
+      "name": "case_0"
+    },
+    {
+      "expected_logit": -1.6339334732773394,
+      "expected_probability": 0.16329222709779323,
+      "expected_vector_sha256": "dfaabb8e20137086aa0b4a434ac27c5bc4758cb46d930a2d89cf3c0b7018d9c8",
+      "input": {
+        "agent_features_json": {
+          "context": {
+            "cli_ver": "0.0.16",
+            "cli_ver_num": 16,
+            "client_channel": "openclaw",
+            "client_host": "openclaw/0.0.19",
+            "client_id": "47d72c13",
+            "client_os": "darwin/arm64",
+            "client_tz": "UTC"
+          },
+          "domains": [
+            "ai-systems",
+            "developer-tooling",
+            "agent-coordination",
+            "china-equities",
+            "lithium-battery-chain",
+            "fintech",
+            "openclaw",
+            "eigenflux",
+            "feed-observability"
+          ],
+          "geo": "",
+          "keywords": [
+            "ai-systems",
+            "developer-tooling",
+            "agent-coordination",
+            "china-equities",
+            "lithium-battery-chain",
+            "fintech",
+            "openclaw",
+            "eigenflux",
+            "feed-observability"
+          ]
+        },
+        "item_features_json": {
+          "broadcast_type": "demand",
+          "created_at": 1782888836000,
+          "domains": [
+            "AI",
+            "fintech"
+          ],
+          "expire_time": 1785542400000,
+          "geo": "China",
+          "group_id": 330601904188948480,
+          "keywords": [
+            "AI research",
+            "China A-stock",
+            "market analysis",
+            "sentiment analysis",
+            "tech policy",
+            "news pipelines",
+            "fintech"
+          ],
+          "lang": "en",
+          "quality_score": 0.65,
+          "rank_scores": {
+            "freshness": 0.6666666666666666,
+            "is_draft": false,
+            "keyword": 0.3214285714285714,
+            "semantic": 0.6436039648127294,
+            "total": 0.5753077602283251
+          },
+          "recall_source": 1,
+          "recall_source_names": [
+            "keyword"
+          ],
+          "source_type": "original",
+          "timeliness": "timely",
+          "updated_at": 1782888879747
+        },
+        "served_at": 1782901420905
+      },
+      "name": "case_1"
+    }
+  ],
+  "terms": [
+    {
+      "clip_max": 1.0,
+      "clip_min": -1.0,
+      "coefficient": -0.2545299492296338,
+      "kind": "numeric",
+      "mean": 0.3765054544999041,
+      "name": "baseline.semantic",
+      "scale": 0.08973978949011124,
+      "source": "baseline.semantic",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": 0.41310915502718304,
+      "kind": "numeric",
+      "mean": 0.039349803488155734,
+      "name": "baseline.keyword",
+      "scale": 0.08099539352624201,
+      "source": "baseline.keyword",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": 0.027517874818978695,
+      "kind": "numeric",
+      "mean": 0.9360806988019831,
+      "name": "baseline.freshness",
+      "scale": 0.1610975736814491,
+      "source": "baseline.freshness",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": 0.6596875068470591,
+      "kind": "numeric",
+      "mean": 0.3085436974363885,
+      "name": "baseline.total",
+      "scale": 0.07672653317882137,
+      "source": "baseline.total",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": 1.1964872691914519,
+      "kind": "numeric",
+      "mean": 0.0,
+      "name": "content.quality",
+      "scale": 1.0,
+      "source": "content.quality",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 2160.0,
+      "clip_min": 0.0,
+      "coefficient": -0.21181186667087348,
+      "kind": "numeric",
+      "mean": 1.8289976490606152,
+      "name": "time.age_hours_log1p",
+      "scale": 1.7692488574786764,
+      "source": "time.age_hours",
+      "transform": "log1p",
+      "value": null
+    },
+    {
+      "clip_max": 2160.0,
+      "clip_min": 0.0,
+      "coefficient": -0.03595404025959606,
+      "kind": "numeric",
+      "mean": 4.5794833374780515,
+      "name": "time.time_to_expire_hours_log1p",
+      "scale": 2.4348243502581712,
+      "source": "time.time_to_expire_hours",
+      "transform": "log1p",
+      "value": null
+    },
+    {
+      "clip_max": 100.0,
+      "clip_min": 0.0,
+      "coefficient": 0.1967334712370435,
+      "kind": "numeric",
+      "mean": 0.13261793805730024,
+      "name": "cross.keyword_intersection_log1p",
+      "scale": 0.289241782806715,
+      "source": "cross.keyword_intersection",
+      "transform": "log1p",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": -5.726724012944709,
+      "kind": "numeric",
+      "mean": 0.0,
+      "name": "cross.keyword_overlap",
+      "scale": 1.0,
+      "source": "cross.keyword_overlap",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": 100.0,
+      "clip_min": 0.0,
+      "coefficient": 0.1520937294346693,
+      "kind": "numeric",
+      "mean": 0.1055639572722341,
+      "name": "cross.domain_intersection_log1p",
+      "scale": 0.25879546135587184,
+      "source": "cross.domain_intersection",
+      "transform": "log1p",
+      "value": null
+    },
+    {
+      "clip_max": 1.0,
+      "clip_min": 0.0,
+      "coefficient": -3.3918966290794863,
+      "kind": "numeric",
+      "mean": 0.0,
+      "name": "cross.domain_overlap",
+      "scale": 1.0,
+      "source": "cross.domain_overlap",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.004227506227209491,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "time.has_expire_time",
+      "scale": 1.0,
+      "source": "time.has_expire_time",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "cross.geo_match",
+      "scale": 1.0,
+      "source": "cross.geo_match",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 1.465108810833832,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "availability.is_draft",
+      "scale": 1.0,
+      "source": "availability.is_draft",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.baseline.semantic",
+      "scale": 1.0,
+      "source": "missing.baseline.semantic",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.baseline.keyword",
+      "scale": 1.0,
+      "source": "missing.baseline.keyword",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.baseline.freshness",
+      "scale": 1.0,
+      "source": "missing.baseline.freshness",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.baseline.total",
+      "scale": 1.0,
+      "source": "missing.baseline.total",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.content.quality",
+      "scale": 1.0,
+      "source": "missing.content.quality",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0,
+      "kind": "bool",
+      "mean": 0.0,
+      "name": "missing.time.created_at",
+      "scale": 1.0,
+      "source": "missing.time.created_at",
+      "transform": "identity",
+      "value": null
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.137201701418771,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "broadcast_type=supply",
+      "scale": 1.0,
+      "source": "broadcast_type",
+      "transform": "identity",
+      "value": "supply"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.3416786813195566,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "broadcast_type=demand",
+      "scale": 1.0,
+      "source": "broadcast_type",
+      "transform": "identity",
+      "value": "demand"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.0300670526375974,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "broadcast_type=info",
+      "scale": 1.0,
+      "source": "broadcast_type",
+      "transform": "identity",
+      "value": "info"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.07443342818927733,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "broadcast_type=alert",
+      "scale": 1.0,
+      "source": "broadcast_type",
+      "transform": "identity",
+      "value": "alert"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.0013369382776190625,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "broadcast_type=other",
+      "scale": 1.0,
+      "source": "broadcast_type",
+      "transform": "identity",
+      "value": "other"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.14114725711887305,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "source_type=original",
+      "scale": 1.0,
+      "source": "source_type",
+      "transform": "identity",
+      "value": "original"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.03369160908198291,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "source_type=curated",
+      "scale": 1.0,
+      "source": "source_type",
+      "transform": "identity",
+      "value": "curated"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.26692425387438706,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "source_type=forwarded",
+      "scale": 1.0,
+      "source": "source_type",
+      "transform": "identity",
+      "value": "forwarded"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.0013369382776190625,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "source_type=other",
+      "scale": 1.0,
+      "source": "source_type",
+      "transform": "identity",
+      "value": "other"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.34911861179375386,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "timeliness=timely",
+      "scale": 1.0,
+      "source": "timeliness",
+      "transform": "identity",
+      "value": "timely"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.1929055971874491,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "timeliness=evergreen",
+      "scale": 1.0,
+      "source": "timeliness",
+      "transform": "identity",
+      "value": "evergreen"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.1663073687919494,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "timeliness=other",
+      "scale": 1.0,
+      "source": "timeliness",
+      "transform": "identity",
+      "value": "other"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.05357071937910228,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "lang=en",
+      "scale": 1.0,
+      "source": "lang",
+      "transform": "identity",
+      "value": "en"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.06254184227031026,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "lang=zh",
+      "scale": 1.0,
+      "source": "lang",
+      "transform": "identity",
+      "value": "zh"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.36674571729713945,
+      "kind": "equals",
+      "mean": 0.0,
+      "name": "lang=other",
+      "scale": 1.0,
+      "source": "lang",
+      "transform": "identity",
+      "value": "other"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.1613512123615224,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=keyword",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "keyword"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.1933858193562663,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=knn",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "knn"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.14867066090749198,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=two_tower",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "two_tower"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.09842009030978559,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=hot_recall",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "hot_recall"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.3647889443655612,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=new_recall",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "new_recall"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": 0.8147260123315938,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=friend",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "friend"
+    },
+    {
+      "clip_max": null,
+      "clip_min": null,
+      "coefficient": -0.041398009174654964,
+      "kind": "contains",
+      "mean": 0.0,
+      "name": "recall_source=new_ugc_recall",
+      "scale": 1.0,
+      "source": "recall_source",
+      "transform": "identity",
+      "value": "new_ugc_recall"
+    }
+  ],
+  "trained_from": "2026-07-01",
+  "trained_through": "2026-07-29"
+}

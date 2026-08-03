@@ -144,6 +144,51 @@ var (
 	})
 )
 
+// LR ranker metrics (sort service). Track model hot-reload health, per-request
+// fallback to the baseline formula ranker, online scoring cost, and which model
+// version is live. model_info uses a single-label gauge set to 1 for the live
+// version; the previous version's series is cleared on each swap so only one
+// version is ever active.
+var (
+	LRRankerReloadTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_lr_ranker_reload_total",
+		Help: "LR model hot-reload attempts by result (success/error/selftest_failed).",
+	}, []string{"result"})
+
+	LRRankerFallbackTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sort_lr_ranker_fallback_total",
+		Help: "SortItems requests that fell back to the baseline ranker, by reason.",
+	}, []string{"reason"})
+
+	LRRankerScoredItemsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sort_lr_ranker_scored_items_total",
+		Help: "Total candidates scored by the LR ranker.",
+	})
+
+	LRRankerScoreDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "sort_lr_ranker_score_duration_seconds",
+		Help:    "Per-request LR scoring+reorder duration in seconds.",
+		Buckets: []float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05},
+	})
+
+	LRRankerModelAge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "sort_lr_ranker_model_age_seconds",
+		Help: "Age of the live LR model since its created_at.",
+	})
+
+	LRRankerModelInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "sort_lr_ranker_model_info",
+		Help: "Live LR model version (value 1). Only one version series is active at a time.",
+	}, []string{"version"})
+)
+
+// SetLRRankerModelInfo marks version as the single live model, clearing any
+// previously-active version series so the gauge always has exactly one series.
+func SetLRRankerModelInfo(version string) {
+	LRRankerModelInfo.Reset()
+	LRRankerModelInfo.WithLabelValues(version).Set(1)
+}
+
 // LLM call metrics.
 var (
 	LLMCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -176,5 +221,7 @@ func init() {
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 		SearchServicesRequestsTotal, SearchServicesSubIntents, SearchServicesLLMFallbackTotal,
 		SearchServicesLatencyMs, SearchServicesEmptyTotal,
+		LRRankerReloadTotal, LRRankerFallbackTotal, LRRankerScoredItemsTotal,
+		LRRankerScoreDuration, LRRankerModelAge, LRRankerModelInfo,
 	)
 }

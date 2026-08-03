@@ -170,6 +170,15 @@ type Config struct {
 	TwoTowerRecallK          int      // Top-K for two-tower Redis candidates (default: 50)
 	TwoTowerRecallCandidates int      // Deprecated; retained for env compatibility
 
+	// LR ranker (sort). A daily-trained logistic-regression model replaces the
+	// formula rank when enabled and a valid bundle is loaded; otherwise sort
+	// falls back to the baseline formula ranker. The bundle is delivered to a
+	// local directory out-of-band (OSS sync + atomic `current` symlink); sort
+	// only hot-reloads the local file.
+	LRRankerEnabled        bool
+	LRRankerModelPath      string
+	LRRankerReloadInterval string
+
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
 	FreshnessAlertScale   string
@@ -334,6 +343,9 @@ func Load() *Config {
 		EnableServiceMix:              getEnvBool("ENABLE_SERVICE_MIX", false),
 		ServiceMixRecallSize:          getEnvInt("SERVICE_MIX_RECALL_SIZE", 50),
 		EnableTwoTowerRecall:          getEnvBool("ENABLE_TWO_TOWER_RECALL", false),
+		LRRankerEnabled:               getEnvBool("LR_RANKER_ENABLED", false),
+		LRRankerModelPath:             getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
+		LRRankerReloadInterval:        getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
 		RecallRedisNamespace:          getEnv("REC_REDIS_NAMESPACE", "rec"),
 		TwoTowerRecallRedisKey:        getEnv("TWO_TOWER_RECALL_REDIS_KEY", "two_tower_recall"),
 		TwoTowerRecallK:               getEnvInt("TWO_TOWER_RECALL_K", 50),

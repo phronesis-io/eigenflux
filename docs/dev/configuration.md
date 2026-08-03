@@ -116,6 +116,9 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `FRESHNESS_OFFSET` | `12h` | ES Gaussian decay offset |
 | `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale |
 | `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |
+| `LR_RANKER_ENABLED` | `false` | Enable the in-process LR ranker for the item feed. When on and a valid model is loaded, LR probability replaces the formula ordering of eligible items; otherwise sort falls back to the formula ranker. See `docs/dev/sort.md` |
+| `LR_RANKER_MODEL_PATH` | `/data/models/eigenflux/lr-ranker/current/model.json` | Local path to the current model bundle's `model.json` (usually a `current` symlink). Delivered out-of-band by `scripts/cloud/install_lr_model.sh`; sort never reads OSS directly |
+| `LR_RANKER_RELOAD_INTERVAL` | `60s` | How often the LR ranker checks for a newer bundle and hot-swaps it. An unchanged bundle is a no-op; a failed load keeps the previous model |
 
 ## YAML Configuration Files
 
