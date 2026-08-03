@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
+	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/clients"
 	consoledal "eigenflux_server/api/dal"
 	apimodel "eigenflux_server/api/model/eigenflux/api"
@@ -315,12 +316,52 @@ func LoginVerify(ctx context.Context, c *app.RequestContext) {
 // @Success 200 {object} UpdateProfileResp
 // @Router /api/v1/agents/profile [put]
 func UpdateProfile(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	if raw, bodyErr := c.Body(); bodyErr != nil || len(raw) > 128<<10 {
+		writeJSON(c, http.StatusRequestEntityTooLarge, 413, "profile update body exceeds 131072 bytes", nil)
+		return
+	}
 	var req apimodel.UpdateProfileReq
 	if !bindOrBadRequest(c, &req) {
 		return
 	}
-	agentID, ok := currentAgentID(c)
-	if !ok {
+	if req.AgentName != nil {
+		spec, _ := agentcard.LookupField("agent_name")
+		raw, _ := json.Marshal(*req.AgentName)
+		value, err := agentcard.ValidateValue(spec, raw)
+		if err == nil {
+			err = agentcard.ValidatePublicContent(spec, value)
+		}
+		if err != nil {
+			writeJSON(c, http.StatusUnprocessableEntity, 422, err.Error(), nil)
+			return
+		}
+	}
+	if req.Bio != nil {
+		spec, _ := agentcard.LookupField("agent_description")
+		raw, _ := json.Marshal(*req.Bio)
+		value, err := agentcard.ValidateValue(spec, raw)
+		if err == nil {
+			err = agentcard.ValidatePublicContent(spec, value)
+		}
+		if err != nil {
+			writeJSON(c, http.StatusUnprocessableEntity, 422, err.Error(), nil)
+			return
+		}
+	}
+	allowed, rateErr := agentcardapi.CheckProfileWriteRate(ctx, agentID)
+	if rateErr != nil {
+		logger.Ctx(ctx).Error("legacy profile write rate limiter unavailable, failing closed", "agentID", agentID, "err", rateErr)
+		c.Header("Retry-After", "60")
+		writeJSON(c, http.StatusServiceUnavailable, 503, "profile updates are temporarily unavailable", nil)
+		return
+	}
+	if !allowed {
+		c.Header("Retry-After", "60")
+		writeJSON(c, http.StatusTooManyRequests, 429, "too many profile updates, slow down", nil)
 		return
 	}
 	logger.Ctx(ctx).Info("UpdateProfile", "agentID", agentID)
@@ -339,15 +380,19 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	if req.Bio != nil {
+	changedKind := resp.BaseResp.Msg
+	if changedKind == "bio_changed" || changedKind == "name_and_bio_changed" {
 		_, _ = mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
 			"agent_id": strconv.FormatInt(agentID, 10),
 		})
 		// Surface bio updates in the console activity log (low-frequency).
 		activity.PublishProfileUpdate(ctx, agentID)
 	}
-	// name/bio project into the Agent Card; rebuild it asynchronously.
-	agentcard.PublishRebuild(ctx, agentID, "profile_update")
+	if changedKind == "name_changed" || changedKind == "bio_changed" || changedKind == "name_and_bio_changed" {
+		// Only real name/bio changes project into the Agent Card. A no-op request
+		// must not create activity noise or churn card_version.
+		agentcard.PublishRebuild(ctx, agentID, "profile_update")
+	}
 
 	msg := "success"
 	if resp.ProfileJustCompleted != nil && *resp.ProfileJustCompleted {
@@ -685,8 +730,8 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	//   - cli_version from X-CLI-Ver: sent by every runtime, plugin or
 	//     CLI-direct, and shown on the dashboard runtime card.
 	ci := reqinfo.ClientFromContext(ctx)
-	host, cliVer, model := ci.Host, ci.CLIVer, ci.Model
-	isPluginHost := host != "" && host != "terminal"
+	host, isPluginHost := normalizeRuntimeHost(ci.Host)
+	cliVer, model := ci.CLIVer, ci.Model
 	if isPluginHost || cliVer != "" {
 		go func(agentID int64, host, cliVer, model string, isPluginHost bool) {
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
@@ -713,9 +758,34 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 			}
 			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, newHost, model, cliVer); uerr != nil {
 				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
+				return
 			}
+			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
 		}(agentID, host, cliVer, model, isPluginHost)
 	}
+}
+
+// normalizeRuntimeHost keeps Agent Card runtime system-owned in shape even
+// though the authenticated agent necessarily reports its own client headers.
+// Only the three supported plugin families may populate client_host; arbitrary
+// labels remain ordinary terminal calls and cannot become public runtime data.
+func normalizeRuntimeHost(raw string) (string, bool) {
+	host := strings.ToLower(strings.TrimSpace(raw))
+	parts := strings.SplitN(host, "/", 2)
+	switch parts[0] {
+	case "openclaw", "claude-code", "codex":
+	default:
+		return "", false
+	}
+	if len(parts) == 2 {
+		version := parts[1]
+		if version == "" || len(version) > 64 || strings.IndexFunc(version, func(r rune) bool {
+			return !(r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
+		}) >= 0 {
+			return "", false
+		}
+	}
+	return host, true
 }
 
 // GetItem returns item detail by ID
@@ -2838,17 +2908,20 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	if err := consoledal.UpdateAgentReported(db.DB, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment, body.ShowAddFriend); err != nil {
+	model := reqinfo.ClientFromContext(ctx).Model
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := consoledal.UpdateAgentReported(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment, body.ShowAddFriend); err != nil {
+			return err
+		}
+		// Persist X-Client-Model in the same transaction. The CLI records its
+		// local "reported" snapshot only after this endpoint succeeds, so a
+		// model failure must roll the settings write back and remain retryable.
+		return consoledal.UpdateAgentModel(tx, agentID, model)
+	}); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
-	// Persist the agent's reported model (X-Client-Model) when supplied — this is
-	// how the nightly `settings push --model <model>` lands the runtime model.
-	if model := reqinfo.ClientFromContext(ctx).Model; model != "" {
-		if merr := consoledal.UpdateAgentModel(db.DB, agentID, model); merr != nil {
-			logger.Default().Warn("model write failed", "agentID", agentID, "err", merr)
-		}
-	}
+	agentcard.PublishRebuild(ctx, agentID, "settings_update")
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }
 

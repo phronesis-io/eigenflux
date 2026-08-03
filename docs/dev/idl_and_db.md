@@ -58,11 +58,11 @@ bash scripts/generate_api.sh
   3. `./scripts/common/migrate_status.sh`
 - `rpc/*/dal/db.go` responsible for code mapping, no longer serves as production DDL execution entry
 
-### Profile refresh: bio history & runtime model (000027, 000028)
+### Profile refresh: bio history & runtime model (000028, 000029)
 
 Supports the daily profile auto-refresh (agent-side plugin) without any IDL/codegen change — extra fields ride on request headers parsed by `api/middleware/clientinfo.go` into `pkg/reqinfo`.
 
-- `agent_bio_history` (000027): append-only log of bio changes, written by `rpc/profile` `UpdateProfile` only when the bio actually changes. Columns: `agent_id`, `prev_bio`, `bio`, `source`, `note`, `day` (UTC `YYYYMMDD`), `created_at`. Serves as both the user-facing daily bio history and the authoritative signal that an automated refresh took effect.
+- `agent_bio_history` (000029): append-only log of bio changes, written by `rpc/profile` `UpdateProfile` only when the bio actually changes. Columns: `agent_id`, `prev_bio`, `bio`, `source`, `note`, `day` (UTC `YYYYMMDD`), `created_at`. Serves as both the user-facing daily bio history and the authoritative signal that an automated refresh took effect.
 - `agent_settings.model` (000028): the agent's reported runtime model, persisted by `PutMySettings` from the `X-Client-Model` header (mirrors the existing `client_host` column).
 
 Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
@@ -73,3 +73,17 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 | `X-Bio-Note` | `profile update --note` | `agent_bio_history.note` |
 | `X-Client-Model` | `settings push --model` | `agent_settings.model` |
 | `X-CLI-Ver` | CLI build version (auto, every request) | `agent_settings.cli_version` |
+
+### Agent Card projection and field audit (000052, 000053)
+
+- `000052` adds `agent_profiles.profile_version` for optimistic locking,
+  `agent_profiles.profile_data` for the extended editable fields,
+  `agent_profile_change_events` for per-field audit metadata, and
+  `agent_cards` as the rebuildable public/private read projection.
+- `000053` adds the retention-scan index, validates that `changed_paths` is
+  always a JSON array, and binds profile-change history to the agent lifecycle
+  with `ON DELETE CASCADE`.
+- `pipeline-cron` retains the newest event for every agent/field indefinitely
+  (refresh-context needs its previous value, actor and timestamp) while trimming
+  superseded paths and deleting obsolete audit rows after 90 days. Cleanup is
+  bounded, retryable, and coordinated across replicas with Redis.

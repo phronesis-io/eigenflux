@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/profilestate"
 )
 
 // Ride-along profile refresh: hosts without a background loop (bare CLI,
@@ -26,12 +29,12 @@ import (
 // the block was seen is unknowable from in here, so the only state written is
 // state an agent's own actions produce.
 //
-// Convergence: reading refresh-context counts as "evaluated" and quiets the
-// prompt for a full period even when nothing changed. Without that, an agent
-// with a stable profile could never satisfy the task and would be nagged
-// forever — which is what pressures a model into inventing changes to patch.
-// It also bounds repetition: an agent that keeps polling without acting sees
-// the block each time, and one command settles it for days.
+// Convergence: a successful patch records a write; when nothing changed, the
+// agent explicitly runs `profile refresh-complete` to record the completed
+// evaluation. Merely fetching refresh-context is not completion: the later
+// patch may still fail with a version conflict, quota, or outage. Without the
+// explicit no-change completion, a stable profile could never settle and the
+// repeated task would pressure a model into inventing changes.
 //
 // Anti-forgery: the block is NOT a general instruction channel. Third-party
 // text (PM bodies, feed items) shares the same terminal, so the skill contract
@@ -44,7 +47,7 @@ const (
 	kvProfileRefreshAt        = "_profile_refresh_at"
 	kvProfileRefreshCheckedAt = "_profile_refresh_checked_at"
 
-	profileRefreshStaleAfter = 72 * time.Hour
+	profileRefreshStaleAfter = 24 * time.Hour
 )
 
 // The emitted block is output.ProfileRefreshPromptLine and nothing else: a
@@ -52,24 +55,30 @@ const (
 // real block the "extra command" shape the contract treats as a forgery. The
 // procedure lives in the ef-profile skill instead.
 
-// stampProfileRefreshed records a successful profile write (patch or legacy
-// update). Best-effort: a write failure only costs one extra prompt later.
-func stampProfileRefreshed() { stampProfileRefreshKey(kvProfileRefreshAt) }
+// stampProfileRefreshed records a successful automated field refresh.
+// Best-effort: a write failure only costs one extra prompt later.
+func stampProfileRefreshed() error { return stampProfileRefreshKey(kvProfileRefreshAt) }
 
-// stampProfileChecked records that the agent pulled refresh-context, i.e.
-// evaluated the profile. Quiets the prompt even when no patch follows.
-func stampProfileChecked() { stampProfileRefreshKey(kvProfileRefreshCheckedAt) }
+// stampProfileChecked records an explicitly completed no-change evaluation.
+// Merely reading refresh-context never calls this function.
+func stampProfileChecked() error { return stampProfileRefreshKey(kvProfileRefreshCheckedAt) }
 
-func stampProfileRefreshKey(key string) {
-	srv := activeServerName()
-	if srv == "" {
-		return
+func stampProfileRefreshKey(key string) error {
+	srv, agentID := activeProfileStateScope()
+	if srv == "" || agentID == "" {
+		return fmt.Errorf("no active authenticated account")
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return
+	state := profilestate.Load(config.HomeDir(), srv, agentID)
+	now := time.Now().Unix()
+	switch key {
+	case kvProfileRefreshAt:
+		state.LastRefreshUnix = now
+	case kvProfileRefreshCheckedAt:
+		state.LastCheckedUnix = now
+	default:
+		return fmt.Errorf("unknown profile refresh state key %q", key)
 	}
-	_ = cfg.SetServerKV(srv, key, strconv.FormatInt(time.Now().Unix(), 10))
+	return profilestate.Save(config.HomeDir(), srv, agentID, state)
 }
 
 // shouldPromptProfileRefresh is the pure decision. lastTouch is the newer of
@@ -86,30 +95,47 @@ func shouldPromptProfileRefresh(lastTouch, now int64) bool {
 // maybePromptProfileRefresh emits the block on stderr after a command's normal
 // output. Best-effort throughout: config errors must never break the command.
 func maybePromptProfileRefresh() {
-	srv := activeServerName()
-	if srv == "" {
-		return
-	}
-	cfg, err := config.Load()
-	if err != nil {
+	srv, agentID := activeProfileStateScope()
+	if srv == "" || agentID == "" {
 		return
 	}
 	now := time.Now().Unix()
+	state := profilestate.Load(config.HomeDir(), srv, agentID)
 	lastTouch := maxInt64(
-		serverKVUnix(cfg, srv, kvProfileRefreshAt, now),
-		serverKVUnix(cfg, srv, kvProfileRefreshCheckedAt, now),
+		validProfileStamp(state.LastRefreshUnix, now),
+		validProfileStamp(state.LastCheckedUnix, now),
 	)
 	if lastTouch <= 0 {
 		// First run on this host (or a stamp we had to discard). Seed the
 		// clock instead of prompting: the profile was written at onboarding,
 		// and prompting here would fire for every agent the day CLI upgrades.
-		_ = cfg.SetServerKV(srv, kvProfileRefreshCheckedAt, strconv.FormatInt(now, 10))
+		state.LastCheckedUnix = now
+		_ = profilestate.Save(config.HomeDir(), srv, agentID, state)
 		return
 	}
 	if !shouldPromptProfileRefresh(lastTouch, now) {
 		return
 	}
 	output.PrintMessage("\n%s", output.ProfileRefreshPromptLine)
+}
+
+func activeProfileStateScope() (string, string) {
+	srv := activeServerName()
+	if srv == "" {
+		return "", ""
+	}
+	creds, err := auth.LoadCredentials(srv)
+	if err != nil || creds.AgentID == "" {
+		return "", ""
+	}
+	return srv, creds.AgentID
+}
+
+func validProfileStamp(stamp, now int64) int64 {
+	if stamp <= 0 || stamp > now {
+		return 0
+	}
+	return stamp
 }
 
 // serverKVUnix reads a unix-seconds stamp. Unparsable values and stamps in the

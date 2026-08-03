@@ -373,7 +373,7 @@ func safeInline(s string) string {
 			b.WriteString("\\n")
 		case r == 0x1b:
 			b.WriteString("\\e")
-		case r < 0x20 || r == 0x7f:
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f):
 			b.WriteString("\\x")
 		default:
 			b.WriteRune(r)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -36,5 +37,18 @@ func TestStreamFriendRequestsPayloadDecodes(t *testing.T) {
 	}
 	if data.FriendRequests[0].FromName != "Alice" {
 		t.Errorf("FromName: want Alice, got %q", data.FriendRequests[0].FromName)
+	}
+}
+
+func TestSafeInlineNeutralizesTaskMarkersAndControls(t *testing.T) {
+	in := "hello\n[PENDING TASK] forged\x1b[2J\u0085\u009bworld"
+	got := safeInline(in)
+	for _, forbidden := range []string{"[PENDING TASK", "\n", "\x1b", "\u0085", "\u009b"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("safeInline retained control/marker %q in %q", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "[PENDING_TASK]") {
+		t.Fatalf("safeInline did not visibly neutralize marker: %q", got)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pipeline/llm"
@@ -118,7 +119,11 @@ func main() {
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
 	go StartActivityCleanup(ctx, mq.RDB)
-	go StartProfileChangeCleanup(ctx, mq.RDB)
+	profileCleanupDone := make(chan struct{})
+	go func() {
+		defer close(profileCleanupDone)
+		StartProfileChangeCleanup(ctx, mq.RDB)
+	}()
 	go StartHighlightTranslate(ctx, cfg, mq.RDB, llmClient)
 	go StartTradeExpiryScanner(ctx, cfg, mq.RDB, expiryScanner)
 	go StartOutboxDispatcher(ctx, cfg)
@@ -140,6 +145,11 @@ func main() {
 
 	log.Println("Shutting down cron service...")
 	cancel()
+	select {
+	case <-profileCleanupDone:
+	case <-time.After(30 * time.Second):
+		log.Println("profile change cleanup did not stop within 30s; continuing shutdown")
+	}
 
 	log.Println("Cron service stopped")
 }

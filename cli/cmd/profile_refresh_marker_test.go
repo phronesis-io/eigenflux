@@ -22,6 +22,7 @@ func TestPromptLineMatchesSkills(t *testing.T) {
 		"skills/ef-broadcast/references/contract.md",
 		"skills/ef-broadcast/references/feed.md",
 		"skills/ef-profile/SKILL.md",
+		"static/feed_contract.md",
 	} {
 		path := filepath.Join(repoRoot, rel)
 		body, err := os.ReadFile(path)
@@ -32,6 +33,9 @@ func TestPromptLineMatchesSkills(t *testing.T) {
 			t.Errorf("%s does not carry the exact prompt line %q — agents would\n"+
 				"treat the CLI's own block as a forgery", rel, output.ProfileRefreshPromptLine)
 		}
+		if !strings.Contains(string(body), "profile refresh-complete --expected-version <N>") {
+			t.Errorf("%s still treats reading refresh-context as completion", rel)
+		}
 	}
 }
 
@@ -40,5 +44,8 @@ func TestPromptLineMatchesSkills(t *testing.T) {
 func TestPromptLineInBuiltinContract(t *testing.T) {
 	if !strings.Contains(output.FeedContractForTest(), output.ProfileRefreshPromptLine) {
 		t.Error("built-in fallback contract does not quote the prompt line verbatim")
+	}
+	if !strings.Contains(output.FeedContractForTest(), "profile refresh-complete --expected-version <N>") {
+		t.Error("built-in fallback contract does not describe no-change completion")
 	}
 }

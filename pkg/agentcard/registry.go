@@ -3,11 +3,13 @@ package agentcard
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
 // SchemaVersion is the Card JSON schema revision served to clients.
-const SchemaVersion int32 = 1
+const SchemaVersion int32 = 2
 
 // FieldStorage says which fact table owns an editable field. The Card itself
 // is never a fact source.
@@ -73,6 +75,16 @@ var ProtectedPaths = []string{
 	"delivery_preference",
 	"card_version",
 	"generated_at",
+	"updated_at",
+}
+
+var publicSensitivePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`),
+	regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`),
+	regexp.MustCompile(`(?i)\b(?:sk-[a-z0-9_\-]{16,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{16,}|bearer\s+[a-z0-9._\-]{16,}|api[_-]?key\s*[:=])`),
+	regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+	regexp.MustCompile(`(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`),
+	regexp.MustCompile(`(?i)\b(?:localhost|127\.0\.0\.1|10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.(?:\d{1,3}\.)\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}|[a-z0-9.-]+\.internal)\b`),
 }
 
 var editableByName = func() map[string]FieldSpec {
@@ -128,4 +140,31 @@ func ValidateValue(spec FieldSpec, raw json.RawMessage) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("field %q has unsupported kind", spec.Name)
 	}
+}
+
+// ValidatePublicContent rejects high-confidence secret/contact/link patterns
+// before editable values can enter the network-visible card. Natural-language
+// privacy (real names, employers, clients) still requires the refresh prompt's
+// generalization rule; those categories cannot be detected reliably here.
+func ValidatePublicContent(spec FieldSpec, value interface{}) error {
+	if !spec.Public {
+		return nil
+	}
+	var values []string
+	switch v := value.(type) {
+	case string:
+		values = []string{v}
+	case []string:
+		values = v
+	default:
+		return nil
+	}
+	for _, value := range values {
+		for _, pattern := range publicSensitivePatterns {
+			if pattern.MatchString(strings.TrimSpace(value)) {
+				return fmt.Errorf("field %q contains contact, credential, or URL data that cannot be published", spec.Name)
+			}
+		}
+	}
+	return nil
 }

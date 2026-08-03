@@ -174,11 +174,16 @@ func SyncSettings(cfg *config.Config) error {
 // successful push.
 func pushReported(cfg *config.Config, mode, model string, force bool) error {
 	feedPref := cfg.GetKV("feed_delivery_preference")
+	serverName := activeServerName()
+	if serverName == "" {
+		return fmt.Errorf("no active server")
+	}
 
 	// Canonical snapshot of the agent-reported fields. \x1f (unit separator)
 	// cannot appear in these values, so it is a safe delimiter.
 	snapshot := mode + "\x1f" + feedPref + "\x1f" + model
-	if !force && snapshot == cfg.GetKV(settingsReportedKey) {
+	lastSnapshot, _, _ := cfg.GetServerOnlyKV(serverName, settingsReportedKey)
+	if !force && snapshot == lastSnapshot {
 		output.PrintMessage("settings unchanged; nothing to report")
 		return nil
 	}
@@ -207,7 +212,7 @@ func pushReported(cfg *config.Config, mode, model string, force bool) error {
 
 	// Persist the snapshot only after a successful push, so a failed attempt
 	// is retried on the next call.
-	if err := cfg.SetKV(settingsReportedKey, snapshot); err != nil {
+	if err := cfg.SetServerKV(serverName, settingsReportedKey, snapshot); err != nil {
 		return err
 	}
 	output.PrintMessage("settings reported")
@@ -222,19 +227,22 @@ var settingsCmd = &cobra.Command{
 var settingsPushCmd = &cobra.Command{
 	Use:   "push",
 	Short: "Report agent-side settings to the backend, only when changed",
-	Long: `Push agent-reported settings (mode, feed_delivery_preference) to the backend
+	Long: `Push agent-reported settings (mode, model, feed_delivery_preference) to the backend
 via PUT /agents/me/settings.
 
-feed_delivery_preference is read from the config KV; mode comes from --mode.
+feed_delivery_preference is read from the config KV; mode and model come from flags.
 The combined snapshot is compared against the last successfully reported one
 (stored in the config KV under "_settings_reported") and a request is sent only
 when something changed. Safe to call on every heartbeat — it no-ops otherwise.
 
 Examples:
-  eigenflux settings push --mode plugin
+  eigenflux settings push --mode plugin --model gpt-5.6
   eigenflux settings push --mode skill --force`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mode, _ := cmd.Flags().GetString("mode")
+		if mode != "" && mode != "plugin" && mode != "skill" {
+			return fmt.Errorf("--mode must be plugin or skill")
+		}
 		model, _ := cmd.Flags().GetString("model")
 		force, _ := cmd.Flags().GetBool("force")
 

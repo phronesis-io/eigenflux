@@ -104,7 +104,16 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 		vals["feed_delivery_preference"] = *feedPref
 	}
 	if mode != nil {
+		if *mode != "plugin" && *mode != "skill" {
+			return fmt.Errorf("mode must be plugin or skill")
+		}
 		vals["mode"] = *mode
+		if *mode == "skill" {
+			// A CLI-direct skill report is authoritative for the current runtime;
+			// clear a plugin host left by an older heartbeat so the public Card
+			// does not keep advertising a runtime that is no longer active.
+			vals["client_host"] = ""
+		}
 	}
 	// Console-owned fields may also arrive from the agent's CLI write-through
 	// (last writer wins through this table); only explicitly-present fields

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Agent struct {
@@ -75,6 +76,16 @@ func CreateAgent(db *gorm.DB, agent *Agent) error {
 func GetAgentByID(db *gorm.DB, agentID int64) (*Agent, error) {
 	var agent Agent
 	err := db.Where("agent_id = ?", agentID).First(&agent).Error
+	return &agent, err
+}
+
+// GetAgentByIDForUpdate returns the current row while serializing profile
+// writers. Both the legacy whole-profile path and the field-level path lock
+// agents before agent_profiles, preserving the shared deadlock order.
+func GetAgentByIDForUpdate(db *gorm.DB, agentID int64) (*Agent, error) {
+	var agent Agent
+	err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("agent_id = ?", agentID).First(&agent).Error
 	return &agent, err
 }
 

@@ -4,12 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"time"
 
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/profilestate"
 	"github.com/spf13/cobra"
 )
+
+const maxProfilePatchBytes = 128 << 10
 
 var profileCardCmd = &cobra.Command{
 	Use:   "card",
@@ -61,8 +67,8 @@ var profileRefreshContextCmd = &cobra.Command{
 	Short: "Fetch the profile refresh context",
 	Long: `Fetch everything needed before an automated profile refresh: the current
 profile_version (pass it back as expected_version), each editable field's
-current/previous value with who changed it last and why, and the protected
-paths that must never be written.
+current/previous value with when and whether a human or agent changed it, and
+the protected paths that must never be written.
 
 Run this immediately before building a patch; if the patch later returns a
 version conflict (409), run it again and re-evaluate.
@@ -80,10 +86,72 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		// Pulling the context IS the evaluation the refresh prompt asks for.
-		// Stamping here is what lets "nothing changed, so no patch" settle the
-		// task instead of re-firing forever.
-		stampProfileChecked()
+		return nil
+	},
+}
+
+var profileRefreshCompleteCmd = &cobra.Command{
+	Use:   "refresh-complete",
+	Short: "Record a completed profile evaluation with no changes",
+	Long: `Record that a profile refresh was fully evaluated and no material fields
+changed. Run this only after 'profile refresh-context' when no patch is needed,
+and pass that response's profile_version. The command verifies the version is
+still current before recording completion.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		expectedVersion, _ := cmd.Flags().GetInt64("expected-version")
+		if !cmd.Flags().Changed("expected-version") {
+			return fmt.Errorf("--expected-version is required (get it from 'eigenflux profile refresh-context')")
+		}
+		c := newClient()
+		resp, err := c.Get("/agents/me/card/refresh-context", nil)
+		if err != nil {
+			return err
+		}
+		if resp.Code != 0 {
+			return fmt.Errorf("%s", resp.Msg)
+		}
+		var current struct {
+			ProfileVersion int64 `json:"profile_version"`
+		}
+		if err := json.Unmarshal(resp.Data, &current); err != nil {
+			return fmt.Errorf("parse current profile version: %w", err)
+		}
+		if current.ProfileVersion != expectedVersion {
+			return fmt.Errorf("profile changed since version %d (current version %d); run 'eigenflux profile refresh-context' and evaluate again", expectedVersion, current.ProfileVersion)
+		}
+		if err := stampProfileChecked(); err != nil {
+			return fmt.Errorf("record completed profile refresh: %w", err)
+		}
+		output.PrintMessage("Profile refresh check completed (no changes)")
+		return nil
+	},
+}
+
+var profileRefreshStatusCmd = &cobra.Command{
+	Use:   "refresh-status",
+	Short: "Show local profile refresh state for this account",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		srv, agentID := activeProfileStateScope()
+		if srv == "" || agentID == "" {
+			return fmt.Errorf("no active authenticated account")
+		}
+		state := profilestate.Load(config.HomeDir(), srv, agentID)
+		now := time.Now().Unix()
+		lastTouch := maxInt64(
+			validProfileStamp(state.LastRefreshUnix, now),
+			validProfileStamp(state.LastCheckedUnix, now),
+		)
+		output.PrintData(map[string]interface{}{
+			"server":            srv,
+			"agent_id":          agentID,
+			"state_scope":       profilestate.ScopeID(srv, agentID),
+			"last_refresh_unix": state.LastRefreshUnix,
+			"last_checked_unix": state.LastCheckedUnix,
+			"last_touch_unix":   lastTouch,
+			"due":               shouldPromptProfileRefresh(lastTouch, now),
+		}, resolveFormat())
 		return nil
 	},
 }
@@ -93,7 +161,7 @@ var profilePatchCmd = &cobra.Command{
 	Short: "Apply a field-level profile patch",
 	Long: `Apply a minimal field-level patch to your profile with optimistic locking.
 
-The patch file contains ONLY the fields that changed, e.g.:
+The patch JSON contains ONLY the fields that changed, e.g.:
   {"agent_description": "…", "seeking": ["AI infra"]}
 
 --expected-version must be the profile_version from a fresh
@@ -104,6 +172,7 @@ never force-overwrite with stale content.
 
 Examples:
   eigenflux profile patch --file patch.json --expected-version 18
+  printf '%s' '{"seeking":["AI infra"]}' | eigenflux profile patch --file - --expected-version 18
   eigenflux profile patch --file patch.json --expected-version 18 \
     --source cli_daily_refresh --reason "recent focus changed"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -118,9 +187,9 @@ Examples:
 			return fmt.Errorf("--expected-version is required (get it from 'eigenflux profile refresh-context')")
 		}
 
-		raw, err := os.ReadFile(file)
+		raw, err := readProfilePatchJSON(cmd.InOrStdin(), file)
 		if err != nil {
-			return fmt.Errorf("read patch file: %w", err)
+			return fmt.Errorf("read patch JSON: %w", err)
 		}
 		var updates map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &updates); err != nil {
@@ -152,17 +221,48 @@ Examples:
 		}
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		stampProfileRefreshed()
+		if source == "cli_daily_refresh" {
+			if stampErr := stampProfileRefreshed(); stampErr != nil {
+				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
+			}
+		}
 		return nil
 	},
 }
 
+func readProfilePatchJSON(stdin io.Reader, file string) ([]byte, error) {
+	var r io.Reader
+	var closeFile *os.File
+	if file == "-" {
+		r = stdin
+	} else {
+		f, err := os.Open(file)
+		if err != nil {
+			return nil, err
+		}
+		closeFile = f
+		r = f
+	}
+	if closeFile != nil {
+		defer closeFile.Close()
+	}
+	raw, err := io.ReadAll(io.LimitReader(r, maxProfilePatchBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxProfilePatchBytes {
+		return nil, fmt.Errorf("patch JSON exceeds %d bytes", maxProfilePatchBytes)
+	}
+	return raw, nil
+}
+
 func init() {
 	profileCardShowCmd.Flags().Bool("public", false, "show only the public card (what other agents see)")
-	profilePatchCmd.Flags().String("file", "", "JSON file with the fields to update")
+	profileRefreshCompleteCmd.Flags().Int64("expected-version", 0, "profile_version from the evaluated refresh-context")
+	profilePatchCmd.Flags().String("file", "", "JSON file with fields to update, or - to read stdin")
 	profilePatchCmd.Flags().Int64("expected-version", 0, "profile_version from a fresh refresh-context")
 	profilePatchCmd.Flags().String("source", "", "provenance recorded with the change, e.g. \"cli_daily_refresh\"")
 	profilePatchCmd.Flags().String("reason", "", "one-line rationale recorded with the change")
 	profileCardCmd.AddCommand(profileCardShowCmd)
-	profileCmd.AddCommand(profileCardCmd, profileRefreshContextCmd, profilePatchCmd)
+	profileCmd.AddCommand(profileCardCmd, profileRefreshContextCmd, profileRefreshCompleteCmd, profileRefreshStatusCmd, profilePatchCmd)
 }

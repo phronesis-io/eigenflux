@@ -18,6 +18,32 @@ func TestEditableFieldsNeverOverlapProtectedPaths(t *testing.T) {
 	}
 }
 
+func TestValidatePublicContentBlocksHighConfidenceLeaks(t *testing.T) {
+	public, _ := LookupField("human_description")
+	for _, value := range []string{
+		"contact me at person@example.com",
+		"internal notes at https://corp.internal/runbook",
+		"api_key=super-secret-value",
+		"service is on localhost",
+		"token ghp_123456789012345678901234567890123456",
+		"aws key AKIA1234567890ABCDEF",
+		"private host 192.168.1.12",
+		"private host 172.20.1.12",
+		"-----BEGIN PRIVATE KEY-----",
+	} {
+		if err := ValidatePublicContent(public, value); err == nil {
+			t.Errorf("public sensitive value accepted: %q", value)
+		}
+	}
+	if err := ValidatePublicContent(public, "Works on generalized fintech infrastructure"); err != nil {
+		t.Errorf("safe generalized public value rejected: %v", err)
+	}
+	private, _ := LookupField("current_focus")
+	if err := ValidatePublicContent(private, []string{"debugging localhost"}); err != nil {
+		t.Errorf("private field unexpectedly subjected to public-content guard: %v", err)
+	}
+}
+
 func TestValidateValue(t *testing.T) {
 	strSpec, _ := LookupField("human_description")
 	if _, err := ValidateValue(strSpec, json.RawMessage(`"a short description"`)); err != nil {

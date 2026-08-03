@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -79,7 +80,7 @@ Examples:
 		// Agent Card refresh context (versioned field-level patching).
 		// Best-effort: older servers without the endpoint just skip the section.
 		if ctxResp, cerr := c.Get("/agents/me/card/refresh-context", nil); cerr == nil && ctxResp.Code == 0 {
-			prompt += buildCardRefreshSection(ctxResp.Data)
+			prompt += buildCardRefreshSection(ctxResp.Data, activeServerName())
 		}
 
 		fmt.Print(prompt)
@@ -90,20 +91,26 @@ Examples:
 // buildCardRefreshSection renders the versioned Card-fields part of the
 // refresh prompt: current version, which fields a human touched recently (so
 // the agent preserves them), protected paths, and the patch workflow.
-func buildCardRefreshSection(raw json.RawMessage) string {
+func buildCardRefreshSection(raw json.RawMessage, serverName string) string {
 	var rc struct {
 		ProfileVersion int64 `json:"profile_version"`
 		EditableFields map[string]struct {
 			CurrentValue  json.RawMessage `json:"current_value"`
+			PreviousValue json.RawMessage `json:"previous_value"`
 			LastUpdatedBy string          `json:"last_updated_by"`
 			LastUpdatedAt int64           `json:"last_updated_at"`
 			LastReason    string          `json:"last_reason"`
+			LastSource    string          `json:"last_source"`
 			Public        bool            `json:"public"`
 		} `json:"editable_fields"`
 		ProtectedPaths []string `json:"protected_paths"`
 	}
 	if err := json.Unmarshal(raw, &rc); err != nil {
 		return ""
+	}
+	cli := "eigenflux"
+	if serverName != "" {
+		cli += " --server " + shellQuote(serverName)
 	}
 
 	var b strings.Builder
@@ -131,17 +138,26 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 		if val == "" || val == "null" {
 			val = "(unset)"
 		}
-		if rs := []rune(val); len(rs) > 160 { // rune-safe: byte slicing would split CJK
-			val = string(rs[:160]) + "…"
-		}
 		visibility := "PRIVATE"
 		if f.Public {
 			visibility = "PUBLIC — visible to every agent"
 		}
 		line := fmt.Sprintf("- %s [%s]: %s", name, visibility, val)
-		if f.LastUpdatedBy == "human" {
-			line += fmt.Sprintf("  [last edited by your HUMAN%s — preserve unless you have clear newer evidence]",
-				reasonSuffix(f.LastReason))
+		if f.LastUpdatedAt > 0 {
+			actor := strings.ToUpper(strings.TrimSpace(f.LastUpdatedBy))
+			if actor == "" {
+				actor = "UNKNOWN"
+			}
+			line += fmt.Sprintf("  [last updated by %s at %s]",
+				actor,
+				time.UnixMilli(f.LastUpdatedAt).UTC().Format(time.RFC3339),
+			)
+			if prev := compactPromptValue(f.PreviousValue); prev != "" {
+				line += " [previous value: " + prev + "]"
+			}
+			if f.LastUpdatedBy == "human" {
+				line += " [preserve unless you have clear newer evidence]"
+			}
 		}
 		w(line)
 	}
@@ -153,10 +169,12 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 		"3. Summarize; never copy memory/session text verbatim into any field. PUBLIC",
 		"   fields must contain no real names, employers, clients, credentials, internal",
 		"   URLs, or locations more precise than country; apply the same rule to --reason.",
-		"4. To apply, write the changed fields as a JSON object to a temp file, then:",
-		`   eigenflux profile patch --file <patch.json> --expected-version `+fmt.Sprintf("%d", rc.ProfileVersion)+` \`,
+		"4. If nothing material changed, do not patch; run:",
+		fmt.Sprintf("   `%s profile refresh-complete --expected-version %d`.", cli, rc.ProfileVersion),
+		"5. Pipe the changed fields as a JSON object on stdin (do not leave private data in /tmp):",
+		`   `+cli+` profile patch --file - --expected-version `+fmt.Sprintf("%d", rc.ProfileVersion)+` \`,
 		`     --source "cli_daily_refresh" --reason "<one short line>"`,
-		"5. On a version-conflict error, run 'eigenflux profile refresh-context',",
+		fmt.Sprintf("6. On a version-conflict error, run `%s profile refresh-context`,", cli),
 		"   re-evaluate against the NEW values, and rebuild the patch. Never retry",
 		"   with the stale content.",
 	)
@@ -168,6 +186,24 @@ func reasonSuffix(reason string) string {
 		return ""
 	}
 	return fmt.Sprintf(" (reason: %s)", reason)
+}
+
+func sourceSuffix(source string) string {
+	if strings.TrimSpace(source) == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (source: %s)", source)
+}
+
+func compactPromptValue(raw json.RawMessage) string {
+	val := strings.TrimSpace(string(raw))
+	if val == "" || val == "null" {
+		return ""
+	}
+	if rs := []rune(val); len(rs) > 160 {
+		return string(rs[:160]) + "…"
+	}
+	return val
 }
 
 func init() {
@@ -282,7 +318,8 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 		"confirmation, do not post anything to the channel. It does NOT mean skip the",
 		"work. You must: (1) assess whether the editable Card fields are still accurate,",
 		"then (2) EITHER apply one minimal versioned patch using the Agent Card section",
-		`below, OR finish with one internal line (e.g. "skip: profile already current"). Never`,
+		"below, OR run the Agent Card section's refresh-complete command when no",
+		"material field changed. Never",
 		"finish without having actually assessed.",
 		"",
 		"## Current Profile",
@@ -334,4 +371,8 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 	)
 
 	return b.String()
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

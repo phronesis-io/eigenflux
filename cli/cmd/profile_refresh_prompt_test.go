@@ -2,13 +2,30 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/profilestate"
 )
+
+func tempAuthenticatedProfileHome(t *testing.T) string {
+	home := tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	srv, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatalf("active server: %v", err)
+	}
+	if err := auth.SaveCredentials(srv.Name, &auth.Credentials{AgentID: "42", AccessToken: "test"}); err != nil {
+		t.Fatalf("save test credentials: %v", err)
+	}
+	return home
+}
 
 func TestShouldPromptProfileRefresh(t *testing.T) {
 	now := time.Now().Unix()
@@ -80,26 +97,25 @@ func TestServerKVUnixRejectsUntrustedValues(t *testing.T) {
 func TestStampsRoundTripAndSuppressPrompt(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		stamp func()
+		stamp func() error
 		key   string
 	}{
 		{"write stamp", stampProfileRefreshed, kvProfileRefreshAt},
 		{"evaluate stamp", stampProfileChecked, kvProfileRefreshCheckedAt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tempHome(t)
-			tc.stamp()
+			tempAuthenticatedProfileHome(t)
+			if err := tc.stamp(); err != nil {
+				t.Fatalf("stamp: %v", err)
+			}
 
-			cfg, err := config.Load()
-			if err != nil {
-				t.Fatalf("reload config: %v", err)
-			}
-			srv, err := cfg.GetActive("")
-			if err != nil {
-				t.Fatalf("active server: %v", err)
-			}
+			srv, agentID := activeProfileStateScope()
 			now := time.Now().Unix()
-			got := serverKVUnix(cfg, srv.Name, tc.key, now)
+			state := profilestate.Load(config.HomeDir(), srv, agentID)
+			got := state.LastRefreshUnix
+			if tc.key == kvProfileRefreshCheckedAt {
+				got = state.LastCheckedUnix
+			}
 			if got <= 0 {
 				t.Fatalf("%s not persisted under the server scope the reader uses", tc.key)
 			}
@@ -112,19 +128,12 @@ func TestStampsRoundTripAndSuppressPrompt(t *testing.T) {
 
 // First run seeds the clock instead of prompting.
 func TestMaybePromptSeedsOnFirstRun(t *testing.T) {
-	tempHome(t)
+	tempAuthenticatedProfileHome(t)
 	maybePromptProfileRefresh()
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	srv, err := cfg.GetActive("")
-	if err != nil {
-		t.Fatalf("active server: %v", err)
-	}
+	srv, agentID := activeProfileStateScope()
 	now := time.Now().Unix()
-	if seeded := serverKVUnix(cfg, srv.Name, kvProfileRefreshCheckedAt, now); seeded <= 0 {
+	if seeded := profilestate.Load(config.HomeDir(), srv, agentID).LastCheckedUnix; seeded <= 0 || seeded > now {
 		t.Fatal("first run must seed the checked stamp")
 	}
 }
@@ -133,20 +142,14 @@ func TestMaybePromptSeedsOnFirstRun(t *testing.T) {
 // plugin adapter does) would otherwise spend the prompt on a block nobody can
 // read, starving the shell-side agent that shares the same config.
 func TestMaybePromptSpendsNoStateOnEmit(t *testing.T) {
-	home := tempHome(t)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	srv, err := cfg.GetActive("")
-	if err != nil {
-		t.Fatalf("active server: %v", err)
-	}
+	home := tempAuthenticatedProfileHome(t)
+	srv, agentID := activeProfileStateScope()
 	overdue := time.Now().Unix() - int64(profileRefreshStaleAfter/time.Second) - 3600
-	if err := cfg.SetServerKV(srv.Name, kvProfileRefreshAt, strconv.FormatInt(overdue, 10)); err != nil {
+	if err := profilestate.Save(config.HomeDir(), srv, agentID, profilestate.State{LastRefreshUnix: overdue}); err != nil {
 		t.Fatalf("seed overdue stamp: %v", err)
 	}
-	before, err := os.ReadFile(filepath.Join(home, "config.json"))
+	statePath := profilestate.FilePath(home, srv, agentID)
+	before, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
@@ -155,7 +158,7 @@ func TestMaybePromptSpendsNoStateOnEmit(t *testing.T) {
 		maybePromptProfileRefresh()
 	}
 
-	after, err := os.ReadFile(filepath.Join(home, "config.json"))
+	after, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("re-read config: %v", err)
 	}
@@ -165,28 +168,24 @@ func TestMaybePromptSpendsNoStateOnEmit(t *testing.T) {
 
 	// And it must still consider itself overdue, i.e. keep prompting until an
 	// actual refresh or evaluation lands.
-	reloaded, err := config.Load()
-	if err != nil {
-		t.Fatalf("reload config: %v", err)
-	}
 	now := time.Now().Unix()
+	reloaded := profilestate.Load(config.HomeDir(), srv, agentID)
 	touch := maxInt64(
-		serverKVUnix(reloaded, srv.Name, kvProfileRefreshAt, now),
-		serverKVUnix(reloaded, srv.Name, kvProfileRefreshCheckedAt, now),
+		validProfileStamp(reloaded.LastRefreshUnix, now),
+		validProfileStamp(reloaded.LastCheckedUnix, now),
 	)
 	if !shouldPromptProfileRefresh(touch, now) {
 		t.Error("prompt went quiet without any refresh or evaluation landing")
 	}
 
 	// Evaluating settles it.
-	stampProfileChecked()
-	settled, err := config.Load()
-	if err != nil {
-		t.Fatalf("reload after check: %v", err)
+	if err := stampProfileChecked(); err != nil {
+		t.Fatalf("settle profile state: %v", err)
 	}
+	settled := profilestate.Load(config.HomeDir(), srv, agentID)
 	touch = maxInt64(
-		serverKVUnix(settled, srv.Name, kvProfileRefreshAt, now),
-		serverKVUnix(settled, srv.Name, kvProfileRefreshCheckedAt, now),
+		validProfileStamp(settled.LastRefreshUnix, now),
+		validProfileStamp(settled.LastCheckedUnix, now),
 	)
 	if shouldPromptProfileRefresh(touch, now) {
 		t.Error("evaluating the profile must settle the prompt")

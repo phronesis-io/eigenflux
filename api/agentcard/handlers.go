@@ -6,10 +6,12 @@ package agentcardapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -30,7 +32,8 @@ import (
 
 const (
 	// maxFieldsPerUpdate bounds one PUT /agents/me/profile/fields request.
-	maxFieldsPerUpdate = 32
+	maxFieldsPerUpdate  = 32
+	maxProfileBodyBytes = 128 << 10
 	// publicCardRateLimit / publicCardRateWindow throttle per-viewer reads of
 	// other agents' cards (first cross-agent profile read endpoint).
 	publicCardRateLimit  = 120
@@ -43,16 +46,51 @@ const (
 	refreshContextRateWindow = time.Minute
 	profileWriteMinuteLimit  = 10
 	profileWriteMinuteWindow = time.Minute
-	profileWriteDailyLimit   = 100
-	profileWriteDailyWindow  = 24 * time.Hour
+	// Twenty writes/day is far above the expected one daily refresh while
+	// keeping the fleet-wide worst case below the cleanup job's daily capacity.
+	profileWriteDailyLimit  = 20
+	profileWriteDailyWindow = 24 * time.Hour
 )
 
 var fixedWindowCounterScript = redis.NewScript(`
-local count = redis.call("INCR", KEYS[1])
-if count == 1 then
-  redis.call("EXPIRE", KEYS[1], ARGV[1])
+local t = redis.call("TIME")
+local now = t[1] * 1000 + math.floor(t[2] / 1000)
+local window = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now - window)
+local count = redis.call("ZCARD", KEYS[1])
+if count >= limit then
+  return {0, count}
 end
-return count
+local seq = redis.call("INCR", KEYS[2])
+redis.call("PEXPIRE", KEYS[2], window + 1000)
+redis.call("ZADD", KEYS[1], now, tostring(now) .. ":" .. tostring(seq))
+redis.call("PEXPIRE", KEYS[1], window + 1000)
+return {1, count + 1}
+`)
+
+var profileWriteCounterScript = redis.NewScript(`
+local t = redis.call("TIME")
+local now = t[1] * 1000 + math.floor(t[2] / 1000)
+local minute_window = tonumber(ARGV[1])
+local day_window = tonumber(ARGV[2])
+local minute_limit = tonumber(ARGV[3])
+local day_limit = tonumber(ARGV[4])
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now - minute_window)
+redis.call("ZREMRANGEBYSCORE", KEYS[2], "-inf", now - day_window)
+local minute_count = redis.call("ZCARD", KEYS[1])
+local day_count = redis.call("ZCARD", KEYS[2])
+if minute_count >= minute_limit or day_count >= day_limit then
+  return {0, minute_count, day_count}
+end
+local seq = redis.call("INCR", KEYS[3])
+local member = tostring(now) .. ":" .. tostring(seq)
+redis.call("PEXPIRE", KEYS[3], day_window + 1000)
+redis.call("ZADD", KEYS[1], now, member)
+redis.call("ZADD", KEYS[2], now, member)
+redis.call("PEXPIRE", KEYS[1], minute_window + 1000)
+redis.call("PEXPIRE", KEYS[2], day_window + 1000)
+return {1, minute_count + 1, day_count + 1}
 `)
 
 // Register wires the Agent Card routes onto the gateway.
@@ -90,7 +128,13 @@ func callerAgentID(c *app.RequestContext) (int64, bool) {
 func loadCardRebuildOnMiss(ctx context.Context, agentID int64) (*profiledal.AgentCard, error) {
 	card, err := profiledal.GetAgentCard(db.DB, agentID)
 	if err == nil {
-		return card, nil
+		if card.SchemaVersion == agentcard.SchemaVersion {
+			return card, nil
+		}
+		if rerr := agentcard.Rebuild(ctx, db.DB, mq.RDB, agentID); rerr != nil {
+			return nil, rerr
+		}
+		return profiledal.GetAgentCard(db.DB, agentID)
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -102,6 +146,12 @@ func loadCardRebuildOnMiss(ctx context.Context, agentID int64) (*profiledal.Agen
 }
 
 // GetMyCard returns the caller's full card (public + private projections).
+// @Summary Get the authenticated agent's full Agent Card
+// @Tags Agent Card
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/agents/me/card [get]
 func GetMyCard(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := callerAgentID(c)
 	if !ok {
@@ -113,8 +163,9 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
 		return
 	}
+	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, agentID)
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"public":       json.RawMessage(card.PublicCard),
+		"public":       publicCard,
 		"private":      json.RawMessage(card.PrivateCard),
 		"card_version": card.CardVersion,
 		"generated_at": card.GeneratedAt,
@@ -124,6 +175,13 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 // GetPublicCard returns another agent's public card plus the viewer-relative
 // relation block. Blocked pairs (either direction) get an indistinguishable
 // 404 so blocking is not observable.
+// @Summary Get an agent's public Agent Card
+// @Tags Agent Card
+// @Produce json
+// @Security BearerAuth
+// @Param agent_id path string true "Agent ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/agents/{agent_id}/card [get]
 func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 	viewerID, ok := callerAgentID(c)
 	if !ok {
@@ -135,7 +193,15 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	if !allowPublicCardRead(ctx, viewerID) {
+	allowed, rateErr := checkFixedWindow(ctx, mq.RDB, viewerID, "public-card", publicCardRateLimit, publicCardRateWindow, time.Now())
+	if rateErr != nil {
+		logger.Ctx(ctx).Error("public card rate limiter unavailable, failing closed", "viewerID", viewerID, "err", rateErr)
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusServiceUnavailable, 503, "card reads are temporarily unavailable", nil)
+		return
+	}
+	if !allowed {
+		c.Header("Retry-After", "60")
 		respond(c, http.StatusTooManyRequests, 429, "too many card reads, slow down", nil)
 		return
 	}
@@ -169,10 +235,35 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, targetID)
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"card":               json.RawMessage(card.PublicCard),
+		"card":               publicCard,
 		"relation_to_viewer": relationToViewer(viewerID, targetID),
 	})
+}
+
+// overlayCurrentLastActive keeps the hot activity signal current without
+// rebuilding the whole projection on every authenticated request. If Redis or
+// JSON decoding is unavailable, the persisted card remains a safe fallback.
+func overlayCurrentLastActive(ctx context.Context, raw string, agentID int64) json.RawMessage {
+	lastActive, ok := agentcard.GetLastActive(ctx, mq.RDB, agentID)
+	if !ok {
+		return json.RawMessage(raw)
+	}
+	return overlayLastActive(raw, lastActive)
+}
+
+func overlayLastActive(raw string, lastActive int64) json.RawMessage {
+	var card map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &card); err != nil {
+		return json.RawMessage(raw)
+	}
+	card["last_active_at"] = lastActive
+	b, err := json.Marshal(card)
+	if err != nil {
+		return json.RawMessage(raw)
+	}
+	return json.RawMessage(b)
 }
 
 // relationToViewer is viewer-relative and therefore computed at read time,
@@ -202,81 +293,141 @@ func allowPublicCardRead(ctx context.Context, viewerID int64) bool {
 	return allowFixedWindow(ctx, mq.RDB, viewerID, "public-card", publicCardRateLimit, publicCardRateWindow, time.Now())
 }
 
-// allowFixedWindow applies a per-agent fixed-window counter. Redis failures
-// fail open so a limiter outage cannot take profile/card APIs down, but the
-// failure is logged with the scope so it is operationally visible.
-func allowFixedWindow(ctx context.Context, rdb *redis.Client, agentID int64, scope string, limit int64, window time.Duration, now time.Time) bool {
+// checkFixedWindow retains its historical name but applies an exact rolling
+// window, using Redis TIME so gateway clock skew cannot split a caller's quota.
+func checkFixedWindow(ctx context.Context, rdb *redis.Client, agentID int64, scope string, limit int64, window time.Duration, now time.Time) (bool, error) {
+	_ = now // retained in the helper signature for deterministic legacy callers; Redis TIME is authoritative.
 	if rdb == nil {
-		logger.Ctx(ctx).Warn("agent card rate limiter unavailable, failing open", "agentID", agentID, "scope", scope, "err", "redis client is nil")
-		return true
+		return false, fmt.Errorf("redis client is nil")
 	}
-	windowSeconds := int64(window.Seconds())
-	if limit <= 0 || windowSeconds <= 0 {
-		logger.Ctx(ctx).Warn("invalid agent card rate limit, failing open", "agentID", agentID, "scope", scope, "limit", limit, "window", window)
-		return true
+	windowMs := window.Milliseconds()
+	if limit <= 0 || windowMs <= 0 {
+		return false, fmt.Errorf("invalid rate limit: limit=%d window=%s", limit, window)
 	}
-	key := fmt.Sprintf("agentcard:rl:%s:%d:%d", scope, agentID, now.Unix()/windowSeconds)
-	n, err := fixedWindowCounterScript.Run(ctx, rdb, []string{key}, windowSeconds+1).Int64()
+	key := fmt.Sprintf("agentcard:rl:%s:%d", scope, agentID)
+	seqKey := key + ":seq"
+	result, err := fixedWindowCounterScript.Run(ctx, rdb, []string{key, seqKey}, windowMs, limit).Int64Slice()
+	if err != nil {
+		return false, err
+	}
+	if len(result) != 2 {
+		return false, fmt.Errorf("unexpected rolling limiter response: %v", result)
+	}
+	return result[0] == 1, nil
+}
+
+// allowFixedWindow is the fail-open read wrapper. Rate limiting must not take
+// card reads or refresh-context down when Redis is unavailable.
+func allowFixedWindow(ctx context.Context, rdb *redis.Client, agentID int64, scope string, limit int64, window time.Duration, now time.Time) bool {
+	allowed, err := checkFixedWindow(ctx, rdb, agentID, scope, limit, window, now)
 	if err != nil {
 		logger.Ctx(ctx).Warn("agent card rate limiter unavailable, failing open", "agentID", agentID, "scope", scope, "err", err)
 		return true
 	}
-	return n <= limit
+	return allowed
+}
+
+// CheckProfileWriteRate applies the same write quota to both the versioned
+// fields endpoint and the legacy name/bio compatibility endpoint. Unlike
+// reads, writes fail closed when Redis is unavailable: unbounded writes grow
+// audit/WAL data and may enqueue costly profile reprocessing.
+func CheckProfileWriteRate(ctx context.Context, agentID int64) (bool, error) {
+	return checkProfileWriteRate(ctx, mq.RDB, agentID, time.Now())
+}
+
+func checkProfileWriteRate(ctx context.Context, rdb *redis.Client, agentID int64, now time.Time) (bool, error) {
+	_ = now // Redis TIME is authoritative across gateway instances.
+	if rdb == nil {
+		return false, fmt.Errorf("redis client is nil")
+	}
+	minuteMs := profileWriteMinuteWindow.Milliseconds()
+	dayMs := profileWriteDailyWindow.Milliseconds()
+	minuteKey := fmt.Sprintf("agentcard:rl:profile-write-minute:%d", agentID)
+	dayKey := fmt.Sprintf("agentcard:rl:profile-write-day:%d", agentID)
+	seqKey := fmt.Sprintf("agentcard:rl:profile-write-seq:%d", agentID)
+	counts, err := profileWriteCounterScript.Run(
+		ctx, rdb, []string{minuteKey, dayKey, seqKey}, minuteMs, dayMs,
+		profileWriteMinuteLimit, profileWriteDailyLimit,
+	).Int64Slice()
+	if err != nil {
+		return false, err
+	}
+	if len(counts) != 3 {
+		return false, fmt.Errorf("unexpected profile write limiter response: %v", counts)
+	}
+	return counts[0] == 1, nil
 }
 
 // GetRefreshContext gives the agent everything it needs before an automated
 // refresh: current version, per-field current/previous value + last actor,
 // and the protected paths it must not write.
+// @Summary Get versioned Agent Card refresh context
+// @Tags Agent Card
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/agents/me/card/refresh-context [get]
 func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := callerAgentID(c)
 	if !ok {
 		return
 	}
-	if !allowFixedWindow(ctx, mq.RDB, agentID, "refresh-context", refreshContextRateLimit, refreshContextRateWindow, time.Now()) {
+	allowed, rateErr := checkFixedWindow(ctx, mq.RDB, agentID, "refresh-context", refreshContextRateLimit, refreshContextRateWindow, time.Now())
+	if rateErr != nil {
+		logger.Ctx(ctx).Error("refresh-context rate limiter unavailable, failing closed", "agentID", agentID, "err", rateErr)
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusServiceUnavailable, 503, "profile refresh context is temporarily unavailable", nil)
+		return
+	}
+	if !allowed {
+		c.Header("Retry-After", "60")
 		respond(c, http.StatusTooManyRequests, 429, "too many profile refresh reads, slow down", nil)
 		return
 	}
-	agent, err := profiledal.GetAgentByID(db.DB, agentID)
-	if err != nil {
-		respond(c, http.StatusNotFound, 404, "agent not found", nil)
-		return
-	}
-	version, profileData, err := profiledal.GetProfileVersionAndData(db.DB, agentID)
-	if err != nil {
-		logger.Ctx(ctx).Error("GetRefreshContext read failed", "agentID", agentID, "err", err)
-		respond(c, http.StatusInternalServerError, 500, "failed to load profile", nil)
-		return
-	}
-
 	type lastChange struct {
 		prevValue json.RawMessage
 		updatedAt int64
 		actorType string
-		reason    string
-		source    string
 	}
+	var agent *profiledal.Agent
+	var version int64
+	var profileData map[string]json.RawMessage
 	lastByPath := map[string]lastChange{}
-	if events, eerr := profiledal.ListRecentProfileChangeEvents(db.DB, agentID, 200); eerr == nil {
-		for _, ev := range events { // newest first; first hit per path wins
-			var paths []string
-			if json.Unmarshal([]byte(ev.ChangedPaths), &paths) != nil {
-				continue
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var readErr error
+		agent, readErr = profiledal.GetAgentByID(tx, agentID)
+		if readErr != nil {
+			return readErr
+		}
+		version, profileData, readErr = profiledal.GetProfileVersionAndData(tx, agentID)
+		if readErr != nil {
+			return readErr
+		}
+		latestChanges, readErr := profiledal.ListLatestProfileFieldChanges(tx, agentID)
+		if readErr != nil {
+			return readErr
+		}
+		for _, change := range latestChanges {
+			prev := json.RawMessage(nil)
+			if change.PreviousValue != "" && change.PreviousValue != "null" {
+				prev = json.RawMessage(change.PreviousValue)
 			}
-			var prevVals map[string]json.RawMessage
-			_ = json.Unmarshal([]byte(ev.PreviousValues), &prevVals)
-			for _, p := range paths {
-				if _, seen := lastByPath[p]; seen {
-					continue
-				}
-				lastByPath[p] = lastChange{
-					prevValue: prevVals[p],
-					updatedAt: ev.CreatedAt,
-					actorType: ev.ActorType,
-					reason:    ev.Reason,
-					source:    ev.Source,
-				}
+			lastByPath[change.Path] = lastChange{
+				prevValue: prev,
+				updatedAt: change.UpdatedAt,
+				actorType: change.ActorType,
 			}
 		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			respond(c, http.StatusNotFound, 404, "agent not found", nil)
+			return
+		}
+		logger.Ctx(ctx).Error("GetRefreshContext snapshot read failed", "agentID", agentID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to load profile refresh context", nil)
+		return
 	}
 
 	editable := map[string]interface{}{}
@@ -303,8 +454,6 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 			}
 			entry["last_updated_at"] = lc.updatedAt
 			entry["last_updated_by"] = lc.actorType
-			entry["last_reason"] = lc.reason
-			entry["last_source"] = lc.source
 		}
 		editable[spec.Name] = entry
 	}
@@ -316,7 +465,7 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-type profileFieldsReq struct {
+type ProfileFieldsReq struct {
 	ExpectedVersion *int64                     `json:"expected_version"`
 	Updates         map[string]json.RawMessage `json:"updates"`
 	Source          string                     `json:"source"`
@@ -327,14 +476,17 @@ type profileFieldsReq struct {
 // to the fact tables (agents / agent_profiles.profile_data); the card is
 // rebuilt asynchronously. actor_type is derived from the credential (agent
 // token ⇒ "agent"), never trusted from the request body.
+// @Summary Apply a versioned field-level profile patch
+// @Tags Agent Card
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body ProfileFieldsReq true "Expected version and changed fields"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/agents/me/profile/fields [put]
 func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := callerAgentID(c)
 	if !ok {
-		return
-	}
-	if !allowFixedWindow(ctx, mq.RDB, agentID, "profile-write-minute", profileWriteMinuteLimit, profileWriteMinuteWindow, time.Now()) ||
-		!allowFixedWindow(ctx, mq.RDB, agentID, "profile-write-day", profileWriteDailyLimit, profileWriteDailyWindow, time.Now()) {
-		respond(c, http.StatusTooManyRequests, 429, "too many profile updates, slow down", nil)
 		return
 	}
 	body, berr := c.Body()
@@ -342,7 +494,11 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, "failed to read request body", nil)
 		return
 	}
-	var req profileFieldsReq
+	if len(body) > maxProfileBodyBytes {
+		respond(c, http.StatusRequestEntityTooLarge, 413, fmt.Sprintf("profile update body exceeds %d bytes", maxProfileBodyBytes), nil)
+		return
+	}
+	var req ProfileFieldsReq
 	if err := json.Unmarshal(body, &req); err != nil {
 		respond(c, http.StatusBadRequest, 400, "invalid JSON body", nil)
 		return
@@ -385,6 +541,10 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 			respond(c, http.StatusUnprocessableEntity, 422, verr.Error(), nil)
 			return
 		}
+		if perr := agentcard.ValidatePublicContent(spec, val); perr != nil {
+			respond(c, http.StatusUnprocessableEntity, 422, perr.Error(), nil)
+			return
+		}
 		normalized, merr := json.Marshal(val)
 		if merr != nil {
 			respond(c, http.StatusInternalServerError, 500, merr.Error(), nil)
@@ -408,39 +568,89 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 		changedPaths = append(changedPaths, name)
 		newValues[name] = json.RawMessage(normalized)
 	}
+	// Invalid JSON and invalid fields never consume the authenticated request
+	// quota. Conflicts still do: they reach the protected DB path and a caller
+	// can otherwise use stale versions as an unbounded read-amplification loop.
+	allowed, rateErr := CheckProfileWriteRate(ctx, agentID)
+	if rateErr != nil {
+		logger.Ctx(ctx).Error("profile write rate limiter unavailable, failing closed", "agentID", agentID, "err", rateErr)
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusServiceUnavailable, 503, "profile updates are temporarily unavailable", nil)
+		return
+	}
+	if !allowed {
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusTooManyRequests, 429, "too many profile updates, slow down", nil)
+		return
+	}
 
 	var newVersion int64
 	var conflict bool
 	var bioChanged bool
+	var noChanges bool
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		// Lock agents first on every profile writer. The legacy RPC path uses
+		// the same order; taking agent_profiles first here would recreate the
+		// AB-BA deadlock this endpoint was designed to avoid.
+		agent, err := profiledal.GetAgentByIDForUpdate(tx, agentID)
+		if err != nil {
+			return err
+		}
 		if err := profiledal.EnsureAgentProfileRow(tx, agentID); err != nil {
 			return err
 		}
-		agent, err := profiledal.GetAgentByID(tx, agentID)
+		currentVersion, prevData, err := profiledal.GetProfileVersionAndData(tx, agentID)
 		if err != nil {
 			return err
 		}
-		_, prevData, err := profiledal.GetProfileVersionAndData(tx, agentID)
-		if err != nil {
-			return err
+		if currentVersion != *req.ExpectedVersion {
+			conflict = true
+			return errVersionConflict
 		}
 
-		// Previous values for the audit event, from the same snapshot the
-		// conditional update is about to replace.
+		// Filter semantic no-ops before touching facts or audit state. Repeating
+		// a human-edited value must not relabel its latest actor as "agent".
+		actualPaths := make([]string, 0, len(changedPaths))
+		actualAgentUpdates := map[string]interface{}{}
+		actualPDMerge := map[string]json.RawMessage{}
+		actualNewValues := map[string]json.RawMessage{}
 		prevValues := map[string]json.RawMessage{}
 		for _, p := range changedPaths {
 			switch p {
 			case "agent_name":
+				if agentsUpdates["agent_name"].(string) == agent.AgentName {
+					continue
+				}
 				b, _ := json.Marshal(agent.AgentName)
 				prevValues[p] = b
+				actualAgentUpdates["agent_name"] = agentsUpdates["agent_name"]
 			case "agent_description":
+				if agentsUpdates["bio"].(string) == agent.Bio {
+					continue
+				}
 				b, _ := json.Marshal(agent.Bio)
 				prevValues[p] = b
+				actualAgentUpdates["bio"] = agentsUpdates["bio"]
 			default:
 				if raw, ok := prevData[p]; ok {
+					if jsonValuesEqual(raw, newValues[p]) {
+						continue
+					}
 					prevValues[p] = raw
 				}
+				actualPDMerge[p] = pdMerge[p]
 			}
+			actualPaths = append(actualPaths, p)
+			actualNewValues[p] = newValues[p]
+		}
+		changedPaths = actualPaths
+		agentsUpdates = actualAgentUpdates
+		pdMerge = actualPDMerge
+		newValues = actualNewValues
+		if len(changedPaths) == 0 {
+			newVersion = currentVersion
+			noChanges = true
+			return nil
 		}
 
 		// Row-lock order MUST match the legacy UpdateProfile transaction
@@ -508,7 +718,9 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 		})
 		activity.PublishProfileUpdate(ctx, agentID)
 	}
-	agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")
+	if !noChanges {
+		agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")
+	}
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"profile_version": newVersion,
@@ -517,6 +729,15 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 }
 
 var errVersionConflict = errors.New("profile version conflict")
+
+func jsonValuesEqual(a, b json.RawMessage) bool {
+	var av interface{}
+	var bv interface{}
+	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
+}
 
 func truncate(s string, max int) string {
 	rs := []rune(s)

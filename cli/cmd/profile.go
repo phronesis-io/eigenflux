@@ -86,12 +86,6 @@ Examples:
 		}
 		output.PrintMessage("Profile updated")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		// Only a bio write counts as a refresh: --name alone renames the agent
-		// without touching any of the fields that decay.
-		if bio != "" {
-			stampProfileRefreshed()
-		}
-
 		// Refresh cached profile after update.
 		if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
 			cacheProfile(meResp.Data)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/profile"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/reqinfo"
@@ -64,54 +66,66 @@ func (s *ProfileServiceImpl) RegisterAgent(ctx context.Context, req *profile.Reg
 
 func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.UpdateProfileReq) (*profile.UpdateProfileResp, error) {
 	logger.Ctx(ctx).Info("UpdateProfile called", "agentID", req.AgentId)
-	// Build update map from provided fields
-	updates := make(map[string]interface{})
-	bioChanged := false
-
-	if req.AgentName != nil && *req.AgentName != "" {
-		updates["agent_name"] = *req.AgentName
-	}
-	if req.Bio != nil {
-		updates["bio"] = *req.Bio
-		bioChanged = true
-	}
-
-	if len(updates) == 0 {
+	if (req.AgentName == nil || *req.AgentName == "") && req.Bio == nil {
 		return &profile.UpdateProfileResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "no fields to update"},
 		}, nil
 	}
-
-	// Check if profile should be marked as completed
-	agent, err := dal.GetAgentByID(db.DB, req.AgentId)
-	if err != nil {
-		return &profile.UpdateProfileResp{
-			BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"},
-		}, nil
-	}
-
-	// Determine the final values after the update
-	finalAgentName := agent.AgentName
-	if v, ok := updates["agent_name"]; ok {
-		finalAgentName = v.(string)
-	}
-	finalBio := agent.Bio
-	if v, ok := updates["bio"]; ok {
-		finalBio = v.(string)
-	}
-
-	profileJustCompleted := false
-	if agent.ProfileCompletedAt == nil && finalAgentName != "" && finalBio != "" {
-		now := time.Now().UnixMilli()
-		updates["profile_completed_at"] = now
-		profileJustCompleted = true
+	for field, value := range map[string]*string{
+		"agent_name":        req.AgentName,
+		"agent_description": req.Bio,
+	} {
+		if value == nil {
+			continue
+		}
+		spec, _ := agentcard.LookupField(field)
+		raw, _ := json.Marshal(*value)
+		normalized, validationErr := agentcard.ValidateValue(spec, raw)
+		if validationErr == nil {
+			validationErr = agentcard.ValidatePublicContent(spec, normalized)
+		}
+		if validationErr != nil {
+			return &profile.UpdateProfileResp{BaseResp: &base.BaseResp{Code: 422, Msg: validationErr.Error()}}, nil
+		}
 	}
 
 	// The write, its audit records and the optimistic-lock version bump commit
 	// atomically, so field-level writers (PUT /agents/me/profile/fields) racing
 	// this legacy path get a clean 409 instead of a silent overwrite.
 	prov := reqinfo.BioProvenanceFromContext(ctx)
-	err = db.DB.Transaction(func(tx *gorm.DB) error {
+	profileJustCompleted := false
+	bioChanged := false
+	nameChanged := false
+	resultMsg := "no_change"
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		agent, err := dal.GetAgentByIDForUpdate(tx, req.AgentId)
+		if err != nil {
+			return err
+		}
+		updates := make(map[string]interface{})
+		finalAgentName := agent.AgentName
+		if req.AgentName != nil && *req.AgentName != "" {
+			finalAgentName = *req.AgentName
+			if finalAgentName != agent.AgentName {
+				updates["agent_name"] = finalAgentName
+				nameChanged = true
+			}
+		}
+		finalBio := agent.Bio
+		if req.Bio != nil {
+			finalBio = *req.Bio
+			if finalBio != agent.Bio {
+				updates["bio"] = finalBio
+				bioChanged = true
+			}
+		}
+		if agent.ProfileCompletedAt == nil && finalAgentName != "" && finalBio != "" {
+			updates["profile_completed_at"] = time.Now().UnixMilli()
+			profileJustCompleted = true
+		}
+		if len(updates) == 0 {
+			return nil
+		}
 		if err := dal.UpdateAgentFields(tx, req.AgentId, updates); err != nil {
 			return err
 		}
@@ -128,14 +142,14 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 		// automated refresh actually took effect. prov.Source / prov.Note are the
 		// agent's self-reported provenance (memory/session/broadcast), empty for a
 		// manual update.
-		if bioChanged && finalBio != agent.Bio {
+		if bioChanged {
 			if herr := dal.InsertBioHistory(tx, req.AgentId, agent.Bio, finalBio, prov.Source, prov.Note); herr != nil {
 				return herr
 			}
 			logger.Ctx(ctx).Info("bio_history_recorded",
 				"agentID", req.AgentId,
 				"source", prov.Source,
-				"note", prov.Note,
+				"note_len", len(prov.Note),
 				"prev_len", len(agent.Bio),
 				"new_len", len(finalBio),
 			)
@@ -147,12 +161,12 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 		paths := make([]string, 0, 2)
 		prevVals := map[string]string{}
 		newVals := map[string]string{}
-		if _, ok := updates["agent_name"]; ok && finalAgentName != agent.AgentName {
+		if nameChanged {
 			paths = append(paths, "agent_name")
 			prevVals["agent_name"] = agent.AgentName
 			newVals["agent_name"] = finalAgentName
 		}
-		if bioChanged && finalBio != agent.Bio {
+		if bioChanged {
 			paths = append(paths, "agent_description")
 			prevVals["agent_description"] = agent.Bio
 			newVals["agent_description"] = finalBio
@@ -175,9 +189,22 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 				return err
 			}
 		}
+		switch {
+		case nameChanged && bioChanged:
+			resultMsg = "name_and_bio_changed"
+		case bioChanged:
+			resultMsg = "bio_changed"
+		case nameChanged:
+			resultMsg = "name_changed"
+		default:
+			resultMsg = "profile_metadata_only"
+		}
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &profile.UpdateProfileResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
+		}
 		return &profile.UpdateProfileResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
 		}, nil
@@ -190,7 +217,7 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 
 	return &profile.UpdateProfileResp{
 		ProfileJustCompleted: &profileJustCompleted,
-		BaseResp:             &base.BaseResp{Code: 0, Msg: "success"},
+		BaseResp:             &base.BaseResp{Code: 0, Msg: resultMsg},
 	}, nil
 }
 

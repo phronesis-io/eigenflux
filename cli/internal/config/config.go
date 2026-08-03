@@ -250,6 +250,18 @@ func (c *Config) GetServerKV(serverName, key string) (string, bool, error) {
 	return "", false, nil
 }
 
+// GetServerOnlyKV reads only the named server's private KV map. Internal
+// per-account bookkeeping must use this form so a legacy global value cannot
+// suppress work for every configured server.
+func (c *Config) GetServerOnlyKV(serverName, key string) (string, bool, error) {
+	i := c.findServer(serverName)
+	if i < 0 {
+		return "", false, fmt.Errorf("server %q not found", serverName)
+	}
+	v, ok := c.Servers[i].KV[key]
+	return v, ok, nil
+}
+
 // SetServerKV stores value under key in the named server's KV map and persists.
 // Passing an empty value deletes the entry.
 func (c *Config) SetServerKV(serverName, key, value string) error {

@@ -38,11 +38,10 @@ type TopItem struct {
 // (relations, keywords, influence), equal-version rebuilds are last-write-wins
 // by design; the hourly cron reconciler bounds any stale window.
 func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
-	profileVersion, profileData, err := profiledal.GetProfileVersionAndData(gdb, agentID)
+	profileVersion, profileData, profileUpdatedAt, err := profiledal.GetProfileVersionDataAndUpdatedAt(gdb, agentID)
 	if err != nil {
 		return err
 	}
-
 	agent, err := profiledal.GetAgentByID(gdb, agentID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -50,6 +49,8 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 		}
 		return err
 	}
+	publicUpdatedAt := agent.UpdatedAt
+	privateUpdatedAt := profileUpdatedAt
 	var keywords []string
 	country := ""
 	if prof, perr := profiledal.GetAgentProfile(gdb, agentID); perr == nil {
@@ -57,17 +58,51 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 		if prof.Keywords != "" {
 			keywords = strings.Split(prof.Keywords, ",")
 		}
+	} else if !errors.Is(perr, gorm.ErrRecordNotFound) {
+		return perr
 	}
 
 	// agent_settings, read without the row-creating GetSettings side effect.
 	var settings struct {
 		ClientHost             string
+		Mode                   string
 		FeedDeliveryPreference string
+		UpdatedAt              int64
 	}
-	_ = gdb.Table("agent_settings").
-		Select("client_host, feed_delivery_preference").
+	if err := gdb.Table("agent_settings").
+		Select("client_host, mode, feed_delivery_preference, updated_at").
 		Where("agent_id = ?", agentID).
-		Scan(&settings).Error
+		Scan(&settings).Error; err != nil {
+		return err
+	}
+	runtime := settings.Mode
+	if settings.Mode == "plugin" && settings.ClientHost != "" {
+		runtime = settings.ClientHost
+	} else if runtime == "" {
+		runtime = settings.ClientHost
+	}
+	if runtime != "" && settings.UpdatedAt > publicUpdatedAt {
+		publicUpdatedAt = settings.UpdatedAt
+	}
+	if settings.FeedDeliveryPreference != "" && settings.UpdatedAt > privateUpdatedAt {
+		privateUpdatedAt = settings.UpdatedAt
+	}
+	if latestChanges, lerr := profiledal.ListLatestProfileFieldChanges(gdb, agentID); lerr == nil {
+		for _, change := range latestChanges {
+			spec, ok := LookupField(change.Path)
+			if !ok {
+				continue
+			}
+			if spec.Public && change.UpdatedAt > publicUpdatedAt {
+				publicUpdatedAt = change.UpdatedAt
+			}
+			if !spec.Public && change.UpdatedAt > privateUpdatedAt {
+				privateUpdatedAt = change.UpdatedAt
+			}
+		}
+	} else {
+		return lerr
+	}
 
 	relations, err := pmdal.CountFriends(gdb, agentID)
 	if err != nil {
@@ -76,9 +111,12 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 
 	influence, err := itemdal.GetAgentInfluenceMetrics(gdb, agentID)
 	if err != nil {
-		influence = &itemdal.InfluenceMetrics{}
+		return err
 	}
-	topItems := loadTopItems(gdb, agentID, 10)
+	topItems, err := loadTopItems(gdb, agentID, 10)
+	if err != nil {
+		return err
+	}
 
 	pub := map[string]interface{}{
 		"schema_version":    SchemaVersion,
@@ -86,11 +124,12 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 		"agent_name":        agent.AgentName,
 		"agent_description": agent.Bio,
 		"human_description": rawOr(profileData, "human_description", ""),
-		"runtime":           settings.ClientHost,
+		"runtime":           runtime,
 		"working_languages": rawOr(profileData, "working_languages", []string{}),
 		"joined_at":         agent.CreatedAt,
 		"seeking":           rawOr(profileData, "seeking", []string{}),
 		"offering":          rawOr(profileData, "offering", []string{}),
+		"updated_at":        publicUpdatedAt,
 		"is_official":       agent.IsOfficial,
 		// No verification capability yet: "unavailable" + nulls mean "the
 		// system cannot confirm", never "not verified". Server-owned.
@@ -124,6 +163,7 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 		"interests_negative":  rawOr(profileData, "interests_negative", []string{}),
 		"interrupt_threshold": rawOr(profileData, "interrupt_threshold", map[string]interface{}{}),
 		"relations":           relations,
+		"updated_at":          privateUpdatedAt,
 	}
 
 	pubJSON, err := json.Marshal(pub)
@@ -157,9 +197,9 @@ func buildInfluence(ctx context.Context, rdb *redis.Client, agentID int64, m *it
 	return out
 }
 
-// loadTopItems returns the agent's highest-scored broadcasts. Best-effort —
-// an empty list on error keeps the rebuild going.
-func loadTopItems(gdb *gorm.DB, agentID int64, limit int) []TopItem {
+// loadTopItems returns the agent's highest-scored broadcasts. Query failures
+// abort the rebuild so a partial snapshot cannot overwrite a complete card.
+func loadTopItems(gdb *gorm.DB, agentID int64, limit int) ([]TopItem, error) {
 	var rows []struct {
 		ItemID     int64
 		TotalScore int64
@@ -173,7 +213,7 @@ func loadTopItems(gdb *gorm.DB, agentID int64, limit int) []TopItem {
 		Limit(limit).
 		Scan(&rows).Error
 	if err != nil {
-		return []TopItem{}
+		return nil, err
 	}
 	out := make([]TopItem, 0, len(rows))
 	for _, r := range rows {
@@ -187,7 +227,7 @@ func loadTopItems(gdb *gorm.DB, agentID int64, limit int) []TopItem {
 			Summary: summary,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // rawOr returns profileData[key] decoded as-is, or fallback when absent/invalid.

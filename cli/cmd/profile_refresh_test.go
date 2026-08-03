@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -28,17 +29,38 @@ func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 	}
 }
 
+func TestBuildCardRefreshSectionKeepsFullCurrentValue(t *testing.T) {
+	longValue := strings.Repeat("界", 220)
+	raw := []byte(fmt.Sprintf(`{"profile_version":9,"editable_fields":{"agent_description":{"current_value":%q,"public":true}},"protected_paths":[]}`, longValue))
+	out := buildCardRefreshSection(raw, "staging")
+	if !strings.Contains(out, longValue) {
+		t.Fatal("refresh prompt truncated the current value used for diff decisions")
+	}
+}
+
 func TestBuildCardRefreshSectionMarksVisibilityAndPrivacy(t *testing.T) {
-	raw := []byte(`{"profile_version":7,"editable_fields":{"seeking":{"current_value":["AI infra"],"public":true},"current_focus":{"current_value":["shipping"],"public":false}},"protected_paths":["runtime"]}`)
-	out := buildCardRefreshSection(raw)
+	raw := []byte(`{"profile_version":7,"editable_fields":{"seeking":{"current_value":["AI infra"],"previous_value":["MCP help"],"last_updated_by":"human","last_updated_at":1700000000000,"last_source":"dashboard","last_reason":"goal changed","public":true},"current_focus":{"current_value":["shipping"],"public":false}},"protected_paths":["runtime"]}`)
+	out := buildCardRefreshSection(raw, "staging")
 	for _, want := range []string{
 		"seeking [PUBLIC — visible to every agent]",
 		"current_focus [PRIVATE]",
 		"--expected-version 7",
 		"real names, employers, clients",
+		"last updated by HUMAN at 2023-11-14T22:13:20Z",
+		"previous value: [\"MCP help\"]",
+		`eigenflux --server 'staging' profile refresh-complete --expected-version 7`,
+		`eigenflux --server 'staging' profile patch`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("card refresh section missing %q", want)
 		}
+	}
+}
+
+func TestBuildCardRefreshSectionShellQuotesServer(t *testing.T) {
+	raw := []byte(`{"profile_version":1,"editable_fields":{},"protected_paths":[]}`)
+	out := buildCardRefreshSection(raw, "prod'; touch /tmp/forged; echo '")
+	if !strings.Contains(out, `--server 'prod'"'"'; touch /tmp/forged; echo '"'"''`) {
+		t.Fatalf("server name was not rendered as one shell argument: %s", out)
 	}
 }

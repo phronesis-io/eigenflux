@@ -71,17 +71,94 @@ func ListRecentProfileChangeEvents(db *gorm.DB, agentID int64, limit int) ([]*Pr
 	return evs, err
 }
 
+// LatestProfileFieldChange is the newest audit metadata for one editable path.
+// Querying per path avoids the arbitrary "latest N events" cutoff that could
+// hide an old-but-still-current human edit after other fields churned.
+type LatestProfileFieldChange struct {
+	Path          string `gorm:"column:path"`
+	PreviousValue string `gorm:"column:previous_value"`
+	UpdatedAt     int64  `gorm:"column:updated_at"`
+	ActorType     string `gorm:"column:actor_type"`
+}
+
+// ListLatestProfileFieldChanges returns exactly the newest event per changed
+// path for one agent. One multi-path event may therefore produce several rows.
+func ListLatestProfileFieldChanges(db *gorm.DB, agentID int64) ([]*LatestProfileFieldChange, error) {
+	var rows []*LatestProfileFieldChange
+	err := db.Raw(`SELECT DISTINCT ON (changed.path)
+			changed.path AS path,
+			COALESCE((ev.previous_values -> changed.path)::text, 'null') AS previous_value,
+			ev.created_at AS updated_at,
+			ev.actor_type
+		FROM agent_profile_change_events AS ev
+		CROSS JOIN LATERAL jsonb_array_elements_text(ev.changed_paths) AS changed(path)
+		WHERE ev.agent_id = ?
+		ORDER BY changed.path, ev.created_at DESC, ev.id DESC`, agentID).Scan(&rows).Error
+	return rows, err
+}
+
+// TrimSupersededProfileChangeEventPathsBefore removes only the obsolete paths
+// from old multi-field events. Without this pass, one field that never changes
+// again would keep unrelated superseded values (including PII) in the same row
+// forever. The newest event for every agent/path is always retained.
+func TrimSupersededProfileChangeEventPathsBefore(db *gorm.DB, beforeCreatedAtMs int64, batchSize, maxBatches int) (int64, bool, error) {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	if maxBatches <= 0 {
+		maxBatches = 1
+	}
+	var total int64
+	for batch := 0; batch < maxBatches; batch++ {
+		res := db.Exec(`WITH candidates AS (
+			SELECT old.id,
+			       array_agg(DISTINCT changed.path) AS remove_paths
+			FROM agent_profile_change_events AS old
+			CROSS JOIN LATERAL jsonb_array_elements_text(old.changed_paths) AS changed(path)
+			WHERE old.created_at < ?
+			  AND EXISTS (
+				SELECT 1
+				FROM agent_profile_change_events AS newer
+				WHERE newer.agent_id = old.agent_id
+				  AND (newer.created_at > old.created_at
+				       OR (newer.created_at = old.created_at AND newer.id > old.id))
+				  AND jsonb_exists(newer.changed_paths, changed.path)
+			  )
+			GROUP BY old.id, old.created_at
+			ORDER BY old.created_at, old.id
+			LIMIT ?
+		)
+		UPDATE agent_profile_change_events AS old
+		SET changed_paths = old.changed_paths - candidates.remove_paths,
+		    previous_values = old.previous_values - candidates.remove_paths,
+		    new_values = old.new_values - candidates.remove_paths
+		FROM candidates
+		WHERE old.id = candidates.id`, beforeCreatedAtMs, batchSize)
+		if res.Error != nil {
+			return total, false, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batchSize) {
+			return total, false, nil
+		}
+	}
+	return total, true, nil
+}
+
 // DeleteSupersededProfileChangeEventsBefore removes old audit rows only when
 // every path in that row has a newer event for the same agent. This bounds the
 // append-only history while preserving the latest human/agent attribution,
 // previous value, and timestamp for every field indefinitely — refresh-context
 // relies on that latest event to protect human edits.
-func DeleteSupersededProfileChangeEventsBefore(db *gorm.DB, beforeCreatedAtMs int64, batchSize int) (int64, error) {
+func DeleteSupersededProfileChangeEventsBefore(db *gorm.DB, beforeCreatedAtMs int64, batchSize, maxBatches int) (int64, bool, error) {
 	if batchSize <= 0 {
 		batchSize = 5000
 	}
+	if maxBatches <= 0 {
+		maxBatches = 1
+	}
 	var total int64
-	for {
+	for batch := 0; batch < maxBatches; batch++ {
 		res := db.Exec(`WITH candidates AS (
 			SELECT old.id
 			FROM agent_profile_change_events AS old
@@ -95,7 +172,7 @@ func DeleteSupersededProfileChangeEventsBefore(db *gorm.DB, beforeCreatedAtMs in
 					WHERE newer.agent_id = old.agent_id
 					  AND (newer.created_at > old.created_at
 					       OR (newer.created_at = old.created_at AND newer.id > old.id))
-					  AND newer.changed_paths ? changed.path
+					  AND jsonb_exists(newer.changed_paths, changed.path)
 				)
 			  )
 			ORDER BY old.created_at, old.id
@@ -105,13 +182,14 @@ func DeleteSupersededProfileChangeEventsBefore(db *gorm.DB, beforeCreatedAtMs in
 		USING candidates
 		WHERE doomed.id = candidates.id`, beforeCreatedAtMs, batchSize)
 		if res.Error != nil {
-			return total, res.Error
+			return total, false, res.Error
 		}
 		total += res.RowsAffected
 		if res.RowsAffected < int64(batchSize) {
-			return total, nil
+			return total, false, nil
 		}
 	}
+	return total, true, nil
 }
 
 // EnsureAgentProfileRow makes sure an agent_profiles row exists so versioned
@@ -127,24 +205,33 @@ func EnsureAgentProfileRow(db *gorm.DB, agentID int64) error {
 // profile_data (so legacy Create/Update paths never touch it); access goes
 // through this narrow reader instead.
 func GetProfileVersionAndData(db *gorm.DB, agentID int64) (int64, map[string]json.RawMessage, error) {
+	version, data, _, err := GetProfileVersionDataAndUpdatedAt(db, agentID)
+	return version, data, err
+}
+
+// GetProfileVersionDataAndUpdatedAt additionally returns the fact row's
+// updated_at for Agent Card's data-update timestamp. It remains one SQL read so
+// version, document, and timestamp describe the same committed row.
+func GetProfileVersionDataAndUpdatedAt(db *gorm.DB, agentID int64) (int64, map[string]json.RawMessage, int64, error) {
 	var row struct {
 		ProfileVersion int64
 		ProfileData    string
+		UpdatedAt      int64
 	}
 	err := db.Table("agent_profiles").
-		Select("profile_version, profile_data::text as profile_data").
+		Select("profile_version, profile_data::text as profile_data, updated_at").
 		Where("agent_id = ?", agentID).
 		Scan(&row).Error
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
 	data := map[string]json.RawMessage{}
 	if row.ProfileData != "" {
 		if uerr := json.Unmarshal([]byte(row.ProfileData), &data); uerr != nil {
-			return row.ProfileVersion, map[string]json.RawMessage{}, nil
+			return row.ProfileVersion, map[string]json.RawMessage{}, row.UpdatedAt, nil
 		}
 	}
-	return row.ProfileVersion, data, nil
+	return row.ProfileVersion, data, row.UpdatedAt, nil
 }
 
 // ApplyVersionedProfileDataUpdate merges dataMerge into profile_data and bumps
