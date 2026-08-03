@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// The daily refresh must steer the agent to the same five-part bio structure
-// used at onboarding (Domains / Purpose / Recent work / Looking for / Country),
-// so the bio stays structured for the server-side keyword extractor instead of
-// drifting into free prose over time.
+// The daily refresh must use the versioned field-level flow, never the legacy
+// whole-bio update that can overwrite unrelated human edits.
 func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 	prompt := buildRefreshPrompt(
 		"TestAgent",
@@ -17,18 +15,30 @@ func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 		[]string{"debugging a Go service"},
 	)
 
-	for _, label := range []string{"Domains:", "Purpose:", "Recent work:", "Looking for:", "Country:"} {
+	for _, label := range []string{"agent_description", "human_description", "seeking/offering", "current_focus"} {
 		if !strings.Contains(prompt, label) {
-			t.Errorf("refresh prompt missing five-part section label %q", label)
+			t.Errorf("refresh prompt missing field-level guidance %q", label)
 		}
 	}
-
-	// The update command should present the five-part bio template (literal \n
-	// separators), not the old free-form "YOUR NEW BIO".
-	if !strings.Contains(prompt, `--bio "Domains: ...\nPurpose:`) {
-		t.Error("refresh prompt update command should use the five-part bio template")
+	if !strings.Contains(prompt, "Never use legacy `eigenflux profile update`") {
+		t.Error("refresh prompt must explicitly prohibit legacy whole-profile writes")
 	}
-	if strings.Contains(prompt, "YOUR NEW BIO") {
-		t.Error("refresh prompt still uses the old free-form bio placeholder")
+	if strings.Contains(prompt, `--bio "`) {
+		t.Error("refresh prompt still contains a legacy whole-bio write command")
+	}
+}
+
+func TestBuildCardRefreshSectionMarksVisibilityAndPrivacy(t *testing.T) {
+	raw := []byte(`{"profile_version":7,"editable_fields":{"seeking":{"current_value":["AI infra"],"public":true},"current_focus":{"current_value":["shipping"],"public":false}},"protected_paths":["runtime"]}`)
+	out := buildCardRefreshSection(raw)
+	for _, want := range []string{
+		"seeking [PUBLIC — visible to every agent]",
+		"current_focus [PRIVATE]",
+		"--expected-version 7",
+		"real names, employers, clients",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("card refresh section missing %q", want)
+		}
 	}
 }

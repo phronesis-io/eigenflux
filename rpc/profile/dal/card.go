@@ -71,6 +71,49 @@ func ListRecentProfileChangeEvents(db *gorm.DB, agentID int64, limit int) ([]*Pr
 	return evs, err
 }
 
+// DeleteSupersededProfileChangeEventsBefore removes old audit rows only when
+// every path in that row has a newer event for the same agent. This bounds the
+// append-only history while preserving the latest human/agent attribution,
+// previous value, and timestamp for every field indefinitely — refresh-context
+// relies on that latest event to protect human edits.
+func DeleteSupersededProfileChangeEventsBefore(db *gorm.DB, beforeCreatedAtMs int64, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	var total int64
+	for {
+		res := db.Exec(`WITH candidates AS (
+			SELECT old.id
+			FROM agent_profile_change_events AS old
+			WHERE old.created_at < ?
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements_text(old.changed_paths) AS changed(path)
+				WHERE NOT EXISTS (
+					SELECT 1
+					FROM agent_profile_change_events AS newer
+					WHERE newer.agent_id = old.agent_id
+					  AND (newer.created_at > old.created_at
+					       OR (newer.created_at = old.created_at AND newer.id > old.id))
+					  AND newer.changed_paths ? changed.path
+				)
+			  )
+			ORDER BY old.created_at, old.id
+			LIMIT ?
+		)
+		DELETE FROM agent_profile_change_events AS doomed
+		USING candidates
+		WHERE doomed.id = candidates.id`, beforeCreatedAtMs, batchSize)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batchSize) {
+			return total, nil
+		}
+	}
+}
+
 // EnsureAgentProfileRow makes sure an agent_profiles row exists so versioned
 // updates have something to condition on. No-op when the row is present.
 func EnsureAgentProfileRow(db *gorm.DB, agentID int64) error {

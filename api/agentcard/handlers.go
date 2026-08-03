@@ -15,6 +15,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"eigenflux_server/api/middleware"
@@ -34,7 +35,25 @@ const (
 	// other agents' cards (first cross-agent profile read endpoint).
 	publicCardRateLimit  = 120
 	publicCardRateWindow = time.Minute
+
+	// Automated refresh is intentionally cheap for cooperative clients, but
+	// these authenticated endpoints still need server-side abuse bounds: local
+	// CLI timestamps are under the caller's control and can be bypassed.
+	refreshContextRateLimit  = 60
+	refreshContextRateWindow = time.Minute
+	profileWriteMinuteLimit  = 10
+	profileWriteMinuteWindow = time.Minute
+	profileWriteDailyLimit   = 100
+	profileWriteDailyWindow  = 24 * time.Hour
 )
+
+var fixedWindowCounterScript = redis.NewScript(`
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`)
 
 // Register wires the Agent Card routes onto the gateway.
 func Register(h *server.Hertz) {
@@ -180,16 +199,29 @@ func relationToViewer(viewerID, targetID int64) map[string]interface{} {
 // errors (rate limiting must not take the endpoint down), but loudly — a
 // silent fail-open would hide that the limiter is off.
 func allowPublicCardRead(ctx context.Context, viewerID int64) bool {
-	key := fmt.Sprintf("agentcard:rl:%d:%d", viewerID, time.Now().Unix()/int64(publicCardRateWindow.Seconds()))
-	n, err := mq.RDB.Incr(ctx, key).Result()
-	if err != nil {
-		logger.Ctx(ctx).Warn("card rate limiter unavailable, failing open", "viewerID", viewerID, "err", err)
+	return allowFixedWindow(ctx, mq.RDB, viewerID, "public-card", publicCardRateLimit, publicCardRateWindow, time.Now())
+}
+
+// allowFixedWindow applies a per-agent fixed-window counter. Redis failures
+// fail open so a limiter outage cannot take profile/card APIs down, but the
+// failure is logged with the scope so it is operationally visible.
+func allowFixedWindow(ctx context.Context, rdb *redis.Client, agentID int64, scope string, limit int64, window time.Duration, now time.Time) bool {
+	if rdb == nil {
+		logger.Ctx(ctx).Warn("agent card rate limiter unavailable, failing open", "agentID", agentID, "scope", scope, "err", "redis client is nil")
 		return true
 	}
-	if n == 1 {
-		_ = mq.RDB.Expire(ctx, key, publicCardRateWindow+time.Second).Err()
+	windowSeconds := int64(window.Seconds())
+	if limit <= 0 || windowSeconds <= 0 {
+		logger.Ctx(ctx).Warn("invalid agent card rate limit, failing open", "agentID", agentID, "scope", scope, "limit", limit, "window", window)
+		return true
 	}
-	return n <= publicCardRateLimit
+	key := fmt.Sprintf("agentcard:rl:%s:%d:%d", scope, agentID, now.Unix()/windowSeconds)
+	n, err := fixedWindowCounterScript.Run(ctx, rdb, []string{key}, windowSeconds+1).Int64()
+	if err != nil {
+		logger.Ctx(ctx).Warn("agent card rate limiter unavailable, failing open", "agentID", agentID, "scope", scope, "err", err)
+		return true
+	}
+	return n <= limit
 }
 
 // GetRefreshContext gives the agent everything it needs before an automated
@@ -198,6 +230,10 @@ func allowPublicCardRead(ctx context.Context, viewerID int64) bool {
 func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := callerAgentID(c)
 	if !ok {
+		return
+	}
+	if !allowFixedWindow(ctx, mq.RDB, agentID, "refresh-context", refreshContextRateLimit, refreshContextRateWindow, time.Now()) {
+		respond(c, http.StatusTooManyRequests, 429, "too many profile refresh reads, slow down", nil)
 		return
 	}
 	agent, err := profiledal.GetAgentByID(db.DB, agentID)
@@ -294,6 +330,11 @@ type profileFieldsReq struct {
 func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := callerAgentID(c)
 	if !ok {
+		return
+	}
+	if !allowFixedWindow(ctx, mq.RDB, agentID, "profile-write-minute", profileWriteMinuteLimit, profileWriteMinuteWindow, time.Now()) ||
+		!allowFixedWindow(ctx, mq.RDB, agentID, "profile-write-day", profileWriteDailyLimit, profileWriteDailyWindow, time.Now()) {
+		respond(c, http.StatusTooManyRequests, 429, "too many profile updates, slow down", nil)
 		return
 	}
 	body, berr := c.Body()

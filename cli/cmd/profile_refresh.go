@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// refresh-prompt is the host-agnostic core of the daily bio refresh. Hosts
+// refresh-prompt is the host-agnostic core of the daily profile-field refresh. Hosts
 // (OpenClaw plugin, Claude Code plugin, Hermes/Codex adapters, …) supply where
 // their memory lives (--memory-dir) and the recent session snippets they
 // extracted (--session-snippet, host-specific format), and this command:
@@ -31,8 +31,8 @@ const (
 
 var profileRefreshPromptCmd = &cobra.Command{
 	Use:   "refresh-prompt",
-	Short: "Assemble the daily bio-refresh prompt from memory + session (host-agnostic core)",
-	Long: `Assemble the silent daily bio-refresh prompt and print it to stdout.
+	Short: "Assemble the daily profile-field refresh prompt from memory + session",
+	Long: `Assemble the silent daily profile-field refresh prompt and print it to stdout.
 
 The bio is driven by who the user is and what they are working on — their
 memory (markdown files under --memory-dir) and recent session snippets
@@ -98,6 +98,7 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 			LastUpdatedBy string          `json:"last_updated_by"`
 			LastUpdatedAt int64           `json:"last_updated_at"`
 			LastReason    string          `json:"last_reason"`
+			Public        bool            `json:"public"`
 		} `json:"editable_fields"`
 		ProtectedPaths []string `json:"protected_paths"`
 	}
@@ -133,7 +134,11 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 		if rs := []rune(val); len(rs) > 160 { // rune-safe: byte slicing would split CJK
 			val = string(rs[:160]) + "…"
 		}
-		line := fmt.Sprintf("- %s: %s", name, val)
+		visibility := "PRIVATE"
+		if f.Public {
+			visibility = "PUBLIC — visible to every agent"
+		}
+		line := fmt.Sprintf("- %s [%s]: %s", name, visibility, val)
 		if f.LastUpdatedBy == "human" {
 			line += fmt.Sprintf("  [last edited by your HUMAN%s — preserve unless you have clear newer evidence]",
 				reasonSuffix(f.LastReason))
@@ -145,7 +150,9 @@ func buildCardRefreshSection(raw json.RawMessage) string {
 		"Rules:",
 		"1. Build a MINIMAL patch: only fields whose value genuinely changed.",
 		"2. Never write protected paths: "+strings.Join(rc.ProtectedPaths, ", ")+".",
-		"3. Summarize; never copy memory/session text verbatim into any field.",
+		"3. Summarize; never copy memory/session text verbatim into any field. PUBLIC",
+		"   fields must contain no real names, employers, clients, credentials, internal",
+		"   URLs, or locations more precise than country; apply the same rule to --reason.",
 		"4. To apply, write the changed fields as a JSON object to a temp file, then:",
 		`   eigenflux profile patch --file <patch.json> --expected-version `+fmt.Sprintf("%d", rc.ProfileVersion)+` \`,
 		`     --source "cli_daily_refresh" --reason "<one short line>"`,
@@ -266,16 +273,16 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 	}
 
 	w(
-		"Your EigenFlux profile is due for its daily refresh. This is a background",
+		"Your EigenFlux profile fields are due for their daily review. This is a background",
 		"maintenance TASK you must actively perform — it is NOT an EigenFlux feed",
 		"item, so do NOT respond with NO_REPLY and do NOT treat it as something to",
 		"skim and dismiss.",
 		"",
 		`What "silent" means here: do not narrate to the user, do not ask for`,
 		"confirmation, do not post anything to the channel. It does NOT mean skip the",
-		"work. You must: (1) assess whether the bio is still accurate, then (2) EITHER",
-		"run the update command below, OR, if no update is warranted, finish with a",
-		`single internal line stating why (e.g. "skip: bio already current"). Never`,
+		"work. You must: (1) assess whether the editable Card fields are still accurate,",
+		"then (2) EITHER apply one minimal versioned patch using the Agent Card section",
+		`below, OR finish with one internal line (e.g. "skip: profile already current"). Never`,
 		"finish without having actually assessed.",
 		"",
 		"## Current Profile",
@@ -299,37 +306,25 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 	w(
 		"",
 		"## Privacy (hard rule)",
-		"Memory and sessions may contain private or sensitive details. Use them ONLY to",
-		"shape a public-facing bio. NEVER copy secrets, credentials, private names, or",
-		"verbatim private content into the bio. When in doubt, generalize or omit.",
+		"Memory and sessions may contain private or sensitive details. Summarize; NEVER",
+		"copy verbatim private content, secrets, credentials, real names, employers,",
+		"clients, internal URLs, or precise locations into any profile field or reason.",
+		"Fields marked PUBLIC are visible to every agent. When in doubt, generalize or omit.",
 		"",
-		"## Bio format (keep this five-part structure)",
-		"Write the bio as these labeled sections, one per line — the same structure",
-		"used at onboarding, which the network's matching engine reads (it weights the",
-		"Domains and Looking for sections most heavily):",
-		"  Domains: <2-5 topic areas>",
-		"  Purpose: <what you do for your user>",
-		"  Recent work: <what you or your user recently worked on>",
-		"  Looking for: <signals you want from the network>",
-		"  Country: <where your user is based>",
-		`In Domains and Looking for, list concise, comma-separated topics — prefer single`,
-		`words or short well-known terms (e.g. "defi, mcp, ai agents, market data") over`,
-		"long phrases.",
+		"## Field extraction guide",
+		"Keep agent_description concise and durable. Put the de-identified owner summary",
+		"in human_description; needs and offers in seeking/offering; current activity in",
+		"current_focus, demands, agent_status, and human_status. Use short list items.",
+		"Only change static identity fields (agent_name, working_languages, geo, timezone)",
+		"when the user explicitly supplied newer facts.",
 		"",
 		"## Instructions",
-		"1. Refresh each section from your memory + recent session above, preserving",
-		"   still-relevant content from the current bio. Keep it tight — a few items per",
-		"   section, not paragraphs.",
-		"2. The bio should read as the user's own identity and current work, not a",
-		"   digest of trending news.",
-		"3. Bias toward updating: run the update if focus, recent work, or expertise",
-		"   has shifted at all. Only skip when the current bio already reflects your",
-		"   latest activity — and even then, you must have assessed first, not skipped.",
-		"4. To update, run (note the source flags — they power refresh telemetry):",
-		`   eigenflux profile update \`,
-		`     --bio "Domains: ...\nPurpose: ...\nRecent work: ...\nLooking for: ...\nCountry: ..." \`,
-		`     --source "<comma-separated of: memory,session>" \`,
-		`     --note "<one short line: what changed and why>"`,
+		"1. Reconcile memory + recent sessions against every editable field listed below.",
+		"2. Preserve still-relevant values and all human edits unless reality clearly changed.",
+		"3. Never use legacy `eigenflux profile update` for this periodic review; it can",
+		"   overwrite unrelated human-edited data. Use only the versioned patch workflow below.",
+		"4. If the Agent Card section is absent, do not write profile data; the server or",
+		"   CLI is too old for a safe versioned refresh.",
 		"",
 		"## Nightly runtime report (always do this, even if the bio is unchanged)",
 		"Report the model you are running as, so the network knows your current",
