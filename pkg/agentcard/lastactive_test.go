@@ -192,6 +192,25 @@ func TestFullReconcileProgressPersistsBeyondOneRunLimit(t *testing.T) {
 	}
 }
 
+func TestCorruptFullReconcileProgressSelfHealsUnderLease(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set("lock:test", "owner")
+	mr.Set(fullReconcileEpochKey, "123")
+	mr.SAdd(fullReconcileDoneKey, "not-an-agent-id")
+
+	epoch, done, err := GetFullReconcileProgressFenced(ctx, rdb, "lock:test", "owner")
+	requireNoError(t, err)
+	if !epoch.IsZero() || len(done) != 0 {
+		t.Fatalf("epoch=%v done=%v, want reset state", epoch, done)
+	}
+	if mr.Exists(fullReconcileEpochKey) || mr.Exists(fullReconcileDoneKey) {
+		t.Fatal("corrupt full-reconcile state was not removed")
+	}
+}
+
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

@@ -106,16 +106,18 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		logger.Default().Warn("agent card updater: future full-reconcile timestamp ignored", "lastFull", lastFull)
 		lastFull = time.Time{}
 	}
-	fullActive, fullDone, err := agentcard.GetFullReconcileProgress(runCtx, rdb)
+	fullEpoch, fullDone, err := agentcard.GetFullReconcileProgressFenced(runCtx, rdb, lockKeyAgentCardUpdater, token)
 	if err != nil {
 		logger.Default().Warn("agent card updater: full reconcile progress read failed", "err", err)
 		return false
 	}
+	fullActive := !fullEpoch.IsZero()
 	fullDue := fullReconcile || lastFull.IsZero() || now.Sub(lastFull) >= agentCardFullReconcileInterval
 	if fullDue && !fullActive {
 		if err := agentcard.EnsureFullReconcileProgressFenced(runCtx, rdb, now.UnixMilli(), lockKeyAgentCardUpdater, token); err != nil {
 			return false
 		}
+		fullEpoch = now
 		fullActive = true
 		fullDone = map[int64]struct{}{}
 	}
@@ -123,9 +125,22 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 
 	start := time.Now()
 	rankingStarted := time.Now()
-	var rollupReady bool
-	if err := db.DB.WithContext(runCtx).Raw(`SELECT backfill_complete FROM agent_influence_rollup_meta WHERE singleton = TRUE`).Scan(&rollupReady).Error; err != nil || !rollupReady {
-		logger.Default().Warn("agent card updater: influence rollup is not ready", "ready", rollupReady, "err", err)
+	backfillDeadline := time.Now().Add(10 * time.Minute)
+	backfilled, rollupReady := 0, false
+	for !rollupReady && time.Now().Before(backfillDeadline) {
+		processed, complete, backfillErr := agentcard.AdvanceInfluenceRollupBackfill(runCtx, db.DB, 100)
+		backfilled += processed
+		if backfillErr != nil {
+			logger.Default().Warn("agent card updater: influence rollup backfill failed", "processed", backfilled, "err", backfillErr)
+			return false
+		}
+		rollupReady = complete
+		if processed == 0 && !complete {
+			break
+		}
+	}
+	if !rollupReady {
+		logger.Default().Info("agent card updater: influence rollup backfill advanced", "processed", backfilled)
 		return false
 	}
 
@@ -172,7 +187,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			return false
 		}
 		if fullReconcile {
-			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, fullEpoch, lockKeyAgentCardUpdater, token); err != nil {
 				return false
 			}
 		}
@@ -207,6 +222,17 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	successfulSnapshots := make(map[int64]agentcard.InfluenceSnapshot, len(dirty))
 	fullCompleted := make([]int64, 0)
 	failedIDs := make([]int64, 0)
+	checkpoint := func() error {
+		if err := agentcard.SetInfluenceSnapshotsFenced(runCtx, rdb, successfulSnapshots, lockKeyAgentCardUpdater, token); err != nil {
+			return err
+		}
+		if err := agentcard.MarkFullReconcileDoneFenced(runCtx, rdb, fullCompleted, lockKeyAgentCardUpdater, token); err != nil {
+			return err
+		}
+		successfulSnapshots = make(map[int64]agentcard.InfluenceSnapshot)
+		fullCompleted = fullCompleted[:0]
+		return nil
+	}
 	rebuilt, skipped, failed, deferred, attempted := 0, 0, 0, 0, 0
 	orderedRows := rotateInfluenceRows(rows, now, agentCardMaxRebuildsPerRun)
 	rebuildDeadline := time.Now().Add(agentCardRebuildBudget)
@@ -245,13 +271,15 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			fullCompleted = append(fullCompleted, row.AgentID)
 			fullDone[row.AgentID] = struct{}{}
 		}
+		if rebuilt%100 == 0 {
+			if err := checkpoint(); err != nil {
+				logger.Default().Error("agent card updater: progress checkpoint failed", "err", err)
+				return false
+			}
+		}
 	}
-	if err := agentcard.SetInfluenceSnapshotsFenced(runCtx, rdb, successfulSnapshots, lockKeyAgentCardUpdater, token); err != nil {
-		logger.Default().Error("agent card updater: snapshot write failed", "err", err)
-		return false
-	}
-	if err := agentcard.MarkFullReconcileDoneFenced(runCtx, rdb, fullCompleted, lockKeyAgentCardUpdater, token); err != nil {
-		logger.Default().Error("agent card updater: full reconcile progress write failed", "err", err)
+	if err := checkpoint(); err != nil {
+		logger.Default().Error("agent card updater: final progress checkpoint failed", "err", err)
 		return false
 	}
 	// Deleted agents and failed full-reconcile rows must not retain a snapshot
@@ -286,7 +314,10 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			}
 		}
 		if complete {
-			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+			// Schedule the next cycle from this cycle's start, not its end. If a
+			// population needs several hourly passes, changes after an early pass
+			// are therefore still repaired within the documented 24-hour bound.
+			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, fullEpoch, lockKeyAgentCardUpdater, token); err != nil {
 				logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
 				return false
 			}

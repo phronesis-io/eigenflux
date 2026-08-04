@@ -97,6 +97,10 @@ func TestDeadLetterAndAckIsIdempotent(t *testing.T) {
 	require.NoError(t, DeadLetterAndAck(ctx, stream, group, id, dlq, values))
 	assert.Equal(t, int64(0), mustPendingCount(t, client, stream, group))
 	assert.Equal(t, int64(1), client.XLen(ctx, dlq).Val())
+	assert.Equal(t, int64(1), client.ZCard(ctx, dlq+":seen").Val())
+	keys, err := client.Keys(ctx, dlq+":seen:*").Result()
+	require.NoError(t, err)
+	assert.Empty(t, keys, "DLQ idempotency must not create one Redis key per message")
 }
 
 func mustPendingCount(t *testing.T, client *redis.Client, stream, group string) int64 {

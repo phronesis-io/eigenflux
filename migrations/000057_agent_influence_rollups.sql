@@ -26,12 +26,12 @@ CREATE TABLE agent_influence_rollup_meta (
 );
 INSERT INTO agent_influence_rollup_meta(singleton, backfill_complete) VALUES (TRUE, FALSE);
 
--- Captured before the new binary starts. Agents created afterwards begin at
--- zero and are maintained entirely by the triggers.
+-- Populated only after both fact triggers have been installed. Because the
+-- CREATE TRIGGER lock is held until commit, any concurrent item_stats writer
+-- is either visible to this final snapshot or runs through the new trigger.
 CREATE TABLE agent_influence_rollup_pending (
     agent_id BIGINT PRIMARY KEY REFERENCES agents(agent_id) ON DELETE CASCADE
 );
-INSERT INTO agent_influence_rollup_pending(agent_id) SELECT agent_id FROM agents;
 
 ALTER TABLE item_stats ADD CONSTRAINT chk_item_stats_agentcard_counters_sane
 CHECK (consumed_count BETWEEN 0 AND 1000000000000
@@ -118,7 +118,7 @@ $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
 CREATE TRIGGER trg_agent_influence_item_stats
-AFTER INSERT OR DELETE OR UPDATE OF author_agent_id, consumed_count, score_1_count, score_2_count, total_score ON item_stats
+AFTER INSERT OR DELETE OR UPDATE OF item_id, author_agent_id, consumed_count, score_1_count, score_2_count, total_score ON item_stats
 FOR EACH ROW EXECUTE FUNCTION maintain_agent_influence_from_stats();
 
 -- +goose StatementBegin
@@ -140,12 +140,14 @@ BEGIN
     IF TG_OP <> 'INSERT' THEN
         SELECT author_agent_id, ((item_id % 32 + 32) % 32)::SMALLINT
         INTO old_agent_id, old_shard FROM item_stats
-        WHERE item_id = OLD.item_id AND total_score > 0;
+        WHERE item_id = OLD.item_id AND total_score > 0
+        FOR SHARE;
     END IF;
     IF TG_OP <> 'DELETE' THEN
         SELECT author_agent_id, ((item_id % 32 + 32) % 32)::SMALLINT
         INTO new_agent_id, new_shard FROM item_stats
-        WHERE item_id = NEW.item_id AND total_score > 0;
+        WHERE item_id = NEW.item_id AND total_score > 0
+        FOR SHARE;
     END IF;
     SELECT backfill_complete INTO backfill_done
     FROM agent_influence_rollup_meta WHERE singleton = TRUE;
@@ -178,6 +180,10 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_agent_influence_processed_items
 AFTER INSERT OR UPDATE OR DELETE ON processed_items
 FOR EACH ROW EXECUTE FUNCTION bump_agent_content_revision_from_processed();
+
+INSERT INTO agent_influence_rollup_pending(agent_id)
+SELECT agent_id FROM agents
+ON CONFLICT DO NOTHING;
 
 -- Historical rows are backfilled online by scripts/common/agent_influence_backfill.go.
 -- Keeping the scan outside this DDL transaction avoids holding trigger locks

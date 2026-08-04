@@ -183,12 +183,14 @@ func Ack(ctx context.Context, stream, group, id string) error {
 }
 
 // DeadLetterAndAck writes one bounded diagnostic record before ACKing the
-// source message. A short-lived marker makes retries idempotent when the Lua
-// reply is lost after Redis committed the script.
+// source message. A bounded sorted set makes retries idempotent when the Lua
+// reply is lost after Redis committed the script without creating one Redis
+// key per failed message.
 func DeadLetterAndAck(ctx context.Context, stream, group, id, deadLetterStream string, values map[string]interface{}) error {
-	marker := fmt.Sprintf("%s:seen:%s:%s", deadLetterStream, group, id)
+	markerKey := deadLetterStream + ":seen"
+	marker := fmt.Sprintf("%s|%s|%s", stream, group, id)
 	const script = `
-if redis.call("EXISTS", KEYS[3]) == 1 then
+if redis.call("ZSCORE", KEYS[3], ARGV[7]) then
   redis.call("XACK", KEYS[1], ARGV[1], ARGV[2])
   return 2
 end
@@ -196,10 +198,12 @@ local dlq_id = redis.call("XADD", KEYS[2], "MAXLEN", "~", 10000, "*",
   "original_stream", KEYS[1], "original_group", ARGV[1], "original_id", ARGV[2],
   "retry_count", ARGV[3], "payload", ARGV[4], "payload_truncated", ARGV[5],
   "failed_at", ARGV[6])
-redis.call("SET", KEYS[3], dlq_id, "EX", 604800)
+redis.call("ZADD", KEYS[3], ARGV[6], ARGV[7])
+redis.call("ZREMRANGEBYRANK", KEYS[3], 0, -10001)
+redis.call("EXPIRE", KEYS[3], 604800)
 redis.call("XACK", KEYS[1], ARGV[1], ARGV[2])
 return 1`
-	_, err := RDB.Eval(ctx, script, []string{stream, deadLetterStream, marker},
-		group, id, values["retry_count"], values["payload"], values["payload_truncated"], values["failed_at"]).Result()
+	_, err := RDB.Eval(ctx, script, []string{stream, deadLetterStream, markerKey},
+		group, id, values["retry_count"], values["payload"], values["payload_truncated"], values["failed_at"], marker).Result()
 	return err
 }

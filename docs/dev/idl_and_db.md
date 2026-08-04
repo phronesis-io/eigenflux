@@ -95,7 +95,9 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 - `000057` creates 32-shard per-agent influence rollups maintained by fact-table
   triggers. Its transaction only installs schema and queues agents; deployment
   then runs the resumable `scripts/common/agent_influence_backfill.go` postflight,
-  so historical backfill does not hold DDL locks on hot tables.
+  so historical backfill does not hold DDL locks on hot tables. The hourly cron
+  also advances the same advisory-lock-fenced queue, so a direct Goose run is
+  recoverable rather than leaving rollups permanently disabled.
 - `pipeline-cron` ranks influence hourly and rebuilds only snapshots whose
   aggregate metrics, percentile, or content revision changed. A Redis-backed
   cluster-wide state machine schedules a full reconciliation every 24 hours and

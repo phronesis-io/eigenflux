@@ -40,8 +40,12 @@ const (
 	// Redis state is a cache, not an unbounded input surface. A cardinality
 	// far above the agent population indicates corruption or a bad writer;
 	// fail the run before allocating unbounded maps/slices.
-	maxInfluenceStateEntries = 100000
-	maxInfluenceStateBytes   = 16 * 1024 * 1024
+	// Sized above the ten-times growth target (~50k agents). These are corruption
+	// guards, not product population limits; production alerts well before them.
+	maxInfluenceStateEntries = 1000000
+	maxInfluenceStateBytes   = 128 * 1024 * 1024
+	maxFullReconcileEntries  = 1000000
+	maxFullReconcileBytes    = 128 * 1024 * 1024
 )
 
 // InfluenceSnapshot contains every influence input that can change the card.
@@ -57,33 +61,82 @@ type InfluenceSnapshot struct {
 }
 
 func GetFullReconcileProgress(ctx context.Context, rdb *redis.Client) (bool, map[int64]struct{}, error) {
-	active, err := rdb.Exists(ctx, fullReconcileEpochKey).Result()
-	if err != nil || active == 0 {
-		return false, map[int64]struct{}{}, err
+	epoch, done, err := getFullReconcileProgress(ctx, rdb, "", "")
+	return !epoch.IsZero(), done, err
+}
+
+// GetFullReconcileProgressFenced reads progress under the cron lease. Corrupt
+// cache state is discarded atomically so one bad Redis value cannot stop every
+// subsequent ranking run.
+func GetFullReconcileProgressFenced(ctx context.Context, rdb *redis.Client, lockKey, token string) (time.Time, map[int64]struct{}, error) {
+	return getFullReconcileProgress(ctx, rdb, lockKey, token)
+}
+
+func getFullReconcileProgress(ctx context.Context, rdb *redis.Client, lockKey, token string) (time.Time, map[int64]struct{}, error) {
+	rawEpoch, err := rdb.Get(ctx, fullReconcileEpochKey).Result()
+	if err == redis.Nil {
+		return time.Time{}, map[int64]struct{}{}, nil
+	}
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	epochMS, parseErr := strconv.ParseInt(rawEpoch, 10, 64)
+	if parseErr != nil || epochMS <= 0 {
+		return time.Time{}, nil, resetFullReconcileProgress(ctx, rdb, lockKey, token)
+	}
+	epoch := time.UnixMilli(epochMS)
+	if epoch.After(time.Now().Add(5 * time.Minute)) {
+		return time.Time{}, nil, resetFullReconcileProgress(ctx, rdb, lockKey, token)
 	}
 	count, err := rdb.SCard(ctx, fullReconcileDoneKey).Result()
 	if err != nil {
-		return false, nil, err
+		return time.Time{}, nil, err
 	}
-	if count > maxInfluenceStateEntries {
-		return false, nil, fmt.Errorf("agentcard: full reconcile progress exceeds limit")
+	usage, err := exactMemoryUsage(ctx, rdb, fullReconcileDoneKey)
+	if err != nil && err != redis.Nil {
+		return time.Time{}, nil, err
 	}
-	members, err := rdb.SMembers(ctx, fullReconcileDoneKey).Result()
+	if count > maxFullReconcileEntries || usage > maxFullReconcileBytes {
+		return time.Time{}, nil, resetFullReconcileProgress(ctx, rdb, lockKey, token)
+	}
+	done := make(map[int64]struct{}, int(count))
+	var cursor uint64
+	for {
+		members, next, scanErr := rdb.SScan(ctx, fullReconcileDoneKey, cursor, "", redisInfluenceBatch).Result()
+		if scanErr != nil {
+			return time.Time{}, nil, scanErr
+		}
+		for _, member := range members {
+			if len(member) > 20 {
+				return time.Time{}, nil, resetFullReconcileProgress(ctx, rdb, lockKey, token)
+			}
+			id, idErr := strconv.ParseInt(member, 10, 64)
+			if idErr != nil || id <= 0 {
+				return time.Time{}, nil, resetFullReconcileProgress(ctx, rdb, lockKey, token)
+			}
+			done[id] = struct{}{}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return epoch, done, nil
+}
+
+func resetFullReconcileProgress(ctx context.Context, rdb *redis.Client, lockKey, token string) error {
+	if lockKey == "" {
+		return fmt.Errorf("agentcard: corrupt full reconcile progress")
+	}
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("DEL",KEYS[2]); redis.call("UNLINK",KEYS[3]); return 1`
+	result, err := rdb.Eval(ctx, script, []string{lockKey, fullReconcileEpochKey, fullReconcileDoneKey}, token).Int64()
 	if err != nil {
-		return false, nil, err
+		return err
 	}
-	done := make(map[int64]struct{}, len(members))
-	for _, member := range members {
-		if len(member) > 20 {
-			return false, nil, fmt.Errorf("agentcard: invalid full reconcile member")
-		}
-		id, parseErr := strconv.ParseInt(member, 10, 64)
-		if parseErr != nil || id <= 0 {
-			return false, nil, fmt.Errorf("agentcard: invalid full reconcile member")
-		}
-		done[id] = struct{}{}
+	if result != 1 {
+		return ErrReconcileLeaseLost
 	}
-	return true, done, nil
+	return nil
 }
 
 func EnsureFullReconcileProgressFenced(ctx context.Context, rdb *redis.Client, epoch int64, lockKey, token string) error {
@@ -564,8 +617,48 @@ func hdelWithLease(ctx context.Context, rdb *redis.Client, fields []string, dele
 // boundedHScan filters oversized values inside Redis before returning a batch,
 // so one corrupt field cannot allocate its full payload in the Go process.
 func boundedHScan(ctx context.Context, rdb *redis.Client, hash string, cursor uint64, maxValueBytes int, lockKey, token string) ([]string, uint64, error) {
-	values, next, err := rdb.HScan(ctx, hash, cursor, "", redisInfluenceBatch).Result()
-	return values, next, err
+	const script = `
+if ARGV[4] == "1" and redis.call("GET",KEYS[1]) ~= ARGV[1] then return {-1,{}} end
+local scanned = redis.call("HSCAN",KEYS[2],ARGV[2],"COUNT",ARGV[3])
+local out = {}
+for i=1,#scanned[2],2 do
+  local field = scanned[2][i]
+  local value = scanned[2][i+1]
+  if string.len(field) <= 20 and string.len(value) <= tonumber(ARGV[5]) then
+    out[#out+1] = field
+    out[#out+1] = value
+  else
+    redis.call("HDEL",KEYS[2],field)
+  end
+end
+return {scanned[1],out}`
+	fenced := "0"
+	if lockKey != "" {
+		fenced = "1"
+	}
+	result, err := rdb.Eval(ctx, script, []string{lockKey, hash}, token, cursor, redisInfluenceBatch, fenced, maxValueBytes).Slice()
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(result) != 2 {
+		return nil, 0, fmt.Errorf("agentcard: malformed HSCAN result")
+	}
+	next, err := strconv.ParseInt(fmt.Sprint(result[0]), 10, 64)
+	if err != nil {
+		return nil, 0, fmt.Errorf("agentcard: malformed HSCAN cursor: %w", err)
+	}
+	if next == -1 {
+		return nil, 0, ErrReconcileLeaseLost
+	}
+	rawValues, ok := result[1].([]interface{})
+	if !ok {
+		return nil, 0, fmt.Errorf("agentcard: malformed HSCAN values")
+	}
+	values := make([]string, 0, len(rawValues))
+	for _, value := range rawValues {
+		values = append(values, fmt.Sprint(value))
+	}
+	return values, uint64(next), nil
 }
 
 func validateInfluenceHash(ctx context.Context, rdb *redis.Client, hash, lockKey, token string) (bool, error) {
@@ -573,7 +666,7 @@ func validateInfluenceHash(ctx context.Context, rdb *redis.Client, hash, lockKey
 	if err != nil {
 		return false, err
 	}
-	usage, err := rdb.MemoryUsage(ctx, hash).Result()
+	usage, err := exactMemoryUsage(ctx, rdb, hash)
 	if err != nil && err != redis.Nil {
 		return false, err
 	}
@@ -584,6 +677,16 @@ func validateInfluenceHash(ctx context.Context, rdb *redis.Client, hash, lockKey
 		return false, err
 	}
 	return true, nil
+}
+
+func exactMemoryUsage(ctx context.Context, rdb *redis.Client, key string) (int64, error) {
+	usage, err := rdb.MemoryUsage(ctx, key, 0).Result()
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "syntax") {
+		// miniredis and older Redis-compatible test servers do not implement
+		// SAMPLES 0. Production Redis does; the fallback preserves compatibility.
+		return rdb.MemoryUsage(ctx, key).Result()
+	}
+	return usage, err
 }
 
 func deleteHashWithLease(ctx context.Context, rdb *redis.Client, hash, lockKey, token string) error {

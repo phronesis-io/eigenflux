@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"eigenflux_server/pkg/agentcard"
 	profiledal "eigenflux_server/rpc/profile/dal"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -129,12 +130,13 @@ func TestInfluenceRollupTracksFactMutations(t *testing.T) {
 		t.Fatal(tx.Error)
 	}
 	t.Cleanup(func() { tx.Rollback() })
-	const agentID, otherID, itemID = int64(9_100_001), int64(9_100_002), int64(9_200_001)
+	const agentID, otherID, itemID, movedItemID = int64(9_100_001), int64(9_100_002), int64(9_200_001), int64(9_200_002)
 	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at) VALUES
 		(?, 'rollup-a@test.local', 'rollup-a', 1, 1), (?, 'rollup-b@test.local', 'rollup-b', 1, 1)`, agentID, otherID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES (?,?,'x',1)`, itemID, agentID).Error; err != nil {
+	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES
+		(?,?,'x',1),(?,?,'moved',1)`, itemID, agentID, movedItemID, agentID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO item_stats(item_id,author_agent_id,consumed_count,score_1_count,score_2_count,total_score,created_at,updated_at)
@@ -142,15 +144,64 @@ func TestInfluenceRollupTracksFactMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRollup(t, tx, agentID, 8, 1, 7)
-	if err := tx.Exec(`UPDATE item_stats SET author_agent_id=?, consumed_count=9, score_2_count=4, total_score=10 WHERE item_id=?`, otherID, itemID).Error; err != nil {
+	if err := tx.Exec(`UPDATE item_stats SET item_id=? WHERE item_id=?`, movedItemID, itemID).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRollup(t, tx, agentID, 8, 1, 7)
+	if err := tx.Exec(`UPDATE item_stats SET author_agent_id=?, consumed_count=9, score_2_count=4, total_score=10 WHERE item_id=?`, otherID, movedItemID).Error; err != nil {
 		t.Fatal(err)
 	}
 	assertRollup(t, tx, agentID, 0, 0, 0)
 	assertRollup(t, tx, otherID, 10, 1, 9)
-	if err := tx.Exec(`DELETE FROM item_stats WHERE item_id=?`, itemID).Error; err != nil {
+	if err := tx.Exec(`DELETE FROM item_stats WHERE item_id=?`, movedItemID).Error; err != nil {
 		t.Fatal(err)
 	}
 	assertRollup(t, tx, otherID, 0, 0, 0)
+}
+
+func TestInfluenceBackfillRepairsDirectGooseState(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN is required for PostgreSQL integration semantics")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gdb.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { tx.Rollback() })
+	const agentID, itemID = int64(9_110_001), int64(9_210_001)
+	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at)
+		VALUES (?,'backfill@test.local','backfill',1,1)`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES (?,?,'x',1)`, itemID, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO item_stats(item_id,author_agent_id,consumed_count,score_1_count,score_2_count,total_score,created_at,updated_at)
+		VALUES (?,?,4,3,2,7,1,1)`, itemID, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`UPDATE agent_influence_rollup_meta SET backfill_complete=FALSE`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`DELETE FROM agent_influence_rollups WHERE agent_id=?`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO agent_influence_rollup_pending(agent_id) VALUES (?) ON CONFLICT DO NOTHING`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	processed, complete, err := agentcard.AdvanceInfluenceRollupBackfill(context.Background(), tx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if processed != 1 || !complete {
+		t.Fatalf("processed=%d complete=%v, want 1,true", processed, complete)
+	}
+	assertRollup(t, tx, agentID, 7, 1, 4)
 }
 
 func TestRollingDeploymentFenceTrigger(t *testing.T) {
@@ -183,6 +234,9 @@ func TestRollingDeploymentFenceTrigger(t *testing.T) {
 	}
 	if err := tx.Exec(`UPDATE agent_cards SET card_version=card_version+1,generated_at=3 WHERE agent_id=?`, agentID).Error; err == nil {
 		t.Fatal("post-fence legacy metadata write was accepted")
+	}
+	if err := tx.Exec(`UPDATE agent_cards SET public_card='{"legacy":true}',source_version=source_version+1,card_version=card_version+1,generated_at=4 WHERE agent_id=?`, agentID).Error; err == nil {
+		t.Fatal("post-fence legacy writer bypassed the fence with a newer source_version")
 	}
 }
 

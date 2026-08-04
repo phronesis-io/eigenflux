@@ -1,6 +1,7 @@
 package agentcard
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -104,6 +105,9 @@ func LookupField(name string) (FieldSpec, bool) {
 // ValidateValue checks raw JSON against the field's spec and returns the
 // normalized value (string / []string / map). Errors are user-facing.
 func ValidateValue(spec FieldSpec, raw json.RawMessage) (interface{}, error) {
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return nil, fmt.Errorf("field %q must not be null", spec.Name)
+	}
 	switch spec.Kind {
 	case "string":
 		var s string

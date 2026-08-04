@@ -15,6 +15,8 @@ CREATE SEQUENCE agent_card_rebuild_fence_seq AS BIGINT START WITH 1 CACHE 1;
 -- During a rolling deployment, an old binary does not mention rebuild_fence
 -- in its UPSERT. Reject any visible projection change that does not advance
 -- the fence, so mixed-version writers fail closed instead of reverting a row.
+-- Fence equality specifically identifies an old writer: every new writer
+-- supplies a fresh sequence value even when source_version advances.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_agent_card_rebuild_fence()
 RETURNS TRIGGER AS $$
@@ -26,9 +28,10 @@ BEGIN
         OR NEW.source_version IS DISTINCT FROM OLD.source_version
         OR NEW.card_version IS DISTINCT FROM OLD.card_version
         OR NEW.generated_at IS DISTINCT FROM OLD.generated_at)
-       AND (NEW.source_version < OLD.source_version
+       AND (NEW.rebuild_fence = OLD.rebuild_fence
+            OR NEW.source_version < OLD.source_version
             OR (NEW.source_version = OLD.source_version
-                AND NEW.rebuild_fence <= OLD.rebuild_fence)) THEN
+                AND NEW.rebuild_fence < OLD.rebuild_fence)) THEN
         RAISE EXCEPTION 'agent card rebuild ordering key did not advance'
             USING ERRCODE = '40001';
     END IF;

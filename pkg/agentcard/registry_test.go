@@ -76,6 +76,11 @@ func TestValidateValue(t *testing.T) {
 	if _, err := ValidateValue(objSpec, json.RawMessage(`"nope"`)); err == nil {
 		t.Error("string accepted for an object field")
 	}
+	for _, spec := range []FieldSpec{strSpec, listSpec, objSpec} {
+		if _, err := ValidateValue(spec, json.RawMessage(`null`)); err == nil {
+			t.Errorf("%s field accepted null", spec.Kind)
+		}
+	}
 
 	if _, known := LookupField("influence"); known {
 		t.Error("system field influence must not be editable")
