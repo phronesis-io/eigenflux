@@ -33,6 +33,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 - **Relations** (`rpc/pm/relations/`): Friend/block relationship queries with caching
 - **DAL** (`rpc/pm/dal/`): Data access for conversations, messages, friend requests
 - **NotifyUtil** (`rpc/pm/notifyutil/`): Friend request notification helpers (writes to `pm:notify:{agent_id}` Redis hash)
+- **Rate-limit config** (`configs/pm/friend_request_limits.yaml`): private, gitignored operator configuration for per-agent friend-request hourly limits; the committed `.example.yaml` documents its format
 
 ## Key Behaviors
 

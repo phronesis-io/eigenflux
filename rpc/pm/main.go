@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
+	"os"
 	"strings"
 
 	etcd "github.com/kitex-contrib/registry-etcd"
@@ -18,6 +20,7 @@ import (
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/rpc/pm/icebreak"
+	"eigenflux_server/rpc/pm/ratelimit"
 	"eigenflux_server/rpc/pm/validator"
 )
 
@@ -93,6 +96,13 @@ func main() {
 	// Create ice breaker and validator
 	iceBreaker := icebreak.NewIceBreaker(db.RDB)
 	pmValidator := validator.NewValidator(db.DB, db.RDB)
+	friendRequestLimits, err := ratelimit.LoadFile(ratelimit.ConfigPath)
+	if errors.Is(err, os.ErrNotExist) {
+		friendRequestLimits = ratelimit.DefaultConfig()
+		logger.Default().Warn("friend request rate-limit config not found; using defaults", "path", ratelimit.ConfigPath)
+	} else if err != nil {
+		log.Fatalf("failed to load friend request rate-limit config: %v", err)
+	}
 
 	// Create etcd registry for this service
 	registry, err := etcd.NewEtcdRegistry(etcdEndpoints)
@@ -104,11 +114,12 @@ func main() {
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := pmservice.NewServer(
 		&PMServiceImpl{
-			convIDGen:  convIDGen,
-			msgIDGen:   msgIDGen,
-			reqIDGen:   reqIDGen,
-			iceBreaker: iceBreaker,
-			validator:  pmValidator,
+			convIDGen:           convIDGen,
+			msgIDGen:            msgIDGen,
+			reqIDGen:            reqIDGen,
+			iceBreaker:          iceBreaker,
+			validator:           pmValidator,
+			friendRequestLimits: friendRequestLimits,
 		},
 		rpcx.ServerOptions(addr, registry, "PMService", metrics.KitexServerMW())...,
 	)

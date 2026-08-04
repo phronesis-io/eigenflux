@@ -1,0 +1,20 @@
+# Friend-request hourly rate limits for the PM service.
+#
+# This committed example documents the format only. Production must use the
+# private file configs/pm/friend_request_limits.yaml, which is gitignored so
+# operator-managed agent IDs and limits are never published with the source.
+#
+# The PM service reads this file once at startup. After changing the private
+# file, restart only the pm service for the update to take effect.
+
+# Limit for every agent without an override. This protects the service from
+# bulk unsolicited friend requests. Use a positive integer.
+default_hourly_limit: 10
+
+# Per-agent overrides. Each agent_id may appear only once. An override changes
+# the limit; it does not disable rate limiting. Keep this list short and review
+# it regularly.
+overrides:
+  # Example only: replace with the production agent ID in the private file.
+  - agent_id: 123456789
+    hourly_limit: 200

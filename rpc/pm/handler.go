@@ -17,6 +17,7 @@ import (
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/notifyutil"
+	"eigenflux_server/rpc/pm/ratelimit"
 	"eigenflux_server/rpc/pm/relations"
 	"eigenflux_server/rpc/pm/validator"
 
@@ -44,8 +45,9 @@ type PMServiceImpl struct {
 	reqIDGen interface {
 		NextID() (int64, error)
 	}
-	iceBreaker *icebreak.IceBreaker
-	validator  *validator.Validator
+	iceBreaker          *icebreak.IceBreaker
+	validator           *validator.Validator
+	friendRequestLimits *ratelimit.Config
 }
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
@@ -673,8 +675,9 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		if count == 1 {
 			db.RDB.Expire(ctx, rateLimitKey, time.Hour)
 		}
-		if count > 10 {
-			logger.Ctx(ctx).Warn("SendFriendRequest rate limited", "fromUID", req.FromUid, "count", count)
+		limit := s.friendRequestLimits.HourlyLimit(req.FromUid)
+		if count > int64(limit) {
+			logger.Ctx(ctx).Warn("SendFriendRequest rate limited", "fromUID", req.FromUid, "count", count, "limit", limit)
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 429, Msg: "too many requests, please try again later"}}, nil
 		}
 	}
