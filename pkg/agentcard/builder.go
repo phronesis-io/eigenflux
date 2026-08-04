@@ -209,7 +209,7 @@ func loadTopItems(gdb *gorm.DB, agentID int64, limit int) ([]TopItem, error) {
 		Select("item_stats.item_id, item_stats.total_score, COALESCE(processed_items.summary, '') as summary").
 		Joins("LEFT JOIN processed_items ON processed_items.item_id = item_stats.item_id").
 		Where("item_stats.author_agent_id = ? AND item_stats.total_score > 0", agentID).
-		Order("item_stats.total_score DESC").
+		Order("item_stats.total_score DESC, item_stats.item_id ASC").
 		Limit(limit).
 		Scan(&rows).Error
 	if err != nil {

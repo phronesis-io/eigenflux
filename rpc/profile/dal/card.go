@@ -309,9 +309,10 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 }
 
 // UpsertAgentCard writes a rebuilt projection. The WHERE guard drops stale
-// rebuilds: an event carrying an older profile_version must not overwrite a
-// projection already built from a newer one (equal versions are accepted —
-// relation/influence-triggered rebuilds don't bump profile_version).
+// rebuilds and skips equal projections. A newer source_version is still
+// recorded even when the JSON is unchanged, so a later stale rebuild cannot
+// overwrite the row; card_version/generated_at advance only when visible card
+// content changes.
 func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion int64) error {
 	return db.Exec(`INSERT INTO agent_cards
 			(agent_id, public_card, private_card, schema_version, source_version, card_version, generated_at)
@@ -321,8 +322,21 @@ func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string,
 			private_card   = EXCLUDED.private_card,
 			schema_version = EXCLUDED.schema_version,
 			source_version = EXCLUDED.source_version,
-			card_version   = agent_cards.card_version + 1,
-			generated_at   = EXCLUDED.generated_at
-		WHERE agent_cards.source_version <= EXCLUDED.source_version`,
+			card_version   = agent_cards.card_version + CASE WHEN
+				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
+				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
+				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
+				THEN 1 ELSE 0 END,
+			generated_at   = CASE WHEN
+				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
+				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
+				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
+				THEN EXCLUDED.generated_at ELSE agent_cards.generated_at END
+		WHERE agent_cards.source_version < EXCLUDED.source_version
+			OR (agent_cards.source_version = EXCLUDED.source_version AND (
+				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
+				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
+				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
+			))`,
 		agentID, publicCard, privateCard, schemaVersion, sourceVersion, time.Now().UnixMilli()).Error
 }
