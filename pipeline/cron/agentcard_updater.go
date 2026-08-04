@@ -87,7 +87,14 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		return false
 	}
 	now := time.Now()
-	fullReconcile = fullReconcile || lastFull.IsZero() || lastFull.After(now) || now.Sub(lastFull) >= agentCardFullReconcileInterval
+	if lastFull.After(now) {
+		logger.Default().Warn("agent card updater: future full-reconcile timestamp ignored", "lastFull", lastFull)
+		if err := agentcard.SetLastFullReconcileAt(runCtx, rdb, now); err != nil {
+			return false
+		}
+		lastFull = now
+	}
+	fullReconcile = fullReconcile || lastFull.IsZero() || now.Sub(lastFull) >= agentCardFullReconcileInterval
 
 	start := time.Now()
 	rankingStarted := time.Now()
@@ -102,7 +109,8 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		       COUNT(s.item_id) AS broadcast_count,
 		       COALESCE(SUM(s.consumed_count), 0) AS consumed_count,
 		       COALESCE(SUM(s.score_1_count + s.score_2_count), 0) AS scored_events,
-		       COALESCE(MAX(GREATEST(s.updated_at, COALESCE(p.updated_at, 0))), 0) AS content_revision
+		       COALESCE(bit_xor(hashtextextended(CONCAT_WS(':', s.item_id,
+				   s.total_score, s.updated_at, COALESCE(p.updated_at, 0), COALESCE(p.status, 0)), 0)), 0) AS content_revision
 		FROM agents a
 		LEFT JOIN item_stats s ON s.author_agent_id = a.agent_id
 		LEFT JOIN processed_items p ON p.item_id = s.item_id

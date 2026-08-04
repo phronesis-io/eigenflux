@@ -28,35 +28,39 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	}
 	t.Cleanup(func() { tx.Rollback() })
 	const source = int64(8_000_000_000_000_000_000)
-	if err := profiledal.UpsertAgentCard(tx, agentID, `{"v":1}`, `{"p":1}`, 1, source); err != nil {
+	const fence = int64(8_000_000_000_000_000_000)
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":1}`, `{"p":1}`, 1, source, fence); err != nil {
 		t.Fatal(err)
 	}
 	first, err := profiledal.GetAgentCard(tx, agentID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := profiledal.UpsertAgentCard(tx, agentID, `{"v":1}`, `{"p":1}`, 1, source); err != nil {
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":1}`, `{"p":1}`, 1, source, fence+1); err != nil {
 		t.Fatal(err)
 	}
 	noOp, _ := profiledal.GetAgentCard(tx, agentID)
 	if noOp.CardVersion != first.CardVersion || noOp.GeneratedAt != first.GeneratedAt {
 		t.Fatal("identical upsert changed projection metadata")
 	}
-	if err := profiledal.UpsertAgentCard(tx, agentID, `{"v":2}`, `{"p":1}`, 1, source); err != nil {
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{"p":1}`, 1, source, fence+2); err != nil {
 		t.Fatal(err)
 	}
 	changed, _ := profiledal.GetAgentCard(tx, agentID)
 	if changed.CardVersion != first.CardVersion+1 {
 		t.Fatal("content change did not advance card_version")
 	}
-	if err := profiledal.UpsertAgentCard(tx, agentID, `{"v":2}`, `{"p":1}`, 1, source+1); err != nil {
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{"p":1}`, 1, source+1, fence+3); err != nil {
 		t.Fatal(err)
 	}
 	advanced, _ := profiledal.GetAgentCard(tx, agentID)
 	if advanced.SourceVersion != source+1 || advanced.CardVersion != changed.CardVersion {
 		t.Fatal("source-only advance changed visible version")
 	}
-	if err := profiledal.UpsertAgentCard(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source); err == nil {
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+2); err == nil {
 		t.Fatal("stale different projection was acknowledged")
+	}
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+1); err == nil {
+		t.Fatal("older fence overwrote a newer projection")
 	}
 }

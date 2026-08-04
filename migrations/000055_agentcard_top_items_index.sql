@@ -7,10 +7,10 @@
 SET lock_timeout = '5s';
 SET statement_timeout = '30min';
 
--- CREATE INDEX CONCURRENTLY may leave an INVALID index after interruption.
--- Dropping first makes goose retries self-healing; this migration has not yet
--- been recorded as applied when the statement is retried.
-DROP INDEX CONCURRENTLY IF EXISTS idx_item_stats_author_score;
+-- Do not drop first. If Goose is interrupted after a successful CREATE but
+-- before recording this migration, retrying must never remove a valid index.
+-- An interrupted CREATE can leave an invalid index; repair that explicitly
+-- after verifying pg_index.indisvalid, then rerun this migration.
 
 CREATE INDEX CONCURRENTLY idx_item_stats_author_score
     ON item_stats(author_agent_id, total_score DESC, item_id ASC)

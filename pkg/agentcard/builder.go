@@ -50,6 +50,14 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 	}
 	defer release()
 	gdb = gdb.WithContext(lockedCtx)
+	// Redis serializes the normal path, but it is only a lease: a paused
+	// holder can resume after its lease expires. Take a database-monotonic
+	// fence before reading facts so a later lock holder always wins the final
+	// write even if the old holder reaches the upsert afterwards.
+	rebuildFence, err := profiledal.NextAgentCardRebuildFence(gdb)
+	if err != nil {
+		return err
+	}
 	profileVersion, profileData, profileUpdatedAt, err := profiledal.GetProfileVersionDataAndUpdatedAt(gdb, agentID)
 	if err != nil {
 		return err
@@ -186,7 +194,7 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 	if err != nil {
 		return err
 	}
-	return profiledal.UpsertAgentCard(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion)
+	return profiledal.UpsertAgentCardWithFence(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion, rebuildFence)
 }
 
 func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (context.Context, func(), error) {

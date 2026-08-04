@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
@@ -19,6 +20,8 @@ type AgentCardConsumer struct {
 	runner *StreamConsumer
 }
 
+const agentCardMaxRetries = 5
+
 func NewAgentCardConsumer() *AgentCardConsumer {
 	c := &AgentCardConsumer{}
 	c.runner = &StreamConsumer{
@@ -27,11 +30,12 @@ func NewAgentCardConsumer() *AgentCardConsumer {
 		Group:        agentcard.GroupRebuild,
 		ConsumerName: "agentcard-worker-1",
 		MetricsLabel: "agentcard:rebuild",
-		// Workers MUST stay 1: rebuilds for the same agent are not serialized
-		// anywhere else, and equal-version upserts are last-write-wins — two
-		// workers processing back-to-back events for one agent could commit a
-		// staler snapshot second. Event volume is low; serial is plenty.
+		// Workers MUST stay 1: event order remains useful for freshness and
+		// volume is low. Database fences still prevent stale writes if a Redis
+		// lease expires or another entry point overlaps this worker.
 		Workers:                 1,
+		MaxRetries:              agentCardMaxRetries,
+		RetryMinIdle:            2 * time.Second,
 		FatalOnGroupCreateError: true,
 		Handle:                  c.handle,
 	}
@@ -59,7 +63,9 @@ func (c *AgentCardConsumer) handle(ctx context.Context, _ string, values map[str
 			return HandleSuccess
 		}
 		logger.Default().Error("AgentCardConsumer rebuild failed", "agentID", agentID, "reason", reason, "err", err)
-		return HandleFailure
+		// A transient database/Redis failure must stay pending. The snapshot
+		// reconciler is a safety net, not the primary delivery guarantee.
+		return HandleRetry
 	}
 	logger.Default().Debug("AgentCardConsumer card rebuilt", "agentID", agentID, "reason", reason)
 	return HandleSuccess

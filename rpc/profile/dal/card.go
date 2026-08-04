@@ -287,6 +287,7 @@ type AgentCard struct {
 	PrivateCard   string `gorm:"column:private_card"`
 	SchemaVersion int32  `gorm:"column:schema_version"`
 	SourceVersion int64  `gorm:"column:source_version"`
+	RebuildFence  int64  `gorm:"column:rebuild_fence"`
 	CardVersion   int64  `gorm:"column:card_version"`
 	GeneratedAt   int64  `gorm:"column:generated_at"`
 }
@@ -298,7 +299,7 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 	var card AgentCard
 	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
 			private_card::text as private_card, schema_version,
-			source_version, card_version, generated_at
+			source_version, rebuild_fence, card_version, generated_at
 		FROM agent_cards WHERE agent_id = ?`, agentID).Scan(&card).Error
 	if err != nil {
 		return nil, err
@@ -309,20 +310,42 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 	return &card, nil
 }
 
+// NextAgentCardRebuildFence allocates a database-monotonic fencing token for
+// one rebuild attempt. It remains correct when a Redis lease holder resumes
+// after expiry: a newer holder has a larger fence and wins the upsert.
+func NextAgentCardRebuildFence(db *gorm.DB) (int64, error) {
+	var fence int64
+	result := db.Raw(`SELECT nextval('agent_card_rebuild_fence_seq')`).Scan(&fence)
+	return fence, result.Error
+}
+
 // UpsertAgentCard writes a rebuilt projection. The WHERE guard drops stale
 // rebuilds and skips equal projections. A newer source_version is still
 // recorded even when the JSON is unchanged, so a later stale rebuild cannot
 // overwrite the row; card_version/generated_at advance only when visible card
 // content changes.
 func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion int64) error {
+	fence, err := NextAgentCardRebuildFence(db)
+	if err != nil {
+		return err
+	}
+	return UpsertAgentCardWithFence(db, agentID, publicCard, privateCard, schemaVersion, sourceVersion, fence)
+}
+
+// UpsertAgentCardWithFence persists a projection only when this rebuild is
+// newer than the last accepted rebuild and its source version is not older.
+// The fence is advanced even for an identical card: otherwise a stale holder
+// could write a different equal-version snapshot after a newer no-op rebuild.
+func UpsertAgentCardWithFence(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion, rebuildFence int64) error {
 	result := db.Exec(`INSERT INTO agent_cards
-			(agent_id, public_card, private_card, schema_version, source_version, card_version, generated_at)
-		VALUES (?, ?::jsonb, ?::jsonb, ?, ?, 1, ?)
+			(agent_id, public_card, private_card, schema_version, source_version, rebuild_fence, card_version, generated_at)
+		VALUES (?, ?::jsonb, ?::jsonb, ?, ?, ?, 1, ?)
 		ON CONFLICT (agent_id) DO UPDATE SET
 			public_card    = EXCLUDED.public_card,
 			private_card   = EXCLUDED.private_card,
 			schema_version = EXCLUDED.schema_version,
 			source_version = EXCLUDED.source_version,
+			rebuild_fence  = EXCLUDED.rebuild_fence,
 			card_version   = agent_cards.card_version + CASE WHEN
 				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
@@ -333,13 +356,9 @@ func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string,
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
 				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
 				THEN EXCLUDED.generated_at ELSE agent_cards.generated_at END
-		WHERE agent_cards.source_version < EXCLUDED.source_version
-			OR (agent_cards.source_version = EXCLUDED.source_version AND (
-				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
-				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
-				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
-			))`,
-		agentID, publicCard, privateCard, schemaVersion, sourceVersion, time.Now().UnixMilli())
+		WHERE agent_cards.rebuild_fence < EXCLUDED.rebuild_fence
+			AND agent_cards.source_version <= EXCLUDED.source_version`,
+		agentID, publicCard, privateCard, schemaVersion, sourceVersion, rebuildFence, time.Now().UnixMilli())
 	if result.Error != nil {
 		return result.Error
 	}
@@ -352,10 +371,10 @@ func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string,
 	var matches bool
 	err := db.Raw(`SELECT EXISTS (
 		SELECT 1 FROM agent_cards
-		WHERE agent_id = ? AND source_version >= ?
+		WHERE agent_id = ? AND rebuild_fence >= ? AND source_version >= ?
 		  AND public_card = ?::jsonb AND private_card = ?::jsonb
 		  AND schema_version = ?
-	)`, agentID, sourceVersion, publicCard, privateCard, schemaVersion).Scan(&matches).Error
+	)`, agentID, rebuildFence, sourceVersion, publicCard, privateCard, schemaVersion).Scan(&matches).Error
 	if err != nil {
 		return err
 	}

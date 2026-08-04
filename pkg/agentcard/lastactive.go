@@ -30,6 +30,10 @@ const (
 	influenceSnapshotHash = "agentcard:influence_snapshot"
 	fullReconcileAtKey    = "agentcard:last_full_reconcile_at"
 	redisInfluenceBatch   = 1000
+	// Redis state is a cache, not an unbounded input surface. A cardinality
+	// far above the agent population indicates corruption or a bad writer;
+	// fail the run before allocating unbounded maps/slices.
+	maxInfluenceStateEntries = 100000
 )
 
 // InfluenceSnapshot contains every influence input that can change the card.
@@ -129,6 +133,9 @@ func GetInfluencePercentileIDs(ctx context.Context, rdb *redis.Client) (map[int6
 			return nil, err
 		}
 		for i := 0; i+1 < len(values); i += 2 {
+			if len(out)+len(invalid) >= maxInfluenceStateEntries {
+				return nil, fmt.Errorf("agentcard percentile state exceeds %d entries", maxInfluenceStateEntries)
+			}
 			id, idErr := strconv.ParseInt(values[i], 10, 64)
 			p, pErr := strconv.Atoi(values[i+1])
 			if idErr != nil || id <= 0 || pErr != nil || p < 0 || p > 100 {
@@ -156,7 +163,9 @@ func GetInfluencePercentileIDs(ctx context.Context, rdb *redis.Client) (map[int6
 }
 
 func ClearInfluenceState(ctx context.Context, rdb *redis.Client) error {
-	return rdb.Del(ctx, influenceSnapshotHash, percentileHash, lastActiveHash).Err()
+	// Activity is independent of influence reconciliation and must survive an
+	// empty-agent or recovery pass.
+	return rdb.Del(ctx, influenceSnapshotHash, percentileHash).Err()
 }
 
 // GetInfluenceSnapshots returns the last snapshots successfully projected by
@@ -174,6 +183,9 @@ func GetInfluenceSnapshots(ctx context.Context, rdb *redis.Client) (map[int64]In
 			return nil, err
 		}
 		for i := 0; i+1 < len(values); i += 2 {
+			if len(out)+len(invalid) >= maxInfluenceStateEntries {
+				return nil, fmt.Errorf("agentcard influence snapshot state exceeds %d entries", maxInfluenceStateEntries)
+			}
 			rawID, rawSnapshot := values[i], values[i+1]
 			id, parseErr := strconv.ParseInt(rawID, 10, 64)
 			if parseErr != nil || id <= 0 || len(rawSnapshot) > 256 {
