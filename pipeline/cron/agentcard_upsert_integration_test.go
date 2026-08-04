@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -72,5 +73,129 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	}
 	if err := tx.Exec(`UPDATE agent_cards SET public_card = '{"legacy":true}'::jsonb WHERE agent_id = ?`, agentID).Error; err == nil {
 		t.Fatal("database trigger accepted a legacy content write without an ordering-key advance")
+	}
+}
+
+func TestRebuildFenceSequenceIsMonotonicAcrossConnections(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN is required for PostgreSQL integration semantics")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	connA, err := sqlDB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connA.Close()
+	connB, err := sqlDB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connB.Close()
+	var a1, b1, a2 int64
+	if err := connA.QueryRowContext(ctx, `SELECT nextval('agent_card_rebuild_fence_seq')`).Scan(&a1); err != nil {
+		t.Fatal(err)
+	}
+	if err := connB.QueryRowContext(ctx, `SELECT nextval('agent_card_rebuild_fence_seq')`).Scan(&b1); err != nil {
+		t.Fatal(err)
+	}
+	if err := connA.QueryRowContext(ctx, `SELECT nextval('agent_card_rebuild_fence_seq')`).Scan(&a2); err != nil {
+		t.Fatal(err)
+	}
+	if !(a1 < b1 && b1 < a2) {
+		t.Fatalf("sequence is not globally monotonic: A=%d B=%d A=%d", a1, b1, a2)
+	}
+}
+
+func TestInfluenceRollupTracksFactMutations(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN is required for PostgreSQL integration semantics")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gdb.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { tx.Rollback() })
+	const agentID, otherID, itemID = int64(9_100_001), int64(9_100_002), int64(9_200_001)
+	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at) VALUES
+		(?, 'rollup-a@test.local', 'rollup-a', 1, 1), (?, 'rollup-b@test.local', 'rollup-b', 1, 1)`, agentID, otherID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES (?,?,'x',1)`, itemID, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO item_stats(item_id,author_agent_id,consumed_count,score_1_count,score_2_count,total_score,created_at,updated_at)
+		VALUES (?,?,7,2,3,8,1,1)`, itemID, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRollup(t, tx, agentID, 8, 1, 7)
+	if err := tx.Exec(`UPDATE item_stats SET author_agent_id=?, consumed_count=9, score_2_count=4, total_score=10 WHERE item_id=?`, otherID, itemID).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRollup(t, tx, agentID, 0, 0, 0)
+	assertRollup(t, tx, otherID, 10, 1, 9)
+	if err := tx.Exec(`DELETE FROM item_stats WHERE item_id=?`, itemID).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRollup(t, tx, otherID, 0, 0, 0)
+}
+
+func TestRollingDeploymentFenceTrigger(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN is required for PostgreSQL integration semantics")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gdb.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { tx.Rollback() })
+	const agentID = int64(9_300_001)
+	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at) VALUES (?,'rolling@test.local','rolling',1,1)`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO agent_cards(agent_id,public_card,private_card,schema_version,source_version,card_version,generated_at,rebuild_fence)
+		VALUES (?,'{"v":0}','{}',1,1,1,1,0)`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`UPDATE agent_cards SET public_card='{"v":1}',card_version=2,generated_at=2 WHERE agent_id=?`, agentID).Error; err != nil {
+		t.Fatalf("pre-fence rolling writer was rejected: %v", err)
+	}
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{}`, 1, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`UPDATE agent_cards SET card_version=card_version+1,generated_at=3 WHERE agent_id=?`, agentID).Error; err == nil {
+		t.Fatal("post-fence legacy metadata write was accepted")
+	}
+}
+
+func assertRollup(t *testing.T, tx *gorm.DB, agentID, score, broadcasts, consumed int64) {
+	t.Helper()
+	var got struct{ Score, Broadcasts, Consumed int64 }
+	if err := tx.Raw(`SELECT COALESCE(SUM(score_1_count)+2*SUM(score_2_count),0)::BIGINT score,
+		COALESCE(SUM(broadcast_count),0)::BIGINT broadcasts,
+		COALESCE(SUM(consumed_count),0)::BIGINT consumed
+		FROM agent_influence_rollups WHERE agent_id=?`, agentID).Scan(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Score != score || got.Broadcasts != broadcasts || got.Consumed != consumed {
+		t.Fatalf("agent %d rollup=%+v want score=%d broadcasts=%d consumed=%d", agentID, got, score, broadcasts, consumed)
 	}
 }

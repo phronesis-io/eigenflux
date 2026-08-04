@@ -8,7 +8,9 @@ SET LOCAL statement_timeout = '5min';
 ALTER TABLE agent_cards
     ADD COLUMN rebuild_fence BIGINT NOT NULL DEFAULT 0;
 
-CREATE SEQUENCE agent_card_rebuild_fence_seq AS BIGINT START WITH 1 CACHE 256;
+-- Sequence cache must remain 1. PostgreSQL caches ranges per connection, so a
+-- larger cache does not preserve nextval order across pooled connections.
+CREATE SEQUENCE agent_card_rebuild_fence_seq AS BIGINT START WITH 1 CACHE 1;
 
 -- During a rolling deployment, an old binary does not mention rebuild_fence
 -- in its UPSERT. Reject any visible projection change that does not advance
@@ -17,10 +19,13 @@ CREATE SEQUENCE agent_card_rebuild_fence_seq AS BIGINT START WITH 1 CACHE 256;
 CREATE OR REPLACE FUNCTION enforce_agent_card_rebuild_fence()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF (NEW.public_card IS DISTINCT FROM OLD.public_card
+    IF OLD.rebuild_fence > 0
+       AND (NEW.public_card IS DISTINCT FROM OLD.public_card
         OR NEW.private_card IS DISTINCT FROM OLD.private_card
         OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
-        OR NEW.source_version IS DISTINCT FROM OLD.source_version)
+        OR NEW.source_version IS DISTINCT FROM OLD.source_version
+        OR NEW.card_version IS DISTINCT FROM OLD.card_version
+        OR NEW.generated_at IS DISTINCT FROM OLD.generated_at)
        AND (NEW.source_version < OLD.source_version
             OR (NEW.source_version = OLD.source_version
                 AND NEW.rebuild_fence <= OLD.rebuild_fence)) THEN

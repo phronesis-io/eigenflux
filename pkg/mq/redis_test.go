@@ -77,3 +77,31 @@ func TestConsumePendingClaimsExistingPendingMessages(t *testing.T) {
 	assert.Equal(t, int64(2), pendingAfter[0].RetryCount)
 	assert.Equal(t, "consumer-b", pendingAfter[0].Consumer)
 }
+
+func TestDeadLetterAndAckIsIdempotent(t *testing.T) {
+	_, client := setupTestRedis(t)
+	ctx := context.Background()
+	stream, group, dlq := "stream:test:source", "cg:test:source", "stream:test:dlq"
+	require.NoError(t, EnsureConsumerGroup(ctx, stream, group))
+	id, err := Publish(ctx, stream, map[string]interface{}{"bad": "payload"})
+	require.NoError(t, err)
+	_, err = Consume(ctx, stream, group, "consumer-a", 1)
+	require.NoError(t, err)
+	values := map[string]interface{}{
+		"retry_count":       int64(5),
+		"payload":           `{"bad":"payload"}`,
+		"payload_truncated": false,
+		"failed_at":         int64(123),
+	}
+	require.NoError(t, DeadLetterAndAck(ctx, stream, group, id, dlq, values))
+	require.NoError(t, DeadLetterAndAck(ctx, stream, group, id, dlq, values))
+	assert.Equal(t, int64(0), mustPendingCount(t, client, stream, group))
+	assert.Equal(t, int64(1), client.XLen(ctx, dlq).Val())
+}
+
+func mustPendingCount(t *testing.T, client *redis.Client, stream, group string) int64 {
+	t.Helper()
+	pending, err := client.XPending(context.Background(), stream, group).Result()
+	require.NoError(t, err)
+	return pending.Count
+}

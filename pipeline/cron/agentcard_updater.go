@@ -27,6 +27,7 @@ const (
 	// reconcile rotates across the population over successive hourly passes.
 	agentCardMaxRebuildsPerRun = 5000
 	agentCardRebuildTimeout    = 2 * time.Minute
+	agentCardRebuildBudget     = 45 * time.Minute
 )
 
 type agentInfluenceRow struct {
@@ -105,10 +106,28 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		logger.Default().Warn("agent card updater: future full-reconcile timestamp ignored", "lastFull", lastFull)
 		lastFull = time.Time{}
 	}
-	fullReconcile = fullReconcile || lastFull.IsZero() || now.Sub(lastFull) >= agentCardFullReconcileInterval
+	fullActive, fullDone, err := agentcard.GetFullReconcileProgress(runCtx, rdb)
+	if err != nil {
+		logger.Default().Warn("agent card updater: full reconcile progress read failed", "err", err)
+		return false
+	}
+	fullDue := fullReconcile || lastFull.IsZero() || now.Sub(lastFull) >= agentCardFullReconcileInterval
+	if fullDue && !fullActive {
+		if err := agentcard.EnsureFullReconcileProgressFenced(runCtx, rdb, now.UnixMilli(), lockKeyAgentCardUpdater, token); err != nil {
+			return false
+		}
+		fullActive = true
+		fullDone = map[int64]struct{}{}
+	}
+	fullReconcile = fullActive
 
 	start := time.Now()
 	rankingStarted := time.Now()
+	var rollupReady bool
+	if err := db.DB.WithContext(runCtx).Raw(`SELECT backfill_complete FROM agent_influence_rollup_meta WHERE singleton = TRUE`).Scan(&rollupReady).Error; err != nil || !rollupReady {
+		logger.Default().Warn("agent card updater: influence rollup is not ready", "ready", rollupReady, "err", err)
+		return false
+	}
 
 	// Rollups are maintained transactionally by item_stats/processed_items
 	// triggers. Ranking is therefore O(agents), not O(historical items).
@@ -121,7 +140,15 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		       COALESCE(r.scored_events, 0) AS scored_events,
 		       COALESCE(r.content_revision, 0) AS content_revision
 		FROM agents a
-		LEFT JOIN agent_influence_rollups r ON r.agent_id = a.agent_id
+		LEFT JOIN (
+			SELECT agent_id,
+			       (SUM(score_1_count) + 2 * SUM(score_2_count))::BIGINT AS score,
+			       SUM(broadcast_count)::BIGINT AS broadcast_count,
+			       SUM(consumed_count)::BIGINT AS consumed_count,
+			       (SUM(score_1_count) + SUM(score_2_count))::BIGINT AS scored_events,
+			       SUM(content_revision)::BIGINT AS content_revision
+			FROM agent_influence_rollups GROUP BY agent_id
+		) r ON r.agent_id = a.agent_id
 		ORDER BY score ASC`).Scan(&rows).Error
 	if err != nil {
 		logger.Default().Error("agent card updater: influence ranking query failed", "err", err)
@@ -145,7 +172,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			return false
 		}
 		if fullReconcile {
-			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
 				return false
 			}
 		}
@@ -157,9 +184,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	// bounded batches once the missing set is large enough to create a spike.
 	missingSnapshots := countMissingInfluenceSnapshots(snapshots, previous)
 	recoveryMode := shouldRecoverInfluenceSnapshots(total, total-missingSnapshots, lastFull)
-	if recoveryMode {
-		fullReconcile = false
-	}
+	recoveryMode = recoveryMode && !fullReconcile
 	percentiles := make(map[int64]int)
 	dirty := make(map[int64]struct{}, total)
 	for agentID, snapshot := range snapshots {
@@ -180,19 +205,27 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 
 	rebuildStarted := time.Now()
 	successfulSnapshots := make(map[int64]agentcard.InfluenceSnapshot, len(dirty))
+	fullCompleted := make([]int64, 0)
 	failedIDs := make([]int64, 0)
 	rebuilt, skipped, failed, deferred, attempted := 0, 0, 0, 0, 0
 	orderedRows := rotateInfluenceRows(rows, now, agentCardMaxRebuildsPerRun)
+	rebuildDeadline := time.Now().Add(agentCardRebuildBudget)
+	attemptLimit := agentCardMaxRebuildsPerRun
+	if recoveryMode || missingSnapshots >= agentCardRecoveryBatch {
+		attemptLimit = agentCardRecoveryBatch
+	}
 	for _, row := range orderedRows {
 		if runCtx.Err() != nil {
 			return false
 		}
 		_, isDirty := dirty[row.AgentID]
-		if !fullReconcile && !isDirty {
+		_, alreadyFull := fullDone[row.AgentID]
+		needsFull := fullReconcile && !alreadyFull
+		if !needsFull && !isDirty {
 			skipped++
 			continue
 		}
-		if attempted >= agentCardMaxRebuildsPerRun {
+		if attempted >= attemptLimit || time.Now().After(rebuildDeadline) {
 			deferred++
 			continue
 		}
@@ -208,9 +241,17 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		}
 		rebuilt++
 		successfulSnapshots[row.AgentID] = snapshots[row.AgentID]
+		if needsFull {
+			fullCompleted = append(fullCompleted, row.AgentID)
+			fullDone[row.AgentID] = struct{}{}
+		}
 	}
 	if err := agentcard.SetInfluenceSnapshotsFenced(runCtx, rdb, successfulSnapshots, lockKeyAgentCardUpdater, token); err != nil {
 		logger.Default().Error("agent card updater: snapshot write failed", "err", err)
+		return false
+	}
+	if err := agentcard.MarkFullReconcileDoneFenced(runCtx, rdb, fullCompleted, lockKeyAgentCardUpdater, token); err != nil {
+		logger.Default().Error("agent card updater: full reconcile progress write failed", "err", err)
 		return false
 	}
 	// Deleted agents and failed full-reconcile rows must not retain a snapshot
@@ -237,25 +278,16 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		return false
 	}
 	if fullReconcile {
-		if failed == 0 && deferred == 0 {
-			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
-				logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
-				return false
-			}
-		}
-	} else if recoveryMode {
-		complete := failed == 0 && deferred == 0
-		for agentID := range snapshots {
-			if old, oldOK := previous[agentID]; oldOK && old == snapshots[agentID] {
-				continue
-			}
-			if _, newOK := successfulSnapshots[agentID]; !newOK {
+		complete := true
+		for _, row := range rows {
+			if _, ok := fullDone[row.AgentID]; !ok {
 				complete = false
 				break
 			}
 		}
 		if complete {
-			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+			if err := agentcard.CompleteFullReconcileFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+				logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
 				return false
 			}
 		}

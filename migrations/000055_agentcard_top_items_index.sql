@@ -16,6 +16,24 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_item_stats_author_score
     ON item_stats(author_agent_id, total_score DESC, item_id ASC)
     WHERE total_score > 0;
 
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class AS c
+        JOIN pg_index AS i ON i.indexrelid = c.oid
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = 'idx_item_stats_author_score'
+          AND i.indrelid = 'public.item_stats'::regclass
+          AND NOT i.indisvalid
+    ) THEN
+        RAISE EXCEPTION 'idx_item_stats_author_score is invalid; run scripts/common/migrate_up.sh to repair it';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 -- +goose Down
 SET lock_timeout = '5s';
 SET statement_timeout = '30min';

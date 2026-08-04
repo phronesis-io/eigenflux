@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -89,6 +90,10 @@ type StreamConsumer struct {
 	// DeadLetterStream receives a bounded copy before a message that exhausted
 	// retries is ACKed. Empty preserves the legacy drop-only behavior.
 	DeadLetterStream string
+	// UnbufferedDispatch prevents messages from aging in a local queue before
+	// their handler starts. Use it when RetryMinIdle is the crash detector.
+	UnbufferedDispatch bool
+	preferFresh        bool
 
 	// FatalOnGroupCreateError: when true (the default for trade/item/
 	// profile/item-stats consumers), a failure to create the consumer
@@ -138,7 +143,11 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 		id     string
 		values map[string]any
 	}
-	msgChan := make(chan msgTask, workers*2)
+	queueSize := workers * 2
+	if c.UnbufferedDispatch {
+		queueSize = 0
+	}
+	msgChan := make(chan msgTask, queueSize)
 	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
@@ -157,7 +166,11 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 				}
 				metrics.ConsumerMessagesTotal.WithLabelValues(c.MetricsLabel, status).Inc()
 
-				if result != HandleRetry {
+				if result == HandleFailure && c.DeadLetterStream != "" {
+					if err := c.deadLetterAndAck(ctx, task.id, task.values, 0); err != nil {
+						logger.Default().Error(c.Name+" poison-message DLQ failed", "msgID", task.id, "err", err)
+					}
+				} else if result != HandleRetry {
 					if err := mq.Ack(ctx, c.Stream, c.Group, task.id); err != nil {
 						logger.Default().Error(c.Name+" ACK failed", "msgID", task.id, "err", err)
 					}
@@ -221,7 +234,11 @@ func (c *StreamConsumer) nextBatchSimple(ctx context.Context, batch int64) ([]mq
 }
 
 func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, minIdle, pollInterval, readBlock time.Duration) ([]mq.PendingMessage, error) {
-	reclaimed, err := mq.ConsumePending(ctx, c.Stream, c.Group, c.ConsumerName, batch, minIdle)
+	var reclaimed []mq.PendingMessage
+	var err error
+	if !c.preferFresh {
+		reclaimed, err = mq.ConsumePending(ctx, c.Stream, c.Group, c.ConsumerName, batch, minIdle)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -232,22 +249,10 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 				logger.Default().Warn(c.Name+" dropping message after max retries",
 					"msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
 				if c.DeadLetterStream != "" {
-					payload, marshalErr := json.Marshal(pending.Message.Values)
-					if marshalErr != nil {
-						return nil, fmt.Errorf("marshal dead letter %s: %w", pending.Message.ID, marshalErr)
+					if dlqErr := c.deadLetterAndAck(ctx, pending.Message.ID, pending.Message.Values, pending.RetryCount); dlqErr != nil {
+						return nil, dlqErr
 					}
-					_, publishErr := mq.PublishCapped(ctx, c.DeadLetterStream, 10000, map[string]interface{}{
-						"original_stream": c.Stream,
-						"original_id":     pending.Message.ID,
-						"retry_count":     pending.RetryCount,
-						"payload":         string(payload),
-						"failed_at":       time.Now().UnixMilli(),
-					})
-					if publishErr != nil {
-						return nil, fmt.Errorf("publish dead letter %s: %w", pending.Message.ID, publishErr)
-					}
-				}
-				if ackErr := mq.Ack(ctx, c.Stream, c.Group, pending.Message.ID); ackErr != nil {
+				} else if ackErr := mq.Ack(ctx, c.Stream, c.Group, pending.Message.ID); ackErr != nil {
 					return nil, fmt.Errorf("ACK exhausted message %s: %w", pending.Message.ID, ackErr)
 				}
 				metrics.ConsumerRetryTotal.WithLabelValues(c.MetricsLabel).Inc()
@@ -256,9 +261,11 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 			msgs = append(msgs, pending)
 		}
 		if len(msgs) > 0 {
+			c.preferFresh = true
 			return msgs, nil
 		}
 	}
+	c.preferFresh = false
 
 	pendingCount, err := mq.PendingCount(ctx, c.Stream, c.Group)
 	if err != nil {
@@ -280,4 +287,43 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 		msgs = append(msgs, mq.PendingMessage{Message: message})
 	}
 	return msgs, nil
+}
+
+const deadLetterPayloadLimit = 16 * 1024
+
+func (c *StreamConsumer) deadLetterAndAck(ctx context.Context, id string, values map[string]any, retryCount int64) error {
+	safe := make(map[string]string)
+	truncated := false
+	for key, value := range values {
+		if len(safe) >= 32 {
+			truncated = true
+			break
+		}
+		if len(key) > 128 {
+			key = key[:128]
+			truncated = true
+		}
+		rendered := fmt.Sprint(value)
+		if len(rendered) > 1024 {
+			sum := sha256.Sum256([]byte(rendered))
+			rendered = rendered[:1024] + fmt.Sprintf("...[sha256:%x]", sum)
+			truncated = true
+		}
+		safe[key] = rendered
+	}
+	payload, err := json.Marshal(safe)
+	if err != nil {
+		return fmt.Errorf("marshal dead letter %s: %w", id, err)
+	}
+	if len(payload) > deadLetterPayloadLimit {
+		sum := sha256.Sum256(payload)
+		payload = []byte(fmt.Sprintf(`{"sha256":"%x","note":"payload exceeded limit"}`, sum))
+		truncated = true
+	}
+	return mq.DeadLetterAndAck(ctx, c.Stream, c.Group, id, c.DeadLetterStream, map[string]interface{}{
+		"retry_count":       retryCount,
+		"payload":           string(payload),
+		"payload_truncated": truncated,
+		"failed_at":         time.Now().UnixMilli(),
+	})
 }

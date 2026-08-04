@@ -324,8 +324,13 @@ func NextAgentCardRebuildFence(db *gorm.DB) (int64, error) {
 // recorded even when the JSON is unchanged, so a later stale rebuild cannot
 // overwrite the row; card_version/generated_at advance only when visible card
 // content changes.
+// Deprecated: this legacy signature cannot be made safe because the caller has
+// already read facts before entering the function. It deliberately fails
+// closed. In-repository callers use UpsertAgentCardWithFence; the symbol stays
+// temporarily so mixed source trees fail explicitly instead of silently
+// compiling an unfenced writer.
 func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion int64) error {
-	return fmt.Errorf("UpsertAgentCard requires a fence allocated before fact reads; use UpsertAgentCardWithFence")
+	return fmt.Errorf("UpsertAgentCard is disabled: allocate a fence before fact reads and call UpsertAgentCardWithFence")
 }
 
 // UpsertAgentCardWithFence persists a projection only when this rebuild is

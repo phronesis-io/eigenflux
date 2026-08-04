@@ -25,7 +25,7 @@ type AgentCardConsumer struct {
 const agentCardMaxRetries = 5
 
 const (
-	agentCardRetryMinIdle  = 3 * time.Minute
+	agentCardRetryMinIdle  = 5 * time.Minute
 	agentCardHandleTimeout = 2 * time.Minute
 	agentCardDeadLetter    = "stream:agentcard:rebuild:dlq"
 )
@@ -44,9 +44,11 @@ func NewAgentCardConsumer() *AgentCardConsumer {
 		// volume is low. Database fences still prevent stale writes if a Redis
 		// lease expires or another entry point overlaps this worker.
 		Workers:                 1,
+		BatchSize:               1,
 		MaxRetries:              agentCardMaxRetries,
 		RetryMinIdle:            agentCardRetryMinIdle,
 		DeadLetterStream:        agentCardDeadLetter,
+		UnbufferedDispatch:      true,
 		FatalOnGroupCreateError: true,
 		Handle:                  c.handle,
 	}

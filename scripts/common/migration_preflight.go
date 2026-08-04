@@ -28,7 +28,10 @@ func main() {
 	err = db.Raw(`SELECT EXISTS (
 		SELECT 1 FROM pg_class AS c
 		JOIN pg_index AS i ON i.indexrelid = c.oid
+		JOIN pg_namespace AS n ON n.oid = c.relnamespace
 		WHERE c.relname = 'idx_item_stats_author_score'
+		  AND n.nspname = 'public'
+		  AND i.indrelid = 'public.item_stats'::regclass
 		  AND NOT i.indisvalid
 	)`).Scan(&invalid).Error
 	if err != nil {
@@ -38,7 +41,7 @@ func main() {
 	if !invalid {
 		return
 	}
-	if err := db.Exec(`DROP INDEX CONCURRENTLY idx_item_stats_author_score`).Error; err != nil {
+	if err := db.Exec(`DROP INDEX CONCURRENTLY public.idx_item_stats_author_score`).Error; err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

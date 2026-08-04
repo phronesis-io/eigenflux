@@ -31,6 +31,12 @@ type TopItem struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+type agentInfluenceFacts struct {
+	Score          int64
+	BroadcastCount int64
+	ConsumedCount  int64
+}
+
 // Rebuild recomputes both card projections for one agent from the fact tables
 // and upserts agent_cards. Idempotent; safe to call from the stream consumer,
 // the cron reconciler, and read-on-miss paths concurrently.
@@ -161,13 +167,22 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		return err
 	}
 
-	influence, err := itemdal.GetAgentInfluenceMetrics(gdb, agentID)
+	influence, err := loadAgentInfluence(gdb, agentID)
 	if err != nil {
 		return err
 	}
 	topItems, err := loadTopItems(gdb, agentID, 10)
 	if err != nil {
 		return err
+	}
+
+	percentile, percentileOK, err := GetInfluencePercentileStrict(lockedCtx, rdb, agentID)
+	if err != nil {
+		return fmt.Errorf("read influence percentile: %w", err)
+	}
+	lastActive, lastActiveOK, err := GetLastActiveStrict(lockedCtx, rdb, agentID)
+	if err != nil {
+		return fmt.Errorf("read last active: %w", err)
 	}
 
 	pub := map[string]interface{}{
@@ -190,10 +205,10 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 			"level":                   nil,
 			"human_identity_verified": nil,
 		},
-		"influence": buildInfluence(lockedCtx, rdb, agentID, influence, topItems),
+		"influence": buildInfluence(influence, topItems, percentile, percentileOK),
 	}
-	if ms, ok := GetLastActive(lockedCtx, rdb, agentID); ok {
-		pub["last_active_at"] = ms
+	if lastActiveOK {
+		pub["last_active_at"] = lastActive
 	} else {
 		pub["last_active_at"] = nil
 	}
@@ -290,21 +305,48 @@ func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (
 // buildInfluence assembles the public influence block. Score formula (v1):
 // score_1_count + 2*score_2_count over the agent's items. Percentile comes
 // from the cron ranker; null until first computed.
-func buildInfluence(ctx context.Context, rdb *redis.Client, agentID int64, m *itemdal.InfluenceMetrics, topItems []TopItem) map[string]interface{} {
+func buildInfluence(m agentInfluenceFacts, topItems []TopItem, percentile int, percentileOK bool) map[string]interface{} {
 	out := map[string]interface{}{
-		"score": m.TotalScored1 + 2*m.TotalScored2,
+		"score": m.Score,
 		"reach_stats": map[string]interface{}{
-			"broadcast_count": m.TotalItems,
-			"consumed_count":  m.TotalConsumed,
+			"broadcast_count": m.BroadcastCount,
+			"consumed_count":  m.ConsumedCount,
 		},
 		"top_items": topItems,
 	}
-	if p, ok := GetInfluencePercentile(ctx, rdb, agentID); ok {
-		out["percentile"] = p
+	if percentileOK {
+		out["percentile"] = percentile
 	} else {
 		out["percentile"] = nil
 	}
 	return out
+}
+
+func loadAgentInfluence(gdb *gorm.DB, agentID int64) (agentInfluenceFacts, error) {
+	var row struct {
+		Score          int64
+		BroadcastCount int64
+		ConsumedCount  int64
+		Ready          bool
+	}
+	err := gdb.Raw(`SELECT meta.backfill_complete AS ready,
+		COALESCE(SUM(score_1_count) + 2 * SUM(score_2_count), 0)::BIGINT AS score,
+		COALESCE(SUM(broadcast_count), 0)::BIGINT AS broadcast_count,
+		COALESCE(SUM(consumed_count), 0)::BIGINT AS consumed_count
+	FROM agent_influence_rollup_meta AS meta
+	LEFT JOIN agent_influence_rollups AS rollup ON rollup.agent_id = ?
+	WHERE meta.singleton = TRUE GROUP BY meta.backfill_complete`, agentID).Scan(&row).Error
+	if err != nil {
+		return agentInfluenceFacts{}, err
+	}
+	if !row.Ready {
+		return agentInfluenceFacts{}, fmt.Errorf("agentcard: influence rollup backfill is incomplete")
+	}
+	return agentInfluenceFacts{
+		Score:          row.Score,
+		BroadcastCount: row.BroadcastCount,
+		ConsumedCount:  row.ConsumedCount,
+	}, nil
 }
 
 // loadTopItems returns the agent's highest-scored broadcasts. Query failures
@@ -346,8 +388,12 @@ func rawOr(data map[string]json.RawMessage, key string, fallback interface{}) in
 	if !ok {
 		return fallback
 	}
-	var v interface{}
-	if err := json.Unmarshal(raw, &v); err != nil || v == nil {
+	spec, ok := LookupField(key)
+	if !ok {
+		return fallback
+	}
+	v, err := ValidateValue(spec, raw)
+	if err != nil || v == nil {
 		return fallback
 	}
 	return v

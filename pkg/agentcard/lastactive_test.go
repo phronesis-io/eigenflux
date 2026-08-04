@@ -3,6 +3,7 @@ package agentcard
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -138,5 +139,62 @@ func TestFencedSelfHealRejectsLostLease(t *testing.T) {
 	}
 	if !rdb.HExists(ctx, influenceSnapshotHash, "7").Val() {
 		t.Fatal("lost lease performed cache self-healing mutation")
+	}
+}
+
+func TestFullReconcileProgressSpansRuns(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set("lock:test", "owner")
+	requireNoError(t, EnsureFullReconcileProgressFenced(ctx, rdb, 123, "lock:test", "owner"))
+	requireNoError(t, MarkFullReconcileDoneFenced(ctx, rdb, []int64{1, 2}, "lock:test", "owner"))
+	active, done, err := GetFullReconcileProgress(ctx, rdb)
+	requireNoError(t, err)
+	if !active || len(done) != 2 {
+		t.Fatalf("active=%v done=%v", active, done)
+	}
+	requireNoError(t, MarkFullReconcileDoneFenced(ctx, rdb, []int64{3}, "lock:test", "owner"))
+	requireNoError(t, CompleteFullReconcileFenced(ctx, rdb, time.UnixMilli(456), "lock:test", "owner"))
+	active, done, err = GetFullReconcileProgress(ctx, rdb)
+	requireNoError(t, err)
+	if active || len(done) != 0 {
+		t.Fatalf("completed progress remained active: %v %v", active, done)
+	}
+}
+
+func TestFullReconcileProgressPersistsBeyondOneRunLimit(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set("lock:test", "owner")
+	requireNoError(t, EnsureFullReconcileProgressFenced(ctx, rdb, 123, "lock:test", "owner"))
+
+	ids := make([]int64, 5001)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+	requireNoError(t, MarkFullReconcileDoneFenced(ctx, rdb, ids, "lock:test", "owner"))
+	active, done, err := GetFullReconcileProgress(ctx, rdb)
+	requireNoError(t, err)
+	if !active || len(done) != len(ids) {
+		t.Fatalf("active=%v done=%d, want active and %d", active, len(done), len(ids))
+	}
+	got := make([]int64, 0, len(done))
+	for id := range done {
+		got = append(got, id)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, ids) {
+		t.Fatal("persisted full-reconcile IDs differ from input")
+	}
+}
+
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
 	}
 }

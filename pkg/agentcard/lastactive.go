@@ -34,11 +34,14 @@ const (
 	// snapshot in place and are retried on the next pass.
 	influenceSnapshotHash = "agentcard:influence_snapshot"
 	fullReconcileAtKey    = "agentcard:last_full_reconcile_at"
+	fullReconcileEpochKey = "agentcard:full_reconcile_epoch"
+	fullReconcileDoneKey  = "agentcard:full_reconcile_done"
 	redisInfluenceBatch   = 1000
 	// Redis state is a cache, not an unbounded input surface. A cardinality
 	// far above the agent population indicates corruption or a bad writer;
 	// fail the run before allocating unbounded maps/slices.
 	maxInfluenceStateEntries = 100000
+	maxInfluenceStateBytes   = 16 * 1024 * 1024
 )
 
 // InfluenceSnapshot contains every influence input that can change the card.
@@ -51,6 +54,84 @@ type InfluenceSnapshot struct {
 	ScoredEvents    int64
 	ContentRevision int64
 	Percentile      int
+}
+
+func GetFullReconcileProgress(ctx context.Context, rdb *redis.Client) (bool, map[int64]struct{}, error) {
+	active, err := rdb.Exists(ctx, fullReconcileEpochKey).Result()
+	if err != nil || active == 0 {
+		return false, map[int64]struct{}{}, err
+	}
+	count, err := rdb.SCard(ctx, fullReconcileDoneKey).Result()
+	if err != nil {
+		return false, nil, err
+	}
+	if count > maxInfluenceStateEntries {
+		return false, nil, fmt.Errorf("agentcard: full reconcile progress exceeds limit")
+	}
+	members, err := rdb.SMembers(ctx, fullReconcileDoneKey).Result()
+	if err != nil {
+		return false, nil, err
+	}
+	done := make(map[int64]struct{}, len(members))
+	for _, member := range members {
+		if len(member) > 20 {
+			return false, nil, fmt.Errorf("agentcard: invalid full reconcile member")
+		}
+		id, parseErr := strconv.ParseInt(member, 10, 64)
+		if parseErr != nil || id <= 0 {
+			return false, nil, fmt.Errorf("agentcard: invalid full reconcile member")
+		}
+		done[id] = struct{}{}
+	}
+	return true, done, nil
+}
+
+func EnsureFullReconcileProgressFenced(ctx context.Context, rdb *redis.Client, epoch int64, lockKey, token string) error {
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end if redis.call("EXISTS",KEYS[2]) == 0 then redis.call("SET",KEYS[2],ARGV[2]); redis.call("UNLINK",KEYS[3]) end return 1`
+	result, err := rdb.Eval(ctx, script, []string{lockKey, fullReconcileEpochKey, fullReconcileDoneKey}, token, epoch).Int64()
+	if err != nil {
+		return err
+	}
+	if result != 1 {
+		return ErrReconcileLeaseLost
+	}
+	return nil
+}
+
+func MarkFullReconcileDoneFenced(ctx context.Context, rdb *redis.Client, agentIDs []int64, lockKey, token string) error {
+	for len(agentIDs) > 0 {
+		n := redisInfluenceBatch
+		if len(agentIDs) < n {
+			n = len(agentIDs)
+		}
+		args := make([]interface{}, 1, n+1)
+		args[0] = token
+		for _, id := range agentIDs[:n] {
+			args = append(args, strconv.FormatInt(id, 10))
+		}
+		const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end for i=2,#ARGV do redis.call("SADD",KEYS[2],ARGV[i]) end return 1`
+		result, err := rdb.Eval(ctx, script, []string{lockKey, fullReconcileDoneKey}, args...).Int64()
+		if err != nil {
+			return err
+		}
+		if result != 1 {
+			return ErrReconcileLeaseLost
+		}
+		agentIDs = agentIDs[n:]
+	}
+	return nil
+}
+
+func CompleteFullReconcileFenced(ctx context.Context, rdb *redis.Client, at time.Time, lockKey, token string) error {
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("SET",KEYS[2],ARGV[2]); redis.call("DEL",KEYS[3]); redis.call("UNLINK",KEYS[4]); return 1`
+	result, err := rdb.Eval(ctx, script, []string{lockKey, fullReconcileAtKey, fullReconcileEpochKey, fullReconcileDoneKey}, token, at.UnixMilli()).Int64()
+	if err != nil {
+		return err
+	}
+	if result != 1 {
+		return ErrReconcileLeaseLost
+	}
+	return nil
 }
 
 // TouchLastActive records API activity, throttled to one write per agent per
@@ -71,35 +152,54 @@ func TouchLastActive(ctx context.Context, rdb *redis.Client, agentID int64) {
 // GetLastActive returns the agent's last activity (epoch millis) and whether
 // any activity was ever recorded.
 func GetLastActive(ctx context.Context, rdb *redis.Client, agentID int64) (int64, bool) {
+	ms, ok, _ := GetLastActiveStrict(ctx, rdb, agentID)
+	return ms, ok
+}
+
+// GetLastActiveStrict distinguishes an absent cache value from Redis failure.
+// Projection rebuilds use this form so an outage cannot erase a valid field.
+func GetLastActiveStrict(ctx context.Context, rdb *redis.Client, agentID int64) (int64, bool, error) {
 	if rdb == nil {
-		return 0, false
+		return 0, false, nil
 	}
 	v, err := rdb.HGet(ctx, lastActiveHash, strconv.FormatInt(agentID, 10)).Result()
+	if err == redis.Nil {
+		return 0, false, nil
+	}
 	if err != nil {
-		return 0, false
+		return 0, false, err
 	}
 	ms, perr := strconv.ParseInt(v, 10, 64)
 	if perr != nil {
-		return 0, false
+		return 0, false, nil
 	}
-	return ms, true
+	return ms, true, nil
 }
 
 // GetInfluencePercentile returns the cron-computed percentile (0-100) and
 // whether it has been computed yet.
 func GetInfluencePercentile(ctx context.Context, rdb *redis.Client, agentID int64) (int, bool) {
+	p, ok, _ := GetInfluencePercentileStrict(ctx, rdb, agentID)
+	return p, ok
+}
+
+// GetInfluencePercentileStrict distinguishes a cache miss from Redis failure.
+func GetInfluencePercentileStrict(ctx context.Context, rdb *redis.Client, agentID int64) (int, bool, error) {
 	if rdb == nil {
-		return 0, false
+		return 0, false, nil
 	}
 	v, err := rdb.HGet(ctx, percentileHash, strconv.FormatInt(agentID, 10)).Result()
+	if err == redis.Nil {
+		return 0, false, nil
+	}
 	if err != nil {
-		return 0, false
+		return 0, false, err
 	}
 	p, perr := strconv.Atoi(v)
 	if perr != nil || p < 0 || p > 100 {
-		return 0, false
+		return 0, false, nil
 	}
-	return p, true
+	return p, true, nil
 }
 
 // SetInfluencePercentiles bulk-writes the percentile ranking (cron only).
@@ -148,6 +248,10 @@ func GetInfluencePercentileIDsFenced(ctx context.Context, rdb *redis.Client, loc
 
 func getInfluencePercentileIDs(ctx context.Context, rdb *redis.Client, lockKey, token string) (map[int64]struct{}, error) {
 	out := map[int64]struct{}{}
+	reset, err := validateInfluenceHash(ctx, rdb, percentileHash, lockKey, token)
+	if err != nil || reset {
+		return out, err
+	}
 	var cursor uint64
 	invalid := make([]string, 0)
 	for {
@@ -164,7 +268,7 @@ func getInfluencePercentileIDs(ctx context.Context, rdb *redis.Client, lockKey, 
 			}
 			id, idErr := strconv.ParseInt(values[i], 10, 64)
 			p, pErr := strconv.Atoi(values[i+1])
-			if idErr != nil || id <= 0 || pErr != nil || p < 0 || p > 100 {
+			if len(values[i]) > 20 || len(values[i+1]) > 16 || idErr != nil || id <= 0 || pErr != nil || p < 0 || p > 100 {
 				invalid = append(invalid, values[i])
 				continue
 			}
@@ -191,11 +295,11 @@ func getInfluencePercentileIDs(ctx context.Context, rdb *redis.Client, lockKey, 
 func ClearInfluenceState(ctx context.Context, rdb *redis.Client) error {
 	// Activity is independent of influence reconciliation and must survive an
 	// empty-agent or recovery pass.
-	return rdb.Del(ctx, influenceSnapshotHash, percentileHash).Err()
+	return rdb.Unlink(ctx, influenceSnapshotHash, percentileHash).Err()
 }
 
 func ClearInfluenceStateFenced(ctx context.Context, rdb *redis.Client, lockKey, token string) error {
-	const script = `if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end redis.call("DEL", KEYS[2], KEYS[3]) return 1`
+	const script = `if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end redis.call("UNLINK", KEYS[2], KEYS[3]) return 1`
 	result, err := rdb.Eval(ctx, script, []string{lockKey, influenceSnapshotHash, percentileHash}, token).Int64()
 	if err != nil {
 		return err
@@ -221,6 +325,10 @@ func getInfluenceSnapshots(ctx context.Context, rdb *redis.Client, lockKey, toke
 	if rdb == nil {
 		return out, nil
 	}
+	reset, err := validateInfluenceHash(ctx, rdb, influenceSnapshotHash, lockKey, token)
+	if err != nil || reset {
+		return out, err
+	}
 	var cursor uint64
 	invalid := make([]string, 0)
 	for {
@@ -237,7 +345,7 @@ func getInfluenceSnapshots(ctx context.Context, rdb *redis.Client, lockKey, toke
 			}
 			rawID, rawSnapshot := values[i], values[i+1]
 			id, parseErr := strconv.ParseInt(rawID, 10, 64)
-			if parseErr != nil || id <= 0 || len(rawSnapshot) > 256 {
+			if len(rawID) > 20 || parseErr != nil || id <= 0 || len(rawSnapshot) > 256 {
 				invalid = append(invalid, rawID)
 				continue
 			}
@@ -456,33 +564,33 @@ func hdelWithLease(ctx context.Context, rdb *redis.Client, fields []string, dele
 // boundedHScan filters oversized values inside Redis before returning a batch,
 // so one corrupt field cannot allocate its full payload in the Go process.
 func boundedHScan(ctx context.Context, rdb *redis.Client, hash string, cursor uint64, maxValueBytes int, lockKey, token string) ([]string, uint64, error) {
-	const script = `if KEYS[2] ~= "" and redis.call("GET",KEYS[2]) ~= ARGV[4] then return {"LEASE_LOST"} end; local scan=redis.call("HSCAN",KEYS[1],ARGV[1],"COUNT",ARGV[2]); local out={scan[1]}; for i=1,#scan[2],2 do if string.len(scan[2][i+1]) <= tonumber(ARGV[3]) then table.insert(out,scan[2][i]); table.insert(out,scan[2][i+1]); else redis.call("HDEL",KEYS[1],scan[2][i]); end end; return out`
-	raw, err := rdb.Eval(ctx, script, []string{hash, lockKey}, cursor, redisInfluenceBatch, maxValueBytes, token).Slice()
+	values, next, err := rdb.HScan(ctx, hash, cursor, "", redisInfluenceBatch).Result()
+	return values, next, err
+}
+
+func validateInfluenceHash(ctx context.Context, rdb *redis.Client, hash, lockKey, token string) (bool, error) {
+	count, err := rdb.HLen(ctx, hash).Result()
 	if err != nil {
-		return nil, 0, err
+		return false, err
 	}
-	if len(raw) == 0 {
-		return nil, 0, fmt.Errorf("agentcard: malformed bounded HSCAN response")
+	usage, err := rdb.MemoryUsage(ctx, hash).Result()
+	if err != nil && err != redis.Nil {
+		return false, err
 	}
-	if fmt.Sprint(raw[0]) == "LEASE_LOST" {
-		return nil, 0, ErrReconcileLeaseLost
+	if count <= maxInfluenceStateEntries && usage <= maxInfluenceStateBytes {
+		return false, nil
 	}
-	next, err := strconv.ParseUint(fmt.Sprint(raw[0]), 10, 64)
-	if err != nil {
-		return nil, 0, err
+	if err := deleteHashWithLease(ctx, rdb, hash, lockKey, token); err != nil {
+		return false, err
 	}
-	values := make([]string, 0, len(raw)-1)
-	for _, value := range raw[1:] {
-		values = append(values, fmt.Sprint(value))
-	}
-	return values, next, nil
+	return true, nil
 }
 
 func deleteHashWithLease(ctx context.Context, rdb *redis.Client, hash, lockKey, token string) error {
 	if lockKey == "" {
-		return rdb.Del(ctx, hash).Err()
+		return rdb.Unlink(ctx, hash).Err()
 	}
-	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("DEL",KEYS[2]) return 1`
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("UNLINK",KEYS[2]) return 1`
 	result, err := rdb.Eval(ctx, script, []string{lockKey, hash}, token).Int64()
 	if err != nil {
 		return err
