@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"eigenflux_server/pkg/agentcard"
 )
@@ -28,6 +29,16 @@ func TestBuildInfluenceSnapshotsUsesTieAwarePercentiles(t *testing.T) {
 		if got[id] != expected {
 			t.Errorf("snapshot[%d] = %#v, want %#v", id, got[id], expected)
 		}
+	}
+}
+
+func TestShouldRecoverInfluenceSnapshotsAfterPartialRedisLoss(t *testing.T) {
+	now := time.Now()
+	if !shouldRecoverInfluenceSnapshots(5000, 0, now) {
+		t.Fatal("missing snapshot hash with a retained reconcile timestamp must recover in batches")
+	}
+	if shouldRecoverInfluenceSnapshots(5000, 4999, now) {
+		t.Fatal("one normal missing snapshot should not suppress a scheduled full reconcile")
 	}
 }
 

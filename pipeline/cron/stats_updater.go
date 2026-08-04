@@ -47,24 +47,38 @@ func releaseLock(rdb *redis.Client, lockKey, token string) {
 	}
 }
 
-func startLockRenewal(parent context.Context, rdb *redis.Client, lockKey, token string, ttl time.Duration) func() {
+func renewLock(ctx context.Context, rdb *redis.Client, lockKey, token string, ttl time.Duration) (bool, error) {
+	const compareAndRenew = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end`
+	renewed, err := rdb.Eval(ctx, compareAndRenew, []string{lockKey}, token, ttl.Milliseconds()).Int64()
+	return err == nil && renewed == 1, err
+}
+
+// startLockRenewal reports a lost lock by closing the returned channel. Callers
+// must stop all writes when it closes: compare-and-delete only protects release,
+// while fencing protects work that is still running after ownership changed.
+func startLockRenewal(parent context.Context, rdb *redis.Client, lockKey, token string, ttl time.Duration) (func(), <-chan struct{}) {
 	ctx, cancel := context.WithCancel(parent)
+	lost := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(ttl / 3)
 		defer ticker.Stop()
-		const compareAndRenew = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end`
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := rdb.Eval(ctx, compareAndRenew, []string{lockKey}, token, ttl.Milliseconds()).Err(); err != nil && ctx.Err() == nil {
-					logger.Default().Warn("failed to renew lock", "lockKey", lockKey, "err", err)
+				renewed, err := renewLock(ctx, rdb, lockKey, token, ttl)
+				if err != nil || !renewed {
+					if err != nil && ctx.Err() == nil {
+						logger.Default().Warn("failed to renew lock", "lockKey", lockKey, "err", err)
+					}
+					close(lost)
+					return
 				}
 			}
 		}
 	}()
-	return cancel
+	return cancel, lost
 }
 
 // StartAgentCountUpdater starts a cron job that updates agent count every minute

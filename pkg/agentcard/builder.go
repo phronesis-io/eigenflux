@@ -44,11 +44,12 @@ type TopItem struct {
 // (relations, keywords, influence), the per-agent Redis lock serializes all
 // rebuild entry points so an older equal-version projection cannot finish last.
 func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
-	release, err := acquireRebuildLock(ctx, rdb, agentID)
+	lockedCtx, release, err := acquireRebuildLock(ctx, rdb, agentID)
 	if err != nil {
 		return err
 	}
 	defer release()
+	gdb = gdb.WithContext(lockedCtx)
 	profileVersion, profileData, profileUpdatedAt, err := profiledal.GetProfileVersionDataAndUpdatedAt(gdb, agentID)
 	if err != nil {
 		return err
@@ -149,9 +150,9 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 			"level":                   nil,
 			"human_identity_verified": nil,
 		},
-		"influence": buildInfluence(ctx, rdb, agentID, influence, topItems),
+		"influence": buildInfluence(lockedCtx, rdb, agentID, influence, topItems),
 	}
-	if ms, ok := GetLastActive(ctx, rdb, agentID); ok {
+	if ms, ok := GetLastActive(lockedCtx, rdb, agentID); ok {
 		pub["last_active_at"] = ms
 	} else {
 		pub["last_active_at"] = nil
@@ -188,13 +189,13 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 	return profiledal.UpsertAgentCard(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion)
 }
 
-func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (func(), error) {
+func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (context.Context, func(), error) {
 	if rdb == nil {
-		return func() {}, nil
+		return ctx, func() {}, nil
 	}
 	var tokenBytes [16]byte
 	if _, err := rand.Read(tokenBytes[:]); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	token := hex.EncodeToString(tokenBytes[:])
 	key := "lock:agentcard:rebuild:" + strconv.FormatInt(agentID, 10)
@@ -205,10 +206,11 @@ func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (
 	for {
 		ok, err := rdb.SetNX(ctx, key, token, rebuildLockTTL).Result()
 		if err != nil {
-			return nil, fmt.Errorf("acquire rebuild lock: %w", err)
+			return nil, nil, fmt.Errorf("acquire rebuild lock: %w", err)
 		}
 		if ok {
-			renewCtx, stopRenewal := context.WithCancel(context.Background())
+			lockedCtx, cancelLocked := context.WithCancel(ctx)
+			renewCtx, stopRenewal := context.WithCancel(lockedCtx)
 			go func() {
 				ticker := time.NewTicker(rebuildLockTTL / 3)
 				defer ticker.Stop()
@@ -218,12 +220,17 @@ func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (
 					case <-renewCtx.Done():
 						return
 					case <-ticker.C:
-						_ = rdb.Eval(renewCtx, renewScript, []string{key}, token, rebuildLockTTL.Milliseconds()).Err()
+						renewed, err := rdb.Eval(renewCtx, renewScript, []string{key}, token, rebuildLockTTL.Milliseconds()).Int64()
+						if err != nil || renewed == 0 {
+							cancelLocked()
+							return
+						}
 					}
 				}
 			}()
-			return func() {
+			return lockedCtx, func() {
 				stopRenewal()
+				cancelLocked()
 				releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
 				const script = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end`
@@ -232,9 +239,9 @@ func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-timeout.C:
-			return nil, fmt.Errorf("agentcard: rebuild lock timeout for agent %d", agentID)
+			return nil, nil, fmt.Errorf("agentcard: rebuild lock timeout for agent %d", agentID)
 		case <-ticker.C:
 		}
 	}

@@ -26,3 +26,21 @@ func TestReleaseLockDoesNotDeleteNewOwner(t *testing.T) {
 		t.Fatalf("lock owner = %q, want new-owner", got)
 	}
 }
+
+func TestRenewLockReportsLostOwnership(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	token, acquired, err := acquireLock(ctx, rdb, "lock:renew", time.Minute)
+	if err != nil || !acquired {
+		t.Fatalf("acquire: %v", err)
+	}
+	if err := rdb.Set(ctx, "lock:renew", "new-owner", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := renewLock(ctx, rdb, "lock:renew", token, time.Minute)
+	if err != nil || renewed {
+		t.Fatalf("renewed=%v err=%v, want lost ownership", renewed, err)
+	}
+}
