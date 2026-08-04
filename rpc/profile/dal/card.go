@@ -2,6 +2,7 @@ package dal
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -314,7 +315,7 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 // overwrite the row; card_version/generated_at advance only when visible card
 // content changes.
 func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion int64) error {
-	return db.Exec(`INSERT INTO agent_cards
+	result := db.Exec(`INSERT INTO agent_cards
 			(agent_id, public_card, private_card, schema_version, source_version, card_version, generated_at)
 		VALUES (?, ?::jsonb, ?::jsonb, ?, ?, 1, ?)
 		ON CONFLICT (agent_id) DO UPDATE SET
@@ -338,5 +339,28 @@ func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string,
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
 				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
 			))`,
-		agentID, publicCard, privateCard, schemaVersion, sourceVersion, time.Now().UnixMilli()).Error
+		agentID, publicCard, privateCard, schemaVersion, sourceVersion, time.Now().UnixMilli())
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	// A no-op is successful only when the stored projection already equals the
+	// requested one. A newer but different row means this rebuild was rejected;
+	// callers must not acknowledge its Redis snapshot as projected.
+	var matches bool
+	err := db.Raw(`SELECT EXISTS (
+		SELECT 1 FROM agent_cards
+		WHERE agent_id = ? AND source_version >= ?
+		  AND public_card = ?::jsonb AND private_card = ?::jsonb
+		  AND schema_version = ?
+	)`, agentID, sourceVersion, publicCard, privateCard, schemaVersion).Scan(&matches).Error
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return fmt.Errorf("agent card projection was superseded for agent %d", agentID)
+	}
+	return nil
 }

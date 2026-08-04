@@ -3,6 +3,7 @@ package agentcard
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -49,13 +50,30 @@ func TestGetInfluenceSnapshotsIgnoresMalformedEntries(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	mr.HSet(influenceSnapshotHash, "bad-id", "1:2:3:4:5")
 	mr.HSet(influenceSnapshotHash, "42", "not-a-snapshot")
-	mr.HSet(influenceSnapshotHash, "7", "9:8:7:6:5")
+	mr.HSet(influenceSnapshotHash, "7", "2:9:8:7:6:4:5")
 
 	got, err := GetInfluenceSnapshots(context.Background(), rdb)
 	if err != nil {
 		t.Fatalf("GetInfluenceSnapshots: %v", err)
 	}
-	if len(got) != 1 || got[7] != (InfluenceSnapshot{Score: 9, BroadcastCount: 8, ConsumedCount: 7, ScoredEvents: 6, Percentile: 5}) {
+	if len(got) != 1 || got[7] != (InfluenceSnapshot{Score: 9, BroadcastCount: 8, ConsumedCount: 7, ScoredEvents: 6, ContentRevision: 4, Percentile: 5}) {
 		t.Fatalf("snapshots = %#v", got)
+	}
+	if rdb.HExists(context.Background(), influenceSnapshotHash, "bad-id").Val() || rdb.HExists(context.Background(), influenceSnapshotHash, "42").Val() {
+		t.Fatal("malformed snapshots were not removed")
+	}
+}
+
+func TestFullReconcileTimestampRoundTrip(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	want := time.UnixMilli(123456789)
+	if err := SetLastFullReconcileAt(context.Background(), rdb, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetLastFullReconcileAt(context.Background(), rdb)
+	if err != nil || !got.Equal(want) {
+		t.Fatalf("got %v, %v; want %v", got, err, want)
 	}
 }

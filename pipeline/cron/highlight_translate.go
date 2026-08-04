@@ -53,7 +53,7 @@ func StartHighlightTranslate(ctx context.Context, cfg *config.Config, rdb *redis
 }
 
 func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm.Client) {
-	acquired, err := acquireLock(ctx, rdb, lockKeyHighlightTranslate, 25*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyHighlightTranslate, 25*time.Minute)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for highlight translate", "err", err)
 		return
@@ -62,7 +62,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 		logger.Default().Debug("highlight translate skipped (another instance is running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyHighlightTranslate)
+	defer releaseLock(rdb, lockKeyHighlightTranslate, token)
 
 	sinceMs := time.Now().Add(-24 * time.Hour).UnixMilli()
 	items, err := dal.ListUntranslatedTopItems(db.DB, sinceMs, translateTopN, translateBatchLimit)

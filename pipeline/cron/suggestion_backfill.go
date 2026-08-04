@@ -105,7 +105,7 @@ func StartSuggestionBackfill(ctx context.Context, cfg *config.Config, rdb *redis
 }
 
 func runSuggestionBackfill(ctx context.Context, rdb *redis.Client, llmClient *llm.Client, settings suggestionBackfillSettings) {
-	acquired, err := acquireLock(ctx, rdb, lockKeySuggestionBackfill, 25*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeySuggestionBackfill, 25*time.Minute)
 	if err != nil {
 		logger.Default().Warn("suggestion backfill lock error", "err", err)
 		return
@@ -114,7 +114,7 @@ func runSuggestionBackfill(ctx context.Context, rdb *redis.Client, llmClient *ll
 		logger.Default().Debug("suggestion backfill skipped (another instance running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeySuggestionBackfill)
+	defer releaseLock(rdb, lockKeySuggestionBackfill, token)
 
 	var items []backfillItem
 	if err := db.DB.

@@ -119,7 +119,7 @@ func StartEmbeddingBackfill(ctx context.Context, cfg *config.Config, rdb *redis.
 }
 
 func runEmbeddingBackfill(ctx context.Context, rdb *redis.Client, embClient *embedding.Client, embCache *cache.EmbeddingCache, settings embeddingBackfillSettings) {
-	acquired, err := acquireLock(ctx, rdb, lockKeyEmbBackfill, 25*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyEmbBackfill, 25*time.Minute)
 	if err != nil {
 		logger.Default().Warn("embedding backfill lock error", "err", err)
 		return
@@ -128,7 +128,7 @@ func runEmbeddingBackfill(ctx context.Context, rdb *redis.Client, embClient *emb
 		logger.Default().Debug("embedding backfill skipped (another instance running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyEmbBackfill)
+	defer releaseLock(rdb, lockKeyEmbBackfill, token)
 
 	// Query profiles: status=3 (done), has keywords, missing embedding
 	var profiles []profileDal.AgentProfile

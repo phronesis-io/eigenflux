@@ -2,10 +2,14 @@ package agentcard
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -17,6 +21,8 @@ import (
 
 // ErrAgentNotFound is returned by Rebuild for unknown agent ids.
 var ErrAgentNotFound = errors.New("agentcard: agent not found")
+
+const rebuildLockTTL = 2 * time.Minute
 
 // TopItem is one entry of influence.top_items.
 type TopItem struct {
@@ -35,9 +41,14 @@ type TopItem struct {
 // version — and a rebuild event whose projection wins the upsert's
 // source_version guard. Reading the version later would let stale facts ride
 // in under the newest version number. For inputs that don't bump the version
-// (relations, keywords, influence), equal-version rebuilds are last-write-wins
-// by design; the hourly cron reconciler bounds any stale window.
+// (relations, keywords, influence), the per-agent Redis lock serializes all
+// rebuild entry points so an older equal-version projection cannot finish last.
 func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
+	release, err := acquireRebuildLock(ctx, rdb, agentID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	profileVersion, profileData, profileUpdatedAt, err := profiledal.GetProfileVersionDataAndUpdatedAt(gdb, agentID)
 	if err != nil {
 		return err
@@ -177,6 +188,58 @@ func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64
 	return profiledal.UpsertAgentCard(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion)
 }
 
+func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (func(), error) {
+	if rdb == nil {
+		return func() {}, nil
+	}
+	var tokenBytes [16]byte
+	if _, err := rand.Read(tokenBytes[:]); err != nil {
+		return nil, err
+	}
+	token := hex.EncodeToString(tokenBytes[:])
+	key := "lock:agentcard:rebuild:" + strconv.FormatInt(agentID, 10)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+	for {
+		ok, err := rdb.SetNX(ctx, key, token, rebuildLockTTL).Result()
+		if err != nil {
+			return nil, fmt.Errorf("acquire rebuild lock: %w", err)
+		}
+		if ok {
+			renewCtx, stopRenewal := context.WithCancel(context.Background())
+			go func() {
+				ticker := time.NewTicker(rebuildLockTTL / 3)
+				defer ticker.Stop()
+				const renewScript = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end`
+				for {
+					select {
+					case <-renewCtx.Done():
+						return
+					case <-ticker.C:
+						_ = rdb.Eval(renewCtx, renewScript, []string{key}, token, rebuildLockTTL.Milliseconds()).Err()
+					}
+				}
+			}()
+			return func() {
+				stopRenewal()
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				const script = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end`
+				_ = rdb.Eval(releaseCtx, script, []string{key}, token).Err()
+			}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeout.C:
+			return nil, fmt.Errorf("agentcard: rebuild lock timeout for agent %d", agentID)
+		case <-ticker.C:
+		}
+	}
+}
+
 // buildInfluence assembles the public influence block. Score formula (v1):
 // score_1_count + 2*score_2_count over the agent's items. Percentile comes
 // from the cron ranker; null until first computed.
@@ -208,7 +271,7 @@ func loadTopItems(gdb *gorm.DB, agentID int64, limit int) ([]TopItem, error) {
 	err := gdb.Table("item_stats").
 		Select("item_stats.item_id, item_stats.total_score, COALESCE(processed_items.summary, '') as summary").
 		Joins("LEFT JOIN processed_items ON processed_items.item_id = item_stats.item_id").
-		Where("item_stats.author_agent_id = ? AND item_stats.total_score > 0", agentID).
+		Where("item_stats.author_agent_id = ? AND item_stats.total_score > 0 AND processed_items.status = ?", agentID, itemdal.StatusCompleted).
 		Order("item_stats.total_score DESC, item_stats.item_id ASC").
 		Limit(limit).
 		Scan(&rows).Error

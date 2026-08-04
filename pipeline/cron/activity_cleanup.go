@@ -38,7 +38,7 @@ func StartActivityCleanup(ctx context.Context, rdb *redis.Client) {
 }
 
 func cleanupActivityWithLock(ctx context.Context, rdb *redis.Client) {
-	acquired, err := acquireLock(ctx, rdb, lockKeyActivityCleanup, 20*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyActivityCleanup, 20*time.Minute)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for activity cleanup", "err", err)
 		return
@@ -47,7 +47,7 @@ func cleanupActivityWithLock(ctx context.Context, rdb *redis.Client) {
 		logger.Default().Debug("activity cleanup skipped (another instance is running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyActivityCleanup)
+	defer releaseLock(rdb, lockKeyActivityCleanup, token)
 
 	cutoffMs := time.Now().AddDate(0, 0, -activityRetentionDays).UnixMilli()
 	deleted, err := dal.DeleteOldActivityLogs(db.DB, cutoffMs)

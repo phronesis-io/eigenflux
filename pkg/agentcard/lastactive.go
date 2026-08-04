@@ -28,16 +28,20 @@ const (
 	// dirty agents are rebuilt. Failed rebuilds deliberately leave the old
 	// snapshot in place and are retried on the next pass.
 	influenceSnapshotHash = "agentcard:influence_snapshot"
+	fullReconcileAtKey    = "agentcard:last_full_reconcile_at"
+	redisInfluenceBatch   = 1000
 )
 
 // InfluenceSnapshot contains every influence input that can change the card.
-// A score change also covers top_items because total_score drives its order.
+// ContentRevision covers per-item score redistribution and summary/status
+// changes even when the author's aggregate score is unchanged.
 type InfluenceSnapshot struct {
-	Score          int64
-	BroadcastCount int64
-	ConsumedCount  int64
-	ScoredEvents   int64
-	Percentile     int
+	Score           int64
+	BroadcastCount  int64
+	ConsumedCount   int64
+	ScoredEvents    int64
+	ContentRevision int64
+	Percentile      int
 }
 
 // TouchLastActive records API activity, throttled to one write per agent per
@@ -83,7 +87,7 @@ func GetInfluencePercentile(ctx context.Context, rdb *redis.Client, agentID int6
 		return 0, false
 	}
 	p, perr := strconv.Atoi(v)
-	if perr != nil {
+	if perr != nil || p < 0 || p > 100 {
 		return 0, false
 	}
 	return p, true
@@ -94,11 +98,65 @@ func SetInfluencePercentiles(ctx context.Context, rdb *redis.Client, byAgent map
 	if rdb == nil || len(byAgent) == 0 {
 		return nil
 	}
-	fields := make([]interface{}, 0, len(byAgent)*2)
+	pipe := rdb.Pipeline()
+	fields := make([]interface{}, 0, redisInfluenceBatch*2)
 	for id, p := range byAgent {
+		if p < 0 || p > 100 {
+			return fmt.Errorf("invalid influence percentile %d for agent %d", p, id)
+		}
 		fields = append(fields, strconv.FormatInt(id, 10), p)
+		if len(fields) == redisInfluenceBatch*2 {
+			pipe.HSet(ctx, percentileHash, fields...)
+			fields = fields[:0]
+		}
 	}
-	return rdb.HSet(ctx, percentileHash, fields...).Err()
+	if len(fields) > 0 {
+		pipe.HSet(ctx, percentileHash, fields...)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// GetInfluencePercentileIDs scans the independently stored percentile hash so
+// orphaned entries are cleaned even when their snapshot is missing/corrupt.
+func GetInfluencePercentileIDs(ctx context.Context, rdb *redis.Client) (map[int64]struct{}, error) {
+	out := map[int64]struct{}{}
+	var cursor uint64
+	invalid := make([]string, 0)
+	for {
+		values, next, err := rdb.HScan(ctx, percentileHash, cursor, "*", redisInfluenceBatch).Result()
+		if err != nil {
+			return nil, err
+		}
+		for i := 0; i+1 < len(values); i += 2 {
+			id, idErr := strconv.ParseInt(values[i], 10, 64)
+			p, pErr := strconv.Atoi(values[i+1])
+			if idErr != nil || id <= 0 || pErr != nil || p < 0 || p > 100 {
+				invalid = append(invalid, values[i])
+				continue
+			}
+			out[id] = struct{}{}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	for len(invalid) > 0 {
+		n := redisInfluenceBatch
+		if len(invalid) < n {
+			n = len(invalid)
+		}
+		if err := rdb.HDel(ctx, percentileHash, invalid[:n]...).Err(); err != nil {
+			return nil, err
+		}
+		invalid = invalid[n:]
+	}
+	return out, nil
+}
+
+func ClearInfluenceState(ctx context.Context, rdb *redis.Client) error {
+	return rdb.Del(ctx, influenceSnapshotHash, percentileHash, lastActiveHash).Err()
 }
 
 // GetInfluenceSnapshots returns the last snapshots successfully projected by
@@ -108,20 +166,41 @@ func GetInfluenceSnapshots(ctx context.Context, rdb *redis.Client) (map[int64]In
 	if rdb == nil {
 		return out, nil
 	}
-	values, err := rdb.HGetAll(ctx, influenceSnapshotHash).Result()
-	if err != nil {
-		return nil, err
+	var cursor uint64
+	invalid := make([]string, 0)
+	for {
+		values, next, err := rdb.HScan(ctx, influenceSnapshotHash, cursor, "*", redisInfluenceBatch).Result()
+		if err != nil {
+			return nil, err
+		}
+		for i := 0; i+1 < len(values); i += 2 {
+			rawID, rawSnapshot := values[i], values[i+1]
+			id, parseErr := strconv.ParseInt(rawID, 10, 64)
+			if parseErr != nil || id <= 0 || len(rawSnapshot) > 256 {
+				invalid = append(invalid, rawID)
+				continue
+			}
+			snapshot, parseErr := parseInfluenceSnapshot(rawSnapshot)
+			if parseErr != nil {
+				invalid = append(invalid, rawID)
+				continue
+			}
+			out[id] = snapshot
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
 	}
-	for rawID, rawSnapshot := range values {
-		id, parseErr := strconv.ParseInt(rawID, 10, 64)
-		if parseErr != nil {
-			continue
+	for len(invalid) > 0 {
+		n := redisInfluenceBatch
+		if len(invalid) < n {
+			n = len(invalid)
 		}
-		snapshot, parseErr := parseInfluenceSnapshot(rawSnapshot)
-		if parseErr != nil {
-			continue
+		if err := rdb.HDel(ctx, influenceSnapshotHash, invalid[:n]...).Err(); err != nil {
+			return nil, err
 		}
-		out[id] = snapshot
+		invalid = invalid[n:]
 	}
 	return out, nil
 }
@@ -132,11 +211,20 @@ func SetInfluenceSnapshots(ctx context.Context, rdb *redis.Client, byAgent map[i
 	if rdb == nil || len(byAgent) == 0 {
 		return nil
 	}
-	fields := make([]interface{}, 0, len(byAgent)*2)
+	pipe := rdb.Pipeline()
+	fields := make([]interface{}, 0, redisInfluenceBatch*2)
 	for id, snapshot := range byAgent {
 		fields = append(fields, strconv.FormatInt(id, 10), formatInfluenceSnapshot(snapshot))
+		if len(fields) == redisInfluenceBatch*2 {
+			pipe.HSet(ctx, influenceSnapshotHash, fields...)
+			fields = fields[:0]
+		}
 	}
-	return rdb.HSet(ctx, influenceSnapshotHash, fields...).Err()
+	if len(fields) > 0 {
+		pipe.HSet(ctx, influenceSnapshotHash, fields...)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 // DeleteInfluenceState removes deleted agents and forces failed rebuilds to
@@ -149,26 +237,37 @@ func DeleteInfluenceState(ctx context.Context, rdb *redis.Client, agentIDs []int
 	for _, id := range agentIDs {
 		fields = append(fields, strconv.FormatInt(id, 10))
 	}
-	pipe := rdb.Pipeline()
-	pipe.HDel(ctx, influenceSnapshotHash, fields...)
-	if deletePercentile {
-		pipe.HDel(ctx, percentileHash, fields...)
+	for len(fields) > 0 {
+		n := redisInfluenceBatch
+		if len(fields) < n {
+			n = len(fields)
+		}
+		batch := fields[:n]
+		pipe := rdb.Pipeline()
+		pipe.HDel(ctx, influenceSnapshotHash, batch...)
+		if deletePercentile {
+			pipe.HDel(ctx, percentileHash, batch...)
+			pipe.HDel(ctx, lastActiveHash, batch...)
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return err
+		}
+		fields = fields[n:]
 	}
-	_, err := pipe.Exec(ctx)
-	return err
+	return nil
 }
 
 func formatInfluenceSnapshot(snapshot InfluenceSnapshot) string {
-	return fmt.Sprintf("%d:%d:%d:%d:%d", snapshot.Score, snapshot.BroadcastCount, snapshot.ConsumedCount, snapshot.ScoredEvents, snapshot.Percentile)
+	return fmt.Sprintf("2:%d:%d:%d:%d:%d:%d", snapshot.Score, snapshot.BroadcastCount, snapshot.ConsumedCount, snapshot.ScoredEvents, snapshot.ContentRevision, snapshot.Percentile)
 }
 
 func parseInfluenceSnapshot(raw string) (InfluenceSnapshot, error) {
 	parts := strings.Split(raw, ":")
-	if len(parts) != 5 {
+	if len(parts) != 7 || parts[0] != "2" {
 		return InfluenceSnapshot{}, fmt.Errorf("invalid influence snapshot")
 	}
-	values := make([]int64, 5)
-	for i, part := range parts {
+	values := make([]int64, 6)
+	for i, part := range parts[1:] {
 		value, err := strconv.ParseInt(part, 10, 64)
 		if err != nil {
 			return InfluenceSnapshot{}, err
@@ -176,10 +275,30 @@ func parseInfluenceSnapshot(raw string) (InfluenceSnapshot, error) {
 		values[i] = value
 	}
 	return InfluenceSnapshot{
-		Score:          values[0],
-		BroadcastCount: values[1],
-		ConsumedCount:  values[2],
-		ScoredEvents:   values[3],
-		Percentile:     int(values[4]),
+		Score:           values[0],
+		BroadcastCount:  values[1],
+		ConsumedCount:   values[2],
+		ScoredEvents:    values[3],
+		ContentRevision: values[4],
+		Percentile:      int(values[5]),
 	}, nil
+}
+
+func GetLastFullReconcileAt(ctx context.Context, rdb *redis.Client) (time.Time, error) {
+	raw, err := rdb.Get(ctx, fullReconcileAtKey).Result()
+	if err == redis.Nil {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(ms), nil
+}
+
+func SetLastFullReconcileAt(ctx context.Context, rdb *redis.Client, at time.Time) error {
+	return rdb.Set(ctx, fullReconcileAtKey, at.UnixMilli(), 0).Err()
 }

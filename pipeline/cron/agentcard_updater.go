@@ -19,14 +19,18 @@ const (
 	// lockTTL must expire before the next tick; a full pass over ~5k agents
 	// takes well under this.
 	agentCardLockTTL = 50 * time.Minute
+	// A missing Redis snapshot is recovered incrementally so a Redis restart or
+	// first rollout cannot turn one hourly tick into a database rebuild storm.
+	agentCardRecoveryBatch = 1000
 )
 
 type agentInfluenceRow struct {
-	AgentID        int64
-	Score          int64
-	BroadcastCount int64
-	ConsumedCount  int64
-	ScoredEvents   int64
+	AgentID         int64
+	Score           int64
+	BroadcastCount  int64
+	ConsumedCount   int64
+	ScoredEvents    int64
+	ContentRevision int64
 }
 
 // StartAgentCardUpdater ranks influence hourly and rebuilds only agents whose
@@ -36,12 +40,8 @@ func StartAgentCardUpdater(ctx context.Context, cfg *config.Config, rdb *redis.C
 	ticker := time.NewTicker(agentCardUpdateInterval)
 	defer ticker.Stop()
 
-	lastFullReconcile := time.Time{}
 	run := func() {
-		fullReconcile := lastFullReconcile.IsZero() || time.Since(lastFullReconcile) >= agentCardFullReconcileInterval
-		if updateAgentCardsWithLock(ctx, rdb, fullReconcile) && fullReconcile {
-			lastFullReconcile = time.Now()
-		}
+		updateAgentCardsWithLock(ctx, rdb, false)
 	}
 	run()
 
@@ -59,7 +59,7 @@ func StartAgentCardUpdater(ctx context.Context, cfg *config.Config, rdb *redis.C
 }
 
 func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconcile bool) bool {
-	acquired, err := acquireLock(ctx, rdb, lockKeyAgentCardUpdater, agentCardLockTTL)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyAgentCardUpdater, agentCardLockTTL)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for agent card update", "err", err)
 		return false
@@ -68,9 +68,20 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		logger.Default().Debug("agent card update skipped (another instance is running)")
 		return false
 	}
-	defer releaseLock(ctx, rdb, lockKeyAgentCardUpdater)
+	defer releaseLock(rdb, lockKeyAgentCardUpdater, token)
+	stopRenewal := startLockRenewal(ctx, rdb, lockKeyAgentCardUpdater, token, agentCardLockTTL)
+	defer stopRenewal()
+
+	lastFull, err := agentcard.GetLastFullReconcileAt(ctx, rdb)
+	if err != nil {
+		logger.Default().Warn("agent card updater: full reconcile state read failed", "err", err)
+		return false
+	}
+	now := time.Now()
+	fullReconcile = fullReconcile || lastFull.IsZero() || lastFull.After(now) || now.Sub(lastFull) >= agentCardFullReconcileInterval
 
 	start := time.Now()
+	rankingStarted := time.Now()
 
 	// Influence score (v1 formula: score_1 + 2*score_2) per author, ranked
 	// into "you beat N% of agents" percentiles. Agents with no scored items
@@ -81,24 +92,43 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		       COALESCE(SUM(s.score_1_count + 2 * s.score_2_count), 0) AS score,
 		       COUNT(s.item_id) AS broadcast_count,
 		       COALESCE(SUM(s.consumed_count), 0) AS consumed_count,
-		       COALESCE(SUM(s.score_neg1_count + s.score_1_count + s.score_2_count), 0) AS scored_events
+		       COALESCE(SUM(s.score_1_count + s.score_2_count), 0) AS scored_events,
+		       COALESCE(MAX(GREATEST(s.updated_at, COALESCE(p.updated_at, 0))), 0) AS content_revision
 		FROM agents a
 		LEFT JOIN item_stats s ON s.author_agent_id = a.agent_id
+		LEFT JOIN processed_items p ON p.item_id = s.item_id
 		GROUP BY a.agent_id
 		ORDER BY score ASC`).Scan(&rows).Error
 	if err != nil {
 		logger.Default().Error("agent card updater: influence ranking query failed", "err", err)
 		return false
 	}
-	total := len(rows)
-	if total == 0 {
-		return true
-	}
-	snapshots := buildInfluenceSnapshots(rows)
+	rankingTook := time.Since(rankingStarted)
+	stateStarted := time.Now()
 	previous, err := agentcard.GetInfluenceSnapshots(ctx, rdb)
 	if err != nil {
 		logger.Default().Error("agent card updater: snapshot read failed", "err", err)
 		return false
+	}
+	percentileIDs, err := agentcard.GetInfluencePercentileIDs(ctx, rdb)
+	if err != nil {
+		logger.Default().Error("agent card updater: percentile state read failed", "err", err)
+		return false
+	}
+	total := len(rows)
+	if total == 0 {
+		if err := agentcard.ClearInfluenceState(ctx, rdb); err != nil {
+			return false
+		}
+		if fullReconcile {
+			_ = agentcard.SetLastFullReconcileAt(ctx, rdb, time.Now())
+		}
+		return true
+	}
+	snapshots := buildInfluenceSnapshots(rows)
+	recoveryMode := lastFull.IsZero() && len(previous) < total
+	if recoveryMode {
+		fullReconcile = false
 	}
 	percentiles := make(map[int64]int, total)
 	dirty := make(map[int64]struct{}, total)
@@ -112,10 +142,12 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		logger.Default().Error("agent card updater: percentile write failed", "err", err)
 		return false
 	}
+	stateTook := time.Since(stateStarted)
 
+	rebuildStarted := time.Now()
 	successfulSnapshots := make(map[int64]agentcard.InfluenceSnapshot, len(dirty))
 	failedIDs := make([]int64, 0)
-	rebuilt, skipped, failed := 0, 0, 0
+	rebuilt, skipped, failed, deferred := 0, 0, 0, 0
 	for _, row := range rows {
 		if ctx.Err() != nil {
 			return false
@@ -123,6 +155,10 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		_, isDirty := dirty[row.AgentID]
 		if !fullReconcile && !isDirty {
 			skipped++
+			continue
+		}
+		if recoveryMode && rebuilt+failed >= agentCardRecoveryBatch {
+			deferred++
 			continue
 		}
 		if err := agentcard.Rebuild(ctx, db.DB, rdb, row.AgentID); err != nil {
@@ -146,17 +182,48 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			staleIDs = append(staleIDs, agentID)
 		}
 	}
+	for agentID := range percentileIDs {
+		if _, exists := snapshots[agentID]; !exists {
+			if _, already := previous[agentID]; !already {
+				staleIDs = append(staleIDs, agentID)
+			}
+		}
+	}
 	if err := agentcard.DeleteInfluenceState(ctx, rdb, staleIDs, true); err != nil {
 		logger.Default().Warn("agent card updater: stale snapshot cleanup failed", "err", err)
 	}
 	if err := agentcard.DeleteInfluenceState(ctx, rdb, failedIDs, false); err != nil {
 		logger.Default().Warn("agent card updater: failed snapshot reset failed", "err", err)
 	}
+	if fullReconcile {
+		if err := agentcard.SetLastFullReconcileAt(ctx, rdb, time.Now()); err != nil {
+			logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
+			return false
+		}
+	} else if recoveryMode {
+		complete := true
+		for agentID := range snapshots {
+			if old, oldOK := previous[agentID]; oldOK && old == snapshots[agentID] {
+				continue
+			}
+			if _, newOK := successfulSnapshots[agentID]; !newOK {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			if err := agentcard.SetLastFullReconcileAt(ctx, rdb, time.Now()); err != nil {
+				return false
+			}
+		}
+	}
 	logger.Default().Info("agent cards updated",
 		"agents", total, "dirty", len(dirty), "rebuilt", rebuilt,
-		"skipped", skipped, "failed", failed, "full_reconcile", fullReconcile,
-		"took", time.Since(start).String())
-	return failed == 0
+		"skipped", skipped, "deferred", deferred, "failed", failed,
+		"full_reconcile", fullReconcile, "recovery_mode", recoveryMode,
+		"ranking_took", rankingTook.String(), "state_took", stateTook.String(),
+		"rebuild_took", time.Since(rebuildStarted).String(), "took", time.Since(start).String())
+	return true
 }
 
 func buildInfluenceSnapshots(rows []agentInfluenceRow) map[int64]agentcard.InfluenceSnapshot {
@@ -173,11 +240,12 @@ func buildInfluenceSnapshots(rows []agentInfluenceRow) map[int64]agentcard.Influ
 		p := i * 100 / total
 		for k := i; k < j; k++ {
 			snapshots[rows[k].AgentID] = agentcard.InfluenceSnapshot{
-				Score:          rows[k].Score,
-				BroadcastCount: rows[k].BroadcastCount,
-				ConsumedCount:  rows[k].ConsumedCount,
-				ScoredEvents:   rows[k].ScoredEvents,
-				Percentile:     p,
+				Score:           rows[k].Score,
+				BroadcastCount:  rows[k].BroadcastCount,
+				ConsumedCount:   rows[k].ConsumedCount,
+				ScoredEvents:    rows[k].ScoredEvents,
+				ContentRevision: rows[k].ContentRevision,
+				Percentile:      p,
 			}
 		}
 		i = j

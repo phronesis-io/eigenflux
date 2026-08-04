@@ -49,11 +49,11 @@ func StartOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.C
 }
 
 func runOfficialTrending(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
-	acquired, err := acquireLock(ctx, rdb, lockKeyOfficialTrending, 20*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyOfficialTrending, 20*time.Minute)
 	if err != nil || !acquired {
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyOfficialTrending)
+	defer releaseLock(rdb, lockKeyOfficialTrending, token)
 
 	officialID := oc.ResolveOfficialID()
 	if officialID == 0 {

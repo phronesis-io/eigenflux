@@ -53,7 +53,7 @@ func StartReplayCleanup(ctx context.Context, cfg *config.Config, rdb *redis.Clie
 }
 
 func cleanupReplayWithLock(ctx context.Context, rdb *redis.Client, retentionDays int) {
-	acquired, err := acquireLock(ctx, rdb, lockKeyReplayCleanup, 30*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyReplayCleanup, 30*time.Minute)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for replay cleanup", "err", err)
 		return
@@ -62,7 +62,7 @@ func cleanupReplayWithLock(ctx context.Context, rdb *redis.Client, retentionDays
 		logger.Default().Debug("replay cleanup skipped (another instance is running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyReplayCleanup)
+	defer releaseLock(rdb, lockKeyReplayCleanup, token)
 
 	cutoffMs := time.Now().AddDate(0, 0, -retentionDays).UnixMilli()
 	deleted, err := consumer.DeleteOldReplayLogs(db.DB, cutoffMs, replayCleanupBatchSize)

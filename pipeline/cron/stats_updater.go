@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -21,19 +23,48 @@ const (
 )
 
 // acquireLock attempts to acquire a distributed lock using Redis SET NX EX
-func acquireLock(ctx context.Context, rdb *redis.Client, lockKey string, ttl time.Duration) (bool, error) {
-	result, err := rdb.SetNX(ctx, lockKey, time.Now().Unix(), ttl).Result()
-	if err != nil {
-		return false, fmt.Errorf("failed to acquire lock: %w", err)
+func acquireLock(ctx context.Context, rdb *redis.Client, lockKey string, ttl time.Duration) (string, bool, error) {
+	var tokenBytes [16]byte
+	if _, err := rand.Read(tokenBytes[:]); err != nil {
+		return "", false, fmt.Errorf("generate lock token: %w", err)
 	}
-	return result, nil
+	token := hex.EncodeToString(tokenBytes[:])
+	result, err := rdb.SetNX(ctx, lockKey, token, ttl).Result()
+	if err != nil {
+		return "", false, fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	return token, result, nil
 }
 
-// releaseLock releases the distributed lock
-func releaseLock(ctx context.Context, rdb *redis.Client, lockKey string) {
-	if err := rdb.Del(ctx, lockKey).Err(); err != nil {
+// releaseLock releases only the lock owned by token. A bounded independent
+// context still releases after the caller's work context is cancelled.
+func releaseLock(rdb *redis.Client, lockKey, token string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	const compareAndDelete = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end`
+	if err := rdb.Eval(ctx, compareAndDelete, []string{lockKey}, token).Err(); err != nil {
 		logger.Default().Warn("failed to release lock", "lockKey", lockKey, "err", err)
 	}
+}
+
+func startLockRenewal(parent context.Context, rdb *redis.Client, lockKey, token string, ttl time.Duration) func() {
+	ctx, cancel := context.WithCancel(parent)
+	go func() {
+		ticker := time.NewTicker(ttl / 3)
+		defer ticker.Stop()
+		const compareAndRenew = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end`
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := rdb.Eval(ctx, compareAndRenew, []string{lockKey}, token, ttl.Milliseconds()).Err(); err != nil && ctx.Err() == nil {
+					logger.Default().Warn("failed to renew lock", "lockKey", lockKey, "err", err)
+				}
+			}
+		}
+	}()
+	return cancel
 }
 
 // StartAgentCountUpdater starts a cron job that updates agent count every minute
@@ -59,7 +90,7 @@ func StartAgentCountUpdater(ctx context.Context, cfg *config.Config, rdb *redis.
 
 func updateAgentCountWithLock(ctx context.Context, rdb *redis.Client) {
 	// Try to acquire lock
-	acquired, err := acquireLock(ctx, rdb, lockKeyAgentCount, lockTTL)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyAgentCount, lockTTL)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for agent count update", "err", err)
 		return
@@ -68,7 +99,7 @@ func updateAgentCountWithLock(ctx context.Context, rdb *redis.Client) {
 		logger.Default().Debug("agent count update skipped (another instance is running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyAgentCount)
+	defer releaseLock(rdb, lockKeyAgentCount, token)
 
 	var count int64
 	if err := db.DB.Model(&struct {
@@ -124,7 +155,7 @@ func StartStatsCalibrator(ctx context.Context, cfg *config.Config, rdb *redis.Cl
 
 func calibrateStatsWithLock(ctx context.Context, rdb *redis.Client) {
 	// Try to acquire lock
-	acquired, err := acquireLock(ctx, rdb, lockKeyCalibrator, lockTTL)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyCalibrator, lockTTL)
 	if err != nil {
 		logger.Default().Warn("failed to acquire lock for stats calibration", "err", err)
 		return
@@ -133,7 +164,7 @@ func calibrateStatsWithLock(ctx context.Context, rdb *redis.Client) {
 		logger.Default().Debug("stats calibration skipped (another instance is running)")
 		return
 	}
-	defer releaseLock(ctx, rdb, lockKeyCalibrator)
+	defer releaseLock(rdb, lockKeyCalibrator, token)
 
 	// Count total items from Elasticsearch
 	itemCount, err := dal.CountItems(ctx)
