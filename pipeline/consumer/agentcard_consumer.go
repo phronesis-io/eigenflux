@@ -3,6 +3,8 @@ package consumer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -14,28 +16,37 @@ import (
 
 // AgentCardConsumer rebuilds agent_cards projections from rebuild events
 // published by the profile / pm / api write paths. Rebuilds are idempotent
-// and read only committed fact-table state, so simple mode (ack on failure)
-// is fine — the cron reconciler repairs anything dropped.
+// and read only committed fact-table state. Transient failures stay pending;
+// poison messages are copied to a bounded dead-letter stream before ACK.
 type AgentCardConsumer struct {
 	runner *StreamConsumer
 }
 
 const agentCardMaxRetries = 5
 
+const (
+	agentCardRetryMinIdle  = 3 * time.Minute
+	agentCardHandleTimeout = 2 * time.Minute
+	agentCardDeadLetter    = "stream:agentcard:rebuild:dlq"
+)
+
 func NewAgentCardConsumer() *AgentCardConsumer {
 	c := &AgentCardConsumer{}
+	hostname, _ := os.Hostname()
+	consumerName := fmt.Sprintf("agentcard-%s-%d", hostname, os.Getpid())
 	c.runner = &StreamConsumer{
 		Name:         "AgentCardConsumer",
 		Stream:       agentcard.StreamRebuild,
 		Group:        agentcard.GroupRebuild,
-		ConsumerName: "agentcard-worker-1",
+		ConsumerName: consumerName,
 		MetricsLabel: "agentcard:rebuild",
 		// Workers MUST stay 1: event order remains useful for freshness and
 		// volume is low. Database fences still prevent stale writes if a Redis
 		// lease expires or another entry point overlaps this worker.
 		Workers:                 1,
 		MaxRetries:              agentCardMaxRetries,
-		RetryMinIdle:            2 * time.Second,
+		RetryMinIdle:            agentCardRetryMinIdle,
+		DeadLetterStream:        agentCardDeadLetter,
 		FatalOnGroupCreateError: true,
 		Handle:                  c.handle,
 	}
@@ -57,7 +68,9 @@ func (c *AgentCardConsumer) handle(ctx context.Context, _ string, values map[str
 	}
 	reason, _ := values["reason"].(string)
 
-	if err := agentcard.Rebuild(ctx, db.DB, mq.RDB, agentID); err != nil {
+	rebuildCtx, cancel := context.WithTimeout(ctx, agentCardHandleTimeout)
+	defer cancel()
+	if err := agentcard.Rebuild(rebuildCtx, db.DB.WithContext(rebuildCtx), mq.RDB, agentID); err != nil {
 		if errors.Is(err, agentcard.ErrAgentNotFound) {
 			logger.Default().Debug("AgentCardConsumer agent gone, skipping", "agentID", agentID)
 			return HandleSuccess

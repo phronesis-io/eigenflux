@@ -86,7 +86,8 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 - `000055` creates the partial concurrent index
   `(author_agent_id, total_score DESC, item_id ASC) WHERE total_score > 0` for
   Top Items. It intentionally runs outside a transaction and drops a possible
-  same-name invalid index first, so an interrupted Goose migration is retryable.
+  migration preflight removes only a same-name invalid index; valid indexes are
+  retained, so an interrupted Goose migration is retryable without destructive rebuilding.
 - `pipeline-cron` ranks influence hourly and rebuilds only snapshots whose
   aggregate metrics, percentile, or content revision changed. A Redis-backed
   cluster-wide timestamp schedules a full reconciliation every 24 hours;

@@ -10,6 +10,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
 const (
@@ -22,6 +23,10 @@ const (
 	// A missing Redis snapshot is recovered incrementally so a Redis restart or
 	// first rollout cannot turn one hourly tick into a database rebuild storm.
 	agentCardRecoveryBatch = 1000
+	// Bound database round-trips per hourly run. At larger scale a due full
+	// reconcile rotates across the population over successive hourly passes.
+	agentCardMaxRebuildsPerRun = 5000
+	agentCardRebuildTimeout    = 2 * time.Minute
 )
 
 type agentInfluenceRow struct {
@@ -81,7 +86,16 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		}
 	}()
 
-	lastFull, err := agentcard.GetLastFullReconcileAt(runCtx, rdb)
+	// Allocate once, before ranking reads. Every card written by this run is
+	// ordered behind newer cron/consumer/read-on-miss attempts, even if this
+	// process resumes after losing the Redis lease.
+	runFence, err := profiledal.NextAgentCardRebuildFence(db.DB.WithContext(runCtx))
+	if err != nil {
+		logger.Default().Error("agent card updater: allocate run fence failed", "err", err)
+		return false
+	}
+
+	lastFull, err := agentcard.GetLastFullReconcileAtFenced(runCtx, rdb, lockKeyAgentCardUpdater, token)
 	if err != nil {
 		logger.Default().Warn("agent card updater: full reconcile state read failed", "err", err)
 		return false
@@ -89,32 +103,25 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	now := time.Now()
 	if lastFull.After(now) {
 		logger.Default().Warn("agent card updater: future full-reconcile timestamp ignored", "lastFull", lastFull)
-		if err := agentcard.SetLastFullReconcileAt(runCtx, rdb, now); err != nil {
-			return false
-		}
-		lastFull = now
+		lastFull = time.Time{}
 	}
 	fullReconcile = fullReconcile || lastFull.IsZero() || now.Sub(lastFull) >= agentCardFullReconcileInterval
 
 	start := time.Now()
 	rankingStarted := time.Now()
 
-	// Influence score (v1 formula: score_1 + 2*score_2) per author, ranked
-	// into "you beat N% of agents" percentiles. Agents with no scored items
-	// count as score 0 so the percentile is over the whole network.
+	// Rollups are maintained transactionally by item_stats/processed_items
+	// triggers. Ranking is therefore O(agents), not O(historical items).
 	var rows []agentInfluenceRow
 	err = db.DB.WithContext(runCtx).Raw(`
 		SELECT a.agent_id,
-		       COALESCE(SUM(s.score_1_count + 2 * s.score_2_count), 0) AS score,
-		       COUNT(s.item_id) AS broadcast_count,
-		       COALESCE(SUM(s.consumed_count), 0) AS consumed_count,
-		       COALESCE(SUM(s.score_1_count + s.score_2_count), 0) AS scored_events,
-		       COALESCE(bit_xor(hashtextextended(CONCAT_WS(':', s.item_id,
-				   s.total_score, s.updated_at, COALESCE(p.updated_at, 0), COALESCE(p.status, 0)), 0)), 0) AS content_revision
+		       COALESCE(r.score, 0) AS score,
+		       COALESCE(r.broadcast_count, 0) AS broadcast_count,
+		       COALESCE(r.consumed_count, 0) AS consumed_count,
+		       COALESCE(r.scored_events, 0) AS scored_events,
+		       COALESCE(r.content_revision, 0) AS content_revision
 		FROM agents a
-		LEFT JOIN item_stats s ON s.author_agent_id = a.agent_id
-		LEFT JOIN processed_items p ON p.item_id = s.item_id
-		GROUP BY a.agent_id
+		LEFT JOIN agent_influence_rollups r ON r.agent_id = a.agent_id
 		ORDER BY score ASC`).Scan(&rows).Error
 	if err != nil {
 		logger.Default().Error("agent card updater: influence ranking query failed", "err", err)
@@ -122,23 +129,25 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	}
 	rankingTook := time.Since(rankingStarted)
 	stateStarted := time.Now()
-	previous, err := agentcard.GetInfluenceSnapshots(runCtx, rdb)
+	previous, err := agentcard.GetInfluenceSnapshotsFenced(runCtx, rdb, lockKeyAgentCardUpdater, token)
 	if err != nil {
 		logger.Default().Error("agent card updater: snapshot read failed", "err", err)
 		return false
 	}
-	percentileIDs, err := agentcard.GetInfluencePercentileIDs(runCtx, rdb)
+	percentileIDs, err := agentcard.GetInfluencePercentileIDsFenced(runCtx, rdb, lockKeyAgentCardUpdater, token)
 	if err != nil {
 		logger.Default().Error("agent card updater: percentile state read failed", "err", err)
 		return false
 	}
 	total := len(rows)
 	if total == 0 {
-		if err := agentcard.ClearInfluenceState(runCtx, rdb); err != nil {
+		if err := agentcard.ClearInfluenceStateFenced(runCtx, rdb, lockKeyAgentCardUpdater, token); err != nil {
 			return false
 		}
 		if fullReconcile {
-			_ = agentcard.SetLastFullReconcileAt(runCtx, rdb, time.Now())
+			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+				return false
+			}
 		}
 		return true
 	}
@@ -146,19 +155,24 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	// A fresh install has no timestamp; an established deployment can also lose
 	// only the snapshot hash while retaining the timestamp. Both recover in
 	// bounded batches once the missing set is large enough to create a spike.
-	recoveryMode := shouldRecoverInfluenceSnapshots(total, len(previous), lastFull)
+	missingSnapshots := countMissingInfluenceSnapshots(snapshots, previous)
+	recoveryMode := shouldRecoverInfluenceSnapshots(total, total-missingSnapshots, lastFull)
 	if recoveryMode {
 		fullReconcile = false
 	}
-	percentiles := make(map[int64]int, total)
+	percentiles := make(map[int64]int)
 	dirty := make(map[int64]struct{}, total)
 	for agentID, snapshot := range snapshots {
-		percentiles[agentID] = snapshot.Percentile
-		if old, ok := previous[agentID]; !ok || old != snapshot {
+		old, oldOK := previous[agentID]
+		_, percentileOK := percentileIDs[agentID]
+		if !oldOK || old != snapshot {
 			dirty[agentID] = struct{}{}
 		}
+		if !oldOK || old.Percentile != snapshot.Percentile || !percentileOK {
+			percentiles[agentID] = snapshot.Percentile
+		}
 	}
-	if err := agentcard.SetInfluencePercentiles(runCtx, rdb, percentiles); err != nil {
+	if err := agentcard.SetInfluencePercentilesFenced(runCtx, rdb, percentiles, lockKeyAgentCardUpdater, token); err != nil {
 		logger.Default().Error("agent card updater: percentile write failed", "err", err)
 		return false
 	}
@@ -167,8 +181,9 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	rebuildStarted := time.Now()
 	successfulSnapshots := make(map[int64]agentcard.InfluenceSnapshot, len(dirty))
 	failedIDs := make([]int64, 0)
-	rebuilt, skipped, failed, deferred := 0, 0, 0, 0
-	for _, row := range rows {
+	rebuilt, skipped, failed, deferred, attempted := 0, 0, 0, 0, 0
+	orderedRows := rotateInfluenceRows(rows, now, agentCardMaxRebuildsPerRun)
+	for _, row := range orderedRows {
 		if runCtx.Err() != nil {
 			return false
 		}
@@ -177,11 +192,15 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			skipped++
 			continue
 		}
-		if recoveryMode && rebuilt+failed >= agentCardRecoveryBatch {
+		if attempted >= agentCardMaxRebuildsPerRun {
 			deferred++
 			continue
 		}
-		if err := agentcard.Rebuild(runCtx, db.DB.WithContext(runCtx), rdb, row.AgentID); err != nil {
+		attempted++
+		rebuildCtx, cancelRebuild := context.WithTimeout(runCtx, agentCardRebuildTimeout)
+		err := agentcard.RebuildWithFence(rebuildCtx, db.DB.WithContext(rebuildCtx), rdb, row.AgentID, runFence)
+		cancelRebuild()
+		if err != nil {
 			failed++
 			failedIDs = append(failedIDs, row.AgentID)
 			logger.Default().Warn("agent card updater: rebuild failed", "agentID", row.AgentID, "err", err)
@@ -190,7 +209,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		rebuilt++
 		successfulSnapshots[row.AgentID] = snapshots[row.AgentID]
 	}
-	if err := agentcard.SetInfluenceSnapshots(runCtx, rdb, successfulSnapshots); err != nil {
+	if err := agentcard.SetInfluenceSnapshotsFenced(runCtx, rdb, successfulSnapshots, lockKeyAgentCardUpdater, token); err != nil {
 		logger.Default().Error("agent card updater: snapshot write failed", "err", err)
 		return false
 	}
@@ -209,19 +228,23 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			}
 		}
 	}
-	if err := agentcard.DeleteInfluenceState(runCtx, rdb, staleIDs, true); err != nil {
+	if err := agentcard.DeleteInfluenceStateFenced(runCtx, rdb, staleIDs, true, lockKeyAgentCardUpdater, token); err != nil {
 		logger.Default().Warn("agent card updater: stale snapshot cleanup failed", "err", err)
+		return false
 	}
-	if err := agentcard.DeleteInfluenceState(runCtx, rdb, failedIDs, false); err != nil {
+	if err := agentcard.DeleteInfluenceStateFenced(runCtx, rdb, failedIDs, false, lockKeyAgentCardUpdater, token); err != nil {
 		logger.Default().Warn("agent card updater: failed snapshot reset failed", "err", err)
+		return false
 	}
 	if fullReconcile {
-		if err := agentcard.SetLastFullReconcileAt(runCtx, rdb, time.Now()); err != nil {
-			logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
-			return false
+		if failed == 0 && deferred == 0 {
+			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
+				logger.Default().Warn("agent card updater: full reconcile state write failed", "err", err)
+				return false
+			}
 		}
 	} else if recoveryMode {
-		complete := true
+		complete := failed == 0 && deferred == 0
 		for agentID := range snapshots {
 			if old, oldOK := previous[agentID]; oldOK && old == snapshots[agentID] {
 				continue
@@ -232,7 +255,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			}
 		}
 		if complete {
-			if err := agentcard.SetLastFullReconcileAt(runCtx, rdb, time.Now()); err != nil {
+			if err := agentcard.SetLastFullReconcileAtFenced(runCtx, rdb, time.Now(), lockKeyAgentCardUpdater, token); err != nil {
 				return false
 			}
 		}
@@ -249,6 +272,27 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 func shouldRecoverInfluenceSnapshots(total, snapshotCount int, lastFull time.Time) bool {
 	missingSnapshots := total - snapshotCount
 	return missingSnapshots >= agentCardRecoveryBatch || (lastFull.IsZero() && missingSnapshots > 0)
+}
+
+func countMissingInfluenceSnapshots(current, previous map[int64]agentcard.InfluenceSnapshot) int {
+	missing := 0
+	for agentID := range current {
+		if _, ok := previous[agentID]; !ok {
+			missing++
+		}
+	}
+	return missing
+}
+
+func rotateInfluenceRows(rows []agentInfluenceRow, now time.Time, batch int) []agentInfluenceRow {
+	if len(rows) <= batch || batch <= 0 {
+		return rows
+	}
+	offset := int(((now.Unix() / int64(time.Hour/time.Second)) * int64(batch)) % int64(len(rows)))
+	rotated := make([]agentInfluenceRow, 0, len(rows))
+	rotated = append(rotated, rows[offset:]...)
+	rotated = append(rotated, rows[:offset]...)
+	return rotated
 }
 
 func buildInfluenceSnapshots(rows []agentInfluenceRow) map[int64]agentcard.InfluenceSnapshot {

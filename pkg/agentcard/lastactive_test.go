@@ -2,6 +2,8 @@ package agentcard
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,5 +77,66 @@ func TestFullReconcileTimestampRoundTrip(t *testing.T) {
 	got, err := GetLastFullReconcileAt(context.Background(), rdb)
 	if err != nil || !got.Equal(want) {
 		t.Fatalf("got %v, %v; want %v", got, err, want)
+	}
+}
+
+func TestCorruptFullReconcileTimestampSelfHeals(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set(fullReconcileAtKey, "not-an-integer")
+	got, err := GetLastFullReconcileAt(ctx, rdb)
+	if err != nil || !got.IsZero() {
+		t.Fatalf("got %v, %v; want zero, nil", got, err)
+	}
+	if mr.Exists(fullReconcileAtKey) {
+		t.Fatal("corrupt timestamp was not removed")
+	}
+}
+
+func TestFencedStateWriteRejectsLostLease(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set("lock:test", "new-owner")
+	err := SetInfluencePercentilesFenced(ctx, rdb, map[int64]int{7: 80}, "lock:test", "old-owner")
+	if !errors.Is(err, ErrReconcileLeaseLost) {
+		t.Fatalf("err = %v, want ErrReconcileLeaseLost", err)
+	}
+	if rdb.HExists(ctx, percentileHash, "7").Val() {
+		t.Fatal("lost lease mutated percentile state")
+	}
+}
+
+func TestOversizedSnapshotIsFilteredInsideRedis(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	mr.HSet(influenceSnapshotHash, "7", strings.Repeat("x", 1024))
+	got, err := GetInfluenceSnapshots(context.Background(), rdb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 || rdb.HExists(context.Background(), influenceSnapshotHash, "7").Val() {
+		t.Fatal("oversized snapshot was returned or retained")
+	}
+}
+
+func TestFencedSelfHealRejectsLostLease(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	mr.Set("lock:test", "new-owner")
+	mr.HSet(influenceSnapshotHash, "7", strings.Repeat("x", 1024))
+
+	_, err := GetInfluenceSnapshotsFenced(ctx, rdb, "lock:test", "old-owner")
+	if !errors.Is(err, ErrReconcileLeaseLost) {
+		t.Fatalf("err = %v, want ErrReconcileLeaseLost", err)
+	}
+	if !rdb.HExists(ctx, influenceSnapshotHash, "7").Val() {
+		t.Fatal("lost lease performed cache self-healing mutation")
 	}
 }

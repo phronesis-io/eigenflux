@@ -57,10 +57,20 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	if advanced.SourceVersion != source+1 || advanced.CardVersion != changed.CardVersion {
 		t.Fatal("source-only advance changed visible version")
 	}
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":3}`, `{"p":1}`, 1, source+2, fence+1); err != nil {
+		t.Fatalf("newer source with an older fence was rejected: %v", err)
+	}
+	newerSource, _ := profiledal.GetAgentCard(tx, agentID)
+	if newerSource.SourceVersion != source+2 || newerSource.CardVersion != advanced.CardVersion+1 {
+		t.Fatal("lexicographically newer source was not accepted")
+	}
 	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+2); err == nil {
 		t.Fatal("stale different projection was acknowledged")
 	}
 	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+1); err == nil {
 		t.Fatal("older fence overwrote a newer projection")
+	}
+	if err := tx.Exec(`UPDATE agent_cards SET public_card = '{"legacy":true}'::jsonb WHERE agent_id = ?`, agentID).Error; err == nil {
+		t.Fatal("database trigger accepted a legacy content write without an ordering-key advance")
 	}
 }

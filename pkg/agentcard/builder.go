@@ -44,19 +44,51 @@ type TopItem struct {
 // (relations, keywords, influence), the per-agent Redis lock serializes all
 // rebuild entry points so an older equal-version projection cannot finish last.
 func Rebuild(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
+	return rebuildAgentCard(ctx, gdb, rdb, agentID, 0, false)
+}
+
+// RebuildWithFence uses a fence allocated before a larger reconciliation run
+// read its shared inputs. A cron lease holder that resumes after expiry cannot
+// obtain a newer per-agent fence and publish an older ranking.
+func RebuildWithFence(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID, rebuildFence int64) error {
+	if rebuildFence <= 0 {
+		return fmt.Errorf("agentcard: invalid rebuild fence %d", rebuildFence)
+	}
+	return rebuildAgentCard(ctx, gdb, rdb, agentID, rebuildFence, false)
+}
+
+// RebuildOnMiss serializes cache-miss repair and rechecks the projection after
+// acquiring the lock. Concurrent readers therefore cause one rebuild, not a
+// queue of identical rebuilds.
+func RebuildOnMiss(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID int64) error {
+	return rebuildAgentCard(ctx, gdb, rdb, agentID, 0, true)
+}
+
+func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agentID, rebuildFence int64, onlyIfMissing bool) error {
 	lockedCtx, release, err := acquireRebuildLock(ctx, rdb, agentID)
 	if err != nil {
 		return err
 	}
 	defer release()
 	gdb = gdb.WithContext(lockedCtx)
+	if onlyIfMissing {
+		card, cardErr := profiledal.GetAgentCard(gdb, agentID)
+		if cardErr == nil && card.SchemaVersion == SchemaVersion {
+			return nil
+		}
+		if cardErr != nil && !errors.Is(cardErr, gorm.ErrRecordNotFound) {
+			return cardErr
+		}
+	}
 	// Redis serializes the normal path, but it is only a lease: a paused
 	// holder can resume after its lease expires. Take a database-monotonic
 	// fence before reading facts so a later lock holder always wins the final
 	// write even if the old holder reaches the upsert afterwards.
-	rebuildFence, err := profiledal.NextAgentCardRebuildFence(gdb)
-	if err != nil {
-		return err
+	if rebuildFence == 0 {
+		rebuildFence, err = profiledal.NextAgentCardRebuildFence(gdb)
+		if err != nil {
+			return err
+		}
 	}
 	profileVersion, profileData, profileUpdatedAt, err := profiledal.GetProfileVersionDataAndUpdatedAt(gdb, agentID)
 	if err != nil {

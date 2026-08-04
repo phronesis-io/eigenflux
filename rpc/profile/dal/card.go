@@ -325,11 +325,7 @@ func NextAgentCardRebuildFence(db *gorm.DB) (int64, error) {
 // overwrite the row; card_version/generated_at advance only when visible card
 // content changes.
 func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion int64) error {
-	fence, err := NextAgentCardRebuildFence(db)
-	if err != nil {
-		return err
-	}
-	return UpsertAgentCardWithFence(db, agentID, publicCard, privateCard, schemaVersion, sourceVersion, fence)
+	return fmt.Errorf("UpsertAgentCard requires a fence allocated before fact reads; use UpsertAgentCardWithFence")
 }
 
 // UpsertAgentCardWithFence persists a projection only when this rebuild is
@@ -356,8 +352,9 @@ func UpsertAgentCardWithFence(db *gorm.DB, agentID int64, publicCard, privateCar
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
 				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
 				THEN EXCLUDED.generated_at ELSE agent_cards.generated_at END
-		WHERE agent_cards.rebuild_fence < EXCLUDED.rebuild_fence
-			AND agent_cards.source_version <= EXCLUDED.source_version`,
+		WHERE agent_cards.source_version < EXCLUDED.source_version
+			OR (agent_cards.source_version = EXCLUDED.source_version
+				AND agent_cards.rebuild_fence < EXCLUDED.rebuild_fence)`,
 		agentID, publicCard, privateCard, schemaVersion, sourceVersion, rebuildFence, time.Now().UnixMilli())
 	if result.Error != nil {
 		return result.Error
@@ -371,10 +368,11 @@ func UpsertAgentCardWithFence(db *gorm.DB, agentID int64, publicCard, privateCar
 	var matches bool
 	err := db.Raw(`SELECT EXISTS (
 		SELECT 1 FROM agent_cards
-		WHERE agent_id = ? AND rebuild_fence >= ? AND source_version >= ?
+		WHERE agent_id = ?
+		  AND (source_version > ? OR (source_version = ? AND rebuild_fence >= ?))
 		  AND public_card = ?::jsonb AND private_card = ?::jsonb
 		  AND schema_version = ?
-	)`, agentID, rebuildFence, sourceVersion, publicCard, privateCard, schemaVersion).Scan(&matches).Error
+	)`, agentID, sourceVersion, sourceVersion, rebuildFence, publicCard, privateCard, schemaVersion).Scan(&matches).Error
 	if err != nil {
 		return err
 	}

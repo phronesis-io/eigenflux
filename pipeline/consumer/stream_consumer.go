@@ -2,6 +2,8 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -48,8 +50,8 @@ type MessageHandler func(ctx context.Context, msgID string, values map[string]an
 //
 //   - Retry-aware mode (MaxRetries > 0): each poll first calls
 //     mq.ConsumePending to reclaim messages that previous workers left
-//     pending. Messages whose retry count has reached MaxRetries are ACKed
-//     and dropped (with a ConsumerRetryTotal increment). Remaining messages
+//     pending. Messages whose retry count has reached MaxRetries are copied
+//     to DeadLetterStream when configured, then ACKed. Remaining messages
 //     are dispatched alongside fresh ones read via mq.ConsumeWithBlock. In
 //     this mode a HandleRetry result skips the ACK so the message stays
 //     pending and will be reclaimed on the next poll. Matches the original
@@ -73,7 +75,7 @@ type StreamConsumer struct {
 	BatchSize int64
 
 	// MaxRetries > 0 switches to retry-aware mode. Messages that exceed
-	// this retry count are ACKed and dropped.
+	// this retry count are dead-lettered when configured, then ACKed.
 	MaxRetries int64
 	// RetryMinIdle is the minimum idle time before a pending message is
 	// eligible for reclaim. Defaults to 1s when in retry mode.
@@ -84,6 +86,9 @@ type StreamConsumer struct {
 	// ReadBlock is the XREADGROUP BLOCK timeout for fresh reads in retry
 	// mode. Defaults to 500ms.
 	ReadBlock time.Duration
+	// DeadLetterStream receives a bounded copy before a message that exhausted
+	// retries is ACKed. Empty preserves the legacy drop-only behavior.
+	DeadLetterStream string
 
 	// FatalOnGroupCreateError: when true (the default for trade/item/
 	// profile/item-stats consumers), a failure to create the consumer
@@ -153,7 +158,9 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 				metrics.ConsumerMessagesTotal.WithLabelValues(c.MetricsLabel, status).Inc()
 
 				if result != HandleRetry {
-					mq.Ack(ctx, c.Stream, c.Group, task.id)
+					if err := mq.Ack(ctx, c.Stream, c.Group, task.id); err != nil {
+						logger.Default().Error(c.Name+" ACK failed", "msgID", task.id, "err", err)
+					}
 				}
 			}
 			logger.Default().Info(c.Name+" worker stopped", "workerID", workerID)
@@ -224,8 +231,26 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 			if pending.RetryCount >= c.MaxRetries {
 				logger.Default().Warn(c.Name+" dropping message after max retries",
 					"msgID", pending.Message.ID, "retryCount", pending.RetryCount, "lastConsumer", pending.Consumer)
+				if c.DeadLetterStream != "" {
+					payload, marshalErr := json.Marshal(pending.Message.Values)
+					if marshalErr != nil {
+						return nil, fmt.Errorf("marshal dead letter %s: %w", pending.Message.ID, marshalErr)
+					}
+					_, publishErr := mq.PublishCapped(ctx, c.DeadLetterStream, 10000, map[string]interface{}{
+						"original_stream": c.Stream,
+						"original_id":     pending.Message.ID,
+						"retry_count":     pending.RetryCount,
+						"payload":         string(payload),
+						"failed_at":       time.Now().UnixMilli(),
+					})
+					if publishErr != nil {
+						return nil, fmt.Errorf("publish dead letter %s: %w", pending.Message.ID, publishErr)
+					}
+				}
+				if ackErr := mq.Ack(ctx, c.Stream, c.Group, pending.Message.ID); ackErr != nil {
+					return nil, fmt.Errorf("ACK exhausted message %s: %w", pending.Message.ID, ackErr)
+				}
 				metrics.ConsumerRetryTotal.WithLabelValues(c.MetricsLabel).Inc()
-				mq.Ack(ctx, c.Stream, c.Group, pending.Message.ID)
 				continue
 			}
 			msgs = append(msgs, pending)
@@ -239,13 +264,11 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 	if err != nil {
 		return nil, err
 	}
-	if pendingCount > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(pollInterval):
-			return nil, nil
-		}
+	if pendingCount > 0 && readBlock > pollInterval {
+		// Pending messages may still be actively handled by another worker or
+		// replica. Continue admitting fresh work, but poll briefly so pending
+		// retries are revisited without imposing global head-of-line blocking.
+		readBlock = pollInterval
 	}
 
 	messages, err := mq.ConsumeWithBlock(ctx, c.Stream, c.Group, c.ConsumerName, batch, readBlock)

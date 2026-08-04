@@ -19,4 +19,5 @@ else
   GO_CMD=(go)
 fi
 
+"${GO_CMD[@]}" run "$PROJECT_ROOT/scripts/common/migration_preflight.go"
 "${GO_CMD[@]}" run github.com/pressly/goose/v3/cmd/goose@v3.24.3 -dir "$PROJECT_ROOT/migrations" postgres "$PG_DSN" up

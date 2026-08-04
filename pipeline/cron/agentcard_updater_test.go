@@ -42,6 +42,26 @@ func TestShouldRecoverInfluenceSnapshotsAfterPartialRedisLoss(t *testing.T) {
 	}
 }
 
+func TestCountMissingInfluenceSnapshotsIgnoresOrphans(t *testing.T) {
+	current := map[int64]agentcard.InfluenceSnapshot{1: {}, 2: {}, 3: {}}
+	previous := map[int64]agentcard.InfluenceSnapshot{1: {}, 99: {}, 100: {}}
+	if got := countMissingInfluenceSnapshots(current, previous); got != 2 {
+		t.Fatalf("missing = %d, want 2", got)
+	}
+}
+
+func TestRotateInfluenceRowsChangesRecoveryStart(t *testing.T) {
+	rows := make([]agentInfluenceRow, 12)
+	for i := range rows {
+		rows[i].AgentID = int64(i + 1)
+	}
+	first := rotateInfluenceRows(rows, time.Unix(0, 0), 5)
+	second := rotateInfluenceRows(rows, time.Unix(int64(time.Hour/time.Second), 0), 5)
+	if first[0].AgentID == second[0].AgentID {
+		t.Fatal("hourly rotation did not advance the recovery start")
+	}
+}
+
 func TestBuildInfluenceSnapshotsDetectsTopItemContentChanges(t *testing.T) {
 	before := buildInfluenceSnapshots([]agentInfluenceRow{{AgentID: 1, Score: 3, BroadcastCount: 2, ScoredEvents: 2, ContentRevision: 100}})
 	after := buildInfluenceSnapshots([]agentInfluenceRow{{AgentID: 1, Score: 3, BroadcastCount: 2, ScoredEvents: 2, ContentRevision: 101}})

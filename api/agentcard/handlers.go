@@ -139,7 +139,7 @@ func loadCardRebuildOnMiss(ctx context.Context, agentID int64) (*profiledal.Agen
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	if rerr := agentcard.Rebuild(ctx, db.DB, mq.RDB, agentID); rerr != nil {
+	if rerr := agentcard.RebuildOnMiss(ctx, db.DB, mq.RDB, agentID); rerr != nil {
 		return nil, rerr
 	}
 	return profiledal.GetAgentCard(db.DB, agentID)
