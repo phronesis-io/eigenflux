@@ -16,7 +16,7 @@ func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 		[]string{"debugging a Go service"},
 	)
 
-	for _, label := range []string{"agent_description", "human_description", "seeking/offering", "current_focus"} {
+	for _, label := range []string{"agent_description", "human_description", "seeking/offering", "current_focus", "agent_status", "human_status", "KEEP, UPDATE, CLEAR, or UNKNOWN", "Do not manufacture"} {
 		if !strings.Contains(prompt, label) {
 			t.Errorf("refresh prompt missing field-level guidance %q", label)
 		}
