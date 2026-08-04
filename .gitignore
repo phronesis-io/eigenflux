@@ -43,6 +43,7 @@ __pycache__
 .sqls
 /build/
 .env
+configs/pm/friend_request_limits.yaml
 .cli.env
 .venv/
 .audit/
@@ -65,4 +66,3 @@ docs/superpowers/
 .agents/
 docs/agents/
 docs/research/
-
