@@ -58,6 +58,7 @@ Captures ranking context at feed serve time for offline training. Records what w
 - **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `request_id` groups items from the same feed request
 - **SortService extension**: `SortItemsResp.sorted_items` carries per-item `SortedItem{item_id, score, agent_features, item_features}` from SortService to FeedService
 - **Consumer**: `pipeline/consumer/replay_consumer.go` — 5 workers, snowflake ID generation via etcd-managed generator (`replay-log-id` service name), batch INSERT to PG
+- **Time-range index**: `idx_replay_logs_served_at` supports cross-agent daily training exports and the retention cleanup scan; per-agent windows continue to use `idx_replay_logs_agent_served`
 - **Feedback joining**: Feedback is NOT in this table. Join `replay_logs` with `stream:item:stats` feedback events at export/training time by `(agent_id, item_id, timestamp proximity)`
 - **Retention**: `pipeline/cron/replay_cleanup.go` purges rows older than `REPLAY_LOG_RETENTION_DAYS` (default 30) on a `REPLAY_LOG_CLEANUP_INTERVAL_SEC` cycle (default 86400 = daily). Deletes run in 5000-row batches (bounded by `ctid`) under the `lock:cron:replay_cleanup` Redis lock so only one instance purges at a time
 

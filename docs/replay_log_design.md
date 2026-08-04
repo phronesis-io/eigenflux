@@ -23,6 +23,7 @@ CREATE TABLE replay_logs (
 );
 
 CREATE INDEX idx_replay_logs_agent_served ON replay_logs (agent_id, served_at);
+CREATE INDEX idx_replay_logs_served_at ON replay_logs (served_at);
 CREATE INDEX idx_replay_logs_impression ON replay_logs (impression_id);
 CREATE INDEX idx_replay_logs_item ON replay_logs (item_id, served_at);
 CREATE UNIQUE INDEX uq_replay_logs_impression_position ON replay_logs (impression_id, position);

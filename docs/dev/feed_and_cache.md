@@ -15,10 +15,15 @@ API Gateway -> FeedService -> SortService (calculates match scores, bloom filter
 
 The beat-coverage "pushed" counter (`GET /api/v1/agents/me/beat_coverage`) reuses the existing replay log instead of a separate delivery table.
 
-- Every feed serve already flows FeedService → `stream:replay:log` → `ReplayConsumer` → `replay_logs` (agent_id, item_id, served_at in UnixMilli, indexed by `idx_replay_logs_agent_served`)
+- Every feed serve already flows FeedService → `stream:replay:log` → `ReplayConsumer` → `replay_logs` (agent_id, item_id, served_at in UnixMilli). Per-agent windows use `idx_replay_logs_agent_served`; cross-agent offline exports and retention cleanup use `idx_replay_logs_served_at`
 - The `delivered` BOOLEAN column (migration 000019) marks actually-delivered rows (`TRUE`); the feed only writes delivered rows. Historical `FALSE` (below-threshold) and NULL rows may still exist from earlier binaries and never count
 - Pushed = items with `delivered = TRUE` in the window, deduplicated by item_id in Go (replay_logs has no (agent, item) uniqueness — the same item can recur across impressions)
 - Requires `ENABLE_REPLAY_LOG` (default `true`); with it disabled the pushed counter receives no data
+
+The offline hot-recall job aggregates recent `surface` events from
+`followup_labels`. The partial
+`idx_followup_labels_surface_reported_item(reported_at, item_id)` index limits
+the scan to the requested time window without indexing other follow-up kinds.
 
 ## Impression Recording (pkg/impr)
 
