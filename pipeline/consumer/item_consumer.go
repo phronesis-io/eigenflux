@@ -193,11 +193,6 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 	}
 
-	// Save hash for future exact-duplicate detection
-	if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
-		logger.Default().Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
-	}
-
 	// --- LLM phase (expensive calls, run after cheap filters) ---
 
 	// Safety check
@@ -345,6 +340,12 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Update processed item with LLM results
 	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID, suggestion) {
 		return HandleFailure
+	}
+
+	// Only completed items reserve their exact-content hash.  Failed processing
+	// must remain retryable instead of being discarded as its own duplicate.
+	if err := dedup.SaveHash(ctx, mq.RDB, contentHash, finalGroupID); err != nil {
+		logger.Default().Warn("ItemConsumer failed to save hash", "itemID", itemID, "err", err)
 	}
 
 	// Index processed item to Elasticsearch
