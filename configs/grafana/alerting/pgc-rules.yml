@@ -228,6 +228,39 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [129600] }
 
+      - uid: pgc-primary-llm-down
+        title: PGC 判决主模型掉线（备用顶班）
+        condition: C
+        for: 15m
+        noDataState: NoData
+        execErrState: Alerting
+        annotations:
+          summary: 判决主模型至少 15 分钟基本不可用，内容都靠备用模型顶着——没有丢内容，但备用模型更贵也更慢。去查主模型服务商的账号状态（2026-08-05 这次是阿里云欠费停服，主模型静默断了 6 小时才被巡检发现）。
+        labels:
+          service: pgc
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: pgc-prometheus
+            model:
+              # 近 1 小时判决流量落在备用模型上的比例（0-1）。正常≈0，偶发
+              # 单条重试不超过 0.05；2026-08-05 欠费事故全天=1.0。阈值 0.5=
+              # "主模型已经不是主力"。指标窗口本身 1h + for 15m，足够平滑。
+              # NoData 不告警：指标缺位由"指标刷新停滞"规则负责，管道停摆
+              # 由"管道停摆"规则负责，这条只管"活着但在备胎上"。
+              expr: max(pgc_llm_fallback_share_1h)
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+
       - uid: pgc-verdicts-stale
         title: PGC 判决结果停更
         condition: C
