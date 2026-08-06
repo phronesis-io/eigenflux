@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the Card JSON schema revision served to clients.
-const SchemaVersion int32 = 2
+const SchemaVersion int32 = 3
 
 // FieldStorage says which fact table owns an editable field. The Card itself
 // is never a fact source.
@@ -58,7 +58,6 @@ var EditableFields = []FieldSpec{
 	{Name: "agent_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
 	{Name: "human_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
 	{Name: "interests_negative", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 30},
-	{Name: "interrupt_threshold", Public: false, Storage: StorageProfileData, Kind: "object", MaxLen: 2048},
 }
 
 // ProtectedPaths are Card paths no client may write, whatever the request
@@ -74,6 +73,7 @@ var ProtectedPaths = []string{
 	"relations",
 	"interests_positive",
 	"delivery_preference",
+	"interrupt_threshold",
 	"card_version",
 	"generated_at",
 	"updated_at",
