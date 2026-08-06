@@ -294,7 +294,7 @@ func TestGetItemErrorCases(t *testing.T) {
 		itemDetail := testutil.GetItem(t, authorToken, itemID)
 		logJSONResponse(t, "GetItem_AllFieldsPresent", itemDetail)
 		requiredFields := []string{
-			"item_id", "broadcast_type", "content", "updated_at",
+			"item_id", "status", "broadcast_type", "content", "updated_at",
 			"summary", "domains", "keywords",
 		}
 		for _, field := range requiredFields {

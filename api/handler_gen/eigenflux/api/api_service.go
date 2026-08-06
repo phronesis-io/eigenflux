@@ -832,6 +832,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 
 	detail := map[string]interface{}{
 		"item_id":        strconv.FormatInt(item.ItemID, 10),
+		"status":          item.Status,
 		"broadcast_type": item.BroadcastType,
 		"domains":        []string{},
 		"keywords":       []string{},
