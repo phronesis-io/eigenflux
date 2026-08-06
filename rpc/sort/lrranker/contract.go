@@ -13,13 +13,23 @@ const ContractVersion = "lr_features_v2"
 
 // Fixed enum vocabularies. The last element is always the "other" bucket that
 // absorbs unknown values, so a new category on either side never shifts the
-// vector dimension. These mirror contract.py exactly.
+// vector dimension. These mirror contract.py exactly. recallSources also keeps
+// retired source labels such as "two_tower": removing one would change the
+// lr_features_v2 vector shape and make historical replay/model data incompatible.
 var (
 	broadcastTypes = []string{"supply", "demand", "info", "alert", "other"}
 	sourceTypes    = []string{"original", "curated", "forwarded", "other"}
 	timelinessVals = []string{"timely", "evergreen", "other"}
 	langVals       = []string{"en", "zh", "other"}
-	recallSources  = []string{"keyword", "knn", "two_tower", "hot_recall", "new_recall", "friend", "new_ugc_recall"}
+	recallSources  = []string{
+		"keyword",
+		"knn",
+		"two_tower", // Retired runtime channel; retained by the immutable feature contract.
+		"hot_recall",
+		"new_recall",
+		"friend",
+		"new_ugc_recall",
+	}
 )
 
 // term kinds, matching the Python FeatureTerm.kind values.

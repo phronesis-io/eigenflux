@@ -227,7 +227,8 @@ sequenceDiagram
     Feed->>Sort: SortItems RPC (agent_id, cursor, limit)
     Sort->>PG: Load agent profile keywords (via ProfileCache)
     Sort->>ES: Search items by profile match (via SearchCache)
-    Sort->>Redis: Read offline recall candidates (hot/new/two_tower)
+    Sort->>Redis: Read confirmed surface seed ZSET
+    Sort->>Redis: Read offline recall candidates (hot/new/new_ugc/Swing I2I)
     Sort->>Redis: Bloom filter dedup check
     Sort-->>Feed: Sorted item_ids
 

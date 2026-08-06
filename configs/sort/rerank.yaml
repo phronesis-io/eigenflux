@@ -18,3 +18,6 @@ policies:
         count: 1                 # at most one force-insert per feed refresh
         positions: []            # unspecified → front-fill
         claim_ttl: 90m           # skip re-inserting a delivered item this long (spans one offline index refresh, ~1h)
+  - name: source_limit
+    source: friend
+    max_fraction: 1/2

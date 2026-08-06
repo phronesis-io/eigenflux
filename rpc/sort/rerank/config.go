@@ -3,6 +3,8 @@ package rerank
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -17,6 +19,23 @@ type PolicyConfig struct {
 	ItemRules   []ItemFreshnessRuleConfig `yaml:"item_rules"`
 	BoostRules  []BoostRuleConfig         `yaml:"boost_rules"`
 	InjectRules []InjectRuleConfig        `yaml:"inject_rules"`
+	Source      string                    `yaml:"source"`
+	MaxFraction string                    `yaml:"max_fraction"`
+}
+
+// SourceLimitConfig caps candidates attributed to Source at an exact fraction
+// of the caller-requested result limit.
+type SourceLimitConfig struct {
+	Source      string
+	numerator   int
+	denominator int
+}
+
+func (r SourceLimitConfig) MaxCount(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	return limit * r.numerator / r.denominator
 }
 
 type ItemFreshnessRuleConfig struct {
@@ -89,11 +108,52 @@ func (c *Config) NewPolicies(now func() time.Time) ([]Policy, error) {
 			if err := pc.validateInjectRules(); err != nil {
 				return nil, err
 			}
+		case "source_limit":
+			// Source-limit rules need the request-scoped source map and result
+			// limit, so the sort handler builds their runnable policies.
+			if _, err := pc.newSourceLimitConfig(); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("unknown rerank policy %q", pc.Name)
 		}
 	}
 	return policies, nil
+}
+
+// SourceLimits returns every source_limit policy in declaration order.
+func (c *Config) SourceLimits() ([]SourceLimitConfig, error) {
+	if c == nil {
+		return nil, nil
+	}
+	var limits []SourceLimitConfig
+	for _, pc := range c.Policies {
+		if pc.Name != "source_limit" {
+			continue
+		}
+		limit, err := pc.newSourceLimitConfig()
+		if err != nil {
+			return nil, err
+		}
+		limits = append(limits, limit)
+	}
+	return limits, nil
+}
+
+func (pc PolicyConfig) newSourceLimitConfig() (SourceLimitConfig, error) {
+	if pc.Source == "" {
+		return SourceLimitConfig{}, fmt.Errorf("source_limit policy has empty source")
+	}
+	numeratorText, denominatorText, ok := strings.Cut(pc.MaxFraction, "/")
+	if !ok || numeratorText == "" || denominatorText == "" {
+		return SourceLimitConfig{}, fmt.Errorf("source_limit policy for source %q has invalid max_fraction %q", pc.Source, pc.MaxFraction)
+	}
+	numerator, numeratorErr := strconv.Atoi(numeratorText)
+	denominator, denominatorErr := strconv.Atoi(denominatorText)
+	if numeratorErr != nil || denominatorErr != nil || numerator <= 0 || denominator <= 0 || numerator > denominator {
+		return SourceLimitConfig{}, fmt.Errorf("source_limit policy for source %q has invalid max_fraction %q", pc.Source, pc.MaxFraction)
+	}
+	return SourceLimitConfig{Source: pc.Source, numerator: numerator, denominator: denominator}, nil
 }
 
 // InjectRules returns every inject_rule declared under any policy named

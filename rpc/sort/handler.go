@@ -748,16 +748,52 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 		logger.Ctx(ctx).Info("deduplication disabled", "env", cfg.AppEnv)
 	}
 
-	// Filter and collect final item IDs (delivery list)
-	itemIDs := make([]int64, 0, limit)
-	sortedItems := make([]*sort.SortedItem, 0, limit+len(filteredItems))
-	var deliveredInjected []int64
+	// Apply Bloom dedup before source ceilings so a seen non-friend candidate
+	// cannot consume a slot that would otherwise backfill a capped friend item.
+	deliveryCandidates := make([]candidateItem, 0, len(candidates))
 	dedupedCount := 0
 	for _, c := range candidates {
 		if c.groupID != 0 && seenGroupIDs[c.groupID] {
 			dedupedCount++
 			continue
 		}
+		deliveryCandidates = append(deliveryCandidates, c)
+	}
+
+	// Enforce configured recall-source ceilings over the deliverable pool before
+	// final truncation. Attribution is a bitset, so an item recalled by friend and
+	// another channel still counts toward the friend ceiling.
+	if sourceLimits := itemRerankPolicies.SourceLimits(); len(sourceLimits) > 0 && len(deliveryCandidates) > 0 {
+		rankCandidates := make([]rank.Candidate, len(deliveryCandidates))
+		byID := make(map[int64]candidateItem, len(deliveryCandidates))
+		for i, c := range deliveryCandidates {
+			rankCandidates[i] = rank.NewCandidate(c.itemID, rank.CandidateItem, c.score, nil, nil)
+			byID[c.itemID] = c
+		}
+		for _, sourceLimit := range sourceLimits {
+			label := sourceLimit.Source
+			rankCandidates = (&rerank.MatchLimitPolicy{
+				Match: func(c rank.Candidate) bool {
+					return slices.Contains(recallsource.Names(sourceMap[c.ID()]), label)
+				},
+				MaxCount:  sourceLimit.MaxCount(limit),
+				ReasonTag: "source=" + label,
+			}).Apply(rankCandidates)
+		}
+		limited := make([]candidateItem, 0, len(rankCandidates))
+		for _, candidate := range rankCandidates {
+			if item, ok := byID[candidate.ID()]; ok {
+				limited = append(limited, item)
+			}
+		}
+		deliveryCandidates = limited
+	}
+
+	// Collect final item IDs (delivery list).
+	itemIDs := make([]int64, 0, limit)
+	sortedItems := make([]*sort.SortedItem, 0, limit+len(filteredItems))
+	var deliveredInjected []int64
+	for _, c := range deliveryCandidates {
 		itemIDs = append(itemIDs, c.itemID)
 		if item, ok := esItemMap[c.itemID]; ok {
 			recordFeedCategory(item, contentClassByItem[c.itemID])

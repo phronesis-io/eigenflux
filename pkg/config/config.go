@@ -148,27 +148,26 @@ type Config struct {
 	ExplorationSlots     int
 
 	// Recall & ranking
-	MinRelevanceScore        float64 // items below this total score are dropped from feed (default 0)
-	FriendFeedEnabled        bool    // inject friends' recent broadcasts into the feed, bypassing the relevance threshold (best-effort, not guaranteed)
-	FriendFeedWindowHours    int     // how far back to pull friends' broadcasts
-	FriendFeedMaxItems       int     // cap friend items injected per feed fetch
-	FriendFeedMaxAuthors     int     // cap friends queried per feed fetch
-	KeywordRecallSize        int     // number of keyword recall candidates from ES (default 200)
-	EnableKNNRecall          bool
-	KNNRecallK               int
-	KNNRecallCandidates      int
-	EnableHotRecall          bool     // Enable hot_recall from Redis (default: true)
-	EnableNewRecall          bool     // Enable new_recall from Redis (default: true)
-	EnableNewUGCRecall       bool     // Enable new_ugc recall from Redis: un-exposed UGC candidates written by the offline service. Force-insertion is configured in configs/sort/rerank.yaml (name: inject) (default: false)
-	EnableTwoTowerRecall     bool     // Enable precomputed two_tower recall from Redis (default: false)
-	PGCEmailSuffixes         []string // author email suffixes classifying a broadcast as PGC (official bots); everything else is UGC. Drives the sort UGC boost and category metrics
-	BlockedAgentEmails       []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
-	EnableServiceMix         bool     // Mix trading services into the SortItems feed (default: false)
-	ServiceMixRecallSize     int      // Max service candidates to recall before rerank (default: 50)
-	RecallRedisNamespace     string   // Redis key namespace for recall indices (default: "rec")
-	TwoTowerRecallRedisKey   string   // Redis recall output key for two_tower candidates (default: "two_tower_recall")
-	TwoTowerRecallK          int      // Top-K for two-tower Redis candidates (default: 50)
-	TwoTowerRecallCandidates int      // Deprecated; retained for env compatibility
+	MinRelevanceScore     float64 // items below this total score are dropped from feed (default 0)
+	FriendFeedEnabled     bool    // inject friends' recent broadcasts into the feed, bypassing the relevance threshold (best-effort, not guaranteed)
+	FriendFeedWindowHours int     // how far back to pull friends' broadcasts
+	FriendFeedMaxItems    int     // cap friend items injected per feed fetch
+	FriendFeedMaxAuthors  int     // cap friends queried per feed fetch
+	KeywordRecallSize     int     // number of keyword recall candidates from ES (default 200)
+	EnableKNNRecall       bool
+	KNNRecallK            int
+	KNNRecallCandidates   int
+	EnableHotRecall       bool     // Enable hot_recall from Redis (default: true)
+	EnableNewRecall       bool     // Enable new_recall from Redis (default: true)
+	EnableNewUGCRecall    bool     // Enable new_ugc recall from Redis: un-exposed UGC candidates written by the offline service. Force-insertion is configured in configs/sort/rerank.yaml (name: inject) (default: false)
+	EnableSwingI2IRecall  bool     // Enable Swing item-to-item recall from the offline Redis index (default: false)
+	SwingI2IRecallSeeds   int      // Maximum impressed seed items expanded per request (default: 20)
+	SwingI2IRecallK       int      // Maximum aggregated Swing candidates returned per request (default: 100)
+	PGCEmailSuffixes      []string // author email suffixes classifying a broadcast as PGC (official bots); everything else is UGC. Drives the sort UGC boost and category metrics
+	BlockedAgentEmails    []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
+	EnableServiceMix      bool     // Mix trading services into the SortItems feed (default: false)
+	ServiceMixRecallSize  int      // Max service candidates to recall before rerank (default: 50)
+	RecallRedisNamespace  string   // Redis key namespace for recall indices (default: "rec")
 
 	// LR ranker (sort). A daily-trained logistic-regression model replaces the
 	// formula rank when enabled and a valid bundle is loaded; otherwise sort
@@ -332,24 +331,23 @@ func Load() *Config {
 		FriendFeedMaxItems:            getEnvInt("FRIEND_FEED_MAX_ITEMS", 20),
 		FriendFeedMaxAuthors:          getEnvInt("FRIEND_FEED_MAX_AUTHORS", 50),
 		KeywordRecallSize:             getEnvInt("KEYWORD_RECALL_SIZE", 200),
-		EnableKNNRecall:               getEnvBool("ENABLE_KNN_RECALL", true),
+		EnableKNNRecall:               getEnvBool("ENABLE_KNN_RECALL", false),
 		KNNRecallK:                    getEnvInt("KNN_RECALL_K", 80),
 		KNNRecallCandidates:           getEnvInt("KNN_RECALL_CANDIDATES", 300),
 		EnableHotRecall:               getEnvBool("ENABLE_HOT_RECALL", true),
 		EnableNewRecall:               getEnvBool("ENABLE_NEW_RECALL", true),
 		EnableNewUGCRecall:            getEnvBool("ENABLE_NEW_UGC_RECALL", false),
+		EnableSwingI2IRecall:          getEnvBool("ENABLE_SWING_I2I_RECALL", false),
+		SwingI2IRecallSeeds:           getEnvInt("SWING_I2I_RECALL_SEEDS", 20),
+		SwingI2IRecallK:               getEnvInt("SWING_I2I_RECALL_K", 100),
 		PGCEmailSuffixes:              getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"}),
 		BlockedAgentEmails:            getEnvStringList("BLOCKED_AGENT_EMAILS", []string{"fmw19990718@gmail.com"}),
 		EnableServiceMix:              getEnvBool("ENABLE_SERVICE_MIX", false),
 		ServiceMixRecallSize:          getEnvInt("SERVICE_MIX_RECALL_SIZE", 50),
-		EnableTwoTowerRecall:          getEnvBool("ENABLE_TWO_TOWER_RECALL", false),
 		LRRankerEnabled:               getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:             getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:        getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
 		RecallRedisNamespace:          getEnv("REC_REDIS_NAMESPACE", "rec"),
-		TwoTowerRecallRedisKey:        getEnv("TWO_TOWER_RECALL_REDIS_KEY", "two_tower_recall"),
-		TwoTowerRecallK:               getEnvInt("TWO_TOWER_RECALL_K", 50),
-		TwoTowerRecallCandidates:      getEnvInt("TWO_TOWER_RECALL_CANDIDATES", 200),
 		FreshnessAlertOffset:          getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
 		FreshnessAlertScale:           getEnv("FRESHNESS_ALERT_SCALE", "12h"),
 		FreshnessAlertDecay:           getEnvFloat("FRESHNESS_ALERT_DECAY", 0.5),

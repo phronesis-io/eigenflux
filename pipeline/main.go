@@ -21,6 +21,7 @@ import (
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/recall"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
 
@@ -162,7 +163,8 @@ func main() {
 	defer func() {
 		_ = followupIDGen.Close(context.Background())
 	}()
-	followupConsumer := consumer.NewFollowupConsumer(followupIDGen)
+	surfaceHistory := recall.NewSurfaceHistoryStore(mq.RDB, cfg.RecallRedisNamespace)
+	followupConsumer := consumer.NewFollowupConsumer(followupIDGen, surfaceHistory)
 
 	var officialWelcomeConsumer *consumer.OfficialWelcomeConsumer
 	if cfg.EnableOfficialWelcome {

@@ -108,11 +108,14 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `MIN_RELEVANCE_SCORE` | `0` | Score-layer threshold applied after ranking; `0` keeps all ranked groups unless overridden |
 | `ENABLE_HOT_RECALL` | `true` | Enables Redis-backed `hot_recall` offline recall source |
 | `ENABLE_NEW_RECALL` | `true` | Enables Redis-backed `new_recall` offline recall source |
-| `ENABLE_TWO_TOWER_RECALL` | `false` | Enables precomputed two-tower Redis candidates from the offline recall job |
 | `ENABLE_NEW_UGC_RECALL` | `false` | Enables the Redis-backed `new_ugc` recall channel (un-exposed UGC written by the offline service). Force-insertion is configured declaratively in `configs/sort/rerank.yaml` (`name: inject`), not via env |
+| `ENABLE_SWING_I2I_RECALL` | `false` | Enables Swing item-to-item recall from the offline `rec:swing_i2i` Redis index |
+| `SWING_I2I_RECALL_SEEDS` | `20` | Maximum newest confirmed surface item IDs expanded through the Swing index per request |
+| `SWING_I2I_RECALL_K` | `100` | Maximum aggregated Swing candidates returned per request |
+| `ENABLE_KNN_RECALL` | `false` | Enables the legacy profile-embedding KNN item-feed recall lane. Disabled by default while its replacement is prepared |
+| `KNN_RECALL_K` | `80` | Number of KNN item candidates returned when the legacy lane is enabled |
+| `KNN_RECALL_CANDIDATES` | `300` | Elasticsearch candidate pool size for the legacy KNN item recall lane |
 | `REC_REDIS_NAMESPACE` | `rec` | Namespace prefix for offline recall Redis keys |
-| `TWO_TOWER_RECALL_REDIS_KEY` | `two_tower_recall` | Offline output key for per-user two-tower candidates |
-| `TWO_TOWER_RECALL_K` | `50` | Maximum precomputed two-tower candidates read per user |
 | `FRESHNESS_OFFSET` | `12h` | ES Gaussian decay offset |
 | `FRESHNESS_SCALE` | `7d` | ES Gaussian decay scale |
 | `FRESHNESS_DECAY` | `0.8` | ES Gaussian decay factor at scale distance (0-1) |
@@ -124,7 +127,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 
 | File | Owner | Purpose |
 |------|-------|---------|
-| `configs/sort/rerank.yaml` | Sort | Configurable item rerank policies. The default freshness policy drops stale `alert` items after `6h`; Sort reads the file once during startup and treats missing or invalid config as no configured policies. |
+| `configs/sort/rerank.yaml` | Sort | Configurable item rerank policies. The default freshness policy drops stale `alert` items after `12h`; the final source-limit policy caps friend-attributed items at `1/2` of the requested feed size. Sort reads the file once during startup and treats missing or invalid config as no configured policies. |
 
 ## Startup Constraints
 

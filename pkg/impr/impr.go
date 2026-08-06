@@ -75,16 +75,7 @@ func GetSeenItems(ctx context.Context, rdb *redis.Client, agentID int64) (*SeenI
 		return nil, err
 	}
 
-	var itemIDs []int64
-	for _, s := range itemCmd.Val() {
-		id, err := strconv.ParseInt(s, 10, 64)
-		if err == nil {
-			itemIDs = append(itemIDs, id)
-		}
-	}
-	if itemIDs == nil {
-		itemIDs = []int64{}
-	}
+	itemIDs := parseIDs(itemCmd.Val())
 
 	var groupIDs []int64
 	for _, s := range groupCmd.Val() {
@@ -107,4 +98,25 @@ func GetSeenItems(ctx context.Context, rdb *redis.Client, agentID int64) (*SeenI
 		GroupIDs: groupIDs,
 		URLs:     urls,
 	}, nil
+}
+
+// GetSeenItemIDs reads only the item impression set. Recall paths use this
+// narrower query so they do not fetch the unrelated group and URL sets.
+func GetSeenItemIDs(ctx context.Context, rdb *redis.Client, agentID int64) ([]int64, error) {
+	values, err := rdb.SMembers(ctx, fmt.Sprintf(KeyItemIDs, agentID)).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	return parseIDs(values), nil
+}
+
+func parseIDs(values []string) []int64 {
+	ids := make([]int64, 0, len(values))
+	for _, value := range values {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

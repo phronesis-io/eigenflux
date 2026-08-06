@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/recall"
 )
 
 var TestDB *sql.DB
@@ -33,6 +34,7 @@ func CleanTestData(t *testing.T, emails ...string) {
 	t.Helper()
 	ctx := context.Background()
 	rdb := GetTestRedis()
+	cfg := config.Load()
 
 	if len(emails) == 0 {
 		rows, err := TestDB.Query(`
@@ -103,6 +105,7 @@ func CleanTestData(t *testing.T, emails ...string) {
 		rdb.Del(ctx, fmt.Sprintf("impr:agent:%d:urls", agentID))
 		rdb.Del(ctx, fmt.Sprintf("feed:cache:%d", agentID))
 		rdb.Del(ctx, fmt.Sprintf("milestone:notify:%d", agentID))
+		rdb.Del(ctx, recall.SurfaceHistoryKey(cfg.RecallRedisNamespace, agentID))
 	}
 
 	// Global keys by pattern: bloom filter, search cache, profile cache, dedup hashes

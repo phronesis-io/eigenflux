@@ -87,13 +87,84 @@ func (r *RedisRecallReader) FetchUserScoredCandidates(ctx context.Context, key, 
 	if cached, ok := r.getScoredCache(cacheKey); ok {
 		return cached, nil
 	}
-
 	version, err := r.activeVersion(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 
 	redisKey := fmt.Sprintf("%s:%s:%s:user:%s:scored_candidates", r.namespace, key, version, userID)
+	return r.fetchScoredList(ctx, cacheKey, redisKey)
+}
+
+// FetchItemScoredNeighbors returns scored neighbors for one seed item from an
+// item_scored_neighbors output.
+func (r *RedisRecallReader) FetchItemScoredNeighbors(ctx context.Context, key, itemID string) ([]ScoredCandidate, error) {
+	cacheKey := fmt.Sprintf("neighbors:%s:%s", key, itemID)
+	if cached, ok := r.getScoredCache(cacheKey); ok {
+		return cached, nil
+	}
+	version, err := r.activeVersion(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	redisKey := fmt.Sprintf("%s:%s:%s:item:%s:scored_neighbors", r.namespace, key, version, itemID)
+	return r.fetchScoredList(ctx, cacheKey, redisKey)
+}
+
+// FetchItemScoredNeighborsBatch returns scored neighbors for multiple seed
+// items while resolving the active version once and pipelining cache misses.
+func (r *RedisRecallReader) FetchItemScoredNeighborsBatch(ctx context.Context, key string, itemIDs []int64) (map[int64][]ScoredCandidate, error) {
+	result := make(map[int64][]ScoredCandidate, len(itemIDs))
+	missing := make([]int64, 0, len(itemIDs))
+	for _, itemID := range itemIDs {
+		cacheKey := fmt.Sprintf("neighbors:%s:%d", key, itemID)
+		if cached, ok := r.getScoredCache(cacheKey); ok {
+			result[itemID] = cached
+			continue
+		}
+		missing = append(missing, itemID)
+	}
+	if len(missing) == 0 {
+		return result, nil
+	}
+
+	version, err := r.activeVersion(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	pipe := r.rdb.Pipeline()
+	commands := make(map[int64]*redis.StringCmd, len(missing))
+	for _, itemID := range missing {
+		redisKey := fmt.Sprintf("%s:%s:%s:item:%d:scored_neighbors", r.namespace, key, version, itemID)
+		commands[itemID] = pipe.Get(ctx, redisKey)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	for _, itemID := range missing {
+		cacheKey := fmt.Sprintf("neighbors:%s:%d", key, itemID)
+		value, err := commands[itemID].Result()
+		if err == redis.Nil {
+			r.setScoredCache(cacheKey, nil)
+			result[itemID] = nil
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		candidates, err := parseScoredCandidateList(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", cacheKey, err)
+		}
+		r.setScoredCache(cacheKey, candidates)
+		result[itemID] = candidates
+	}
+	return result, nil
+}
+
+func (r *RedisRecallReader) fetchScoredList(ctx context.Context, cacheKey, redisKey string) ([]ScoredCandidate, error) {
 	val, err := r.rdb.Get(ctx, redisKey).Result()
 	if err != nil {
 		if err == redis.Nil {

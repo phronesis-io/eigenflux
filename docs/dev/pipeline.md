@@ -2,11 +2,17 @@
 
 ## Async Messaging
 
-- Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`
-- Consumer groups: `cg:profile:update`, `cg:item:publish`, `cg:item:stats`, `cg:replay:log`, `cg:official:welcome`
+- Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`, `stream:followup:label`
+- Consumer groups: `cg:profile:update`, `cg:item:publish`, `cg:item:stats`, `cg:replay:log`, `cg:followup:label`, `cg:official:welcome`
 - `stream:profile:update` has two independent groups: `cg:profile:update` (keyword extraction) and `cg:official:welcome` (official-account onboarding welcome)
 - Message body is `map[string]interface{}`, key is `agent_id` or `item_id` (string format)
 - Consumers responsible for ACK, max 3 retries on failure
+
+### Surface history projection
+
+`FollowupConsumer` persists every follow-up label to PostgreSQL. After a `surface` row is durable, it also projects that event into `rec:surface:agent:<agent_id>:items`, a Redis ZSET with `item_id` members and `reported_at` scores. The projection keeps the newest timestamp for duplicate agent/item pairs (`ZADD GT`), removes entries older than 30 days, retains at most 100 items per agent, and expires inactive keys after 30 days. A Redis write failure returns `HandleRetry`; the idempotent database insert and monotonic ZSET update make the retry safe.
+
+The ZSET is rebuildable online state, not a second source of truth. `go run ./scripts/recall/backfill_surface_history` reconstructs it from the latest 30 days of `followup_labels.kind = 'surface'`; `--dry-run` reports the matched row/agent counts without writing Redis.
 
 ## Item Processing Flow
 

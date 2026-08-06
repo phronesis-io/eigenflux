@@ -23,11 +23,11 @@ func setupRecallTestRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 
 func TestFetchUserScoredCandidates(t *testing.T) {
 	rdb, mr := setupRecallTestRedis(t)
-	mr.Set("rec:two_tower_recall:active_version", "20260521T180000Z")
-	mr.Set("rec:two_tower_recall:20260521T180000Z:user:1001:scored_candidates", "42:0.9500,77:0.1234")
+	mr.Set("rec:personalized_recall:active_version", "20260521T180000Z")
+	mr.Set("rec:personalized_recall:20260521T180000Z:user:1001:scored_candidates", "42:0.9500,77:0.1234")
 
 	reader := NewRedisRecallReader(rdb, "rec")
-	got, err := reader.FetchUserScoredCandidates(context.Background(), "two_tower_recall", "1001")
+	got, err := reader.FetchUserScoredCandidates(context.Background(), "personalized_recall", "1001")
 
 	require.NoError(t, err)
 	assert.Equal(t, []ScoredCandidate{
@@ -38,10 +38,10 @@ func TestFetchUserScoredCandidates(t *testing.T) {
 
 func TestFetchUserScoredCandidatesMissingUserReturnsEmpty(t *testing.T) {
 	rdb, mr := setupRecallTestRedis(t)
-	mr.Set("rec:two_tower_recall:active_version", "v1")
+	mr.Set("rec:personalized_recall:active_version", "v1")
 
 	reader := NewRedisRecallReader(rdb, "rec")
-	got, err := reader.FetchUserScoredCandidates(context.Background(), "two_tower_recall", "1001")
+	got, err := reader.FetchUserScoredCandidates(context.Background(), "personalized_recall", "1001")
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -49,12 +49,38 @@ func TestFetchUserScoredCandidatesMissingUserReturnsEmpty(t *testing.T) {
 
 func TestFetchUserScoredCandidatesRejectsMalformedValue(t *testing.T) {
 	rdb, mr := setupRecallTestRedis(t)
-	mr.Set("rec:two_tower_recall:active_version", "v1")
-	mr.Set("rec:two_tower_recall:v1:user:1001:scored_candidates", "42:0.9,bad")
+	mr.Set("rec:personalized_recall:active_version", "v1")
+	mr.Set("rec:personalized_recall:v1:user:1001:scored_candidates", "42:0.9,bad")
 
 	reader := NewRedisRecallReader(rdb, "rec")
-	_, err := reader.FetchUserScoredCandidates(context.Background(), "two_tower_recall", "1001")
+	_, err := reader.FetchUserScoredCandidates(context.Background(), "personalized_recall", "1001")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid candidate")
+}
+
+func TestFetchItemScoredNeighbors(t *testing.T) {
+	rdb, mr := setupRecallTestRedis(t)
+	mr.Set("rec:swing_i2i:active_version", "20260804T040000Z")
+	mr.Set("rec:swing_i2i:20260804T040000Z:item:123:scored_neighbors", "456:1.0000,789:0.2346")
+
+	reader := NewRedisRecallReader(rdb, "rec")
+	got, err := reader.FetchItemScoredNeighbors(context.Background(), "swing_i2i", "123")
+
+	require.NoError(t, err)
+	assert.Equal(t, []ScoredCandidate{
+		{ItemID: 456, Score: 1},
+		{ItemID: 789, Score: 0.2346},
+	}, got)
+}
+
+func TestFetchItemScoredNeighborsMissingSeedReturnsEmpty(t *testing.T) {
+	rdb, mr := setupRecallTestRedis(t)
+	mr.Set("rec:swing_i2i:active_version", "v1")
+
+	reader := NewRedisRecallReader(rdb, "rec")
+	got, err := reader.FetchItemScoredNeighbors(context.Background(), "swing_i2i", "123")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

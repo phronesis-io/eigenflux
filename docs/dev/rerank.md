@@ -6,7 +6,7 @@ Discovery surfaces in eigenflux follow a three-layer pipeline:
 
 1. **Recall** — domain-specific channels (`pkg/recallsource`, ES queries, kNN) produce raw candidate IDs.
 2. **Rank** — domain rankers (`rpc/sort/ranker` for items, `rpc/sort/serviceranker` for services) score those candidates with typed signals and emit typed results (`RankedItem`, `RankedService`).
-3. **Rerank** — `rpc/sort/rerank` mixes typed results into the final display order, applying cross-type policies (dedup, normalize, bounds, ratio, slot).
+3. **Rerank** — `rpc/sort/rerank` mixes typed results into the final display order, applying policies such as dedup, normalize, bounds, ratio, slot, injection, and source limits.
 
 The first two layers stay domain-typed for clarity and performance. The rerank layer is the only place that has to be cross-type, so it operates on a small read-only interface (`rank.Candidate`) wrapped around whatever the typed ranker produced.
 
@@ -26,7 +26,7 @@ The rerank layer lives inside the sort service because sort owns feed compositio
 
 - `Reranker` — built with `rerank.New(policies...)`; `Rerank(cands, limit)` runs the policies in order, then truncates.
 - `Policy` interface — `Name() string`, `Apply([]rank.Candidate) []rank.Candidate`. Implementations must be pure (no I/O, no goroutines).
-- Eight built-in policies:
+- Built-in policies:
   - **FreshnessPolicy** — drops item candidates by type-aware age rules loaded from `configs/sort/rerank.yaml`. The default rule is `broadcast_type: alert`, `max_age: 6h`, `action: drop`. `SortItems` applies this policy after recall and before typed item ranking/exploration so stale alerts cannot re-enter through exploration slots.
   - **BoostPolicy** — multiplies item candidate scores by operator-tuned category weights, then re-sorts by descending score. Each `BoostRule` matches a source field (`type` = broadcast_type, `source_type`, or `content_class` = `ugc`/`pgc`) against a value set and applies `Weight`; multiple matching rules compound (e.g. a UGC demand item hit by both `type ∈ {supply,demand}` ×1.3 and `content_class ∈ {ugc}` ×1.2 lands at ×1.56). `content_class` is resolved per request in `SortItems` from the author's email suffix (PGC = official bots ending in `@bot.eigenflux.one` / `@pgc.eigenflux.one`, configurable via `PGC_EMAIL_SUFFIXES`; everything else, including unresolved authors, is UGC) and carried on the boost source — it is not stored on the ES document. Only mutates `*BasicCandidate`; services and unknown sources pass through. `SortItems` applies this policy *after* item ranking (so score edits survive) and *before* the relevance threshold split (so a boosted item can cross into the served set). Configured under `configs/sort/rerank.yaml`. Reads category fields via the `ItemBoostFields()` source interface.
   - **DedupPolicy** — drops duplicates by `Fingerprint`. Put it first.
@@ -36,8 +36,9 @@ The rerank layer lives inside the sort service because sort owns feed compositio
   - **RatioPolicy** — `CycleSize` and `TypeCounts` describe the target interleave (e.g. `{item: 5, service: 1}` over a cycle of 6). Underflow falls through to whichever queue still has candidates.
   - **SlotPolicy** — pins specific 0-indexed positions to a target type. Top-scoring unused candidate of that type is promoted. Place this last so positional overrides win over interleave rhythm.
   - **InjectPolicy** — force-inserts up to `Count` candidates matching a caller-supplied `Match func(rank.Candidate) bool` predicate into reserved `Positions` (0-indexed; empty → front-fill), so they survive a later top-N truncation even when their score would not place them there. Channel-agnostic by design: the predicate decides eligibility, so the same policy backs any forced-insertion need — only the predicate changes. Because input is score-ordered it picks the highest-scoring matches first, giving relevance-first / coverage-fallback for free. Displaced candidates shift down; injected candidates get an `inject:<pos>` reason. Used by `SortItems` for the UGC exposure guarantee. Configured declaratively under `configs/sort/rerank.yaml` (`name: inject`): each `inject_rule` carries a `source` (matched against the candidate's `recallsource.Names` label, e.g. `new_ugc_recall`), a `count`, and optional `positions`. The rule carries only parameters — the sort handler builds the runtime predicate (a closure that checks the request-scoped recall-source map for the rule's `source` label), so the `rank`/`rerank` packages stay free of any `recallsource` dependency and a new forced-insertion channel is added purely in YAML.
+  - **MatchLimitPolicy** — keeps at most `MaxCount` candidates accepted by a caller-supplied predicate while preserving display order. `SortItems` builds these policies from `source_limit` entries and applies them after Bloom dedup but before final truncation. The default friend fraction is `1/2`, so a 20-item refresh can contain at most 10 friend-attributed items. An item carrying both friend and keyword/KNN source bits still counts. If recall cannot supply enough non-friend candidates, the response remains shorter instead of violating the ceiling. Dropped candidates receive a `match_limit:source=<name>` rerank reason.
 
-The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} → Coverage → Bounds{Ceiling: 10}`. `SortItems` additionally has a configurable pre-rank item policy chain loaded from `configs/sort/rerank.yaml`, currently used for freshness hard limits. See `docs/dev/sort.md` for the surrounding handler flow.
+The canonical composition for `SearchServices` is `Dedup → Normalize{MinMax} → Coverage → Bounds{Ceiling: 10}`. `SortItems` additionally loads item policies from `configs/sort/rerank.yaml`: freshness before rank, boost after rank, injection before Bloom dedup, and source limits after Bloom dedup but before final truncation. See `docs/dev/sort.md` for the surrounding handler flow.
 
 ### YAML Configuration
 
@@ -66,6 +67,9 @@ policies:
         count: 1                 # at most one force-insert per feed refresh
         positions: []            # empty → front-fill; e.g. [3] pins position 3
         claim_ttl: 90m           # Redis re-insertion throttle; empty disables (see below)
+  - name: source_limit
+    source: friend
+    max_fraction: 1/2
 ```
 
 `claim_ttl` is consumed by the sort handler, not the policy: after a matched item is force-inserted **and delivered**, the handler claims it in Redis (`SET NX EX claim_ttl`) and excludes already-claimed items from the predicate on subsequent feeds. This throttles re-insertion across the lag between a real-time consume and the periodic offline recall-index refresh, so each item is force-inserted roughly once instead of into every feed for the whole refresh window. Empty `claim_ttl` disables the throttle. The `rerank` package only parses/validates the value (`InjectRuleConfig.ParsedClaimTTL`); the Redis I/O stays in the handler so policies remain pure.
@@ -154,7 +158,7 @@ for _, c := range final {
 
 ## Status
 
-`SearchServices` uses the rerank chain for multi-intent service ranking. `SortItems` uses `FreshnessPolicy` from `configs/sort/rerank.yaml` before item ranking, and uses the mixed item/service rerank chain when `ENABLE_SERVICE_MIX=true`.
+`SearchServices` uses the rerank chain for multi-intent service ranking. `SortItems` uses the configured freshness, boost, injection, and source-limit stages, and uses the mixed item/service rerank chain when `ENABLE_SERVICE_MIX=true`.
 
 ## Verification
 

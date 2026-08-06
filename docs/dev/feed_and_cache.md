@@ -7,7 +7,8 @@ API Gateway -> FeedService -> SortService (calculates match scores, bloom filter
 - FeedService asynchronously records impressions to Redis via `pkg/impr` after feed delivery
 - FeedService only handles content delivery; it has no notification awareness
 - On `refresh`, API Gateway directly calls NotificationService.ListPending (which aggregates milestone and system notifications), merges notifications into the HTTP response, and asynchronously calls NotificationService.AckNotifications to record deliveries
-- SortService reads offline recall sources from Redis. `hot_recall` and `new_recall` use shared item ID lists; `two_tower` reads precomputed per-user scored candidates from `rec:{output}:{version}:user:{agent_id}:scored_candidates`
+- SortService reads shared item ID lists for `hot_recall`, `new_recall`, and optionally `new_ugc_recall` from versioned Redis indices.
+- When `ENABLE_SWING_I2I_RECALL=true`, Sort reads the agent's confirmed surface history from `rec:surface:agent:<agent_id>:items` (ZSET, `reported_at` score, newest first, 30-day/100-item bounds), resolves `rec:swing_i2i:active_version`, pipelines `rec:swing_i2i:<version>:item:<item_id>:scored_neighbors`, sums duplicate-neighbor scores, excludes every impressed item, and returns the configured Top-K into the normal ranking path. Parsed neighbor lists are cached for 30 seconds. An empty surface history returns no Swing candidates and never falls back to impressions.
 - SortService collapses same-`group_id` candidates before thresholding so low-count feeds spend slots on distinct topics, then applies cross-request bloom-filter dedup
 - Each feed item carries `url` when the publisher supplied `raw_url` at publish time; the API gateway renames the internal `raw_url` field to `url` on the public boundary
 
@@ -32,7 +33,7 @@ the scan to the requested time window without indexing other follow-up kinds.
 - TTL: 30 days, refreshed on each write
 - FeedService calls `impr.RecordImpressions` in fire-and-forget goroutine after feed delivery
 - Console reads impression records via `impr.GetSeenItems`
-- Primary deduplication done by bloom filter (SortService), impr_record only for feedback validation and console queries
+- Primary delivery deduplication is done by the bloom filter. The item impression set remains the feedback-validation and console-query source of truth; optional Swing I2I uses confirmed `surface` follow-up labels as seeds and uses impressions only to exclude already delivered neighbors.
 
 ## Multi-Level Cache Architecture
 

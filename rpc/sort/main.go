@@ -151,8 +151,9 @@ func main() {
 	if cfg.EnableNewUGCRecall {
 		recallSources = append(recallSources, recallsource.NewRedisRecallSource(recallReader, "new_ugc_recall", recallsource.NewUGC, "new_ugc_recall"))
 	}
-	if cfg.EnableTwoTowerRecall {
-		recallSources = append(recallSources, recallsource.NewTwoTowerRecallSource(recallReader, cfg.TwoTowerRecallRedisKey, cfg.TwoTowerRecallK))
+	if cfg.EnableSwingI2IRecall {
+		surfaceHistory := recall.NewSurfaceHistoryStore(mq.RDB, cfg.RecallRedisNamespace)
+		recallSources = append(recallSources, recallsource.NewSwingI2IRecallSource(recallReader, surfaceHistory, mq.RDB, cfg.SwingI2IRecallSeeds, cfg.SwingI2IRecallK))
 	}
 	logger.Default().Info("recall sources initialized", "count", len(recallSources))
 

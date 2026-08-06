@@ -21,7 +21,7 @@ const (
 
 	// serviceRecallSourceName is the only value emitted today; the service
 	// stream comes exclusively from the services-* ES index. Kept as a
-	// constant so a future kNN/two-tower service recall channel can extend
+	// constant so a future service recall channel can extend
 	// the schema with another value without churning callers.
 	serviceRecallSourceName = "service_es"
 )

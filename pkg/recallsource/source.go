@@ -2,17 +2,23 @@ package recallsource
 
 import "context"
 
-// Source is a bitset representing which recall channel(s) contributed an item.
+// Source is a persisted compatibility contract, not only an in-process enum.
+// Replay records store both this numeric bitset and the labels returned by
+// Names. NEVER delete, reuse, or renumber a bit after release. When a recall
+// channel is retired, remove its runtime registration and implementation but
+// keep its Source constant and Names mapping so historical replay remains
+// unambiguous.
 type Source uint8
 
 const (
-	Keyword   Source = 1 << iota // 0x01
-	KNN                          // 0x02
-	TwoTower                     // 0x04
-	HotRecall                    // 0x08
-	NewRecall                    // 0x10
-	Friend                       // 0x20
-	NewUGC                       // 0x40
+	Keyword   Source = 0x01
+	KNN       Source = 0x02
+	TwoTower  Source = 0x04 // Reserved for decoding historical replay data.
+	HotRecall Source = 0x08
+	NewRecall Source = 0x10
+	Friend    Source = 0x20
+	NewUGC    Source = 0x40
+	SwingI2I  Source = 0x80
 )
 
 func (s Source) Has(flag Source) bool    { return s&flag != 0 }
@@ -33,6 +39,8 @@ type RecallSource interface {
 	Recall(ctx context.Context, userID string, limit int) ([]Candidate, error)
 }
 
+// Names decodes the persisted Source bitset. Keep mappings for retired sources;
+// downstream replay analysis and LR feature extraction consume these labels.
 func Names(s Source) []string {
 	var names []string
 	if s.Has(Keyword) {
@@ -55,6 +63,9 @@ func Names(s Source) []string {
 	}
 	if s.Has(NewUGC) {
 		names = append(names, "new_ugc_recall")
+	}
+	if s.Has(SwingI2I) {
+		names = append(names, "swing_i2i")
 	}
 	return names
 }

@@ -14,7 +14,7 @@ Trade owns the write side of services; feed owns impression / delivery. Sort sit
 | `rpc/sort/ranker/` | Typed item ranker. Multi-signal scoring with semantic + keyword + freshness, plus MMR diversity selection (kept but currently disabled) and exploration slots. |
 | `rpc/sort/serviceranker/` | Typed service ranker. 6-signal weighted scoring: semantic, keyword (BM25 passthrough), success_rate, latency (inverse), price (inverse), deadline (inverse). |
 | `rpc/sort/rank/` | Cross-type `Candidate` interface and `BasicCandidate` adapter, used when items and services need to flow through the same rerank policy. |
-| `rpc/sort/rerank/` | Policy-based mixer and filters: `FreshnessPolicy`, `DedupPolicy`, `NormalizePolicy`, `BoundsPolicy`, `RatioPolicy`, `SlotPolicy`. See `docs/dev/rerank.md` for the full description. |
+| `rpc/sort/rerank/` | Policy-based mixer and filters, including freshness, boost, injection, source limits, dedup, normalization, bounds, ratio, and slots. See `docs/dev/rerank.md` for the full description. |
 | `rpc/sort/lrranker/` | In-process logistic-regression ranker. Loads a daily-trained JSON model bundle (`lr_features_v2`), hot-reloads it, and scores feed candidates to replace the formula ordering. Deep module: only `Manager` (`NewManager`/`Score`/`Close`) is exposed. |
 
 ### Item Timeliness
@@ -37,6 +37,16 @@ policies:
         action: drop
 ```
 
+### Swing I2I recall
+
+The optional `swing_i2i` channel expands up to `SWING_I2I_RECALL_SEEDS` of the agent's most recently confirmed surface items. `FollowupConsumer` projects `followup_labels.kind = 'surface'` into `rec:surface:agent:<agent_id>:items`, a ZSET scored by `reported_at`; `ZADD GT` prevents delayed retries or historical backfills from replacing a newer timestamp. Each key is bounded to the latest 100 items and a 30-day window, matching the offline Swing input contract.
+
+For each seed, Sort reads the normalized neighbors produced by `eigenflux-rec-offline` from `rec:swing_i2i:<active_version>:item:<seed_id>:scored_neighbors`. It sums scores when multiple seeds reach the same neighbor, removes all items already present in the impression set, applies a deterministic score/item-ID ordering, and submits the first `SWING_I2I_RECALL_K` candidates to the normal item fetch, rank, threshold, group-collapse, and Bloom-dedup pipeline. Impressions are exclusion state only; if the surface ZSET is empty, this channel returns no candidates and the other recall channels carry the request.
+
+The channel is disabled by default (`ENABLE_SWING_I2I_RECALL=false`). Missing neighbor keys are valid empty lists; a missing active-version pointer or malformed list fails only this recall source, while the other concurrent sources continue.
+
+Before first enablement, deploy the FollowupConsumer projection, run `go run ./scripts/recall/backfill_surface_history` to merge the latest 30 days of existing surface labels, validate the resulting ZSETs, and only then set `ENABLE_SWING_I2I_RECALL=true`. The backfill is idempotent, supports `--dry-run`, and is safe alongside live writes because it uses the same `ZADD GT` store rather than deleting/replacing keys.
+
 ### UGC exposure guarantee (`new_ugc_recall` + force-insert)
 
 `BoostPolicy` only multiplies UGC scores, so a low-relevance UGC broadcast can still miss every feed and never be seen. The exposure guarantee closes that gap: every UGC broadcast (author is not an official PGC bot) should reach **at least one impression**.
@@ -47,11 +57,15 @@ policies:
 - **Real-time claim throttle** — the offline index refreshes only periodically (~1h), so a just-exposed item lingers in the `new_ugc_recall` list until the next refresh; without a real-time signal it would be force-inserted into *every* feed across that window, blowing past "one impression". To bridge the lag, each force-inserted-and-delivered item is claimed in Redis (`sort:inject:claim:<itemID>`, `SET NX EX claim_ttl`); the next feeds skip claimed items and inject a different un-exposed UGC instead. `claim_ttl` is sized to span one offline refresh (default `90m`). The claim check batches to one pipelined round trip and fails open (a Redis error risks a rare double-insert, never suppresses the guarantee). This bounds over-exposure to ~once per item; perfect exactly-once is not attempted (a claim is written on delivery, so two feeds racing inside the same processing window can still both inject).
 - **Observability** — force-inserted-and-delivered items increment `sort_new_ugc_injected_total` and carry an `inject:<pos>` tag in the replay log's `rerank_reasons`; `recall_feed_total{source="new_ugc_recall"}` / `recall_impression_total{source="new_ugc_recall"}` track the channel end to end.
 
+### Friend content ceiling
+
+Friend recall bypasses the relevance threshold so a large friend graph can otherwise dominate a refresh. The `source_limit` policy in `configs/sort/rerank.yaml` caps friend-attributed delivery at `1/2` of the requested feed size. It runs after Bloom dedup and before final truncation, allowing the highest-ranked non-friend candidates to backfill removed friend items. Recall attribution is a bitset: an item marked friend still counts against the ceiling when it also matched keyword, KNN, or another channel. `FRIEND_FEED_MAX_ITEMS` remains a recall-pool bound, not a delivery quota.
+
 ## LR ranker (item feed)
 
 `rpc/sort/lrranker/` replaces the formula ranker's ordering with a daily-trained logistic-regression model that predicts follow-up probability (`P(agent replies | features)`). It is a faithful in-process port of the training-side feature construction and scoring in the `eigenflux-ml` repo; the two share the immutable feature contract `lr_features_v2` and a golden fixture (`rpc/sort/lrranker/testdata/lr_features_v2.json`) so a model trained in Python scores identically in Go.
 
-- **Where it runs in `SortItems`** — recall → formula rank scores → operator boost → group collapse → **relevance eligibility gate** → **LR reorder of the eligible set** → inject → bloom dedup → top-N. The `MIN_RELEVANCE_SCORE` gate deliberately stays on the baseline formula score; LR only reorders the items that already passed it, so the eligibility threshold semantics do not change on rollout.
+- **Where it runs in `SortItems`** — recall → formula rank scores → operator boost → group collapse → **relevance eligibility gate** → **LR reorder of the eligible set** → inject → Bloom dedup → source limits → top-N. The `MIN_RELEVANCE_SCORE` gate deliberately stays on the baseline formula score; LR only reorders the items that already passed it, so the eligibility threshold semantics do not change on rollout.
 - **Hard cutover with fallback** — when a valid model is loaded, LR probability becomes the sole ordering score for eligible items. When the model is disabled, absent, or fails to load/self-test, sort transparently keeps the formula ordering (`sort_lr_ranker_fallback_total{reason="no_model"}`). Exploration slots are appended after the LR reorder and are never LR-scored.
 - **Online features, no extra I/O** — every feature is built from objects already in memory for the request: `ranker.ScoreBreakdown` (baseline semantic/keyword/freshness/total, is_draft), `ranker.UserProfile` (keywords/domains/geo), `sortDal.Item` (type, source_type, timeliness, lang, keywords, domains, geo, quality, timestamps), the recall-source bitset, and the request time. See `rpc/sort/lr_input.go`.
 - **Model bundle & hot reload** — the model is a JSON bundle (`model.json`: intercept + per-term `kind/source/transform/clip/mean/scale/coefficient` + embedded `self_test_cases`). The `Manager` polls `LR_RANKER_MODEL_PATH` every `LR_RANKER_RELOAD_INTERVAL`, and when the underlying bundle changes it loads + self-tests the new model and atomically swaps it in (`atomic.Pointer`). A failed load keeps the previous model serving. "No update ⇒ keep old model" falls out of the change detection (resolved symlink target + mtime).
@@ -190,6 +204,25 @@ Every `SortedItem` emitted by `SortItems` carries `item_features` populated for 
 - **Services** — built fresh as `entry_type:"service"`, `service_id`, `seller_agent_id`, business fields (`title`, `capability_desc`, `domains`, `amount_atomic`, `asset`, `delivery_deadline_ms`, `updated_at`), the 6-signal `rank_scores` breakdown from `serviceranker`, a `stats` block (`success_rate`, `avg_latency_ms`, `order_count`, `released_count`, `refunded_count`, `expired_count`), `recall_source_names:["service_es"]`, `normalized_score`, and `rerank_reasons`.
 
 Both shapes share the keys downstream replay analysis already keys off (`entry_type`, `rank_scores`, `recall_source*`, `normalized_score`, `rerank_reasons`), so mix decisions and per-signal contributions are uniformly inspectable across kinds.
+
+#### Recall source compatibility contract
+
+`recall_source` is a persisted bitset, not an internal enum. Replay records store the numeric value and `recall_source_names`; the assignments are therefore permanent:
+
+| Bit | Label | Runtime status |
+|-----|-------|----------------|
+| `0x01` | `keyword` | Active |
+| `0x02` | `knn` | Configurable; disabled by default |
+| `0x04` | `two_tower` | Retired; reserved for historical replay decoding |
+| `0x08` | `hot_recall` | Active |
+| `0x10` | `new_recall` | Active |
+| `0x20` | `friend` | Active |
+| `0x40` | `new_ugc_recall` | Configurable |
+| `0x80` | `swing_i2i` | Configurable |
+
+When retiring a recall channel, remove its runtime registration, configuration, and implementation only. Do **not** delete its `recallsource.Source` constant, reuse its bit, remove its `recallsource.Names` mapping, or remove its label from an immutable model feature contract. A new channel must receive a previously unused bit. Changing this mapping requires an explicit versioned replay/model migration; an unversioned enum edit is forbidden.
+
+`lr_features_v2` remains immutable and therefore has no dedicated `swing_i2i` categorical term. Swing attribution is still persisted in replay and source metrics; adding it to model features requires a new feature-contract version and coordinated trainer/scorer rollout.
 
 ### Request-scoped context features
 

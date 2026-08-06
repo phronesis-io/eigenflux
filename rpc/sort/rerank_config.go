@@ -13,8 +13,9 @@ import (
 )
 
 type rerankPolicySet struct {
-	policies    []rerank.Policy
-	injectRules []rerank.InjectRuleConfig
+	policies     []rerank.Policy
+	injectRules  []rerank.InjectRuleConfig
+	sourceLimits []rerank.SourceLimitConfig
 }
 
 func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time) *rerankPolicySet {
@@ -35,8 +36,13 @@ func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time)
 		return &rerankPolicySet{}
 	}
 	injectRules := cfg.InjectRules()
-	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies), "injectRules", len(injectRules))
-	return &rerankPolicySet{policies: policies, injectRules: injectRules}
+	sourceLimits, err := cfg.SourceLimits()
+	if err != nil {
+		logger.Ctx(ctx).Warn("rerank config invalid; continuing without configured policies", "path", path, "err", err)
+		return &rerankPolicySet{}
+	}
+	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies), "injectRules", len(injectRules), "sourceLimits", len(sourceLimits))
+	return &rerankPolicySet{policies: policies, injectRules: injectRules, sourceLimits: sourceLimits}
 }
 
 // InjectRules returns the configured force-insertion rules, or nil when none.
@@ -45,6 +51,14 @@ func (l *rerankPolicySet) InjectRules() []rerank.InjectRuleConfig {
 		return nil
 	}
 	return l.injectRules
+}
+
+// SourceLimits returns the configured recall-source ceilings, or nil when none.
+func (l *rerankPolicySet) SourceLimits() []rerank.SourceLimitConfig {
+	if l == nil {
+		return nil
+	}
+	return l.sourceLimits
 }
 
 // PreRankPolicies returns policies that run on recall candidates before item

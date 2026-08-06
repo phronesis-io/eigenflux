@@ -40,8 +40,12 @@ func TestSourceNames(t *testing.T) {
 		{Keyword, []string{"keyword"}},
 		{KNN, []string{"knn"}},
 		{TwoTower, []string{"two_tower"}},
+		{HotRecall, []string{"hot_recall"}},
+		{NewRecall, []string{"new_recall"}},
+		{Friend, []string{"friend"}},
+		{SwingI2I, []string{"swing_i2i"}},
 		{Keyword | KNN, []string{"keyword", "knn"}},
-		{Keyword | KNN | TwoTower, []string{"keyword", "knn", "two_tower"}},
+		{Keyword | KNN | TwoTower | HotRecall, []string{"keyword", "knn", "two_tower", "hot_recall"}},
 		{NewUGC, []string{"new_ugc_recall"}},
 		{Keyword | NewUGC, []string{"keyword", "new_ugc_recall"}},
 	}
@@ -60,17 +64,24 @@ func TestSourceNames(t *testing.T) {
 	}
 }
 
-func TestSourceBitValues(t *testing.T) {
-	if Keyword != 1 {
-		t.Errorf("Keyword = %d, want 1", Keyword)
+func TestSourceBitValuesAreReplayContract(t *testing.T) {
+	tests := []struct {
+		name string
+		got  Source
+		want Source
+	}{
+		{"Keyword", Keyword, 0x01},
+		{"KNN", KNN, 0x02},
+		{"TwoTower", TwoTower, 0x04},
+		{"HotRecall", HotRecall, 0x08},
+		{"NewRecall", NewRecall, 0x10},
+		{"Friend", Friend, 0x20},
+		{"NewUGC", NewUGC, 0x40},
+		{"SwingI2I", SwingI2I, 0x80},
 	}
-	if KNN != 2 {
-		t.Errorf("KNN = %d, want 2", KNN)
-	}
-	if TwoTower != 4 {
-		t.Errorf("TwoTower = %d, want 4", TwoTower)
-	}
-	if NewUGC != 0x40 {
-		t.Errorf("NewUGC = %d, want 64", NewUGC)
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s = %d, want %d", tt.name, tt.got, tt.want)
+		}
 	}
 }

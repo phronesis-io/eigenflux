@@ -1,11 +1,17 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/recall"
 	"eigenflux_server/tests/testutil"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // TestPushFeedEvents covers the follow-up label ingestion path end-to-end:
@@ -22,10 +28,15 @@ func TestPushFeedEvents(t *testing.T) {
 	// Unique markers so the assertion only matches this run's rows.
 	runTag := time.Now().UnixNano()
 	validItemID := fmt.Sprintf("%d", 9_200_000_000_000_000_000+runTag%1_000_000)
+	questionItemID := fmt.Sprintf("%d", 9_200_000_000_001_000_000+runTag%1_000_000)
 	dedupKey := fmt.Sprintf("ft%013d", runTag%10_000_000_000_000)
+	reportedAt := time.Now().UnixMilli()
+	rdb := testutil.GetTestRedis()
+	surfaceKey := recall.SurfaceHistoryKey(config.Load().RecallRedisNamespace, agentID)
 
 	cleanRows := func() {
 		testutil.TestDB.Exec("DELETE FROM followup_labels WHERE agent_id = $1", agentID)
+		rdb.Del(context.Background(), surfaceKey)
 	}
 	cleanRows()
 	t.Cleanup(cleanRows)
@@ -41,9 +52,10 @@ func TestPushFeedEvents(t *testing.T) {
 				"channel":       "lark",
 				"dedup_key":     dedupKey,
 				"impression_id": "impr-test-1",
-				"ts":            time.Now().UnixMilli(),
+				"ts":            reportedAt,
 			},
-			{"item_id": validItemID, "kind": "bogus", "dedup_key": dedupKey + "b"}, // invalid kind
+			{"item_id": questionItemID, "kind": "question", "dedup_key": dedupKey + "q", "ts": reportedAt},
+			{"item_id": validItemID, "kind": "bogus", "dedup_key": dedupKey + "b"},   // invalid kind
 			{"item_id": "not-a-number", "kind": "task", "dedup_key": dedupKey + "c"}, // non-numeric item_id
 		},
 	}
@@ -53,8 +65,8 @@ func TestPushFeedEvents(t *testing.T) {
 		t.Fatalf("push events failed: code=%d msg=%v", code, resp["msg"])
 	}
 	data := resp["data"].(map[string]interface{})
-	if accepted := int(data["accepted"].(float64)); accepted != 1 {
-		t.Fatalf("accepted = %d, want 1", accepted)
+	if accepted := int(data["accepted"].(float64)); accepted != 2 {
+		t.Fatalf("accepted = %d, want 2", accepted)
 	}
 	if skipped := int(data["skipped"].(float64)); skipped != 2 {
 		t.Fatalf("skipped = %d, want 2", skipped)
@@ -91,6 +103,29 @@ func TestPushFeedEvents(t *testing.T) {
 	}
 	if gotKind != "surface" || gotImpr != "impr-test-1" {
 		t.Fatalf("row mismatch: kind=%s impression_id=%s", gotKind, gotImpr)
+	}
+
+	// Only surface labels feed the online Swing seed ZSET. The consumer writes
+	// PostgreSQL first and then this projection before ACKing the stream event.
+	parsedSurfaceID, _ := strconv.ParseInt(validItemID, 10, 64)
+	projectionDeadline := time.Now().Add(15 * time.Second)
+	var surfaceScore float64
+	var surfaceErr error
+	for time.Now().Before(projectionDeadline) {
+		surfaceScore, surfaceErr = rdb.ZScore(context.Background(), surfaceKey, validItemID).Result()
+		if surfaceErr == nil {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if surfaceErr != nil {
+		t.Fatalf("surface projection missing for item %d: %v", parsedSurfaceID, surfaceErr)
+	}
+	if int64(surfaceScore) != reportedAt {
+		t.Fatalf("surface projection score = %d, want %d", int64(surfaceScore), reportedAt)
+	}
+	if err := rdb.ZScore(context.Background(), surfaceKey, questionItemID).Err(); err != redis.Nil {
+		t.Fatalf("question label unexpectedly projected to surface history: %v", err)
 	}
 
 	// Re-pushing the same dedup_key is idempotent (ON CONFLICT DO NOTHING).

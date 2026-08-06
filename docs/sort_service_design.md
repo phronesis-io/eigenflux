@@ -95,7 +95,7 @@ sequenceDiagram
 
 5. **Bloom Filter Deduplication**: Collect the surviving `group_id` values and batch check against last 7 days' bloom filters. Filter out groups the agent has already seen. Can be disabled in dev/test via `DISABLE_DEDUP_IN_TEST=true`.
 
-6. **Response Construction**: Return up to `limit` item IDs. Calculate `next_cursor` from last item's `updated_at`.
+6. **Source Ceiling and Response Construction**: After Bloom dedup, cap friend-attributed items at `floor(limit / 2)`, backfill from the remaining ranked candidates, and return up to `limit` item IDs. Calculate `next_cursor` from the last item's `updated_at`.
 
 <!-- PLACEHOLDER_SCORING -->
 

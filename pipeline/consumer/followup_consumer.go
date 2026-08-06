@@ -11,6 +11,7 @@ import (
 	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/recall"
 )
 
 const (
@@ -23,14 +24,15 @@ const (
 )
 
 type FollowupConsumer struct {
-	idGen        *idgen.ManagedGenerator
-	consumerName string
+	idGen          *idgen.ManagedGenerator
+	surfaceHistory *recall.SurfaceHistoryStore
+	consumerName   string
 }
 
-func NewFollowupConsumer(idGen *idgen.ManagedGenerator) *FollowupConsumer {
+func NewFollowupConsumer(idGen *idgen.ManagedGenerator, surfaceHistory *recall.SurfaceHistoryStore) *FollowupConsumer {
 	hostname, _ := os.Hostname()
 	name := fmt.Sprintf("followup-worker-%s-%d", hostname, os.Getpid())
-	return &FollowupConsumer{idGen: idGen, consumerName: name}
+	return &FollowupConsumer{idGen: idGen, surfaceHistory: surfaceHistory, consumerName: name}
 }
 
 func (c *FollowupConsumer) Start(ctx context.Context) {
@@ -52,7 +54,7 @@ func (c *FollowupConsumer) Start(ctx context.Context) {
 	runner.Run(ctx)
 }
 
-func (c *FollowupConsumer) handle(_ context.Context, msgID string, values map[string]any) HandleResult {
+func (c *FollowupConsumer) handle(ctx context.Context, msgID string, values map[string]any) HandleResult {
 	agentIDStr, _ := values["agent_id"].(string)
 	agentID, err := strconv.ParseInt(agentIDStr, 10, 64)
 	if err != nil {
@@ -72,7 +74,11 @@ func (c *FollowupConsumer) handle(_ context.Context, msgID string, values map[st
 		return HandleFailure
 	}
 	reportedAtStr, _ := values["reported_at"].(string)
-	reportedAt, _ := strconv.ParseInt(reportedAtStr, 10, 64)
+	reportedAt, err := strconv.ParseInt(reportedAtStr, 10, 64)
+	if err != nil || reportedAt <= 0 {
+		logger.Default().Warn("FollowupConsumer invalid reported_at", "msgID", msgID, "raw", reportedAtStr, "err", err)
+		return HandleFailure
+	}
 
 	impressionID, _ := values["impression_id"].(string)
 	brief, _ := values["brief"].(string)
@@ -104,6 +110,12 @@ func (c *FollowupConsumer) handle(_ context.Context, msgID string, values map[st
 	if err := batchInsertFollowupLabels(db.DB, []FollowupLabel{row}); err != nil {
 		logger.Default().Error("FollowupConsumer insert failed", "err", err)
 		return HandleRetry
+	}
+	if kind == "surface" {
+		if err := c.surfaceHistory.Record(ctx, recall.SurfaceEvent{AgentID: agentID, ItemID: itemID, ReportedAt: reportedAt}); err != nil {
+			logger.Default().Error("FollowupConsumer surface projection failed", "err", err, "agentID", agentID, "itemID", itemID)
+			return HandleRetry
+		}
 	}
 	return HandleSuccess
 }
