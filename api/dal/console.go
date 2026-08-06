@@ -50,6 +50,8 @@ type AgentSettings struct {
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
+	RuntimeName            string `gorm:"column:runtime_name"`
+	RuntimeVersion         string `gorm:"column:runtime_version"`
 	Model                  string `gorm:"column:model"`
 	// CLIVersion is the EigenFlux CLI version (X-CLI-Ver), reported by every
 	// runtime — plugin or CLI-direct — and shown on the dashboard runtime card.
@@ -152,14 +154,16 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 // (X-Client-Model), and the CLI version (X-CLI-Ver), all for display. An empty
 // model or cliVer leaves that column untouched so a request that omits the
 // header never clobbers a previously reported value.
-func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model, cliVer string) error {
+func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, runtimeName, runtimeVersion, model, cliVer string) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
 	vals := map[string]interface{}{
-		"mode":        mode,
-		"client_host": host,
-		"updated_at":  time.Now().UnixMilli(),
+		"mode":            mode,
+		"client_host":     host,
+		"runtime_name":    runtimeName,
+		"runtime_version": runtimeVersion,
+		"updated_at":      time.Now().UnixMilli(),
 	}
 	if model != "" {
 		vals["model"] = model
@@ -169,6 +173,24 @@ func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, model, cliVer 
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
 		Updates(vals).Error
+}
+
+// UpdateRuntimeIdentity persists a validated self-reported Agent product
+// identity. It is independent from mode: Jarvis/Hermes/WorkBuddy may run in
+// skill mode, while OpenClaw/Claude Code/Codex commonly run as plugins.
+func UpdateRuntimeIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion string) error {
+	if runtimeName == "" {
+		return nil
+	}
+	if _, err := GetSettings(db, agentID); err != nil {
+		return err
+	}
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
+		Updates(map[string]interface{}{
+			"runtime_name":    runtimeName,
+			"runtime_version": runtimeVersion,
+			"updated_at":      time.Now().UnixMilli(),
+		}).Error
 }
 
 // UpdateAgentModel persists the agent's reported runtime model (X-Client-Model).
