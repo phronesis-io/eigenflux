@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	"eigenflux_server/pkg/feedpoll"
 	itemdal "eigenflux_server/rpc/item/dal"
 	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -122,13 +123,16 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 
 	// agent_settings, read without the row-creating GetSettings side effect.
 	var settings struct {
-		ClientHost             string
-		Mode                   string
-		FeedDeliveryPreference string
-		UpdatedAt              int64
+		ClientHost              string
+		Mode                    string
+		FeedDeliveryPreference  string
+		FeedPollInterval        int32
+		FeedPollIntervalUserSet bool
+		AgentCreatedAtMs        int64
+		UpdatedAt               int64
 	}
 	if err := gdb.Table("agent_settings").
-		Select("client_host, mode, feed_delivery_preference, updated_at").
+		Select("client_host, mode, feed_delivery_preference, feed_poll_interval, feed_poll_interval_user_set, agent_created_at_ms, updated_at").
 		Where("agent_id = ?", agentID).
 		Scan(&settings).Error; err != nil {
 		return err
@@ -213,6 +217,10 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		pub["last_active_at"] = nil
 	}
 
+	pollCreatedAtMs := settings.AgentCreatedAtMs
+	if pollCreatedAtMs <= 0 {
+		pollCreatedAtMs = agent.CreatedAt
+	}
 	priv := map[string]interface{}{
 		"schema_version": SchemaVersion,
 		"geo":            rawOr(profileData, "geo", country),
@@ -228,7 +236,9 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		// PUT /agents/me/settings); projected here read-only.
 		"delivery_preference": settings.FeedDeliveryPreference,
 		"interests_negative":  rawOr(profileData, "interests_negative", []string{}),
-		"interrupt_threshold": rawOr(profileData, "interrupt_threshold", map[string]interface{}{}),
+		// interrupt_threshold is the effective feed-pull cadence in seconds.
+		// agent_settings is the fact source; clients cannot patch this projection.
+		"interrupt_threshold": feedpoll.EffectiveInterval(settings.FeedPollInterval, settings.FeedPollIntervalUserSet, pollCreatedAtMs, time.Now().UnixMilli()),
 		"relations":           relations,
 		"updated_at":          privateUpdatedAt,
 	}

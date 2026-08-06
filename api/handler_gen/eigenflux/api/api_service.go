@@ -36,6 +36,7 @@ import (
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
@@ -2802,9 +2803,9 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 // feedPollInterval onboarding ramp: brand-new agents poll slowly so their first
 // days aren't flooded, then speed up to the steady cadence automatically.
 const (
-	feedPollRampWindowMs  int64 = 3 * 24 * 60 * 60 * 1000 // first 3 days after registration
-	feedPollRampNewSec    int32 = 3600                    // cadence during the ramp window
-	feedPollRampSteadySec int32 = 300                     // cadence afterward (also the offline fallback)
+	feedPollRampWindowMs  int64 = feedpoll.RampWindowMs
+	feedPollRampNewSec    int32 = feedpoll.RampNewSec
+	feedPollRampSteadySec int32 = feedpoll.RampSteadySec
 )
 
 // feedPollRampSec returns the onboarding-ramp poll interval for an agent that
@@ -2831,13 +2832,7 @@ func feedPollRampSec(ctx context.Context, agentID int64, settings *consoledal.Ag
 // feedPollRampForCreatedAt is the pure ramp decision: 3600s while the agent is
 // within its first 3 days, 300s afterward, and 300s when created_at is unknown.
 func feedPollRampForCreatedAt(createdAtMs, nowMs int64) int32 {
-	if createdAtMs <= 0 {
-		return feedPollRampSteadySec
-	}
-	if nowMs-createdAtMs < feedPollRampWindowMs {
-		return feedPollRampNewSec
-	}
-	return feedPollRampSteadySec
+	return feedpoll.EffectiveInterval(feedPollRampSteadySec, false, createdAtMs, nowMs)
 }
 
 // GetMySettings returns the agent's runtime settings, authenticated via the
@@ -3139,6 +3134,7 @@ func ConsoleUpdateSettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
+	agentcard.PublishRebuild(ctx, agentID, "settings_update")
 
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

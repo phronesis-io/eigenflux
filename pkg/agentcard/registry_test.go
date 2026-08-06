@@ -69,17 +69,13 @@ func TestValidateValue(t *testing.T) {
 		t.Error("over-count list accepted")
 	}
 
-	objSpec, _ := LookupField("interrupt_threshold")
-	if _, err := ValidateValue(objSpec, json.RawMessage(`{"level":"normal"}`)); err != nil {
-		t.Errorf("valid object rejected: %v", err)
-	}
-	if _, err := ValidateValue(objSpec, json.RawMessage(`"nope"`)); err == nil {
-		t.Error("string accepted for an object field")
-	}
-	for _, spec := range []FieldSpec{strSpec, listSpec, objSpec} {
+	for _, spec := range []FieldSpec{strSpec, listSpec} {
 		if _, err := ValidateValue(spec, json.RawMessage(`null`)); err == nil {
 			t.Errorf("%s field accepted null", spec.Kind)
 		}
+	}
+	if _, known := LookupField("interrupt_threshold"); known {
+		t.Error("system-owned interrupt_threshold must not be editable")
 	}
 
 	if _, known := LookupField("influence"); known {
