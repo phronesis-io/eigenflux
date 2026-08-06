@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the Card JSON schema revision served to clients.
-const SchemaVersion int32 = 3
+const SchemaVersion int32 = 4
 
 // FieldStorage says which fact table owns an editable field. The Card itself
 // is never a fact source.
@@ -66,6 +66,9 @@ var ProtectedPaths = []string{
 	"agent_id",
 	"joined_at",
 	"runtime",
+	"runtime_mode",
+	"runtime_name",
+	"runtime_version",
 	"is_official",
 	"verification",
 	"last_active_at",

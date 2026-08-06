@@ -43,6 +43,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
+	"eigenflux_server/pkg/runtimeidentity"
 	"eigenflux_server/pkg/stats"
 	"eigenflux_server/pkg/tagnorm"
 	itemdal "eigenflux_server/rpc/item/dal"
@@ -731,10 +732,10 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	//   - cli_version from X-CLI-Ver: sent by every runtime, plugin or
 	//     CLI-direct, and shown on the dashboard runtime card.
 	ci := reqinfo.ClientFromContext(ctx)
-	host, isPluginHost := normalizeRuntimeHost(ci.Host)
+	identity, hasIdentity := runtimeidentity.Parse(ci.Host)
 	cliVer, model := ci.CLIVer, ci.Model
-	if isPluginHost || cliVer != "" {
-		go func(agentID int64, host, cliVer, model string, isPluginHost bool) {
+	if hasIdentity || cliVer != "" {
+		go func(agentID int64, identity runtimeidentity.Identity, hasIdentity bool, cliVer, model string) {
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
 			if gerr != nil {
 				return
@@ -746,45 +747,45 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 			// cli_version. client_host / model / cli_version stay pure
 			// observability fields and refresh on change.
 			mode, newHost := cur.Mode, cur.ClientHost
-			if isPluginHost {
+			runtimeName, runtimeVersion := cur.RuntimeName, cur.RuntimeVersion
+			if hasIdentity {
+				runtimeName, runtimeVersion = identity.Name, identity.Version
+			}
+			if identity.IsPlugin {
 				if mode == "" {
 					mode = "plugin"
 				}
-				newHost = host
+				newHost = identity.Name
+				if identity.Version != "" {
+					newHost += "/" + identity.Version
+				}
 			}
 			if cur.Mode == mode && cur.ClientHost == newHost &&
+				cur.RuntimeName == runtimeName && cur.RuntimeVersion == runtimeVersion &&
 				(model == "" || cur.Model == model) &&
 				(cliVer == "" || cur.CLIVersion == cliVer) {
 				return
 			}
-			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, newHost, model, cliVer); uerr != nil {
+			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, newHost, runtimeName, runtimeVersion, model, cliVer); uerr != nil {
 				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
 				return
 			}
 			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
-		}(agentID, host, cliVer, model, isPluginHost)
+		}(agentID, identity, hasIdentity, cliVer, model)
 	}
 }
 
-// normalizeRuntimeHost keeps Agent Card runtime system-owned in shape even
-// though the authenticated agent necessarily reports its own client headers.
-// Only the three supported plugin families may populate client_host; arbitrary
-// labels remain ordinary terminal calls and cannot become public runtime data.
+// normalizeRuntimeHost preserves the legacy client_host contract: only the
+// three supported plugin families may populate it. Generic self-reported Agent
+// products are stored separately in runtime_name/runtime_version.
 func normalizeRuntimeHost(raw string) (string, bool) {
-	host := strings.ToLower(strings.TrimSpace(raw))
-	parts := strings.SplitN(host, "/", 2)
-	switch parts[0] {
-	case "openclaw", "claude-code", "codex":
-	default:
+	identity, ok := runtimeidentity.Parse(raw)
+	if !ok || !identity.IsPlugin {
 		return "", false
 	}
-	if len(parts) == 2 {
-		version := parts[1]
-		if version == "" || len(version) > 64 || strings.IndexFunc(version, func(r rune) bool {
-			return !(r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
-		}) >= 0 {
-			return "", false
-		}
+	host := identity.Name
+	if identity.Version != "" {
+		host += "/" + identity.Version
 	}
 	return host, true
 }
@@ -2794,6 +2795,8 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
+		"runtime_name":             settings.RuntimeName,
+		"runtime_version":          settings.RuntimeVersion,
 		"cli_version":              settings.CLIVersion,
 		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
@@ -2864,6 +2867,8 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"show_add_friend":          settings.ShowAddFriend,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
+		"runtime_name":             settings.RuntimeName,
+		"runtime_version":          settings.RuntimeVersion,
 		"updated_at":               settings.UpdatedAt,
 	})
 }
@@ -2904,7 +2909,9 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
-	model := reqinfo.ClientFromContext(ctx).Model
+	clientInfo := reqinfo.ClientFromContext(ctx)
+	model := clientInfo.Model
+	identity, hasIdentity := runtimeidentity.Parse(clientInfo.Host)
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := consoledal.UpdateAgentReported(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment, body.ShowAddFriend); err != nil {
 			return err
@@ -2912,7 +2919,13 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		// Persist X-Client-Model in the same transaction. The CLI records its
 		// local "reported" snapshot only after this endpoint succeeds, so a
 		// model failure must roll the settings write back and remain retryable.
-		return consoledal.UpdateAgentModel(tx, agentID, model)
+		if err := consoledal.UpdateAgentModel(tx, agentID, model); err != nil {
+			return err
+		}
+		if hasIdentity {
+			return consoledal.UpdateRuntimeIdentity(tx, agentID, identity.Name, identity.Version)
+		}
+		return nil
 	}); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return

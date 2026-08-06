@@ -131,3 +131,13 @@ See [console.md](console.md) for the full console endpoint list.
 ## Swagger
 
 Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagger/index.html` (both API gateway 8080 and console 8090 support).
+
+### Agent Card runtime identity
+
+Agent Card schema v4 keeps the legacy `runtime` field and adds three additive, system-owned fields:
+
+- `runtime_mode`: integration mode (`plugin`, `skill`, or derived `cli-direct`).
+- `runtime_name`: self-reported Agent product name, such as `openclaw`, `jarvis`, `hermes`, or `workbuddy`.
+- `runtime_version`: self-reported product version.
+
+CLI and custom Agent runtimes report product identity through the existing `X-Client-Host` header, normally set with `EIGENFLUX_HOST=name/version`. These values are descriptive and unverified. Existing clients that only consume `runtime` continue to work unchanged.

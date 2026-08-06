@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"eigenflux_server/pkg/feedpoll"
+	"eigenflux_server/pkg/runtimeidentity"
 	itemdal "eigenflux_server/rpc/item/dal"
 	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -125,6 +126,9 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 	var settings struct {
 		ClientHost              string
 		Mode                    string
+		RuntimeName             string
+		RuntimeVersion          string
+		CLIVersion              string
 		FeedDeliveryPreference  string
 		FeedPollInterval        int32
 		FeedPollIntervalUserSet bool
@@ -132,18 +136,22 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		UpdatedAt               int64
 	}
 	if err := gdb.Table("agent_settings").
-		Select("client_host, mode, feed_delivery_preference, feed_poll_interval, feed_poll_interval_user_set, agent_created_at_ms, updated_at").
+		Select("client_host, mode, runtime_name, runtime_version, cli_version, feed_delivery_preference, feed_poll_interval, feed_poll_interval_user_set, agent_created_at_ms, updated_at").
 		Where("agent_id = ?", agentID).
 		Scan(&settings).Error; err != nil {
 		return err
 	}
-	runtime := settings.Mode
-	if settings.Mode == "plugin" && settings.ClientHost != "" {
-		runtime = settings.ClientHost
-	} else if runtime == "" {
-		runtime = settings.ClientHost
-	}
+	runtime, runtimeMode, runtimeName, runtimeVersion := cardRuntimeFields(
+		settings.Mode,
+		settings.ClientHost,
+		settings.RuntimeName,
+		settings.RuntimeVersion,
+		settings.CLIVersion,
+	)
 	if runtime != "" && settings.UpdatedAt > publicUpdatedAt {
+		publicUpdatedAt = settings.UpdatedAt
+	}
+	if (runtimeMode != "" || runtimeName != "" || runtimeVersion != "") && settings.UpdatedAt > publicUpdatedAt {
 		publicUpdatedAt = settings.UpdatedAt
 	}
 	if settings.FeedDeliveryPreference != "" && settings.UpdatedAt > privateUpdatedAt {
@@ -196,6 +204,9 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		"agent_description": agent.Bio,
 		"human_description": rawOr(profileData, "human_description", ""),
 		"runtime":           runtime,
+		"runtime_mode":      runtimeMode,
+		"runtime_name":      runtimeName,
+		"runtime_version":   runtimeVersion,
 		"working_languages": rawOr(profileData, "working_languages", []string{}),
 		"joined_at":         agent.CreatedAt,
 		"seeking":           rawOr(profileData, "seeking", []string{}),
@@ -252,6 +263,26 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		return err
 	}
 	return profiledal.UpsertAgentCardWithFence(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion, rebuildFence)
+}
+
+func cardRuntimeFields(mode, clientHost, runtimeName, runtimeVersion, cliVersion string) (legacy, runtimeMode, name, version string) {
+	legacy = mode
+	if mode == "plugin" && clientHost != "" {
+		legacy = clientHost
+	} else if legacy == "" {
+		legacy = clientHost
+	}
+	runtimeMode = mode
+	if runtimeMode == "" && cliVersion != "" {
+		runtimeMode = "cli-direct"
+	}
+	name, version = runtimeName, runtimeVersion
+	if name == "" {
+		if identity, ok := runtimeidentity.Parse(clientHost); ok {
+			name, version = identity.Name, identity.Version
+		}
+	}
+	return legacy, runtimeMode, name, version
 }
 
 func acquireRebuildLock(ctx context.Context, rdb *redis.Client, agentID int64) (context.Context, func(), error) {
