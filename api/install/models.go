@@ -24,10 +24,19 @@ type Token struct {
 	FetchedAt int64 `gorm:"column:fetched_at;not null;default:0"`
 	// Platform click identifiers captured from the landing URL, kept so a later
 	// (cross-device) conversion can be reported back to the ad platform's
-	// optimizer keyed by the original click. ClickID = Xiaohongshu 聚光; Twclid =
-	// X (Twitter) Ads. Exactly one is set for paid traffic; both empty otherwise.
-	ClickID string `gorm:"column:click_id;not null;default:''"`
-	Twclid  string `gorm:"column:twclid;not null;default:''"`
+	// optimizer keyed by the original click. Each platform has a dedicated field;
+	// in particular XingtuClickID is the non-app landing URL's `clickid` and must
+	// not be confused with Xiaohongshu ClickID. It maps to the existing
+	// xingtu_callback column for schema compatibility; the column now stores the
+	// real landing clickid rather than the obsolete server-monitor macro.
+	ClickID                string `gorm:"column:click_id;not null;default:''"`
+	Twclid                 string `gorm:"column:twclid;not null;default:''"`
+	Gclid                  string `gorm:"column:gclid;not null;default:''"`
+	XingtuClickID          string `gorm:"column:xingtu_callback;type:text;not null;default:''"`
+	XingtuCBActivateCode   int    `gorm:"column:xingtu_cb_activate_code;not null;default:-1"`
+	XingtuCBActivateSentAt int64  `gorm:"column:xingtu_cb_activate_sent_at;not null;default:0"`
+	XingtuCBRegisterCode   int    `gorm:"column:xingtu_cb_register_code;not null;default:-1"`
+	XingtuCBRegisterSentAt int64  `gorm:"column:xingtu_cb_register_sent_at;not null;default:0"`
 	// Lang is the entry language the visitor saw on the landing page ('en'/'zh'),
 	// for per-language conversion breakdown.
 	Lang string `gorm:"column:lang;not null;default:''"`
@@ -55,6 +64,9 @@ type Token struct {
 	XCbCopySentAt  int64 `gorm:"column:x_cb_copy_sent_at;not null;default:0"`
 	XCb102Code     int   `gorm:"column:x_cb102_code;not null;default:-1"`
 	XCb102SentAt   int64 `gorm:"column:x_cb102_sent_at;not null;default:0"`
+	// Google Ads install-complete offline conversion callback state.
+	GoogleAdsCBInstallCode   int   `gorm:"column:google_ads_cb_install_code;not null;default:-1"`
+	GoogleAdsCBInstallSentAt int64 `gorm:"column:google_ads_cb_install_sent_at;not null;default:0"`
 	// CallbackSentAt / CallbackCode are the legacy single-event callback columns,
 	// superseded by the cb101/cb102 pair above; kept for backward compatibility.
 	CallbackSentAt int64 `gorm:"column:callback_sent_at;not null;default:0"`

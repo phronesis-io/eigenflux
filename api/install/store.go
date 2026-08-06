@@ -190,3 +190,59 @@ func ClaimXInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err err
 func SetXInstallCallbackCode(db *gorm.DB, ref string, code int) error {
 	return SetXAdsCallbackCode(db, ref, xAdsInstall, code)
 }
+
+const googleAdsCallbackLease = time.Minute
+
+func googleAdsCallbackClaimable(sentAt, now int64) bool {
+	return sentAt == 0 || sentAt < now-googleAdsCallbackLease.Milliseconds()
+}
+
+func ClaimGoogleAdsInstallCallback(db *gorm.DB, ref string) (won bool, t *Token, err error) {
+	now := time.Now().UnixMilli()
+	leaseCutoff := now - googleAdsCallbackLease.Milliseconds()
+	res := db.Model(&Token{}).Where("token = ? AND google_ads_cb_install_code <> 0 AND gclid <> '' AND (google_ads_cb_install_sent_at = 0 OR google_ads_cb_install_sent_at < ?)", ref, leaseCutoff).Update("google_ads_cb_install_sent_at", now)
+	if res.Error != nil {
+		return false, nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return false, nil, nil
+	}
+	var tok Token
+	if err := db.Where("token = ?", ref).First(&tok).Error; err != nil {
+		return false, nil, err
+	}
+	return true, &tok, nil
+}
+
+func SetGoogleAdsInstallCallbackCode(db *gorm.DB, ref string, code int) error {
+	return db.Model(&Token{}).Where("token = ?", ref).Update("google_ads_cb_install_code", code).Error
+}
+
+const xingtuCallbackLease = time.Minute
+
+func xingtuCallbackCols(eventType string) (codeCol, sentCol string) {
+	if eventType == "1" {
+		return "xingtu_cb_register_code", "xingtu_cb_register_sent_at"
+	}
+	return "xingtu_cb_activate_code", "xingtu_cb_activate_sent_at"
+}
+
+func claimXingtuCallback(db *gorm.DB, ref, eventType string) (bool, *Token, error) {
+	codeCol, sentCol := xingtuCallbackCols(eventType)
+	now := time.Now().UnixMilli()
+	cutoff := now - xingtuCallbackLease.Milliseconds()
+	res := db.Model(&Token{}).Where(fmt.Sprintf("token = ? AND %s <> 0 AND xingtu_callback <> '' AND (%s = 0 OR %s < ?)", codeCol, sentCol, sentCol), ref, cutoff).Update(sentCol, now)
+	if res.Error != nil || res.RowsAffected == 0 {
+		return false, nil, res.Error
+	}
+	var tok Token
+	if err := db.Where("token = ?", ref).First(&tok).Error; err != nil {
+		return false, nil, err
+	}
+	return true, &tok, nil
+}
+
+func setXingtuCallbackCode(db *gorm.DB, ref, eventType string, code int) error {
+	codeCol, _ := xingtuCallbackCols(eventType)
+	return db.Model(&Token{}).Where("token = ?", ref).Update(codeCol, code).Error
+}

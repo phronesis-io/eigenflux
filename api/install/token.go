@@ -100,18 +100,22 @@ func normalizeChannel(utmSource string) string {
 }
 
 // deriveChannel resolves the channel bucket for a mint. An explicit utm_source
-// wins; but 聚光 auto-appends only click_id (not utm_source) to the landing URL,
-// so when the source is missing/unknown a platform click id is decisive —
-// click_id ⇒ xiaohongshu, twclid ⇒ twitter — rather than logging the paid click
-// as "unknown".
-func deriveChannel(utmSource, clickID, twclid string) string {
+// wins. Otherwise each platform's dedicated click identifier selects its own
+// bucket; Xingtu clickid must not fall through to Xiaohongshu attribution.
+func deriveChannel(utmSource, clickID, twclid, gclid, xingtuClickID string) string {
 	c := normalizeChannel(utmSource)
 	if c == "unknown" {
+		if xingtuClickID != "" {
+			return "xingtu"
+		}
 		if clickID != "" {
 			return "xiaohongshu"
 		}
 		if twclid != "" {
 			return "twitter"
+		}
+		if gclid != "" {
+			return "google"
 		}
 	}
 	return c
