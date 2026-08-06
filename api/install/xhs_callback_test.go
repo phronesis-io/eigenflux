@@ -138,3 +138,16 @@ func TestXInstallCallbackClaimable(t *testing.T) {
 		})
 	}
 }
+
+func TestGoogleAdsCallbackClaimable(t *testing.T) {
+	now := int64(10 * 60 * 1000)
+	if !googleAdsCallbackClaimable(0, now) {
+		t.Fatal("never claimed must be claimable")
+	}
+	if googleAdsCallbackClaimable(now-googleAdsCallbackLease.Milliseconds(), now) {
+		t.Fatal("lease boundary must not be claimable")
+	}
+	if !googleAdsCallbackClaimable(now-googleAdsCallbackLease.Milliseconds()-1, now) {
+		t.Fatal("expired lease must be claimable")
+	}
+}

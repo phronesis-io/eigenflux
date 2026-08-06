@@ -35,10 +35,13 @@ func Register(h *server.Hertz, baseURL string) {
 	publicBaseURL = strings.TrimRight(baseURL, "/")
 	initXHSConfig() // read env here — .env is loaded by the time Register runs
 	initXAdsConfig()
+	initGoogleAdsConfig()
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
 	g.POST("/copy", reportCopy)
+	g.GET("/google-ads/oauth/authorize", googleAdsOAuthAuthorize)
+	g.GET("/google-ads/oauth/callback", googleAdsOAuthCallback)
 	// Agent join entry: the /install page hands the user a command pointing here
 	// (not raw GitHub), so the instruction the agent reads is one we control and
 	// the fetch is the earliest post-click attribution signal.
@@ -52,10 +55,15 @@ type mintBody struct {
 	UTMContent  string `json:"utm_content"`
 	UTMTerm     string `json:"utm_term"`
 	Referrer    string `json:"referrer"`
-	// Platform click identifiers from the landing URL (paid traffic).
-	ClickID string `json:"click_id"` // Xiaohongshu 聚光
-	Twclid  string `json:"twclid"`   // X (Twitter) Ads
-	Lang    string `json:"lang"`     // entry language shown on the page ('en'/'zh')
+	// Platform click identifiers from the landing URL (paid traffic). Xingtu's
+	// non-app landing page supplies `clickid`; the frontend normalizes it to the
+	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
+	// click_id even though both platforms use similar names in their URLs.
+	ClickID       string `json:"click_id"`        // Xiaohongshu 聚光
+	Twclid        string `json:"twclid"`          // X (Twitter) Ads
+	Gclid         string `json:"gclid"`           // Google Ads
+	XingtuClickID string `json:"xingtu_click_id"` // Xingtu landing URL clickid
+	Lang          string `json:"lang"`            // entry language shown on the page ('en'/'zh')
 	// InviteCode is the stable KOL/channel code from the landing URL's ?ic=
 	// (see pkg/invite). Malformed or unknown codes degrade to an unattributed
 	// mint rather than an error.
@@ -93,21 +101,24 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 			return
 		}
 	}
+	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
 	t := &Token{
-		Token:       NewToken(),
-		UTMSource:   trunc(body.UTMSource, 255),
-		UTMMedium:   trunc(body.UTMMedium, 255),
-		UTMCampaign: trunc(body.UTMCampaign, 255),
-		UTMContent:  trunc(body.UTMContent, 255),
-		UTMTerm:     trunc(body.UTMTerm, 255),
-		Channel:     deriveChannel(body.UTMSource, body.ClickID, body.Twclid),
-		Referrer:    trunc(body.Referrer, 2048),
-		ClickID:     trunc(body.ClickID, 128),
-		Twclid:      trunc(body.Twclid, 128),
-		Lang:        normalizeLang(body.Lang),
-		Status:      StatusPending,
-		ClientIP:    ip,
-		CreatedAt:   time.Now().UnixMilli(),
+		Token:         NewToken(),
+		UTMSource:     trunc(body.UTMSource, 255),
+		UTMMedium:     trunc(body.UTMMedium, 255),
+		UTMCampaign:   trunc(body.UTMCampaign, 255),
+		UTMContent:    trunc(body.UTMContent, 255),
+		UTMTerm:       trunc(body.UTMTerm, 255),
+		Channel:       deriveChannel(body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID),
+		Referrer:      trunc(body.Referrer, 2048),
+		ClickID:       trunc(body.ClickID, 128),
+		Twclid:        trunc(body.Twclid, 128),
+		Gclid:         trunc(body.Gclid, 512),
+		XingtuClickID: xingtuClickID,
+		Lang:          normalizeLang(body.Lang),
+		Status:        StatusPending,
+		ClientIP:      ip,
+		CreatedAt:     time.Now().UnixMilli(),
 	}
 	if ic := lookupInviteCode(body.InviteCode); ic != nil {
 		t.InviteCode = ic.Code
@@ -122,7 +133,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.Twclid != "", "invite_code", t.InviteCode)
+		"paid", t.ClickID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "", "invite_code", t.InviteCode)
 	// The token is now durably created; report this server-confirmed funnel
 	// stage to X when it came from an X ad click.
 	fireXAdsTokenCreatedCallback(t.Token)
@@ -174,7 +185,9 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	// Deep conversion: install success fires 聚光 event_type 102 (exactly-once
 	// per ref; retried by later reports if a prior attempt failed).
 	fireXHSCallback(t.Token, EventInstall)
+	fireXingtuCallback(t.Token, "1") // registration: server-confirmed first report
 	fireXAdsInstallCallback(t.Token)
+	fireGoogleAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
 	// which pins the acquisition channel — and for an invite-coded ref, 被谁邀请
 	// — onto the agent (first-wins). Runs on every report, not just the
@@ -195,6 +208,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 			"referrer":     t.Referrer,
 			"click_id":     t.ClickID,
 			"twclid":       t.Twclid,
+			"gclid":        t.Gclid,
 			"lang":         t.Lang,
 			"report_count": t.ReportCount,
 			"created_at":   t.CreatedAt,
@@ -226,6 +240,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 	if t != nil {
 		event("install_copy", t.Token, "channel", t.Channel)
 		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
+		fireXingtuCallback(t.Token, "0")    // activation: confirmed command copy
 		// Copy was confirmed by the server and is idempotent per ref.
 		fireXAdsCopyCommandCallback(t.Token)
 	}
