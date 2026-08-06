@@ -56,6 +56,17 @@ Read the relevant module doc before modifying that area:
 
 # IMPORTANT
 
+## Production Deployment
+
+`aliap` and `/data/git/eigenflux` are deployment-only. They are never a development workspace or a source of truth.
+
+- Never edit source files, create a branch, commit, stash, or push from `aliap`.
+- Every change must be developed in a local worktree created from the latest `origin/main`, verified locally, committed, pushed to a feature branch, reviewed in a pull request, and merged into `main` before deployment.
+- Deploy only the resulting `main` commit. Never deploy an uncommitted worktree, a feature branch, or a commit that is not contained in `origin/main`.
+- Before any deployment on `aliap`, read `/etc/eigenflux/DEPLOYMENT_POLICY.md` and require `git status --short` to be empty. If the production worktree is dirty, stop. Archive the changes, migrate them to a local worktree, and use the normal PR workflow; do not repair or commit them in place.
+- The only permitted Git update on `aliap` is a read-only fetch followed by a fast-forward to `origin/main`. Verify the deployed SHA, migrations, service health, and a clean worktree after deployment.
+- Production console deployment is managed separately and must not be inferred from a backend deployment.
+
 ## Build and Testing
 
 After each code change, add or modify test cases. Run build and e2e tests to ensure functionality works.
