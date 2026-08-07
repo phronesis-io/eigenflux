@@ -62,6 +62,38 @@ func TestRotateInfluenceRowsChangesRecoveryStart(t *testing.T) {
 	}
 }
 
+func TestPrioritizeInfluenceRowsDeduplicatesSchemaCandidates(t *testing.T) {
+	rows := []agentInfluenceRow{{AgentID: 1}, {AgentID: 2}, {AgentID: 3}, {AgentID: 4}}
+	got := prioritizeInfluenceRows(rows, []int64{3, 1, 3, 99}, time.Unix(0, 0), 10)
+	want := []int64{3, 1, 2, 4}
+	if len(got) != len(want) {
+		t.Fatalf("len(rows) = %d, want %d", len(got), len(want))
+	}
+	for i, agentID := range want {
+		if got[i].AgentID != agentID {
+			t.Fatalf("rows[%d].AgentID = %d, want %d", i, got[i].AgentID, agentID)
+		}
+	}
+}
+
+func TestSchemaUpgradeRetryDelay(t *testing.T) {
+	tests := []struct {
+		count int64
+		want  time.Duration
+	}{
+		{count: 1, want: time.Hour},
+		{count: 2, want: time.Hour},
+		{count: 3, want: 6 * time.Hour},
+		{count: 9, want: 6 * time.Hour},
+		{count: 10, want: 24 * time.Hour},
+	}
+	for _, tt := range tests {
+		if got := schemaUpgradeRetryDelay(tt.count); got != tt.want {
+			t.Errorf("schemaUpgradeRetryDelay(%d) = %s, want %s", tt.count, got, tt.want)
+		}
+	}
+}
+
 func TestBuildInfluenceSnapshotsDetectsTopItemContentChanges(t *testing.T) {
 	before := buildInfluenceSnapshots([]agentInfluenceRow{{AgentID: 1, Score: 3, BroadcastCount: 2, ScoredEvents: 2, ContentRevision: 100}})
 	after := buildInfluenceSnapshots([]agentInfluenceRow{{AgentID: 1, Score: 3, BroadcastCount: 2, ScoredEvents: 2, ContentRevision: 101}})
