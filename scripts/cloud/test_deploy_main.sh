@@ -8,6 +8,13 @@ trap 'rm -rf "${TEST_ROOT}"' EXIT
 # shellcheck source=deploy_main_lib.sh
 source "${SOURCE_ROOT}/scripts/cloud/deploy_main_lib.sh"
 
+declare -f deploy_main_prepare_source | \
+  grep -Fq 'deploy_main_git_as_user "${deploy_user}" "${deploy_home}"' || {
+    echo "FAIL: source export bypasses the unprivileged deployment user" >&2
+    exit 1
+  }
+echo "PASS: source export uses the unprivileged deployment user"
+
 REMOTE="${TEST_ROOT}/remote.git"
 REPO="${TEST_ROOT}/prod"
 LOCK="${TEST_ROOT}/deploy.lock"
