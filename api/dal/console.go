@@ -885,6 +885,7 @@ type TopBroadcastRow struct {
 	Summary       string `gorm:"column:summary"`
 	SummaryZh     string `gorm:"column:summary_zh"`
 	BroadcastType string `gorm:"column:broadcast_type"`
+	RawContent    string `gorm:"column:raw_content"`
 	PraiseCount   int64  `gorm:"column:praise_count"`
 	Reach         int64  `gorm:"column:reach"`
 	ShowAddFriend bool   `gorm:"column:show_add_friend"`
@@ -906,6 +907,7 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]
 		       COALESCE(p.summary, '')                AS summary,
 		       COALESCE(p.summary_zh, '')             AS summary_zh,
 		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+		       r.raw_content                          AS raw_content,
 		       (s.score_1_count + s.score_2_count)    AS praise_count,
 		       COALESCE(s.consumed_count, 0)          AS reach,
 		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
@@ -917,7 +919,8 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]
 		  FROM item_stats s
 		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
 		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
-		  LEFT JOIN processed_items p ON p.item_id = s.item_id
+		  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
+		  JOIN raw_items r            ON r.item_id = s.item_id
 		 WHERE s.created_at >= ?
 		   AND (s.score_1_count + s.score_2_count) > 0
 		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
@@ -945,6 +948,7 @@ func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit 
 		       COALESCE(p.summary, '')                AS summary,
 		       COALESCE(p.summary_zh, '')             AS summary_zh,
 		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+		       r.raw_content                          AS raw_content,
 		       (s.score_1_count + s.score_2_count)    AS praise_count,
 		       COALESCE(s.consumed_count, 0)          AS reach,
 		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
@@ -956,7 +960,8 @@ func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit 
 		  FROM item_stats s
 		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
 		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
-		  JOIN processed_items p      ON p.item_id = s.item_id
+		  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
+		  JOIN raw_items r            ON r.item_id = s.item_id
 		 WHERE a.created_at >= ?
 		   AND (COALESCE(p.summary_zh, '') <> '' OR COALESCE(p.summary, '') <> '')
 		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
@@ -1047,6 +1052,39 @@ func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, erro
 		callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID,
 	).Scan(&rows).Error
 	return rows, err
+}
+
+// LatestBroadcastRow is the newest completed broadcast for one author.
+type LatestBroadcastRow struct {
+	AuthorAgentID int64  `gorm:"column:author_agent_id"`
+	ItemID        int64  `gorm:"column:item_id"`
+	RawContent    string `gorm:"column:raw_content"`
+	CreatedAt     int64  `gorm:"column:created_at"`
+}
+
+// LatestCompletedBroadcastsByAuthors resolves every friend's latest visible
+// broadcast in one query. DISTINCT ON avoids the prior per-friend RPC fan-out.
+func LatestCompletedBroadcastsByAuthors(db *gorm.DB, authorIDs []int64) (map[int64]LatestBroadcastRow, error) {
+	if len(authorIDs) == 0 {
+		return map[int64]LatestBroadcastRow{}, nil
+	}
+	var rows []LatestBroadcastRow
+	err := db.Raw(`
+		SELECT DISTINCT ON (r.author_agent_id)
+		       r.author_agent_id, r.item_id, r.raw_content, r.created_at
+		  FROM raw_items r
+		  JOIN processed_items p ON p.item_id = r.item_id AND p.status = 3
+		 WHERE r.author_agent_id IN ?
+		 ORDER BY r.author_agent_id, r.created_at DESC, r.item_id DESC`, authorIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]LatestBroadcastRow, len(rows))
+	for _, row := range rows {
+		out[row.AuthorAgentID] = row
+	}
+	return out, nil
 }
 
 // RatedItem is a broadcast the caller has scored, with the caller's own score

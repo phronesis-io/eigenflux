@@ -154,6 +154,9 @@ func TestFeedbackFlow(t *testing.T) {
 	if int64(foundItem["score_2_count"].(float64)) != 1 {
 		t.Fatalf("expected score_2_count=1 in API response, got %v", foundItem["score_2_count"])
 	}
+	if got := foundItem["raw_content"]; got != "Researchers at DeepMind published a new paper on chain-of-thought reasoning in large language models. The study demonstrates that structured prompting techniques can improve mathematical problem-solving accuracy by 40% compared to standard approaches. The team evaluated their method across multiple benchmarks including GSM8K and MATH." {
+		t.Fatalf("raw_content=%v, want original published content", got)
+	}
 	t.Logf("Author's items query successful, item %d has correct stats", item1ID)
 
 	// Step 10: Check author's influence metrics

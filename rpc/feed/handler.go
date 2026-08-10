@@ -54,11 +54,23 @@ func truncateFeedRawContent(content string) (string, bool) {
 	return string(runes[:feedUGCRawContentLimit-1]) + "…", true
 }
 
-func isUGCRawContentAuthor(info itemDal.RawItemInfo, pgcEmailSuffixes []string) bool {
+// isRawContentDisclosureEligible is deliberately narrower than sort's global
+// UGC/PGC content class. Raw-content disclosure fails closed for missing,
+// official, internal bot/PGC, and configured PGC authors.
+func isRawContentDisclosureEligible(info itemDal.RawItemInfo, pgcEmailSuffixes []string) bool {
 	if !info.AuthorExists || info.IsOfficial || invite.IsInternalEmail(info.AuthorEmail) {
 		return false
 	}
 	return !config.EmailMatchesAnySuffix(info.AuthorEmail, pgcEmailSuffixes)
+}
+
+func applyRawContentDisclosure(feedItem *feed.FeedItem, info itemDal.RawItemInfo, pgcEmailSuffixes []string) {
+	if !isRawContentDisclosureEligible(info, pgcEmailSuffixes) {
+		return
+	}
+	rawContent, truncated := truncateFeedRawContent(info.RawContent)
+	feedItem.RawContent = &rawContent
+	feedItem.RawContentTruncated = &truncated
 }
 
 func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq) (*feed.FetchFeedResp, error) {
@@ -414,11 +426,7 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 			if s.config != nil {
 				pgcEmailSuffixes = s.config.PGCEmailSuffixes
 			}
-			if isUGCRawContentAuthor(info, pgcEmailSuffixes) {
-				rawContent, truncated := truncateFeedRawContent(info.RawContent)
-				feedItem.RawContent = &rawContent
-				feedItem.RawContentTruncated = &truncated
-			}
+			applyRawContentDisclosure(feedItem, info, pgcEmailSuffixes)
 		}
 
 		feedItems = append(feedItems, feedItem)

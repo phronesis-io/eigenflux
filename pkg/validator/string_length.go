@@ -1,7 +1,16 @@
 package validator
 
 import (
+	"errors"
+	"strings"
 	"unicode"
+)
+
+const MaxBroadcastContentLength = 4000
+
+var (
+	ErrBroadcastContentRequired = errors.New("content is required")
+	ErrBroadcastContentTooLong  = errors.New("content exceeds 4000 weighted characters")
 )
 
 // CalculateMultilingualLength calculates the weighted length of a string
@@ -29,4 +38,17 @@ func isCJK(r rune) bool {
 // ValidateStringLength validates if a string's weighted length is within the limit
 func ValidateStringLength(s string, maxLength int) bool {
 	return CalculateMultilingualLength(s) <= maxLength
+}
+
+// ValidateBroadcastContent is the shared write-boundary guard used by both the
+// HTTP gateway and Item RPC. It prevents bypassing the documented 4000-weighted-
+// character publication limit through an internal RPC caller.
+func ValidateBroadcastContent(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return ErrBroadcastContentRequired
+	}
+	if !ValidateStringLength(s, MaxBroadcastContentLength) {
+		return ErrBroadcastContentTooLong
+	}
+	return nil
 }

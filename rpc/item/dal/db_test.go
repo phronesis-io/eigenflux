@@ -2,6 +2,7 @@ package dal
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -29,11 +30,14 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	authorID := int64(999900001)
 	withURLID := int64(999900100)
 	withoutURLID := int64(999900101)
+	pendingID := int64(999900102)
 
-	db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?)", withURLID, withoutURLID)
+	db.DB.Exec("DELETE FROM processed_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
+	db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
 	db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", authorID)
 	t.Cleanup(func() {
-		db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?)", withURLID, withoutURLID)
+		db.DB.Exec("DELETE FROM processed_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
+		db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
 		db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", authorID)
 	})
 	if err := db.DB.Exec(
@@ -43,9 +47,10 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 		t.Fatalf("insert author: %v", err)
 	}
 
+	longContent := strings.Repeat("界", 1200)
 	if err := db.DB.Exec(
-		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, 'full text', 'https://ex.test/a', extract(epoch from now())::bigint)",
-		withURLID, authorID,
+		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, ?, 'https://ex.test/a', extract(epoch from now())::bigint)",
+		withURLID, authorID, longContent,
 	).Error; err != nil {
 		t.Fatalf("insert with url: %v", err)
 	}
@@ -55,8 +60,25 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	).Error; err != nil {
 		t.Fatalf("insert without url: %v", err)
 	}
+	if err := db.DB.Exec(
+		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES (?, ?, 'pending', extract(epoch from now())::bigint)",
+		pendingID, authorID,
+	).Error; err != nil {
+		t.Fatalf("insert pending raw item: %v", err)
+	}
+	for _, row := range []struct {
+		itemID int64
+		status int16
+	}{{withURLID, StatusCompleted}, {withoutURLID, StatusCompleted}, {pendingID, StatusPending}} {
+		if err := db.DB.Exec(
+			"INSERT INTO processed_items (item_id, status, updated_at) VALUES (?, ?, extract(epoch from now())::bigint)",
+			row.itemID, row.status,
+		).Error; err != nil {
+			t.Fatalf("insert processed item %d: %v", row.itemID, err)
+		}
+	}
 
-	got, err := BatchGetRawItemInfo(db.DB, []int64{withURLID, withoutURLID})
+	got, err := BatchGetRawItemInfo(db.DB, []int64{withURLID, withoutURLID, pendingID})
 	if err != nil {
 		t.Fatalf("BatchGetRawItemInfo: %v", err)
 	}
@@ -66,11 +88,33 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	if got[withURLID].AuthorAgentID != authorID || got[withURLID].RawURL != "https://ex.test/a" {
 		t.Errorf("with-url row wrong: %+v", got[withURLID])
 	}
-	if got[withURLID].RawContent != "full text" || got[withURLID].AuthorEmail != "raw-info@example.com" || !got[withURLID].AuthorExists || got[withURLID].IsOfficial {
+	if len([]rune(got[withURLID].RawContent)) != 1001 || got[withURLID].AuthorEmail != "raw-info@example.com" || !got[withURLID].AuthorExists || got[withURLID].IsOfficial {
 		t.Errorf("with-url enrichment wrong: %+v", got[withURLID])
 	}
 	if got[withoutURLID].AuthorAgentID != authorID || got[withoutURLID].RawURL != "" {
 		t.Errorf("without-url row wrong: %+v", got[withoutURLID])
+	}
+	if _, exists := got[pendingID]; exists {
+		t.Errorf("pending item must be omitted: %+v", got[pendingID])
+	}
+
+	completed, err := BatchGetCompletedRawItemsByID(db.DB, []int64{withURLID, pendingID})
+	if err != nil {
+		t.Fatalf("BatchGetCompletedRawItemsByID: %v", err)
+	}
+	if completed[withURLID].RawContent != longContent {
+		t.Errorf("completed console lookup must return full raw content")
+	}
+	if _, exists := completed[pendingID]; exists {
+		t.Errorf("completed console lookup must omit pending item")
+	}
+
+	owned, err := BatchGetRawItemsByID(db.DB, []int64{withURLID, pendingID})
+	if err != nil {
+		t.Fatalf("BatchGetRawItemsByID: %v", err)
+	}
+	if owned[withURLID].RawContent != longContent || owned[pendingID].RawContent != "pending" {
+		t.Errorf("owner console lookup must preserve full raw content: %+v", owned)
 	}
 }
 

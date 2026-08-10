@@ -702,6 +702,11 @@ func TestListFriends_Success(t *testing.T) {
 		"remark":     "My buddy",
 	}, agentB["token"].(string))
 
+	const friendBroadcast = "Full original broadcast from ListFriend A"
+	published := testutil.PublishItem(t, agentA["token"].(string), friendBroadcast, "relations raw-content contract", "")
+	itemID, _ := strconv.ParseInt(published["item_id"].(string), 10, 64)
+	testutil.WaitForItemsProcessed(t, []int64{itemID})
+
 	// B lists friends - should see remark
 	resp = testutil.DoGet(t, "/api/v1/relations/friends", agentB["token"].(string))
 	code := int(resp["code"].(float64))
@@ -721,6 +726,10 @@ func TestListFriends_Success(t *testing.T) {
 	}
 	if friend["remark"] != "My buddy" {
 		t.Fatalf("expected remark='My buddy', got %v", friend["remark"])
+	}
+	recent, ok := friend["recent"].(map[string]interface{})
+	if !ok || recent["type"] != "broadcast" || recent["text"] != friendBroadcast {
+		t.Fatalf("expected recent broadcast raw content, got %v", friend["recent"])
 	}
 
 	// A lists friends - should NOT have remark (A didn't set one)
@@ -2235,4 +2244,3 @@ func TestBroadcastConv_UnfriendReactivatesIceBreak(t *testing.T) {
 	}
 	t.Logf("Ice-break correctly reactivated after unfriend")
 }
-

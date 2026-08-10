@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/pkg/feedcache"
 	itemDal "eigenflux_server/rpc/item/dal"
 
@@ -83,7 +84,7 @@ func TestTruncateFeedRawContentUsesUnicodeCodePoints(t *testing.T) {
 	assert.Equal(t, strings.Repeat("界", feedUGCRawContentLimit-1)+"…", got)
 }
 
-func TestIsUGCRawContentAuthor(t *testing.T) {
+func TestRawContentDisclosureEligibilityAndFields(t *testing.T) {
 	tests := []struct {
 		name string
 		info itemDal.RawItemInfo
@@ -114,8 +115,34 @@ func TestIsUGCRawContentAuthor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isUGCRawContentAuthor(tt.info, []string{"@publisher.example"})
+			got := isRawContentDisclosureEligible(tt.info, []string{"@publisher.example"})
 			assert.Equal(t, tt.want, got)
+
+			feedItem := &feed.FeedItem{}
+			applyRawContentDisclosure(feedItem, tt.info, []string{"@publisher.example"})
+			if tt.want {
+				require.NotNil(t, feedItem.RawContent)
+				require.NotNil(t, feedItem.RawContentTruncated)
+			} else {
+				assert.Nil(t, feedItem.RawContent)
+				assert.Nil(t, feedItem.RawContentTruncated)
+			}
 		})
 	}
+}
+
+func TestApplyRawContentDisclosureMarksLongContentTruncated(t *testing.T) {
+	feedItem := &feed.FeedItem{}
+	info := itemDal.RawItemInfo{
+		RawContent:   strings.Repeat("a", feedUGCRawContentLimit+1),
+		AuthorEmail:  "person@example.com",
+		AuthorExists: true,
+	}
+
+	applyRawContentDisclosure(feedItem, info, nil)
+
+	require.NotNil(t, feedItem.RawContent)
+	require.NotNil(t, feedItem.RawContentTruncated)
+	assert.True(t, *feedItem.RawContentTruncated)
+	assert.Equal(t, feedUGCRawContentLimit, len([]rune(*feedItem.RawContent)))
 }

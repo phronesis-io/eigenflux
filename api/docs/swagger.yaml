@@ -11,7 +11,6 @@ definitions:
       updates:
         additionalProperties:
           items:
-            format: int32
             type: integer
           type: array
         type: object
@@ -210,6 +209,8 @@ definitions:
       consumed_count:
         type: integer
       item_id:
+        type: string
+      raw_content:
         type: string
       raw_content_preview:
         type: string
@@ -467,6 +468,10 @@ definitions:
         items:
           type: string
         type: array
+      raw_content:
+        type: string
+      raw_content_truncated:
+        type: boolean
       source_type:
         type: string
       suggestion:
