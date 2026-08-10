@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -29,12 +30,19 @@ const (
 	agentCardMaxRebuildsPerRun = 5000
 	agentCardRebuildTimeout    = 2 * time.Minute
 	agentCardRebuildBudget     = 45 * time.Minute
-	// Schema upgrades are prioritized, but remain inside the shared rebuild
-	// budget so they cannot starve influence updates or full reconciliation.
-	agentCardSchemaUpgradeBatch = 500
-	agentCardSchemaRetryTTL     = 30 * 24 * time.Hour
-	agentCardSchemaRetryZSet    = "agentcard:schema_upgrade:retry_at:v"
-	agentCardSchemaRetryHash    = "agentcard:schema_upgrade:retry_count:v"
+	// Schema upgrades get a dedicated priority lane. The attempt and time caps
+	// reserve the rest of the shared run for influence/full-reconcile work.
+	agentCardSchemaUpgradeBatch        = 500
+	agentCardSchemaUpgradeAttemptLimit = 200
+	agentCardSchemaUpgradeBudget       = 15 * time.Minute
+	agentCardSchemaDiscoveryTimeout    = 30 * time.Second
+	agentCardSchemaScanPageSize        = 500
+	agentCardSchemaScanMaxPages        = 4
+	agentCardRetryScoreBatch           = 500
+	agentCardSchemaRetryTTL            = 30 * 24 * time.Hour
+	agentCardSchemaRetryZSet           = "agentcard:rebuild:retry_at:v"
+	agentCardSchemaRetryHash           = "agentcard:rebuild:retry_count:v"
+	agentCardSchemaCursorKey           = "agentcard:schema_upgrade:cursor:v"
 )
 
 type agentInfluenceRow struct {
@@ -49,6 +57,11 @@ type agentInfluenceRow struct {
 type outdatedAgentCardRow struct {
 	AgentID       int64
 	SchemaVersion int
+}
+
+type schemaUpgradeCursor struct {
+	SchemaVersion int
+	AgentID       int64
 }
 
 // StartAgentCardUpdater ranks influence hourly and rebuilds only agents whose
@@ -246,7 +259,12 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		return nil
 	}
 	rebuilt, skipped, failed, deferred, attempted := 0, 0, 0, 0, 0
-	schemaCandidates, err := listSchemaUpgradeCandidates(runCtx, rdb, now, agentCardSchemaUpgradeBatch)
+	rebuildDeadline := rebuildStarted.Add(agentCardRebuildBudget)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(runCtx, agentCardSchemaDiscoveryTimeout)
+	schemaCandidates, err := listSchemaUpgradeCandidates(
+		discoveryCtx, rdb, now, agentCardSchemaUpgradeBatch, lockKeyAgentCardUpdater, token,
+	)
+	cancelDiscovery()
 	if err != nil {
 		logger.Default().Warn("agent card updater: schema upgrade candidates failed", "err", err)
 		return false
@@ -255,59 +273,128 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	for _, agentID := range schemaCandidates {
 		schemaPending[agentID] = struct{}{}
 	}
-	orderedRows := prioritizeInfluenceRows(rows, schemaCandidates, now, agentCardMaxRebuildsPerRun)
-	rebuildDeadline := time.Now().Add(agentCardRebuildBudget)
 	attemptLimit := agentCardMaxRebuildsPerRun
 	if recoveryMode || missingSnapshots >= agentCardRecoveryBatch {
 		attemptLimit = agentCardRecoveryBatch
 	}
-	for _, row := range orderedRows {
-		if runCtx.Err() != nil {
-			return false
-		}
-		_, isDirty := dirty[row.AgentID]
-		_, needsSchema := schemaPending[row.AgentID]
-		_, alreadyFull := fullDone[row.AgentID]
-		needsFull := fullReconcile && !alreadyFull
-		if !needsSchema && !needsFull && !isDirty {
-			skipped++
-			continue
-		}
-		if attempted >= attemptLimit || time.Now().After(rebuildDeadline) {
+	generalScanLimit := attemptLimit * 2
+	if generalScanLimit < attemptLimit {
+		generalScanLimit = attemptLimit
+	}
+	generalCandidates, workRows := selectGeneralRebuildRows(
+		rows, schemaPending, dirty, fullDone, fullReconcile, now, generalScanLimit,
+	)
+	workRows += len(schemaPending)
+	skipped = total - workRows
+	if skipped < 0 {
+		skipped = 0
+	}
+
+	byID := make(map[int64]agentInfluenceRow, len(rows))
+	for _, row := range rows {
+		byID[row.AgentID] = row
+	}
+	retryIDs := make([]int64, 0, len(schemaCandidates)+len(generalCandidates))
+	retryIDs = append(retryIDs, schemaCandidates...)
+	for _, row := range generalCandidates {
+		retryIDs = append(retryIDs, row.AgentID)
+	}
+	retryAt, err := getRebuildRetryAtFenced(runCtx, rdb, retryIDs, lockKeyAgentCardUpdater, token)
+	if err != nil {
+		logger.Default().Warn("agent card updater: retry state read failed", "err", err)
+		return false
+	}
+
+	attemptRow := func(row agentInfluenceRow, deadline time.Time) error {
+		current := time.Now()
+		if until := retryAt[row.AgentID]; until > current.Unix() {
 			deferred++
-			continue
+			return nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 || attempted >= attemptLimit {
+			deferred++
+			return nil
+		}
+		attemptTimeout := agentCardRebuildTimeout
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
 		}
 		attempted++
-		rebuildCtx, cancelRebuild := context.WithTimeout(runCtx, agentCardRebuildTimeout)
-		err := agentcard.RebuildWithFence(rebuildCtx, db.DB.WithContext(rebuildCtx), rdb, row.AgentID, runFence)
+		rebuildCtx, cancelRebuild := context.WithTimeout(runCtx, attemptTimeout)
+		rebuildErr := agentcard.RebuildWithFence(rebuildCtx, db.DB.WithContext(rebuildCtx), rdb, row.AgentID, runFence)
 		cancelRebuild()
-		if err != nil {
+		if rebuildErr != nil {
 			failed++
 			failedIDs = append(failedIDs, row.AgentID)
-			if needsSchema {
-				if retryErr := deferSchemaUpgradeRetry(runCtx, rdb, row.AgentID, now); retryErr != nil {
-					logger.Default().Warn("agent card updater: schema retry state write failed", "agentID", row.AgentID, "err", retryErr)
-				}
+			nextRetry, retryErr := deferSchemaUpgradeRetry(
+				runCtx, rdb, row.AgentID, time.Now(), lockKeyAgentCardUpdater, token,
+			)
+			if retryErr != nil {
+				return fmt.Errorf("persist rebuild retry for agent %d: %w", row.AgentID, retryErr)
 			}
-			logger.Default().Warn("agent card updater: rebuild failed", "agentID", row.AgentID, "err", err)
-			continue
+			retryAt[row.AgentID] = nextRetry.Unix()
+			logger.Default().Warn("agent card updater: rebuild failed", "agentID", row.AgentID, "retryAt", nextRetry, "err", rebuildErr)
+			return nil
 		}
+		if retryErr := clearSchemaUpgradeRetry(runCtx, rdb, row.AgentID, lockKeyAgentCardUpdater, token); retryErr != nil {
+			return fmt.Errorf("clear rebuild retry for agent %d: %w", row.AgentID, retryErr)
+		}
+		delete(retryAt, row.AgentID)
 		rebuilt++
-		if needsSchema {
-			if retryErr := clearSchemaUpgradeRetry(runCtx, rdb, row.AgentID); retryErr != nil {
-				logger.Default().Warn("agent card updater: schema retry state cleanup failed", "agentID", row.AgentID, "err", retryErr)
-			}
-		}
 		successfulSnapshots[row.AgentID] = snapshots[row.AgentID]
-		if needsFull {
+		if _, alreadyFull := fullDone[row.AgentID]; fullReconcile && !alreadyFull {
 			fullCompleted = append(fullCompleted, row.AgentID)
 			fullDone[row.AgentID] = struct{}{}
 		}
 		if rebuilt%100 == 0 {
 			if err := checkpoint(); err != nil {
-				logger.Default().Error("agent card updater: progress checkpoint failed", "err", err)
-				return false
+				return fmt.Errorf("checkpoint rebuild progress: %w", err)
 			}
+		}
+		return nil
+	}
+
+	// The priority lane is intentionally capped independently. Even repeated
+	// two-minute timeouts cannot consume the general lane's reserved 30 minutes.
+	schemaDeadline := rebuildStarted.Add(agentCardSchemaUpgradeBudget)
+	if schemaDeadline.After(rebuildDeadline) {
+		schemaDeadline = rebuildDeadline
+	}
+	schemaAttempts := 0
+	for i, agentID := range schemaCandidates {
+		if runCtx.Err() != nil {
+			return false
+		}
+		if schemaAttempts >= agentCardSchemaUpgradeAttemptLimit || attempted >= attemptLimit || time.Now().After(schemaDeadline) {
+			deferred += len(schemaCandidates) - i
+			break
+		}
+		row, ok := byID[agentID]
+		if !ok {
+			continue
+		}
+		before := attempted
+		if err := attemptRow(row, schemaDeadline); err != nil {
+			logger.Default().Warn("agent card updater: schema lane failed", "agentID", agentID, "err", err)
+			return false
+		}
+		if attempted > before {
+			schemaAttempts++
+		}
+	}
+
+	for i, row := range generalCandidates {
+		if runCtx.Err() != nil {
+			return false
+		}
+		if attempted >= attemptLimit || time.Now().After(rebuildDeadline) {
+			deferred += len(generalCandidates) - i
+			break
+		}
+		if err := attemptRow(row, rebuildDeadline); err != nil {
+			logger.Default().Warn("agent card updater: general lane failed", "agentID", row.AgentID, "err", err)
+			return false
 		}
 	}
 	if err := checkpoint(); err != nil {
@@ -358,35 +445,25 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 	logger.Default().Info("agent cards updated",
 		"agents", total, "dirty", len(dirty), "rebuilt", rebuilt,
 		"skipped", skipped, "deferred", deferred, "failed", failed,
+		"schema_candidates", len(schemaCandidates), "schema_attempted", schemaAttempts,
 		"full_reconcile", fullReconcile, "recovery_mode", recoveryMode,
 		"ranking_took", rankingTook.String(), "state_took", stateTook.String(),
 		"rebuild_took", time.Since(rebuildStarted).String(), "took", time.Since(start).String())
 	return true
 }
 
-func listSchemaUpgradeCandidates(ctx context.Context, rdb *redis.Client, now time.Time, limit int) ([]int64, error) {
+func listSchemaUpgradeCandidates(ctx context.Context, rdb *redis.Client, now time.Time, limit int, lockKey, token string) ([]int64, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	retryZSet, _ := schemaUpgradeRetryKeys()
-	deferred, err := rdb.ZRangeByScore(ctx, retryZSet, &redis.ZRangeBy{
-		Min: strconv.FormatInt(now.Unix()+1, 10),
-		Max: "+inf",
-	}).Result()
-	if err != nil && err != redis.Nil {
+	cursor, err := getSchemaUpgradeCursorFenced(ctx, rdb, lockKey, token)
+	if err != nil {
 		return nil, err
 	}
-	deferredSet := make(map[int64]struct{}, len(deferred))
-	for _, raw := range deferred {
-		if agentID, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
-			deferredSet[agentID] = struct{}{}
-		}
-	}
-
-	const pageSize = 500
 	candidates := make([]int64, 0, limit)
-	lastSchema, lastAgentID := -1, int64(0)
-	for len(candidates) < limit {
+	seen := make(map[int64]struct{}, limit)
+	wrapped := cursor.SchemaVersion < 0 && cursor.AgentID == 0
+	for pages := 0; pages < agentCardSchemaScanMaxPages && len(candidates) < limit; pages++ {
 		var page []outdatedAgentCardRow
 		err := db.DB.WithContext(ctx).Raw(`
 			SELECT agent_id, schema_version
@@ -394,28 +471,84 @@ func listSchemaUpgradeCandidates(ctx context.Context, rdb *redis.Client, now tim
 			WHERE schema_version < ?
 			  AND (schema_version, agent_id) > (?, ?)
 			ORDER BY schema_version ASC, agent_id ASC
-			LIMIT ?`, agentcard.SchemaVersion, lastSchema, lastAgentID, pageSize).Scan(&page).Error
+			LIMIT ?`, agentcard.SchemaVersion, cursor.SchemaVersion, cursor.AgentID, agentCardSchemaScanPageSize).Scan(&page).Error
 		if err != nil {
 			return nil, err
 		}
 		if len(page) == 0 {
+			if !wrapped {
+				cursor = schemaUpgradeCursor{SchemaVersion: -1}
+				wrapped = true
+				if err := setSchemaUpgradeCursorFenced(ctx, rdb, cursor, lockKey, token); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			cursor = schemaUpgradeCursor{SchemaVersion: -1}
+			if err := setSchemaUpgradeCursorFenced(ctx, rdb, cursor, lockKey, token); err != nil {
+				return nil, err
+			}
 			break
 		}
+		ids := make([]int64, len(page))
+		for i, row := range page {
+			ids[i] = row.AgentID
+		}
+		retryAt, err := getRebuildRetryAtFenced(ctx, rdb, ids, lockKey, token)
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range page {
-			if _, wait := deferredSet[row.AgentID]; !wait {
+			cursor = schemaUpgradeCursor{SchemaVersion: row.SchemaVersion, AgentID: row.AgentID}
+			if retryAt[row.AgentID] <= now.Unix() {
+				if _, duplicate := seen[row.AgentID]; duplicate {
+					continue
+				}
 				candidates = append(candidates, row.AgentID)
+				seen[row.AgentID] = struct{}{}
 				if len(candidates) == limit {
 					break
 				}
 			}
 		}
-		last := page[len(page)-1]
-		lastSchema, lastAgentID = last.SchemaVersion, last.AgentID
-		if len(page) < pageSize {
+		if err := setSchemaUpgradeCursorFenced(ctx, rdb, cursor, lockKey, token); err != nil {
+			return nil, err
+		}
+		if len(candidates) == limit {
 			break
+		}
+		if len(page) < agentCardSchemaScanPageSize {
+			cursor = schemaUpgradeCursor{SchemaVersion: -1}
+			if err := setSchemaUpgradeCursorFenced(ctx, rdb, cursor, lockKey, token); err != nil {
+				return nil, err
+			}
+			if wrapped {
+				break
+			}
+			wrapped = true
 		}
 	}
 	return candidates, nil
+}
+
+func selectGeneralRebuildRows(rows []agentInfluenceRow, schemaPending, dirty, fullDone map[int64]struct{}, fullReconcile bool, now time.Time, limit int) ([]agentInfluenceRow, int) {
+	selected := make([]agentInfluenceRow, 0, limit)
+	workRows := 0
+	for _, row := range rotateInfluenceRows(rows, now, agentCardMaxRebuildsPerRun) {
+		if _, schema := schemaPending[row.AgentID]; schema {
+			continue
+		}
+		_, isDirty := dirty[row.AgentID]
+		_, alreadyFull := fullDone[row.AgentID]
+		if !isDirty && (!fullReconcile || alreadyFull) {
+			continue
+		}
+		workRows++
+		if len(selected) < limit {
+			selected = append(selected, row)
+		}
+	}
+	return selected, workRows
 }
 
 func prioritizeInfluenceRows(rows []agentInfluenceRow, priorityIDs []int64, now time.Time, batch int) []agentInfluenceRow {
@@ -443,20 +576,29 @@ func prioritizeInfluenceRows(rows []agentInfluenceRow, priorityIDs []int64, now 
 	return ordered
 }
 
-func deferSchemaUpgradeRetry(ctx context.Context, rdb *redis.Client, agentID int64, now time.Time) error {
+func deferSchemaUpgradeRetry(ctx context.Context, rdb *redis.Client, agentID int64, now time.Time, lockKey, token string) (time.Time, error) {
 	member := strconv.FormatInt(agentID, 10)
 	retryZSet, retryHash := schemaUpgradeRetryKeys()
-	count, err := rdb.HIncrBy(ctx, retryHash, member, 1).Result()
+	const script = `
+if redis.call("GET",KEYS[1]) ~= ARGV[1] then return {0,0} end
+local count = redis.call("HINCRBY",KEYS[3],ARGV[2],1)
+local delay = tonumber(ARGV[4])
+if count >= 10 then delay = tonumber(ARGV[6]) elseif count >= 3 then delay = tonumber(ARGV[5]) end
+local retry_at = tonumber(ARGV[3]) + delay
+redis.call("ZADD",KEYS[2],retry_at,ARGV[2])
+redis.call("EXPIRE",KEYS[2],ARGV[7])
+redis.call("EXPIRE",KEYS[3],ARGV[7])
+return {count,retry_at}`
+	result, err := rdb.Eval(ctx, script, []string{lockKey, retryZSet, retryHash},
+		token, member, now.Unix(), int64(time.Hour/time.Second), int64(6*time.Hour/time.Second),
+		int64(24*time.Hour/time.Second), int64(agentCardSchemaRetryTTL/time.Second)).Int64Slice()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
-	delay := schemaUpgradeRetryDelay(count)
-	pipe := rdb.TxPipeline()
-	pipe.ZAdd(ctx, retryZSet, redis.Z{Score: float64(now.Add(delay).Unix()), Member: member})
-	pipe.Expire(ctx, retryZSet, agentCardSchemaRetryTTL)
-	pipe.Expire(ctx, retryHash, agentCardSchemaRetryTTL)
-	_, err = pipe.Exec(ctx)
-	return err
+	if len(result) != 2 || result[0] == 0 {
+		return time.Time{}, agentcard.ErrReconcileLeaseLost
+	}
+	return time.Unix(result[1], 0), nil
 }
 
 func schemaUpgradeRetryDelay(count int64) time.Duration {
@@ -469,19 +611,114 @@ func schemaUpgradeRetryDelay(count int64) time.Duration {
 	return time.Hour
 }
 
-func clearSchemaUpgradeRetry(ctx context.Context, rdb *redis.Client, agentID int64) error {
+func clearSchemaUpgradeRetry(ctx context.Context, rdb *redis.Client, agentID int64, lockKey, token string) error {
 	member := strconv.FormatInt(agentID, 10)
 	retryZSet, retryHash := schemaUpgradeRetryKeys()
-	pipe := rdb.TxPipeline()
-	pipe.HDel(ctx, retryHash, member)
-	pipe.ZRem(ctx, retryZSet, member)
-	_, err := pipe.Exec(ctx)
-	return err
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("HDEL",KEYS[3],ARGV[2]); redis.call("ZREM",KEYS[2],ARGV[2]); return 1`
+	result, err := rdb.Eval(ctx, script, []string{lockKey, retryZSet, retryHash}, token, member).Int64()
+	if err != nil {
+		return err
+	}
+	if result != 1 {
+		return agentcard.ErrReconcileLeaseLost
+	}
+	return nil
 }
 
 func schemaUpgradeRetryKeys() (string, string) {
 	version := strconv.Itoa(int(agentcard.SchemaVersion))
 	return agentCardSchemaRetryZSet + version, agentCardSchemaRetryHash + version
+}
+
+func getRebuildRetryAtFenced(ctx context.Context, rdb *redis.Client, agentIDs []int64, lockKey, token string) (map[int64]int64, error) {
+	retryAt := make(map[int64]int64, len(agentIDs))
+	retryZSet, _ := schemaUpgradeRetryKeys()
+	seen := make(map[int64]struct{}, len(agentIDs))
+	unique := make([]int64, 0, len(agentIDs))
+	for _, agentID := range agentIDs {
+		if _, duplicate := seen[agentID]; duplicate {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		unique = append(unique, agentID)
+	}
+	const script = `
+if redis.call("GET",KEYS[1]) ~= ARGV[1] then return {"LEASE_LOST"} end
+local out = {}
+for i=2,#ARGV do
+  local score = redis.call("ZSCORE",KEYS[2],ARGV[i])
+  out[#out+1] = score or "0"
+end
+return out`
+	for start := 0; start < len(unique); start += agentCardRetryScoreBatch {
+		end := start + agentCardRetryScoreBatch
+		if end > len(unique) {
+			end = len(unique)
+		}
+		args := make([]interface{}, 1, end-start+1)
+		args[0] = token
+		for _, agentID := range unique[start:end] {
+			args = append(args, strconv.FormatInt(agentID, 10))
+		}
+		result, err := rdb.Eval(ctx, script, []string{lockKey, retryZSet}, args...).Slice()
+		if err != nil {
+			return nil, err
+		}
+		if len(result) == 1 && fmt.Sprint(result[0]) == "LEASE_LOST" {
+			return nil, agentcard.ErrReconcileLeaseLost
+		}
+		if len(result) != end-start {
+			return nil, fmt.Errorf("agent card updater: malformed retry score result")
+		}
+		for i, raw := range result {
+			score, err := strconv.ParseFloat(fmt.Sprint(raw), 64)
+			if err != nil {
+				return nil, fmt.Errorf("agent card updater: malformed retry score: %w", err)
+			}
+			if score > 0 {
+				retryAt[unique[start+i]] = int64(score)
+			}
+		}
+	}
+	return retryAt, nil
+}
+
+func getSchemaUpgradeCursorFenced(ctx context.Context, rdb *redis.Client, lockKey, token string) (schemaUpgradeCursor, error) {
+	key := schemaUpgradeCursorRedisKey()
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return "LEASE_LOST" end return redis.call("GET",KEYS[2]) or ""`
+	raw, err := rdb.Eval(ctx, script, []string{lockKey, key}, token).Text()
+	if err != nil {
+		return schemaUpgradeCursor{}, err
+	}
+	if raw == "LEASE_LOST" {
+		return schemaUpgradeCursor{}, agentcard.ErrReconcileLeaseLost
+	}
+	cursor := schemaUpgradeCursor{SchemaVersion: -1}
+	if raw == "" {
+		return cursor, nil
+	}
+	if _, err := fmt.Sscanf(raw, "%d:%d", &cursor.SchemaVersion, &cursor.AgentID); err != nil {
+		return schemaUpgradeCursor{}, fmt.Errorf("agent card updater: malformed schema cursor %q: %w", raw, err)
+	}
+	return cursor, nil
+}
+
+func setSchemaUpgradeCursorFenced(ctx context.Context, rdb *redis.Client, cursor schemaUpgradeCursor, lockKey, token string) error {
+	key := schemaUpgradeCursorRedisKey()
+	const script = `if redis.call("GET",KEYS[1]) ~= ARGV[1] then return 0 end redis.call("SET",KEYS[2],ARGV[2],"EX",ARGV[3]); return 1`
+	value := fmt.Sprintf("%d:%d", cursor.SchemaVersion, cursor.AgentID)
+	result, err := rdb.Eval(ctx, script, []string{lockKey, key}, token, value, int64(agentCardSchemaRetryTTL/time.Second)).Int64()
+	if err != nil {
+		return err
+	}
+	if result != 1 {
+		return agentcard.ErrReconcileLeaseLost
+	}
+	return nil
+}
+
+func schemaUpgradeCursorRedisKey() string {
+	return agentCardSchemaCursorKey + strconv.Itoa(int(agentcard.SchemaVersion))
 }
 
 func shouldRecoverInfluenceSnapshots(total, snapshotCount int, lastFull time.Time) bool {
