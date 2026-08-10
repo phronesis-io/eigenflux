@@ -180,18 +180,39 @@ sudo systemctl restart eigenflux-app@api
 
 ### Deploy Updates
 
-If there are database changes:
+Production updates must use the root-managed deployment service. It refuses a
+dirty checkout, fetches the latest `origin/main`, builds, migrates, restarts,
+checks health, and writes the complete log to the systemd journal.
+
+Install the entrypoint once as root, naming the operator allowed to deploy the
+latest main commit:
+
 ```bash
-./scripts/common/migrate_up.sh
+sudo DEPLOY_USER=ecs-user ./scripts/cloud/install_main_deployer.sh
 ```
 
+Deploy and inspect its log:
 
 ```bash
-git pull
-./scripts/common/build.sh
-sudo ./scripts/cloud/restart_all_services.sh
+sudo systemctl start eigenflux-deploy-main.service
+journalctl -u eigenflux-deploy-main.service
 ```
 
+Do not run `git pull`, builds, migrations, or service restarts manually on the
+production host. Rollback is root-only and may target only a full commit SHA
+contained in `origin/main`; it rolls back application code but never reverses
+database migrations. The installer also redirects application units to
+root-owned artifacts under `/var/lib/eigenflux-deployer`; build all production
+services once before running the installer.
+
+The installer copies `.env` and the deployment user's existing `github.com`
+known-host entry into root-owned files under `/etc/eigenflux`. Verify the SSH
+host key and production environment before installation; later configuration
+changes require a root operator.
+
+Application units use one root-owned binary/source bundle under
+`/var/lib/eigenflux-deployer/current`, so relative runtime assets and `.env`
+are never loaded from the deployment checkout.
 
 ## Security Checklist
 
