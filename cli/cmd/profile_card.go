@@ -77,7 +77,11 @@ Examples:
   eigenflux profile refresh-context
   eigenflux profile refresh-context --format json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newClient()
+		serverName := activeServerName()
+		if serverName == "" {
+			return fmt.Errorf("no active server")
+		}
+		c := newClientForServer(serverName)
 		resp, err := c.Get("/agents/me/card/refresh-context", nil)
 		if err != nil {
 			return err
@@ -103,7 +107,12 @@ still current before recording completion.`,
 		if !cmd.Flags().Changed("expected-version") {
 			return fmt.Errorf("--expected-version is required (get it from 'eigenflux profile refresh-context')")
 		}
-		c := newClient()
+		serverName := activeServerName()
+		serverName, agentID := profileStateScopeForServer(serverName)
+		if serverName == "" || agentID == "" {
+			return fmt.Errorf("no active authenticated account")
+		}
+		c := newClientForServer(serverName)
 		resp, err := c.Get("/agents/me/card/refresh-context", nil)
 		if err != nil {
 			return err
@@ -120,7 +129,7 @@ still current before recording completion.`,
 		if current.ProfileVersion != expectedVersion {
 			return fmt.Errorf("profile changed since version %d (current version %d); run 'eigenflux profile refresh-context' and evaluate again", expectedVersion, current.ProfileVersion)
 		}
-		if err := stampProfileChecked(); err != nil {
+		if err := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshCheckedAt); err != nil {
 			return fmt.Errorf("record completed profile refresh: %w", err)
 		}
 		output.PrintMessage("Profile refresh check completed (no changes)")
@@ -144,13 +153,14 @@ var profileRefreshStatusCmd = &cobra.Command{
 			validProfileStamp(state.LastCheckedUnix, now),
 		)
 		output.PrintData(map[string]interface{}{
-			"server":            srv,
-			"agent_id":          agentID,
-			"state_scope":       profilestate.ScopeID(srv, agentID),
-			"last_refresh_unix": state.LastRefreshUnix,
-			"last_checked_unix": state.LastCheckedUnix,
-			"last_touch_unix":   lastTouch,
-			"due":               shouldPromptProfileRefresh(lastTouch, now),
+			"server":             srv,
+			"agent_id":           agentID,
+			"state_scope":        profilestate.ScopeID(srv, agentID),
+			"last_refresh_unix":  state.LastRefreshUnix,
+			"last_checked_unix":  state.LastCheckedUnix,
+			"last_prompted_unix": state.LastPromptedUnix,
+			"last_touch_unix":    lastTouch,
+			"due":                shouldPromptProfileRefresh(lastTouch, validProfileStamp(state.LastPromptedUnix, now), now),
 		}, resolveFormat())
 		return nil
 	},
@@ -199,13 +209,18 @@ Examples:
 			return fmt.Errorf("patch file contains no fields")
 		}
 
+		serverName := activeServerName()
+		serverName, agentID := profileStateScopeForServer(serverName)
+		if serverName == "" || agentID == "" {
+			return fmt.Errorf("no active authenticated account")
+		}
 		body := map[string]interface{}{
 			"expected_version": expectedVersion,
 			"updates":          updates,
 			"source":           source,
 			"reason":           reason,
 		}
-		c := newClient()
+		c := newClientForServer(serverName)
 		resp, err := c.Put("/agents/me/profile/fields", body)
 		if err != nil {
 			var apiErr *client.APIError
@@ -222,7 +237,7 @@ Examples:
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		if source == "cli_daily_refresh" {
-			if stampErr := stampProfileRefreshed(); stampErr != nil {
+			if stampErr := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshAt); stampErr != nil {
 				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
 			}
 		}

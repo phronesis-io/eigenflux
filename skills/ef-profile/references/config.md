@@ -56,3 +56,15 @@ differs between networks (e.g. a staging-only `plugin_version`).
 
 When adding a new well-known key, update this table in the same
 change that starts writing or reading it.
+
+## Profile Refresh State
+
+Profile refresh timestamps are CLI-owned operational state, not user settings,
+so they do not live in `config.json` or the well-known KV namespace. The CLI
+stores `last_refresh_unix`, `last_checked_unix`, and `last_prompted_unix` in a
+private `profile-refresh-<scope>.json` sidecar under `<eigenflux_workdir>`, with
+the scope derived from the active server and authenticated Agent ID. The prompt
+timestamp limits an unresolved `[PENDING TASK]` reminder to once per hour.
+Known plugin-owned loops (`openclaw`, `claude-code`, and `codex`) do not claim
+this reminder when their plugin channel is active; those adapters run their own
+profile refresh cycle and discard CLI stderr.

@@ -1,8 +1,13 @@
 package cmd
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 )
 
@@ -92,5 +97,113 @@ func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
 	// when no interval intent is being pushed.
 	if _, ok := body["feed_poll_interval_user_set"]; ok {
 		t.Errorf("feed_poll_interval_user_set present without an interval intent (body=%v)", body)
+	}
+}
+
+func TestReportedRuntimeHost(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		version string
+		want    string
+		wantErr bool
+	}{
+		{name: "Hermes", version: "0.20.0", want: "hermes/0.20.0"},
+		{name: "workbuddy", want: "workbuddy"},
+		{name: "", version: "", want: ""},
+		{name: "", version: "1.0.0", wantErr: true},
+		{name: "terminal", wantErr: true},
+		{name: "bad host", wantErr: true},
+		{name: "hermes", version: "1.0\nforged", wantErr: true},
+	} {
+		t.Run(tt.name+"/"+tt.version, func(t *testing.T) {
+			got, err := reportedRuntimeHost(tt.name, tt.version)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("reportedRuntimeHost() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("reportedRuntimeHost() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSettingsPushRegistersRuntimeIdentityFlags(t *testing.T) {
+	for _, name := range []string{"runtime-name", "runtime-version"} {
+		if settingsPushCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("settings push missing --%s", name)
+		}
+	}
+}
+
+func TestReportedSettingsSnapshotChangesWithRuntimeIdentity(t *testing.T) {
+	hermes := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	workbuddy := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "workbuddy/5.3.8")
+	if hermes == workbuddy {
+		t.Fatal("runtime identity change must invalidate the reported-settings snapshot")
+	}
+}
+
+func TestReportedSettingsSnapshotChangesWithAccount(t *testing.T) {
+	first := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	second := reportedSettingsSnapshot("202", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	if first == second {
+		t.Fatal("account switch must invalidate the reported-settings snapshot")
+	}
+}
+
+func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
+	requestSeen := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agents/me/settings" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("authorization = %q", got)
+		}
+		if got := r.Header.Get("X-Client-Host"); got != "hermes/0.20.0" {
+			t.Errorf("X-Client-Host = %q", got)
+		}
+		if got := r.Header.Get("X-Client-Model"); got != "gpt-5.6" {
+			t.Errorf("X-Client-Model = %q", got)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body["mode"] != "skill" {
+			t.Errorf("mode = %v", body["mode"])
+		}
+		requestSeen <- struct{}{}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":null}`))
+	}))
+	defer server.Close()
+
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UpdateServer(active.Name, server.URL, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveCredentials(active.Name, &auth.Credentials{AgentID: "42", AccessToken: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
+	oldMeta := clientMeta
+	clientMeta = client.Meta{Host: "terminal", Channel: "cli"}
+	t.Cleanup(func() { clientMeta = oldMeta })
+
+	if err := pushReported(cfg, "skill", "gpt-5.6", "hermes", "0.20.0", false); err != nil {
+		t.Fatal(err)
+	}
+	<-requestSeen
+	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	if got, ok, err := cfg.GetServerOnlyKV(active.Name, settingsReportedKey); err != nil || !ok || got != want {
+		t.Fatalf("cached snapshot = %q, %v, %v; want %q", got, ok, err, want)
 	}
 }

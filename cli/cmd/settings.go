@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 
@@ -143,7 +145,7 @@ func SyncSettings(cfg *config.Config) error {
 		// Profile-refresh bookkeeping is client-local for the same reason: a
 		// backend-supplied stamp could silence the prompt forever (future
 		// value) or force it every day (zero).
-		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true,
+		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true, kvProfileRefreshPromptedAt: true,
 	}
 	for k, v := range remote {
 		if skip[k] {
@@ -169,19 +171,31 @@ func SyncSettings(cfg *config.Config) error {
 	return cfg.SetKV(settingsSyncedKey, "1")
 }
 
-// pushReported sends the agent-reported fields (mode, feed_delivery_preference)
-// to the backend, skipping the request when nothing changed since the last
-// successful push.
-func pushReported(cfg *config.Config, mode, model string, force bool) error {
+// pushReported sends agent-reported fields to the backend, skipping the
+// request when nothing changed since the last successful push. Product
+// identity is independent from mode and travels through X-Client-Host, the
+// existing server-side runtime identity contract.
+func pushReported(cfg *config.Config, mode, model, runtimeName, runtimeVersion string, force bool) error {
 	feedPref := cfg.GetKV("feed_delivery_preference")
 	serverName := activeServerName()
 	if serverName == "" {
 		return fmt.Errorf("no active server")
 	}
+	runtimeHost, err := reportedRuntimeHost(runtimeName, runtimeVersion)
+	if err != nil {
+		return err
+	}
+	if runtimeHost == "" {
+		runtimeHost = clientMeta.Host
+	}
 
 	// Canonical snapshot of the agent-reported fields. \x1f (unit separator)
 	// cannot appear in these values, so it is a safe delimiter.
-	snapshot := mode + "\x1f" + feedPref + "\x1f" + model
+	creds, err := auth.LoadCredentials(serverName)
+	if err != nil || creds.AgentID == "" {
+		return fmt.Errorf("no authenticated account for server %q", serverName)
+	}
+	snapshot := reportedSettingsSnapshot(creds.AgentID, mode, feedPref, model, runtimeHost)
 	lastSnapshot, _, _ := cfg.GetServerOnlyKV(serverName, settingsReportedKey)
 	if !force && snapshot == lastSnapshot {
 		output.PrintMessage("settings unchanged; nothing to report")
@@ -195,12 +209,15 @@ func pushReported(cfg *config.Config, mode, model string, force bool) error {
 		body["mode"] = mode
 	}
 
-	c := newClient()
+	c := newClientForServer(serverName)
 	// model is carried as a header (X-Client-Model) so the server stores it
 	// alongside the derived runtime, consistent with X-Client-Host.
 	headers := map[string]string{}
 	if model != "" {
 		headers["X-Client-Model"] = model
+	}
+	if runtimeName != "" {
+		headers["X-Client-Host"] = runtimeHost
 	}
 	resp, err := c.PutWithHeaders("/agents/me/settings", body, headers)
 	if err != nil {
@@ -219,6 +236,40 @@ func pushReported(cfg *config.Config, mode, model string, force bool) error {
 	return nil
 }
 
+func reportedSettingsSnapshot(agentID, mode, feedPreference, model, runtimeHost string) string {
+	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost}, "\x1f")
+}
+
+func reportedRuntimeHost(name, version string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	version = strings.ToLower(strings.TrimSpace(version))
+	if name == "" {
+		if version != "" {
+			return "", fmt.Errorf("--runtime-version requires --runtime-name")
+		}
+		return "", nil
+	}
+	if name == "terminal" || !validRuntimeIdentityPart(name) {
+		return "", fmt.Errorf("--runtime-name must be 1-64 letters, digits, '.', '-' or '_', and cannot be terminal")
+	}
+	if version == "" {
+		return name, nil
+	}
+	if !validRuntimeIdentityPart(version) {
+		return "", fmt.Errorf("--runtime-version must be 1-64 letters, digits, '.', '-' or '_'")
+	}
+	return name + "/" + version, nil
+}
+
+func validRuntimeIdentityPart(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	return strings.IndexFunc(value, func(r rune) bool {
+		return !(r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
+	}) < 0
+}
+
 var settingsCmd = &cobra.Command{
 	Use:   "settings",
 	Short: "Sync agent-side settings with the backend",
@@ -227,30 +278,32 @@ var settingsCmd = &cobra.Command{
 var settingsPushCmd = &cobra.Command{
 	Use:   "push",
 	Short: "Report agent-side settings to the backend, only when changed",
-	Long: `Push agent-reported settings (mode, model, feed_delivery_preference) to the backend
+	Long: `Push agent-reported settings (mode, runtime product, model, feed_delivery_preference) to the backend
 via PUT /agents/me/settings.
 
-feed_delivery_preference is read from the config KV; mode and model come from flags.
+feed_delivery_preference is read from the config KV; mode, runtime identity, and model come from flags.
 The combined snapshot is compared against the last successfully reported one
 (stored in the config KV under "_settings_reported") and a request is sent only
 when something changed. Safe to call on every heartbeat — it no-ops otherwise.
 
 Examples:
   eigenflux settings push --mode plugin --model gpt-5.6
-  eigenflux settings push --mode skill --force`,
+  eigenflux settings push --mode skill --runtime-name hermes --runtime-version 0.20.0`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mode, _ := cmd.Flags().GetString("mode")
 		if mode != "" && mode != "plugin" && mode != "skill" {
 			return fmt.Errorf("--mode must be plugin or skill")
 		}
 		model, _ := cmd.Flags().GetString("model")
+		runtimeName, _ := cmd.Flags().GetString("runtime-name")
+		runtimeVersion, _ := cmd.Flags().GetString("runtime-version")
 		force, _ := cmd.Flags().GetBool("force")
 
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		return pushReported(cfg, mode, model, force)
+		return pushReported(cfg, mode, model, runtimeName, runtimeVersion, force)
 	},
 }
 
@@ -282,7 +335,7 @@ Examples:
 		mode, _ := cmd.Flags().GetString("mode")
 		model, _ := cmd.Flags().GetString("model")
 		if mode != "" || model != "" {
-			return pushReported(cfg, mode, model, false)
+			return pushReported(cfg, mode, model, "", "", false)
 		}
 		return nil
 	},
@@ -291,6 +344,8 @@ Examples:
 func init() {
 	settingsPushCmd.Flags().String("mode", "", "runtime mode reported to the backend (plugin|skill)")
 	settingsPushCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
+	settingsPushCmd.Flags().String("runtime-name", "", "Agent product identity reported to the backend, e.g. hermes or workbuddy")
+	settingsPushCmd.Flags().String("runtime-version", "", "Agent product version reported with --runtime-name")
 	settingsPushCmd.Flags().Bool("force", false, "report even if unchanged")
 	settingsSyncCmd.Flags().String("mode", "", "runtime mode reported to the backend (plugin|skill)")
 	settingsSyncCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
