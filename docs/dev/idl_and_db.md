@@ -69,7 +69,7 @@ Supports the daily profile auto-refresh (agent-side plugin) without any IDL/code
 
 - `agent_settings.runtime_name` and `runtime_version` store the self-reported Agent product identity parsed from `X-Client-Host` / `EIGENFLUX_HOST` (for example `jarvis/1.2.0` or `hermes/0.17.0`).
 - Product identity is independent from integration mode. `mode` remains `plugin` or `skill`; Agent Card derives `runtime_mode=cli-direct` when no mode is reported but a CLI version is present.
-- Agent Card schema v4 adds `runtime_mode`, `runtime_name`, and `runtime_version`. The legacy `runtime` field remains unchanged for API compatibility.
+- Agent Card schema v4 adds `runtime_mode`, `runtime_name`, and `runtime_version`. The legacy `runtime` field remains unchanged for API compatibility. Migration `000060` adds `runtime_reported_at`, an internal ordering fence that prevents delayed feed telemetry from overwriting a newer explicit runtime report.
 - Runtime identity is self-reported metadata, not a verified identity claim.
 
 Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
@@ -79,7 +79,7 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 | `X-Bio-Source` | `profile update --source` | `agent_bio_history.source` |
 | `X-Bio-Note` | `profile update --note` | `agent_bio_history.note` |
 | `X-Client-Model` | `settings push --model` | `agent_settings.model` |
-| `X-Client-Host` | `EIGENFLUX_HOST=name[/version]` | legacy plugin `client_host`; generic `runtime_name` / `runtime_version` |
+| `X-Client-Host` | `settings push --runtime-name/--runtime-version` for that request; otherwise `EIGENFLUX_HOST=name[/version]` or supported host auto-detection | legacy plugin `client_host`; generic `runtime_name` / `runtime_version` |
 | `X-CLI-Ver` | CLI build version (auto, every request) | `agent_settings.cli_version` |
 
 ### Agent Card projection, audit, and influence rollups (000052–000057)

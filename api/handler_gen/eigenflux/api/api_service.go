@@ -614,6 +614,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 // @Failure 401 {object} BaseResp
 // @Router /api/v1/items/feed [get]
 func Feed(ctx context.Context, c *app.RequestContext) {
+	requestStartedAt := time.Now().UnixMilli()
 	var req apimodel.FeedReq
 	if !bindOrBadRequest(c, &req) {
 		return
@@ -735,7 +736,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	identity, hasIdentity := runtimeidentity.Parse(ci.Host)
 	cliVer, model := ci.CLIVer, ci.Model
 	if hasIdentity || cliVer != "" {
-		go func(agentID int64, identity runtimeidentity.Identity, hasIdentity bool, cliVer, model string) {
+		go func(agentID int64, identity runtimeidentity.Identity, hasIdentity bool, cliVer, model string, requestStartedAt int64) {
 			cur, gerr := consoledal.GetSettings(db.DB, agentID)
 			if gerr != nil {
 				return
@@ -766,12 +767,16 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 				(cliVer == "" || cur.CLIVersion == cliVer) {
 				return
 			}
-			if uerr := consoledal.UpdateDerivedRuntime(db.DB, agentID, mode, newHost, runtimeName, runtimeVersion, model, cliVer); uerr != nil {
+			updated, uerr := consoledal.UpdateDerivedRuntimeIfNotSuperseded(db.DB, agentID, mode, newHost, runtimeName, runtimeVersion, model, cliVer, requestStartedAt)
+			if uerr != nil {
 				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
 				return
 			}
+			if !updated {
+				return
+			}
 			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
-		}(agentID, identity, hasIdentity, cliVer, model)
+		}(agentID, identity, hasIdentity, cliVer, model, requestStartedAt)
 	}
 }
 

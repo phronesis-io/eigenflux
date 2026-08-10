@@ -52,6 +52,7 @@ type AgentSettings struct {
 	ClientHost             string `gorm:"column:client_host"`
 	RuntimeName            string `gorm:"column:runtime_name"`
 	RuntimeVersion         string `gorm:"column:runtime_version"`
+	RuntimeReportedAt      int64  `gorm:"column:runtime_reported_at"`
 	Model                  string `gorm:"column:model"`
 	// CLIVersion is the EigenFlux CLI version (X-CLI-Ver), reported by every
 	// runtime — plugin or CLI-direct — and shown on the dashboard runtime card.
@@ -149,14 +150,18 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }
 
-// UpdateDerivedRuntime persists the runtime identity derived from request
-// metadata: the mode, the raw host string (X-Client-Host), the model
+// UpdateDerivedRuntimeIfNotSuperseded persists request-derived runtime metadata
+// unless a newer explicit runtime report has committed since this request
+// started. It remains asynchronous and adds no read to the feed response path.
+// This prevents a delayed feed goroutine from overwriting an explicit
+// `settings push` that switched Agent products after the feed was received.
+// The persisted metadata includes the mode, raw host string (X-Client-Host), model
 // (X-Client-Model), and the CLI version (X-CLI-Ver), all for display. An empty
 // model or cliVer leaves that column untouched so a request that omits the
 // header never clobbers a previously reported value.
-func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, runtimeName, runtimeVersion, model, cliVer string) error {
+func UpdateDerivedRuntimeIfNotSuperseded(db *gorm.DB, agentID int64, mode, host, runtimeName, runtimeVersion, model, cliVer string, requestStartedAt int64) (bool, error) {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
-		return err
+		return false, err
 	}
 	vals := map[string]interface{}{
 		"mode":            mode,
@@ -171,8 +176,10 @@ func UpdateDerivedRuntime(db *gorm.DB, agentID int64, mode, host, runtimeName, r
 	if cliVer != "" {
 		vals["cli_version"] = cliVer
 	}
-	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
-		Updates(vals).Error
+	result := db.Model(&AgentSettings{}).
+		Where("agent_id = ? AND runtime_reported_at < ?", agentID, requestStartedAt).
+		Updates(vals)
+	return result.RowsAffected > 0, result.Error
 }
 
 // UpdateRuntimeIdentity persists a validated self-reported Agent product
@@ -185,11 +192,13 @@ func UpdateRuntimeIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersi
 	if _, err := GetSettings(db, agentID); err != nil {
 		return err
 	}
+	now := time.Now().UnixMilli()
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
 		Updates(map[string]interface{}{
-			"runtime_name":    runtimeName,
-			"runtime_version": runtimeVersion,
-			"updated_at":      time.Now().UnixMilli(),
+			"runtime_name":        runtimeName,
+			"runtime_version":     runtimeVersion,
+			"runtime_reported_at": now,
+			"updated_at":          now,
 		}).Error
 }
 
