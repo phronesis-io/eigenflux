@@ -13,7 +13,7 @@ OFFICIAL_REMOTE='https://github.com/phronesis-io/eigenflux.git'
 LOCK_FILE='/run/lock/eigenflux-deploy-main.lock'
 STATE_DIR='/var/lib/eigenflux-deployer'
 RUNTIME_ENV='/etc/eigenflux/runtime.env'
-export PATH='/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin'
+export PATH='/snap/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin'
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "This command is managed by root. Use the systemd deployment service." >&2

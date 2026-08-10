@@ -8,6 +8,12 @@ trap 'rm -rf "${TEST_ROOT}"' EXIT
 # shellcheck source=deploy_main_lib.sh
 source "${SOURCE_ROOT}/scripts/cloud/deploy_main_lib.sh"
 
+grep -Fq "export PATH='/snap/bin:" "${SOURCE_ROOT}/scripts/cloud/deploy_main.sh" || {
+  echo "FAIL: root-managed wrapper cannot find the production Go toolchain" >&2
+  exit 1
+}
+echo "PASS: root-managed wrapper includes the production Go toolchain"
+
 declare -f deploy_main_prepare_source | \
   grep -Fq 'deploy_main_git_as_user "${deploy_user}" "${deploy_home}"' || {
     echo "FAIL: source export bypasses the unprivileged deployment user" >&2
