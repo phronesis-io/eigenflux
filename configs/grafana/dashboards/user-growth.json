@@ -16,7 +16,7 @@
         "name": "paid_platform",
         "label": "投放平台",
         "type": "custom",
-        "query": "全部 : all, 小红书 : xiaohongshu, X : twitter",
+        "query": "全部 : all, 小红书 : xiaohongshu, X : twitter, 星图 : xingtu",
         "current": {
           "text": "全部",
           "value": "all",
@@ -36,6 +36,11 @@
           {
             "text": "X",
             "value": "twitter",
+            "selected": false
+          },
+          {
+            "text": "星图",
+            "value": "xingtu",
             "selected": false
           }
         ],
@@ -1281,7 +1286,7 @@
       "id": 14,
       "type": "row",
       "collapsed": false,
-      "title": "付费增长 / Paid Growth (xhs / x 付费投放归因)",
+      "title": "付费增长 / Paid Growth (小红书 / X / 星图)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1311,7 +1316,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1361,7 +1366,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND fetched_at > 0 AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND fetched_at > 0 AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1411,7 +1416,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND status = 'installed' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND status = 'installed' AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1442,7 +1447,7 @@
     },
     {
       "id": 18,
-      "title": "回传成功 101/102",
+      "title": "有效回传（浅层 / 深层）",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -1461,7 +1466,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND (cb101_code = 0 OR cb102_code = 0) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT coalesce(sum(CASE WHEN xingtu_callback <> '' THEN (xingtu_cb_activate_code = 0)::int + (xingtu_cb_register_code = 0)::int WHEN channel = 'twitter' THEN (x_cb_copy_code = 0)::int + (x_cb102_code = 0)::int ELSE (cb101_code = 0)::int + (cb102_code = 0)::int END), 0) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1492,7 +1497,7 @@
     },
     {
       "id": 19,
-      "title": "回传失败 101/102",
+      "title": "回传失败（浅层 / 深层）",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -1511,7 +1516,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT count(*) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND (cb101_code NOT IN (0, -1) OR cb102_code NOT IN (0, -1)) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT coalesce(sum(CASE WHEN xingtu_callback <> '' THEN (xingtu_cb_activate_code NOT IN (0, -1))::int + (xingtu_cb_register_code NOT IN (0, -1))::int WHEN channel = 'twitter' THEN (x_cb_copy_code NOT IN (0, -1))::int + (x_cb102_code NOT IN (0, -1))::int ELSE (cb101_code NOT IN (0, -1))::int + (cb102_code NOT IN (0, -1))::int END), 0) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1561,7 +1566,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status='installed') / NULLIF(count(*),0), 1) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status='installed') / NULLIF(count(*),0), 1) AS v FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo();",
           "format": "table"
         }
       ],
@@ -1592,7 +1597,7 @@
     },
     {
       "id": 21,
-      "title": "付费每日趋势 (落地 / 复制 / 抓取 / 安装 / 101回传 / 102回传 · 右上角可选投放平台)",
+      "title": "付费每日趋势 (落地 / 复制 / 抓取 / 安装 / 浅层回传 / 深层回传)",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -1612,7 +1617,7 @@
             "uid": "postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE copied_at>0) AS \"复制\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\", count(*) FILTER (WHERE cb101_code=0) AS \"101回传\", count(*) FILTER (WHERE cb102_code=0) AS \"102回传\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND ('$paid_platform' = 'all' OR channel = '$paid_platform') AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT (to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai')::date AS time, count(*) AS \"落地\", count(*) FILTER (WHERE copied_at>0) AS \"复制\", count(*) FILTER (WHERE fetched_at>0) AS \"抓取\", count(*) FILTER (WHERE status='installed') AS \"安装\", sum(CASE WHEN xingtu_callback <> '' THEN (xingtu_cb_activate_code=0)::int WHEN channel='twitter' THEN (x_cb_copy_code=0)::int ELSE (cb101_code=0)::int END) AS \"浅层回传\", sum(CASE WHEN xingtu_callback <> '' THEN (xingtu_cb_register_code=0)::int WHEN channel='twitter' THEN (x_cb102_code=0)::int ELSE (cb102_code=0)::int END) AS \"深层回传\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) AND to_timestamp(created_at/1000.0) BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;"
         }
       ],
       "fieldConfig": {
@@ -1640,7 +1645,7 @@
     },
     {
       "id": 22,
-      "title": "前 100 付费明细 (验测试: 找到你的 ref, 看 复制/抓取/安装/101/102 是否一路 ✓)",
+      "title": "前 100 付费明细（复制 / 抓取 / 安装 / 浅层 / 深层）",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -1659,7 +1664,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT to_char(to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", token AS \"ref\", channel AS \"渠道\", utm_campaign AS \"campaign\", CASE lang WHEN 'zh' THEN '中' WHEN 'en' THEN 'EN' ELSE '·' END AS \"语言\", left(coalesce(nullif(click_id,''), twclid),16) AS \"click_id\", CASE WHEN copied_at>0 THEN '✓' ELSE '·' END AS \"复制\", CASE WHEN fetched_at>0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN status='installed' THEN '✓' ELSE '·' END AS \"安装\", CASE WHEN cb101_code=0 THEN '✓' WHEN cb101_code=-1 THEN '·' WHEN cb101_code=-2 THEN '✗网' ELSE '✗'||cb101_code::text END AS \"101回传\", CASE WHEN cb102_code=0 THEN '✓' WHEN cb102_code=-1 THEN '·' WHEN cb102_code=-2 THEN '✗网' ELSE '✗'||cb102_code::text END AS \"102回传\", report_count AS \"上报\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') ORDER BY created_at DESC LIMIT 100;",
+          "rawSql": "SELECT to_char(to_timestamp(created_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"落地时间\", token AS \"ref\", CASE WHEN xingtu_callback <> '' THEN 'xingtu' ELSE channel END AS \"渠道\", utm_campaign AS \"campaign\", CASE lang WHEN 'zh' THEN '中' WHEN 'en' THEN 'EN' ELSE '·' END AS \"语言\", left(coalesce(nullif(xingtu_callback,''),nullif(click_id,''),twclid),16) AS \"click_id\", CASE WHEN copied_at>0 THEN '✓' ELSE '·' END AS \"复制\", CASE WHEN fetched_at>0 THEN '✓' ELSE '·' END AS \"抓取\", CASE WHEN status='installed' THEN '✓' ELSE '·' END AS \"安装\", CASE WHEN xingtu_callback <> '' THEN CASE WHEN xingtu_cb_activate_code=0 THEN '✓' WHEN xingtu_cb_activate_code=-1 THEN '·' WHEN xingtu_cb_activate_code=-2 THEN '✗网' ELSE '✗'||xingtu_cb_activate_code::text END WHEN channel='twitter' THEN CASE WHEN x_cb_copy_code=0 THEN '✓' WHEN x_cb_copy_code=-1 THEN '·' WHEN x_cb_copy_code=-2 THEN '✗网' ELSE '✗'||x_cb_copy_code::text END ELSE CASE WHEN cb101_code=0 THEN '✓' WHEN cb101_code=-1 THEN '·' WHEN cb101_code=-2 THEN '✗网' ELSE '✗'||cb101_code::text END END AS \"浅层回传\", CASE WHEN xingtu_callback <> '' THEN CASE WHEN xingtu_cb_register_code=0 THEN '✓' WHEN xingtu_cb_register_code=-1 THEN '·' WHEN xingtu_cb_register_code=-2 THEN '✗网' ELSE '✗'||xingtu_cb_register_code::text END WHEN channel='twitter' THEN CASE WHEN x_cb102_code=0 THEN '✓' WHEN x_cb102_code=-1 THEN '·' WHEN x_cb102_code=-2 THEN '✗网' ELSE '✗'||x_cb102_code::text END ELSE CASE WHEN cb102_code=0 THEN '✓' WHEN cb102_code=-1 THEN '·' WHEN cb102_code=-2 THEN '✗网' ELSE '✗'||cb102_code::text END END AS \"深层回传\", report_count AS \"上报\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '' OR xingtu_callback <> '') AND ('$paid_platform' = 'all' OR ('$paid_platform' = 'xingtu' AND xingtu_callback <> '') OR ('$paid_platform' <> 'xingtu' AND channel = '$paid_platform')) ORDER BY created_at DESC LIMIT 100;",
           "format": "table"
         }
       ],
@@ -1691,7 +1696,7 @@
     },
     {
       "id": 23,
-      "title": "回传失败明细 (101/102 回传码非 0/-1, 联调配置错一眼看出)",
+      "title": "回传失败明细（浅层 / 深层）",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -1710,7 +1715,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT to_char(to_timestamp(GREATEST(cb101_sent_at,cb102_sent_at)/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"回传时间\", token AS \"ref\", channel AS \"渠道\", left(coalesce(nullif(click_id,''), twclid),16) AS \"click_id\", CASE WHEN cb101_code NOT IN (0,-1) THEN cb101_code::text ELSE '-' END AS \"101错误\", CASE WHEN cb102_code NOT IN (0,-1) THEN cb102_code::text ELSE '-' END AS \"102错误\" FROM install_tokens WHERE (click_id <> '' OR twclid <> '') AND (cb101_code NOT IN (0,-1) OR cb102_code NOT IN (0,-1)) ORDER BY GREATEST(cb101_sent_at,cb102_sent_at) DESC LIMIT 50;",
+          "rawSql": "WITH failures AS (SELECT GREATEST(xingtu_cb_activate_sent_at,xingtu_cb_register_sent_at) AS sent_at, token, 'xingtu' AS platform, xingtu_callback AS click_id, CASE WHEN xingtu_cb_activate_code NOT IN (0,-1) THEN xingtu_cb_activate_code::text ELSE '-' END AS shallow_error, CASE WHEN xingtu_cb_register_code NOT IN (0,-1) THEN xingtu_cb_register_code::text ELSE '-' END AS deep_error FROM install_tokens WHERE xingtu_callback <> '' AND (xingtu_cb_activate_code NOT IN (0,-1) OR xingtu_cb_register_code NOT IN (0,-1)) UNION ALL SELECT GREATEST(x_cb_copy_sent_at,x_cb102_sent_at), token, 'twitter', twclid, CASE WHEN x_cb_copy_code NOT IN (0,-1) THEN x_cb_copy_code::text ELSE '-' END, CASE WHEN x_cb102_code NOT IN (0,-1) THEN x_cb102_code::text ELSE '-' END FROM install_tokens WHERE twclid <> '' AND (x_cb_copy_code NOT IN (0,-1) OR x_cb102_code NOT IN (0,-1)) UNION ALL SELECT GREATEST(cb101_sent_at,cb102_sent_at), token, 'xiaohongshu', click_id, CASE WHEN cb101_code NOT IN (0,-1) THEN cb101_code::text ELSE '-' END, CASE WHEN cb102_code NOT IN (0,-1) THEN cb102_code::text ELSE '-' END FROM install_tokens WHERE click_id <> '' AND (cb101_code NOT IN (0,-1) OR cb102_code NOT IN (0,-1))) SELECT to_char(to_timestamp(sent_at/1000.0) AT TIME ZONE 'Asia/Shanghai','MM-DD HH24:MI') AS \"回传时间\", token AS \"ref\", platform AS \"渠道\", left(click_id,16) AS \"click_id\", shallow_error AS \"浅层错误\", deep_error AS \"深层错误\" FROM failures WHERE ('$paid_platform' = 'all' OR platform = '$paid_platform') ORDER BY sent_at DESC LIMIT 50;",
           "format": "table"
         }
       ],
@@ -2272,5 +2277,5 @@
       }
     }
   ],
-  "version": 5
+  "version": 6
 }
