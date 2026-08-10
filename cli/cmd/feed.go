@@ -56,7 +56,12 @@ Examples:
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
-		c := newClient()
+		serverName := activeServerName()
+		if serverName == "" {
+			return fmt.Errorf("no active server")
+		}
+		_, agentID := profileStateScopeForServer(serverName)
+		c := newClientForServer(serverName)
 		resp, err := c.Get("/items/feed", params)
 		if err != nil {
 			return err
@@ -69,10 +74,8 @@ Examples:
 		} else {
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		}
-		if srv := activeServerName(); srv != "" {
-			cache.SaveFeedResponse(srv, resp.Data)
-			cache.Cleanup(srv, "broadcasts")
-		}
+		cache.SaveFeedResponse(serverName, resp.Data)
+		cache.Cleanup(serverName, "broadcasts")
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.
 		// Best-effort: a sync failure must never break the poll itself.
@@ -82,7 +85,9 @@ Examples:
 			// bare-CLI / heartbeat users (throttled to once/day, offline-safe).
 			maybeSyncSkills(cfg)
 		}
-		maybePromptProfileRefresh()
+		if agentID != "" {
+			maybePromptProfileRefreshFor(serverName, agentID)
+		}
 		return nil
 	},
 }

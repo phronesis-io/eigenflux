@@ -8,6 +8,7 @@ import (
 )
 
 func TestResolveMeta(t *testing.T) {
+	clearRuntimeEnv(t)
 	m := ResolveMeta()
 	if m.OS == "" {
 		t.Error("OS should not be empty")
@@ -27,6 +28,7 @@ func TestResolveMeta(t *testing.T) {
 }
 
 func TestResolveMetaWithEnv(t *testing.T) {
+	clearRuntimeEnv(t)
 	t.Setenv("EIGENFLUX_HOST", "openclaw/0.0.10")
 	t.Setenv("EIGENFLUX_CHANNEL", "feishu")
 	t.Setenv("EIGENFLUX_MODEL", "claude-opus-4-8")
@@ -39,6 +41,59 @@ func TestResolveMetaWithEnv(t *testing.T) {
 	}
 	if m.Model != "claude-opus-4-8" {
 		t.Errorf("Model = %q, want %q", m.Model, "claude-opus-4-8")
+	}
+}
+
+func TestResolveMetaDetectsWorkBuddy(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("WORKBUDDY_APP_NAME", "WorkBuddy")
+	t.Setenv("WORKBUDDY_APP_VERSION", "5.3.8")
+	if got := ResolveMeta().Host; got != "workbuddy/5.3.8" {
+		t.Fatalf("Host = %q, want workbuddy/5.3.8", got)
+	}
+}
+
+func TestResolveMetaExplicitHostWinsOverWorkBuddy(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("WORKBUDDY_PRODUCT_NAME", "WorkBuddy")
+	t.Setenv("WORKBUDDY_APP_VERSION", "5.3.8")
+	t.Setenv("EIGENFLUX_HOST", "hermes/0.20.0")
+	if got := ResolveMeta().Host; got != "hermes/0.20.0" {
+		t.Fatalf("Host = %q, want explicit hermes identity", got)
+	}
+}
+
+func TestResolveMetaWorkBuddyRejectsUnsafeVersion(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("CODEBUDDY_HOST", "workbuddy-desktop")
+	t.Setenv("CLIENT_INFO_PRODUCT_VERSION", "5.3.8\nforged")
+	if got := ResolveMeta().Host; got != "workbuddy" {
+		t.Fatalf("Host = %q, want name-only workbuddy", got)
+	}
+}
+
+func TestResolveMetaDoesNotMixWorkBuddyVersionSources(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("CODEBUDDY_HOST", "workbuddy-desktop")
+	t.Setenv("CLIENT_INFO_PRODUCT_NAME", "AnotherProduct")
+	t.Setenv("CLIENT_INFO_PRODUCT_VERSION", "9.9.9")
+	if got := ResolveMeta().Host; got != "workbuddy" {
+		t.Fatalf("Host = %q, want name-only workbuddy", got)
+	}
+}
+
+func clearRuntimeEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"EIGENFLUX_HOST",
+		"WORKBUDDY_APP_NAME",
+		"WORKBUDDY_APP_VERSION",
+		"WORKBUDDY_PRODUCT_NAME",
+		"CLIENT_INFO_PRODUCT_NAME",
+		"CLIENT_INFO_PRODUCT_VERSION",
+		"CODEBUDDY_HOST",
+	} {
+		t.Setenv(key, "")
 	}
 }
 

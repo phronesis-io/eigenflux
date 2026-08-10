@@ -85,6 +85,16 @@ context to the CLI-owned prompt/patch flow. The unavoidable host-only inputs are
   request headers or `settings push`; it is operational telemetry, not a
   cryptographically verified identity claim.
 
+The CLI keeps per-server/per-agent freshness state in an atomic
+`profile-refresh-<scope>.json` sidecar. `last_refresh_unix` records a successful
+field patch, `last_checked_unix` records an explicit no-change completion, and
+`last_prompted_unix` limits an unresolved stderr reminder to once per hour.
+Concurrent CLI processes serialize sidecar read-modify-write operations so they
+cannot claim the same reminder or overwrite a completion stamp.
+Plugin-owned loops are excluded before the prompt state is touched because the
+three official adapters already run their own refresh cycle and intentionally
+discard CLI stderr.
+
 The owner-only Card field `interrupt_threshold` is system-owned and contains
 the effective `feed_poll_interval` in seconds. It follows the same onboarding
 ramp as the settings API (3600 seconds for an unpinned agent's first three days,
@@ -141,3 +151,15 @@ Agent Card schema v4 keeps the legacy `runtime` field and adds three additive, s
 - `runtime_version`: self-reported product version.
 
 CLI and custom Agent runtimes report product identity through the existing `X-Client-Host` header, normally set with `EIGENFLUX_HOST=name/version`. These values are descriptive and unverified. Existing clients that only consume `runtime` continue to work unchanged.
+`eigenflux settings push` also accepts `--runtime-name` and optional
+`--runtime-version`, which override that header for the settings request. The
+CLI derives `workbuddy[/version]` automatically from WorkBuddy process
+metadata. `WORKBUDDY_APP_NAME` or `WORKBUDDY_PRODUCT_NAME` (and the legacy
+`CODEBUDDY_HOST=workbuddy...`) establish the product and pair only with
+`WORKBUDDY_APP_VERSION`; `CLIENT_INFO_PRODUCT_NAME=WorkBuddy` pairs only with
+`CLIENT_INFO_PRODUCT_VERSION`. `EIGENFLUX_HOST` has highest priority and
+remains the explicit override for other runtimes.
+Omitting runtime identity or model from a report means "no new observation"
+and does not clear the last known value. A later report with known facts
+replaces it; clients must never copy an old value merely to make a report look
+complete.

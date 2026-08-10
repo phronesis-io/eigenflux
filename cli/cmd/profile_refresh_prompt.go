@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -20,14 +23,12 @@ import (
 // Why stderr: stdout carries the payload (JSON, or the fenced agent render),
 // and appending prose there breaks `-f json` consumers. Agents that run the
 // command through a shell tool still see it, since harnesses surface both
-// streams. Some callers do discard stderr (every plugin adapter reads only the
-// child's stdout) — which is why nothing here is spent on emitting.
-//
-// No emit-side bookkeeping, deliberately: an earlier cut also stamped a 24h
-// prompt cooldown, and a caller that throws stderr away would burn it on a
-// block nobody could read, starving the shell-side agent that could. Whether
-// the block was seen is unknowable from in here, so the only state written is
-// state an agent's own actions produce.
+// streams. Plugin-owned refresh loops are skipped before state is touched,
+// because their adapters discard stderr and run their own refresh timer. A
+// short prompt cooldown still matters for bare agents:
+// without it, a five-minute feed cadence can enqueue the same task repeatedly
+// while the previous turn is still working. The one-hour window bounds that
+// duplication.
 //
 // Convergence: a successful patch records a write; when nothing changed, the
 // agent explicitly runs `profile refresh-complete` to record the completed
@@ -44,11 +45,16 @@ const (
 	// Internal bookkeeping keys carry the `_` prefix used by every other
 	// CLI-private key (see settings.go) and are excluded from backend sync,
 	// so a backend response can never silence or spam the prompt.
-	kvProfileRefreshAt        = "_profile_refresh_at"
-	kvProfileRefreshCheckedAt = "_profile_refresh_checked_at"
+	kvProfileRefreshAt         = "_profile_refresh_at"
+	kvProfileRefreshCheckedAt  = "_profile_refresh_checked_at"
+	kvProfileRefreshPromptedAt = "_profile_refresh_prompted_at"
 
 	profileRefreshStaleAfter = 24 * time.Hour
+	profilePromptCooldown    = time.Hour
+	profilePromptClaimLease  = time.Minute
 )
+
+var profilePromptWriter io.Writer = os.Stderr
 
 // The emitted block is output.ProfileRefreshPromptLine and nothing else: a
 // second line — even a helpful restatement of the command — would give the
@@ -68,28 +74,38 @@ func stampProfileRefreshKey(key string) error {
 	if srv == "" || agentID == "" {
 		return fmt.Errorf("no active authenticated account")
 	}
-	state := profilestate.Load(config.HomeDir(), srv, agentID)
+	return stampProfileRefreshKeyFor(srv, agentID, key)
+}
+
+func stampProfileRefreshKeyFor(srv, agentID, key string) error {
 	now := time.Now().Unix()
-	switch key {
-	case kvProfileRefreshAt:
-		state.LastRefreshUnix = now
-	case kvProfileRefreshCheckedAt:
-		state.LastCheckedUnix = now
-	default:
+	if key != kvProfileRefreshAt && key != kvProfileRefreshCheckedAt {
 		return fmt.Errorf("unknown profile refresh state key %q", key)
 	}
-	return profilestate.Save(config.HomeDir(), srv, agentID, state)
+	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
+		if key == kvProfileRefreshAt {
+			state.LastRefreshUnix = now
+		} else {
+			state.LastCheckedUnix = now
+		}
+		state.LastPromptedUnix = 0
+		return true
+	})
+	return err
 }
 
 // shouldPromptProfileRefresh is the pure decision. lastTouch is the newer of
 // the write and evaluate stamps; 0 means "no usable stamp" and is handled by
 // the caller (seed, don't prompt) so a CLI upgrade never nags the whole fleet
 // at once.
-func shouldPromptProfileRefresh(lastTouch, now int64) bool {
+func shouldPromptProfileRefresh(lastTouch, lastPrompted, now int64) bool {
 	if lastTouch <= 0 {
 		return false
 	}
-	return now-lastTouch >= int64(profileRefreshStaleAfter/time.Second)
+	if now-lastTouch < int64(profileRefreshStaleAfter/time.Second) {
+		return false
+	}
+	return lastPrompted <= 0 || now-lastPrompted >= int64(profilePromptCooldown/time.Second)
 }
 
 // maybePromptProfileRefresh emits the block on stderr after a command's normal
@@ -99,28 +115,75 @@ func maybePromptProfileRefresh() {
 	if srv == "" || agentID == "" {
 		return
 	}
+	maybePromptProfileRefreshFor(srv, agentID)
+}
+
+func maybePromptProfileRefreshFor(srv, agentID string) {
+	// Plugin hosts own their refresh loop and discard CLI stderr. Keep this
+	// gate in the scoped implementation so feed poll cannot bypass it.
+	if pluginOwnsProfileRefresh(clientMeta.Host, clientMeta.Channel) {
+		return
+	}
 	now := time.Now().Unix()
-	state := profilestate.Load(config.HomeDir(), srv, agentID)
-	lastTouch := maxInt64(
-		validProfileStamp(state.LastRefreshUnix, now),
-		validProfileStamp(state.LastCheckedUnix, now),
-	)
-	if lastTouch <= 0 {
-		// First run on this host (or a stamp we had to discard). Seed the
-		// clock instead of prompting: the profile was written at onboarding,
-		// and prompting here would fire for every agent the day CLI upgrades.
-		state.LastCheckedUnix = now
-		_ = profilestate.Save(config.HomeDir(), srv, agentID, state)
+	emit := false
+	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
+	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
+		lastTouch := maxInt64(
+			validProfileStamp(state.LastRefreshUnix, now),
+			validProfileStamp(state.LastCheckedUnix, now),
+		)
+		if lastTouch <= 0 {
+			// First run on this host (or a stamp we had to discard). Seed the
+			// clock instead of prompting: the profile was written at onboarding,
+			// and prompting here would fire for every agent the day CLI upgrades.
+			state.LastCheckedUnix = now
+			return true
+		}
+		lastPrompted := validProfileStamp(state.LastPromptedUnix, now)
+		if !shouldPromptProfileRefresh(lastTouch, lastPrompted, now) {
+			return false
+		}
+		// Claim briefly before writing so concurrent polls cannot duplicate the
+		// task. A failed write is retried after the short lease, not one hour.
+		state.LastPromptedUnix = claimStamp
+		emit = true
+		return true
+	})
+	if err != nil || !emit {
 		return
 	}
-	if !shouldPromptProfileRefresh(lastTouch, now) {
+	if err := output.PrintMessageTo(profilePromptWriter, "\n%s", output.ProfileRefreshPromptLine); err != nil {
 		return
 	}
-	output.PrintMessage("\n%s", output.ProfileRefreshPromptLine)
+	_, _ = profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
+		if state.LastPromptedUnix != claimStamp {
+			return false
+		}
+		state.LastPromptedUnix = now
+		return true
+	})
+}
+
+func pluginOwnsProfileRefresh(host, channel string) bool {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel == "" || channel == "cli" || channel == "skill" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(strings.SplitN(host, "/", 2)[0]))
+	switch name {
+	case "openclaw", "claude-code", "codex":
+		return true
+	default:
+		return false
+	}
 }
 
 func activeProfileStateScope() (string, string) {
 	srv := activeServerName()
+	return profileStateScopeForServer(srv)
+}
+
+func profileStateScopeForServer(srv string) (string, string) {
 	if srv == "" {
 		return "", ""
 	}

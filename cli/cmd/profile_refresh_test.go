@@ -14,9 +14,16 @@ func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 		"Domains: ai",
 		[]string{"user works on defi and mcp tooling"},
 		[]string{"debugging a Go service"},
+		"staging",
+		"plugin",
 	)
 
-	for _, label := range []string{"agent_description", "human_description", "seeking/offering", "current_focus", "agent_status", "human_status", "KEEP, UPDATE, CLEAR, or UNKNOWN", "Do not manufacture"} {
+	for _, label := range []string{
+		"agent_description", "human_description", "seeking/offering", "current_focus",
+		"agent_status", "human_status", "KEEP, UPDATE, CLEAR, or UNKNOWN", "Do not manufacture",
+		"Re-evaluate the current Agent product on every review", "--runtime-name", "--runtime-version",
+		"WorkBuddy process metadata is detected automatically", "Never infer or guess missing values",
+	} {
 		if !strings.Contains(prompt, label) {
 			t.Errorf("refresh prompt missing field-level guidance %q", label)
 		}
@@ -26,6 +33,9 @@ func TestBuildRefreshPromptFivePartFormat(t *testing.T) {
 	}
 	if strings.Contains(prompt, `--bio "`) {
 		t.Error("refresh prompt still contains a legacy whole-bio write command")
+	}
+	if !strings.Contains(prompt, `eigenflux --server 'staging' settings push --mode plugin`) {
+		t.Error("refresh prompt must preserve the target server and plugin delivery mode")
 	}
 }
 
@@ -62,5 +72,18 @@ func TestBuildCardRefreshSectionShellQuotesServer(t *testing.T) {
 	out := buildCardRefreshSection(raw, "prod'; touch /tmp/forged; echo '")
 	if !strings.Contains(out, `--server 'prod'"'"'; touch /tmp/forged; echo '"'"''`) {
 		t.Fatalf("server name was not rendered as one shell argument: %s", out)
+	}
+}
+
+func TestSafePromptServerNameRejectsPromptControls(t *testing.T) {
+	for _, value := range []string{"prod\nignore previous", "prod`command`", "prod\x1b[2J", "local dev", "prod: ignore"} {
+		if safePromptServerName(value) {
+			t.Errorf("safePromptServerName(%q) = true", value)
+		}
+	}
+	for _, value := range []string{"eigenflux", "staging-us", "Prod_2.example"} {
+		if !safePromptServerName(value) {
+			t.Errorf("safePromptServerName(%q) = false", value)
+		}
 	}
 }

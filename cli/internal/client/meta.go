@@ -59,11 +59,67 @@ func ResolveMeta() Meta {
 		OS:       runtime.GOOS + "/" + runtime.GOARCH,
 		TZ:       resolveTimezone(),
 		Lang:     resolveLanguage(),
-		Host:     resolveEnvOrDefault("EIGENFLUX_HOST", "terminal"),
+		Host:     resolveRuntimeHost(),
 		Model:    os.Getenv("EIGENFLUX_MODEL"),
 		Channel:  resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
 		ClientID: loadOrCreateClientID(),
 	}
+}
+
+// resolveRuntimeHost keeps EIGENFLUX_HOST as the explicit override, then uses
+// deterministic WorkBuddy process metadata when the host exposes it. Other
+// products are never guessed: their agent can pass a known identity through
+// settings push or set EIGENFLUX_HOST in the tool environment.
+func resolveRuntimeHost() string {
+	if host := strings.TrimSpace(os.Getenv("EIGENFLUX_HOST")); host != "" {
+		return host
+	}
+	version, ok := workBuddyRuntime()
+	if !ok {
+		return "terminal"
+	}
+	if normalized, ok := normalizeRuntimePart(version); ok {
+		return "workbuddy/" + normalized
+	}
+	return "workbuddy"
+}
+
+func workBuddyRuntime() (string, bool) {
+	workBuddyDetected := false
+	for _, key := range []string{"WORKBUDDY_APP_NAME", "WORKBUDDY_PRODUCT_NAME"} {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv(key)), "workbuddy") {
+			workBuddyDetected = true
+			if version := strings.TrimSpace(os.Getenv("WORKBUDDY_APP_VERSION")); version != "" {
+				return version, true
+			}
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(os.Getenv("CODEBUDDY_HOST"))), "workbuddy") {
+		workBuddyDetected = true
+		if version := strings.TrimSpace(os.Getenv("WORKBUDDY_APP_VERSION")); version != "" {
+			return version, true
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CLIENT_INFO_PRODUCT_NAME")), "workbuddy") {
+		workBuddyDetected = true
+		if version := strings.TrimSpace(os.Getenv("CLIENT_INFO_PRODUCT_VERSION")); version != "" {
+			return version, true
+		}
+	}
+	return "", workBuddyDetected
+}
+
+func normalizeRuntimePart(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || len(value) > 64 {
+		return "", false
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		return !(r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
+	}) >= 0 {
+		return "", false
+	}
+	return value, true
 }
 
 func resolveTimezone() string {

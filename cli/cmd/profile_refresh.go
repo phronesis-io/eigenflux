@@ -58,8 +58,17 @@ Examples:
 			return nil
 		}
 
-		// Fetch current profile (newClient exits 4 if not authenticated).
-		c := newClient()
+		// Resolve the target once. A concurrent `server use` must not make the
+		// fetched profile and the generated patch/report commands target
+		// different accounts.
+		serverName := activeServerName()
+		if serverName == "" {
+			return fmt.Errorf("no active server")
+		}
+		if !safePromptServerName(serverName) {
+			return fmt.Errorf("server name contains characters that are unsafe to render in an agent prompt")
+		}
+		c := newClientForServer(serverName)
 		resp, err := c.Get("/agents/me", nil)
 		if err != nil {
 			return err
@@ -75,12 +84,16 @@ Examples:
 		}
 		_ = json.Unmarshal(resp.Data, &data)
 
-		prompt := buildRefreshPrompt(data.Profile.AgentName, data.Profile.Bio, memorySnippets, sessionSnippets)
+		runtimeMode := "skill"
+		if pluginOwnsProfileRefresh(clientMeta.Host, clientMeta.Channel) {
+			runtimeMode = "plugin"
+		}
+		prompt := buildRefreshPrompt(data.Profile.AgentName, data.Profile.Bio, memorySnippets, sessionSnippets, serverName, runtimeMode)
 
 		// Agent Card refresh context (versioned field-level patching).
 		// Best-effort: older servers without the endpoint just skip the section.
 		if ctxResp, cerr := c.Get("/agents/me/card/refresh-context", nil); cerr == nil && ctxResp.Code == 0 {
-			prompt += buildCardRefreshSection(ctxResp.Data, activeServerName())
+			prompt += buildCardRefreshSection(ctxResp.Data, serverName)
 		}
 
 		fmt.Print(prompt)
@@ -292,7 +305,7 @@ func readMemoryMarkdown(dirs []string) []string {
 
 // buildRefreshPrompt assembles the silent daily-refresh prompt. Ported from the
 // OpenClaw plugin so all hosts share one wording.
-func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets []string) string {
+func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets []string, serverName, runtimeMode string) string {
 	if agentName == "" {
 		agentName = "(unknown)"
 	}
@@ -306,6 +319,14 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 			b.WriteString(l)
 			b.WriteByte('\n')
 		}
+	}
+
+	settingsCommand := "eigenflux settings push"
+	if serverName != "" {
+		settingsCommand = "eigenflux --server " + shellQuote(serverName) + " settings push"
+	}
+	if runtimeMode != "plugin" {
+		runtimeMode = "skill"
 	}
 
 	w(
@@ -377,9 +398,19 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 		"   CLI is too old for a safe versioned refresh.",
 		"",
 		"## Nightly runtime report (always do this, even if the bio is unchanged)",
-		"Report the model you are running as, so the network knows your current",
-		"runtime. Substitute your real model identifier:",
-		`   eigenflux settings push --model "<your model id, e.g. claude-opus-4-8>"`,
+		"Re-evaluate the current Agent product on every review; a previously stored",
+		"runtime_name is not proof that the same product is still running. Use only",
+		"identity and version facts explicitly supplied by the host environment or",
+		"system context. Never infer or guess missing values.",
+		"- Report the current delivery mode shown in the command below. Plugin-triggered",
+		"  reviews use plugin; shell/skill-triggered reviews use skill.",
+		"- When product identity is known, add --runtime-name and, only when known,",
+		"  --runtime-version. WorkBuddy process metadata is detected automatically.",
+		"- Add --model only when the current model identifier is explicitly known.",
+		fmt.Sprintf(`   %s --mode %s --runtime-name "<product>" \`, settingsCommand, runtimeMode),
+		`     --runtime-version "<version>" --model "<model>"`,
+		"Omit unknown optional flags rather than copying an old value. The command",
+		"is change-deduplicated, so reporting the same facts again is a local no-op.",
 		fmt.Sprintf(`(The agent name %q is already on record; no need to change it unless wrong.)`, agentName),
 	)
 
@@ -388,4 +419,8 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func safePromptServerName(value string) bool {
+	return validRuntimeIdentityPart(strings.ToLower(value))
 }

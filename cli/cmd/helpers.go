@@ -19,11 +19,19 @@ func newClientNoAuth() *client.Client {
 }
 
 func newClientOptionalAuth(requireAuth bool) *client.Client {
+	return newClientForServerOptionalAuth(serverFlag, requireAuth)
+}
+
+func newClientForServer(serverName string) *client.Client {
+	return newClientForServerOptionalAuth(serverName, true)
+}
+
+func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client.Client {
 	cfg, err := config.Load()
 	if err != nil {
 		output.Die(output.ExitUsageError, "load config: %v", err)
 	}
-	srv, err := cfg.GetActive(serverFlag)
+	srv, err := cfg.GetActive(serverName)
 	if err != nil {
 		output.Die(output.ExitUsageError, "%v", err)
 	}
