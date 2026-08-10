@@ -8,7 +8,7 @@ trap 'rm -rf "${TEST_ROOT}"' EXIT
 # shellcheck source=deploy_main_lib.sh
 source "${SOURCE_ROOT}/scripts/cloud/deploy_main_lib.sh"
 
-grep -Fq "export PATH='/snap/bin:" "${SOURCE_ROOT}/scripts/cloud/deploy_main.sh" || {
+grep -Fq "export PATH='/snap/go/current/bin:" "${SOURCE_ROOT}/scripts/cloud/deploy_main.sh" || {
   echo "FAIL: root-managed wrapper cannot find the production Go toolchain" >&2
   exit 1
 }
