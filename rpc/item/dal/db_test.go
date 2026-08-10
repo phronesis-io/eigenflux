@@ -11,6 +11,13 @@ import (
 	"eigenflux_server/pkg/db"
 )
 
+func TestConsoleRawItemProjectionUsesOnlyRequiredColumns(t *testing.T) {
+	want := "r.item_id, r.author_agent_id, r.raw_content"
+	if consoleRawItemProjection != want {
+		t.Fatalf("projection=%q, want %q", consoleRawItemProjection, want)
+	}
+}
+
 func TestBatchGetRawItemInfo(t *testing.T) {
 	cfg := config.Load()
 

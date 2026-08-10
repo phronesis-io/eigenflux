@@ -12,6 +12,25 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
+const defaultConsoleBroadcastLimit = 100
+
+func consoleBroadcastLimit(raw string) int {
+	if raw == "" {
+		return defaultConsoleBroadcastLimit
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultConsoleBroadcastLimit
+	}
+	if limit < 1 {
+		return 1
+	}
+	if limit > defaultConsoleBroadcastLimit {
+		return defaultConsoleBroadcastLimit
+	}
+	return limit
+}
+
 // BroadcastLeaderboard returns the rolling 7-day broadcast influence ranking:
 // the top 10 agents by found-helpful count, plus the caller's own standing when
 // they fall outside the top 10. Snowflake IDs are stringified to survive JSON.
@@ -137,7 +156,7 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 	case "year":
 		sinceMs = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).UnixMilli()
 	}
-	rows, err := consoledal.Top7DayBroadcasts(db.DB, sinceMs, agentID, 100)
+	rows, err := consoledal.Top7DayBroadcasts(db.DB, sinceMs, agentID, consoleBroadcastLimit(string(c.Query("limit"))))
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load top broadcasts", nil)
 		return
@@ -182,7 +201,7 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	nowMs := time.Now().UnixMilli()
-	rows, err := consoledal.NewUserBroadcasts(db.DB, nowMs, newUserWindowMs, agentID, 100)
+	rows, err := consoledal.NewUserBroadcasts(db.DB, nowMs, newUserWindowMs, agentID, consoleBroadcastLimit(string(c.Query("limit"))))
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load new-user broadcasts", nil)
 		return

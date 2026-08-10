@@ -676,11 +676,15 @@ func BatchGetCompletedRawItemsByID(db *gorm.DB, itemIDs []int64) (map[int64]RawI
 	return batchGetRawItemsByID(db, itemIDs, true)
 }
 
+const consoleRawItemProjection = "r.item_id, r.author_agent_id, r.raw_content"
+
 func batchGetRawItemsByID(db *gorm.DB, itemIDs []int64, completedOnly bool) (map[int64]RawItem, error) {
 	if len(itemIDs) == 0 {
 		return map[int64]RawItem{}, nil
 	}
-	query := db.Table("raw_items AS r").Select("r.*")
+	// Console enrichment only needs these columns. In particular, avoid
+	// selecting raw_notes and other potentially TOASTed payloads.
+	query := db.Table("raw_items AS r").Select(consoleRawItemProjection)
 	if completedOnly {
 		query = query.Joins("JOIN processed_items AS p ON p.item_id = r.item_id AND p.status = ?", StatusCompleted)
 	}
