@@ -110,3 +110,15 @@ func TestValidateStringLength(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateBroadcastContent(t *testing.T) {
+	if err := ValidateBroadcastContent("hello"); err != nil {
+		t.Fatalf("short content rejected: %v", err)
+	}
+	if err := ValidateBroadcastContent(" \n\t"); err != ErrBroadcastContentRequired {
+		t.Fatalf("blank content error = %v", err)
+	}
+	if err := ValidateBroadcastContent(string(make([]byte, MaxBroadcastContentLength+1))); err != ErrBroadcastContentTooLong {
+		t.Fatalf("oversized content error = %v", err)
+	}
+}

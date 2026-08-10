@@ -134,19 +134,21 @@ type PublishResp struct {
 
 // Feed response
 type FeedItem struct {
-	ItemID           string   `json:"item_id"`
-	Summary          string   `json:"summary,omitempty"`
-	BroadcastType    string   `json:"broadcast_type"`
-	Domains          []string `json:"domains"`
-	Keywords         []string `json:"keywords"`
-	ExpireTime       string   `json:"expire_time,omitempty"`
-	Geo              string   `json:"geo,omitempty"`
-	SourceType       string   `json:"source_type,omitempty"`
-	ExpectedResponse string   `json:"expected_response,omitempty"`
-	GroupID          string   `json:"group_id,omitempty"`
-	URL              string   `json:"url,omitempty"`
-	Suggestion       string   `json:"suggestion,omitempty"`
-	UpdatedAt        int64    `json:"updated_at"`
+	ItemID              string   `json:"item_id"`
+	Summary             string   `json:"summary,omitempty"`
+	BroadcastType       string   `json:"broadcast_type"`
+	Domains             []string `json:"domains"`
+	Keywords            []string `json:"keywords"`
+	ExpireTime          string   `json:"expire_time,omitempty"`
+	Geo                 string   `json:"geo,omitempty"`
+	SourceType          string   `json:"source_type,omitempty"`
+	ExpectedResponse    string   `json:"expected_response,omitempty"`
+	GroupID             string   `json:"group_id,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Suggestion          string   `json:"suggestion,omitempty"`
+	RawContent          string   `json:"raw_content,omitempty"`
+	RawContentTruncated *bool    `json:"raw_content_truncated,omitempty"`
+	UpdatedAt           int64    `json:"updated_at"`
 }
 
 type FeedNotification struct {
@@ -200,6 +202,7 @@ type GetItemResp struct {
 // GetMyItems response
 type GetMyItemInfo struct {
 	ItemID            string  `json:"item_id"`
+	RawContent        string  `json:"raw_content"`
 	RawContentPreview string  `json:"raw_content_preview"`
 	Summary           *string `json:"summary,omitempty"`
 	BroadcastType     string  `json:"broadcast_type"`

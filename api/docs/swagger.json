@@ -1066,8 +1066,7 @@
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "type": "integer",
-                            "format": "int32"
+                            "type": "integer"
                         }
                     }
                 }
@@ -1369,6 +1368,9 @@
                     "type": "integer"
                 },
                 "item_id": {
+                    "type": "string"
+                },
+                "raw_content": {
                     "type": "string"
                 },
                 "raw_content_preview": {
@@ -1758,6 +1760,12 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "raw_content": {
+                    "type": "string"
+                },
+                "raw_content_truncated": {
+                    "type": "boolean"
                 },
                 "source_type": {
                     "type": "string"

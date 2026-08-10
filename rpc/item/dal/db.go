@@ -607,23 +607,40 @@ func GetItemsByGroupID(db *gorm.DB, groupID int64) ([]*ProcessedItem, error) {
 type RawItemInfo struct {
 	AuthorAgentID int64
 	RawURL        string // empty string when no URL was provided at publish time
+	RawContent    string
+	AuthorEmail   string
+	AuthorExists  bool
+	IsOfficial    bool
 }
 
-// BatchGetRawItemInfo retrieves author_agent_id and raw_url for multiple items.
+// BatchGetRawItemInfo retrieves the bounded raw item data and author disclosure
+// attributes for completed items in one query. LEFT(..., 1001) gives Feed one
+// look-ahead code point for its 1000-code-point response without loading an
+// unbounded historical body. Joining processed_items closes the retraction race:
+// a candidate deleted after sorting is omitted from disclosure enrichment.
 func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, error) {
 	if len(itemIDs) == 0 {
 		return make(map[int64]RawItemInfo), nil
 	}
 
 	var results []struct {
-		ItemID        int64
-		AuthorAgentID int64
-		RawURL        string
+		ItemID        int64  `gorm:"column:item_id"`
+		AuthorAgentID int64  `gorm:"column:author_agent_id"`
+		RawURL        string `gorm:"column:raw_url"`
+		RawContent    string `gorm:"column:raw_content"`
+		AuthorEmail   string `gorm:"column:author_email"`
+		AuthorExists  bool   `gorm:"column:author_exists"`
+		IsOfficial    bool   `gorm:"column:is_official"`
 	}
 
-	err := db.Table("raw_items").
-		Select("item_id, author_agent_id, raw_url").
-		Where("item_id IN ?", itemIDs).
+	err := db.Table("raw_items AS r").
+		Select(`r.item_id, r.author_agent_id, r.raw_url, LEFT(r.raw_content, 1001) AS raw_content,
+		        COALESCE(a.email, '') AS author_email,
+		        a.agent_id IS NOT NULL AS author_exists,
+		        COALESCE(a.is_official, false) AS is_official`).
+		Joins("JOIN processed_items AS p ON p.item_id = r.item_id AND p.status = ?", StatusCompleted).
+		Joins("LEFT JOIN agents AS a ON a.agent_id = r.author_agent_id").
+		Where("r.item_id IN ?", itemIDs).
 		Find(&results).Error
 
 	if err != nil {
@@ -635,10 +652,51 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 		info[r.ItemID] = RawItemInfo{
 			AuthorAgentID: r.AuthorAgentID,
 			RawURL:        r.RawURL,
+			RawContent:    r.RawContent,
+			AuthorEmail:   r.AuthorEmail,
+			AuthorExists:  r.AuthorExists,
+			IsOfficial:    r.IsOfficial,
 		}
 	}
 
 	return info, nil
+}
+
+// BatchGetRawItemsByID returns full raw items in one query. It is intended for
+// authenticated console surfaces that already own or are authorized to see the
+// corresponding broadcast; public feed delivery must use BatchGetRawItemInfo.
+func BatchGetRawItemsByID(db *gorm.DB, itemIDs []int64) (map[int64]RawItem, error) {
+	return batchGetRawItemsByID(db, itemIDs, false)
+}
+
+// BatchGetCompletedRawItemsByID is the public-read variant used to enrich
+// broadcast conversations. Retracted/in-flight items are omitted atomically by
+// the JOIN rather than checked in a later per-item query.
+func BatchGetCompletedRawItemsByID(db *gorm.DB, itemIDs []int64) (map[int64]RawItem, error) {
+	return batchGetRawItemsByID(db, itemIDs, true)
+}
+
+const consoleRawItemProjection = "r.item_id, r.author_agent_id, r.raw_content"
+
+func batchGetRawItemsByID(db *gorm.DB, itemIDs []int64, completedOnly bool) (map[int64]RawItem, error) {
+	if len(itemIDs) == 0 {
+		return map[int64]RawItem{}, nil
+	}
+	// Console enrichment only needs these columns. In particular, avoid
+	// selecting raw_notes and other potentially TOASTed payloads.
+	query := db.Table("raw_items AS r").Select(consoleRawItemProjection)
+	if completedOnly {
+		query = query.Joins("JOIN processed_items AS p ON p.item_id = r.item_id AND p.status = ?", StatusCompleted)
+	}
+	var rows []RawItem
+	if err := query.Where("r.item_id IN ?", itemIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int64]RawItem, len(rows))
+	for _, row := range rows {
+		out[row.ItemID] = row
+	}
+	return out, nil
 }
 
 // BatchGetReplyCountsByItemIDs returns a map of item_id → reply_count from the conversations table.

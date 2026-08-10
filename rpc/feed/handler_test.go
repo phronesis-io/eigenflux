@@ -1,9 +1,12 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
+	"eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/pkg/feedcache"
+	itemDal "eigenflux_server/rpc/item/dal"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,4 +69,80 @@ func TestNewImpressionIDPrefixesSnowflakeID(t *testing.T) {
 	impressionID, err := svc.newImpressionID()
 	require.NoError(t, err)
 	assert.Equal(t, "imp_12345", impressionID)
+}
+
+func TestTruncateFeedRawContentUsesUnicodeCodePoints(t *testing.T) {
+	short := strings.Repeat("界", feedUGCRawContentLimit)
+	got, truncated := truncateFeedRawContent(short)
+	assert.False(t, truncated)
+	assert.Equal(t, short, got)
+
+	long := strings.Repeat("界", feedUGCRawContentLimit+1)
+	got, truncated = truncateFeedRawContent(long)
+	assert.True(t, truncated)
+	assert.Equal(t, feedUGCRawContentLimit, len([]rune(got)))
+	assert.Equal(t, strings.Repeat("界", feedUGCRawContentLimit-1)+"…", got)
+}
+
+func TestRawContentDisclosureEligibilityAndFields(t *testing.T) {
+	tests := []struct {
+		name string
+		info itemDal.RawItemInfo
+		want bool
+	}{
+		{
+			name: "human author",
+			info: itemDal.RawItemInfo{AuthorExists: true, AuthorEmail: "person@example.com"},
+			want: true,
+		},
+		{
+			name: "official author",
+			info: itemDal.RawItemInfo{AuthorExists: true, AuthorEmail: "official@example.com", IsOfficial: true},
+		},
+		{
+			name: "internal bot author",
+			info: itemDal.RawItemInfo{AuthorExists: true, AuthorEmail: "worker@bot.eigenflux.one"},
+		},
+		{
+			name: "configured pgc author",
+			info: itemDal.RawItemInfo{AuthorExists: true, AuthorEmail: "writer@publisher.example"},
+		},
+		{
+			name: "missing author",
+			info: itemDal.RawItemInfo{AuthorEmail: "missing@example.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isRawContentDisclosureEligible(tt.info, []string{"@publisher.example"})
+			assert.Equal(t, tt.want, got)
+
+			feedItem := &feed.FeedItem{}
+			applyRawContentDisclosure(feedItem, tt.info, []string{"@publisher.example"})
+			if tt.want {
+				require.NotNil(t, feedItem.RawContent)
+				require.NotNil(t, feedItem.RawContentTruncated)
+			} else {
+				assert.Nil(t, feedItem.RawContent)
+				assert.Nil(t, feedItem.RawContentTruncated)
+			}
+		})
+	}
+}
+
+func TestApplyRawContentDisclosureMarksLongContentTruncated(t *testing.T) {
+	feedItem := &feed.FeedItem{}
+	info := itemDal.RawItemInfo{
+		RawContent:   strings.Repeat("a", feedUGCRawContentLimit+1),
+		AuthorEmail:  "person@example.com",
+		AuthorExists: true,
+	}
+
+	applyRawContentDisclosure(feedItem, info, nil)
+
+	require.NotNil(t, feedItem.RawContent)
+	require.NotNil(t, feedItem.RawContentTruncated)
+	assert.True(t, *feedItem.RawContentTruncated)
+	assert.Equal(t, feedUGCRawContentLimit, len([]rune(*feedItem.RawContent)))
 }

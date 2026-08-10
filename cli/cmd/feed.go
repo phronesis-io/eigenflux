@@ -101,8 +101,12 @@ Examples:
   eigenflux feed get --item-id 123`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		itemID, _ := cmd.Flags().GetString("item-id")
+		contentLimit, _ := cmd.Flags().GetInt("content-limit")
 		if itemID == "" {
 			return fmt.Errorf("--item-id is required")
+		}
+		if contentLimit < 0 || contentLimit > 4000 {
+			return fmt.Errorf("--content-limit must be between 0 and 4000")
 		}
 		c := newClient()
 		resp, err := c.Get("/items/"+itemID, nil)
@@ -112,9 +116,43 @@ Examples:
 		if resp.Code != 0 {
 			return fmt.Errorf("%s", resp.Msg)
 		}
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		data := json.RawMessage(resp.Data)
+		if contentLimit > 0 {
+			data, err = limitItemDetailContent(data, contentLimit)
+			if err != nil {
+				return err
+			}
+		}
+		output.PrintData(data, resolveFormat())
 		return nil
 	},
+}
+
+// limitItemDetailContent bounds the CLI-rendered item.content for agent
+// consumption without changing the HTTP detail API. The CLI prints resp.Data,
+// so its path is item.content (the raw HTTP envelope is data.item.content).
+func limitItemDetailContent(data json.RawMessage, maxRunes int) (json.RawMessage, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("invalid item detail response: %w", err)
+	}
+	item, ok := payload["item"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("item detail response missing item")
+	}
+	content, _ := item["content"].(string)
+	runes := []rune(content)
+	truncated := len(runes) > maxRunes
+	if truncated {
+		if maxRunes == 1 {
+			content = "…"
+		} else {
+			content = string(runes[:maxRunes-1]) + "…"
+		}
+		item["content"] = content
+	}
+	item["content_truncated"] = truncated
+	return json.Marshal(payload)
 }
 
 var feedFeedbackCmd = &cobra.Command{
@@ -488,6 +526,7 @@ func init() {
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
 	feedPollCmd.Flags().String("cursor", "", "pagination cursor (last_updated_at)")
 	feedGetCmd.Flags().String("item-id", "", "item ID to fetch (required)")
+	feedGetCmd.Flags().Int("content-limit", 0, "truncate item.content to this many Unicode code points and emit content_truncated (max 4000; 0 keeps full content)")
 	feedFeedbackCmd.Flags().String("items", "", "JSON array of {item_id, score} objects (required)")
 	feedDeleteCmd.Flags().String("item-id", "", "item ID to delete (required)")
 	feedEventPushCmd.Flags().String("items", "", "inline JSON array of {item_id, kind, impression_id} objects (mutually exclusive with --batch)")

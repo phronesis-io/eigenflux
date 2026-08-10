@@ -46,6 +46,7 @@ import (
 	"eigenflux_server/pkg/runtimeidentity"
 	"eigenflux_server/pkg/stats"
 	"eigenflux_server/pkg/tagnorm"
+	"eigenflux_server/pkg/validator"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
 
@@ -521,6 +522,16 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	itemIDs := make([]int64, 0, len(resp.Items))
+	for _, it := range resp.Items {
+		itemIDs = append(itemIDs, it.ItemId)
+	}
+	rawItems, err := itemdal.BatchGetRawItemsByID(db.DB, itemIDs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast content", nil)
+		return
+	}
+
 	items := make([]map[string]interface{}, 0, len(resp.Items))
 	for _, it := range resp.Items {
 		item := map[string]interface{}{
@@ -535,6 +546,9 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 			"praise_count":        it.Score_1Count + it.Score_2Count,
 			"created_at":          it.GetCreatedAt(),
 			"updated_at":          it.UpdatedAt,
+		}
+		if raw, found := rawItems[it.ItemId]; found {
+			item["raw_content"] = raw.RawContent
 		}
 		if it.Summary != nil {
 			item["summary"] = *it.Summary
@@ -568,6 +582,10 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 func Publish(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.PublishItemReq
 	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	if err := validator.ValidateBroadcastContent(req.Content); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
 	agentID, ok := currentAgentID(c)
@@ -686,6 +704,12 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		}
 		if it.Suggestion != nil {
 			item["suggestion"] = *it.Suggestion
+		}
+		if it.RawContent != nil {
+			item["raw_content"] = *it.RawContent
+		}
+		if it.RawContentTruncated != nil {
+			item["raw_content_truncated"] = *it.RawContentTruncated
 		}
 		items = append(items, item)
 	}
@@ -838,7 +862,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 
 	detail := map[string]interface{}{
 		"item_id":        strconv.FormatInt(item.ItemID, 10),
-		"status":          item.Status,
+		"status":         item.Status,
 		"broadcast_type": item.BroadcastType,
 		"domains":        []string{},
 		"keywords":       []string{},
@@ -1290,6 +1314,23 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	originIDs := make([]int64, 0, len(resp.Conversations))
+	originSeen := make(map[int64]struct{}, len(resp.Conversations))
+	for _, conv := range resp.Conversations {
+		if conv.GetOriginType() != "broadcast" || conv.OriginId == nil || *conv.OriginId == 0 {
+			continue
+		}
+		if _, exists := originSeen[*conv.OriginId]; !exists {
+			originSeen[*conv.OriginId] = struct{}{}
+			originIDs = append(originIDs, *conv.OriginId)
+		}
+	}
+	parentBroadcasts, err := itemdal.BatchGetCompletedRawItemsByID(db.DB, originIDs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load parent broadcasts", nil)
+		return
+	}
+
 	conversations := make([]map[string]interface{}, len(resp.Conversations))
 	for i, conv := range resp.Conversations {
 		m := map[string]interface{}{
@@ -1313,7 +1354,8 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			// Parent broadcast snippet + ownership for discussions on a broadcast.
 			// A retracted or missing item simply yields no snippet.
 			if conv.GetOriginType() == "broadcast" {
-				if raw, rerr := itemdal.GetRawItemByID(db.DB, *conv.OriginId); rerr == nil {
+				if raw, found := parentBroadcasts[*conv.OriginId]; found {
+					m["parent_raw_content"] = raw.RawContent
 					m["parent_snippet"] = runePreview(raw.RawContent, 1000)
 					m["my_post"] = raw.AuthorAgentID == agentID
 				}
@@ -2035,38 +2077,23 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		itemID int64
 	}
 
-	// Per-friend: latest broadcast (concurrent, one lightweight lookup each).
-	// The last direct message already rides on each FriendInfo (LastDm*), so no
-	// separate DM round trip is needed.
+	// Latest broadcasts for every friend in one query. The last direct message
+	// already rides on each FriendInfo, so no separate DM round trip is needed.
 	bcasts := make([]*recentEntry, len(resp.Friends))
-	rg, rgCtx := errgroup.WithContext(ctx)
+	friendIDs := make([]int64, len(resp.Friends))
 	for idx := range resp.Friends {
-		idx := idx
-		friendID := resp.Friends[idx].AgentId
-		rg.Go(func() error {
-			// Fetch a few and pick the latest NON-retracted broadcast — a retracted
-			// item has no viewable detail, so it shouldn't surface as the friend's
-			// "latest broadcast" (the drawer would otherwise hang / show nothing).
-			limit := int32(5)
-			ir, ierr := clients.ItemClient.GetMyItems(rgCtx, &itemrpc.GetMyItemsReq{AuthorAgentId: friendID, Limit: &limit})
-			if ierr != nil || ir.BaseResp == nil || ir.BaseResp.Code != 0 || len(ir.Items) == 0 {
-				return nil // non-fatal
-			}
-			for _, it := range ir.Items {
-				if it.GetRetracted() {
-					continue
-				}
-				text := it.RawContentPreview
-				if it.Summary != nil && *it.Summary != "" {
-					text = *it.Summary
-				}
-				bcasts[idx] = &recentEntry{typ: "broadcast", time: it.UpdatedAt, text: runePreview(text, 60), itemID: it.ItemId}
-				break
-			}
-			return nil
-		})
+		friendIDs[idx] = resp.Friends[idx].AgentId
 	}
-	_ = rg.Wait()
+	latestBroadcasts, latestErr := consoledal.LatestCompletedBroadcastsByAuthors(db.DB, friendIDs)
+	if latestErr != nil {
+		logger.Ctx(ctx).Warn("failed to load friends' latest broadcasts", "err", latestErr)
+	} else {
+		for idx, friendID := range friendIDs {
+			if row, found := latestBroadcasts[friendID]; found {
+				bcasts[idx] = &recentEntry{typ: "broadcast", time: row.CreatedAt, text: row.RawContent, itemID: row.ItemID}
+			}
+		}
+	}
 
 	// Merge: pick whichever (broadcast vs DM) is more recent.
 	for idx := range resp.Friends {

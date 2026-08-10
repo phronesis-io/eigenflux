@@ -89,6 +89,14 @@ func TestFeedProtocol(t *testing.T) {
 	seenURLs := make(map[string]bool)
 	for _, it := range items1 {
 		item := it.(map[string]interface{})
+		rawContent, hasRawContent := item["raw_content"].(string)
+		if !hasRawContent || rawContent == "" {
+			t.Errorf("UGC feed item missing raw_content: %#v", item)
+		}
+		truncated, hasTruncated := item["raw_content_truncated"].(bool)
+		if !hasTruncated || truncated {
+			t.Errorf("short UGC feed item should include raw_content_truncated=false: %#v", item)
+		}
 		if groupID, ok := item["group_id"].(string); ok && groupID != "" {
 			groupIDs1[groupID] = true
 		}

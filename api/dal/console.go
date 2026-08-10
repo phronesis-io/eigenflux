@@ -885,11 +885,46 @@ type TopBroadcastRow struct {
 	Summary       string `gorm:"column:summary"`
 	SummaryZh     string `gorm:"column:summary_zh"`
 	BroadcastType string `gorm:"column:broadcast_type"`
+	RawContent    string `gorm:"column:raw_content"`
 	PraiseCount   int64  `gorm:"column:praise_count"`
 	Reach         int64  `gorm:"column:reach"`
 	ShowAddFriend bool   `gorm:"column:show_add_friend"`
 	IsFriend      bool   `gorm:"column:is_friend"`
 }
+
+// The materialized ranking boundary ensures PostgreSQL only de-TOASTs raw
+// content for rows that survive LIMIT.
+const top7DayBroadcastsQuery = `
+		WITH ranked AS MATERIALIZED (
+			SELECT s.item_id,
+			       s.author_agent_id,
+			       COALESCE(a.agent_name, '')             AS agent_name,
+			       COALESCE(p.summary, '')                AS summary,
+			       COALESCE(p.summary_zh, '')             AS summary_zh,
+			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+			       (s.score_1_count + s.score_2_count)    AS praise_count,
+			       COALESCE(s.consumed_count, 0)          AS reach,
+			       COALESCE(st.show_add_friend, true)     AS show_add_friend,
+			       EXISTS (
+			           SELECT 1 FROM user_relations ur
+			            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
+			              AND ur.rel_type = 1
+			       )                                      AS is_friend
+			  FROM item_stats s
+			  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+			  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
+			  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
+			 WHERE s.created_at >= ?
+			   AND (s.score_1_count + s.score_2_count) > 0
+			   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+			   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
+			 ORDER BY praise_count DESC, s.item_id DESC
+			 LIMIT ?
+		)
+		SELECT ranked.*, r.raw_content
+		  FROM ranked
+		  JOIN raw_items r ON r.item_id = ranked.item_id
+		 ORDER BY ranked.praise_count DESC, ranked.item_id DESC`
 
 // Top7DayBroadcasts ranks individual broadcasts published since sinceMs
 // (item_stats.created_at = publish time) by found-helpful count
@@ -899,35 +934,45 @@ type TopBroadcastRow struct {
 // PGC/bot accounts are excluded so the board reflects genuine agent broadcasts.
 func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]TopBroadcastRow, error) {
 	var rows []TopBroadcastRow
-	err := db.Raw(`
-		SELECT s.item_id,
-		       s.author_agent_id,
-		       COALESCE(a.agent_name, '')             AS agent_name,
-		       COALESCE(p.summary, '')                AS summary,
-		       COALESCE(p.summary_zh, '')             AS summary_zh,
-		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
-		       (s.score_1_count + s.score_2_count)    AS praise_count,
-		       COALESCE(s.consumed_count, 0)          AS reach,
-		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
-		       EXISTS (
-		           SELECT 1 FROM user_relations ur
-		            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
-		              AND ur.rel_type = 1
-		       )                                      AS is_friend
-		  FROM item_stats s
-		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
-		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
-		  LEFT JOIN processed_items p ON p.item_id = s.item_id
-		 WHERE s.created_at >= ?
-		   AND (s.score_1_count + s.score_2_count) > 0
-		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
-		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
-		 ORDER BY praise_count DESC, s.item_id DESC
-		 LIMIT ?`,
+	err := db.Raw(top7DayBroadcastsQuery,
 		callerAgentID, sinceMs, limit,
 	).Scan(&rows).Error
 	return rows, err
 }
+
+// Keep the same de-TOAST boundary for the new-user ordering.
+const newUserBroadcastsQuery = `
+		WITH ranked AS MATERIALIZED (
+			SELECT s.item_id,
+			       s.author_agent_id,
+			       COALESCE(a.agent_name, '')             AS agent_name,
+			       COALESCE(p.summary, '')                AS summary,
+			       COALESCE(p.summary_zh, '')             AS summary_zh,
+			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
+			       (s.score_1_count + s.score_2_count)    AS praise_count,
+			       COALESCE(s.consumed_count, 0)          AS reach,
+			       COALESCE(st.show_add_friend, true)     AS show_add_friend,
+			       s.created_at                           AS published_at,
+			       EXISTS (
+			           SELECT 1 FROM user_relations ur
+			            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
+			              AND ur.rel_type = 1
+			       )                                      AS is_friend
+			  FROM item_stats s
+			  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+			  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
+			  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
+			 WHERE a.created_at >= ?
+			   AND (COALESCE(p.summary_zh, '') <> '' OR COALESCE(p.summary, '') <> '')
+			   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
+			   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
+			 ORDER BY s.created_at DESC, s.item_id DESC
+			 LIMIT ?
+		)
+		SELECT ranked.*, r.raw_content
+		  FROM ranked
+		  JOIN raw_items r ON r.item_id = ranked.item_id
+		 ORDER BY ranked.published_at DESC, ranked.item_id DESC`
 
 // NewUserBroadcasts lists broadcasts authored by newly-registered agents
 // (agents.created_at within the last `windowMs` milliseconds of `nowMs`),
@@ -938,31 +983,7 @@ func Top7DayBroadcasts(db *gorm.DB, sinceMs, callerAgentID int64, limit int) ([]
 // name, show_add_friend setting, and the caller's friendship are joined in.
 func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit int) ([]TopBroadcastRow, error) {
 	var rows []TopBroadcastRow
-	err := db.Raw(`
-		SELECT s.item_id,
-		       s.author_agent_id,
-		       COALESCE(a.agent_name, '')             AS agent_name,
-		       COALESCE(p.summary, '')                AS summary,
-		       COALESCE(p.summary_zh, '')             AS summary_zh,
-		       COALESCE(p.broadcast_type, '')         AS broadcast_type,
-		       (s.score_1_count + s.score_2_count)    AS praise_count,
-		       COALESCE(s.consumed_count, 0)          AS reach,
-		       COALESCE(st.show_add_friend, true)     AS show_add_friend,
-		       EXISTS (
-		           SELECT 1 FROM user_relations ur
-		            WHERE ur.from_uid = ? AND ur.to_uid = s.author_agent_id
-		              AND ur.rel_type = 1
-		       )                                      AS is_friend
-		  FROM item_stats s
-		  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
-		  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
-		  JOIN processed_items p      ON p.item_id = s.item_id
-		 WHERE a.created_at >= ?
-		   AND (COALESCE(p.summary_zh, '') <> '' OR COALESCE(p.summary, '') <> '')
-		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
-		   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
-		 ORDER BY s.created_at DESC, s.item_id DESC
-		 LIMIT ?`,
+	err := db.Raw(newUserBroadcastsQuery,
 		callerAgentID, nowMs-windowMs, limit,
 	).Scan(&rows).Error
 	return rows, err
@@ -1047,6 +1068,39 @@ func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, erro
 		callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID,
 	).Scan(&rows).Error
 	return rows, err
+}
+
+// LatestBroadcastRow is the newest completed broadcast for one author.
+type LatestBroadcastRow struct {
+	AuthorAgentID int64  `gorm:"column:author_agent_id"`
+	ItemID        int64  `gorm:"column:item_id"`
+	RawContent    string `gorm:"column:raw_content"`
+	CreatedAt     int64  `gorm:"column:created_at"`
+}
+
+// LatestCompletedBroadcastsByAuthors resolves every friend's latest visible
+// broadcast in one query. DISTINCT ON avoids the prior per-friend RPC fan-out.
+func LatestCompletedBroadcastsByAuthors(db *gorm.DB, authorIDs []int64) (map[int64]LatestBroadcastRow, error) {
+	if len(authorIDs) == 0 {
+		return map[int64]LatestBroadcastRow{}, nil
+	}
+	var rows []LatestBroadcastRow
+	err := db.Raw(`
+		SELECT DISTINCT ON (r.author_agent_id)
+		       r.author_agent_id, r.item_id, r.raw_content, r.created_at
+		  FROM raw_items r
+		  JOIN processed_items p ON p.item_id = r.item_id AND p.status = 3
+		 WHERE r.author_agent_id IN ?
+		 ORDER BY r.author_agent_id, r.created_at DESC, r.item_id DESC`, authorIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]LatestBroadcastRow, len(rows))
+	for _, row := range rows {
+		out[row.AuthorAgentID] = row
+	}
+	return out, nil
 }
 
 // RatedItem is a broadcast the caller has scored, with the caller's own score

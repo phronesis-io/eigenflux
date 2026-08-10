@@ -5176,13 +5176,15 @@ func (p *FeedReq) String() string {
 }
 
 type FeedItem struct {
-	ItemID        int64    `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required" query:"item_id,required"`
-	Summary       *string  `thrift:"summary,2,optional" form:"summary" json:"summary,omitempty" query:"summary"`
-	BroadcastType string   `thrift:"broadcast_type,3,required" form:"broadcast_type,required" json:"broadcast_type,required" query:"broadcast_type,required"`
-	Domains       []string `thrift:"domains,4,optional,list<string>" form:"domains" json:"domains,omitempty" query:"domains"`
-	SourceType    *string  `thrift:"source_type,5,optional" form:"source_type" json:"source_type,omitempty" query:"source_type"`
-	URL           *string  `thrift:"url,6,optional" form:"url" json:"url,omitempty" query:"url"`
-	UpdatedAt     int64    `thrift:"updated_at,7,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
+	ItemID              int64    `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required" query:"item_id,required"`
+	Summary             *string  `thrift:"summary,2,optional" form:"summary" json:"summary,omitempty" query:"summary"`
+	BroadcastType       string   `thrift:"broadcast_type,3,required" form:"broadcast_type,required" json:"broadcast_type,required" query:"broadcast_type,required"`
+	Domains             []string `thrift:"domains,4,optional,list<string>" form:"domains" json:"domains,omitempty" query:"domains"`
+	SourceType          *string  `thrift:"source_type,5,optional" form:"source_type" json:"source_type,omitempty" query:"source_type"`
+	URL                 *string  `thrift:"url,6,optional" form:"url" json:"url,omitempty" query:"url"`
+	UpdatedAt           int64    `thrift:"updated_at,7,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
+	RawContent          *string  `thrift:"raw_content,8,optional" form:"raw_content" json:"raw_content,omitempty" query:"raw_content"`
+	RawContentTruncated *bool    `thrift:"raw_content_truncated,9,optional" form:"raw_content_truncated" json:"raw_content_truncated,omitempty" query:"raw_content_truncated"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -5240,6 +5242,24 @@ func (p *FeedItem) GetUpdatedAt() (v int64) {
 	return p.UpdatedAt
 }
 
+var FeedItem_RawContent_DEFAULT string
+
+func (p *FeedItem) GetRawContent() (v string) {
+	if !p.IsSetRawContent() {
+		return FeedItem_RawContent_DEFAULT
+	}
+	return *p.RawContent
+}
+
+var FeedItem_RawContentTruncated_DEFAULT bool
+
+func (p *FeedItem) GetRawContentTruncated() (v bool) {
+	if !p.IsSetRawContentTruncated() {
+		return FeedItem_RawContentTruncated_DEFAULT
+	}
+	return *p.RawContentTruncated
+}
+
 var fieldIDToName_FeedItem = map[int16]string{
 	1: "item_id",
 	2: "summary",
@@ -5248,6 +5268,8 @@ var fieldIDToName_FeedItem = map[int16]string{
 	5: "source_type",
 	6: "url",
 	7: "updated_at",
+	8: "raw_content",
+	9: "raw_content_truncated",
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -5264,6 +5286,14 @@ func (p *FeedItem) IsSetSourceType() bool {
 
 func (p *FeedItem) IsSetURL() bool {
 	return p.URL != nil
+}
+
+func (p *FeedItem) IsSetRawContent() bool {
+	return p.RawContent != nil
+}
+
+func (p *FeedItem) IsSetRawContentTruncated() bool {
+	return p.RawContentTruncated != nil
 }
 
 func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
@@ -5344,6 +5374,22 @@ func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetUpdatedAt = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -5481,6 +5527,28 @@ func (p *FeedItem) ReadField7(iprot thrift.TProtocol) error {
 	p.UpdatedAt = _field
 	return nil
 }
+func (p *FeedItem) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RawContent = _field
+	return nil
+}
+func (p *FeedItem) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RawContentTruncated = _field
+	return nil
+}
 
 func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -5514,6 +5582,14 @@ func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
 			goto WriteFieldError
 		}
 	}
@@ -5667,6 +5743,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRawContent() {
+		if err = oprot.WriteFieldBegin("raw_content", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RawContent); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRawContentTruncated() {
+		if err = oprot.WriteFieldBegin("raw_content_truncated", thrift.BOOL, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.RawContentTruncated); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
 }
 
 func (p *FeedItem) String() string {

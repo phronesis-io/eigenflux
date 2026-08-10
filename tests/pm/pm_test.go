@@ -228,6 +228,9 @@ func TestPMFullFlow(t *testing.T) {
 			m := c.(map[string]interface{})
 			if m["conv_id"].(string) == convID {
 				found = true
+				if got := m["parent_raw_content"]; got != "mock content for PM test" {
+					t.Errorf("parent_raw_content=%v, want original broadcast", got)
+				}
 				if mc := int(m["msg_count"].(float64)); mc != 1 {
 					t.Errorf("unbroken conv msg_count=%d, want 1", mc)
 				}
@@ -293,6 +296,9 @@ func TestPMFullFlow(t *testing.T) {
 		conv := convs[0].(map[string]interface{})
 		if conv["conv_id"].(string) != convID {
 			t.Fatalf("expected conv_id=%s, got %s", convID, conv["conv_id"])
+		}
+		if got := conv["parent_raw_content"]; got != "mock content for PM test" {
+			t.Fatalf("parent_raw_content=%v, want original broadcast", got)
 		}
 		// Verify participant IDs are present
 		if conv["participant_a"] == nil || conv["participant_b"] == nil {

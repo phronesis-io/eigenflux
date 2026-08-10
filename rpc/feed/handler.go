@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/feedcache"
 	"eigenflux_server/pkg/impr"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/replaylog"
@@ -41,6 +42,35 @@ func NewFeedServiceImpl(cfg *config.Config, impressionIDGen interface {
 
 func int32Ptr(i int32) *int32 {
 	return &i
+}
+
+const feedUGCRawContentLimit = 1000
+
+func truncateFeedRawContent(content string) (string, bool) {
+	runes := []rune(content)
+	if len(runes) <= feedUGCRawContentLimit {
+		return content, false
+	}
+	return string(runes[:feedUGCRawContentLimit-1]) + "…", true
+}
+
+// isRawContentDisclosureEligible is deliberately narrower than sort's global
+// UGC/PGC content class. Raw-content disclosure fails closed for missing,
+// official, internal bot/PGC, and configured PGC authors.
+func isRawContentDisclosureEligible(info itemDal.RawItemInfo, pgcEmailSuffixes []string) bool {
+	if !info.AuthorExists || info.IsOfficial || invite.IsInternalEmail(info.AuthorEmail) {
+		return false
+	}
+	return !config.EmailMatchesAnySuffix(info.AuthorEmail, pgcEmailSuffixes)
+}
+
+func applyRawContentDisclosure(feedItem *feed.FeedItem, info itemDal.RawItemInfo, pgcEmailSuffixes []string) {
+	if !isRawContentDisclosureEligible(info, pgcEmailSuffixes) {
+		return
+	}
+	rawContent, truncated := truncateFeedRawContent(info.RawContent)
+	feedItem.RawContent = &rawContent
+	feedItem.RawContentTruncated = &truncated
 }
 
 func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq) (*feed.FetchFeedResp, error) {
@@ -392,6 +422,11 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 				rawURL := info.RawURL
 				feedItem.RawUrl = &rawURL
 			}
+			var pgcEmailSuffixes []string
+			if s.config != nil {
+				pgcEmailSuffixes = s.config.PGCEmailSuffixes
+			}
+			applyRawContentDisclosure(feedItem, info, pgcEmailSuffixes)
 		}
 
 		feedItems = append(feedItems, feedItem)

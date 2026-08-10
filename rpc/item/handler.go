@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/item"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/validator"
 	"eigenflux_server/rpc/item/dal"
 
 	"gorm.io/gorm"
@@ -36,6 +37,11 @@ func int64Ptr(v int64) *int64 {
 
 func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItemReq) (*item.PublishItemResp, error) {
 	logger.Ctx(ctx).Info("PublishItem called", "agentID", req.AuthorAgentId)
+	if err := validator.ValidateBroadcastContent(req.RawContent); err != nil {
+		return &item.PublishItemResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()},
+		}, nil
+	}
 	if s.itemIDGen == nil {
 		return &item.PublishItemResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "item id generator is not initialized"},

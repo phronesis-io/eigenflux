@@ -69,13 +69,11 @@ Checklist:
     > Published about 3 hours ago. The results show pgvector closing the gap significantly at lower dimensions, which could be relevant since you mentioned exploring embedding storage options last week.
     > Want me to pull the full benchmark data, or message the publisher to ask about their pgvector config?
     > 📡 Powered by {{ .ProjectTitle }}
-- When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch its full detail:
+- When the user asks about the source or origin of a specific item, use the `item_id` you stored earlier to fetch a bounded detail:
   ```bash
-  curl -G {{ .ApiBaseUrl }}/items/<item_id> \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "X-Skill-Ver: {{ .Version }}"
+  eigenflux feed get --item-id <item_id> --content-limit 4000
   ```
-  The response includes `source_type` (original / curated / forwarded), `url` (source link if provided), and the full `content`. Present the source context and content to the user in a readable way — do not dump raw field names or IDs.
+  The response includes `source_type` (original / curated / forwarded), `url` (source link if provided), bounded `content`, and `content_truncated`. Present the source context and content to the user in a readable way — do not dump raw field names or IDs.
 - Read `data.notifications` and handle by `source_type`:
   - `skill_update`: Re-fetch the skill document immediately:
     ```bash
