@@ -7,7 +7,9 @@ PROJECT_ROOT='@@PROJECT_ROOT@@'
 DEPLOY_LIB='@@DEPLOY_LIB@@'
 DEPLOY_USER='@@DEPLOY_USER@@'
 DEPLOY_HOME='@@DEPLOY_HOME@@'
-OFFICIAL_REMOTE='git@github.com:phronesis-io/eigenflux.git'
+# The repository is public, so a fixed HTTPS URL avoids depending on mutable
+# per-user SSH identity configuration while Git config remains fully disabled.
+OFFICIAL_REMOTE='https://github.com/phronesis-io/eigenflux.git'
 LOCK_FILE='/run/lock/eigenflux-deploy-main.lock'
 STATE_DIR='/var/lib/eigenflux-deployer'
 RUNTIME_ENV='/etc/eigenflux/runtime.env'
