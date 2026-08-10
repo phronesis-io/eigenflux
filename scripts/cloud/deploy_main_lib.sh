@@ -113,14 +113,16 @@ deploy_main_prepare_source() {
   local state_dir=$2
   local target=$3
   local runtime_env=$4
+  local deploy_user=$5
+  local deploy_home=$6
   local source_dir
 
   mkdir -p "${state_dir}/work"
   chmod 0755 "${state_dir}" "${state_dir}/work" || return 1
   source_dir="$(mktemp -d "${state_dir}/work/${target}.XXXXXX")" || return 1
   chmod 0755 "${source_dir}" || return 1
-  GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null \
-    GIT_NO_REPLACE_OBJECTS=1 git -C "${project_root}" archive "${target}" | \
+  deploy_main_git_as_user "${deploy_user}" "${deploy_home}" \
+    -C "${project_root}" archive "${target}" | \
     tar -x -C "${source_dir}" || return 1
   [[ -f "${runtime_env}" ]] || {
     echo "Root-managed runtime environment is missing: ${runtime_env}" >&2
@@ -200,7 +202,8 @@ deploy_main_run() {
 
   echo "Deploying ${target} from origin/main (${mode})."
   local source_dir release_dir
-  source_dir="$(deploy_main_prepare_source "${project_root}" "${state_dir}" "${target}" "${runtime_env}")" || return 1
+  source_dir="$(deploy_main_prepare_source "${project_root}" "${state_dir}" "${target}" \
+    "${runtime_env}" "${deploy_user}" "${deploy_home}")" || return 1
   bash "${source_dir}/scripts/common/build.sh" || return 1
   release_dir="$(deploy_main_stage_build "${source_dir}" "${state_dir}" "${target}" "${source_dir}")" || return 1
 
