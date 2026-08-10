@@ -687,6 +687,12 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.Suggestion != nil {
 			item["suggestion"] = *it.Suggestion
 		}
+		if it.RawContent != nil {
+			item["raw_content"] = *it.RawContent
+		}
+		if it.RawContentTruncated != nil {
+			item["raw_content_truncated"] = *it.RawContentTruncated
+		}
 		items = append(items, item)
 	}
 

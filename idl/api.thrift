@@ -138,6 +138,8 @@ struct FeedItem {
     5: optional string source_type
     6: optional string url
     7: required i64 updated_at
+    8: optional string raw_content
+    9: optional bool raw_content_truncated
 }
 
 struct FeedNotification {

@@ -9,21 +9,23 @@ import (
 )
 
 type FeedItem struct {
-	ItemId           int64    `thrift:"item_id,1,required" frugal:"1,required,i64" json:"item_id"`
-	Summary          *string  `thrift:"summary,2,optional" frugal:"2,optional,string" json:"summary,omitempty"`
-	BroadcastType    string   `thrift:"broadcast_type,3,required" frugal:"3,required,string" json:"broadcast_type"`
-	Domains          []string `thrift:"domains,4,optional" frugal:"4,optional,list<string>" json:"domains,omitempty"`
-	Keywords         []string `thrift:"keywords,5,optional" frugal:"5,optional,list<string>" json:"keywords,omitempty"`
-	ExpireTime       *string  `thrift:"expire_time,6,optional" frugal:"6,optional,string" json:"expire_time,omitempty"`
-	Geo              *string  `thrift:"geo,7,optional" frugal:"7,optional,string" json:"geo,omitempty"`
-	SourceType       *string  `thrift:"source_type,8,optional" frugal:"8,optional,string" json:"source_type,omitempty"`
-	ExpectedResponse *string  `thrift:"expected_response,9,optional" frugal:"9,optional,string" json:"expected_response,omitempty"`
-	GroupId          *int64   `thrift:"group_id,10,optional" frugal:"10,optional,i64" json:"group_id,omitempty"`
-	UpdatedAt        int64    `thrift:"updated_at,11,required" frugal:"11,required,i64" json:"updated_at"`
-	AuthorAgentId    *int64   `thrift:"author_agent_id,12,optional" frugal:"12,optional,i64" json:"author_agent_id,omitempty"`
-	RawUrl           *string  `thrift:"raw_url,13,optional" frugal:"13,optional,string" json:"raw_url,omitempty"`
-	Suggestion       *string  `thrift:"suggestion,14,optional" frugal:"14,optional,string" json:"suggestion,omitempty"`
-	AuthorRelation   *string  `thrift:"author_relation,15,optional" frugal:"15,optional,string" json:"author_relation,omitempty"`
+	ItemId              int64    `thrift:"item_id,1,required" frugal:"1,required,i64" json:"item_id"`
+	Summary             *string  `thrift:"summary,2,optional" frugal:"2,optional,string" json:"summary,omitempty"`
+	BroadcastType       string   `thrift:"broadcast_type,3,required" frugal:"3,required,string" json:"broadcast_type"`
+	Domains             []string `thrift:"domains,4,optional" frugal:"4,optional,list<string>" json:"domains,omitempty"`
+	Keywords            []string `thrift:"keywords,5,optional" frugal:"5,optional,list<string>" json:"keywords,omitempty"`
+	ExpireTime          *string  `thrift:"expire_time,6,optional" frugal:"6,optional,string" json:"expire_time,omitempty"`
+	Geo                 *string  `thrift:"geo,7,optional" frugal:"7,optional,string" json:"geo,omitempty"`
+	SourceType          *string  `thrift:"source_type,8,optional" frugal:"8,optional,string" json:"source_type,omitempty"`
+	ExpectedResponse    *string  `thrift:"expected_response,9,optional" frugal:"9,optional,string" json:"expected_response,omitempty"`
+	GroupId             *int64   `thrift:"group_id,10,optional" frugal:"10,optional,i64" json:"group_id,omitempty"`
+	UpdatedAt           int64    `thrift:"updated_at,11,required" frugal:"11,required,i64" json:"updated_at"`
+	AuthorAgentId       *int64   `thrift:"author_agent_id,12,optional" frugal:"12,optional,i64" json:"author_agent_id,omitempty"`
+	RawUrl              *string  `thrift:"raw_url,13,optional" frugal:"13,optional,string" json:"raw_url,omitempty"`
+	Suggestion          *string  `thrift:"suggestion,14,optional" frugal:"14,optional,string" json:"suggestion,omitempty"`
+	AuthorRelation      *string  `thrift:"author_relation,15,optional" frugal:"15,optional,string" json:"author_relation,omitempty"`
+	RawContent          *string  `thrift:"raw_content,16,optional" frugal:"16,optional,string" json:"raw_content,omitempty"`
+	RawContentTruncated *bool    `thrift:"raw_content_truncated,17,optional" frugal:"17,optional,bool" json:"raw_content_truncated,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -152,6 +154,24 @@ func (p *FeedItem) GetAuthorRelation() (v string) {
 	}
 	return *p.AuthorRelation
 }
+
+var FeedItem_RawContent_DEFAULT string
+
+func (p *FeedItem) GetRawContent() (v string) {
+	if !p.IsSetRawContent() {
+		return FeedItem_RawContent_DEFAULT
+	}
+	return *p.RawContent
+}
+
+var FeedItem_RawContentTruncated_DEFAULT bool
+
+func (p *FeedItem) GetRawContentTruncated() (v bool) {
+	if !p.IsSetRawContentTruncated() {
+		return FeedItem_RawContentTruncated_DEFAULT
+	}
+	return *p.RawContentTruncated
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -196,6 +216,12 @@ func (p *FeedItem) SetSuggestion(val *string) {
 }
 func (p *FeedItem) SetAuthorRelation(val *string) {
 	p.AuthorRelation = val
+}
+func (p *FeedItem) SetRawContent(val *string) {
+	p.RawContent = val
+}
+func (p *FeedItem) SetRawContentTruncated(val *bool) {
+	p.RawContentTruncated = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -246,6 +272,14 @@ func (p *FeedItem) IsSetAuthorRelation() bool {
 	return p.AuthorRelation != nil
 }
 
+func (p *FeedItem) IsSetRawContent() bool {
+	return p.RawContent != nil
+}
+
+func (p *FeedItem) IsSetRawContentTruncated() bool {
+	return p.RawContentTruncated != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -269,6 +303,8 @@ var fieldIDToName_FeedItem = map[int16]string{
 	13: "raw_url",
 	14: "suggestion",
 	15: "author_relation",
+	16: "raw_content",
+	17: "raw_content_truncated",
 }
 
 type FetchFeedReq struct {

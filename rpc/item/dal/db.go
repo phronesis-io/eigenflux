@@ -607,23 +607,36 @@ func GetItemsByGroupID(db *gorm.DB, groupID int64) ([]*ProcessedItem, error) {
 type RawItemInfo struct {
 	AuthorAgentID int64
 	RawURL        string // empty string when no URL was provided at publish time
+	RawContent    string
+	AuthorEmail   string
+	AuthorExists  bool
+	IsOfficial    bool
 }
 
-// BatchGetRawItemInfo retrieves author_agent_id and raw_url for multiple items.
+// BatchGetRawItemInfo retrieves raw item data and its author classification in
+// one query. Feed uses the classification to expose raw content only for UGC.
 func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, error) {
 	if len(itemIDs) == 0 {
 		return make(map[int64]RawItemInfo), nil
 	}
 
 	var results []struct {
-		ItemID        int64
-		AuthorAgentID int64
-		RawURL        string
+		ItemID        int64  `gorm:"column:item_id"`
+		AuthorAgentID int64  `gorm:"column:author_agent_id"`
+		RawURL        string `gorm:"column:raw_url"`
+		RawContent    string `gorm:"column:raw_content"`
+		AuthorEmail   string `gorm:"column:author_email"`
+		AuthorExists  bool   `gorm:"column:author_exists"`
+		IsOfficial    bool   `gorm:"column:is_official"`
 	}
 
-	err := db.Table("raw_items").
-		Select("item_id, author_agent_id, raw_url").
-		Where("item_id IN ?", itemIDs).
+	err := db.Table("raw_items AS r").
+		Select(`r.item_id, r.author_agent_id, r.raw_url, r.raw_content,
+		        COALESCE(a.email, '') AS author_email,
+		        a.agent_id IS NOT NULL AS author_exists,
+		        COALESCE(a.is_official, false) AS is_official`).
+		Joins("LEFT JOIN agents AS a ON a.agent_id = r.author_agent_id").
+		Where("r.item_id IN ?", itemIDs).
 		Find(&results).Error
 
 	if err != nil {
@@ -635,6 +648,10 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 		info[r.ItemID] = RawItemInfo{
 			AuthorAgentID: r.AuthorAgentID,
 			RawURL:        r.RawURL,
+			RawContent:    r.RawContent,
+			AuthorEmail:   r.AuthorEmail,
+			AuthorExists:  r.AuthorExists,
+			IsOfficial:    r.IsOfficial,
 		}
 	}
 

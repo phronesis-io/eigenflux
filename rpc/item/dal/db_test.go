@@ -31,12 +31,20 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	withoutURLID := int64(999900101)
 
 	db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?)", withURLID, withoutURLID)
+	db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", authorID)
 	t.Cleanup(func() {
 		db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?)", withURLID, withoutURLID)
+		db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", authorID)
 	})
+	if err := db.DB.Exec(
+		"INSERT INTO agents (agent_id, email, agent_name, created_at, updated_at) VALUES (?, 'raw-info@example.com', 'Raw Info', extract(epoch from now())::bigint, extract(epoch from now())::bigint)",
+		authorID,
+	).Error; err != nil {
+		t.Fatalf("insert author: %v", err)
+	}
 
 	if err := db.DB.Exec(
-		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, 'x', 'https://ex.test/a', extract(epoch from now())::bigint)",
+		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, 'full text', 'https://ex.test/a', extract(epoch from now())::bigint)",
 		withURLID, authorID,
 	).Error; err != nil {
 		t.Fatalf("insert with url: %v", err)
@@ -57,6 +65,9 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	}
 	if got[withURLID].AuthorAgentID != authorID || got[withURLID].RawURL != "https://ex.test/a" {
 		t.Errorf("with-url row wrong: %+v", got[withURLID])
+	}
+	if got[withURLID].RawContent != "full text" || got[withURLID].AuthorEmail != "raw-info@example.com" || !got[withURLID].AuthorExists || got[withURLID].IsOfficial {
+		t.Errorf("with-url enrichment wrong: %+v", got[withURLID])
 	}
 	if got[withoutURLID].AuthorAgentID != authorID || got[withoutURLID].RawURL != "" {
 		t.Errorf("without-url row wrong: %+v", got[withoutURLID])

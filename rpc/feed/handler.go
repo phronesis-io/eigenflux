@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/feedcache"
 	"eigenflux_server/pkg/impr"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/replaylog"
@@ -41,6 +42,23 @@ func NewFeedServiceImpl(cfg *config.Config, impressionIDGen interface {
 
 func int32Ptr(i int32) *int32 {
 	return &i
+}
+
+const feedUGCRawContentLimit = 1000
+
+func truncateFeedRawContent(content string) (string, bool) {
+	runes := []rune(content)
+	if len(runes) <= feedUGCRawContentLimit {
+		return content, false
+	}
+	return string(runes[:feedUGCRawContentLimit-1]) + "…", true
+}
+
+func isUGCRawContentAuthor(info itemDal.RawItemInfo, pgcEmailSuffixes []string) bool {
+	if !info.AuthorExists || info.IsOfficial || invite.IsInternalEmail(info.AuthorEmail) {
+		return false
+	}
+	return !config.EmailMatchesAnySuffix(info.AuthorEmail, pgcEmailSuffixes)
 }
 
 func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq) (*feed.FetchFeedResp, error) {
@@ -391,6 +409,15 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 			if info.RawURL != "" {
 				rawURL := info.RawURL
 				feedItem.RawUrl = &rawURL
+			}
+			var pgcEmailSuffixes []string
+			if s.config != nil {
+				pgcEmailSuffixes = s.config.PGCEmailSuffixes
+			}
+			if isUGCRawContentAuthor(info, pgcEmailSuffixes) {
+				rawContent, truncated := truncateFeedRawContent(info.RawContent)
+				feedItem.RawContent = &rawContent
+				feedItem.RawContentTruncated = &truncated
 			}
 		}
 

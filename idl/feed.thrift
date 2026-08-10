@@ -18,6 +18,8 @@ struct FeedItem {
     13: optional string raw_url
     14: optional string suggestion
     15: optional string author_relation
+    16: optional string raw_content
+    17: optional bool raw_content_truncated
 }
 
 struct FetchFeedReq {

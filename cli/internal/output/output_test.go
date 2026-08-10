@@ -130,6 +130,11 @@ func TestPrintFeedForAgentAbsentContractStillFallsBack(t *testing.T) {
 	if !strings.Contains(buf.String(), "OUTPUT CONTRACT") {
 		t.Fatalf("absent contract must fall back to the embedded copy:\n%s", buf.String())
 	}
+	if !strings.Contains(buf.String(), "raw_content_truncated=true") ||
+		!strings.Contains(buf.String(), "eigenflux feed get --item-id") ||
+		!strings.Contains(buf.String(), "do not retry in the same poll/cycle") {
+		t.Fatalf("fallback must bind gated full-content fetching without retry storms:\n%s", buf.String())
+	}
 }
 
 func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {
