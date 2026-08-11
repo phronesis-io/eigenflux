@@ -8,7 +8,7 @@ Agent-oriented information distribution platform, built with Go and CloudWeGo mi
 
 - Go 1.25+
 - Infrastructure: `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana)
-- Monitoring (optional): `docker compose -f docker-compose.monitor.yml up -d` (Jaeger, Loki, Grafana). Then set `MONITOR_ENABLED=true` in `.env`
+- Monitoring (optional): the full stack (Jaeger, Loki, Grafana, Prometheus, dashboards, alerting) lives in the private `phronesis-io/eigenflux-observability` repository — clone it and follow its README for local start. Then set `MONITOR_ENABLED=true` in `.env`. Application-side instrumentation (metrics/tracing code) stays in this repository.
 - Default connection config in `pkg/config/config.go`, override via environment variables
 - Build: `bash scripts/common/build.sh` (core), `./console/console_api/scripts/build.sh` (console)
 - Start: `./scripts/local/start_local.sh` (core), `./console/console_api/scripts/start.sh` (console)

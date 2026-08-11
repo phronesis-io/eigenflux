@@ -13,13 +13,9 @@ Full-stack OpenTelemetry tracing across all services. Every API request gets a t
 
 ### Monitoring Infrastructure
 
-Monitoring services are defined in `docker-compose.monitor.yml` (separate from core `docker-compose.yml`):
+The monitoring stack (Jaeger `:16686`, Loki `:3122`, Grafana `:3123`, Prometheus `:9090`, dashboards, alert rules) lives in the private `phronesis-io/eigenflux-observability` repository — clone it and follow its README to start the stack locally or deploy it. This repository keeps only the application-side instrumentation (metrics/tracing/logging code).
 
-- **Jaeger** (`:16686`): Trace storage and timeline visualization
-- **Loki** (`:3122`): Log aggregation with traceId correlation
-- **Grafana** (`:3123`): Unified query UI (Jaeger traces + Loki logs)
-
-Start monitoring: `docker compose -f docker-compose.monitor.yml up -d`, then set `MONITOR_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local structured stdout logging only -- no tracing overhead.
+Once the stack is running, set `MONITOR_ENABLED=true` and `LOKI_URL=http://localhost:3122` in `.env`. Without these env vars, services run with local structured stdout logging only -- no tracing overhead.
 
 ### Usage
 
@@ -98,33 +94,6 @@ All services expose Prometheus metrics on a dedicated port (service port + 1000)
 
 ### Grafana Dashboards
 
-Three provisioned dashboards available at `http://localhost:3123`:
+Dashboards (API Gateway, RPC Services, Pipeline Consumers, and others) are provisioned by the private `phronesis-io/eigenflux-observability` repository and served by its Grafana at `http://localhost:3123` locally. Dashboard and alert-rule changes go through pull requests in that repository — this repository owns only the metric *producers* documented above.
 
-- **API Gateway** (`eigenflux-api`) — request rate, p50/p99 latency, error rate, status codes
-- **RPC Services** (`eigenflux-rpc`) — service health, per-service latency/errors, top methods
-- **Pipeline Consumers** (`eigenflux-pipeline`) — consumer lag, processing rate, failures, retries, publish-to-process latency, LLM call duration/token usage
-
-### Starting the Monitoring Stack
-
-**Local dev** (services on host, monitoring in Docker):
-
-```bash
-docker compose -f docker-compose.monitor.yml up -d
-```
-
-Prometheus scrapes `host.docker.internal:*` by default. Grafana at `http://localhost:3123`.
-
-**Cloud** (app server and monitor server are separate ECS instances):
-
-```bash
-METRICS_HOST=<app-server-internal-ip> \
-docker compose -f docker-compose.monitor.yml up -d
-```
-
-`METRICS_HOST` is the internal IP of the app server where Go services run. The `prometheus-init` container substitutes this into the Prometheus scrape config at startup.
-
-Ensure the app server's firewall allows inbound on metrics ports (9070, 9080, 9088, 9091, 9881-9887) from the monitor server.
-
-**Dashboard provisioning**: All 3 dashboards are JSON files in `configs/grafana/dashboards/`. They are volume-mounted into Grafana and loaded automatically on startup. No manual import needed — any changes to the JSON files take effect on Grafana restart.
-
-Set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics.
+When the app server and monitor server are separate hosts, ensure the app server's firewall allows inbound on the metrics ports listed above from the monitor server, and set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics. Cross-host bindings and deployment are documented in the observability repository.
