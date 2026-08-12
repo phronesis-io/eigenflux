@@ -57,7 +57,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENABLE_OFFICIAL_WELCOME` | `true` | Master switch for the onboarding welcome consumer (friend + welcome PM) |
 | `OFFICIAL_WELCOME_WHITELIST` | (empty) | Comma-separated emails; when set, only these receive the welcome (staged rollout). Empty = everyone |
 | `OFFICIAL_PM_WHITELIST` | (empty) | Staged-rollout allowlist for the #4/#5 proactive official PMs. Empty = all friends |
-| `OFFICIAL_TEST_EMAIL_SUFFIXES` | (empty) | Comma-separated test-account matchers: `@domain` entries match by suffix, full addresses match exactly. Matching accounts bypass the welcome / PM staged-rollout whitelists and log in with `OFFICIAL_TEST_OTP` (no IP whitelist), so test bots can exercise the official account during a restricted rollout. Empty = disabled |
+| `OFFICIAL_TEST_EMAIL_SUFFIXES` | (empty) | Comma-separated test-account matchers: `@domain` entries match by suffix; other entries match the full address with shell-style glob syntax (`*`, `?`, `[0-9]`). Invalid patterns match nothing. Matching accounts log in with `OFFICIAL_TEST_OTP` without email delivery or an IP whitelist. Empty = disabled |
 | `OFFICIAL_TEST_OTP` | (empty) | Fixed login OTP for `OFFICIAL_TEST_EMAIL_SUFFIXES` accounts (no email sent, no IP whitelist). Empty = test-login path disabled. ⚠️ This is a sign-in backdoor for the matched accounts — prefer exact addresses on a domain you control, and never commit real values |
 | `ENABLE_OFFICIAL_TRENDING` | `true` | #5 biweekly network-wide trending DM cron |
 | `ENABLE_OFFICIAL_FEED_RESCUE` | `true` | #4 feed-deficit recommendation DM cron |

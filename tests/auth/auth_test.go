@@ -77,6 +77,7 @@ func TestAuthLoginFlow(t *testing.T) {
 		"auth_mock_start_bypass@test.com", "auth_mock_verify_bypass@test.com",
 		"auth_idempotent_wrongcode@test.com",
 		"auth_verify_cleanup@test.com", "auth_concurrent_race@test.com",
+		"kairui12@pgc.eigenflux.one",
 	}
 	testutil.CleanupTestEmails(t, allEmails...)
 
@@ -147,6 +148,34 @@ func TestAuthLoginFlow(t *testing.T) {
 		profile := agentData["profile"].(map[string]interface{})
 		if profile["email"].(string) != email {
 			t.Fatalf("expected email=%s, got %s", email, profile["email"])
+		}
+	})
+
+	t.Run("OfficialTestGlob_SkipsEmailAndUsesFixedOTP", func(t *testing.T) {
+		if !emailVerificationEnabled {
+			t.Skip("email verification is disabled")
+		}
+		testOTP := strings.TrimSpace(os.Getenv("OFFICIAL_TEST_OTP"))
+		if testOTP == "" {
+			t.Skip("OFFICIAL_TEST_OTP is not configured")
+		}
+		email := "kairui12@pgc.eigenflux.one"
+		if !config.EmailMatchesAnyPattern(email, config.Load().OfficialTestEmailSuffixes) {
+			t.Skip("OFFICIAL_TEST_EMAIL_SUFFIXES does not match the E2E test address")
+		}
+		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+
+		startResp := testutil.DoPost(t, "/api/v1/auth/login", map[string]string{
+			"login_method": "email",
+			"email":        email,
+		}, "")
+		if int(startResp["code"].(float64)) != 0 {
+			t.Fatalf("official test login start failed: code=%v msg=%v", startResp["code"], startResp["msg"])
+		}
+		challengeID := startResp["data"].(map[string]interface{})["challenge_id"].(string)
+		verifyResp := testutil.LoginVerifyOTP(t, challengeID, testOTP)
+		if int(verifyResp["code"].(float64)) != 0 {
+			t.Fatalf("official test fixed OTP failed: code=%v msg=%v", verifyResp["code"], verifyResp["msg"])
 		}
 	})
 

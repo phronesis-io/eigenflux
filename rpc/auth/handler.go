@@ -75,14 +75,14 @@ func (s *AuthServiceImpl) isMockOTPBypass(emailAddr, clientIP string) bool {
 }
 
 // isTestAccountEmail reports whether the email is a test account that logs in
-// with the fixed testOTP: "@domain" entries match by suffix, full addresses
-// match exactly. Unlike the mock path it requires no IP whitelist, so test
-// bots can sign in from anywhere. Empty testOTP disables it.
+// with the fixed testOTP: "@domain" entries match by suffix, while full-address
+// patterns support glob syntax. Unlike the mock path it requires no IP
+// whitelist, so test bots can sign in from anywhere. Empty testOTP disables it.
 func (s *AuthServiceImpl) isTestAccountEmail(emailAddr string) bool {
 	if s.testOTP == "" || len(s.testEmailSuffixes) == 0 {
 		return false
 	}
-	return config.EmailMatchesAnySuffix(emailAddr, s.testEmailSuffixes)
+	return config.EmailMatchesAnyPattern(emailAddr, s.testEmailSuffixes)
 }
 
 func (s *AuthServiceImpl) isOTPMatched(code string, challenge *dal.AuthEmailChallenge) bool {
@@ -395,10 +395,12 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		}, nil
 	}
 
-	// Send email on every call (skip for mock OTP targets). Reuse of the
-	// challenge does not suppress the email — the IP rate limit is the
-	// throttle.
-	if s.isMockOTPEmail(normalizedEmail) {
+	// Send email on every call except for fixed-OTP targets. Reuse of the
+	// challenge does not suppress normal email delivery — the IP rate limit is
+	// the throttle.
+	if s.isTestAccountEmail(normalizedEmail) {
+		logger.Ctx(ctx).Info("official test OTP target, skipping email send", "emailMasked", logger.MaskEmail(normalizedEmail), "clientIP", clientIP)
+	} else if s.isMockOTPEmail(normalizedEmail) {
 		if !mockBypass {
 			logger.Ctx(ctx).Warn("mock OTP email suffix matched but client IP not in whitelist, rejecting", "emailMasked", logger.MaskEmail(normalizedEmail), "clientIP", clientIP)
 			return &auth.StartLoginResp{
