@@ -189,6 +189,36 @@ func TestTestAccountOTP(t *testing.T) {
 		}
 	})
 
+	t.Run("glob_patterns_match_one_or_two_digits_only", func(t *testing.T) {
+		svc := &AuthServiceImpl{
+			testEmailSuffixes: []string{
+				"kairui[0-9]@pgc.eigenflux.one",
+				"kairui[1-9][0-9]@pgc.eigenflux.one",
+			},
+			testOTP: "111111",
+		}
+		for _, candidate := range []string{
+			"kairui1@pgc.eigenflux.one",
+			"kairui12@pgc.eigenflux.one",
+		} {
+			ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &candidate, ClientIP: &noIP}
+			if !svc.isOTPMatched("111111", ch) {
+				t.Fatalf("expected fixed test OTP to pass for %s", candidate)
+			}
+		}
+		for _, candidate := range []string{
+			"kairui@pgc.eigenflux.one",
+			"kairuia@pgc.eigenflux.one",
+			"kairui123@pgc.eigenflux.one",
+			"kairui09@pgc.eigenflux.one",
+		} {
+			ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &candidate, ClientIP: &noIP}
+			if svc.isOTPMatched("111111", ch) {
+				t.Fatalf("fixed test OTP must not pass for %s", candidate)
+			}
+		}
+	})
+
 	t.Run("non_test_email_unaffected", func(t *testing.T) {
 		realEmail := "real@gmail.com"
 		ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &realEmail, ClientIP: &noIP}

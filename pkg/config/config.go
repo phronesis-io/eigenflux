@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,7 +103,7 @@ type Config struct {
 	OfficialAgentBio             string   // persona/bio for the official account
 	OfficialWelcomeMessage       string   // welcome PM body sent to new users once their profile is complete
 	EnableOfficialWelcome        bool     // master switch for the onboarding welcome (friend + PM) behavior
-	OfficialTestEmailSuffixes    []string // test-account matchers for the login test-OTP path: "@domain" entries match by suffix, full-address entries match exactly; empty (default) disables
+	OfficialTestEmailSuffixes    []string // test-account matchers for the login test-OTP path: "@domain" entries match by suffix, full-address patterns support glob syntax; empty (default) disables
 	OfficialTestOTP              string   // fixed login OTP for test-account emails (matching OfficialTestEmailSuffixes); empty (default) disables the test-login path
 	EnableOfficialTrending       bool     // #5: biweekly network-wide trending DM
 	EnableOfficialFeedRescue     bool     // #4: feed-deficit topic-recommendation DM
@@ -475,11 +476,8 @@ func getEnvFloat(key string, fallback float64) float64 {
 // getEnvStringList parses a comma-separated env var into a string slice.
 // Each element is trimmed and lowercased. Empty elements are skipped.
 // EmailMatchesAnySuffix reports whether email matches any of the given
-// entries (case-insensitive). Entries starting with "@" match by suffix
-// (e.g. "@example.com"); entries containing a local part are full addresses
-// and must match exactly, so "bot1@example.com" cannot be hit by
-// "xbot1@example.com". Used for test-account matching in official-account
-// features and the login test-OTP path.
+// entries (case-insensitive). Entries starting with "@" match by suffix;
+// all other entries must match the full address exactly.
 func EmailMatchesAnySuffix(email string, suffixes []string) bool {
 	e := strings.ToLower(strings.TrimSpace(email))
 	if e == "" {
@@ -497,6 +495,35 @@ func EmailMatchesAnySuffix(email string, suffixes []string) bool {
 			continue
 		}
 		if e == s {
+			return true
+		}
+	}
+	return false
+}
+
+// EmailMatchesAnyPattern reports whether email matches any configured test
+// account pattern (case-insensitive). Entries starting with "@" retain the
+// domain-suffix behavior. Other entries are matched against the full address
+// using path.Match syntax, including *, ?, and character classes such as
+// [0-9]. Invalid patterns fail closed.
+func EmailMatchesAnyPattern(email string, patterns []string) bool {
+	e := strings.ToLower(strings.TrimSpace(email))
+	if e == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		if pattern == "" {
+			continue
+		}
+		if strings.HasPrefix(pattern, "@") {
+			if strings.HasSuffix(e, pattern) {
+				return true
+			}
+			continue
+		}
+		matched, err := path.Match(pattern, e)
+		if err == nil && matched {
 			return true
 		}
 	}

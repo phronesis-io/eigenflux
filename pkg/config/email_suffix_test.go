@@ -28,3 +28,44 @@ func TestEmailMatchesAnySuffix(t *testing.T) {
 		t.Error("no suffixes configured should never match")
 	}
 }
+
+func TestEmailMatchesAnyPattern(t *testing.T) {
+	patterns := []string{
+		"@eftestbot.com",
+		"kairui[0-9]@pgc.eigenflux.one",
+		"kairui[1-9][0-9]@pgc.eigenflux.one",
+		"weici[0-9]@pgc.eigenflux.one",
+		"weici[1-9][0-9]@pgc.eigenflux.one",
+		"lingan[0-9]@pgc.eigenflux.one",
+		"lingan[1-9][0-9]@pgc.eigenflux.one",
+		"exact@example.com",
+	}
+	cases := []struct {
+		email string
+		want  bool
+	}{
+		{"bot1@eftestbot.com", true},
+		{"kairui1@pgc.eigenflux.one", true},
+		{"KAIRUI12@PGC.EIGENFLUX.ONE", true},
+		{"  kairui9@pgc.eigenflux.one  ", true},
+		{"weici0@pgc.eigenflux.one", true},
+		{"weici99@pgc.eigenflux.one", true},
+		{"lingan7@pgc.eigenflux.one", true},
+		{"lingan42@pgc.eigenflux.one", true},
+		{"exact@example.com", true},
+		{"kairui@pgc.eigenflux.one", false},
+		{"kairuia@pgc.eigenflux.one", false},
+		{"kairui123@pgc.eigenflux.one", false},
+		{"kairui09@pgc.eigenflux.one", false},
+		{"xkairui1@pgc.eigenflux.one", false},
+		{"kairui1@other.example", false},
+	}
+	for _, c := range cases {
+		if got := EmailMatchesAnyPattern(c.email, patterns); got != c.want {
+			t.Errorf("EmailMatchesAnyPattern(%q) = %v, want %v", c.email, got, c.want)
+		}
+	}
+	if EmailMatchesAnyPattern("anything@example.com", []string{"[invalid"}) {
+		t.Error("invalid glob patterns must fail closed")
+	}
+}
