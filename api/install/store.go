@@ -249,15 +249,20 @@ func setXingtuCallbackCode(db *gorm.DB, ref, eventType string, code int) error {
 
 const oceanengineCallbackLease = time.Minute
 
-func oceanengineCallbackCols(eventType string) (codeCol, sentCol string) {
-	if eventType == oceanengineEventRegister {
-		return "oceanengine_cb_register_code", "oceanengine_cb_register_sent_at"
+func oceanengineCallbackCols(destination, eventType string) (codeCol, sentCol string) {
+	prefix := "oceanengine_h5"
+	if destination == oceanengineDestinationOmnichannel {
+		prefix = "oceanengine_omni"
 	}
-	return "oceanengine_cb_active_code", "oceanengine_cb_active_sent_at"
+	suffix := "form"
+	if eventType == oceanengineEventCustomerEffective {
+		suffix = "customer"
+	}
+	return prefix + "_" + suffix + "_code", prefix + "_" + suffix + "_sent_at"
 }
 
-func claimOceanengineCallback(db *gorm.DB, ref, eventType string) (bool, *Token, error) {
-	codeCol, sentCol := oceanengineCallbackCols(eventType)
+func claimOceanengineCallback(db *gorm.DB, ref, destination, eventType string) (bool, *Token, error) {
+	codeCol, sentCol := oceanengineCallbackCols(destination, eventType)
 	now := time.Now().UnixMilli()
 	cutoff := now - oceanengineCallbackLease.Milliseconds()
 	res := db.Model(&Token{}).Where(fmt.Sprintf("token = ? AND %s <> 0 AND oceanengine_click_id <> '' AND (%s = 0 OR %s < ?)", codeCol, sentCol, sentCol), ref, cutoff).Update(sentCol, now)
@@ -271,7 +276,7 @@ func claimOceanengineCallback(db *gorm.DB, ref, eventType string) (bool, *Token,
 	return true, &tok, nil
 }
 
-func setOceanengineCallbackCode(db *gorm.DB, ref, eventType string, code int) error {
-	codeCol, _ := oceanengineCallbackCols(eventType)
+func setOceanengineCallbackCode(db *gorm.DB, ref, destination, eventType string, code int) error {
+	codeCol, _ := oceanengineCallbackCols(destination, eventType)
 	return db.Model(&Token{}).Where("token = ?", ref).Update(codeCol, code).Error
 }
