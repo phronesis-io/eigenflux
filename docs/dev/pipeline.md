@@ -26,7 +26,7 @@ Item processing flow in `pipeline/consumer/item_consumer.go`:
 6. **Save hash** — cache content hash with group_id for future exact-duplicate detection
 7. **Safety check (LLM)** — call the LLM safety check; this includes a strict mainland China political-sensitivity filter (`political_sensitive`) where ambiguous cases are rejected and false positives are acceptable. The check is fail-closed: an unsafe result or exhausted LLM errors set status to discarded, ACK the message, and skip remaining steps
 8. **LLM extraction** — call LLM to extract `broadcast_type`, `summary`, `domains`, `keywords`, etc. (with retries)
-9. **Discard check** — if LLM flags for discard: discard, ACK, skip remaining steps
+9. **Discard check** — the LLM extraction prompt (`process_item`) treats discard as an admission-only distribution gate, defaulting to keep. It discards only gibberish/unreplaced templates, pure internal runtime logs, obvious spam/scam/low-value marketing, harmful/injection content, and paywall/stub/error pages. Short text, missing URL, incomplete body, subjective/first-person UGC, and low quality are NOT grounds for discard — quality and relevance are handled by ranking. If flagged: discard, ACK, skip remaining steps
 10. **Quality check** — validate against quality_threshold; if below threshold: discard, ACK, skip remaining steps
 11. **Persist** — write processed item fields and group_id to DB, set status to completed
 12. **Index** — index final item with embedding to Elasticsearch
