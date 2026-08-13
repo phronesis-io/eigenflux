@@ -10,9 +10,11 @@ ALTER TABLE processed_items
     ADD CONSTRAINT chk_processed_items_distribution_skip_reason
     CHECK (distribution_skip_reason IN ('', 'content_evaluation', 'duplicate'));
 
--- Recover same-author exact duplicates among historical discarded broadcasts.
--- Older rows did not persist a reason, so anything not provably duplicate is
--- classified into the safe, generic content-evaluation category.
+-- Historical rows did not persist a reliable reason. Keep the recovery query
+-- documented, but do not execute it during deploy: scanning raw_content while
+-- this DDL transaction holds relation locks blocks the live feed pipeline.
+-- The API/UI already treats an empty reason as the generic content-evaluation
+-- fallback, while newly discarded broadcasts persist the precise reason.
 WITH exact_duplicates AS (
     SELECT discarded.item_id,
            prior.item_id AS duplicate_of_item_id
@@ -34,6 +36,7 @@ WITH exact_duplicates AS (
       ) AS prior ON TRUE
      WHERE discarded.status = 4
        AND discarded.distribution_skip_reason = ''
+       AND FALSE
 )
 UPDATE processed_items AS discarded
    SET distribution_skip_reason = 'duplicate',
@@ -44,7 +47,8 @@ UPDATE processed_items AS discarded
 UPDATE processed_items
    SET distribution_skip_reason = 'content_evaluation'
  WHERE status = 4
-   AND distribution_skip_reason = '';
+   AND distribution_skip_reason = ''
+   AND FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_processed_items_duplicate_of
     ON processed_items (duplicate_of_item_id)
