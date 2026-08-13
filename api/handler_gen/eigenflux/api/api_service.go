@@ -539,6 +539,11 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast content", nil)
 		return
 	}
+	skipMetadata, err := itemdal.BatchGetDistributionSkipMetadata(db.DB, itemIDs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast distribution status", nil)
+		return
+	}
 
 	items := make([]map[string]interface{}, 0, len(resp.Items))
 	for _, it := range resp.Items {
@@ -557,6 +562,19 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		}
 		if raw, found := rawItems[it.ItemId]; found {
 			item["raw_content"] = raw.RawContent
+		}
+		if metadata, found := skipMetadata[it.ItemId]; found {
+			item["status"] = metadata.Status
+			if metadata.Status == itemdal.StatusDiscarded {
+				reason := metadata.DistributionSkipReason
+				if reason == "" {
+					reason = itemdal.DistributionSkipContentEvaluation
+				}
+				item["distribution_skip_reason"] = reason
+				if metadata.DuplicateOfItemID != nil {
+					item["duplicate_of_item_id"] = strconv.FormatInt(*metadata.DuplicateOfItemID, 10)
+				}
+			}
 		}
 		if it.Summary != nil {
 			item["summary"] = *it.Summary
@@ -907,6 +925,22 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	}
 	if item.Suggestion != "" {
 		detail["suggestion"] = item.Suggestion
+	}
+	if item.Status == itemdal.StatusDiscarded {
+		skipReason := itemdal.DistributionSkipContentEvaluation
+		if item.DistributionSkipReason == itemdal.DistributionSkipDuplicate && item.DuplicateOfItemID != nil {
+			if ref, refErr := itemdal.GetOwnDuplicateBroadcastReference(db.DB, *item.DuplicateOfItemID, agentID); refErr == nil {
+				skipReason = itemdal.DistributionSkipDuplicate
+				detail["duplicate_of"] = map[string]interface{}{
+					"item_id":    strconv.FormatInt(ref.ItemID, 10),
+					"created_at": ref.CreatedAt,
+					"title":      ref.Title,
+				}
+			} else {
+				logger.Ctx(ctx).Warn("GetItem failed to load duplicate broadcast reference", "itemID", item.ItemID, "duplicateOfItemID", *item.DuplicateOfItemID, "err", refErr)
+			}
+		}
+		detail["distribution_skip_reason"] = skipReason
 	}
 
 	// Interaction details (who scored this broadcast, with what score and when)

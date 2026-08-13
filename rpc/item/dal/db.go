@@ -1,6 +1,7 @@
 package dal
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -19,23 +20,25 @@ type RawItem struct {
 func (RawItem) TableName() string { return "raw_items" }
 
 type ProcessedItem struct {
-	ItemID           int64   `gorm:"column:item_id;primaryKey"`
-	Status           int16   `gorm:"column:status;type:smallint;not null;default:0"`
-	Summary          string  `gorm:"column:summary;type:text;default:null"`
-	SummaryZh        string  `gorm:"column:summary_zh;type:text;default:null"`
-	BroadcastType    string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
-	Domains          string  `gorm:"column:domains;type:text;default:null"`
-	Keywords         string  `gorm:"column:keywords;type:text;default:null"`
-	ExpireTime       string  `gorm:"column:expire_time;type:varchar(100);default:null"`
-	Geo              string  `gorm:"column:geo;type:varchar(200);default:null"`
-	SourceType       string  `gorm:"column:source_type;type:varchar(50);default:null"`
-	ExpectedResponse string  `gorm:"column:expected_response;type:text;default:null"`
-	GroupID          int64   `gorm:"column:group_id;type:bigint;default:null"`
-	QualityScore     float64 `gorm:"column:quality_score;type:real;default:null"`
-	Lang             string  `gorm:"column:lang;type:varchar(10);default:null"`
-	Timeliness       string  `gorm:"column:timeliness;type:varchar(20);default:null"`
-	Suggestion       string  `gorm:"column:suggestion;type:text;default:null"`
-	UpdatedAt        int64   `gorm:"column:updated_at;not null"`
+	ItemID                 int64   `gorm:"column:item_id;primaryKey"`
+	Status                 int16   `gorm:"column:status;type:smallint;not null;default:0"`
+	DistributionSkipReason string  `gorm:"column:distribution_skip_reason;type:varchar(32);not null;default:''"`
+	DuplicateOfItemID      *int64  `gorm:"column:duplicate_of_item_id;type:bigint"`
+	Summary                string  `gorm:"column:summary;type:text;default:null"`
+	SummaryZh              string  `gorm:"column:summary_zh;type:text;default:null"`
+	BroadcastType          string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
+	Domains                string  `gorm:"column:domains;type:text;default:null"`
+	Keywords               string  `gorm:"column:keywords;type:text;default:null"`
+	ExpireTime             string  `gorm:"column:expire_time;type:varchar(100);default:null"`
+	Geo                    string  `gorm:"column:geo;type:varchar(200);default:null"`
+	SourceType             string  `gorm:"column:source_type;type:varchar(50);default:null"`
+	ExpectedResponse       string  `gorm:"column:expected_response;type:text;default:null"`
+	GroupID                int64   `gorm:"column:group_id;type:bigint;default:null"`
+	QualityScore           float64 `gorm:"column:quality_score;type:real;default:null"`
+	Lang                   string  `gorm:"column:lang;type:varchar(10);default:null"`
+	Timeliness             string  `gorm:"column:timeliness;type:varchar(20);default:null"`
+	Suggestion             string  `gorm:"column:suggestion;type:text;default:null"`
+	UpdatedAt              int64   `gorm:"column:updated_at;not null"`
 }
 
 func (ProcessedItem) TableName() string { return "processed_items" }
@@ -48,6 +51,9 @@ const (
 	StatusCompleted  int16 = 3
 	StatusDiscarded  int16 = 4
 	StatusDeleted    int16 = 5
+
+	DistributionSkipContentEvaluation = "content_evaluation"
+	DistributionSkipDuplicate         = "duplicate"
 )
 
 // type ItemStats struct {
@@ -165,6 +171,89 @@ func UpdateProcessedItemStatus(db *gorm.DB, itemID int64, status int16) error {
 		"status":     status,
 		"updated_at": time.Now().UnixMilli(),
 	}).Error
+}
+
+// MarkItemDistributionSkipped records the stable, user-facing category for a
+// broadcast that never entered distribution. Detailed internal moderation and
+// safety reasons deliberately stay private.
+func MarkItemDistributionSkipped(db *gorm.DB, itemID int64, reason string, duplicateOfItemID *int64) error {
+	return db.Model(&ProcessedItem{}).Where("item_id = ? AND status != ?", itemID, StatusDeleted).Updates(map[string]interface{}{
+		"status":                   StatusDiscarded,
+		"distribution_skip_reason": reason,
+		"duplicate_of_item_id":     duplicateOfItemID,
+		"updated_at":               time.Now().UnixMilli(),
+	}).Error
+}
+
+type DuplicateBroadcastReference struct {
+	ItemID    int64  `gorm:"column:item_id"`
+	CreatedAt int64  `gorm:"column:created_at"`
+	Title     string `gorm:"column:title"`
+}
+
+// FindPriorBroadcastInGroup finds a completed broadcast from the same author.
+// The author constraint is what makes Dashboard copy such as "one you sent"
+// truthful; a matching group owned by somebody else is not exposed.
+func FindPriorBroadcastInGroup(db *gorm.DB, authorAgentID, groupID, currentItemID int64) (*DuplicateBroadcastReference, error) {
+	var ref DuplicateBroadcastReference
+	err := db.Table("processed_items AS p").
+		Select("p.item_id, r.created_at, COALESCE(NULLIF(p.summary, ''), r.raw_content) AS title").
+		Joins("JOIN raw_items AS r ON r.item_id = p.item_id").
+		Where("r.author_agent_id = ? AND p.group_id = ? AND p.item_id != ? AND p.status = ?", authorAgentID, groupID, currentItemID, StatusCompleted).
+		Order("r.created_at DESC, p.item_id DESC").
+		First(&ref).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	ref.Title = compactBroadcastTitle(ref.Title, 80)
+	return &ref, err
+}
+
+// GetOwnDuplicateBroadcastReference resolves a stored duplicate reference only
+// when it belongs to the same author as the skipped broadcast.
+func GetOwnDuplicateBroadcastReference(db *gorm.DB, itemID, authorAgentID int64) (*DuplicateBroadcastReference, error) {
+	var ref DuplicateBroadcastReference
+	err := db.Table("processed_items AS p").
+		Select("p.item_id, r.created_at, COALESCE(NULLIF(p.summary, ''), r.raw_content) AS title").
+		Joins("JOIN raw_items AS r ON r.item_id = p.item_id").
+		Where("p.item_id = ? AND r.author_agent_id = ?", itemID, authorAgentID).
+		First(&ref).Error
+	ref.Title = compactBroadcastTitle(ref.Title, 80)
+	return &ref, err
+}
+
+func compactBroadcastTitle(raw string, maxRunes int) string {
+	title := strings.Join(strings.Fields(raw), " ")
+	runes := []rune(title)
+	if maxRunes > 0 && len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "…"
+	}
+	return title
+}
+
+type DistributionSkipMetadata struct {
+	ItemID                 int64  `gorm:"column:item_id"`
+	Status                 int16  `gorm:"column:status"`
+	DistributionSkipReason string `gorm:"column:distribution_skip_reason"`
+	DuplicateOfItemID      *int64 `gorm:"column:duplicate_of_item_id"`
+}
+
+func BatchGetDistributionSkipMetadata(db *gorm.DB, itemIDs []int64) (map[int64]DistributionSkipMetadata, error) {
+	result := make(map[int64]DistributionSkipMetadata, len(itemIDs))
+	if len(itemIDs) == 0 {
+		return result, nil
+	}
+	var rows []DistributionSkipMetadata
+	if err := db.Table("processed_items").
+		Select("item_id, status, distribution_skip_reason, duplicate_of_item_id").
+		Where("item_id IN ?", itemIDs).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.ItemID] = row
+	}
+	return result, nil
 }
 
 func BatchGetProcessedItems(db *gorm.DB, itemIDs []int64) ([]*ProcessedItem, error) {

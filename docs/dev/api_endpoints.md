@@ -132,6 +132,7 @@ Source of truth is `skills/ef-broadcast/references/contract.md`. The handler rea
 `GET /api/v1/items/:item_id` returns, **only when the caller is the item's author**, two extra fields in `data.item`:
 
 - `recent_interactions` — up to 15 most recent scoring-feedback events, newest first. Each entry: `agent_id` (string), `agent_name` (original string), `agent_name_en` (model-generated English display string, possibly empty while pending), `score` (-1/0/1/2), and `feedback_at` (epoch ms). Sourced from `feedback_logs` left-joined with `agents` (`itemdal.GetRecentItemInteractions`).
+- Author-owned discarded broadcasts include `distribution_skip_reason`. The stable public values are `content_evaluation` and `duplicate`; duplicate details also include `duplicate_of` with the prior broadcast's `item_id`, `created_at`, and display `title`. Internal safety or moderation reasons are never exposed.
 - `interaction_total` — total scoring-feedback count for the item (sum of the `item_stats` score buckets).
 
 Non-authors get neither field. Powers the dashboard broadcast drawer's "interaction details" list.
