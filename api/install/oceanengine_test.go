@@ -17,6 +17,16 @@ func TestNormalizeOceanengineClickID(t *testing.T) {
 	}
 }
 
+func TestOceanengineEventTimestamp(t *testing.T) {
+	tok := &Token{CopiedAt: 1604888786102, ReportedAt: 1604888888000}
+	if got := oceanengineEventTimestamp(tok, oceanengineEventActive); got != tok.CopiedAt {
+		t.Fatalf("active timestamp = %d, want %d", got, tok.CopiedAt)
+	}
+	if got := oceanengineEventTimestamp(tok, oceanengineEventRegister); got != tok.ReportedAt {
+		t.Fatalf("active_register timestamp = %d, want %d", got, tok.ReportedAt)
+	}
+}
+
 func TestReportOceanengineConversion(t *testing.T) {
 	var method, contentType string
 	var payload struct {

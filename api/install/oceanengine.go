@@ -55,7 +55,8 @@ func fireOceanengineCallback(ref, eventType string) {
 		if !won || tok.OceanengineClickID == "" {
 			return
 		}
-		code, err := reportOceanengineConversion(tok.OceanengineClickID, eventType, time.Now().UnixMilli())
+		timestamp := oceanengineEventTimestamp(tok, eventType)
+		code, err := reportOceanengineConversion(tok.OceanengineClickID, eventType, timestamp)
 		if err != nil {
 			logger.Default().Error("oceanengine callback failed", "ref", ref, "event_type", eventType, "code", code, "err", err)
 		}
@@ -66,6 +67,13 @@ func fireOceanengineCallback(ref, eventType string) {
 			event("install_callback_oceanengine", ref, "channel", tok.Channel, "event_type", eventType)
 		}
 	}()
+}
+
+func oceanengineEventTimestamp(tok *Token, eventType string) int64 {
+	if eventType == oceanengineEventRegister {
+		return tok.ReportedAt
+	}
+	return tok.CopiedAt
 }
 
 func reportOceanengineConversion(clickID, eventType string, timestamp int64) (int, error) {
