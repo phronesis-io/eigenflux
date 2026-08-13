@@ -24,6 +24,7 @@ func agentNameModelServer(t *testing.T, output string) *httptest.Server {
 		input, _ := request["input"].(string)
 		require.Contains(t, input, "<agent_name>信号狐</agent_name>")
 		require.Contains(t, input, "untrusted data")
+		require.Contains(t, input, "zero Han, Hiragana, Katakana, or Hangul characters")
 		_, hasReasoning := request["reasoning"]
 		require.False(t, hasReasoning)
 
