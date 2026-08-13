@@ -12,6 +12,7 @@ type Agent struct {
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
 	Email              string `gorm:"column:email;type:varchar(255);not null;unique"`
 	AgentName          string `gorm:"column:agent_name;type:varchar(100);not null"`
+	AgentNameEn        string `gorm:"column:agent_name_en;type:varchar(100);not null;default:''"`
 	Bio                string `gorm:"column:bio;type:text"`
 	CreatedAt          int64  `gorm:"column:created_at;not null"`
 	UpdatedAt          int64  `gorm:"column:updated_at;not null"`
@@ -98,6 +99,11 @@ func GetAgentByEmail(db *gorm.DB, email string) (*Agent, error) {
 func UpdateAgentFields(db *gorm.DB, agentID int64, updates map[string]interface{}) error {
 	updates["updated_at"] = time.Now().UnixMilli()
 	return db.Model(&Agent{}).Where("agent_id = ?", agentID).Updates(updates).Error
+}
+
+func UpdateAgentEnglishName(db *gorm.DB, agentID int64, originalName, englishName string) error {
+	return db.Model(&Agent{}).Where("agent_id = ? AND agent_name = ? AND agent_name_en = ''", agentID, originalName).
+		Update("agent_name_en", englishName).Error
 }
 
 func GetAgentProfile(db *gorm.DB, agentID int64) (*AgentProfile, error) {

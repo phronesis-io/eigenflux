@@ -29,6 +29,7 @@ const (
 
 type ProfileConsumer struct {
 	llmClient       *llm.Client
+	nameLLMClient   *llm.Client
 	embeddingClient *embedding.Client
 	profileCache    *cache.ProfileCache
 	embeddingCache  *cache.EmbeddingCache
@@ -36,8 +37,10 @@ type ProfileConsumer struct {
 }
 
 func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ProfileConsumer {
+	llmClient := llm.NewClient(cfg, prompts)
 	c := &ProfileConsumer{
-		llmClient:       llm.NewClient(cfg, prompts),
+		llmClient:       llmClient,
+		nameLLMClient:   llmClient.WithModel(cfg.LLMTranslateModel).WithReasoningOff(),
 		embeddingClient: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		profileCache:    cache.NewProfileCache(mq.RDB, time.Duration(cfg.ProfileCacheTTL)*time.Second),
 		embeddingCache:  cache.NewEmbeddingCache(mq.RDB, 24*time.Hour),
@@ -91,6 +94,27 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 		logger.Default().Warn("ProfileConsumer agent not found", "agentID", agentID, "err", err)
 		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
 		return HandleFailure
+	}
+
+	if agent.AgentNameEn == "" && agent.AgentName != "" {
+		var englishName string
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			englishName, err = c.nameLLMClient.TranslateAgentNameToEnglish(ctx, agent.AgentName)
+			if err == nil {
+				break
+			}
+			logger.Default().Warn("ProfileConsumer agent-name translation failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		if err != nil {
+			logger.Default().Error("ProfileConsumer agent-name translation exhausted retries", "agentID", agentID, "err", err)
+			return HandleRetry
+		}
+		if err := dal.UpdateAgentEnglishName(db.DB, agentID, agent.AgentName, englishName); err != nil {
+			logger.Default().Error("ProfileConsumer failed to persist English agent name", "agentID", agentID, "err", err)
+			return HandleRetry
+		}
+		logger.Default().Info("ProfileConsumer English agent name updated", "agentID", agentID)
 	}
 
 	if agent.Bio == "" {

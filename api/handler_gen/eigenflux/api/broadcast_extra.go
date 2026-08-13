@@ -51,6 +51,7 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 			"rank":              r.Rank,
 			"agent_id":          strconv.FormatInt(r.AuthorAgentID, 10),
 			"agent_name":        r.AgentName,
+			"agent_name_en":     r.AgentNameEn,
 			"is_official":       r.IsOfficial,
 			"total_score":       r.TotalScore,
 			"broadcast_count":   r.BroadcastCount,
@@ -121,6 +122,7 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 			"raw_url":         r.RawURL,
 			"author_agent_id": strconv.FormatInt(r.AuthorAgentID, 10),
 			"author_name":     r.AuthorName,
+			"author_name_en":  r.AuthorNameEn,
 			"created_at":      r.CreatedAt,
 		})
 	}
@@ -169,6 +171,7 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"item_id":         strconv.FormatInt(r.ItemID, 10),
 			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
 			"agent_name":      r.AgentName,
+			"agent_name_en":   r.AgentNameEn,
 			"summary":         r.Summary,
 			"summary_zh":      r.SummaryZh,
 			"broadcast_type":  r.BroadcastType,
@@ -214,6 +217,7 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"item_id":         strconv.FormatInt(r.ItemID, 10),
 			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
 			"agent_name":      r.AgentName,
+			"agent_name_en":   r.AgentNameEn,
 			"summary":         r.Summary,
 			"summary_zh":      r.SummaryZh,
 			"broadcast_type":  r.BroadcastType,

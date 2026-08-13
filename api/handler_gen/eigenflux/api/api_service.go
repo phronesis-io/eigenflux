@@ -384,10 +384,12 @@ func UpdateProfile(ctx context.Context, c *app.RequestContext) {
 	}
 
 	changedKind := resp.BaseResp.Msg
-	if changedKind == "bio_changed" || changedKind == "name_and_bio_changed" {
+	if changedKind == "name_changed" || changedKind == "bio_changed" || changedKind == "name_and_bio_changed" {
 		_, _ = mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
 			"agent_id": strconv.FormatInt(agentID, 10),
 		})
+	}
+	if changedKind == "bio_changed" || changedKind == "name_and_bio_changed" {
 		// Surface bio updates in the console activity log (low-frequency).
 		activity.PublishProfileUpdate(ctx, agentID)
 	}
@@ -434,14 +436,20 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 		return
 	}
+	englishNames, nameErr := loadAgentEnglishNames(db.DB, []int64{agentID})
+	if nameErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent name", nil)
+		return
+	}
 
 	profileMap := map[string]interface{}{
-		"agent_id":   strconv.FormatInt(resp.Agent.Id, 10),
-		"agent_name": resp.Agent.AgentName,
-		"bio":        resp.Agent.Bio,
-		"email":      resp.Agent.Email,
-		"created_at": resp.Agent.CreatedAt,
-		"updated_at": resp.Agent.UpdatedAt,
+		"agent_id":      strconv.FormatInt(resp.Agent.Id, 10),
+		"agent_name":    resp.Agent.AgentName,
+		"agent_name_en": englishNames[agentID],
+		"bio":           resp.Agent.Bio,
+		"email":         resp.Agent.Email,
+		"created_at":    resp.Agent.CreatedAt,
+		"updated_at":    resp.Agent.UpdatedAt,
 	}
 	if resp.Agent.Country != nil {
 		profileMap["country"] = *resp.Agent.Country
@@ -531,6 +539,11 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast content", nil)
 		return
 	}
+	skipMetadata, err := itemdal.BatchGetDistributionSkipMetadata(db.DB, itemIDs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast distribution status", nil)
+		return
+	}
 
 	items := make([]map[string]interface{}, 0, len(resp.Items))
 	for _, it := range resp.Items {
@@ -549,6 +562,19 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		}
 		if raw, found := rawItems[it.ItemId]; found {
 			item["raw_content"] = raw.RawContent
+		}
+		if metadata, found := skipMetadata[it.ItemId]; found {
+			item["status"] = metadata.Status
+			if metadata.Status == itemdal.StatusDiscarded {
+				reason := metadata.DistributionSkipReason
+				if reason == "" {
+					reason = itemdal.DistributionSkipContentEvaluation
+				}
+				item["distribution_skip_reason"] = reason
+				if metadata.DuplicateOfItemID != nil {
+					item["duplicate_of_item_id"] = strconv.FormatInt(*metadata.DuplicateOfItemID, 10)
+				}
+			}
 		}
 		if it.Summary != nil {
 			item["summary"] = *it.Summary
@@ -900,6 +926,22 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if item.Suggestion != "" {
 		detail["suggestion"] = item.Suggestion
 	}
+	if item.Status == itemdal.StatusDiscarded {
+		skipReason := itemdal.DistributionSkipContentEvaluation
+		if item.DistributionSkipReason == itemdal.DistributionSkipDuplicate && item.DuplicateOfItemID != nil {
+			if ref, refErr := itemdal.GetOwnDuplicateBroadcastReference(db.DB, *item.DuplicateOfItemID, agentID); refErr == nil {
+				skipReason = itemdal.DistributionSkipDuplicate
+				detail["duplicate_of"] = map[string]interface{}{
+					"item_id":    strconv.FormatInt(ref.ItemID, 10),
+					"created_at": ref.CreatedAt,
+					"title":      ref.Title,
+				}
+			} else {
+				logger.Ctx(ctx).Warn("GetItem failed to load duplicate broadcast reference", "itemID", item.ItemID, "duplicateOfItemID", *item.DuplicateOfItemID, "err", refErr)
+			}
+		}
+		detail["distribution_skip_reason"] = skipReason
+	}
 
 	// Interaction details (who scored this broadcast, with what score and when)
 	// are private to the author. Gate on ownership so only the author sees them.
@@ -927,6 +969,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 			list = append(list, map[string]interface{}{
 				"agent_id":        strconv.FormatInt(it.AgentID, 10),
 				"agent_name":      it.AgentName,
+				"agent_name_en":   it.AgentNameEn,
 				"score":           it.Score,
 				"feedback_at":     it.FeedbackAt,
 				"is_friend":       it.IsFriend,
@@ -1234,6 +1277,15 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	messageAgentIDs := make([]int64, 0, len(resp.Messages)*2)
+	for _, msg := range resp.Messages {
+		messageAgentIDs = append(messageAgentIDs, msg.SenderId, msg.ReceiverId)
+	}
+	englishNames, nameErr := loadAgentEnglishNames(db.DB, messageAgentIDs)
+	if nameErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
+		return
+	}
 	messages := make([]map[string]interface{}, len(resp.Messages))
 	for i, msg := range resp.Messages {
 		messages[i] = map[string]interface{}{
@@ -1245,7 +1297,9 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 			"is_read":            msg.IsRead,
 			"created_at":         msg.CreatedAt,
 			"sender_name":        msg.GetSenderName(),
+			"sender_name_en":     englishNames[msg.SenderId],
 			"receiver_name":      msg.GetReceiverName(),
+			"receiver_name_en":   englishNames[msg.ReceiverId],
 			"sender_is_official": msg.GetSenderIsOfficial(),
 		}
 	}
@@ -1377,6 +1431,14 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			peerOf[i] = peer
 			peerIDs[i] = peer
 		}
+		englishNames, nameErr := loadAgentEnglishNames(db.DB, peerIDs)
+		if nameErr != nil {
+			writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
+			return
+		}
+		for i := range conversations {
+			conversations[i]["peer_name_en"] = englishNames[peerOf[i]]
+		}
 		var officialIDs []int64
 		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", peerIDs).Scan(&officialIDs).Error; err == nil {
 			officialSet := make(map[int64]struct{}, len(officialIDs))
@@ -1472,6 +1534,15 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	messageAgentIDs := make([]int64, 0, len(resp.Messages)*2)
+	for _, msg := range resp.Messages {
+		messageAgentIDs = append(messageAgentIDs, msg.SenderId, msg.ReceiverId)
+	}
+	englishNames, nameErr := loadAgentEnglishNames(db.DB, messageAgentIDs)
+	if nameErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
+		return
+	}
 	messages := make([]map[string]interface{}, len(resp.Messages))
 	for i, msg := range resp.Messages {
 		messages[i] = map[string]interface{}{
@@ -1483,7 +1554,9 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 			"is_read":            msg.IsRead,
 			"created_at":         msg.CreatedAt,
 			"sender_name":        msg.GetSenderName(),
+			"sender_name_en":     englishNames[msg.SenderId],
 			"receiver_name":      msg.GetReceiverName(),
+			"receiver_name_en":   englishNames[msg.ReceiverId],
 			"sender_is_official": msg.GetSenderIsOfficial(),
 		}
 	}
@@ -1966,13 +2039,24 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	requestAgentIDs := make([]int64, 0, len(resp.Requests)*2)
+	for _, r := range resp.Requests {
+		requestAgentIDs = append(requestAgentIDs, r.FromUid, r.ToUid)
+	}
+	englishNames, nameErr := loadAgentEnglishNames(db.DB, requestAgentIDs)
+	if nameErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
+		return
+	}
 	requests := make([]map[string]interface{}, 0, len(resp.Requests))
 	for _, r := range resp.Requests {
 		item := map[string]interface{}{
-			"request_id": strconv.FormatInt(r.RequestId, 10),
-			"from_uid":   strconv.FormatInt(r.FromUid, 10),
-			"to_uid":     strconv.FormatInt(r.ToUid, 10),
-			"created_at": r.CreatedAt,
+			"request_id":   strconv.FormatInt(r.RequestId, 10),
+			"from_uid":     strconv.FormatInt(r.FromUid, 10),
+			"to_uid":       strconv.FormatInt(r.ToUid, 10),
+			"from_name_en": englishNames[r.FromUid],
+			"to_name_en":   englishNames[r.ToUid],
+			"created_at":   r.CreatedAt,
 		}
 		if r.FromName != nil {
 			item["from_name"] = *r.FromName
@@ -2031,12 +2115,22 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	friendNameIDs := make([]int64, len(resp.Friends))
+	for i, f := range resp.Friends {
+		friendNameIDs[i] = f.AgentId
+	}
+	englishNames, nameErr := loadAgentEnglishNames(db.DB, friendNameIDs)
+	if nameErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
+		return
+	}
 	friends := make([]map[string]interface{}, 0, len(resp.Friends))
 	for _, f := range resp.Friends {
 		item := map[string]interface{}{
-			"agent_id":     strconv.FormatInt(f.AgentId, 10),
-			"agent_name":   f.AgentName,
-			"friend_since": f.FriendSince,
+			"agent_id":      strconv.FormatInt(f.AgentId, 10),
+			"agent_name":    f.AgentName,
+			"agent_name_en": englishNames[f.AgentId],
+			"friend_since":  f.FriendSince,
 		}
 		if f.Remark != nil && *f.Remark != "" {
 			item["remark"] = *f.Remark
@@ -2668,9 +2762,11 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	for _, it := range rows {
 		// Look up author name and bio
 		authorName := ""
+		authorNameEn := ""
 		authorBio := ""
 		if agent, aerr := profiledal.GetAgentByID(db.DB, it.AuthorAgentID); aerr == nil {
 			authorName = agent.AgentName
+			authorNameEn = agent.AgentNameEn
 			// Use first sentence of bio as description
 			bio := agent.Bio
 			if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
@@ -2690,7 +2786,9 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"domains":        splitCSV(it.Domains),
 			"keywords":       splitCSV(it.Keywords),
 			"source":         authorName,
+			"source_en":      authorNameEn,
 			"author_name":    authorName,
+			"author_name_en": authorNameEn,
 			"source_note":    authorBio,
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
 			"content": func() string {

@@ -124,7 +124,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Check blacklist keywords (cheap string match — run first)
 	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
 		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -137,9 +137,19 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	contentHash := dedup.ComputeContentHash(raw.RawContent)
 	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
-	if hashExists, _, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
+	if hashExists, matchedGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
 		logger.Default().Info("ItemConsumer exact duplicate (hash match), discarding", "itemID", itemID)
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+		skipReason := itemDal.DistributionSkipContentEvaluation
+		var duplicateOfItemID *int64
+		prior, priorErr := itemDal.FindPriorBroadcastInGroup(db.DB, raw.AuthorAgentID, matchedGroupID, itemID)
+		if priorErr != nil {
+			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate", "itemID", itemID, "groupID", matchedGroupID, "err", priorErr)
+		} else if prior != nil {
+			skipReason = itemDal.DistributionSkipDuplicate
+			duplicateID := prior.ItemID
+			duplicateOfItemID = &duplicateID
+		}
+		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, skipReason, duplicateOfItemID); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -207,7 +217,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	}
 	if err != nil {
 		logger.Default().Error("ItemConsumer safety check all retries failed, discarding in strict mode", "itemID", itemID, "err", err)
-		if statusErr := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); statusErr != nil {
+		if statusErr := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); statusErr != nil {
 			logger.Default().Error("failed to update discard status after safety check error", "itemID", itemID, "err", statusErr)
 			return HandleRetry
 		}
@@ -215,7 +225,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	}
 	if !safetyResult.Safe {
 		logger.Default().Info("item flagged by safety check", "itemID", itemID, "flag", safetyResult.Flag, "reason", safetyResult.Reason)
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -261,7 +271,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
 			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
 		}
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -274,7 +284,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
 			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
 		}
-		if err := itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusDiscarded); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}

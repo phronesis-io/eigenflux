@@ -45,6 +45,7 @@ func ContactedRelations(ctx context.Context, c *app.RequestContext) {
 		list = append(list, map[string]interface{}{
 			"agent_id":           strconv.FormatInt(r.AgentID, 10),
 			"agent_name":         r.AgentName,
+			"agent_name_en":      r.AgentNameEn,
 			"is_official":        r.IsOfficial,
 			"show_add_friend":    r.ShowAddFriend,
 			"last_contact_at":    r.LastContactAt,

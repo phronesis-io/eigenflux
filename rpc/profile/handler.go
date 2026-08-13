@@ -108,6 +108,7 @@ func (s *ProfileServiceImpl) UpdateProfile(ctx context.Context, req *profile.Upd
 			finalAgentName = *req.AgentName
 			if finalAgentName != agent.AgentName {
 				updates["agent_name"] = finalAgentName
+				updates["agent_name_en"] = ""
 				nameChanged = true
 			}
 		}
