@@ -36,6 +36,7 @@ func Register(h *server.Hertz, baseURL string) {
 	initXHSConfig() // read env here — .env is loaded by the time Register runs
 	initXAdsConfig()
 	initGoogleAdsConfig()
+	initOceanengineConfig()
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
@@ -59,11 +60,15 @@ type mintBody struct {
 	// non-app landing page supplies `clickid`; the frontend normalizes it to the
 	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
 	// click_id even though both platforms use similar names in their URLs.
-	ClickID       string `json:"click_id"`        // Xiaohongshu 聚光
-	Twclid        string `json:"twclid"`          // X (Twitter) Ads
-	Gclid         string `json:"gclid"`           // Google Ads
-	XingtuClickID string `json:"xingtu_click_id"` // Xingtu landing URL clickid
-	Lang          string `json:"lang"`            // entry language shown on the page ('en'/'zh')
+	ClickID                 string `json:"click_id"`             // Xiaohongshu 聚光
+	Twclid                  string `json:"twclid"`               // X (Twitter) Ads
+	Gclid                   string `json:"gclid"`                // Google Ads
+	XingtuClickID           string `json:"xingtu_click_id"`      // Xingtu landing URL clickid
+	OceanengineClickID      string `json:"oceanengine_click_id"` // 巨量营销 clickid
+	OceanengineAdID         string `json:"oceanengine_ad_id"`
+	OceanengineCreativeID   string `json:"oceanengine_creative_id"`
+	OceanengineCreativeType string `json:"oceanengine_creative_type"`
+	Lang                    string `json:"lang"` // entry language shown on the page ('en'/'zh')
 	// InviteCode is the stable KOL/channel code from the landing URL's ?ic=
 	// (see pkg/invite). Malformed or unknown codes degrade to an unattributed
 	// mint rather than an error.
@@ -102,23 +107,28 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		}
 	}
 	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
+	oceanengineClickID := normalizeOceanengineClickID(body.OceanengineClickID)
 	t := &Token{
-		Token:         NewToken(),
-		UTMSource:     trunc(body.UTMSource, 255),
-		UTMMedium:     trunc(body.UTMMedium, 255),
-		UTMCampaign:   trunc(body.UTMCampaign, 255),
-		UTMContent:    trunc(body.UTMContent, 255),
-		UTMTerm:       trunc(body.UTMTerm, 255),
-		Channel:       deriveChannel(body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID),
-		Referrer:      trunc(body.Referrer, 2048),
-		ClickID:       trunc(body.ClickID, 128),
-		Twclid:        trunc(body.Twclid, 128),
-		Gclid:         trunc(body.Gclid, 512),
-		XingtuClickID: xingtuClickID,
-		Lang:          normalizeLang(body.Lang),
-		Status:        StatusPending,
-		ClientIP:      ip,
-		CreatedAt:     time.Now().UnixMilli(),
+		Token:                   NewToken(),
+		UTMSource:               trunc(body.UTMSource, 255),
+		UTMMedium:               trunc(body.UTMMedium, 255),
+		UTMCampaign:             trunc(body.UTMCampaign, 255),
+		UTMContent:              trunc(body.UTMContent, 255),
+		UTMTerm:                 trunc(body.UTMTerm, 255),
+		Channel:                 deriveChannel(body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
+		Referrer:                trunc(body.Referrer, 2048),
+		ClickID:                 trunc(body.ClickID, 128),
+		Twclid:                  trunc(body.Twclid, 128),
+		Gclid:                   trunc(body.Gclid, 512),
+		XingtuClickID:           xingtuClickID,
+		OceanengineClickID:      oceanengineClickID,
+		OceanengineAdID:         trunc(body.OceanengineAdID, 128),
+		OceanengineCreativeID:   trunc(body.OceanengineCreativeID, 128),
+		OceanengineCreativeType: trunc(body.OceanengineCreativeType, 64),
+		Lang:                    normalizeLang(body.Lang),
+		Status:                  StatusPending,
+		ClientIP:                ip,
+		CreatedAt:               time.Now().UnixMilli(),
 	}
 	if ic := lookupInviteCode(body.InviteCode); ic != nil {
 		t.InviteCode = ic.Code
@@ -133,7 +143,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "", "invite_code", t.InviteCode)
+		"paid", t.ClickID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode)
 	// The token is now durably created; report this server-confirmed funnel
 	// stage to X when it came from an X ad click.
 	fireXAdsTokenCreatedCallback(t.Token)
@@ -186,6 +196,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	// per ref; retried by later reports if a prior attempt failed).
 	fireXHSCallback(t.Token, EventInstall)
 	fireXingtuCallback(t.Token, "1") // registration: server-confirmed first report
+	fireOceanengineCallback(t.Token, oceanengineEventRegister)
 	fireXAdsInstallCallback(t.Token)
 	fireGoogleAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
@@ -241,6 +252,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		event("install_copy", t.Token, "channel", t.Channel)
 		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
 		fireXingtuCallback(t.Token, "0")    // activation: confirmed command copy
+		fireOceanengineCallback(t.Token, oceanengineEventActive)
 		// Copy was confirmed by the server and is idempotent per ref.
 		fireXAdsCopyCommandCallback(t.Token)
 	}

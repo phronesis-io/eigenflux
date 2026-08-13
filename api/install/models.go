@@ -29,14 +29,22 @@ type Token struct {
 	// not be confused with Xiaohongshu ClickID. It maps to the existing
 	// xingtu_callback column for schema compatibility; the column now stores the
 	// real landing clickid rather than the obsolete server-monitor macro.
-	ClickID                string `gorm:"column:click_id;not null;default:''"`
-	Twclid                 string `gorm:"column:twclid;not null;default:''"`
-	Gclid                  string `gorm:"column:gclid;not null;default:''"`
-	XingtuClickID          string `gorm:"column:xingtu_callback;type:text;not null;default:''"`
-	XingtuCBActivateCode   int    `gorm:"column:xingtu_cb_activate_code;not null;default:-1"`
-	XingtuCBActivateSentAt int64  `gorm:"column:xingtu_cb_activate_sent_at;not null;default:0"`
-	XingtuCBRegisterCode   int    `gorm:"column:xingtu_cb_register_code;not null;default:-1"`
-	XingtuCBRegisterSentAt int64  `gorm:"column:xingtu_cb_register_sent_at;not null;default:0"`
+	ClickID                     string `gorm:"column:click_id;not null;default:''"`
+	Twclid                      string `gorm:"column:twclid;not null;default:''"`
+	Gclid                       string `gorm:"column:gclid;not null;default:''"`
+	XingtuClickID               string `gorm:"column:xingtu_callback;type:text;not null;default:''"`
+	XingtuCBActivateCode        int    `gorm:"column:xingtu_cb_activate_code;not null;default:-1"`
+	XingtuCBActivateSentAt      int64  `gorm:"column:xingtu_cb_activate_sent_at;not null;default:0"`
+	XingtuCBRegisterCode        int    `gorm:"column:xingtu_cb_register_code;not null;default:-1"`
+	XingtuCBRegisterSentAt      int64  `gorm:"column:xingtu_cb_register_sent_at;not null;default:0"`
+	OceanengineClickID          string `gorm:"column:oceanengine_click_id;type:text;not null;default:''"`
+	OceanengineAdID             string `gorm:"column:oceanengine_ad_id;not null;default:''"`
+	OceanengineCreativeID       string `gorm:"column:oceanengine_creative_id;not null;default:''"`
+	OceanengineCreativeType     string `gorm:"column:oceanengine_creative_type;not null;default:''"`
+	OceanengineCBActiveCode     int    `gorm:"column:oceanengine_cb_active_code;not null;default:-1"`
+	OceanengineCBActiveSentAt   int64  `gorm:"column:oceanengine_cb_active_sent_at;not null;default:0"`
+	OceanengineCBRegisterCode   int    `gorm:"column:oceanengine_cb_register_code;not null;default:-1"`
+	OceanengineCBRegisterSentAt int64  `gorm:"column:oceanengine_cb_register_sent_at;not null;default:0"`
 	// Lang is the entry language the visitor saw on the landing page ('en'/'zh'),
 	// for per-language conversion breakdown.
 	Lang string `gorm:"column:lang;not null;default:''"`
