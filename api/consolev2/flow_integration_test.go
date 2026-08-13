@@ -27,6 +27,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
+	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/config"
 )
 
@@ -43,15 +44,37 @@ type fakeFeedClient struct {
 	authorID int64
 }
 
+type fakeNotificationClient struct{ acked atomic.Int32 }
+
+func (f *fakeNotificationClient) ListPending(_ context.Context, _ *notificationrpc.ListPendingReq, _ ...callopt.Option) (*notificationrpc.ListPendingResp, error) {
+	return &notificationrpc.ListPendingResp{
+		Notifications: []*notificationrpc.PendingNotification{{
+			NotificationId: 9001, SourceType: "system", Type: "system",
+			Content: "Official platform maintenance notice", CreatedAt: time.Now().UnixMilli(),
+		}},
+		BaseResp: &base.BaseResp{Code: 0},
+	}, nil
+}
+
+func (f *fakeNotificationClient) AckNotifications(_ context.Context, request *notificationrpc.AckNotificationsReq, _ ...callopt.Option) (*notificationrpc.AckNotificationsResp, error) {
+	if len(request.Items) > 0 {
+		f.acked.Add(int32(len(request.Items)))
+	}
+	return &notificationrpc.AckNotificationsResp{BaseResp: &base.BaseResp{Code: 0}}, nil
+}
+
+func (f *fakeFeedClient) ugcItemID() int64 { return f.authorID + 1001 }
+func (f *fakeFeedClient) pgcItemID() int64 { return f.authorID + 1002 }
+
 func (f *fakeFeedClient) FetchFeed(_ context.Context, _ *feedrpc.FetchFeedReq, _ ...callopt.Option) (*feedrpc.FetchFeedResp, error) {
-	summary := "A relevant Agent-authored signal"
+	summary := "Relevant infrastructure updates from an Agent-authored signal"
 	ugcSource := "ugc"
 	pgcSource := "pgc"
 	pgcSummary := "A platform-curated signal"
 	return &feedrpc.FetchFeedResp{
 		Items: []*feedrpc.FeedItem{
-			{ItemId: 1001, Summary: &summary, BroadcastType: "signal", SourceType: &ugcSource, UpdatedAt: time.Now().UnixMilli(), AuthorAgentId: &f.authorID},
-			{ItemId: 1002, Summary: &pgcSummary, BroadcastType: "platform", SourceType: &pgcSource, UpdatedAt: time.Now().UnixMilli(), AuthorAgentId: &f.authorID},
+			{ItemId: f.ugcItemID(), Summary: &summary, BroadcastType: "signal", SourceType: &ugcSource, UpdatedAt: time.Now().UnixMilli(), AuthorAgentId: &f.authorID},
+			{ItemId: f.pgcItemID(), Summary: &pgcSummary, BroadcastType: "platform", SourceType: &pgcSource, UpdatedAt: time.Now().UnixMilli(), AuthorAgentId: &f.authorID},
 		},
 		HasMore: false, ImpressionId: "integration-impression", BaseResp: &base.BaseResp{Code: 0},
 	}, nil
@@ -130,6 +153,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	svc.startEmailWorkers(1, 16)
 	fakeFeed := &fakeFeedClient{}
 	svc.SetFeedClient(fakeFeed)
+	fakeNotifications := &fakeNotificationClient{}
+	svc.SetNotificationClient(fakeNotifications)
 	h := server.New(server.WithHostPorts("127.0.0.1:0"))
 	svc.Register(h)
 
@@ -180,11 +205,56 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 
 	first := provision("integration-" + time.Now().Format("150405.000000000"))
 	agentID := first["agent_id"].(string)
+	agentIDInt := mustParseInt64(t, agentID)
 	originalAccessToken := first["access_token"].(string)
 	refreshToken := first["refresh_token"].(string)
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	fakeFeed.authorID = agentIDInt
+	if err := gdb.Exec(`INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_notes, raw_url, created_at)
+		VALUES (?, ?, 'complete raw infrastructure source', '{}', 'https://example.test/source', ?),
+		       (?, ?, 'complete curated source', '{}', '', ?)`,
+		fakeFeed.ugcItemID(), agentIDInt, time.Now().UnixMilli(), fakeFeed.pgcItemID(), agentIDInt, time.Now().UnixMilli()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`INSERT INTO processed_items
+		(item_id, status, summary, broadcast_type, domains, keywords, source_type, expected_response, updated_at)
+		VALUES (?, 3, 'infrastructure source', 'info', 'infra,agents', 'runtime', 'original', 'technical analysis', ?),
+		       (?, 3, 'curated source', 'info', 'platform', 'news', 'curated', '', ?)`,
+		fakeFeed.ugcItemID(), time.Now().UnixMilli(), fakeFeed.pgcItemID(), time.Now().UnixMilli()).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		gdb.Exec(`DELETE FROM processed_items WHERE item_id IN (?, ?)`, fakeFeed.ugcItemID(), fakeFeed.pgcItemID())
+		gdb.Exec(`DELETE FROM raw_items WHERE item_id IN (?, ?)`, fakeFeed.ugcItemID(), fakeFeed.pgcItemID())
+	})
+	status, baselinePayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", createFeedBatchRequest{
+		ProcessingScope: "heartbeat", RuntimeInstanceID: "integration-runtime",
+		IdempotencyKey: "baseline-feed-" + agentID, Limit: 20,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusOK {
+		t.Fatalf("baseline Feed status=%d payload=%#v", status, baselinePayload)
+	}
+	baselineData := responseData(t, baselinePayload)
+	baselinePersonalization := baselineData["personalization"].(map[string]interface{})
+	if baselinePersonalization["mode"] != "baseline" || baselinePersonalization["context_revision"] != nil || baselineData["control_context_snapshot"] != nil {
+		t.Fatalf("unfinished onboarding leaked context: %#v", baselineData)
+	}
+	for _, value := range baselineData["items"].([]interface{}) {
+		item := value.(map[string]interface{})
+		if item["intent_match"] != nil || len(item["recommended_actions"].([]interface{})) != 0 {
+			t.Fatalf("baseline item leaked intent data: %#v", item)
+		}
+	}
+	baselineLease := baselineData["lease"].(map[string]interface{})
+	status, baselineAck, _ := performJSON(t, h, "POST", "/api/v2/feed/batches/"+baselineData["batch_id"].(string)+"/ack", ackFeedBatchRequest{
+		LeaseEpoch: int64(baselineLease["epoch"].(float64)), LeaseToken: baselineLease["token"].(string),
+		IdempotencyKey: "baseline-ack-" + agentID,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusOK || responseData(t, baselineAck)["status"] != "acked" {
+		t.Fatalf("baseline Feed ack status=%d payload=%#v", status, baselineAck)
 	}
 	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
 		RefreshToken: refreshToken,
@@ -259,9 +329,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if onboarding["state"] != "completed" || onboarding["active_context_revision"] == nil {
 		t.Fatalf("onboarding completion is not bound to an active context: %#v", onboarding)
 	}
-	agentIDInt := mustParseInt64(t, agentID)
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
+	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
 
 	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
 	status, bindChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
@@ -288,6 +358,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if err := gdb.Raw(`SELECT email_kind FROM agents WHERE agent_id = ?`, agentID).Scan(&emailKind).Error; err != nil || emailKind != "v2_bound" {
 		t.Fatalf("bound Agent email_kind=%q err=%v", emailKind, err)
 	}
+	status, recentAuthPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/principals/challenges", createPrincipalChallengeRequest{
+		PublicKey: publicKeyEncoded,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusForbidden {
+		t.Fatalf("handoff session unexpectedly passed recent-email-auth gate: status=%d payload=%#v", status, recentAuthPayload)
+	}
 
 	status, loginChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/auth/email/challenges", createEmailChallengeRequest{
 		Email: boundEmail, Purpose: "login",
@@ -309,6 +385,46 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	})
 	if status != 200 || cookiePair(loginCookies, consoleCookieName) == "" {
 		t.Fatalf("email login verify status=%d payload=%#v cookies=%q", status, loginPayload, loginCookies)
+	}
+	loginData := responseData(t, loginPayload)
+	loginCookieHeader := cookiePair(loginCookies, consoleCookieName) + "; " + cookiePair(loginCookies, csrfCookieName)
+	loginCSRF := loginData["csrf_token"].(string)
+	devicePublicKey, devicePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devicePublicKeyEncoded := base64.RawURLEncoding.EncodeToString(devicePublicKey)
+	status, deviceChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/principals/challenges", createPrincipalChallengeRequest{
+		PublicKey: devicePublicKeyEncoded,
+	}, ut.Header{Key: "Cookie", Value: loginCookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: loginCSRF})
+	if status != http.StatusCreated {
+		t.Fatalf("device challenge status=%d payload=%#v", status, deviceChallengePayload)
+	}
+	deviceChallenge := responseData(t, deviceChallengePayload)
+	deviceReq := addPrincipalRequest{
+		PublicKey: devicePublicKeyEncoded,
+		Nonce:     deviceChallenge["nonce"].(string),
+		IssuedAt:  int64(deviceChallenge["issued_at"].(float64)),
+	}
+	deviceTranscript, err := addPrincipalTranscript(deviceReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceReq.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(devicePrivateKey, deviceTranscript))
+	status, devicePayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/principals", deviceReq,
+		ut.Header{Key: "Cookie", Value: loginCookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: loginCSRF})
+	if status != http.StatusCreated || responseData(t, devicePayload)["access_token"] == "" {
+		t.Fatalf("device link status=%d payload=%#v", status, devicePayload)
+	}
+	status, replayPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/principals", deviceReq,
+		ut.Header{Key: "Cookie", Value: loginCookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: loginCSRF})
+	if status != http.StatusUnauthorized {
+		t.Fatalf("add-device nonce replay was accepted: status=%d payload=%#v", status, replayPayload)
+	}
+	status, principalsPayload, _ := performJSON(t, h, "GET", "/api/v2/agents/me/principals", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: loginCookieHeader})
+	if status != http.StatusOK || len(responseData(t, principalsPayload)["principals"].([]interface{})) < 2 {
+		t.Fatalf("device list status=%d payload=%#v", status, principalsPayload)
 	}
 	status, contextPayload, _ := performJSON(t, h, "GET", "/api/v2/agents/me/control-context", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
@@ -340,16 +456,48 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	feedData := responseData(t, feedPayload)
 	feedItems := feedData["items"].([]interface{})
-	if len(feedItems) != 2 || feedData["control_context"] == nil {
+	if len(feedItems) != 2 || feedData["control_context_snapshot"] == nil || feedData["schema_version"] != "feed_batch.v2" {
 		t.Fatalf("feed batch did not freeze items/context: %#v", feedData)
 	}
 	ugc := feedItems[0].(map[string]interface{})
 	pgc := feedItems[1].(map[string]interface{})
-	if ugc["author_identity"] == nil || pgc["author_identity"] != nil {
+	if ugc["author_identity"] == nil || pgc["author_identity"] != nil || ugc["intent_match"] == nil {
 		t.Fatalf("UGC/PGC identity policy mismatch: ugc=%#v pgc=%#v", ugc, pgc)
 	}
+	status, sourcePayload, _ := performJSON(t, h, "GET", fmt.Sprintf("/api/v2/feed/items/broadcast/%d", fakeFeed.ugcItemID()), map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, sourcePayload)["content"] != "complete raw infrastructure source" {
+		t.Fatalf("typed Feed source detail status=%d payload=%#v", status, sourcePayload)
+	}
+	status, notificationPayload, _ := performJSON(t, h, "GET", "/api/v2/notifications/pending", map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK {
+		t.Fatalf("V2 notifications status=%d payload=%#v", status, notificationPayload)
+	}
+	notification := responseData(t, notificationPayload)["notifications"].([]interface{})[0].(map[string]interface{})
+	issuer := notification["issuer_identity"].(map[string]interface{})
+	if issuer["verification_level"] != "official" || notification["action_authority"] != "none" {
+		t.Fatalf("platform notification identity/action boundary mismatch: %#v", notification)
+	}
+	status, notificationAckPayload, _ := performJSON(t, h, "POST", "/api/v2/notifications/ack", map[string]interface{}{
+		"notifications": []map[string]interface{}{{"notification_id": 9001, "source_type": "system"}},
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || fakeNotifications.acked.Load() != 1 {
+		t.Fatalf("V2 notification ack status=%d payload=%#v acked=%d", status, notificationAckPayload, fakeNotifications.acked.Load())
+	}
+	status, attentionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/attention-items", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK {
+		t.Fatalf("attention list status=%d payload=%#v", status, attentionPayload)
+	}
+	attentionItems := responseData(t, attentionPayload)["attention_items"].([]interface{})
+	if len(attentionItems) != 1 {
+		t.Fatalf("matched Feed item did not create one deduplicated attention item: %#v", attentionItems)
+	}
+	attentionID := attentionItems[0].(map[string]interface{})["attention_id"].(string)
+	lease := feedData["lease"].(map[string]interface{})
 	status, ackPayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches/"+feedData["batch_id"].(string)+"/ack", ackFeedBatchRequest{
-		LeaseEpoch: int64(feedData["lease_epoch"].(float64)), LeaseToken: feedData["lease_token"].(string),
+		LeaseEpoch: int64(lease["epoch"].(float64)), LeaseToken: lease["token"].(string),
 		IdempotencyKey: "ack-" + agentID,
 	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != 200 || responseData(t, ackPayload)["status"] != "acked" {
@@ -358,12 +506,32 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 
 	status, commandPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
 		CommandType: "human_instruction", Payload: json.RawMessage(`{"instruction":"review the new signal"}`),
-		IdempotencyKey: "command-" + agentID,
+		AttentionID: &attentionID, IdempotencyKey: "command-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 	if status != 201 {
 		t.Fatalf("command create status=%d payload=%#v", status, commandPayload)
 	}
 	commandID := responseData(t, commandPayload)["command_id"].(string)
+	var outboxCount int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM control_wakeup_outbox
+		WHERE agent_id = ? AND event_type = 'command_available' AND entity_id = ?`, agentID, commandID).Scan(&outboxCount).Error; err != nil || outboxCount != 1 {
+		t.Fatalf("command wakeup outbox count=%d err=%v", outboxCount, err)
+	}
+	claimedWakeups, err := svc.claimControlOutbox(time.Now().UnixMilli())
+	if err != nil || len(claimedWakeups) != 1 || claimedWakeups[0].EntityID != mustParseInt64(t, commandID) {
+		t.Fatalf("command wakeup outbox claim mismatch: rows=%#v err=%v", claimedWakeups, err)
+	}
+	secondClaim, err := svc.claimControlOutbox(time.Now().UnixMilli())
+	if err != nil || len(secondClaim) != 0 {
+		t.Fatalf("leased wakeup was claimed twice: rows=%#v err=%v", secondClaim, err)
+	}
+	status, heartbeatPayload, _ := performJSON(t, h, "POST", "/api/v2/runtime/heartbeat", runtimeHeartbeatRequest{
+		RuntimeInstanceID: "integration-runtime", Capabilities: []string{"commands", "feed"},
+		SessionRef: stringPointer("main-session"), AppliedContextRevision: &contextRevision,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || len(responseData(t, heartbeatPayload)["pending_command_ids"].([]interface{})) != 1 {
+		t.Fatalf("runtime heartbeat did not reconcile command: status=%d payload=%#v", status, heartbeatPayload)
+	}
 	status, claimPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/claim", claimAgentCommandRequest{
 		RuntimeInstanceID: "integration-runtime", AppliedContextRevision: contextRevision,
 	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
@@ -422,6 +590,58 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if successes.Load() != 1 || conflicts.Load() != 1 || activeCount != 10 {
 		t.Fatalf("intent concurrency fence failed: success=%d conflict=%d active=%d", successes.Load(), conflicts.Load(), activeCount)
 	}
+	testLegacyEmailRecovery(t, gdb, h, idgen, mailbox)
+}
+
+func testLegacyEmailRecovery(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen *fixedIDGenerator, mailbox chan capturedEmail) {
+	t.Helper()
+	legacyAgentID, _ := idgen.NextID()
+	now := time.Now().UnixMilli()
+	email := fmt.Sprintf("legacy-v2-%d@example.com", legacyAgentID)
+	if err := gdb.Exec(`INSERT INTO agents
+		(agent_id, email, email_kind, agent_name, bio, created_at, updated_at)
+		VALUES (?, ?, 'legacy_real', 'Legacy Recovery Agent', 'legacy bio', ?, ?)`, legacyAgentID, email, now, now).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`INSERT INTO agent_profiles (agent_id, status, updated_at) VALUES (?, 0, ?)`, legacyAgentID, now).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, legacyAgentID) })
+
+	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/auth/email/challenges", createEmailChallengeRequest{
+		Email: email, Purpose: "recovery",
+	})
+	if status != http.StatusAccepted {
+		t.Fatalf("legacy recovery challenge status=%d payload=%#v", status, challengePayload)
+	}
+	var mail capturedEmail
+	select {
+	case mail = <-mailbox:
+	case <-time.After(2 * time.Second):
+		t.Fatal("legacy recovery OTP was not queued")
+	}
+	status, verifyPayload, cookies := performJSON(t, h, "POST", "/api/v2/auth/email/verify", verifyEmailRequest{
+		ChallengeID: responseData(t, challengePayload)["challenge_id"].(string),
+		Email:       email, OTP: mail.otp, Purpose: "recovery",
+	})
+	if status != http.StatusOK || cookiePair(cookies, consoleCookieName) == "" {
+		t.Fatalf("legacy recovery verify status=%d payload=%#v", status, verifyPayload)
+	}
+	var state, verificationState, emailKind string
+	if err := gdb.Raw(`SELECT o.state, b.verification_state, a.email_kind
+		FROM agents a JOIN agent_onboarding_v2 o ON o.agent_id = a.agent_id
+		JOIN agent_email_bindings b ON b.agent_id = a.agent_id AND b.status = 'active'
+		WHERE a.agent_id = ?`, legacyAgentID).Row().Scan(&state, &verificationState, &emailKind); err != nil {
+		t.Fatal(err)
+	}
+	if state != "migration_pending" || verificationState != "verified" || emailKind != "legacy_real" {
+		t.Fatalf("legacy recovery state mismatch: onboarding=%s binding=%s email_kind=%s", state, verificationState, emailKind)
+	}
+	var recoveryPrincipals int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_principals
+		WHERE agent_id = ? AND key_type = 'email-recovery-v1'`, legacyAgentID).Scan(&recoveryPrincipals).Error; err != nil || recoveryPrincipals != 1 {
+		t.Fatalf("legacy recovery principal count=%d err=%v", recoveryPrincipals, err)
+	}
 }
 
 func testTelemetryAggregation(t *testing.T, gdb *gorm.DB, h *server.Hertz, agentID int64, cookieHeader, csrf string) {
@@ -460,6 +680,30 @@ func testTelemetryAggregation(t *testing.T, gdb *gorm.DB, h *server.Hertz, agent
 		gdb.Exec(`DELETE FROM telemetry_events_v2 WHERE event_id = ?`, eventID)
 		gdb.Exec(`DELETE FROM console_usage_sessions WHERE session_id = ?`, usageSessionID)
 	})
+}
+
+func testActivityCursorReset(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen *fixedIDGenerator, agentID int64, cookieHeader string) {
+	t.Helper()
+	now := time.Now().UnixMilli()
+	firstID, _ := idgen.NextID()
+	secondID, _ := idgen.NextID()
+	if err := gdb.Exec(`INSERT INTO agent_activity_log
+		(log_id, agent_id, event_type, summary, detail, created_at, agent_seq, source_event_id)
+		VALUES (?, ?, 'feed_pull', 'first retained activity', '{}'::jsonb, ?, 5, ?),
+		       (?, ?, 'broadcast', 'second retained activity', '{}'::jsonb, ?, 6, ?)`,
+		firstID, agentID, now, fmt.Sprintf("integration-activity-%d", firstID),
+		secondID, agentID, now+1, fmt.Sprintf("integration-activity-%d", secondID)).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, payload, _ := performJSON(t, h, "GET", "/api/v2/console/activity?after=1", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK {
+		t.Fatalf("activity list status=%d payload=%#v", status, payload)
+	}
+	data := responseData(t, payload)
+	if data["cursor_reset"] != true || data["oldest_available_cursor"] != float64(4) || len(data["events"].([]interface{})) != 2 {
+		t.Fatalf("activity retention cursor was not reset safely: %#v", data)
+	}
 }
 
 func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen *fixedIDGenerator, viewerID int64, cookieHeader string) {
@@ -581,3 +825,5 @@ func mustParseInt64(t *testing.T, value string) int64 {
 	}
 	return parsed
 }
+
+func stringPointer(value string) *string { return &value }

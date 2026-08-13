@@ -105,6 +105,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to init Console V2 service: %v", err)
 		}
+		consoleV2Service.SetRedisClient(mq.RDB)
 	}
 
 	// Init kitex clients
@@ -146,6 +147,9 @@ func main() {
 		log.Fatalf("failed to create notification client: %v", err)
 	}
 	log.Println("Notification RPC client initialized")
+	if consoleV2Service != nil {
+		consoleV2Service.SetNotificationClient(notificationClient)
+	}
 
 	sortClient, err := sortservice.NewClient("SortService", rpcx.ClientOptions(r)...)
 	if err != nil {

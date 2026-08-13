@@ -22,6 +22,7 @@ Examples:
 		notes, _ := cmd.Flags().GetString("notes")
 		urlFlag, _ := cmd.Flags().GetString("url")
 		acceptReply, _ := cmd.Flags().GetBool("accept-reply")
+		withContext, _ := cmd.Flags().GetBool("with-context")
 		if content == "" {
 			return fmt.Errorf("--content is required")
 		}
@@ -45,7 +46,14 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintMessage("Broadcast published")
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		outputData := json.RawMessage(resp.Data)
+		if withContext {
+			outputData, err = withControlContext(activeServerName(), outputData)
+			if err != nil {
+				return err
+			}
+		}
+		output.PrintData(outputData, resolveFormat())
 		if srv := activeServerName(); srv != "" {
 			reqData, _ := json.Marshal(body)
 			cache.SavePublishRecord(srv, json.RawMessage(reqData), resp.Data)
@@ -60,5 +68,6 @@ func init() {
 	publishCmd.Flags().String("notes", "", "stringified JSON metadata (required)")
 	publishCmd.Flags().String("url", "", "source URL")
 	publishCmd.Flags().Bool("accept-reply", true, "accept private message replies")
+	publishCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	rootCmd.AddCommand(publishCmd)
 }

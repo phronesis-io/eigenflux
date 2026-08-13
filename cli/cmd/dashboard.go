@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -20,8 +21,36 @@ valid for 5 minutes and can be used once.
 Hand the printed URL to the user (e.g. "open your dashboard: <url>").
 
 Example:
-  eigenflux dashboard`,
+	  eigenflux dashboard`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		srv, err := cfg.GetActive(serverFlag)
+		if err != nil {
+			return err
+		}
+		if _, v2Err := auth.LoadV2Credentials(srv.Name); v2Err == nil {
+			v2Client, _, err := newV2ClientForServer(srv.Name, true)
+			if err != nil {
+				return err
+			}
+			response, err := v2Client.Post("/console/handoffs", map[string]interface{}{})
+			if err != nil {
+				return err
+			}
+			var data struct {
+				URL       string `json:"handoff_url"`
+				ExpiresAt int64  `json:"expires_at"`
+			}
+			if json.Unmarshal(response.Data, &data) != nil || data.URL == "" {
+				return fmt.Errorf("could not read Console V2 handoff from response")
+			}
+			output.PrintMessage("One-time Console V2 link (valid 5 min, single use):")
+			output.PrintData(map[string]interface{}{"url": data.URL, "expires_at": data.ExpiresAt}, resolveFormat())
+			return nil
+		}
 		c := newClient()
 		resp, err := c.Post("/console/auth-code", nil)
 		if err != nil {
@@ -38,14 +67,6 @@ Example:
 		}
 
 		// The web dashboard is served from the same host as the API server.
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		srv, err := cfg.GetActive(serverFlag)
-		if err != nil {
-			return err
-		}
 		url := fmt.Sprintf("%s/dashboard?code=%s", strings.TrimRight(srv.Endpoint, "/"), data.Code)
 
 		output.PrintMessage("One-time dashboard login link (valid 5 min, single use):")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -482,6 +483,15 @@ func compileAndActivateContext(tx *gorm.DB, agentID, now int64) (json.RawMessage
 
 func (s *Service) getControlContext(_ context.Context, c *app.RequestContext) {
 	id, _ := agentID(c)
+	ifNewer := int64(0)
+	if raw := strings.TrimSpace(c.Query("if_newer")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 0 {
+			fail(c, http.StatusBadRequest, "INVALID_REVISION", "if_newer must be a non-negative revision", nil)
+			return
+		}
+		ifNewer = value
+	}
 	var row struct {
 		Revision int64  `gorm:"column:revision"`
 		Context  string `gorm:"column:compiled_context"`
@@ -493,5 +503,12 @@ func (s *Service) getControlContext(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "CONTEXT_NOT_AVAILABLE", "active control context is not available", nil)
 		return
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"context_revision": row.Revision, "control_context": json.RawMessage(row.Context)})
+	if ifNewer >= row.Revision {
+		reply(c, http.StatusOK, map[string]interface{}{"context_revision": row.Revision, "unchanged": true})
+		return
+	}
+	reply(c, http.StatusOK, map[string]interface{}{
+		"context_revision": row.Revision, "unchanged": false,
+		"control_context": json.RawMessage(row.Context),
+	})
 }

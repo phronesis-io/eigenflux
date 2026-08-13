@@ -93,6 +93,13 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 			}
 			return err
 		}
+		if err := tx.Exec(`INSERT INTO control_wakeup_outbox
+			(agent_id, event_type, entity_id, payload, status, next_attempt_at, created_at)
+			VALUES (?, 'command_available', ?, jsonb_build_object('command_id', CAST(? AS text)), 'pending', ?, ?)
+			ON CONFLICT (event_type, entity_id) DO NOTHING`, agentIDValue, commandID,
+			fmt.Sprintf("%d", commandID), now, now).Error; err != nil {
+			return err
+		}
 		created = true
 		return nil
 	})

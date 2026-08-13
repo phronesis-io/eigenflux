@@ -24,9 +24,11 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/lib/pq"
+	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
+	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/pkg/config"
 	mailservice "eigenflux_server/pkg/email"
 )
@@ -62,11 +64,23 @@ type Service struct {
 	emailSender         mailservice.Sender
 	emailQueue          chan emailJob
 	feedClient          feedservice.Client
+	notificationClient  notificationservice.Client
 	enableFeed          bool
 	enableControl       bool
 	enableCommunication bool
 	activityMu          sync.Mutex
 	activityConnections map[int64]int
+	activityWakeOnce    sync.Once
+	activityWakeMu      sync.RWMutex
+	activityWakeSubs    map[int64]map[chan struct{}]struct{}
+	redisClient         *redis.Client
+	communicationOnce   sync.Once
+	communicationWakeMu sync.RWMutex
+	communicationSubs   map[int64]map[chan communicationWakeEvent]struct{}
+	controlWakeOnce     sync.Once
+	controlWakeMu       sync.RWMutex
+	controlWakeSubs     map[int64]map[chan int64]struct{}
+	controlConnections  map[int64]int
 	telemetryMu         sync.Mutex
 	telemetryRates      map[string]telemetryRateState
 }
@@ -94,6 +108,10 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		enableControl:       cfg.EnableControlChannelV2,
 		enableCommunication: cfg.EnableCommunicationV2,
 		activityConnections: make(map[int64]int),
+		activityWakeSubs:    make(map[int64]map[chan struct{}]struct{}),
+		communicationSubs:   make(map[int64]map[chan communicationWakeEvent]struct{}),
+		controlWakeSubs:     make(map[int64]map[chan int64]struct{}),
+		controlConnections:  make(map[int64]int),
 		telemetryRates:      make(map[string]telemetryRateState),
 	}
 	if strings.TrimSpace(cfg.ResendApiKey) != "" {
@@ -105,6 +123,30 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 
 func (s *Service) SetFeedClient(client feedservice.Client) {
 	s.feedClient = client
+}
+
+func (s *Service) SetNotificationClient(client notificationservice.Client) {
+	s.notificationClient = client
+}
+
+// SetRedisClient enables one shared Pub/Sub subscriber per API process. SSE
+// connections are fanned out in memory and never allocate one Redis connection
+// per browser.
+func (s *Service) SetRedisClient(client *redis.Client) {
+	if client == nil {
+		return
+	}
+	s.redisClient = client
+	s.activityWakeOnce.Do(func() { go s.runActivityWakeSubscriber() })
+	if s.enableCommunication {
+		s.communicationOnce.Do(func() { go s.runCommunicationWakeSubscriber() })
+	}
+	if s.enableControl {
+		s.controlWakeOnce.Do(func() {
+			go s.runControlOutboxDispatcher()
+			go s.runControlWakeSubscriber()
+		})
+	}
 }
 
 // ConsoleBFFHandlers adapts an existing business handler to the isolated V2
@@ -125,6 +167,10 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/account-email-bindings/verify", s.consoleAuth(true), s.verifyEmailBinding)
 	h.POST("/api/v2/auth/email/challenges", s.createEmailLoginChallenge)
 	h.POST("/api/v2/auth/email/verify", s.verifyEmailLogin)
+	h.POST("/api/v2/agents/me/principals/challenges", s.consoleAuth(true), s.createPrincipalChallenge)
+	h.POST("/api/v2/agents/me/principals", s.consoleAuth(true), s.addPrincipal)
+	h.GET("/api/v2/agents/me/principals", s.consoleAuth(false), s.listPrincipals)
+	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
 	h.POST("/api/v2/console/handoffs/exchange", s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
@@ -135,6 +181,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me/onboarding-draft", s.consoleAuth(false), s.getOnboardingDraft)
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
+	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
 	h.PUT("/api/v2/agents/me/network-goal", s.consoleAuth(true), s.requireCompleted, s.putNetworkGoal)
 	h.POST("/api/v2/agents/me/intent-actions", s.consoleAuth(true), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agents/me/intent-actions/:intent_id", s.consoleAuth(true), s.requireCompleted, s.updateIntentAction)
@@ -146,20 +193,29 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed/batches", s.agentAuth("feed:read"), s.createFeedBatch)
+		h.GET("/api/v2/feed/items/:source_type/:source_id", s.agentAuth("feed:read"), s.getFeedSourceItem)
 		h.POST("/api/v2/feed/batches/:batch_id/lease:renew", s.agentAuth("feed:read"), s.renewFeedLease)
 		h.POST("/api/v2/feed/batches/:batch_id/ack", s.agentAuth("feed:ack"), s.ackFeedBatch)
+		h.GET("/api/v2/notifications/pending", s.agentAuth("feed:read"), s.listPendingNotifications)
+		h.POST("/api/v2/notifications/ack", s.agentAuth("feed:ack"), s.ackPendingNotifications)
 	}
 	if s.enableControl {
 		h.POST("/api/v2/agent-commands", s.consoleAuth(true), s.requireCompleted, s.createAgentCommand)
 		h.GET("/api/v2/agent-commands/pending", s.agentAuth("commands:claim"), s.listPendingCommands)
 		h.POST("/api/v2/agent-commands/:command_id/claim", s.agentAuth("commands:claim"), s.claimAgentCommand)
 		h.POST("/api/v2/agent-commands/:command_id/complete", s.agentAuth("commands:claim"), s.completeAgentCommand)
+		h.POST("/api/v2/runtime/heartbeat", s.agentAuth("commands:claim"), s.runtimeHeartbeat)
+		h.GET("/api/v2/runtime/control/stream", s.agentAuth("commands:claim"), s.streamRuntimeControl)
+		h.GET("/api/v2/console/attention-items", s.consoleAuth(false), s.requireCompleted, s.listAttentionItems)
+		h.GET("/api/v2/console/attention-items/:attention_id", s.consoleAuth(false), s.requireCompleted, s.getAttentionItem)
+		h.POST("/api/v2/console/attention-items/:attention_id/dismiss", s.consoleAuth(true), s.requireCompleted, s.dismissAttentionItem)
 	}
 	if s.enableCommunication {
 		h.GET("/api/v2/console/pm/conversations", s.consoleAuth(false), s.requireCompleted, s.listCommunicationConversations)
 		h.GET("/api/v2/console/pm/conversations/:conv_id/messages", s.consoleAuth(false), s.requireCompleted, s.listCommunicationMessages)
 		h.GET("/api/v2/console/relations/friend-requests", s.consoleAuth(false), s.requireCompleted, s.listCommunicationFriendRequests)
 		h.GET("/api/v2/console/relations/friends", s.consoleAuth(false), s.requireCompleted, s.listCommunicationFriends)
+		h.GET("/api/v2/console/events/ws", s.consoleAuth(false), s.requireCompleted, s.streamCommunicationEvents)
 	}
 }
 
@@ -223,8 +279,12 @@ func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
 }
 
 func fingerprint(publicKey ed25519.PublicKey) string {
+	return fingerprintForKeyType("ed25519-v1", publicKey)
+}
+
+func fingerprintForKeyType(keyType string, publicKey []byte) string {
 	h := sha256.New()
-	_, _ = h.Write([]byte("ed25519-v1\x00"))
+	_, _ = h.Write([]byte(keyType + "\x00"))
 	_, _ = h.Write(publicKey)
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
@@ -248,6 +308,7 @@ func (s *Service) setCSRFCookie(c *app.RequestContext, value string, maxAge int)
 }
 
 type agentPrincipal struct {
+	SessionID   int64          `gorm:"column:session_id"`
 	AgentID     int64          `gorm:"column:agent_id"`
 	PrincipalID int64          `gorm:"column:principal_id"`
 	Status      string         `gorm:"column:status"`
@@ -265,7 +326,7 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 		token := strings.TrimPrefix(header, "Bearer ")
 		var principal agentPrincipal
 		now := time.Now().UnixMilli()
-		err := s.db.Raw(`SELECT p.agent_id, p.principal_id, p.status, cs.scopes
+		err := s.db.Raw(`SELECT cs.session_id, p.agent_id, p.principal_id, p.status, cs.scopes
 			FROM agent_credential_sessions cs
 			JOIN agent_principals p ON p.principal_id = cs.principal_id
 			WHERE cs.access_token_hash = ? AND cs.audience = 'agent_v2'
@@ -279,6 +340,7 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 		}
 		c.Set("agent_id", principal.AgentID)
 		c.Set("principal_id", principal.PrincipalID)
+		c.Set("agent_credential_session_id", principal.SessionID)
 		c.Next(ctx)
 	}
 }
@@ -293,6 +355,8 @@ type consoleSession struct {
 	IdleExpiresAt  int64          `gorm:"column:idle_expires_at"`
 	AbsoluteExpiry int64          `gorm:"column:absolute_expires_at"`
 	LastSeenAt     int64          `gorm:"column:last_seen_at"`
+	AuthMethod     string         `gorm:"column:auth_method"`
+	RecentAuthAt   *int64         `gorm:"column:recent_auth_at"`
 }
 
 func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
@@ -307,7 +371,8 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		now := time.Now().UnixMilli()
 		err := s.db.Raw(`SELECT s.session_id, s.agent_id, s.principal_id,
 				s.session_secret_hash, s.csrf_secret_hash, s.scopes,
-				s.idle_expires_at, s.absolute_expires_at, s.last_seen_at
+			s.idle_expires_at, s.absolute_expires_at, s.last_seen_at,
+			s.auth_method, s.recent_auth_at
 			FROM console_v2_sessions s
 			JOIN agent_principals p ON p.principal_id = s.principal_id
 			WHERE s.session_id = ? AND s.status = 'active'
@@ -339,6 +404,10 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		c.Set("agent_id", session.AgentID)
 		c.Set("principal_id", session.PrincipalID)
 		c.Set("console_session_id", session.SessionID)
+		c.Set("console_auth_method", session.AuthMethod)
+		if session.RecentAuthAt != nil {
+			c.Set("console_recent_auth_at", *session.RecentAuthAt)
+		}
 		c.Next(ctx)
 	}
 }

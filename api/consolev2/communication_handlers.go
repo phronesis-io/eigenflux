@@ -20,6 +20,7 @@ import (
 const (
 	communicationDefaultLimit = 20
 	communicationMaxLimit     = 50
+	communicationMaxReplySize = 256 << 10
 )
 
 type communicationCardSummary struct {
@@ -41,13 +42,14 @@ type communicationAgentContext struct {
 }
 
 type communicationMessage struct {
-	MsgID      int64  `gorm:"column:msg_id" json:"msg_id,string"`
-	ConvID     int64  `gorm:"column:conv_id" json:"conv_id,string"`
-	SenderID   int64  `gorm:"column:sender_id" json:"sender_agent_id,string"`
-	ReceiverID int64  `gorm:"column:receiver_id" json:"receiver_agent_id,string"`
-	Content    string `gorm:"column:content" json:"content"`
-	IsRead     bool   `gorm:"column:is_read" json:"is_read"`
-	CreatedAt  int64  `gorm:"column:created_at" json:"created_at"`
+	MsgID            int64  `gorm:"column:msg_id" json:"msg_id,string"`
+	ConvID           int64  `gorm:"column:conv_id" json:"conv_id,string"`
+	SenderID         int64  `gorm:"column:sender_id" json:"sender_agent_id,string"`
+	ReceiverID       int64  `gorm:"column:receiver_id" json:"receiver_agent_id,string"`
+	Content          string `gorm:"column:content" json:"content"`
+	ContentTruncated bool   `gorm:"-" json:"content_truncated,omitempty"`
+	IsRead           bool   `gorm:"column:is_read" json:"is_read"`
+	CreatedAt        int64  `gorm:"column:created_at" json:"created_at"`
 }
 
 type communicationConversation struct {
@@ -131,6 +133,30 @@ func truncateRunes(value string, limit int) (string, bool) {
 	}
 	runes := []rune(value)
 	return string(runes[:limit]), true
+}
+
+func boundCommunicationMessage(message *communicationMessage, runeLimit int) {
+	if message == nil {
+		return
+	}
+	message.Content, message.ContentTruncated = truncateRunes(message.Content, runeLimit)
+}
+
+func communicationReplyFits(data map[string]interface{}) bool {
+	encoded, err := json.Marshal(map[string]interface{}{"data": data})
+	return err == nil && len(encoded) <= communicationMaxReplySize
+}
+
+func filterCommunicationContexts(contexts map[string]communicationAgentContext, peerIDs []int64) map[string]communicationAgentContext {
+	peerIDs = deduplicateAgentIDs(peerIDs)
+	filtered := make(map[string]communicationAgentContext, len(peerIDs))
+	for _, peerID := range peerIDs {
+		key := strconv.FormatInt(peerID, 10)
+		if value, exists := contexts[key]; exists {
+			filtered[key] = value
+		}
+	}
+	return filtered
 }
 
 func decodeCardString(raw map[string]interface{}, key string, limit int) (string, bool) {
@@ -341,6 +367,7 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		}
 		lastByConversation := make(map[int64]*communicationMessage, len(lastMessages))
 		for index := range lastMessages {
+			boundCommunicationMessage(&lastMessages[index], 1000)
 			lastByConversation[lastMessages[index].ConvID] = &lastMessages[index]
 		}
 		unreadByConversation := make(map[int64]int64, len(unreadRows))
@@ -367,10 +394,25 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		last := rows[len(rows)-1]
 		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID})
 	}
-	reply(c, http.StatusOK, map[string]interface{}{
+	data := map[string]interface{}{
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "conversations": rows,
 		"agent_contexts": contexts, "next_cursor": nextCursor, "has_more": hasMore,
-	})
+	}
+	for len(rows) > 1 && !communicationReplyFits(data) {
+		rows = rows[:len(rows)-1]
+		hasMore = true
+		peerIDs = peerIDs[:len(rows)]
+		contexts = filterCommunicationContexts(contexts, peerIDs)
+		last := rows[len(rows)-1]
+		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID})
+		data["conversations"], data["agent_contexts"] = rows, contexts
+		data["next_cursor"], data["has_more"] = nextCursor, hasMore
+	}
+	if !communicationReplyFits(data) {
+		fail(c, http.StatusInternalServerError, "COMMUNICATION_RESPONSE_TOO_LARGE", "one conversation cannot fit the V2 response budget", nil)
+		return
+	}
+	reply(c, http.StatusOK, data)
 }
 
 func (s *Service) loadViewerRelations(viewerID int64, peerIDs []int64) (map[int64]string, error) {
@@ -430,6 +472,9 @@ func (s *Service) listCommunicationMessages(_ context.Context, c *app.RequestCon
 	if hasMore {
 		messages = messages[:limit]
 	}
+	for index := range messages {
+		boundCommunicationMessage(&messages[index], 56000)
+	}
 	relations, err := s.loadViewerRelations(viewerID, []int64{peerID})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "MESSAGES_READ_FAILED", "could not read relationship state", nil)
@@ -444,21 +489,34 @@ func (s *Service) listCommunicationMessages(_ context.Context, c *app.RequestCon
 	if hasMore && len(messages) > 0 {
 		nextCursor = strconv.FormatInt(messages[len(messages)-1].MsgID, 10)
 	}
-	reply(c, http.StatusOK, map[string]interface{}{
+	data := map[string]interface{}{
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "conv_id": strconv.FormatInt(convID, 10),
 		"messages": messages, "agent_contexts": contexts, "next_cursor": nextCursor, "has_more": hasMore,
-	})
+	}
+	for len(messages) > 1 && !communicationReplyFits(data) {
+		messages = messages[:len(messages)-1]
+		hasMore = true
+		nextCursor = strconv.FormatInt(messages[len(messages)-1].MsgID, 10)
+		data["messages"], data["next_cursor"], data["has_more"] = messages, nextCursor, hasMore
+	}
+	if !communicationReplyFits(data) {
+		fail(c, http.StatusInternalServerError, "COMMUNICATION_RESPONSE_TOO_LARGE", "one message cannot fit the V2 response budget", nil)
+		return
+	}
+	reply(c, http.StatusOK, data)
 }
 
 type communicationFriendRequest struct {
-	RequestID   int64  `gorm:"column:id" json:"request_id,string"`
-	Direction   string `json:"direction"`
-	PeerAgentID int64  `json:"peer_agent_id,string"`
-	Greeting    string `gorm:"column:greeting" json:"greeting"`
-	Remark      string `gorm:"column:remark" json:"remark"`
-	CreatedAt   int64  `gorm:"column:created_at" json:"created_at"`
-	FromUID     int64  `gorm:"column:from_uid" json:"-"`
-	ToUID       int64  `gorm:"column:to_uid" json:"-"`
+	RequestID         int64  `gorm:"column:id" json:"request_id,string"`
+	Direction         string `json:"direction"`
+	PeerAgentID       int64  `json:"peer_agent_id,string"`
+	Greeting          string `gorm:"column:greeting" json:"greeting"`
+	GreetingTruncated bool   `gorm:"-" json:"greeting_truncated,omitempty"`
+	Remark            string `gorm:"column:remark" json:"remark"`
+	RemarkTruncated   bool   `gorm:"-" json:"remark_truncated,omitempty"`
+	CreatedAt         int64  `gorm:"column:created_at" json:"created_at"`
+	FromUID           int64  `gorm:"column:from_uid" json:"-"`
+	ToUID             int64  `gorm:"column:to_uid" json:"-"`
 }
 
 func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.RequestContext) {
@@ -502,6 +560,8 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 		if direction == "outgoing" {
 			requests[index].PeerAgentID = requests[index].ToUID
 		}
+		requests[index].Greeting, requests[index].GreetingTruncated = truncateRunes(requests[index].Greeting, 2000)
+		requests[index].Remark, requests[index].RemarkTruncated = truncateRunes(requests[index].Remark, 500)
 		peerIDs = append(peerIDs, requests[index].PeerAgentID)
 		relations[requests[index].PeerAgentID] = "pending"
 	}
@@ -514,18 +574,33 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 	if hasMore && len(requests) > 0 {
 		nextCursor = strconv.FormatInt(requests[len(requests)-1].RequestID, 10)
 	}
-	reply(c, http.StatusOK, map[string]interface{}{
+	data := map[string]interface{}{
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "direction": direction,
 		"friend_requests": requests, "agent_contexts": contexts, "next_cursor": nextCursor, "has_more": hasMore,
-	})
+	}
+	for len(requests) > 1 && !communicationReplyFits(data) {
+		requests = requests[:len(requests)-1]
+		hasMore = true
+		peerIDs = peerIDs[:len(requests)]
+		contexts = filterCommunicationContexts(contexts, peerIDs)
+		nextCursor = strconv.FormatInt(requests[len(requests)-1].RequestID, 10)
+		data["friend_requests"], data["agent_contexts"] = requests, contexts
+		data["next_cursor"], data["has_more"] = nextCursor, hasMore
+	}
+	if !communicationReplyFits(data) {
+		fail(c, http.StatusInternalServerError, "COMMUNICATION_RESPONSE_TOO_LARGE", "one friend request cannot fit the V2 response budget", nil)
+		return
+	}
+	reply(c, http.StatusOK, data)
 }
 
 type communicationFriend struct {
-	RelationID  int64                 `gorm:"column:id" json:"relation_id"`
-	PeerAgentID int64                 `gorm:"column:to_uid" json:"peer_agent_id,string"`
-	Remark      string                `gorm:"column:remark" json:"remark"`
-	FriendSince int64                 `gorm:"column:created_at" json:"friend_since"`
-	LastMessage *communicationMessage `gorm:"-" json:"last_message,omitempty"`
+	RelationID      int64                 `gorm:"column:id" json:"relation_id"`
+	PeerAgentID     int64                 `gorm:"column:to_uid" json:"peer_agent_id,string"`
+	Remark          string                `gorm:"column:remark" json:"remark"`
+	RemarkTruncated bool                  `gorm:"-" json:"remark_truncated,omitempty"`
+	FriendSince     int64                 `gorm:"column:created_at" json:"friend_since"`
+	LastMessage     *communicationMessage `gorm:"-" json:"last_message,omitempty"`
 }
 
 func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestContext) {
@@ -552,8 +627,9 @@ func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestCont
 		friends = friends[:limit]
 	}
 	peerIDs := make([]int64, 0, len(friends))
-	for _, friend := range friends {
-		peerIDs = append(peerIDs, friend.PeerAgentID)
+	for index := range friends {
+		friends[index].Remark, friends[index].RemarkTruncated = truncateRunes(friends[index].Remark, 500)
+		peerIDs = append(peerIDs, friends[index].PeerAgentID)
 	}
 	if len(peerIDs) > 0 {
 		type latestFriendMessage struct {
@@ -578,6 +654,7 @@ func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestCont
 		lastByPeer := make(map[int64]*communicationMessage, len(latest))
 		for index := range latest {
 			message := latest[index].communicationMessage
+			boundCommunicationMessage(&message, 1000)
 			lastByPeer[latest[index].PeerID] = &message
 		}
 		for index := range friends {
@@ -602,8 +679,22 @@ func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestCont
 	if hasMore && len(friends) > 0 {
 		nextCursor = strconv.FormatInt(friends[len(friends)-1].RelationID, 10)
 	}
-	reply(c, http.StatusOK, map[string]interface{}{
+	data := map[string]interface{}{
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "friends": friends,
 		"agent_contexts": contexts, "next_cursor": nextCursor, "has_more": hasMore, "total": total,
-	})
+	}
+	for len(friends) > 1 && !communicationReplyFits(data) {
+		friends = friends[:len(friends)-1]
+		hasMore = true
+		peerIDs = peerIDs[:len(friends)]
+		contexts = filterCommunicationContexts(contexts, peerIDs)
+		nextCursor = strconv.FormatInt(friends[len(friends)-1].RelationID, 10)
+		data["friends"], data["agent_contexts"] = friends, contexts
+		data["next_cursor"], data["has_more"] = nextCursor, hasMore
+	}
+	if !communicationReplyFits(data) {
+		fail(c, http.StatusInternalServerError, "COMMUNICATION_RESPONSE_TOO_LARGE", "one friend record cannot fit the V2 response budget", nil)
+		return
+	}
+	reply(c, http.StatusOK, data)
 }

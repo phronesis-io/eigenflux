@@ -268,6 +268,11 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 				VALUES (?, 0, ?)`, agentID, now).Error; err != nil {
 				return err
 			}
+			if err := tx.Exec(`INSERT INTO agent_feed_v2_settings
+				(agent_id, poll_interval_seconds, explicitly_set, updated_at)
+				VALUES (?, 600, false, ?)`, agentID, now).Error; err != nil {
+				return err
+			}
 			if err := tx.Exec(`INSERT INTO agent_onboarding_v2
 				(agent_id, state, current_step, revision, created_at, updated_at)
 				VALUES (?, 'in_progress', 2, 1, ?, ?)`, agentID, now, now).Error; err != nil {
@@ -298,7 +303,7 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
 			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at)
 			VALUES (?, ?, ?, ?, 'agent_v2', ?, 0, ?, ?, ?, ?)`, principalID, familyID,
-			hashString(accessToken), hashString(refreshToken), pq.Array([]string{"onboarding:write", "context:read", "feed:read", "console:handoff:create"}),
+			hashString(accessToken), hashString(refreshToken), pq.Array([]string{"onboarding:write", "context:read", "feed:read", "feed:ack", "console:handoff:create"}),
 			now, now+int64(accessTTL/time.Millisecond), now+int64(refreshTTL/time.Millisecond), now).Error
 	})
 	if errors.Is(err, errUnauthorized) {
@@ -604,9 +609,9 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		}
 		agentIDValue, principalID, scopes = handoff.AgentID, handoff.PrincipalID, handoff.Scopes
 		return tx.Exec(`INSERT INTO console_v2_sessions
-			(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
-			 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at)
-			VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`, sessionID, hashString(sessionSecret),
+				(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
+					 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
+				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
 			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), now,
 			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now).Error
 	})

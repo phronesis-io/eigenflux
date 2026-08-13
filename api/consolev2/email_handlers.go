@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
@@ -231,16 +232,48 @@ func (s *Service) createEmailLoginChallenge(_ context.Context, c *app.RequestCon
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.otpPepper, normalizedEmail)).Error; err != nil {
 			return err
 		}
-		var binding struct {
-			AgentID int64 `gorm:"column:agent_id"`
+		var bindings []struct {
+			AgentID           int64  `gorm:"column:agent_id"`
+			VerificationState string `gorm:"column:verification_state"`
 		}
-		if err := tx.Raw(`SELECT agent_id FROM agent_email_bindings
-			WHERE normalized_email = ? AND status = 'active' AND verification_state = 'verified'`, normalizedEmail).Scan(&binding).Error; err != nil {
+		if err := tx.Raw(`SELECT agent_id, verification_state FROM agent_email_bindings
+			WHERE normalized_email = ? AND status = 'active'
+			  AND verification_state IN ('verified', 'legacy_unverified')
+			ORDER BY binding_id LIMIT 2`, normalizedEmail).Scan(&bindings).Error; err != nil {
 			return err
 		}
+		// Lazy creation is a bounded fallback while the resumable backfill is
+		// still running. It only proceeds when the canonical legacy owner is
+		// unambiguous; conflicts receive the same public 202 envelope.
+		if len(bindings) == 0 {
+			var legacyOwners []struct {
+				AgentID int64 `gorm:"column:agent_id"`
+			}
+			if err := tx.Raw(`SELECT agent_id FROM agents
+				WHERE email_kind = 'legacy_real' AND lower(btrim(email)) = ?
+				ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
+				return err
+			}
+			if len(legacyOwners) == 1 {
+				insert := tx.Exec(`INSERT INTO agent_email_bindings
+					(agent_id, normalized_email, normalization_version, verification_state, status,
+					 created_at, updated_at)
+					VALUES (?, ?, 1, 'legacy_unverified', 'active', ?, ?)
+					ON CONFLICT DO NOTHING`, legacyOwners[0].AgentID, normalizedEmail, now, now)
+				if insert.Error != nil {
+					return insert.Error
+				}
+				if insert.RowsAffected == 1 {
+					bindings = append(bindings, struct {
+						AgentID           int64  `gorm:"column:agent_id"`
+						VerificationState string `gorm:"column:verification_state"`
+					}{AgentID: legacyOwners[0].AgentID, VerificationState: "legacy_unverified"})
+				}
+			}
+		}
 		var subject *int64
-		if binding.AgentID != 0 {
-			subject = &binding.AgentID
+		if len(bindings) == 1 && bindings[0].AgentID != 0 {
+			subject = &bindings[0].AgentID
 		}
 		var createErr error
 		job, expiresAt, createErr = s.insertEmailChallenge(tx, normalizedEmail, req.Purpose, subject, nil, s.clientIPHash(c), now)
@@ -386,7 +419,9 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			WHERE binding_id = ?`, now, now, current.BindingID).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`UPDATE agents SET email = ?, email_kind = 'v2_bound', email_verified_at = ?, updated_at = ?
+		if err := tx.Exec(`UPDATE agents SET email = ?,
+			email_kind = CASE WHEN email_kind = 'legacy_real' THEN 'legacy_real' ELSE 'v2_bound' END,
+			email_verified_at = ?, updated_at = ?
 			WHERE agent_id = ?`, normalizedEmail, now, now, agentIDValue).Error; err != nil {
 			return err
 		}
@@ -413,6 +448,50 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 func isUniqueViolation(err error) bool {
 	var pgErr *pq.Error
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pq.Error
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
+}
+
+// ensureLegacyConsoleV2State is a lazy, idempotent safety net for accounts
+// reached while the offline cursor backfill is still in progress. It performs
+// three indexed inserts and never marks onboarding complete without canonical
+// goal/intent/context data.
+func ensureLegacyConsoleV2State(tx *gorm.DB, id, now int64) error {
+	if err := tx.Exec(`INSERT INTO agent_context_heads (agent_id, current_revision, updated_at)
+		VALUES (?, 0, ?) ON CONFLICT (agent_id) DO NOTHING`, id, now).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`INSERT INTO agent_onboarding_v2
+		(agent_id, state, current_step, revision, created_at, updated_at)
+		VALUES (?, 'migration_pending', 2, 1, ?, ?)
+		ON CONFLICT (agent_id) DO NOTHING`, id, now, now).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`INSERT INTO agent_feed_v2_settings
+		(agent_id, poll_interval_seconds, explicitly_set, updated_at)
+		VALUES (?, 600, false, ?) ON CONFLICT (agent_id) DO NOTHING`, id, now).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`INSERT INTO agent_onboarding_drafts
+		(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
+		SELECT a.agent_id, 1,
+			jsonb_build_object(
+				'identity_card', jsonb_build_object('agent_name', a.agent_name, 'bio', COALESCE(a.bio, '')),
+				'security_boundary', jsonb_build_object(
+					'recurring_publish', COALESCE(s.recurring_publish, true),
+					'auto_reply_pm', COALESCE(s.auto_reply_pm, true),
+					'auto_comment', COALESCE(s.auto_comment, true),
+					'show_add_friend', COALESCE(s.show_add_friend, true)),
+				'network_goal', '', 'intent_actions', '[]'::jsonb),
+			jsonb_build_object('identity_card', 'legacy_migration',
+				'security_boundary', 'legacy_migration'),
+			'system_derived', 'legacy-lazy-v1', ?
+		FROM agents a LEFT JOIN agent_settings s ON s.agent_id = a.agent_id
+		WHERE a.agent_id = ?
+		ON CONFLICT DO NOTHING`, now, id).Error
 }
 
 func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
@@ -456,6 +535,37 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		}
 		validOTP = true
 		recoveredAgentID = *checked.SubjectAgentID
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.otpPepper, normalizedEmail)).Error; err != nil {
+			return err
+		}
+		var binding struct {
+			BindingID         int64  `gorm:"column:binding_id"`
+			AgentID           int64  `gorm:"column:agent_id"`
+			VerificationState string `gorm:"column:verification_state"`
+		}
+		if err := tx.Raw(`SELECT binding_id, agent_id, verification_state
+			FROM agent_email_bindings
+			WHERE normalized_email = ? AND status = 'active' FOR UPDATE`, normalizedEmail).Scan(&binding).Error; err != nil {
+			return err
+		}
+		if binding.BindingID == 0 || binding.AgentID != recoveredAgentID ||
+			(binding.VerificationState != "verified" && binding.VerificationState != "legacy_unverified") {
+			return errUnauthorized
+		}
+		if binding.VerificationState == "legacy_unverified" {
+			if err := tx.Exec(`UPDATE agent_email_bindings
+				SET verification_state = 'verified', verified_at = ?, updated_at = ?
+				WHERE binding_id = ? AND verification_state = 'legacy_unverified'`, now, now, binding.BindingID).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`UPDATE agents SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ?
+				WHERE agent_id = ?`, now, now, recoveredAgentID).Error; err != nil {
+				return err
+			}
+		}
+		if err := ensureLegacyConsoleV2State(tx, recoveredAgentID, now); err != nil {
+			return err
+		}
 		var principal struct {
 			PrincipalID int64 `gorm:"column:principal_id"`
 		}
@@ -465,7 +575,18 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		if principal.PrincipalID == 0 {
-			return errUnauthorized
+			recoveryKey := make([]byte, ed25519.PublicKeySize)
+			if _, err := rand.Read(recoveryKey); err != nil {
+				return err
+			}
+			if err := tx.Raw(`INSERT INTO agent_principals
+				(agent_id, key_type, key_fingerprint, public_key, status, created_at, last_seen_at)
+				VALUES (?, 'email-recovery-v1', ?, ?, 'limited', ?, ?)
+				RETURNING principal_id`, recoveredAgentID,
+				fingerprintForKeyType("email-recovery-v1", recoveryKey), recoveryKey, now, now).
+				Scan(&principal.PrincipalID).Error; err != nil {
+				return err
+			}
 		}
 		consume := tx.Exec(`UPDATE v2_email_challenges SET status = 'consumed', consumed_at = ?
 			WHERE challenge_id = ? AND status = 'pending'`, now, req.ChallengeID)
@@ -474,11 +595,12 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		}
 		return tx.Exec(`INSERT INTO console_v2_sessions
 			(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
-			 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at)
-			VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`, sessionID, hashString(sessionSecret),
+				 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at,
+				 auth_method, recent_auth_at)
+			VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'email_otp', ?)`, sessionID, hashString(sessionSecret),
 			recoveredAgentID, principal.PrincipalID, hashString(csrfSecret),
 			pq.Array([]string{"console:onboarding", "console:read", "console:write"}), now,
-			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now).Error
+			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now, now).Error
 	})
 	if errors.Is(err, errUnauthorized) || (!validOTP && err == nil) {
 		fail(c, http.StatusUnauthorized, "OTP_INVALID", "verification code is invalid or expired", nil)

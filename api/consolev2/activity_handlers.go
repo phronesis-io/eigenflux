@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+
+	"eigenflux_server/pkg/logger"
 )
 
 type activityEvent struct {
@@ -36,6 +38,59 @@ func (s *Service) loadActivity(agentID, after int64, limit int) ([]activityEvent
 		_ = json.Unmarshal([]byte(events[index].DetailJSON), &events[index].Detail)
 	}
 	return events, nil
+}
+
+func (s *Service) oldestActivitySeq(agentID int64) (int64, error) {
+	var minSeq int64
+	err := s.db.Raw(`SELECT COALESCE((SELECT agent_seq FROM agent_activity_log
+		WHERE agent_id = ? AND agent_seq IS NOT NULL ORDER BY agent_seq LIMIT 1), 0)`, agentID).Scan(&minSeq).Error
+	return minSeq, err
+}
+
+func (s *Service) subscribeActivityWake(agentID int64) (<-chan struct{}, func()) {
+	wake := make(chan struct{}, 1)
+	s.activityWakeMu.Lock()
+	if s.activityWakeSubs[agentID] == nil {
+		s.activityWakeSubs[agentID] = make(map[chan struct{}]struct{})
+	}
+	s.activityWakeSubs[agentID][wake] = struct{}{}
+	s.activityWakeMu.Unlock()
+	return wake, func() {
+		s.activityWakeMu.Lock()
+		delete(s.activityWakeSubs[agentID], wake)
+		if len(s.activityWakeSubs[agentID]) == 0 {
+			delete(s.activityWakeSubs, agentID)
+		}
+		close(wake)
+		s.activityWakeMu.Unlock()
+	}
+}
+
+func (s *Service) notifyActivityWake(agentID int64) {
+	s.activityWakeMu.RLock()
+	defer s.activityWakeMu.RUnlock()
+	for wake := range s.activityWakeSubs[agentID] {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Service) runActivityWakeSubscriber() {
+	for {
+		pubsub := s.redisClient.Subscribe(context.Background(), "console:v2:activity:wakeup")
+		channel := pubsub.Channel()
+		for message := range channel {
+			agentIDValue, err := strconv.ParseInt(message.Payload, 10, 64)
+			if err == nil && agentIDValue > 0 {
+				s.notifyActivityWake(agentIDValue)
+			}
+		}
+		_ = pubsub.Close()
+		logger.Default().Warn("Console V2 activity wakeup subscriber reconnecting")
+		time.Sleep(time.Second)
+	}
 }
 
 func parseActivityCursor(c *app.RequestContext) (int64, error) {
@@ -69,6 +124,15 @@ func (s *Service) listActivity(_ context.Context, c *app.RequestContext) {
 		}
 		limit = parsed
 	}
+	minSeq, boundsErr := s.oldestActivitySeq(agentIDValue)
+	if boundsErr != nil {
+		fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity cursor", nil)
+		return
+	}
+	cursorReset := after > 0 && minSeq > 0 && after < minSeq-1
+	if cursorReset {
+		after = minSeq - 1
+	}
 	events, err := s.loadActivity(agentIDValue, after, limit)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity", nil)
@@ -78,7 +142,10 @@ func (s *Service) listActivity(_ context.Context, c *app.RequestContext) {
 	if len(events) > 0 {
 		next = events[len(events)-1].AgentSeq
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"events": events, "next_cursor": next, "has_more": len(events) == limit})
+	reply(c, http.StatusOK, map[string]interface{}{
+		"events": events, "next_cursor": next, "has_more": len(events) == limit,
+		"cursor_reset": cursorReset, "oldest_available_cursor": maxInt64(0, minSeq-1),
+	})
 }
 
 func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
@@ -96,6 +163,20 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 	}
 	s.activityConnections[agentIDValue]++
 	s.activityMu.Unlock()
+	wake, unsubscribe := s.subscribeActivityWake(agentIDValue)
+	minSeq, boundsErr := s.oldestActivitySeq(agentIDValue)
+	if boundsErr != nil {
+		unsubscribe()
+		s.activityMu.Lock()
+		s.activityConnections[agentIDValue]--
+		s.activityMu.Unlock()
+		fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity cursor", nil)
+		return
+	}
+	cursorReset := after > 0 && minSeq > 0 && after < minSeq-1
+	if cursorReset {
+		after = minSeq - 1
+	}
 
 	reader, writer := io.Pipe()
 	c.Header("Content-Type", "text/event-stream; charset=utf-8")
@@ -106,6 +187,7 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 
 	go func() {
 		defer func() {
+			unsubscribe()
 			_ = writer.Close()
 			s.activityMu.Lock()
 			s.activityConnections[agentIDValue]--
@@ -139,11 +221,21 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 				}
 			}
 		}
+		if cursorReset {
+			encoded, _ := json.Marshal(map[string]interface{}{"oldest_available_cursor": after})
+			if _, err := fmt.Fprintf(writer, "id: %d\nevent: cursor_reset\ndata: %s\n\n", after, encoded); err != nil {
+				return
+			}
+		}
 		if err := writePending(); err != nil {
 			return
 		}
 		for {
 			select {
+			case _, ok := <-wake:
+				if !ok || writePending() != nil {
+					return
+				}
 			case <-poll.C:
 				if err := writePending(); err != nil {
 					return
@@ -157,4 +249,11 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 			}
 		}
 	}()
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -82,6 +83,34 @@ func TestRefreshTranscriptVerifiesAndCoversTokenAndNonce(t *testing.T) {
 	}
 }
 
+func TestAddPrincipalTranscriptVerifiesAndCoversKeyAndNonce(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := addPrincipalRequest{
+		PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
+		Nonce:     "efn_device_original",
+		IssuedAt:  1234,
+	}
+	transcript, err := addPrincipalTranscript(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(privateKey, transcript)
+	if !ed25519.Verify(publicKey, transcript, signature) {
+		t.Fatal("valid add-device transcript signature was rejected")
+	}
+	req.Nonce = "efn_device_substituted"
+	mutated, err := addPrincipalTranscript(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ed25519.Verify(publicKey, mutated, signature) {
+		t.Fatal("signature remained valid after add-device nonce substitution")
+	}
+}
+
 func TestFingerprintUsesCanonicalKeyBytes(t *testing.T) {
 	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -121,4 +150,68 @@ func TestRegisterV2RoutesDoesNotConflictWithV1(t *testing.T) {
 		}
 	}()
 	svc.Register(h)
+}
+
+func TestConsoleV2WebSocketRequestBoundary(t *testing.T) {
+	expected := "https://console.example.test"
+	if !validConsoleWebSocketRequest(expected, "console.example.test", consoleV2WebSocketProtocol, "", expected) {
+		t.Fatal("valid same-origin V2 WebSocket request was rejected")
+	}
+	cases := []struct {
+		name, origin, host, protocol, token string
+	}{
+		{name: "cross origin", origin: "https://evil.example", host: "console.example.test", protocol: consoleV2WebSocketProtocol},
+		{name: "wrong host", origin: expected, host: "api.example.test", protocol: consoleV2WebSocketProtocol},
+		{name: "query bearer", origin: expected, host: "console.example.test", protocol: consoleV2WebSocketProtocol, token: "secret"},
+		{name: "missing audience", origin: expected, host: "console.example.test", protocol: "legacy"},
+		{name: "origin path", origin: expected + "/path", host: "console.example.test", protocol: consoleV2WebSocketProtocol},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if validConsoleWebSocketRequest(test.origin, test.host, test.protocol, test.token, expected) {
+				t.Fatal("unsafe V2 WebSocket request was accepted")
+			}
+		})
+	}
+}
+
+func TestNotificationIssuerIdentityFailsClosed(t *testing.T) {
+	for _, sourceType := range []string{"system", "milestone", "trade"} {
+		identity := notificationIssuerIdentity(sourceType)
+		if identity == nil || identity["verification_level"] != "official" {
+			t.Fatalf("%s notification did not receive platform identity", sourceType)
+		}
+	}
+	for _, sourceType := range []string{"friend_request", "unknown", ""} {
+		if identity := notificationIssuerIdentity(sourceType); identity != nil {
+			t.Fatalf("%s notification was incorrectly marked as platform official", sourceType)
+		}
+	}
+}
+
+func TestCommunicationResponseBudgetAndTextFallback(t *testing.T) {
+	data := map[string]interface{}{"messages": []communicationMessage{{Content: strings.Repeat("🙂", 100000)}}}
+	if communicationReplyFits(data) {
+		t.Fatal("oversized communication payload passed the hard response budget")
+	}
+	message := communicationMessage{Content: strings.Repeat("🙂", 100000)}
+	boundCommunicationMessage(&message, 56000)
+	if !message.ContentTruncated {
+		t.Fatal("oversized message was not marked truncated")
+	}
+	data["messages"] = []communicationMessage{message}
+	if !communicationReplyFits(data) {
+		t.Fatal("single-message fallback still exceeded the hard response budget")
+	}
+}
+
+func TestCommunicationContextFilterDoesNotLeakUnreferencedPeers(t *testing.T) {
+	contexts := map[string]communicationAgentContext{
+		"1": {ProfileStatus: "available"},
+		"2": {ProfileStatus: "available"},
+	}
+	filtered := filterCommunicationContexts(contexts, []int64{2})
+	if len(filtered) != 1 || filtered["2"].ProfileStatus != "available" {
+		t.Fatalf("unexpected filtered contexts: %#v", filtered)
+	}
 }

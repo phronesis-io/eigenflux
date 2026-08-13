@@ -190,8 +190,22 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 	}
 
 	createdAt := time.Now().UnixMilli()
+	sourceEventID := activity.StreamName + ":" + msgID
 	inserted := false
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		// Multiple workers may reclaim the same pending Redis entry. Serialize
+		// only that source ID before allocating an Agent sequence, otherwise a
+		// duplicate would consume a sequence and create a permanent SSE gap.
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, sourceEventID).Error; err != nil {
+			return err
+		}
+		var exists bool
+		if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM agent_activity_log WHERE source_event_id = ?)`, sourceEventID).Scan(&exists).Error; err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
 		if err := tx.Exec(`INSERT INTO agent_activity_heads (agent_id, current_seq)
 			VALUES (?, 0) ON CONFLICT (agent_id) DO NOTHING`, agentID).Error; err != nil {
 			return err
@@ -201,7 +215,6 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 			WHERE agent_id = ? RETURNING current_seq`, agentID).Scan(&agentSeq).Error; err != nil {
 			return err
 		}
-		sourceEventID := activity.StreamName + ":" + msgID
 		var insertedLogID int64
 		if err := tx.Raw(`INSERT INTO agent_activity_log
 			(log_id, agent_id, event_type, summary, detail, created_at, agent_seq, source_event_id)
@@ -220,6 +233,11 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 	if !inserted {
 		c.ackMessage(ctx, msgID)
 		return
+	}
+	// Pub/Sub is only a low-latency hint. DB replay remains authoritative, so
+	// a transient publish failure must not make the durable stream event fail.
+	if err := mq.RDB.Publish(ctx, "console:v2:activity:wakeup", strconv.FormatInt(agentID, 10)).Err(); err != nil {
+		logger.Default().Warn("ActivityConsumer V2 wakeup publish failed", "agentID", agentID, "err", err)
 	}
 
 	// Increment the all-time impression counter by the number of signals

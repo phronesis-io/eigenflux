@@ -60,6 +60,12 @@ Examples:
 		if serverName == "" {
 			return fmt.Errorf("no active server")
 		}
+		if _, v2Err := auth.LoadV2Credentials(serverName); v2Err == nil {
+			if cursor != "" || (action != "" && action != "refresh") {
+				return fmt.Errorf("Feed V2 currently supports refresh batches only; omit --cursor and use --action refresh")
+			}
+			return pollFeedV2(cmd, serverName, limit)
+		}
 		_, agentID := profileStateScopeForServer(serverName)
 		c := newClientForServer(serverName)
 		resp, err := c.Get("/items/feed", params)

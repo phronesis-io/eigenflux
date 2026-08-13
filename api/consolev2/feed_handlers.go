@@ -9,12 +9,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
+	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
 const (
@@ -30,11 +32,12 @@ var (
 )
 
 type createFeedBatchRequest struct {
-	ProcessingScope   string           `json:"processing_scope"`
-	RuntimeInstanceID string           `json:"runtime_instance_id"`
-	IdempotencyKey    string           `json:"idempotency_key"`
-	Limit             int32            `json:"limit"`
-	KnownCardVersions map[string]int64 `json:"known_public_card_versions,omitempty"`
+	ProcessingScope        string           `json:"processing_scope"`
+	RuntimeInstanceID      string           `json:"runtime_instance_id"`
+	IdempotencyKey         string           `json:"idempotency_key"`
+	Limit                  int32            `json:"limit"`
+	KnownCardVersions      map[string]int64 `json:"known_public_card_versions,omitempty"`
+	ContextRevisionApplied *int64           `json:"context_revision_applied,omitempty"`
 }
 
 type feedBatchRow struct {
@@ -75,7 +78,8 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		req.Limit = feedMaxItems
 	}
 	if req.RuntimeInstanceID == "" || len(req.RuntimeInstanceID) > 128 || req.IdempotencyKey == "" || len(req.IdempotencyKey) > 128 ||
-		len(req.ProcessingScope) > 64 || req.Limit < 1 || req.Limit > feedMaxItems || len(req.KnownCardVersions) > 100 {
+		len(req.ProcessingScope) > 64 || req.Limit < 1 || req.Limit > feedMaxItems || len(req.KnownCardVersions) > 100 ||
+		(req.ContextRevisionApplied != nil && *req.ContextRevisionApplied < 0) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "runtime_instance_id, idempotency_key, scope, or limit is invalid", nil)
 		return
 	}
@@ -90,6 +94,7 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 	requestID, _ := randomToken("efreq_", 18)
 	var batch feedBatchRow
 	created := false
+	pollIntervalSeconds := 600
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`INSERT INTO feed_consumer_state
 			(agent_id, processing_scope, lease_epoch, updated_at)
@@ -158,11 +163,14 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		}
 
 		var onboarding struct {
-			State           string `gorm:"column:state"`
-			ContextRevision *int64 `gorm:"column:active_context_revision"`
+			State               string `gorm:"column:state"`
+			ContextRevision     *int64 `gorm:"column:active_context_revision"`
+			PollIntervalSeconds int    `gorm:"column:poll_interval_seconds"`
 		}
-		if err := tx.Raw(`SELECT state, active_context_revision FROM agent_onboarding_v2
-			WHERE agent_id = ?`, agentIDValue).Scan(&onboarding).Error; err != nil {
+		if err := tx.Raw(`SELECT o.state, o.active_context_revision,
+			COALESCE(s.poll_interval_seconds, 600) AS poll_interval_seconds
+			FROM agent_onboarding_v2 o LEFT JOIN agent_feed_v2_settings s ON s.agent_id = o.agent_id
+			WHERE o.agent_id = ?`, agentIDValue).Scan(&onboarding).Error; err != nil {
 			return err
 		}
 		if onboarding.State == "" {
@@ -172,6 +180,7 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		if onboarding.State == "completed" {
 			mode = "intent_aligned"
 		}
+		pollIntervalSeconds = onboarding.PollIntervalSeconds
 		if err := tx.Raw(`INSERT INTO feed_batches
 			(agent_id, processing_scope, request_id, idempotency_key, request_hash,
 			 personalization_mode, onboarding_state_at_creation, context_revision, status,
@@ -224,14 +233,25 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
 		return
 	}
-	payloads, encodeErr := s.buildFeedPayloads(feedResp.Items)
+	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, batch.BatchID,
+		batch.PersonalizationMode, batch.ContextRevision, feedResp.Items, req.KnownCardVersions)
 	if encodeErr != nil {
 		s.abandonFeedBatch(agentIDValue, req.ProcessingScope, batch.BatchID)
 		fail(c, http.StatusInternalServerError, "FEED_BATCH_FAILED", "could not encode Feed batch", nil)
 		return
 	}
+	contextDelivery := "none"
+	if batch.ContextRevision != nil {
+		contextDelivery = "full"
+		if req.ContextRevisionApplied != nil && *req.ContextRevisionApplied == *batch.ContextRevision {
+			contextDelivery = "unchanged"
+		}
+	}
 	metaBytes, _ := json.Marshal(map[string]interface{}{
 		"has_more": feedResp.HasMore, "impression_id": feedResp.ImpressionId,
+		"agent_card_updates": cardUpdates, "context_delivery": contextDelivery,
+		"poll_interval_seconds": pollIntervalSeconds,
+		"poll_phase_seconds":    agentIDValue % int64(pollIntervalSeconds),
 	})
 	itemsBytes, _ := json.Marshal(payloads)
 	leaseUntil := now + int64(feedLeaseTTL/time.Millisecond)
@@ -253,6 +273,9 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 				FROM jsonb_array_elements(?::jsonb) AS entry`, batch.BatchID, now, now, string(itemsBytes)).Error; err != nil {
 				return err
 			}
+			if err := persistAttentionItems(tx, agentIDValue, payloads, now); err != nil {
+				return err
+			}
 		}
 		batch.LeaseEpoch = 1
 		batch.LeaseUntil = &leaseUntil
@@ -272,6 +295,79 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	s.replyFeedBatch(c, agentIDValue, batch, leaseToken)
+}
+
+type attentionSeed struct {
+	SourceType      string        `json:"source_type"`
+	SourceID        int64         `json:"source_id"`
+	Title           string        `json:"title"`
+	Summary         string        `json:"summary"`
+	ProposedActions interface{}   `json:"proposed_actions"`
+	MatchedIntentID []interface{} `json:"matched_intent_ids"`
+}
+
+// persistAttentionItems performs one bulk upsert plus one bulk relation insert
+// for the whole Feed page. Its query count is constant (two) for 1–20 items.
+func persistAttentionItems(tx *gorm.DB, agentID int64, items []frozenFeedItem, now int64) error {
+	seeds := make([]attentionSeed, 0, len(items))
+	for _, item := range items {
+		match, ok := item.IntentMatch.(map[string]interface{})
+		if !ok || match["status"] != "matched" {
+			continue
+		}
+		matched, ok := match["matched_intent_ids"].([]string)
+		if !ok || len(matched) == 0 {
+			continue
+		}
+		preview, _ := item.Payload["preview"].(map[string]interface{})
+		text, _ := preview["text"].(string)
+		title, _ := truncateRunes(text, 120)
+		summary, _ := truncateRunes(text, 500)
+		if title == "" {
+			title = "值得关注的网络动态"
+		}
+		ids := make([]interface{}, 0, len(matched))
+		for _, id := range matched {
+			ids = append(ids, id)
+		}
+		actions := item.Payload["recommended_actions"]
+		if actions == nil {
+			actions = []interface{}{}
+		}
+		seeds = append(seeds, attentionSeed{
+			SourceType: item.SourceType, SourceID: item.SourceID, Title: title, Summary: summary,
+			ProposedActions: actions, MatchedIntentID: ids,
+		})
+	}
+	if len(seeds) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(seeds)
+	if err != nil {
+		return err
+	}
+	if err := tx.Exec(`INSERT INTO agent_attention_items
+		(agent_id, title, summary, source_type, source_id, proposed_actions, status, created_at)
+		SELECT ?, seed.title, seed.summary, seed.source_type, seed.source_id,
+			seed.proposed_actions, 'open', ?
+		FROM jsonb_to_recordset(?::jsonb) AS seed(
+			source_type text, source_id bigint, title text, summary text,
+			proposed_actions jsonb, matched_intent_ids jsonb)
+		ON CONFLICT (agent_id, source_type, source_id) WHERE status = 'open' DO NOTHING`,
+		agentID, now, string(encoded)).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`INSERT INTO agent_attention_intents (agent_id, attention_id, intent_id)
+		SELECT ?, item.attention_id, intent.intent_id
+		FROM jsonb_to_recordset(?::jsonb) AS seed(
+			source_type text, source_id bigint, title text, summary text,
+			proposed_actions jsonb, matched_intent_ids jsonb)
+		JOIN agent_attention_items item ON item.agent_id = ?
+		 AND item.source_type = seed.source_type AND item.source_id = seed.source_id AND item.status = 'open'
+		CROSS JOIN LATERAL jsonb_array_elements_text(seed.matched_intent_ids) matched(intent_id)
+		JOIN agent_intent_actions intent ON intent.agent_id = ?
+		 AND intent.intent_id = matched.intent_id::bigint
+		ON CONFLICT DO NOTHING`, agentID, string(encoded), agentID, agentID).Error
 }
 
 type frozenFeedItem struct {
@@ -322,7 +418,16 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 	return result, nil
 }
 
-func (s *Service) buildFeedPayloads(items []*feedrpc.FeedItem) ([]frozenFeedItem, error) {
+type feedIntent struct {
+	IntentID          string `json:"intent_id"`
+	WatchFor          string `json:"watch_for"`
+	TriggerWhen       string `json:"trigger_when"`
+	ActionInstruction string `json:"then"`
+	ActionPolicy      string `json:"action_policy"`
+}
+
+func (s *Service) buildFeedPayloads(viewerID, batchID int64, mode string, contextRevision *int64, items []*feedrpc.FeedItem,
+	knownVersions map[string]int64) ([]frozenFeedItem, map[string]interface{}, error) {
 	authorSet := make(map[int64]struct{})
 	for _, item := range items {
 		if item.AuthorAgentId != nil && item.SourceType != nil && !strings.EqualFold(*item.SourceType, "pgc") {
@@ -335,46 +440,199 @@ func (s *Service) buildFeedPayloads(items []*feedrpc.FeedItem) ([]frozenFeedItem
 	}
 	identities, err := s.resolveIdentityAssertions(authorIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	cards, cardErr := profiledal.GetAgentCards(s.db, authorIDs)
+	cardUpdates := make(map[string]interface{})
+	if cardErr == nil {
+		for _, authorID := range authorIDs {
+			card, exists := cards[authorID]
+			if !exists || knownVersions[strconv.FormatInt(authorID, 10)] == card.PublicCardVersion {
+				continue
+			}
+			summary, summaryErr := communicationSummary(card.PublicCard)
+			if summaryErr != nil {
+				continue
+			}
+			cardUpdates[strconv.FormatInt(authorID, 10)] = map[string]interface{}{
+				"public_card_version": card.PublicCardVersion,
+				"card_generated_at":   card.PublicCardGeneratedAt,
+				"card_summary":        summary,
+			}
+		}
+	}
+	var intents []feedIntent
+	if mode == "intent_aligned" {
+		if contextRevision == nil {
+			return nil, nil, errors.New("intent-aligned Feed batch has no frozen context revision")
+		}
+		var rawContext string
+		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
+			WHERE agent_id = ? AND revision = ?`, viewerID, *contextRevision).Scan(&rawContext).Error; err != nil {
+			return nil, nil, err
+		}
+		var snapshot struct {
+			IntentActions []feedIntent `json:"intent_actions"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(rawContext))
+		decoder.UseNumber()
+		if decoder.Decode(&snapshot) != nil || len(snapshot.IntentActions) > 10 {
+			return nil, nil, errors.New("frozen control context is invalid")
+		}
+		intents = snapshot.IntentActions
 	}
 	out := make([]frozenFeedItem, 0, len(items))
 	for index, item := range items {
-		sourceType := "broadcast"
+		upstreamSourceType := ""
 		if item.SourceType != nil && *item.SourceType != "" {
-			sourceType = *item.SourceType
+			upstreamSourceType = *item.SourceType
 		}
-		payload := map[string]interface{}{
-			"source_ref":     map[string]interface{}{"type": sourceType, "id": fmt.Sprintf("%d", item.ItemId)},
-			"broadcast_type": item.BroadcastType,
-			"domains":        nonNilStrings(item.Domains), "keywords": nonNilStrings(item.Keywords),
-			"updated_at": item.UpdatedAt,
+		contentClass := "ugc"
+		if strings.EqualFold(upstreamSourceType, "pgc") {
+			contentClass = "pgc"
 		}
+		previewText := ""
 		if item.Summary != nil {
-			payload["summary"] = *item.Summary
+			previewText = *item.Summary
+		} else if item.RawContent != nil {
+			previewText = *item.RawContent
+		}
+		previewText, previewTruncated := truncateRunes(previewText, 800)
+		payload := map[string]interface{}{
+			"source_ref":      map[string]interface{}{"type": "broadcast", "id": fmt.Sprintf("%d", item.ItemId)},
+			"content_class":   contentClass,
+			"author_identity": nil,
+			"preview":         map[string]interface{}{"text": previewText, "truncated": previewTruncated},
+			"metadata": map[string]interface{}{
+				"broadcast_type": item.BroadcastType,
+				"domains":        nonNilStrings(item.Domains),
+				"keywords":       nonNilStrings(item.Keywords),
+				"source_type":    upstreamSourceType,
+				"updated_at":     item.UpdatedAt,
+			},
+			"source_expectation":  "",
+			"recommended_actions": []interface{}{},
+			"entity_refs":         []interface{}{},
 		}
 		if item.ExpectedResponse != nil {
-			payload["expected_response"] = *item.ExpectedResponse
+			payload["source_expectation"] = *item.ExpectedResponse
 		}
-		if item.Suggestion != nil {
-			payload["suggestion"] = *item.Suggestion
-		}
-		if item.RawUrl != nil {
-			payload["url"] = *item.RawUrl
-		}
-		if item.RawContent != nil {
-			payload["raw_content"] = *item.RawContent
-		}
-		if item.RawContentTruncated != nil {
-			payload["raw_content_truncated"] = *item.RawContentTruncated
-		}
-		if item.AuthorAgentId != nil && !strings.EqualFold(sourceType, "pgc") {
+		if item.AuthorAgentId != nil && contentClass == "ugc" {
 			if identity, exists := identities[*item.AuthorAgentId]; exists {
-				payload["author_identity"] = identity
+				payload["author_identity"] = map[string]interface{}{
+					"agent_id": identity.SubjectID, "agent_name": identity.DisplayName,
+					"verification_level": identity.VerificationLevel,
+				}
+				payload["entity_refs"] = []interface{}{map[string]interface{}{
+					"type": "agent", "id": identity.SubjectID,
+				}}
+			}
+			if card, exists := cards[*item.AuthorAgentId]; exists && cardErr == nil {
+				payload["author_public_card_version"] = card.PublicCardVersion
+			}
+			relation := "stranger"
+			if item.AuthorRelation != nil && strings.EqualFold(*item.AuthorRelation, "friend") {
+				relation = "friend"
+			}
+			payload["author_relation"] = relation
+		}
+		intentMatch := interface{}(nil)
+		if mode == "intent_aligned" {
+			match, actions := matchFeedIntents(batchID, item, intents)
+			intentMatch = match
+			payload["recommended_actions"] = actions
+		}
+		out = append(out, frozenFeedItem{Ordinal: index, SourceType: "broadcast", SourceID: item.ItemId, Payload: payload, IntentMatch: intentMatch})
+	}
+	return out, cardUpdates, nil
+}
+
+func matchFeedIntents(batchID int64, item *feedrpc.FeedItem, intents []feedIntent) (map[string]interface{}, []interface{}) {
+	haystackParts := []string{item.BroadcastType}
+	if item.Summary != nil {
+		haystackParts = append(haystackParts, *item.Summary)
+	}
+	if item.ExpectedResponse != nil {
+		haystackParts = append(haystackParts, *item.ExpectedResponse)
+	}
+	haystackParts = append(haystackParts, item.Domains...)
+	haystackParts = append(haystackParts, item.Keywords...)
+	haystack := strings.ToLower(strings.Join(haystackParts, " "))
+	matchedIDs := make([]string, 0, len(intents))
+	actions := make([]interface{}, 0, len(intents))
+	bestScore := float64(0)
+	for _, intent := range intents {
+		terms := intentTerms(intent.WatchFor + " " + intent.TriggerWhen)
+		if len(terms) == 0 {
+			continue
+		}
+		matchedTerms := 0
+		for _, term := range terms {
+			if strings.Contains(haystack, term) {
+				matchedTerms++
 			}
 		}
-		out = append(out, frozenFeedItem{Ordinal: index, SourceType: sourceType, SourceID: item.ItemId, Payload: payload, IntentMatch: nil})
+		if matchedTerms == 0 {
+			continue
+		}
+		score := float64(matchedTerms) / float64(len(terms))
+		if score > bestScore {
+			bestScore = score
+		}
+		intentID := intent.IntentID
+		intentIDNumber, parseErr := strconv.ParseInt(intent.IntentID, 10, 64)
+		if parseErr != nil || intentIDNumber <= 0 {
+			continue
+		}
+		matchedIDs = append(matchedIDs, intentID)
+		actionType := "research"
+		requiresConfirmation := false
+		switch intent.ActionPolicy {
+		case "draft":
+			actionType = "draft"
+		case "network_action":
+			actionType, requiresConfirmation = "network_action", true
+		case "trade_action":
+			actionType, requiresConfirmation = "trade_action", true
+		}
+		actions = append(actions, map[string]interface{}{
+			"action_idempotency_key": "feed_" + hashString(fmt.Sprintf("%d:%d:%d", batchID, item.ItemId, intentIDNumber))[:24],
+			"type":                   actionType, "instruction": intent.ActionInstruction,
+			"policy": intent.ActionPolicy, "requires_user_confirmation": requiresConfirmation,
+		})
 	}
-	return out, nil
+	status := "unmatched"
+	reason := "no confirmed intent matched this item"
+	if len(matchedIDs) > 0 {
+		status = "matched"
+		reason = "matched confirmed intent terms"
+	}
+	return map[string]interface{}{
+		"status": status, "matched_intent_ids": matchedIDs,
+		"score": bestScore, "reason": reason,
+	}, actions
+}
+
+func intentTerms(value string) []string {
+	parts := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r))
+	})
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len([]rune(part)) < 2 {
+			continue
+		}
+		if _, exists := seen[part]; exists {
+			continue
+		}
+		seen[part] = struct{}{}
+		out = append(out, part)
+		if len(out) == 32 {
+			break
+		}
+	}
+	return out
 }
 
 func nonNilStrings(values []string) []string {
@@ -428,7 +686,8 @@ func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch fee
 	var meta map[string]interface{}
 	_ = json.Unmarshal([]byte(batch.ResponseMeta), &meta)
 	var controlContext interface{}
-	if batch.ContextRevision != nil {
+	contextDelivery, _ := meta["context_delivery"].(string)
+	if batch.ContextRevision != nil && contextDelivery != "unchanged" {
 		var raw string
 		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
 			WHERE agent_id = ? AND revision = ?`, agentID, *batch.ContextRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
@@ -436,13 +695,28 @@ func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch fee
 			return
 		}
 	}
+	capabilities := []string{"feed_batch=v2", "personalization=" + batch.PersonalizationMode}
+	if batch.ContextRevision != nil {
+		capabilities = append(capabilities, "control_context=v2", "intent_match=v1")
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"batch_id": fmt.Sprintf("%d", batch.BatchID), "status": batch.Status,
-		"lease_epoch": batch.LeaseEpoch, "lease_token": leaseToken, "lease_until": batch.LeaseUntil,
-		"personalization_mode": batch.PersonalizationMode,
-		"onboarding_state":     batch.OnboardingStateAtCreation,
-		"context_revision":     batch.ContextRevision, "control_context": controlContext,
-		"items": items, "has_more": meta["has_more"], "impression_id": meta["impression_id"],
+		"schema_version": "feed_batch.v2", "batch_id": fmt.Sprintf("%d", batch.BatchID),
+		"status": batch.Status, "impression_id": meta["impression_id"],
+		"lease": map[string]interface{}{
+			"epoch": batch.LeaseEpoch, "token": leaseToken, "expires_at": batch.LeaseUntil,
+		},
+		"personalization": map[string]interface{}{
+			"mode": batch.PersonalizationMode, "onboarding_state": batch.OnboardingStateAtCreation,
+			"context_revision": batch.ContextRevision, "context_delivery": contextDelivery,
+		},
+		"control_context_snapshot": controlContext,
+		"agent_card_updates":       meta["agent_card_updates"],
+		"cadence": map[string]interface{}{
+			"poll_interval_seconds": meta["poll_interval_seconds"],
+			"phase_seconds":         meta["poll_phase_seconds"],
+		},
+		"items": items, "next_cursor": nil, "has_more": meta["has_more"],
+		"capabilities_applied": capabilities,
 	})
 }
 
