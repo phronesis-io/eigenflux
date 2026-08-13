@@ -102,9 +102,12 @@ func normalizeChannel(utmSource string) string {
 // deriveChannel resolves the channel bucket for a mint. An explicit utm_source
 // wins. Otherwise each platform's dedicated click identifier selects its own
 // bucket; Xingtu clickid must not fall through to Xiaohongshu attribution.
-func deriveChannel(utmSource, clickID, twclid, gclid, xingtuClickID string) string {
+func deriveChannel(utmSource, clickID, twclid, gclid, xingtuClickID, oceanengineClickID string) string {
 	c := normalizeChannel(utmSource)
 	if c == "unknown" {
+		if oceanengineClickID != "" {
+			return "oceanengine"
+		}
 		if xingtuClickID != "" {
 			return "xingtu"
 		}
