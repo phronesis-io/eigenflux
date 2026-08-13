@@ -196,7 +196,7 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	// per ref; retried by later reports if a prior attempt failed).
 	fireXHSCallback(t.Token, EventInstall)
 	fireXingtuCallback(t.Token, "1") // registration: server-confirmed first report
-	fireOceanengineCallback(t.Token, oceanengineEventRegister)
+	fireOceanengineCallbacks(t.Token, oceanengineEventCustomerEffective)
 	fireXAdsInstallCallback(t.Token)
 	fireGoogleAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
@@ -252,7 +252,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		event("install_copy", t.Token, "channel", t.Channel)
 		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
 		fireXingtuCallback(t.Token, "0")    // activation: confirmed command copy
-		fireOceanengineCallback(t.Token, oceanengineEventActive)
+		fireOceanengineCallbacks(t.Token, oceanengineEventForm)
 		// Copy was confirmed by the server and is idempotent per ref.
 		fireXAdsCopyCommandCallback(t.Token)
 	}
