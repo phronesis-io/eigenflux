@@ -62,6 +62,13 @@ type Config struct {
 	ResendApiKey                string
 	ResendFromEmail             string
 	EnableEmailVerification     bool     // Whether login requires OTP email verification
+	EnableConsoleV2             bool     // Enable the isolated Console V2 BFF and onboarding routes
+	EnableFeedV2                bool     // Enable the lease-based Feed V2 routes
+	EnableControlChannelV2      bool     // Enable Agent command and attention routes
+	EnableCommunicationV2       bool     // Enable V2 PM/friend responses enriched with public Agent Card data
+	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker
+	ConsoleV2OTPPepper          string   // Server-side HMAC pepper for Console V2 email challenges
+	ConsoleV2PublicURL          string   // Browser origin used when constructing one-time handoff URLs
 	MockUniversalOTP            string   // fixed OTP for whitelist-matched requests
 	ESReplicas                  int      // Elasticsearch number_of_replicas
 	ESShards                    int      // Elasticsearch number_of_shards
@@ -227,6 +234,13 @@ func Load() *Config {
 		ResendApiKey:                 getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail:              getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
 		EnableEmailVerification:      getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
+		EnableConsoleV2:              getEnvBool("ENABLE_CONSOLE_V2", false),
+		EnableFeedV2:                 getEnvBool("ENABLE_FEED_V2", false),
+		EnableControlChannelV2:       getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),
+		EnableCommunicationV2:        getEnvBool("ENABLE_COMMUNICATION_V2", false),
+		ConsoleV2BootstrapSecret:     getEnv("CONSOLE_V2_BOOTSTRAP_SECRET", ""),
+		ConsoleV2OTPPepper:           getEnv("CONSOLE_V2_OTP_PEPPER", ""),
+		ConsoleV2PublicURL:           getEnv("CONSOLE_V2_PUBLIC_URL", "http://localhost:5173"),
 		MockUniversalOTP:             getEnv("MOCK_UNIVERSAL_OTP", "123456"),
 		ESReplicas:                   getEnvInt("ES_REPLICAS", 0),
 		ESShards:                     getEnvInt("ES_SHARDS", 1),

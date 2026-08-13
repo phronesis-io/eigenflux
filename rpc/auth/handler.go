@@ -210,6 +210,11 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 			}
 		}
 	}
+	if agent.EmailKind != "" && agent.EmailKind != "legacy_real" {
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 403, Msg: "this identity must use Console V2 authentication"},
+		}, nil
+	}
 
 	now := time.Now().UnixMilli()
 	_ = dal.SetEmailVerifiedAt(db.DB, agent.AgentID, now)

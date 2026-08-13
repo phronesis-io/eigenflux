@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -25,6 +26,7 @@ import (
 	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
+	"eigenflux_server/api/consolev2"
 	_ "eigenflux_server/api/docs"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
 	"eigenflux_server/api/install"
@@ -39,6 +41,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
@@ -77,6 +80,33 @@ func main() {
 		log.Fatalf("failed to create etcd resolver: %v", err)
 	}
 
+	var consoleV2Service *consolev2.Service
+	var consoleV2IDGen *idgen.ManagedGenerator
+	if cfg.EnableConsoleV2 {
+		if strings.TrimSpace(cfg.ConsoleV2BootstrapSecret) == "" {
+			log.Fatal("CONSOLE_V2_BOOTSTRAP_SECRET is required when ENABLE_CONSOLE_V2=true")
+		}
+		if strings.TrimSpace(cfg.ConsoleV2OTPPepper) == "" {
+			log.Fatal("CONSOLE_V2_OTP_PEPPER is required when ENABLE_CONSOLE_V2=true")
+		}
+		consoleV2IDGen, err = idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+			Endpoints:      splitEtcdEndpoints(cfg.EtcdAddr),
+			WorkerPrefix:   cfg.IDWorkerPrefix,
+			ServiceName:    "api-console-v2-agent-id",
+			InstanceID:     cfg.IDInstanceID,
+			LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+			EpochMS:        cfg.IDSnowflakeEpoch,
+		})
+		if err != nil {
+			log.Fatalf("failed to init Console V2 agent id generator: %v", err)
+		}
+		defer func() { _ = consoleV2IDGen.Close(context.Background()) }()
+		consoleV2Service, err = consolev2.NewService(db.DB, consoleV2IDGen, cfg)
+		if err != nil {
+			log.Fatalf("failed to init Console V2 service: %v", err)
+		}
+	}
+
 	// Init kitex clients
 	profileClient, err := profileservice.NewClient("ProfileService", rpcx.ClientOptions(r)...)
 	if err != nil {
@@ -95,6 +125,9 @@ func main() {
 		log.Fatalf("failed to create feed client: %v", err)
 	}
 	log.Println("Feed RPC client initialized")
+	if consoleV2Service != nil {
+		consoleV2Service.SetFeedClient(feedClient)
+	}
 
 	authClient, err := authservice.NewClient("AuthService", rpcx.ClientOptions(r)...)
 	if err != nil {
@@ -226,10 +259,64 @@ func main() {
 	install.Register(h, publicBaseURL)
 	log.Print("Install attribution registered")
 
+	if consoleV2Service != nil {
+		consoleV2Service.Register(h)
+		registerConsoleV2BusinessBFF(h, consoleV2Service)
+		log.Print("Console V2 routes registered")
+	}
+
 	// Register generated routes
 	router_gen.GeneratedRegister(h)
 
 	log.Printf("API gateway starting on %s", listenAddr)
 	log.Printf("API base URL: %s", skilldoc.BuildAPIBaseURL(publicBaseURL))
 	h.Spin()
+}
+
+func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service) {
+	read := func(path string, handler app.HandlerFunc) {
+		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handler)...)
+	}
+	write := func(method, path string, handler app.HandlerFunc) {
+		h.Handle(method, "/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(true, handler)...)
+	}
+
+	read("console/today", apihandler.ConsoleGetToday)
+	read("console/activity-log", apihandler.ConsoleGetActivityLog)
+	read("console/activity-calendar", apihandler.ConsoleGetActivityCalendar)
+	read("console/highlights", apihandler.ConsoleGetHighlights)
+	write(http.MethodPost, "console/highlight-feedback", apihandler.ConsoleHighlightFeedback)
+	read("console/settings", apihandler.ConsoleGetSettings)
+	write(http.MethodPut, "console/settings", apihandler.ConsoleUpdateSettings)
+	read("agents/me", consoleV2GetMe)
+	read("agents/me/beat_coverage", apihandler.GetBeatCoverage)
+	read("agents/items", apihandler.GetMyItems)
+	write(http.MethodDelete, "agents/items/:item_id", apihandler.DeleteMyItem)
+	read("broadcasts/rated", apihandler.MyRatedItems)
+	read("broadcasts/leaderboard", apihandler.BroadcastLeaderboard)
+	read("broadcasts/top", apihandler.TopBroadcasts)
+	read("broadcasts/new-users", apihandler.NewUserBroadcasts)
+	read("relations/friends", apihandler.ListFriends)
+	read("relations/contacted", apihandler.ContactedRelations)
+	read("relations/applications", apihandler.ListFriendRequests)
+	write(http.MethodPost, "relations/apply", apihandler.SendFriendRequest)
+	write(http.MethodPost, "relations/handle", apihandler.HandleFriendRequest)
+	write(http.MethodPost, "relations/remark", apihandler.UpdateFriendRemark)
+	read("pm/conversations", apihandler.ListConversations)
+	read("pm/history", apihandler.GetConvHistory)
+	read("pm/unread", apihandler.GetUnreadBreakdown)
+	write(http.MethodPost, "pm/send", apihandler.SendPM)
+	write(http.MethodPost, "pm/read", apihandler.MarkConvRead)
+	read("items/:item_id", apihandler.GetItem)
+}
+
+func splitEtcdEndpoints(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if endpoint := strings.TrimSpace(part); endpoint != "" {
+			out = append(out, endpoint)
+		}
+	}
+	return out
 }

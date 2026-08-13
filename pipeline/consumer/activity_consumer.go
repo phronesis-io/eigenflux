@@ -16,15 +16,18 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
+
+	"gorm.io/gorm"
 )
 
 const (
-	activityBatchSize     = int64(100)
-	activityMaxRetry      = int64(3)
-	activityRetryMinIdle  = time.Second
-	activityRetryPoll     = 200 * time.Millisecond
-	activityReadBlock     = 500 * time.Millisecond
-	activityMaxWorkers    = 5
+	activityBatchSize    = int64(100)
+	activityMaxRetry     = int64(3)
+	activityRetryMinIdle = time.Second
+	activityRetryPoll    = 200 * time.Millisecond
+	activityReadBlock    = 500 * time.Millisecond
+	activityMaxWorkers   = 5
+	activityDLQStream    = "stream:agent:activity:dlq"
 )
 
 type ActivityConsumer struct {
@@ -108,7 +111,17 @@ func (c *ActivityConsumer) nextBatch(ctx context.Context) ([]mq.PendingMessage, 
 		msgs := make([]mq.PendingMessage, 0, len(reclaimed))
 		for _, pending := range reclaimed {
 			if pending.RetryCount >= activityMaxRetry {
-				logger.Default().Warn("ActivityConsumer dropping message after max retries", "msgID", pending.Message.ID, "retryCount", pending.RetryCount)
+				logger.Default().Warn("ActivityConsumer moving message to DLQ after max retries", "msgID", pending.Message.ID, "retryCount", pending.RetryCount)
+				dlqValues := make(map[string]interface{}, len(pending.Message.Values)+2)
+				for key, value := range pending.Message.Values {
+					dlqValues[key] = value
+				}
+				dlqValues["source_message_id"] = pending.Message.ID
+				dlqValues["retry_count"] = pending.RetryCount
+				if _, publishErr := mq.Publish(ctx, activityDLQStream, dlqValues); publishErr != nil {
+					logger.Default().Error("ActivityConsumer DLQ publish failed", "msgID", pending.Message.ID, "err", publishErr)
+					continue
+				}
 				c.ackMessage(ctx, pending.Message.ID)
 				continue
 			}
@@ -155,7 +168,7 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 	}
 
 	eventType, _ := values["event_type"].(string)
-	if eventType == "" {
+	if !isSupportedActivityType(eventType) {
 		logger.Default().Warn("ActivityConsumer missing event_type", "msgID", msgID)
 		metrics.ConsumerMessagesTotal.WithLabelValues("agent:activity", "failure").Inc()
 		c.ackMessage(ctx, msgID)
@@ -176,19 +189,35 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 		return
 	}
 
-	log := dal.ActivityLog{
-		LogID:     logID,
-		AgentID:   agentID,
-		EventType: eventType,
-		Summary:   summary,
-		Detail:    detail,
-		CreatedAt: time.Now().UnixMilli(),
-	}
-
-	if err := db.DB.Create(&log).Error; err != nil {
+	createdAt := time.Now().UnixMilli()
+	inserted := false
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`INSERT INTO agent_activity_heads (agent_id, current_seq)
+			VALUES (?, 0) ON CONFLICT (agent_id) DO NOTHING`, agentID).Error; err != nil {
+			return err
+		}
+		var agentSeq int64
+		if err := tx.Raw(`UPDATE agent_activity_heads SET current_seq = current_seq + 1
+			WHERE agent_id = ? RETURNING current_seq`, agentID).Scan(&agentSeq).Error; err != nil {
+			return err
+		}
+		sourceEventID := activity.StreamName + ":" + msgID
+		var insertedLogID int64
+		if err := tx.Raw(`INSERT INTO agent_activity_log
+			(log_id, agent_id, event_type, summary, detail, created_at, agent_seq, source_event_id)
+			VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+			ON CONFLICT (source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING RETURNING log_id`, logID, agentID, eventType,
+			summary, detail, createdAt, agentSeq, sourceEventID).Scan(&insertedLogID).Error; err != nil {
+			return err
+		}
+		inserted = insertedLogID != 0
+		return nil
+	}); err != nil {
 		logger.Default().Error("ActivityConsumer failed to insert activity log", "err", err)
 		metrics.ConsumerMessagesTotal.WithLabelValues("agent:activity", "failure").Inc()
-		// ACK anyway to prevent infinite retry; data loss is better than blocking the stream
+		return
+	}
+	if !inserted {
 		c.ackMessage(ctx, msgID)
 		return
 	}
@@ -213,6 +242,15 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 
 	metrics.ConsumerMessagesTotal.WithLabelValues("agent:activity", "success").Inc()
 	c.ackMessage(ctx, msgID)
+}
+
+func isSupportedActivityType(value string) bool {
+	switch value {
+	case "feed_pull", "broadcast", "feedback", "message_sent", "reply_received", "profile_update", "friend_added":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseDetailInt extracts an integer field from a JSON detail string.
