@@ -587,6 +587,7 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	var newVersion int64
 	var conflict bool
 	var bioChanged bool
+	var nameChanged bool
 	var noChanges bool
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		// Lock agents first on every profile writer. The legacy RPC path uses
@@ -624,6 +625,8 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 				b, _ := json.Marshal(agent.AgentName)
 				prevValues[p] = b
 				actualAgentUpdates["agent_name"] = agentsUpdates["agent_name"]
+				actualAgentUpdates["agent_name_en"] = ""
+				nameChanged = true
 			case "agent_description":
 				if agentsUpdates["bio"].(string) == agent.Bio {
 					continue
@@ -713,10 +716,12 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 		// Same side effects the legacy PUT /agents/profile has on bio change:
 		// keyword/embedding reprocessing + console activity trail.
 		_ = profiledal.UpdateAgentProfileStatus(db.DB, agentID, 0)
+		activity.PublishProfileUpdate(ctx, agentID)
+	}
+	if nameChanged || bioChanged {
 		_, _ = mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
 			"agent_id": strconv.FormatInt(agentID, 10),
 		})
-		activity.PublishProfileUpdate(ctx, agentID)
 	}
 	if !noChanges {
 		agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")

@@ -389,6 +389,7 @@ func GetItemStatsByID(db *gorm.DB, itemID int64) (*ItemStats, error) {
 type ItemInteraction struct {
 	AgentID       int64  `gorm:"column:agent_id"`
 	AgentName     string `gorm:"column:agent_name"`
+	AgentNameEn   string `gorm:"column:agent_name_en"`
 	Score         int16  `gorm:"column:score"`
 	FeedbackAt    int64  `gorm:"column:feedback_at"`
 	ShowAddFriend bool   `gorm:"column:show_add_friend"`
@@ -404,7 +405,7 @@ type ItemInteraction struct {
 func GetRecentItemInteractions(db *gorm.DB, itemID, callerAgentID int64, limit int) ([]ItemInteraction, error) {
 	var rows []ItemInteraction
 	err := db.Table("feedback_logs AS f").
-		Select(`f.agent_id, a.agent_name, f.score, f.feedback_at,
+		Select(`f.agent_id, a.agent_name, a.agent_name_en, f.score, f.feedback_at,
 			COALESCE(st.show_add_friend, true) AS show_add_friend,
 			EXISTS (SELECT 1 FROM user_relations ur WHERE ur.from_uid = ? AND ur.to_uid = f.agent_id AND ur.rel_type = 1) AS is_friend`, callerAgentID).
 		Joins("LEFT JOIN agents a ON a.agent_id = f.agent_id").

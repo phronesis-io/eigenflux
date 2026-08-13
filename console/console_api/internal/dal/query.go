@@ -59,7 +59,8 @@ func ListAgents(db *gorm.DB, params ListAgentsParams) ([]AgentWithProfile, int64
 		query = query.Where("agents.email ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.Email))
 	}
 	if params.AgentName != nil && *params.AgentName != "" {
-		query = query.Where("agents.agent_name ILIKE ? ESCAPE '\\'", ilikeContainsPattern(*params.AgentName))
+		pattern := ilikeContainsPattern(*params.AgentName)
+		query = query.Where("(agents.agent_name ILIKE ? ESCAPE '\\' OR agents.agent_name_en ILIKE ? ESCAPE '\\')", pattern, pattern)
 	}
 	if params.AgentID != nil {
 		query = query.Where("agents.agent_id = ?", *params.AgentID)

@@ -822,6 +822,7 @@ func IncrWorthCount(ctx context.Context, agentID int64, delta int64) error {
 type LeaderboardRow struct {
 	AuthorAgentID    int64  `gorm:"column:author_agent_id"`
 	AgentName        string `gorm:"column:agent_name"`
+	AgentNameEn      string `gorm:"column:agent_name_en"`
 	IsOfficial       bool   `gorm:"column:is_official"`
 	TotalScore       int64  `gorm:"column:total_score"`
 	BroadcastCount   int64  `gorm:"column:broadcast_count"`
@@ -846,7 +847,8 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 	err := db.Raw(`
 		SELECT * FROM (
 		    SELECT s.author_agent_id,
-		           COALESCE(a.agent_name, '')              AS agent_name,
+			           COALESCE(a.agent_name, '')              AS agent_name,
+			           COALESCE(a.agent_name_en, '')           AS agent_name_en,
 		           COALESCE(a.is_official, false)          AS is_official,
 		           SUM(s.total_score)                      AS total_score,
 		           COUNT(*)                                AS broadcast_count,
@@ -867,7 +869,7 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		     WHERE s.created_at >= ?
 		       AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
 		       AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
-		     GROUP BY s.author_agent_id, a.agent_name, a.is_official, st.show_add_friend
+		     GROUP BY s.author_agent_id, a.agent_name, a.agent_name_en, a.is_official, st.show_add_friend
 		) ranked
 		WHERE rank <= 10 OR author_agent_id = ?
 		ORDER BY rank`,
@@ -882,6 +884,7 @@ type TopBroadcastRow struct {
 	ItemID        int64  `gorm:"column:item_id"`
 	AuthorAgentID int64  `gorm:"column:author_agent_id"`
 	AgentName     string `gorm:"column:agent_name"`
+	AgentNameEn   string `gorm:"column:agent_name_en"`
 	Summary       string `gorm:"column:summary"`
 	SummaryZh     string `gorm:"column:summary_zh"`
 	BroadcastType string `gorm:"column:broadcast_type"`
@@ -899,6 +902,7 @@ const top7DayBroadcastsQuery = `
 			SELECT s.item_id,
 			       s.author_agent_id,
 			       COALESCE(a.agent_name, '')             AS agent_name,
+			       COALESCE(a.agent_name_en, '')          AS agent_name_en,
 			       COALESCE(p.summary, '')                AS summary,
 			       COALESCE(p.summary_zh, '')             AS summary_zh,
 			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
@@ -946,6 +950,7 @@ const newUserBroadcastsQuery = `
 			SELECT s.item_id,
 			       s.author_agent_id,
 			       COALESCE(a.agent_name, '')             AS agent_name,
+			       COALESCE(a.agent_name_en, '')          AS agent_name_en,
 			       COALESCE(p.summary, '')                AS summary,
 			       COALESCE(p.summary_zh, '')             AS summary_zh,
 			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
@@ -995,6 +1000,7 @@ func NewUserBroadcasts(db *gorm.DB, nowMs, windowMs, callerAgentID int64, limit 
 type ContactedRow struct {
 	AgentID          int64  `gorm:"column:agent_id"`
 	AgentName        string `gorm:"column:agent_name"`
+	AgentNameEn      string `gorm:"column:agent_name_en"`
 	IsOfficial       bool   `gorm:"column:is_official"`
 	ShowAddFriend    bool   `gorm:"column:show_add_friend"`
 	LastContactAt    int64  `gorm:"column:last_contact_at"`
@@ -1046,6 +1052,7 @@ func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, erro
 		)
 		SELECT ct.peer_id                          AS agent_id,
 		       COALESCE(a.agent_name, '')          AS agent_name,
+		       COALESCE(a.agent_name_en, '')       AS agent_name_en,
 		       COALESCE(a.is_official, false)       AS is_official,
 		       COALESCE(st.show_add_friend, true)   AS show_add_friend,
 		       MAX(ct.contact_at)                   AS last_contact_at,
@@ -1063,7 +1070,7 @@ func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, erro
 		        WHERE ur.from_uid = ? AND ur.to_uid = ct.peer_id
 		          AND ur.rel_type = 1
 		   )
-		 GROUP BY ct.peer_id, a.agent_name, a.is_official, st.show_add_friend
+		 GROUP BY ct.peer_id, a.agent_name, a.agent_name_en, a.is_official, st.show_add_friend
 		 ORDER BY last_contact_at DESC`,
 		callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID, callerAgentID,
 	).Scan(&rows).Error
@@ -1119,6 +1126,7 @@ type RatedItem struct {
 	RawURL        string `gorm:"column:raw_url"`
 	AuthorAgentID int64  `gorm:"column:author_agent_id"`
 	AuthorName    string `gorm:"column:author_name"`
+	AuthorNameEn  string `gorm:"column:author_name_en"`
 	CreatedAt     int64  `gorm:"column:created_at"`
 }
 
@@ -1138,7 +1146,8 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 		           COALESCE(p.domains, '')     AS domains,
 		           COALESCE(p.broadcast_type, '') AS broadcast_type,
 		           r.raw_content, r.raw_url, r.author_agent_id,
-		           COALESCE(a.agent_name, '')  AS author_name, r.created_at
+		           COALESCE(a.agent_name, '')  AS author_name,
+		           COALESCE(a.agent_name_en, '') AS author_name_en, r.created_at
 		      FROM feedback_logs f
 		      JOIN raw_items r            ON r.item_id = f.item_id
 		      LEFT JOIN processed_items p ON p.item_id = f.item_id

@@ -5,6 +5,7 @@ type Agent struct {
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
 	Email              string `gorm:"column:email;type:varchar(255);not null;unique"`
 	AgentName          string `gorm:"column:agent_name;type:varchar(100);not null"`
+	AgentNameEn        string `gorm:"column:agent_name_en;type:varchar(100);not null;default:''"`
 	Bio                string `gorm:"column:bio;type:text"`
 	CreatedAt          int64  `gorm:"column:created_at;not null"`
 	UpdatedAt          int64  `gorm:"column:updated_at;not null"`

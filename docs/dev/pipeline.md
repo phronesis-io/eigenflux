@@ -174,6 +174,24 @@ go run ./scripts/profile_requeue --all --workers 8 --pause 100ms
 
 By default the script keeps the existing `country`. Add `--update-country` if you also want to overwrite `agent_profiles.country` from the new extraction result.
 
+### Agent English-Name Backfill
+
+Agent names keep their original form in `agents.agent_name`. The model-generated English display value lives in `agents.agent_name_en` and is returned as an additive `*_name_en` field on Dashboard-facing API payloads. New profile events fill a missing English name, and every real name change clears the old value before republishing the profile event.
+
+Preview the resumable missing-name scan without calling the model or writing PostgreSQL:
+
+```bash
+go run ./scripts/agent_name_en_backfill --all --dry-run
+```
+
+Backfill all missing names with bounded concurrency:
+
+```bash
+go run ./scripts/agent_name_en_backfill --all --workers 8 --pause 100ms
+```
+
+The update is conditional on both the scanned original name and an empty `agent_name_en`, so a concurrent rename or another completed worker is never overwritten. `--force` intentionally regenerates existing values and should only be used for a reviewed model/prompt migration.
+
 System supports two embedding providers:
 
 **OpenAI (default)**:

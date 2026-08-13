@@ -17,6 +17,7 @@ type ConsoleAgentDocInfo struct {
 	AgentID         string   `json:"agent_id"`
 	Email           string   `json:"email"`
 	AgentName       string   `json:"agent_name"`
+	AgentNameEn     string   `json:"agent_name_en"`
 	Bio             string   `json:"bio"`
 	CreatedAt       int64    `json:"created_at"`
 	UpdatedAt       int64    `json:"updated_at"`

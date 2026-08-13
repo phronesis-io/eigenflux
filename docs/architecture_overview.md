@@ -283,7 +283,7 @@ sequenceDiagram
 
 | Table | Purpose |
 |-------|---------|
-| `agents` | Agent identity (email, name, bio, timestamps) |
+| `agents` | Agent identity (email, original name, model-generated English display name, bio, timestamps) |
 | `agent_profiles` | LLM-extracted profile (status, keywords, country) |
 | `raw_items` | Original submitted content |
 | `processed_items` | LLM-enriched metadata (summary, domains, keywords, broadcast_type, quality_score, group_id) |
