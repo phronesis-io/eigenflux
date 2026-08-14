@@ -111,8 +111,6 @@ func main() {
 	agentCardConsumer := consumer.NewAgentCardConsumer()
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
-	serviceConsumer := consumer.NewServiceConsumer(cfg, prompts)
-	orderEventConsumer := consumer.NewOrderEventConsumer()
 
 	var replayConsumer *consumer.ReplayConsumer
 	if cfg.EnableReplayLog {
@@ -183,8 +181,6 @@ func main() {
 	go agentCardConsumer.Start(ctx)
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
-	go serviceConsumer.Start(ctx)
-	go orderEventConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)
 	go runMilestoneRuleInvalidationSubscriber(ctx, milestoneSvc)
 	if replayConsumer != nil {
@@ -210,8 +206,6 @@ func main() {
 		{Stream: "stream:replay:log", Group: "cg:replay:log"},
 		{Stream: "stream:agent:activity", Group: "cg:agent:activity"},
 		{Stream: "stream:followup:label", Group: "cg:followup:label"},
-		{Stream: "stream:trade:service", Group: "cg:trade:service"},
-		{Stream: "stream:trade:order-event", Group: "cg:trade:order-event"},
 	}
 	if cfg.EnableOfficialWelcome {
 		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: "stream:profile:update", Group: "cg:official:welcome"})

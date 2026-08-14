@@ -6,14 +6,6 @@
 // pure transform — given a slice it returns one. Cross-policy state is not
 // supported; if a policy needs to know which positions were already touched
 // it should infer this from candidate reasons or its own indexing.
-//
-// The canonical order for a mixed item+service surface is:
-//
-//	DedupPolicy → NormalizePolicy → BoundsPolicy → RatioPolicy → SlotPolicy
-//
-// (dedup first so later policies see no duplicates; normalize before any
-// type-aware reshuffling; bounds to cap each type; ratio to interleave;
-// slot last so positional overrides win.)
 package rerank
 
 import "eigenflux_server/rpc/sort/rank"
@@ -28,4 +20,10 @@ type Policy interface {
 	// input slice modified in place, a re-sliced view, or a brand-new slice.
 	// Callers must use the return value and not the input afterwards.
 	Apply(cands []rank.Candidate) []rank.Candidate
+}
+
+func tagCandidate(c rank.Candidate, tag string) {
+	if candidate, ok := c.(*rank.BasicCandidate); ok {
+		candidate.AddReason(tag)
+	}
 }

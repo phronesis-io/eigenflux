@@ -28,12 +28,8 @@ func mkItem(id int64, score float64) rank.Candidate {
 	return rank.NewCandidate(id, rank.CandidateItem, score, nil, nil)
 }
 
-func mkSvc(id int64, score float64) rank.Candidate {
-	return rank.NewCandidate(id, rank.CandidateService, score, nil, nil)
-}
-
 func TestReranker_EmptyInput(t *testing.T) {
-	r := New(&DedupPolicy{})
+	r := New()
 	assert.Empty(t, r.Rerank(nil, 10))
 	assert.Empty(t, r.Rerank([]rank.Candidate{}, 10))
 }
@@ -69,10 +65,12 @@ func TestReranker_NonPositiveLimitDoesNotTruncate(t *testing.T) {
 }
 
 func TestReranker_PoliciesExposedForLogging(t *testing.T) {
-	d := &DedupPolicy{}
-	n := &NormalizePolicy{Method: MinMax}
-	r := New(d, n)
+	var calls []string
+	seenA, seenB := 0, 0
+	a := &recorderPolicy{tag: "a", calls: &calls, seenCount: &seenA}
+	b := &recorderPolicy{tag: "b", calls: &calls, seenCount: &seenB}
+	r := New(a, b)
 	require.Len(t, r.Policies(), 2)
-	assert.Equal(t, "dedup", r.Policies()[0].Name())
-	assert.Equal(t, "normalize:minmax", r.Policies()[1].Name())
+	assert.Equal(t, "a", r.Policies()[0].Name())
+	assert.Equal(t, "b", r.Policies()[1].Name())
 }

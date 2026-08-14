@@ -30,7 +30,6 @@ FEED_RPC_PORT="${FEED_RPC_PORT:-8884}"
 PM_RPC_PORT="${PM_RPC_PORT:-8885}"
 AUTH_RPC_PORT="${AUTH_RPC_PORT:-8886}"
 NOTIFICATION_RPC_PORT="${NOTIFICATION_RPC_PORT:-8887}"
-TRADE_RPC_PORT="${TRADE_RPC_PORT:-8888}"
 
 ETCD_PORT="${ETCD_PORT:-2379}"
 ELASTICSEARCH_HTTP_PORT="${ELASTICSEARCH_HTTP_PORT:-9200}"
@@ -174,7 +173,6 @@ SERVICE_MAP=(
   "pm:${PM_RPC_PORT}"
   "auth:${AUTH_RPC_PORT}"
   "notification:${NOTIFICATION_RPC_PORT}"
-  "trade:${TRADE_RPC_PORT}"
   "api:${API_PORT}"
   "ws:${WS_PORT}"
   "pipeline:"
@@ -294,7 +292,7 @@ start_service() {
   local port
   port=$(get_port "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed pm auth notification trade api ws pipeline cron"
+    echo "Available services: profile item sort feed pm auth notification api ws pipeline cron"
     echo "Console is an independent subsystem: ./console/console_api/scripts/start.sh"
     exit 1
   }

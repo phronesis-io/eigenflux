@@ -32,6 +32,33 @@ import (
 // SortServiceESImpl implements SortService using Elasticsearch
 type SortServiceESImpl struct{}
 
+func withRerankReasons(existing string, reasons []string) string {
+	if len(reasons) == 0 {
+		return existing
+	}
+	features := map[string]any{}
+	if existing != "" {
+		_ = json.Unmarshal([]byte(existing), &features)
+		if features == nil {
+			features = map[string]any{}
+		}
+	}
+	merged := reasons
+	if previous, ok := features["rerank_reasons"].([]any); ok {
+		for _, value := range previous {
+			if reason, ok := value.(string); ok {
+				merged = append(merged, reason)
+			}
+		}
+	}
+	features["rerank_reasons"] = merged
+	encoded, err := json.Marshal(features)
+	if err != nil {
+		return existing
+	}
+	return string(encoded)
+}
+
 // SingleFlight group for deduplicating concurrent requests
 var sfGroup singleflight.Group
 
@@ -874,23 +901,6 @@ func (s *SortServiceESImpl) SortItems(ctx context.Context, req *sort.SortItemsRe
 	} else if len(cachedItems) > 0 && len(cachedItems) >= cfg.KeywordRecallSize {
 		// If cache is full, use last item's timestamp as cursor
 		nextCursor = cachedItems[len(cachedItems)-1].UpdatedAt
-	}
-
-	// Mix trading services into the top-N when enabled. The rerank chain
-	// guarantees at least one service appears inside the limit window via
-	// BoundsPolicy.Floor on the service type.
-	if cfg.EnableServiceMix {
-		// The served slice may contain pre-truncation + below-threshold replay
-		// padding. Mix only over the served prefix (first len(itemIDs)
-		// entries) and append the remaining replay-padded items unchanged.
-		servedSorted := sortedItems
-		var tail []*sort.SortedItem
-		if len(sortedItems) > len(itemIDs) {
-			servedSorted = sortedItems[:len(itemIDs)]
-			tail = sortedItems[len(itemIDs):]
-		}
-		itemIDs, servedSorted = mixServicesIntoFeed(ctx, itemIDs, servedSorted, keywords, domains, agentFeaturesStr, limit, cfg.ServiceMixRecallSize)
-		sortedItems = append(servedSorted, tail...)
 	}
 
 	return &sort.SortItemsResp{

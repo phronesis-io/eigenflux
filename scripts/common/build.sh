@@ -5,7 +5,7 @@ set -e
 # build.sh - Compile all microservices to build/ directory
 # Usage: ./scripts/common/build.sh [service_name...]
 #   No arguments: Compile all services
-#   Specify services: ./scripts/common/build.sh profile item sort feed trade api pipeline
+#   Specify services: ./scripts/common/build.sh profile item sort feed api pipeline
 #   Console is an independent subsystem: ./console/console_api/scripts/build.sh
 # ============================================================
 
@@ -30,7 +30,6 @@ ALL_SERVICES=(
   "pm:./rpc/pm/"
   "auth:./rpc/auth/"
   "notification:./rpc/notification/"
-  "trade:./rpc/trade/"
   "api:./api/"
   "ws:./ws/"
   "pipeline:./pipeline/"
@@ -85,7 +84,7 @@ failed=0
 for name in "${targets[@]}"; do
   src=$(get_source "$name") || {
     echo -e "${RED}Unknown service: $name${NC}"
-    echo "Available services: profile item sort feed pm auth notification trade api ws pipeline cron replay"
+    echo "Available services: profile item sort feed pm auth notification api ws pipeline cron replay"
     exit 1
   }
   echo -ne "${CYAN}Compiling $name ...${NC} "

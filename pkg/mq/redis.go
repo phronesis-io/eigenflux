@@ -45,7 +45,6 @@ var defaultStreamMaxLen int64 = 20000
 var streamsExemptFromCap = map[string]bool{
 	"stream:item:publish":   true,
 	"stream:profile:update": true,
-	"stream:trade:service":  true,
 }
 
 // SetDefaultStreamMaxLen overrides the cap applied by Publish. A non-positive

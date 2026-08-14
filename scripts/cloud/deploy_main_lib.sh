@@ -56,7 +56,6 @@ deploy_main_restart_services() {
     eigenflux-app@pm
     eigenflux-app@auth
     eigenflux-app@notification
-    eigenflux-app@trade
     eigenflux-app@api
     eigenflux-app@ws
     eigenflux-app@pipeline
@@ -75,7 +74,7 @@ deploy_main_stage_build() {
   local state_dir=$2
   local target=$3
   local source_dir=$4
-  local binaries=(profile item sort feed pm auth notification trade api ws pipeline cron)
+  local binaries=(profile item sort feed pm auth notification api ws pipeline cron)
   local release_dir
   local binary
 
