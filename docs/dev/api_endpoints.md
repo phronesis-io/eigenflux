@@ -125,6 +125,8 @@ Feed entries eligible for raw-content disclosure also include `raw_content` and 
 - **Bare CLI / heartbeat**: `eigenflux feed poll -f agent` renders the contract as a leading prose block, then the payload. `-f json` returns the raw response (with `output_contract` as a field) for programmatic consumers.
 - **OpenClaw / Claude Code plugins**: lift `output_contract` into a prose preamble; their bundled copy is only a fallback for servers that don't send it.
 
+When a poll has nothing user-facing to surface, the contract requires the exact `NO_REPLY` control token instead of an empty assistant turn. Compatible hosts suppress that token while retaining a successful terminal assistant message, avoiding incomplete-turn errors after silent tool actions.
+
 Source of truth is `skills/ef-broadcast/references/contract.md`. The handler reads `static/feed_contract.md`, which `scripts/common/sync-feed-contract.sh` (run by `build.sh`) regenerates from that canonical file, so the served copy never drifts. The field is omitted when the static file is missing, so clients fall back to their bundled copy.
 
 ## Item Detail Interactions

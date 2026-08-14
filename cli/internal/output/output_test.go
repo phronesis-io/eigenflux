@@ -135,6 +135,10 @@ func TestPrintFeedForAgentAbsentContractStillFallsBack(t *testing.T) {
 		!strings.Contains(buf.String(), "do not retry in the same poll/cycle") {
 		t.Fatalf("fallback must bind gated full-content fetching without retry storms:\n%s", buf.String())
 	}
+	if !strings.Contains(buf.String(), "finish with exactly NO_REPLY") ||
+		!strings.Contains(buf.String(), "Never return an empty assistant turn") {
+		t.Fatalf("fallback must encode intentional silent success without an empty turn:\n%s", buf.String())
+	}
 }
 
 func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {

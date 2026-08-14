@@ -49,3 +49,31 @@ func TestPromptLineInBuiltinContract(t *testing.T) {
 		t.Error("built-in fallback contract does not describe no-change completion")
 	}
 }
+
+func TestSilentReplySentinelMatchesContracts(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	for _, rel := range []string{
+		"skills/ef-broadcast/references/contract.md",
+		"skills/ef-broadcast/references/feed.md",
+		"static/feed_contract.md",
+	} {
+		body, err := os.ReadFile(filepath.Join(repoRoot, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		text := string(body)
+		if !strings.Contains(text, "NO_REPLY") ||
+			!strings.Contains(strings.ToLower(text), "never return an empty assistant turn") {
+			t.Errorf("%s does not encode intentional silent success with NO_REPLY", rel)
+		}
+	}
+
+	fallback := output.FeedContractForTest()
+	if !strings.Contains(fallback, "NO_REPLY") ||
+		!strings.Contains(strings.ToLower(fallback), "never return an empty assistant turn") {
+		t.Error("built-in fallback does not encode intentional silent success with NO_REPLY")
+	}
+}
