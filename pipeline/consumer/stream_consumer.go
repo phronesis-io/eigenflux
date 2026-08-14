@@ -60,9 +60,9 @@ type MessageHandler func(ctx context.Context, msgID string, values map[string]an
 type StreamConsumer struct {
 	// Name appears in log lines (e.g. "ServiceConsumer").
 	Name string
-	// Stream is the Redis Stream key, e.g. "stream:trade:service".
+	// Stream is the Redis Stream key, e.g. "stream:item:publish".
 	Stream string
-	// Group is the consumer-group name, e.g. "cg:trade:service".
+	// Group is the consumer-group name, e.g. "cg:item:publish".
 	Group string
 	// ConsumerName is the per-instance consumer name reported to Redis.
 	ConsumerName string
@@ -95,8 +95,8 @@ type StreamConsumer struct {
 	UnbufferedDispatch bool
 	preferFresh        bool
 
-	// FatalOnGroupCreateError: when true (the default for trade/item/
-	// profile/item-stats consumers), a failure to create the consumer
+	// FatalOnGroupCreateError: when true (the default for item/profile/item-stats
+	// consumers), a failure to create the consumer
 	// group calls os.Exit(1). Set to false to log and return — this
 	// matches ReplayConsumer's prior behavior.
 	FatalOnGroupCreateError bool

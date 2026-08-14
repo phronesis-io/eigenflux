@@ -69,18 +69,18 @@ func TestBoostPolicy_NoMatchLeavesScore(t *testing.T) {
 	assert.Empty(t, c.Reasons())
 }
 
-func TestBoostPolicy_IgnoresServicesAndUnknownSources(t *testing.T) {
-	service := rank.NewCandidate(1, rank.CandidateService, 0.9, nil,
+func TestBoostPolicy_IgnoresOtherTypesAndUnknownSources(t *testing.T) {
+	other := rank.NewCandidate(1, rank.CandidateType("other"), 0.9, nil,
 		testItemBoostSource{broadcastType: "supply"})
 	unknown := rank.NewCandidate(2, rank.CandidateItem, 0.8, nil, nil)
 
 	policy := &BoostPolicy{Rules: []BoostRule{
 		{Field: "type", Values: []string{"supply"}, Weight: 2.0},
 	}}
-	out := policy.Apply([]rank.Candidate{service, unknown})
+	out := policy.Apply([]rank.Candidate{other, unknown})
 
 	require.Len(t, out, 2)
-	assert.InDelta(t, 0.9, service.Score(), 1e-9)
+	assert.InDelta(t, 0.9, other.Score(), 1e-9)
 	assert.InDelta(t, 0.8, unknown.Score(), 1e-9)
 }
 

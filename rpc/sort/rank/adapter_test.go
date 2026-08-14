@@ -34,7 +34,7 @@ func TestBasicCandidate_FingerprintByType(t *testing.T) {
 		want string
 	}{
 		{name: "item", t: CandidateItem, id: 1, want: "item:1"},
-		{name: "service", t: CandidateService, id: 1, want: "service:1"},
+		{name: "other", t: CandidateType("other"), id: 1, want: "other:1"},
 		{name: "large_id", t: CandidateItem, id: 9_999_999_999, want: "item:9999999999"},
 	}
 	for _, tc := range tests {
@@ -47,7 +47,7 @@ func TestBasicCandidate_FingerprintByType(t *testing.T) {
 
 func TestBasicCandidate_SameIDDifferentTypeNotEqual(t *testing.T) {
 	a := NewCandidate(7, CandidateItem, 0, nil, nil)
-	b := NewCandidate(7, CandidateService, 0, nil, nil)
+	b := NewCandidate(7, CandidateType("other"), 0, nil, nil)
 	assert.NotEqual(t, a.Fingerprint(), b.Fingerprint(), "type must disambiguate the fingerprint")
 }
 
@@ -69,29 +69,4 @@ func TestBasicCandidate_Reasons(t *testing.T) {
 func TestBasicCandidate_NilFeatures(t *testing.T) {
 	c := NewCandidate(1, CandidateItem, 0, nil, nil)
 	assert.Nil(t, c.Features(), "nil features are passed through unchanged")
-}
-
-func TestBasicCandidate_MatchedIntents(t *testing.T) {
-	c := NewCandidate(1, CandidateService, 0.5, nil, nil)
-	assert.Nil(t, c.MatchedIntents(), "MatchedIntents nil by default")
-
-	c.SetMatchedIntents([]string{"translate", "summarize"})
-	assert.Equal(t, []string{"translate", "summarize"}, c.MatchedIntents())
-}
-
-func TestBasicCandidate_PerIntentScore(t *testing.T) {
-	c := NewCandidate(1, CandidateService, 0.5, nil, nil)
-	assert.Nil(t, c.PerIntentScore(), "PerIntentScore nil by default")
-
-	c.SetPerIntentScore(map[string]float64{"translate": 0.82, "summarize": 0.41})
-	assert.InDelta(t, 0.82, c.PerIntentScore()["translate"], 1e-9)
-	assert.InDelta(t, 0.41, c.PerIntentScore()["summarize"], 1e-9)
-}
-
-func TestBasicCandidate_WinningIntent(t *testing.T) {
-	c := NewCandidate(1, CandidateService, 0.5, nil, nil)
-	assert.Equal(t, "", c.WinningIntent())
-
-	c.SetWinningIntent("translate")
-	assert.Equal(t, "translate", c.WinningIntent())
 }

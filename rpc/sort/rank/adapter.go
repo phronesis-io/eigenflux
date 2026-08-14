@@ -10,15 +10,12 @@ import "fmt"
 // interface so policies must type-assert to mutate — this keeps the
 // Candidate view itself read-only.
 type BasicCandidate struct {
-	id             int64
-	cType          CandidateType
-	score          float64
-	features       map[string]float64
-	source         any
-	reasons        []string
-	matchedIntents []string
-	perIntentScore map[string]float64
-	winningIntent  string
+	id       int64
+	cType    CandidateType
+	score    float64
+	features map[string]float64
+	source   any
+	reasons  []string
 }
 
 // NewCandidate constructs a BasicCandidate. features may be nil; it is
@@ -45,8 +42,7 @@ func (b *BasicCandidate) Fingerprint() string {
 	return fmt.Sprintf("%s:%d", b.cType, b.id)
 }
 
-// SetScore rewrites the rerank-time score. Used by NormalizePolicy and any
-// future policy that re-grades candidates.
+// SetScore rewrites the rerank-time score.
 func (b *BasicCandidate) SetScore(score float64) { b.score = score }
 
 // AddReason appends a short tag describing why a policy touched this
@@ -59,25 +55,3 @@ func (b *BasicCandidate) AddReason(tag string) {
 // Reasons returns the accumulated reason tags. The returned slice aliases
 // the internal storage; callers must not mutate it.
 func (b *BasicCandidate) Reasons() []string { return b.reasons }
-
-// MatchedIntents lists which sub-intents recalled this candidate during
-// SearchServices. Read by CoveragePolicy and the response builder.
-func (b *BasicCandidate) MatchedIntents() []string { return b.matchedIntents }
-
-// SetMatchedIntents replaces the matched-intents list.
-func (b *BasicCandidate) SetMatchedIntents(s []string) { b.matchedIntents = s }
-
-// PerIntentScore is intent name -> the typed serviceranker score from that
-// sub-intent's recall lane. Used by the replay log and response builder;
-// not consumed by rerank policies for ordering.
-func (b *BasicCandidate) PerIntentScore() map[string]float64 { return b.perIntentScore }
-
-// SetPerIntentScore replaces the per-intent score map.
-func (b *BasicCandidate) SetPerIntentScore(m map[string]float64) { b.perIntentScore = m }
-
-// WinningIntent is argmax(perIntentScore[name] * importance[name]) — the
-// single sub-intent that drove the aggregate score for this candidate.
-func (b *BasicCandidate) WinningIntent() string { return b.winningIntent }
-
-// SetWinningIntent records the winning intent.
-func (b *BasicCandidate) SetWinningIntent(s string) { b.winningIntent = s }

@@ -53,7 +53,7 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 
 mkdir -p "${LIB_DIR}" "${POLICY_DIR}" "${STATE_DIR}/releases" "${STATE_DIR}/work" "${APP_DROPIN_DIR}"
 chmod 0755 "${STATE_DIR}" "${STATE_DIR}/releases" "${STATE_DIR}/work"
-for binary in profile item sort feed pm auth notification trade api ws pipeline cron; do
+for binary in profile item sort feed pm auth notification api ws pipeline cron; do
   [[ -f "${PROJECT_ROOT}/build/${binary}" && -x "${PROJECT_ROOT}/build/${binary}" ]] || {
     echo "Missing build/${binary}; build all production services before installation." >&2
     exit 1
@@ -112,7 +112,7 @@ install -o root -g root -m 0440 "${tmp_dir}/sudoers" "${SUDOERS_PATH}"
 bootstrap="${STATE_DIR}/releases/bootstrap-$(date +%s)"
 mkdir -p "${bootstrap}/bin"
 chmod 0755 "${bootstrap}" "${bootstrap}/bin"
-for binary in profile item sort feed pm auth notification trade api ws pipeline cron; do
+for binary in profile item sort feed pm auth notification api ws pipeline cron; do
   [[ -f "${PROJECT_ROOT}/build/${binary}" && -x "${PROJECT_ROOT}/build/${binary}" ]] || {
     echo "Missing build/${binary}; build all production services before installation." >&2
     exit 1

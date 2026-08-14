@@ -67,7 +67,7 @@ if [[ -f "${TEST_ROOT}/fail-build" ]]; then
 fi
 BUILD_ROOT="\$(cd "\$(dirname "\$0")/../.."; pwd)"
 mkdir -p "\${BUILD_ROOT}/build"
-for binary in profile item sort feed pm auth notification trade api ws pipeline cron; do
+for binary in profile item sort feed pm auth notification api ws pipeline cron; do
   printf '#!/bin/bash\n' > "\${BUILD_ROOT}/build/\${binary}"
   chmod +x "\${BUILD_ROOT}/build/\${binary}"
 done

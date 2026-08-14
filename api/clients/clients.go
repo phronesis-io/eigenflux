@@ -8,7 +8,6 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
-	"eigenflux_server/kitex_gen/eigenflux/trade/tradeservice"
 )
 
 var (
@@ -18,6 +17,5 @@ var (
 	AuthClient         authservice.Client
 	PMClient           pmservice.Client
 	NotificationClient notificationservice.Client
-	TradeClient        tradeservice.Client
 	SortClient         sortservice.Client
 )

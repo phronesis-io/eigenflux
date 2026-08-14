@@ -1,20 +1,14 @@
-// Package rank defines the cross-type Candidate interface consumed by the
-// rerank layer. Domain rankers (rpc/sort/ranker for items, rpc/sort/serviceranker
-// for services) continue to emit their own typed results; callers wrap those at
-// the rerank boundary via BasicCandidate and recover the typed payload through
-// Candidate.Source.
+// Package rank defines the Candidate interface consumed by the rerank layer.
 //
 // This package is intentionally tiny and dependency-free. The policy logic
 // lives in rpc/sort/rerank.
 package rank
 
-// CandidateType identifies which domain a candidate came from. Add a new
-// constant when a new typed ranker is wired into the rerank layer.
+// CandidateType identifies which domain a candidate came from.
 type CandidateType string
 
 const (
-	CandidateItem    CandidateType = "item"
-	CandidateService CandidateType = "service"
+	CandidateItem CandidateType = "item"
 )
 
 // Candidate is the cross-type rerank input. It is read-only: rerank policies
@@ -35,7 +29,7 @@ type Candidate interface {
 	Type() CandidateType
 
 	// Score is the rerank-time score. Policies may rewrite it via the
-	// concrete adapter (e.g., NormalizePolicy on *BasicCandidate).
+	// concrete adapter.
 	Score() float64
 
 	// Features exposes signal values used by the upstream ranker

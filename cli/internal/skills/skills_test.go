@@ -150,20 +150,20 @@ func TestSyncInstallUpdateReconcilePreserve(t *testing.T) {
 		t.Fatalf("no local manifest: %v", err)
 	}
 
-	// v2: ef-broadcast changed, ef-profile removed, ef-trading added.
+	// v2: ef-broadcast changed, ef-profile removed, ef-communication added.
 	src2 := stageSkills(t, map[string]map[string]string{
-		"ef-broadcast": {"SKILL.md": "b2-changed"},
-		"ef-trading":   {"SKILL.md": "t1"},
+		"ef-broadcast":     {"SKILL.md": "b2-changed"},
+		"ef-communication": {"SKILL.md": "c1"},
 	})
-	names2 := []string{"ef-broadcast", "ef-trading"}
+	names2 := []string{"ef-broadcast", "ef-communication"}
 	srv2, _ := serveBundle(t, "0.0.17", src2, names2)
 
 	res2, err := Sync(syncOpts(dst, "0.0.17", srv2.URL, names2))
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if !dirExists(filepath.Join(dst, "ef-trading")) {
-		t.Fatal("ef-trading not installed on update")
+	if !dirExists(filepath.Join(dst, "ef-communication")) {
+		t.Fatal("ef-communication not installed on update")
 	}
 	if dirExists(filepath.Join(dst, "ef-profile")) {
 		t.Fatal("ef-profile should have been reconciled away")

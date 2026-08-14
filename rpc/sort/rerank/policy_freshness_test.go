@@ -48,9 +48,9 @@ func TestFreshnessPolicy_DropsStaleAlert(t *testing.T) {
 	assert.Contains(t, stale.Reasons(), "freshness:drop")
 }
 
-func TestFreshnessPolicy_IgnoresServicesAndUnsupportedSources(t *testing.T) {
+func TestFreshnessPolicy_IgnoresOtherTypesAndUnsupportedSources(t *testing.T) {
 	now := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
-	service := rank.NewCandidate(1, rank.CandidateService, 0.9, nil, testItemFreshnessSource{
+	other := rank.NewCandidate(1, rank.CandidateType("other"), 0.9, nil, testItemFreshnessSource{
 		broadcastType: "alert",
 		updatedAt:     now.Add(-7 * time.Hour),
 	})
@@ -62,7 +62,7 @@ func TestFreshnessPolicy_IgnoresServicesAndUnsupportedSources(t *testing.T) {
 			{BroadcastType: "alert", MaxAge: 6 * time.Hour, Action: "drop"},
 		},
 	}
-	out := policy.Apply([]rank.Candidate{service, unknown})
+	out := policy.Apply([]rank.Candidate{other, unknown})
 
 	require.Len(t, out, 2)
 	assert.Equal(t, int64(1), out[0].ID())
