@@ -16,16 +16,21 @@ import (
 const MaxEntries = 8
 
 type Entry struct {
-	BatchID    string          `json:"batch_id"`
-	LeaseEpoch int64           `json:"lease_epoch"`
-	LeaseToken string          `json:"lease_token"`
-	EnqueuedAt int64           `json:"enqueued_at"`
-	Payload    json.RawMessage `json:"payload"`
+	BatchID      string           `json:"batch_id"`
+	LeaseEpoch   int64            `json:"lease_epoch"`
+	LeaseToken   string           `json:"lease_token"`
+	LeaseUntil   int64            `json:"lease_until,omitempty"`
+	EnqueuedAt   int64            `json:"enqueued_at"`
+	StaleAt      int64            `json:"stale_at,omitempty"`
+	StaleReason  string           `json:"stale_reason,omitempty"`
+	CardVersions map[string]int64 `json:"card_versions,omitempty"`
+	Payload      json.RawMessage  `json:"payload"`
 }
 
 type state struct {
 	Version           int              `json:"version"`
 	Entries           []Entry          `json:"entries"`
+	Stale             []Entry          `json:"stale,omitempty"`
 	KnownCardVersions map[string]int64 `json:"known_public_card_versions,omitempty"`
 }
 
@@ -115,8 +120,9 @@ func parseEntry(payload json.RawMessage) (Entry, map[string]int64, error) {
 	var envelope struct {
 		BatchID string `json:"batch_id"`
 		Lease   struct {
-			Epoch int64  `json:"epoch"`
-			Token string `json:"token"`
+			Epoch     int64  `json:"epoch"`
+			Token     string `json:"token"`
+			ExpiresAt int64  `json:"expires_at"`
 		} `json:"lease"`
 		CardUpdates map[string]struct {
 			Version int64 `json:"public_card_version"`
@@ -132,11 +138,29 @@ func parseEntry(payload json.RawMessage) (Entry, map[string]int64, error) {
 		}
 	}
 	return Entry{BatchID: envelope.BatchID, LeaseEpoch: envelope.Lease.Epoch,
-		LeaseToken: envelope.Lease.Token, EnqueuedAt: time.Now().UnixMilli(), Payload: payload}, versions, nil
+		LeaseToken: envelope.Lease.Token, LeaseUntil: envelope.Lease.ExpiresAt,
+		EnqueuedAt: time.Now().UnixMilli(), CardVersions: versions, Payload: payload}, versions, nil
+}
+
+func replaceLeaseExpiry(payload json.RawMessage, leaseUntil int64) json.RawMessage {
+	var envelope map[string]interface{}
+	if json.Unmarshal(payload, &envelope) != nil {
+		return payload
+	}
+	lease, _ := envelope["lease"].(map[string]interface{})
+	if lease == nil {
+		return payload
+	}
+	lease["expires_at"] = leaseUntil
+	updated, err := json.Marshal(envelope)
+	if err != nil {
+		return payload
+	}
+	return updated
 }
 
 func (q *Queue) Enqueue(payload json.RawMessage) (int, error) {
-	entry, versions, err := parseEntry(payload)
+	entry, _, err := parseEntry(payload)
 	if err != nil {
 		return 0, err
 	}
@@ -160,9 +184,8 @@ func (q *Queue) Enqueue(payload json.RawMessage) (int, error) {
 			}
 			stored.Entries = append(stored.Entries, entry)
 		}
-		for id, version := range versions {
-			stored.KnownCardVersions[id] = version
-		}
+		// Known Card versions are committed only after a successful server ACK.
+		// A queued or fenced batch has not been processed by the Agent yet.
 		depth = len(stored.Entries)
 		return q.save(stored)
 	})
@@ -186,6 +209,86 @@ func (q *Queue) Snapshot() ([]Entry, map[string]int64, error) {
 	return entries, versions, err
 }
 
+func (q *Queue) StaleSnapshot() ([]Entry, error) {
+	var entries []Entry
+	err := q.withLock(func() error {
+		stored, err := q.load()
+		if err != nil {
+			return err
+		}
+		entries = append(entries, stored.Stale...)
+		return nil
+	})
+	return entries, err
+}
+
+// Renew updates the durable expiry only after the server accepted the current
+// fencing proof. The local queue lock keeps heartbeat, poll, and ack processes
+// from racing the replacement.
+func (q *Queue) Renew(batchID string, push func(Entry) (int64, error)) (Entry, error) {
+	batchID = strings.TrimSpace(batchID)
+	var renewed Entry
+	err := q.withLock(func() error {
+		stored, err := q.load()
+		if err != nil {
+			return err
+		}
+		index := -1
+		for i := range stored.Entries {
+			if batchID == "" || stored.Entries[i].BatchID == batchID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("Feed V2 batch %q is not queued", batchID)
+		}
+		leaseUntil, err := push(stored.Entries[index])
+		if err != nil {
+			return err
+		}
+		stored.Entries[index].LeaseUntil = leaseUntil
+		stored.Entries[index].Payload = replaceLeaseExpiry(stored.Entries[index].Payload, leaseUntil)
+		renewed = stored.Entries[index]
+		return q.save(stored)
+	})
+	return renewed, err
+}
+
+// MoveToStale removes an irrecoverably fenced entry from the active queue but
+// preserves a small forensic record. It never reports the batch as processed.
+func (q *Queue) MoveToStale(batchID, reason string) (int, error) {
+	batchID = strings.TrimSpace(batchID)
+	remaining := 0
+	err := q.withLock(func() error {
+		stored, err := q.load()
+		if err != nil {
+			return err
+		}
+		index := -1
+		for i := range stored.Entries {
+			if batchID == "" || stored.Entries[i].BatchID == batchID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("Feed V2 batch %q is not queued", batchID)
+		}
+		entry := stored.Entries[index]
+		entry.StaleAt = time.Now().UnixMilli()
+		entry.StaleReason = reason
+		stored.Entries = append(stored.Entries[:index], stored.Entries[index+1:]...)
+		stored.Stale = append(stored.Stale, entry)
+		if len(stored.Stale) > MaxEntries {
+			stored.Stale = stored.Stale[len(stored.Stale)-MaxEntries:]
+		}
+		remaining = len(stored.Entries)
+		return q.save(stored)
+	})
+	return remaining, err
+}
+
 func (q *Queue) Acknowledge(batchID string, push func(Entry) error) (int, error) {
 	batchID = strings.TrimSpace(batchID)
 	remaining := 0
@@ -206,6 +309,11 @@ func (q *Queue) Acknowledge(batchID string, push func(Entry) error) (int, error)
 		}
 		if err := push(stored.Entries[index]); err != nil {
 			return err
+		}
+		for id, version := range stored.Entries[index].CardVersions {
+			if version > stored.KnownCardVersions[id] {
+				stored.KnownCardVersions[id] = version
+			}
 		}
 		stored.Entries = append(stored.Entries[:index], stored.Entries[index+1:]...)
 		remaining = len(stored.Entries)

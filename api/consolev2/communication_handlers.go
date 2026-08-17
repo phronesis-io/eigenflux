@@ -57,9 +57,12 @@ type communicationConversation struct {
 	ParticipantA int64                 `gorm:"column:participant_a" json:"-"`
 	ParticipantB int64                 `gorm:"column:participant_b" json:"-"`
 	OriginType   string                `gorm:"column:origin_type" json:"origin_type"`
+	OriginID     int64                 `gorm:"column:origin_id" json:"origin_id,string,omitempty"`
+	MsgCount     int64                 `gorm:"column:msg_count" json:"msg_count"`
 	UpdatedAt    int64                 `gorm:"column:updated_at" json:"updated_at"`
 	PeerAgentID  int64                 `json:"peer_agent_id,string"`
 	UnreadCount  int64                 `json:"unread_count"`
+	Category     string                `gorm:"-" json:"category"`
 	LastMessage  *communicationMessage `gorm:"-" json:"last_message,omitempty"`
 }
 
@@ -296,18 +299,21 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		return
 	}
 	originType := strings.TrimSpace(c.Query("origin_type"))
-	if originType != "" && originType != "friend" && originType != "broadcast" {
-		fail(c, http.StatusBadRequest, "INVALID_ORIGIN_TYPE", "origin_type must be friend or broadcast", nil)
+	if originType != "" && originType != "friend" && originType != "broadcast" && originType != "unbroken" {
+		fail(c, http.StatusBadRequest, "INVALID_ORIGIN_TYPE", "origin_type must be friend, broadcast or unbroken", nil)
 		return
 	}
 
 	filter := ""
 	branchArgs := func() []interface{} {
 		args := []interface{}{viewerID}
+		if originType == "unbroken" {
+			args = append(args, viewerID)
+		}
 		if cursor.UpdatedAt > 0 {
 			args = append(args, cursor.UpdatedAt, cursor.ConvID)
 		}
-		if originType != "" {
+		if originType != "" && originType != "unbroken" {
 			args = append(args, originType)
 		}
 		args = append(args, limit+1)
@@ -316,14 +322,20 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 	if cursor.UpdatedAt > 0 {
 		filter += " AND (updated_at, conv_id) < (?, ?)"
 	}
-	if originType != "" {
+	if originType != "" && originType != "unbroken" {
 		filter += " AND origin_type = ?"
 	}
-	baseA := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type, updated_at
-		FROM conversations WHERE participant_a = ? AND status = 0 AND msg_count >= 1` + filter + `
+	baseCondition := "status = 0 AND msg_count >= 1"
+	if originType == "unbroken" {
+		baseCondition = "status = 0 AND origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
+	}
+	baseA := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type,
+		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at
+		FROM conversations WHERE participant_a = ? AND ` + baseCondition + filter + `
 		ORDER BY updated_at DESC, conv_id DESC LIMIT ?`
-	baseB := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type, updated_at
-		FROM conversations WHERE participant_b = ? AND status = 0 AND msg_count >= 1` + filter + `
+	baseB := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type,
+		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at
+		FROM conversations WHERE participant_b = ? AND ` + baseCondition + filter + `
 		ORDER BY updated_at DESC, conv_id DESC LIMIT ?`
 	args := append(branchArgs(), branchArgs()...)
 	args = append(args, limit+1)
@@ -388,6 +400,17 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "IDENTITY_READ_FAILED", "could not resolve Agent identities", nil)
 		return
+	}
+	for index := range rows {
+		relation := relations[rows[index].PeerAgentID]
+		switch {
+		case rows[index].OriginType == "friend":
+			rows[index].Category = "friend"
+		case relation == "friend":
+			rows[index].Category = "broadcast_comment"
+		default:
+			rows[index].Category = "non_friend"
+		}
 	}
 	nextCursor := ""
 	if hasMore && len(rows) > 0 {
@@ -512,7 +535,7 @@ type communicationFriendRequest struct {
 	PeerAgentID       int64  `json:"peer_agent_id,string"`
 	Greeting          string `gorm:"column:greeting" json:"greeting"`
 	GreetingTruncated bool   `gorm:"-" json:"greeting_truncated,omitempty"`
-	Remark            string `gorm:"column:remark" json:"remark"`
+	Remark            string `gorm:"column:remark" json:"remark,omitempty"`
 	RemarkTruncated   bool   `gorm:"-" json:"remark_truncated,omitempty"`
 	CreatedAt         int64  `gorm:"column:created_at" json:"created_at"`
 	FromUID           int64  `gorm:"column:from_uid" json:"-"`
@@ -537,11 +560,13 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 		return
 	}
 	subjectColumn := "to_uid"
+	remarkProjection := "'' AS remark"
 	if direction == "outgoing" {
 		subjectColumn = "from_uid"
+		remarkProjection = "remark"
 	}
 	var requests []communicationFriendRequest
-	query := `SELECT id, from_uid, to_uid, greeting, remark, created_at FROM friend_requests
+	query := `SELECT id, from_uid, to_uid, greeting, ` + remarkProjection + `, created_at FROM friend_requests
 		WHERE status = 0 AND ` + subjectColumn + ` = ? AND (? = 0 OR id < ?)
 		ORDER BY id DESC LIMIT ?`
 	if err := s.db.Raw(query, viewerID, cursor, cursor, limit+1).Scan(&requests).Error; err != nil {

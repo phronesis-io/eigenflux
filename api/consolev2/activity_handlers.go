@@ -3,6 +3,7 @@ package consolev2
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,24 @@ import (
 
 	"eigenflux_server/pkg/logger"
 )
+
+const (
+	activityInitialReplay = 100
+	activityReplayPage    = 100
+	activityReplayMax     = 500
+	sseWriteTimeout       = 5 * time.Second
+)
+
+var errActivityReplayTruncated = errors.New("activity replay page truncated")
+
+func writeSSE(writer *io.PipeWriter, payload string) error {
+	timer := time.AfterFunc(sseWriteTimeout, func() {
+		_ = writer.CloseWithError(errors.New("SSE write timeout"))
+	})
+	_, err := io.WriteString(writer, payload)
+	timer.Stop()
+	return err
+}
 
 type activityEvent struct {
 	AgentSeq   int64                  `gorm:"column:agent_seq" json:"agent_seq"`
@@ -45,6 +64,12 @@ func (s *Service) oldestActivitySeq(agentID int64) (int64, error) {
 	err := s.db.Raw(`SELECT COALESCE((SELECT agent_seq FROM agent_activity_log
 		WHERE agent_id = ? AND agent_seq IS NOT NULL ORDER BY agent_seq LIMIT 1), 0)`, agentID).Scan(&minSeq).Error
 	return minSeq, err
+}
+
+func (s *Service) latestActivitySeq(agentID int64) (int64, error) {
+	var current int64
+	err := s.db.Raw(`SELECT COALESCE(current_seq, 0) FROM agent_activity_heads WHERE agent_id = ?`, agentID).Scan(&current).Error
+	return current, err
 }
 
 func (s *Service) subscribeActivityWake(agentID int64) (<-chan struct{}, func()) {
@@ -115,6 +140,14 @@ func (s *Service) listActivity(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_CURSOR", err.Error(), nil)
 		return
 	}
+	if after == 0 {
+		latest, latestErr := s.latestActivitySeq(agentIDValue)
+		if latestErr != nil {
+			fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity cursor", nil)
+			return
+		}
+		after = maxInt64(0, latest-activityInitialReplay)
+	}
 	limit := 100
 	if raw := c.Query("limit"); raw != "" {
 		parsed, parseErr := strconv.Atoi(raw)
@@ -150,18 +183,33 @@ func (s *Service) listActivity(_ context.Context, c *app.RequestContext) {
 
 func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
+	sessionValue, sessionOK := c.Get("console_session_id")
+	sessionID, _ := sessionValue.(string)
+	if !sessionOK || sessionID == "" {
+		fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
+		return
+	}
 	after, err := parseActivityCursor(c)
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_CURSOR", err.Error(), nil)
 		return
 	}
+	if after == 0 {
+		latest, latestErr := s.latestActivitySeq(agentIDValue)
+		if latestErr != nil {
+			fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity cursor", nil)
+			return
+		}
+		after = maxInt64(0, latest-activityInitialReplay)
+	}
 	s.activityMu.Lock()
-	if s.activityConnections[agentIDValue] >= 3 {
+	if s.activityConnections[agentIDValue] >= maxAgentStreams || !s.tryAcquireProcessStream() {
 		s.activityMu.Unlock()
 		fail(c, http.StatusTooManyRequests, "ACTIVITY_CONNECTION_LIMIT", "too many activity streams for this Agent", nil)
 		return
 	}
 	s.activityConnections[agentIDValue]++
+	s.activityTotal++
 	s.activityMu.Unlock()
 	wake, unsubscribe := s.subscribeActivityWake(agentIDValue)
 	minSeq, boundsErr := s.oldestActivitySeq(agentIDValue)
@@ -169,7 +217,9 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 		unsubscribe()
 		s.activityMu.Lock()
 		s.activityConnections[agentIDValue]--
+		s.activityTotal--
 		s.activityMu.Unlock()
+		s.releaseProcessStream()
 		fail(c, http.StatusInternalServerError, "ACTIVITY_READ_FAILED", "could not read activity cursor", nil)
 		return
 	}
@@ -191,39 +241,58 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 			_ = writer.Close()
 			s.activityMu.Lock()
 			s.activityConnections[agentIDValue]--
+			s.activityTotal--
 			if s.activityConnections[agentIDValue] <= 0 {
 				delete(s.activityConnections, agentIDValue)
 			}
 			s.activityMu.Unlock()
+			s.releaseProcessStream()
 		}()
 		cursor := after
 		poll := time.NewTicker(10 * time.Second)
 		heartbeat := time.NewTicker(20 * time.Second)
+		sessionCheck := time.NewTicker(30 * time.Second)
 		maxLifetime := time.NewTimer(30 * time.Minute)
 		defer poll.Stop()
 		defer heartbeat.Stop()
+		defer sessionCheck.Stop()
 		defer maxLifetime.Stop()
 		writePending := func() error {
-			for {
-				events, loadErr := s.loadActivity(agentIDValue, cursor, 100)
+			for delivered := 0; delivered < activityReplayMax; delivered += activityReplayPage {
+				events, loadErr := s.loadActivity(agentIDValue, cursor, activityReplayPage)
 				if loadErr != nil {
 					return loadErr
 				}
 				for _, event := range events {
 					encoded, _ := json.Marshal(event)
-					if _, writeErr := fmt.Fprintf(writer, "id: %d\nevent: activity\ndata: %s\n\n", event.AgentSeq, encoded); writeErr != nil {
+					if writeErr := writeSSE(writer, fmt.Sprintf("id: %d\nevent: activity\ndata: %s\n\n", event.AgentSeq, encoded)); writeErr != nil {
 						return writeErr
 					}
 					cursor = event.AgentSeq
 				}
-				if len(events) < 100 {
+				if len(events) < activityReplayPage {
 					return nil
 				}
 			}
+			latest, loadErr := s.latestActivitySeq(agentIDValue)
+			if loadErr != nil {
+				return loadErr
+			}
+			if latest > cursor {
+				encoded, _ := json.Marshal(map[string]interface{}{"resume_after": cursor, "latest_cursor": latest})
+				if err := writeSSE(writer, fmt.Sprintf("id: %d\nevent: replay_truncated\ndata: %s\n\n", cursor, encoded)); err != nil {
+					return err
+				}
+				// Close this stream after the bounded page. EventSource reconnects
+				// with the last delivered cursor, so the next page continues without
+				// skipping the retained events between cursor and latest.
+				return errActivityReplayTruncated
+			}
+			return nil
 		}
 		if cursorReset {
 			encoded, _ := json.Marshal(map[string]interface{}{"oldest_available_cursor": after})
-			if _, err := fmt.Fprintf(writer, "id: %d\nevent: cursor_reset\ndata: %s\n\n", after, encoded); err != nil {
+			if err := writeSSE(writer, fmt.Sprintf("id: %d\nevent: cursor_reset\ndata: %s\n\n", after, encoded)); err != nil {
 				return
 			}
 		}
@@ -241,7 +310,11 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 					return
 				}
 			case <-heartbeat.C:
-				if _, err := fmt.Fprintf(writer, ": heartbeat %d\n\n", time.Now().UnixMilli()); err != nil {
+				if err := writeSSE(writer, fmt.Sprintf(": heartbeat %d\n\n", time.Now().UnixMilli())); err != nil {
+					return
+				}
+			case <-sessionCheck.C:
+				if !s.consoleSessionStillActive(sessionID, agentIDValue) {
 					return
 				}
 			case <-maxLifetime.C:

@@ -54,18 +54,25 @@ func (s *Service) runtimeHeartbeat(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_CAPABILITIES", "runtime capabilities are invalid", nil)
 		return
 	}
-	now := time.Now().UnixMilli()
-	leaseUntil := now + int64(runtimeLeaseTTL/time.Millisecond)
-	result := s.db.Exec(`INSERT INTO agent_runtime_leases
+	var lease struct {
+		LeaseUntil int64 `gorm:"column:lease_until"`
+		Now        int64 `gorm:"column:now_ms"`
+	}
+	result := s.db.Raw(`WITH clock AS (
+			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
+		) INSERT INTO agent_runtime_leases
 		(agent_id, runtime_instance_id, capabilities, session_ref, context_revision_applied,
 		 lease_until, last_heartbeat_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		SELECT ?, ?, ?, ?, ?, clock.now_ms + ?, clock.now_ms, clock.now_ms, clock.now_ms FROM clock
 		ON CONFLICT (agent_id, runtime_instance_id) DO UPDATE SET
 		 capabilities = EXCLUDED.capabilities, session_ref = EXCLUDED.session_ref,
 		 context_revision_applied = EXCLUDED.context_revision_applied,
 		 lease_until = EXCLUDED.lease_until, last_heartbeat_at = EXCLUDED.last_heartbeat_at,
-		 updated_at = EXCLUDED.updated_at`, agentIDValue, req.RuntimeInstanceID, pq.Array(capabilities),
-		req.SessionRef, req.AppliedContextRevision, leaseUntil, now, now, now)
+		 updated_at = EXCLUDED.updated_at
+		RETURNING lease_until,
+			(extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms`, agentIDValue,
+		req.RuntimeInstanceID, pq.Array(capabilities), req.SessionRef, req.AppliedContextRevision,
+		int64(runtimeLeaseTTL/time.Millisecond)).Scan(&lease)
 	if result.Error != nil {
 		if isForeignKeyViolation(result.Error) {
 			fail(c, http.StatusConflict, "CONTEXT_REQUIRED", "applied context revision does not exist", nil)
@@ -74,7 +81,7 @@ func (s *Service) runtimeHeartbeat(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "RUNTIME_HEARTBEAT_FAILED", "could not renew runtime lease", nil)
 		return
 	}
-	commandIDs, err := s.pendingCommandIDs(agentIDValue, now, 50)
+	commandIDs, err := s.pendingCommandIDs(agentIDValue, lease.Now, 50)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "RUNTIME_RECONCILE_FAILED", "could not reconcile pending commands", nil)
 		return
@@ -84,7 +91,7 @@ func (s *Service) runtimeHeartbeat(_ context.Context, c *app.RequestContext) {
 		ids = append(ids, fmt.Sprintf("%d", id))
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"runtime_instance_id": req.RuntimeInstanceID, "lease_until": leaseUntil,
+		"runtime_instance_id": req.RuntimeInstanceID, "lease_until": lease.LeaseUntil,
 		"pending_command_ids": ids, "next_heartbeat_seconds": 30,
 	})
 }

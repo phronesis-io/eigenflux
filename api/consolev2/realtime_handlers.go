@@ -137,6 +137,25 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 		fail(c, http.StatusForbidden, "WEBSOCKET_ORIGIN_INVALID", "Console V2 WebSocket origin, host, or audience is invalid", nil)
 		return
 	}
+	s.communicationMu.Lock()
+	if s.communicationConnections[agentIDValue] >= maxAgentStreams || !s.tryAcquireProcessStream() {
+		s.communicationMu.Unlock()
+		fail(c, http.StatusTooManyRequests, "COMMUNICATION_CONNECTION_LIMIT", "too many communication streams", nil)
+		return
+	}
+	s.communicationConnections[agentIDValue]++
+	s.communicationTotal++
+	s.communicationMu.Unlock()
+	releaseConnection := func() {
+		s.communicationMu.Lock()
+		s.communicationConnections[agentIDValue]--
+		s.communicationTotal--
+		if s.communicationConnections[agentIDValue] <= 0 {
+			delete(s.communicationConnections, agentIDValue)
+		}
+		s.communicationMu.Unlock()
+		s.releaseProcessStream()
+	}
 	upgrader := websocket.HertzUpgrader{
 		Subprotocols: []string{consoleV2WebSocketProtocol},
 		CheckOrigin: func(request *app.RequestContext) bool {
@@ -145,6 +164,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 		},
 	}
 	if err := upgrader.Upgrade(c, func(connection *websocket.Conn) {
+		defer releaseConnection()
 		defer connection.Close()
 		connection.SetReadLimit(8 << 10)
 		_ = connection.SetReadDeadline(time.Now().Add(45 * time.Second))
@@ -164,6 +184,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 		wake, unsubscribe := s.subscribeCommunicationWake(agentIDValue)
 		defer unsubscribe()
 		initial := communicationWakeEvent{Type: "reconcile_required", AgentID: strconv.FormatInt(agentIDValue, 10)}
+		_ = connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err := connection.WriteJSON(initial); err != nil {
 			return
 		}
@@ -174,6 +195,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 			case <-connectionContext.Done():
 				return
 			case event, ok := <-wake:
+				_ = connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if !ok || connection.WriteJSON(event) != nil {
 					return
 				}
@@ -183,12 +205,14 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 						websocket.FormatCloseMessage(4001, "session expired or revoked"), time.Now().Add(time.Second))
 					return
 				}
+				_ = connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if connection.WriteMessage(websocket.PingMessage, nil) != nil {
 					return
 				}
 			}
 		}
 	}); err != nil {
+		releaseConnection()
 		logger.Ctx(ctx).Warn("Console V2 WebSocket upgrade failed", "agentID", agentIDValue, "err", fmt.Sprint(err))
 	}
 }

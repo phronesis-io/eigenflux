@@ -13,7 +13,14 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/gorm"
+
+	agentcardapi "eigenflux_server/api/agentcard"
+	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/logger"
+	profiledal "eigenflux_server/rpc/profile/dal"
 )
+
+var errIntentLimitReached = errors.New("active intent limit reached")
 
 type ContextWriteRequest struct {
 	ExpectedContextRevision int64  `json:"expected_context_revision"`
@@ -126,7 +133,7 @@ func (s *Service) createIntentAction(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		if count >= 10 {
-			return errors.New("active intent limit reached")
+			return errIntentLimitReached
 		}
 		return tx.Exec(`INSERT INTO agent_intent_actions
 			(agent_id, watch_for, trigger_when, action_instruction, action_policy, priority,
@@ -245,6 +252,20 @@ func (s *Service) contextMutation(agentID int64, operation, key, requestHash str
 			VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)`, agentID, operation, key, requestHash, string(snapshot),
 			now+int64(24*time.Hour/time.Millisecond), now).Error
 	})
+	if err != nil && (errors.Is(err, errConflict) || isUniqueViolation(err)) {
+		var snapshot struct {
+			ContextRevision int64 `json:"context_revision"`
+		}
+		found, hashConflict, replayErr := s.loadIdempotentResponse(agentID, operation, key, requestHash, &snapshot)
+		switch {
+		case replayErr != nil:
+			err = replayErr
+		case found && hashConflict:
+			err = errConflict
+		case found:
+			revision, replay, err = snapshot.ContextRevision, true, nil
+		}
+	}
 	return
 }
 
@@ -254,14 +275,18 @@ func respondContextMutation(c *app.RequestContext, revision int64, replay bool, 
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "context changed or idempotency key was reused", nil)
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		fail(c, http.StatusNotFound, "INTENT_NOT_FOUND", "intent action was not found", nil)
+	case errors.Is(err, errIntentLimitReached):
+		fail(c, http.StatusBadRequest, "INTENT_LIMIT_REACHED", "at most 10 active intent actions are allowed", nil)
 	case err != nil:
-		fail(c, http.StatusBadRequest, "CONTEXT_UPDATE_FAILED", err.Error(), nil)
+		logger.Default().Error("Console V2 context update failed", "err", err)
+		fail(c, http.StatusInternalServerError, "CONTEXT_UPDATE_FAILED", "could not update Agent context", nil)
 	default:
 		reply(c, http.StatusOK, map[string]interface{}{"context_revision": revision, "idempotent_replay": replay})
 	}
 }
 
 type securityBoundaryRequest struct {
+	ContextWriteRequest
 	RecurringPublish bool `json:"recurring_publish"`
 	AutoReplyPM      bool `json:"auto_reply_pm"`
 	AutoComment      bool `json:"auto_comment"`
@@ -271,23 +296,28 @@ type securityBoundaryRequest struct {
 func (s *Service) putSecurityBoundary(_ context.Context, c *app.RequestContext) {
 	id, _ := agentID(c)
 	var req securityBoundaryRequest
-	if err := decodeBody(c, &req); err != nil {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
+	if err := decodeBody(c, &req); err != nil || validateContextWrite(req.ContextWriteRequest) != nil {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "expected_context_revision and idempotency_key are required", nil)
 		return
 	}
-	now := time.Now().UnixMilli()
-	err := s.db.Exec(`INSERT INTO agent_settings
-		(agent_id, recurring_publish, auto_reply_pm, auto_comment, show_add_friend, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (agent_id) DO UPDATE SET recurring_publish = EXCLUDED.recurring_publish,
-			auto_reply_pm = EXCLUDED.auto_reply_pm, auto_comment = EXCLUDED.auto_comment,
-			show_add_friend = EXCLUDED.show_add_friend, updated_at = EXCLUDED.updated_at`, id,
-		req.RecurringPublish, req.AutoReplyPM, req.AutoComment, req.ShowAddFriend, now).Error
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "SECURITY_BOUNDARY_SAVE_FAILED", "could not save security boundary", nil)
-		return
-	}
-	reply(c, http.StatusOK, map[string]interface{}{"updated_at": now})
+	encoded, _ := json.Marshal(map[string]bool{
+		"recurring_publish": req.RecurringPublish, "auto_reply_pm": req.AutoReplyPM,
+		"auto_comment": req.AutoComment, "show_add_friend": req.ShowAddFriend,
+	})
+	requestHash := hashString(fmt.Sprintf("%d:%s", req.ExpectedContextRevision, encoded))
+	revision, replay, err := s.contextMutation(id, "security_boundary_put", req.IdempotencyKey, requestHash, func(tx *gorm.DB, now int64) error {
+		if err := lockContextHead(tx, id, req.ExpectedContextRevision); err != nil {
+			return err
+		}
+		return tx.Exec(`INSERT INTO agent_settings
+			(agent_id, recurring_publish, auto_reply_pm, auto_comment, show_add_friend, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT (agent_id) DO UPDATE SET recurring_publish = EXCLUDED.recurring_publish,
+				auto_reply_pm = EXCLUDED.auto_reply_pm, auto_comment = EXCLUDED.auto_comment,
+				show_add_friend = EXCLUDED.show_add_friend, updated_at = EXCLUDED.updated_at`, id,
+			req.RecurringPublish, req.AutoReplyPM, req.AutoComment, req.ShowAddFriend, now).Error
+	})
+	respondContextMutation(c, revision, replay, err)
 }
 
 type profileFieldsRequest struct {
@@ -295,17 +325,105 @@ type profileFieldsRequest struct {
 	Bio       string `json:"bio"`
 }
 
-func (s *Service) putProfileFields(_ context.Context, c *app.RequestContext) {
+func validateIdentityCardFields(name, bio string) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(bio) > 2000 {
+		return errors.New("valid agent_name and bio are required")
+	}
+	for field, value := range map[string]string{"agent_name": name, "agent_description": bio} {
+		spec, ok := agentcard.LookupField(field)
+		if !ok {
+			return errors.New("identity field registry is unavailable")
+		}
+		raw, _ := json.Marshal(value)
+		normalized, err := agentcard.ValidateValue(spec, raw)
+		if err != nil {
+			return err
+		}
+		if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) putProfileFields(ctx context.Context, c *app.RequestContext) {
 	id, _ := agentID(c)
 	var req profileFieldsRequest
-	if err := decodeBody(c, &req); err != nil || strings.TrimSpace(req.AgentName) == "" || utf8.RuneCountInString(req.AgentName) > 100 || utf8.RuneCountInString(req.Bio) > 2000 {
+	if err := decodeBody(c, &req); err != nil || validateIdentityCardFields(req.AgentName, req.Bio) != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "valid agent_name and bio are required", nil)
 		return
 	}
+	allowed, rateErr := agentcardapi.CheckProfileWriteRate(ctx, id)
+	if rateErr != nil {
+		fail(c, http.StatusServiceUnavailable, "PROFILE_RATE_LIMIT_UNAVAILABLE", "profile write protection is temporarily unavailable", nil)
+		return
+	}
+	if !allowed {
+		c.Header("Retry-After", "60")
+		fail(c, http.StatusTooManyRequests, "PROFILE_RATE_LIMITED", "too many profile updates", nil)
+		return
+	}
 	now := time.Now().UnixMilli()
-	if err := s.db.Exec(`UPDATE agents SET agent_name = ?, bio = ?, updated_at = ? WHERE agent_id = ?`, req.AgentName, req.Bio, now, id).Error; err != nil {
+	changed := false
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		agent, err := profiledal.GetAgentByIDForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		nameChanged := agent.AgentName != req.AgentName
+		bioChanged := agent.Bio != req.Bio
+		if !nameChanged && !bioChanged {
+			return nil
+		}
+		updates := map[string]interface{}{"agent_name": req.AgentName, "bio": req.Bio}
+		if nameChanged {
+			updates["agent_name_en"] = ""
+		}
+		if err := profiledal.UpdateAgentFields(tx, id, updates); err != nil {
+			return err
+		}
+		if err := profiledal.EnsureAgentProfileRow(tx, id); err != nil {
+			return err
+		}
+		newVersion, err := profiledal.BumpProfileVersion(tx, id)
+		if err != nil {
+			return err
+		}
+		if bioChanged {
+			if err := profiledal.InsertBioHistory(tx, id, agent.Bio, req.Bio, "console_v2", "human_edit"); err != nil {
+				return err
+			}
+		}
+		paths := make([]string, 0, 2)
+		previous := map[string]string{}
+		next := map[string]string{}
+		if nameChanged {
+			paths = append(paths, "agent_name")
+			previous["agent_name"], next["agent_name"] = agent.AgentName, req.AgentName
+		}
+		if bioChanged {
+			paths = append(paths, "agent_description")
+			previous["agent_description"], next["agent_description"] = agent.Bio, req.Bio
+		}
+		pathsJSON, _ := json.Marshal(paths)
+		previousJSON, _ := json.Marshal(previous)
+		nextJSON, _ := json.Marshal(next)
+		if err := profiledal.InsertProfileChangeEvent(tx, &profiledal.ProfileChangeEvent{
+			AgentID: id, SourceVersion: newVersion, ActorType: "human", ActorID: fmt.Sprintf("%d", id),
+			Source: "console_v2", Reason: "human_edit", ChangedPaths: string(pathsJSON),
+			PreviousValues: string(previousJSON), NewValues: string(nextJSON),
+		}); err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	if err != nil {
 		fail(c, http.StatusInternalServerError, "PROFILE_SAVE_FAILED", "could not save Agent profile", nil)
 		return
+	}
+	if changed {
+		agentcard.PublishRebuild(ctx, id, "console_v2_profile_update")
 	}
 	reply(c, http.StatusOK, map[string]interface{}{"updated_at": now})
 }

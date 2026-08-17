@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -13,6 +14,14 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 )
+
+func newBrowserNonce() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
 
 func newV2ClientForServer(serverName string, requireAuth bool) (*client.Client, *config.Server, error) {
 	cfg, err := config.Load()
@@ -35,6 +44,16 @@ func newV2ClientForServer(serverName string, requireAuth bool) (*client.Client, 
 }
 
 func ensureV2Credentials(serverName, endpoint string) (*auth.V2Credentials, error) {
+	var credentials *auth.V2Credentials
+	err := auth.WithV2CredentialsLock(serverName, 35*time.Second, func() error {
+		var refreshErr error
+		credentials, refreshErr = ensureV2CredentialsUnlocked(serverName, endpoint)
+		return refreshErr
+	})
+	return credentials, err
+}
+
+func ensureV2CredentialsUnlocked(serverName, endpoint string) (*auth.V2Credentials, error) {
 	credentials, err := auth.LoadV2Credentials(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("Agent V2 is not provisioned for server %q — run 'eigenflux agent init' and then 'eigenflux agent provision': %w", serverName, err)
@@ -48,7 +67,7 @@ func ensureV2Credentials(serverName, endpoint string) (*auth.V2Credentials, erro
 	}
 	unauthenticated := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", "", version, clientMeta)
 	challengeResponse, err := unauthenticated.Post("/agent-sessions/refresh-challenges", map[string]interface{}{
-		"refresh_token": credentials.RefreshToken,
+		"refresh_token": credentials.RefreshToken, "rotation_request_id": refreshRotationRequestID(credentials.RefreshToken),
 	})
 	if err != nil {
 		return nil, err
@@ -61,10 +80,11 @@ func ensureV2Credentials(serverName, endpoint string) (*auth.V2Credentials, erro
 		return nil, fmt.Errorf("invalid Agent V2 refresh challenge")
 	}
 	request := refreshV2Request{
-		RefreshToken: credentials.RefreshToken,
-		Nonce:        challenge.Nonce,
-		PublicKey:    base64.RawURLEncoding.EncodeToString(publicKey),
-		IssuedAt:     challenge.IssuedAt,
+		RefreshToken:      credentials.RefreshToken,
+		RotationRequestID: refreshRotationRequestID(credentials.RefreshToken),
+		Nonce:             challenge.Nonce,
+		PublicKey:         base64.RawURLEncoding.EncodeToString(publicKey),
+		IssuedAt:          challenge.IssuedAt,
 	}
 	transcript, err := refreshV2Transcript(request)
 	if err != nil {
@@ -97,29 +117,36 @@ func ensureV2Credentials(serverName, endpoint string) (*auth.V2Credentials, erro
 }
 
 type refreshV2Request struct {
-	RefreshToken string `json:"refresh_token"`
-	Nonce        string `json:"nonce"`
-	PublicKey    string `json:"public_key"`
-	IssuedAt     int64  `json:"issued_at"`
-	Signature    string `json:"signature"`
+	RefreshToken      string `json:"refresh_token"`
+	RotationRequestID string `json:"rotation_request_id"`
+	Nonce             string `json:"nonce"`
+	PublicKey         string `json:"public_key"`
+	IssuedAt          int64  `json:"issued_at"`
+	Signature         string `json:"signature"`
 }
 
 type refreshV2Proof struct {
-	RefreshToken string `json:"refresh_token"`
-	Nonce        string `json:"nonce"`
-	PublicKey    string `json:"public_key"`
-	IssuedAt     int64  `json:"issued_at"`
+	RefreshToken      string `json:"refresh_token"`
+	RotationRequestID string `json:"rotation_request_id"`
+	Nonce             string `json:"nonce"`
+	PublicKey         string `json:"public_key"`
+	IssuedAt          int64  `json:"issued_at"`
 }
 
 func refreshV2Transcript(request refreshV2Request) ([]byte, error) {
 	payload, err := json.Marshal(refreshV2Proof{
-		RefreshToken: request.RefreshToken, Nonce: request.Nonce,
+		RefreshToken: request.RefreshToken, RotationRequestID: request.RotationRequestID, Nonce: request.Nonce,
 		PublicKey: request.PublicKey, IssuedAt: request.IssuedAt,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return []byte(fmt.Sprintf("EF-AUTH-V2-REFRESH\x00POST\n/api/v2/agent-sessions/refresh\n%s", sha256HexCLI(payload))), nil
+}
+
+func refreshRotationRequestID(refreshToken string) string {
+	digest := sha256.Sum256([]byte("eigenflux-refresh-v2\x00" + refreshToken))
+	return fmt.Sprintf("refresh-%x", digest)
 }
 
 func sha256HexCLI(value []byte) string {

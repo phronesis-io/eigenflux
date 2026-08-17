@@ -190,12 +190,13 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 		return
 	}
 	s.controlWakeMu.Lock()
-	if s.controlConnections[agentIDValue] >= 3 {
+	if s.controlConnections[agentIDValue] >= maxAgentStreams || !s.tryAcquireProcessStream() {
 		s.controlWakeMu.Unlock()
 		fail(c, http.StatusTooManyRequests, "CONTROL_CONNECTION_LIMIT", "too many control streams for this Agent", nil)
 		return
 	}
 	s.controlConnections[agentIDValue]++
+	s.controlTotal++
 	s.controlWakeMu.Unlock()
 	wake, unsubscribe := s.subscribeControlWake(agentIDValue)
 	reader, writer := io.Pipe()
@@ -210,10 +211,12 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 			_ = writer.Close()
 			s.controlWakeMu.Lock()
 			s.controlConnections[agentIDValue]--
+			s.controlTotal--
 			if s.controlConnections[agentIDValue] <= 0 {
 				delete(s.controlConnections, agentIDValue)
 			}
 			s.controlWakeMu.Unlock()
+			s.releaseProcessStream()
 		}()
 		sent := make(map[int64]struct{}, 64)
 		writePending := func() error {
@@ -226,7 +229,7 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 					continue
 				}
 				payload, _ := json.Marshal(map[string]string{"command_id": strconv.FormatInt(commandID, 10)})
-				if _, err := fmt.Fprintf(writer, "id: %d\nevent: command_available\ndata: %s\n\n", commandID, payload); err != nil {
+				if err := writeSSE(writer, fmt.Sprintf("id: %d\nevent: command_available\ndata: %s\n\n", commandID, payload)); err != nil {
 					return err
 				}
 				sent[commandID] = struct{}{}
@@ -250,7 +253,7 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 				}
 				if _, exists := sent[commandID]; !exists {
 					payload, _ := json.Marshal(map[string]string{"command_id": strconv.FormatInt(commandID, 10)})
-					if _, err := fmt.Fprintf(writer, "id: %d\nevent: command_available\ndata: %s\n\n", commandID, payload); err != nil {
+					if err := writeSSE(writer, fmt.Sprintf("id: %d\nevent: command_available\ndata: %s\n\n", commandID, payload)); err != nil {
 						return
 					}
 					sent[commandID] = struct{}{}
@@ -263,7 +266,7 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 				if !s.agentCredentialSessionStillActive(credentialSessionID, agentIDValue) {
 					return
 				}
-				if _, err := fmt.Fprintf(writer, ": heartbeat %d\n\n", time.Now().UnixMilli()); err != nil {
+				if err := writeSSE(writer, fmt.Sprintf(": heartbeat %d\n\n", time.Now().UnixMilli())); err != nil {
 					return
 				}
 			case <-maxLifetime.C:

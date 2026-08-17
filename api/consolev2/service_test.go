@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"net"
 	"strings"
 	"testing"
 
@@ -30,6 +31,7 @@ func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	}
 	req := provisionRequest{
 		BootstrapGrant: "efbg_test",
+		IdempotencyKey: "provision-test-request",
 		Nonce:          "efn_test",
 		PublicKey:      base64.RawURLEncoding.EncodeToString(publicKey),
 		IssuedAt:       1234,
@@ -60,10 +62,11 @@ func TestRefreshTranscriptVerifiesAndCoversTokenAndNonce(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := refreshAgentSessionRequest{
-		RefreshToken: "efv2r_original",
-		Nonce:        "efn_original",
-		PublicKey:    base64.RawURLEncoding.EncodeToString(publicKey),
-		IssuedAt:     1234,
+		RefreshToken:      "efv2r_original",
+		RotationRequestID: "refresh-test-request",
+		Nonce:             "efn_original",
+		PublicKey:         base64.RawURLEncoding.EncodeToString(publicKey),
+		IssuedAt:          1234,
 	}
 	transcript, err := refreshTranscript(req)
 	if err != nil {
@@ -175,6 +178,37 @@ func TestConsoleV2WebSocketRequestBoundary(t *testing.T) {
 	}
 }
 
+func TestConsoleV2RESTSameOriginBoundary(t *testing.T) {
+	expected := "https://console.example.test"
+	if !validConsoleSameOrigin(expected, "console.example.test", expected) {
+		t.Fatal("valid same-origin V2 REST request was rejected")
+	}
+	for _, test := range []struct{ origin, host string }{
+		{origin: "https://evil.example", host: "console.example.test"},
+		{origin: expected, host: "api.example.test"},
+		{origin: expected + "/path", host: "console.example.test"},
+		{origin: "http://console.example.test", host: "console.example.test"},
+		{origin: "", host: "console.example.test"},
+	} {
+		if validConsoleSameOrigin(test.origin, test.host, expected) {
+			t.Fatalf("unsafe V2 REST request was accepted: %#v", test)
+		}
+	}
+}
+
+func TestV2ClientIPOnlyTrustsConfiguredProxy(t *testing.T) {
+	_, trusted, err := net.ParseCIDR("10.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveV2ClientIP("203.0.113.10:4321", "198.51.100.8", "", []*net.IPNet{trusted}); got != "203.0.113.10" {
+		t.Fatalf("untrusted caller forged forwarded IP: %s", got)
+	}
+	if got := resolveV2ClientIP("10.1.2.3:4321", "198.51.100.8, 10.2.3.4", "", []*net.IPNet{trusted}); got != "198.51.100.8" {
+		t.Fatalf("trusted proxy client IP = %s", got)
+	}
+}
+
 func TestNotificationIssuerIdentityFailsClosed(t *testing.T) {
 	for _, sourceType := range []string{"system", "milestone", "trade"} {
 		identity := notificationIssuerIdentity(sourceType)
@@ -213,5 +247,41 @@ func TestCommunicationContextFilterDoesNotLeakUnreferencedPeers(t *testing.T) {
 	filtered := filterCommunicationContexts(contexts, []int64{2})
 	if len(filtered) != 1 || filtered["2"].ProfileStatus != "available" {
 		t.Fatalf("unexpected filtered contexts: %#v", filtered)
+	}
+}
+
+func TestOnboardingStepValidationIgnoresIncompleteFutureSteps(t *testing.T) {
+	var payload draftPayload
+	payload.IdentityCard.AgentName = "Agent"
+	if err := validateDraftStep(payload, 2); err != nil {
+		t.Fatalf("step 2 was blocked by incomplete future fields: %v", err)
+	}
+}
+
+func TestOnboardingIntentValidationRejectsWhitespace(t *testing.T) {
+	var payload draftPayload
+	payload.IntentActions = append(payload.IntentActions, struct {
+		WatchFor          string `json:"watch_for"`
+		TriggerWhen       string `json:"trigger_when"`
+		ActionInstruction string `json:"action_instruction"`
+		ActionPolicy      string `json:"action_policy"`
+		Priority          int16  `json:"priority"`
+	}{WatchFor: "   ", TriggerWhen: "signal", ActionInstruction: "report", ActionPolicy: "analyze_only"})
+	if err := validateDraftStep(payload, 5); err == nil {
+		t.Fatal("whitespace-only intent passed validation")
+	}
+}
+
+func TestProcessStreamLimitIsSharedAcrossStreamKinds(t *testing.T) {
+	service := &Service{processStreamTotal: maxProcessStreams - 1}
+	if !service.tryAcquireProcessStream() {
+		t.Fatal("last process stream slot was rejected")
+	}
+	if service.tryAcquireProcessStream() {
+		t.Fatal("process stream limit was exceeded")
+	}
+	service.releaseProcessStream()
+	if !service.tryAcquireProcessStream() {
+		t.Fatal("released process stream slot was not reusable")
 	}
 }

@@ -22,6 +22,10 @@ var agentV2Cmd = &cobra.Command{
 	Short: "Manage the stable Agent V2 identity",
 }
 
+func defaultProvisionDraft(agentName string) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":false,"auto_reply_pm":false,"auto_comment":false,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
+}
+
 var agentV2InitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create or read this installation's stable Ed25519 identity",
@@ -50,6 +54,7 @@ var agentV2InitCmd = &cobra.Command{
 
 type provisionV2Request struct {
 	BootstrapGrant string          `json:"bootstrap_grant"`
+	IdempotencyKey string          `json:"idempotency_key"`
 	Nonce          string          `json:"nonce"`
 	PublicKey      string          `json:"public_key"`
 	IssuedAt       int64           `json:"issued_at"`
@@ -60,6 +65,7 @@ type provisionV2Request struct {
 
 type provisionV2Proof struct {
 	BootstrapGrant string          `json:"bootstrap_grant"`
+	IdempotencyKey string          `json:"idempotency_key"`
 	Nonce          string          `json:"nonce"`
 	PublicKey      string          `json:"public_key"`
 	IssuedAt       int64           `json:"issued_at"`
@@ -70,7 +76,8 @@ type provisionV2Proof struct {
 func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 	payload, err := json.Marshal(provisionV2Proof{
 		BootstrapGrant: request.BootstrapGrant, Nonce: request.Nonce,
-		PublicKey: request.PublicKey, IssuedAt: request.IssuedAt,
+		IdempotencyKey: request.IdempotencyKey,
+		PublicKey:      request.PublicKey, IssuedAt: request.IssuedAt,
 		AgentName: request.AgentName, Draft: request.Draft,
 	})
 	if err != nil {
@@ -107,7 +114,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		draft := json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":true,"auto_reply_pm":true,"auto_comment":true,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
+		draft := defaultProvisionDraft(agentName)
 		if draftFile != "" {
 			draft, err = os.ReadFile(draftFile)
 			if err != nil {
@@ -120,8 +127,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		request := provisionV2Request{
 			BootstrapGrant: grant, Nonce: nonce,
-			PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
-			IssuedAt:  time.Now().UnixMilli(), AgentName: agentName, Draft: draft,
+			IdempotencyKey: fmt.Sprintf("provision-%x", sha256.Sum256([]byte(grant))),
+			PublicKey:      base64.RawURLEncoding.EncodeToString(publicKey),
+			IssuedAt:       time.Now().UnixMilli(), AgentName: agentName, Draft: draft,
 		}
 		transcript, err := provisionV2Transcript(request)
 		if err != nil {
@@ -159,7 +167,11 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		if !noHandoff {
 			authenticated := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", provisioned.AccessToken, version, clientMeta)
-			handoffResponse, handoffErr := authenticated.Post("/console/handoffs", map[string]interface{}{})
+			browserNonce, nonceErr := newBrowserNonce()
+			if nonceErr != nil {
+				return nonceErr
+			}
+			handoffResponse, handoffErr := authenticated.Post("/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce})
 			if handoffErr != nil {
 				return handoffErr
 			}

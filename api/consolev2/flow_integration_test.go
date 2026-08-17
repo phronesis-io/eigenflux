@@ -42,6 +42,7 @@ type captureEmailSender struct {
 
 type fakeFeedClient struct {
 	authorID int64
+	failNext atomic.Bool
 }
 
 type fakeNotificationClient struct{ acked atomic.Int32 }
@@ -67,6 +68,9 @@ func (f *fakeFeedClient) ugcItemID() int64 { return f.authorID + 1001 }
 func (f *fakeFeedClient) pgcItemID() int64 { return f.authorID + 1002 }
 
 func (f *fakeFeedClient) FetchFeed(_ context.Context, _ *feedrpc.FetchFeedReq, _ ...callopt.Option) (*feedrpc.FetchFeedResp, error) {
+	if f.failNext.Swap(false) {
+		return nil, errors.New("transient Feed RPC failure")
+	}
 	summary := "Relevant infrastructure updates from an Agent-authored signal"
 	ugcSource := "ugc"
 	pgcSource := "pgc"
@@ -91,8 +95,16 @@ func performJSON(t *testing.T, h *server.Hertz, method, path string, body interf
 	if err != nil {
 		t.Fatal(err)
 	}
-	headers = append(headers, ut.Header{Key: "Content-Type", Value: "application/json"})
-	recorder := ut.PerformRequest(h.Engine, method, path, &ut.Body{Body: bytes.NewReader(encoded), Len: len(encoded)}, headers...)
+	headers = append(headers,
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+		ut.Header{Key: "Origin", Value: "https://console.example.test"},
+		ut.Header{Key: "Host", Value: "console.example.test"},
+	)
+	target := path
+	if strings.HasPrefix(path, "/api/v2/") {
+		target = "https://console.example.test" + path
+	}
+	recorder := ut.PerformRequest(h.Engine, method, target, &ut.Body{Body: bytes.NewReader(encoded), Len: len(encoded)}, headers...)
 	resp := recorder.Result()
 	var payload map[string]interface{}
 	if err := json.Unmarshal(resp.Body(), &payload); err != nil {
@@ -176,7 +188,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	issue := func(entitlement string) (string, string) {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/bootstrap-grants", map[string]interface{}{
-			"entitlement_id": entitlement, "channel": "integration", "policy": "limited", "public_key": publicKeyEncoded,
+			"entitlement_id": entitlement, "idempotency_key": "grant-" + hashString(entitlement),
+			"channel": "integration", "policy": "limited", "public_key": publicKeyEncoded,
 		}, ut.Header{Key: "X-Bootstrap-Broker-Secret", Value: "integration-broker-secret"})
 		if status != 201 {
 			t.Fatalf("issue grant status=%d payload=%#v", status, payload)
@@ -188,7 +201,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		grant, nonce := issue(entitlement)
 		draftJSON, _ := json.Marshal(draft)
 		req := provisionRequest{
-			BootstrapGrant: grant, Nonce: nonce, PublicKey: publicKeyEncoded,
+			BootstrapGrant: grant, IdempotencyKey: "provision-" + hashString(grant), Nonce: nonce, PublicKey: publicKeyEncoded,
 			IssuedAt: time.Now().UnixMilli(), AgentName: "Integration Agent", Draft: draftJSON,
 		}
 		transcript, err := provisionTranscript(req)
@@ -203,7 +216,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		return responseData(t, payload)
 	}
 
-	first := provision("integration-" + time.Now().Format("150405.000000000"))
+	firstEntitlement := "integration-" + time.Now().Format("150405.000000000")
+	first := provision(firstEntitlement)
 	agentID := first["agent_id"].(string)
 	agentIDInt := mustParseInt64(t, agentID)
 	originalAccessToken := first["access_token"].(string)
@@ -211,6 +225,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	provisionReplay := provision(firstEntitlement)
+	if provisionReplay["agent_id"] != agentID || provisionReplay["access_token"] != originalAccessToken ||
+		provisionReplay["refresh_token"] != refreshToken {
+		t.Fatalf("identical provision retry did not replay the committed receipt: %#v", provisionReplay)
 	}
 	fakeFeed.authorID = agentIDInt
 	if err := gdb.Exec(`INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_notes, raw_url, created_at)
@@ -230,6 +249,21 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		gdb.Exec(`DELETE FROM processed_items WHERE item_id IN (?, ?)`, fakeFeed.ugcItemID(), fakeFeed.pgcItemID())
 		gdb.Exec(`DELETE FROM raw_items WHERE item_id IN (?, ?)`, fakeFeed.ugcItemID(), fakeFeed.pgcItemID())
 	})
+	fakeFeed.failNext.Store(true)
+	retryRequest := createFeedBatchRequest{
+		ProcessingScope: "retry-window", RuntimeInstanceID: "integration-runtime",
+		IdempotencyKey: "retry-feed-" + agentID, Limit: 20,
+	}
+	status, _, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", retryRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("transient Feed failure status=%d", status)
+	}
+	status, retryPayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", retryRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusOK {
+		t.Fatalf("same-key Feed retry did not recover status=%d payload=%#v", status, retryPayload)
+	}
 	status, baselinePayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", createFeedBatchRequest{
 		ProcessingScope: "heartbeat", RuntimeInstanceID: "integration-runtime",
 		IdempotencyKey: "baseline-feed-" + agentID, Limit: 20,
@@ -257,17 +291,17 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("baseline Feed ack status=%d payload=%#v", status, baselineAck)
 	}
 	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
-		RefreshToken: refreshToken,
+		RefreshToken: refreshToken, RotationRequestID: "refresh-" + hashString(refreshToken),
 	})
 	if status != 201 {
 		t.Fatalf("refresh challenge status=%d payload=%#v", status, challengePayload)
 	}
 	challenge := responseData(t, challengePayload)
 	refreshReq := refreshAgentSessionRequest{
-		RefreshToken: refreshToken,
-		Nonce:        challenge["nonce"].(string),
-		PublicKey:    publicKeyEncoded,
-		IssuedAt:     int64(challenge["issued_at"].(float64)),
+		RefreshToken: refreshToken, RotationRequestID: "refresh-" + hashString(refreshToken),
+		Nonce:     challenge["nonce"].(string),
+		PublicKey: publicKeyEncoded,
+		IssuedAt:  int64(challenge["issued_at"].(float64)),
 	}
 	refreshProof, err := refreshTranscript(refreshReq)
 	if err != nil {
@@ -278,8 +312,38 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("refresh status=%d payload=%#v", status, refreshPayload)
 	}
-	accessToken := responseData(t, refreshPayload)["access_token"].(string)
-	status, _, _ = performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{},
+	refreshData := responseData(t, refreshPayload)
+	accessToken := refreshData["access_token"].(string)
+	rotatedRefreshToken := refreshData["refresh_token"].(string)
+	status, replayChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
+		RefreshToken: refreshToken, RotationRequestID: refreshReq.RotationRequestID,
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("refresh replay challenge status=%d payload=%#v", status, replayChallengePayload)
+	}
+	replayChallenge := responseData(t, replayChallengePayload)
+	replayReq := refreshAgentSessionRequest{
+		RefreshToken: refreshToken, RotationRequestID: refreshReq.RotationRequestID,
+		Nonce: replayChallenge["nonce"].(string), PublicKey: publicKeyEncoded,
+		IssuedAt: int64(replayChallenge["issued_at"].(float64)),
+	}
+	replayProof, _ := refreshTranscript(replayReq)
+	replayReq.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, replayProof))
+	status, refreshReplayPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh", replayReq)
+	if status != http.StatusOK {
+		t.Fatalf("refresh replay status=%d payload=%#v", status, refreshReplayPayload)
+	}
+	replayData := responseData(t, refreshReplayPayload)
+	if replayData["access_token"] != accessToken || replayData["refresh_token"] != rotatedRefreshToken {
+		t.Fatalf("refresh replay returned a different successor: %#v", replayData)
+	}
+	status, heartbeatPayload, _ := performJSON(t, h, "POST", "/api/v2/runtime/heartbeat", runtimeHeartbeatRequest{
+		RuntimeInstanceID: "integration-runtime", Capabilities: []string{"commands"},
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != 200 {
+		t.Fatalf("newly provisioned runtime heartbeat status=%d payload=%#v", status, heartbeatPayload)
+	}
+	status, _, _ = performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{"browser_nonce": strings.Repeat("x", 32)},
 		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
 	if status != 401 {
 		t.Fatalf("rotated access token remained valid, status=%d", status)
@@ -289,14 +353,15 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("same public key did not reuse stable Agent: first=%#v second=%#v", first, second)
 	}
 
-	status, handoffPayload, _ := performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{},
+	browserNonce := strings.Repeat("n", 32)
+	status, handoffPayload, _ := performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce},
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != 201 {
 		t.Fatalf("handoff status=%d payload=%#v", status, handoffPayload)
 	}
 	handoffURL, _ := url.Parse(responseData(t, handoffPayload)["handoff_url"].(string))
 	ticket := handoffURL.Query().Get("ticket")
-	status, exchangePayload, setCookies := performJSON(t, h, "POST", "/api/v2/console/handoffs/exchange", map[string]interface{}{"ticket": ticket})
+	status, exchangePayload, setCookies := performJSON(t, h, "POST", "/api/v2/console/handoffs/exchange", map[string]interface{}{"ticket": ticket, "browser_nonce": browserNonce})
 	if status != 200 {
 		t.Fatalf("exchange status=%d payload=%#v", status, exchangePayload)
 	}
@@ -512,6 +577,14 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("command create status=%d payload=%#v", status, commandPayload)
 	}
 	commandID := responseData(t, commandPayload)["command_id"].(string)
+	duplicateErr := gdb.Exec(`INSERT INTO agent_commands
+		(agent_id, attention_id, command_type, payload, payload_hash, required_context_revision,
+		 status, idempotency_key, created_at)
+		SELECT agent_id, attention_id, command_type, payload, payload_hash, required_context_revision,
+		 status, idempotency_key, created_at FROM agent_commands WHERE command_id = ?`, commandID).Error
+	if !isUniqueViolation(duplicateErr) {
+		t.Fatalf("pgx unique violation was not recognized: %v", duplicateErr)
+	}
 	var outboxCount int64
 	if err := gdb.Raw(`SELECT COUNT(*) FROM control_wakeup_outbox
 		WHERE agent_id = ? AND event_type = 'command_available' AND entity_id = ?`, agentID, commandID).Scan(&outboxCount).Error; err != nil || outboxCount != 1 {
@@ -525,7 +598,13 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if err != nil || len(secondClaim) != 0 {
 		t.Fatalf("leased wakeup was claimed twice: rows=%#v err=%v", secondClaim, err)
 	}
-	status, heartbeatPayload, _ := performJSON(t, h, "POST", "/api/v2/runtime/heartbeat", runtimeHeartbeatRequest{
+	status, staleClaimPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/claim", claimAgentCommandRequest{
+		RuntimeInstanceID: "integration-runtime", AppliedContextRevision: contextRevision,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusConflict || staleClaimPayload["error"].(map[string]interface{})["code"] != "CONTEXT_REQUIRED" {
+		t.Fatalf("runtime self-reported context bypassed heartbeat authority: status=%d payload=%#v", status, staleClaimPayload)
+	}
+	status, heartbeatPayload, _ = performJSON(t, h, "POST", "/api/v2/runtime/heartbeat", runtimeHeartbeatRequest{
 		RuntimeInstanceID: "integration-runtime", Capabilities: []string{"commands", "feed"},
 		SessionRef: stringPointer("main-session"), AppliedContextRevision: &contextRevision,
 	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
@@ -539,12 +618,31 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("command claim status=%d payload=%#v", status, claimPayload)
 	}
 	claimData := responseData(t, claimPayload)
+	status, replayedClaimPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/claim", claimAgentCommandRequest{
+		RuntimeInstanceID: "integration-runtime", AppliedContextRevision: contextRevision,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK {
+		t.Fatalf("command claim response-loss replay status=%d payload=%#v", status, replayedClaimPayload)
+	}
+	replayedClaim := responseData(t, replayedClaimPayload)
+	if replayedClaim["claim_token"] != claimData["claim_token"] || replayedClaim["claim_epoch"] != claimData["claim_epoch"] ||
+		replayedClaim["attempt_count"] != claimData["attempt_count"] {
+		t.Fatalf("command claim replay replaced fencing proof: first=%#v replay=%#v", claimData, replayedClaim)
+	}
 	status, completePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
 		RuntimeInstanceID: "integration-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
 		ClaimToken: claimData["claim_token"].(string), Status: "completed", Result: json.RawMessage(`{"handled":true}`),
 	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != 200 || responseData(t, completePayload)["status"] != "completed" {
 		t.Fatalf("command complete status=%d payload=%#v", status, completePayload)
+	}
+	firstCompletedAt := responseData(t, completePayload)["completed_at"]
+	status, completePayload, _ = performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
+		RuntimeInstanceID: "integration-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
+		ClaimToken: claimData["claim_token"].(string), Status: "completed", Result: json.RawMessage(`{"handled": true}`),
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != 200 || responseData(t, completePayload)["completed_at"] != firstCompletedAt {
+		t.Fatalf("semantic command completion retry was not idempotent: status=%d payload=%#v", status, completePayload)
 	}
 
 	var successes atomic.Int32
@@ -713,6 +811,8 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 	requestPeerID, _ := idgen.NextID()
 	convID, _ := idgen.NextID()
 	msgID, _ := idgen.NextID()
+	unbrokenConvID, _ := idgen.NextID()
+	unbrokenMsgID, _ := idgen.NextID()
 	requestID, _ := idgen.NextID()
 	foreignConvID, _ := idgen.NextID()
 	publicCard := `{"agent_description":"Public Agent description","human_description":"Public human description","working_languages":["zh","en"],"seeking":["signals"],"offering":["analysis"]}`
@@ -737,14 +837,19 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 	if err := gdb.Exec(`INSERT INTO conversations
 		(conv_id, participant_a, participant_b, initiator_id, last_sender_id, origin_type, msg_count, status, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'friend', 1, 0, ?),
+		       (?, ?, ?, ?, ?, 'broadcast', 1, 0, ?),
 		       (?, ?, ?, ?, ?, 'broadcast', 0, 0, ?)`,
 		convID, viewerID, peerID, viewerID, peerID, now,
+		unbrokenConvID, viewerID, requestPeerID, requestPeerID, requestPeerID, now,
 		foreignConvID, peerID, requestPeerID, peerID, requestPeerID, now).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := gdb.Exec(`INSERT INTO private_messages
 		(msg_id, conv_id, sender_id, receiver_id, content, is_read, created_at)
-		VALUES (?, ?, ?, ?, 'hello from peer', false, ?)`, msgID, convID, peerID, viewerID, now).Error; err != nil {
+		VALUES (?, ?, ?, ?, 'hello from peer', false, ?),
+		       (?, ?, ?, ?, 'cold inbound message', false, ?)`,
+		msgID, convID, peerID, viewerID, now,
+		unbrokenMsgID, unbrokenConvID, requestPeerID, viewerID, now).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := gdb.Exec(`INSERT INTO friend_requests
@@ -753,8 +858,8 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		gdb.Exec(`DELETE FROM private_messages WHERE conv_id IN (?, ?)`, convID, foreignConvID)
-		gdb.Exec(`DELETE FROM conversations WHERE conv_id IN (?, ?)`, convID, foreignConvID)
+		gdb.Exec(`DELETE FROM private_messages WHERE conv_id IN (?, ?, ?)`, convID, unbrokenConvID, foreignConvID)
+		gdb.Exec(`DELETE FROM conversations WHERE conv_id IN (?, ?, ?)`, convID, unbrokenConvID, foreignConvID)
 		gdb.Exec(`DELETE FROM friend_requests WHERE id = ?`, requestID)
 		gdb.Exec(`DELETE FROM user_relations WHERE from_uid IN (?, ?) OR to_uid IN (?, ?)`, peerID, requestPeerID, peerID, requestPeerID)
 		gdb.Exec(`DELETE FROM agents WHERE agent_id IN (?, ?)`, peerID, requestPeerID)
@@ -782,8 +887,17 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 		t.Fatalf("conversations status=%d payload=%#v", status, conversationsPayload)
 	}
 	conversations := responseData(t, conversationsPayload)["conversations"].([]interface{})
-	if len(conversations) != 1 || conversations[0].(map[string]interface{})["unread_count"] != float64(1) || conversations[0].(map[string]interface{})["last_message"] == nil {
+	if len(conversations) != 2 || conversations[0].(map[string]interface{})["last_message"] == nil {
 		t.Fatalf("conversation batch enrichment mismatch: %#v", conversations)
+	}
+	status, unbrokenPayload, _ := performJSON(t, h, "GET", "/api/v2/console/pm/conversations?origin_type=unbroken", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != 200 {
+		t.Fatalf("unbroken conversations status=%d payload=%#v", status, unbrokenPayload)
+	}
+	unbroken := responseData(t, unbrokenPayload)["conversations"].([]interface{})
+	if len(unbroken) != 1 || unbroken[0].(map[string]interface{})["msg_count"] != float64(1) || unbroken[0].(map[string]interface{})["category"] != "non_friend" {
+		t.Fatalf("unbroken conversation compatibility mismatch: %#v", unbroken)
 	}
 
 	status, outgoingPayload, _ := performJSON(t, h, "GET", "/api/v2/console/relations/friend-requests?direction=outgoing", map[string]interface{}{},

@@ -3,6 +3,7 @@ package consolev2
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,10 +19,11 @@ import (
 )
 
 type issueGrantRequest struct {
-	EntitlementID string `json:"entitlement_id"`
-	Channel       string `json:"channel"`
-	Policy        string `json:"policy"`
-	PublicKey     string `json:"public_key"`
+	EntitlementID  string `json:"entitlement_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Channel        string `json:"channel"`
+	Policy         string `json:"policy"`
+	PublicKey      string `json:"public_key"`
 }
 
 func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) {
@@ -35,8 +37,8 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 		return
 	}
 	publicKey, err := decodePublicKey(req.PublicKey)
-	if err != nil || strings.TrimSpace(req.EntitlementID) == "" {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "entitlement_id and a valid public_key are required", nil)
+	if err != nil || strings.TrimSpace(req.EntitlementID) == "" || len(req.IdempotencyKey) < 16 || len(req.IdempotencyKey) > 128 {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "entitlement_id, idempotency_key, and a valid public_key are required", nil)
 		return
 	}
 	if len([]rune(req.Channel)) > 64 || len([]rune(req.Policy)) > 64 {
@@ -50,32 +52,60 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 		req.Policy = "limited"
 	}
 
-	grant, err := randomToken("efbg_", 32)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not generate bootstrap grant", nil)
-		return
-	}
-	nonce, err := randomToken("efn_", 32)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not generate signature nonce", nil)
-		return
-	}
-	requestID, _ := randomToken("efbr_", 18)
-	now := time.Now().UnixMilli()
-	expiresAt := now + int64(grantTTL/time.Millisecond)
 	keyFingerprint := fingerprint(publicKey)
+	entitlementHash := keyedHash(s.bootstrapSecret, req.EntitlementID)
+	requestID := req.IdempotencyKey
+	receiptSeed := entitlementHash + "\x00" + requestID + "\x00" + keyFingerprint
+	grant := "efbg_" + keyedHash(s.bootstrapSecret, "grant\x00"+receiptSeed)
+	nonce := "efn_" + keyedHash(s.bootstrapSecret, "nonce\x00"+receiptSeed)
+	var expiresAt int64
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.bootstrapSecret, req.EntitlementID)).Error; err != nil {
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, entitlementHash).Error; err != nil {
 			return err
+		}
+		var now int64
+		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			return err
+		}
+		expiresAt = now + int64(grantTTL/time.Millisecond)
+		var existing struct {
+			Fingerprint string `gorm:"column:key_fingerprint"`
+			RequestID   string `gorm:"column:request_id"`
+			Channel     string `gorm:"column:channel"`
+			Policy      string `gorm:"column:policy"`
+			Status      string `gorm:"column:status"`
+			ExpiresAt   int64  `gorm:"column:expires_at"`
+		}
+		if err := tx.Raw(`SELECT key_fingerprint, request_id, channel, policy, status, expires_at
+			FROM agent_bootstrap_grants WHERE entitlement_hash = ? FOR UPDATE`, entitlementHash).Scan(&existing).Error; err != nil {
+			return err
+		}
+		if existing.Fingerprint != "" {
+			if existing.Fingerprint != keyFingerprint || existing.RequestID != requestID ||
+				existing.Channel != req.Channel || existing.Policy != req.Policy || existing.Status == "revoked" {
+				return errConflict
+			}
+			if existing.Status == "issued" {
+				if err := tx.Exec(`UPDATE agent_bootstrap_grants SET expires_at = ? WHERE entitlement_hash = ?`, expiresAt, entitlementHash).Error; err != nil {
+					return err
+				}
+				return tx.Exec(`INSERT INTO agent_signature_nonces
+					(nonce_hash, key_fingerprint, domain, expires_at, created_at)
+					VALUES (?, ?, 'provision', ?, ?)
+					ON CONFLICT (nonce_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at, consumed_at = NULL`,
+					hashString(nonce), keyFingerprint, expiresAt, now).Error
+			}
+			expiresAt = existing.ExpiresAt
+			return nil
 		}
 		result := tx.Exec(`INSERT INTO agent_bootstrap_grants
 			(jti_hash, key_fingerprint, audience, channel, policy, entitlement_hash,
 			 request_id, status, expires_at, created_at)
 			VALUES (?, ?, 'agent_provision', ?, ?, ?, ?, 'issued', ?, ?)`,
 			hashString(grant), keyFingerprint, req.Channel, req.Policy,
-			keyedHash(s.bootstrapSecret, req.EntitlementID), requestID, expiresAt, now)
+			entitlementHash, requestID, expiresAt, now)
 		if result.Error != nil {
-			if strings.Contains(result.Error.Error(), "agent_bootstrap_grants_entitlement_hash_key") {
+			if isUniqueViolation(result.Error) {
 				return errConflict
 			}
 			return result.Error
@@ -85,7 +115,7 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 			VALUES (?, ?, 'provision', ?, ?)`, hashString(nonce), keyFingerprint, expiresAt, now).Error
 	})
 	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "ENTITLEMENT_ALREADY_USED", "this installation entitlement already has a bootstrap grant", nil)
+		fail(c, http.StatusConflict, "ENTITLEMENT_CONFLICT", "this installation entitlement is bound to a different request", nil)
 		return
 	}
 	if err != nil {
@@ -118,6 +148,7 @@ func subtleHeaderMismatch(got, want string) bool {
 
 type provisionRequest struct {
 	BootstrapGrant string          `json:"bootstrap_grant"`
+	IdempotencyKey string          `json:"idempotency_key"`
 	Nonce          string          `json:"nonce"`
 	PublicKey      string          `json:"public_key"`
 	IssuedAt       int64           `json:"issued_at"`
@@ -128,6 +159,7 @@ type provisionRequest struct {
 
 type provisionProofPayload struct {
 	BootstrapGrant string          `json:"bootstrap_grant"`
+	IdempotencyKey string          `json:"idempotency_key"`
 	Nonce          string          `json:"nonce"`
 	PublicKey      string          `json:"public_key"`
 	IssuedAt       int64           `json:"issued_at"`
@@ -138,6 +170,7 @@ type provisionProofPayload struct {
 func provisionTranscript(req provisionRequest) ([]byte, error) {
 	payload := provisionProofPayload{
 		BootstrapGrant: req.BootstrapGrant,
+		IdempotencyKey: req.IdempotencyKey,
 		Nonce:          req.Nonce,
 		PublicKey:      req.PublicKey,
 		IssuedAt:       req.IssuedAt,
@@ -151,6 +184,18 @@ func provisionTranscript(req provisionRequest) ([]byte, error) {
 	return []byte(fmt.Sprintf("EF-AUTH-V2\x00POST\n/api/v2/agent-identities/provision\n%s", hashString(string(canonical)))), nil
 }
 
+func provisionReceiptHash(req provisionRequest) (string, error) {
+	payload := provisionProofPayload{
+		BootstrapGrant: req.BootstrapGrant, IdempotencyKey: req.IdempotencyKey,
+		Nonce: req.Nonce, PublicKey: req.PublicKey, AgentName: req.AgentName, Draft: req.Draft,
+	}
+	canonical, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return hashString(string(canonical)), nil
+}
+
 func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	var req provisionRequest
 	if err := decodeBody(c, &req); err != nil {
@@ -158,12 +203,13 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	publicKey, err := decodePublicKey(req.PublicKey)
-	if err != nil || req.BootstrapGrant == "" || req.Nonce == "" || req.Signature == "" {
-		fail(c, http.StatusBadRequest, "INVALID_PROOF", "bootstrap grant, nonce, public key, and signature are required", nil)
+	if err != nil || req.BootstrapGrant == "" || req.Nonce == "" || req.Signature == "" ||
+		len(req.IdempotencyKey) < 16 || len(req.IdempotencyKey) > 128 {
+		fail(c, http.StatusBadRequest, "INVALID_PROOF", "bootstrap grant, idempotency key, nonce, public key, and signature are required", nil)
 		return
 	}
-	now := time.Now().UnixMilli()
-	if req.IssuedAt < now-int64(proofClockSkew/time.Millisecond) || req.IssuedAt > now+int64(proofClockSkew/time.Millisecond) {
+	wallNow := time.Now().UnixMilli()
+	if req.IssuedAt < wallNow-int64(proofClockSkew/time.Millisecond) || req.IssuedAt > wallNow+int64(proofClockSkew/time.Millisecond) {
 		fail(c, http.StatusUnauthorized, "PROOF_EXPIRED", "proof timestamp is outside the accepted window", nil)
 		return
 	}
@@ -192,20 +238,61 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		return
 	}
 
+	requestHash, receiptHashErr := provisionReceiptHash(req)
+	if receiptHashErr != nil {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "could not canonicalize provision receipt", nil)
+		return
+	}
+	receiptSeed := fingerprint(publicKey) + "\x00" + req.IdempotencyKey + "\x00" + requestHash
+	accessToken := "efv2a_" + keyedHash(s.otpPepper, "provision-access\x00"+receiptSeed)
+	refreshToken := "efv2r_" + keyedHash(s.otpPepper, "provision-refresh\x00"+receiptSeed)
+	familyID := "eff_" + keyedHash(s.otpPepper, "provision-family\x00"+receiptSeed)[:36]
 	newAgentID, err := s.idgen.NextID()
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "ID_GENERATION_FAILED", "could not allocate Agent identity", nil)
 		return
 	}
-	accessToken, _ := randomToken("efv2a_", 32)
-	refreshToken, _ := randomToken("efv2r_", 32)
-	familyID, _ := randomToken("eff_", 18)
+	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "feed:ack", "commands:claim", "console:handoff:create"}
 	keyFingerprint := fingerprint(publicKey)
-	var agentID, principalID int64
+	var agentID, principalID, expiresAt int64
 	created := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyFingerprint).Error; err != nil {
 			return err
+		}
+		var now int64
+		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			return err
+		}
+		var receipt struct {
+			AgentID             int64          `gorm:"column:agent_id"`
+			PrincipalID         int64          `gorm:"column:principal_id"`
+			ExpiresAt           int64          `gorm:"column:expires_at"`
+			AbsoluteExpiresAt   int64          `gorm:"column:absolute_expires_at"`
+			RevokedAt           *int64         `gorm:"column:revoked_at"`
+			RotationRequestHash string         `gorm:"column:rotation_request_hash"`
+			Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
+			PrincipalStatus     string         `gorm:"column:principal_status"`
+		}
+		if err := tx.Raw(`SELECT p.agent_id, cs.principal_id, cs.expires_at, cs.absolute_expires_at,
+			cs.revoked_at, cs.rotation_request_hash, cs.scopes, p.status AS principal_status
+			FROM agent_principals p JOIN agent_credential_sessions cs ON cs.principal_id = p.principal_id
+			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?
+			  AND cs.rotation_request_id = ? FOR UPDATE OF cs`, keyFingerprint,
+			"provision:"+req.IdempotencyKey).Scan(&receipt).Error; err != nil {
+			return err
+		}
+		if receipt.PrincipalID != 0 {
+			if receipt.RotationRequestHash != requestHash {
+				return errConflict
+			}
+			if receipt.RevokedAt != nil || receipt.AbsoluteExpiresAt <= now ||
+				(receipt.PrincipalStatus != "limited" && receipt.PrincipalStatus != "active") {
+				return errUnauthorized
+			}
+			agentID, principalID, expiresAt = receipt.AgentID, receipt.PrincipalID, receipt.ExpiresAt
+			initialScopes = []string(receipt.Scopes)
+			return nil
 		}
 		var grant struct {
 			Fingerprint string `gorm:"column:key_fingerprint"`
@@ -299,15 +386,22 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		if nonceUpdate.Error != nil || nonceUpdate.RowsAffected != 1 {
 			return errUnauthorized
 		}
+		expiresAt = now + int64(accessTTL/time.Millisecond)
 		return tx.Exec(`INSERT INTO agent_credential_sessions
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
-			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at)
-			VALUES (?, ?, ?, ?, 'agent_v2', ?, 0, ?, ?, ?, ?)`, principalID, familyID,
-			hashString(accessToken), hashString(refreshToken), pq.Array([]string{"onboarding:write", "context:read", "feed:read", "feed:ack", "console:handoff:create"}),
-			now, now+int64(accessTTL/time.Millisecond), now+int64(refreshTTL/time.Millisecond), now).Error
+			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at,
+			 rotation_request_id, rotation_request_hash)
+			VALUES (?, ?, ?, ?, 'agent_v2', ?, 0, ?, ?, ?, ?, ?, ?)`, principalID, familyID,
+			hashString(accessToken), hashString(refreshToken), pq.Array(initialScopes),
+			now, expiresAt, now+int64(refreshTTL/time.Millisecond), now,
+			"provision:"+req.IdempotencyKey, requestHash).Error
 	})
 	if errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusUnauthorized, "BOOTSTRAP_PROOF_REJECTED", "bootstrap grant or nonce is invalid, consumed, or expired", nil)
+		return
+	}
+	if errors.Is(err, errConflict) {
+		fail(c, http.StatusConflict, "PROVISION_IDEMPOTENCY_CONFLICT", "idempotency key was used with a different provision request", nil)
 		return
 	}
 	if err != nil {
@@ -320,14 +414,16 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		"created":          created,
 		"access_token":     accessToken,
 		"refresh_token":    refreshToken,
-		"expires_at":       now + int64(accessTTL/time.Millisecond),
+		"expires_at":       expiresAt,
 		"onboarding_state": "in_progress",
 		"next_step":        2,
+		"scopes":           initialScopes,
 	})
 }
 
 type refreshChallengeRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken      string `json:"refresh_token"`
+	RotationRequestID string `json:"rotation_request_id"`
 }
 
 // createRefreshChallenge proves refresh-token possession before the caller
@@ -335,31 +431,39 @@ type refreshChallengeRequest struct {
 // family, which turns replay into an observable credential-compromise event.
 func (s *Service) createRefreshChallenge(_ context.Context, c *app.RequestContext) {
 	var req refreshChallengeRequest
-	if err := decodeBody(c, &req); err != nil || !strings.HasPrefix(req.RefreshToken, "efv2r_") {
+	if err := decodeBody(c, &req); err != nil || !strings.HasPrefix(req.RefreshToken, "efv2r_") ||
+		len(req.RotationRequestID) < 16 || len(req.RotationRequestID) > 128 {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
 		return
 	}
 	now := time.Now().UnixMilli()
 	var row struct {
-		FamilyID          string `gorm:"column:family_id"`
-		KeyFingerprint    string `gorm:"column:key_fingerprint"`
-		PrincipalStatus   string `gorm:"column:principal_status"`
-		AbsoluteExpiresAt int64  `gorm:"column:absolute_expires_at"`
-		RevokedAt         *int64 `gorm:"column:revoked_at"`
-		ReplacedBySession *int64 `gorm:"column:replaced_by_session_id"`
+		FamilyID          string  `gorm:"column:family_id"`
+		KeyFingerprint    string  `gorm:"column:key_fingerprint"`
+		PrincipalStatus   string  `gorm:"column:principal_status"`
+		AbsoluteExpiresAt int64   `gorm:"column:absolute_expires_at"`
+		RevokedAt         *int64  `gorm:"column:revoked_at"`
+		ReplacedBySession *int64  `gorm:"column:replaced_by_session_id"`
+		SuccessorRequest  *string `gorm:"column:successor_request_id"`
 	}
 	if err := s.db.Raw(`SELECT cs.family_id, p.key_fingerprint, p.status AS principal_status,
-		cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id
+		cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
+		next.rotation_request_id AS successor_request_id
 		FROM agent_credential_sessions cs
 		JOIN agent_principals p ON p.principal_id = cs.principal_id
+		LEFT JOIN agent_credential_sessions next ON next.session_id = cs.replaced_by_session_id
 		WHERE cs.refresh_token_hash = ?`, hashString(req.RefreshToken)).Scan(&row).Error; err != nil || row.FamilyID == "" {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
 		return
 	}
-	if row.RevokedAt != nil || row.ReplacedBySession != nil {
+	if row.ReplacedBySession != nil && (row.SuccessorRequest == nil || *row.SuccessorRequest != req.RotationRequestID) {
 		_ = s.db.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
 			WHERE family_id = ?`, now, row.FamilyID).Error
 		fail(c, http.StatusUnauthorized, "REFRESH_REUSE_DETECTED", "refresh credential reuse revoked this session family", nil)
+		return
+	}
+	if row.RevokedAt != nil && row.ReplacedBySession == nil {
+		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
 		return
 	}
 	if row.AbsoluteExpiresAt <= now || (row.PrincipalStatus != "limited" && row.PrincipalStatus != "active") {
@@ -384,26 +488,28 @@ func (s *Service) createRefreshChallenge(_ context.Context, c *app.RequestContex
 }
 
 type refreshAgentSessionRequest struct {
-	RefreshToken string `json:"refresh_token"`
-	Nonce        string `json:"nonce"`
-	PublicKey    string `json:"public_key"`
-	IssuedAt     int64  `json:"issued_at"`
-	Signature    string `json:"signature"`
+	RefreshToken      string `json:"refresh_token"`
+	RotationRequestID string `json:"rotation_request_id"`
+	Nonce             string `json:"nonce"`
+	PublicKey         string `json:"public_key"`
+	IssuedAt          int64  `json:"issued_at"`
+	Signature         string `json:"signature"`
 }
 
 type refreshProofPayload struct {
-	RefreshToken string `json:"refresh_token"`
-	Nonce        string `json:"nonce"`
-	PublicKey    string `json:"public_key"`
-	IssuedAt     int64  `json:"issued_at"`
+	RefreshToken      string `json:"refresh_token"`
+	RotationRequestID string `json:"rotation_request_id"`
+	Nonce             string `json:"nonce"`
+	PublicKey         string `json:"public_key"`
+	IssuedAt          int64  `json:"issued_at"`
 }
 
 func refreshTranscript(req refreshAgentSessionRequest) ([]byte, error) {
 	payload, err := json.Marshal(refreshProofPayload{
-		RefreshToken: req.RefreshToken,
-		Nonce:        req.Nonce,
-		PublicKey:    req.PublicKey,
-		IssuedAt:     req.IssuedAt,
+		RefreshToken: req.RefreshToken, RotationRequestID: req.RotationRequestID,
+		Nonce:     req.Nonce,
+		PublicKey: req.PublicKey,
+		IssuedAt:  req.IssuedAt,
 	})
 	if err != nil {
 		return nil, err
@@ -413,7 +519,8 @@ func refreshTranscript(req refreshAgentSessionRequest) ([]byte, error) {
 
 func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) {
 	var req refreshAgentSessionRequest
-	if err := decodeBody(c, &req); err != nil || req.RefreshToken == "" || req.Nonce == "" || req.Signature == "" {
+	if err := decodeBody(c, &req); err != nil || req.RefreshToken == "" || req.Nonce == "" || req.Signature == "" ||
+		len(req.RotationRequestID) < 16 || len(req.RotationRequestID) > 128 {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
 		return
 	}
@@ -432,12 +539,11 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
 		return
 	}
-	newAccessToken, accessErr := randomToken("efv2a_", 32)
-	newRefreshToken, refreshErr := randomToken("efv2r_", 32)
-	if accessErr != nil || refreshErr != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not rotate Agent credentials", nil)
-		return
-	}
+	rotationHash := keyedHash(s.otpPepper, strings.Join([]string{
+		"refresh-request", hashString(req.RefreshToken), fingerprint(publicKey), req.RotationRequestID,
+	}, "\x00"))
+	newAccessToken := "efv2a_" + keyedHash(s.otpPepper, "refresh-access\x00"+rotationHash)
+	newRefreshToken := "efv2r_" + keyedHash(s.otpPepper, "refresh-token\x00"+rotationHash)
 
 	var principalID, newSessionID, expiresAt int64
 	var familyID string
@@ -464,11 +570,52 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 			WHERE cs.refresh_token_hash = ? FOR UPDATE`, hashString(req.RefreshToken)).Scan(&old).Error; err != nil {
 			return err
 		}
-		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) || old.AbsoluteExpiresAt <= now ||
+		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) ||
 			(old.PrincipalStatus != "limited" && old.PrincipalStatus != "active") {
 			return errUnauthorized
 		}
-		if old.RevokedAt != nil || old.ReplacedBySessionID != nil {
+		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			return err
+		}
+		if old.AbsoluteExpiresAt <= now {
+			return errUnauthorized
+		}
+		if old.ReplacedBySessionID != nil {
+			var successor struct {
+				SessionID           int64          `gorm:"column:session_id"`
+				PrincipalID         int64          `gorm:"column:principal_id"`
+				FamilyID            string         `gorm:"column:family_id"`
+				Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
+				ExpiresAt           int64          `gorm:"column:expires_at"`
+				AbsoluteExpiresAt   int64          `gorm:"column:absolute_expires_at"`
+				RevokedAt           *int64         `gorm:"column:revoked_at"`
+				RotationRequestID   *string        `gorm:"column:rotation_request_id"`
+				RotationRequestHash *string        `gorm:"column:rotation_request_hash"`
+			}
+			if err := tx.Raw(`SELECT session_id, principal_id, family_id, scopes, expires_at,
+				absolute_expires_at, revoked_at, rotation_request_id, rotation_request_hash
+				FROM agent_credential_sessions WHERE session_id = ? FOR UPDATE`, *old.ReplacedBySessionID).
+				Scan(&successor).Error; err != nil {
+				return err
+			}
+			if successor.SessionID != 0 && successor.RevokedAt == nil && successor.AbsoluteExpiresAt > now &&
+				successor.RotationRequestID != nil && *successor.RotationRequestID == req.RotationRequestID &&
+				successor.RotationRequestHash != nil && *successor.RotationRequestHash == rotationHash {
+				nonceUse := tx.Exec(`UPDATE agent_signature_nonces SET consumed_at = ?
+					WHERE nonce_hash = ? AND key_fingerprint = ? AND domain = 'refresh'
+					  AND consumed_at IS NULL AND expires_at >= ?`, now, hashString(req.Nonce), old.KeyFingerprint, now)
+				if nonceUse.Error != nil || nonceUse.RowsAffected != 1 {
+					return errUnauthorized
+				}
+				principalID, newSessionID, familyID = successor.PrincipalID, successor.SessionID, successor.FamilyID
+				expiresAt, scopes = successor.ExpiresAt, successor.Scopes
+				return nil
+			}
+			reuseDetected = true
+			return tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
+				WHERE family_id = ?`, now, old.FamilyID).Error
+		}
+		if old.RevokedAt != nil {
 			reuseDetected = true
 			return tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
 				WHERE family_id = ?`, now, old.FamilyID).Error
@@ -486,10 +633,12 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 		principalID, familyID, scopes = old.PrincipalID, old.FamilyID, old.Scopes
 		if err := tx.Raw(`INSERT INTO agent_credential_sessions
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
-			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at)
-			VALUES (?, ?, ?, ?, 'agent_v2', ?, ?, ?, ?, ?, ?) RETURNING session_id`,
+			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at,
+			 rotation_request_id, rotation_request_hash)
+			VALUES (?, ?, ?, ?, 'agent_v2', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING session_id`,
 			old.PrincipalID, old.FamilyID, hashString(newAccessToken), hashString(newRefreshToken),
-			pq.Array([]string(old.Scopes)), old.RotationCounter+1, now, expiresAt, old.AbsoluteExpiresAt, now).
+			pq.Array([]string(old.Scopes)), old.RotationCounter+1, now, expiresAt, old.AbsoluteExpiresAt, now,
+			req.RotationRequestID, rotationHash).
 			Scan(&newSessionID).Error; err != nil {
 			return err
 		}
@@ -526,7 +675,7 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 }
 
 type createHandoffRequest struct {
-	BrowserNonce string `json:"browser_nonce,omitempty"`
+	BrowserNonce string `json:"browser_nonce"`
 }
 
 func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
@@ -544,16 +693,17 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 			return
 		}
 	}
+	if len(req.BrowserNonce) < 32 || len(req.BrowserNonce) > 256 {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "browser_nonce is required", nil)
+		return
+	}
 	ticket, err := randomToken("efht_", 32)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not create handoff", nil)
 		return
 	}
 	now := time.Now().UnixMilli()
-	var browserNonceHash interface{}
-	if req.BrowserNonce != "" {
-		browserNonceHash = hashString(req.BrowserNonce)
-	}
+	browserNonceHash := hashString(req.BrowserNonce)
 	err = s.db.Exec(`INSERT INTO console_v2_handoffs
 		(ticket_hash, agent_id, principal_id, console_scope, browser_nonce_hash, expires_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`, hashString(ticket), agentID, principalID,
@@ -564,7 +714,7 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	reply(c, http.StatusCreated, map[string]interface{}{
-		"handoff_url": s.publicURL + "/dashboard/v2/handoff?ticket=" + url.QueryEscape(ticket),
+		"handoff_url": s.publicURL + "/dashboard/v2/handoff?ticket=" + url.QueryEscape(ticket) + "#nonce=" + url.QueryEscape(req.BrowserNonce),
 		"expires_at":  now + int64(handoffTTL/time.Millisecond),
 	})
 }
@@ -576,14 +726,17 @@ type exchangeRequest struct {
 
 func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	var req exchangeRequest
-	if err := decodeBody(c, &req); err != nil || req.Ticket == "" {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "ticket is required", nil)
+	if err := decodeBody(c, &req); err != nil || req.Ticket == "" || len(req.BrowserNonce) < 32 || len(req.BrowserNonce) > 256 {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "ticket and browser_nonce are required", nil)
 		return
 	}
-	sessionID, _ := randomToken("efcs_", 18)
-	sessionSecret, _ := randomToken("", 32)
-	csrfSecret, _ := randomToken("efcsrf_", 24)
-	now := time.Now().UnixMilli()
+	sessionID, sessionIDErr := randomToken("efcs_", 18)
+	sessionSecret, sessionSecretErr := randomToken("", 32)
+	csrfSecret, csrfErr := randomToken("efcsrf_", 24)
+	if sessionIDErr != nil || sessionSecretErr != nil || csrfErr != nil {
+		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not establish Console V2 session", nil)
+		return
+	}
 	var agentIDValue, principalID int64
 	var scopes pq.StringArray
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -592,14 +745,21 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			PrincipalID      int64          `gorm:"column:principal_id"`
 			Scopes           pq.StringArray `gorm:"column:console_scope;type:text[]"`
 			BrowserNonceHash *string        `gorm:"column:browser_nonce_hash"`
+			ExpiresAt        int64          `gorm:"column:expires_at"`
 		}
-		if err := tx.Raw(`SELECT agent_id, principal_id, console_scope, browser_nonce_hash
+		if err := tx.Raw(`SELECT agent_id, principal_id, console_scope, browser_nonce_hash, expires_at
 			FROM console_v2_handoffs
-			WHERE ticket_hash = ? AND consumed_at IS NULL AND expires_at >= ? FOR UPDATE`, hashString(req.Ticket), now).
+			WHERE ticket_hash = ? AND consumed_at IS NULL FOR UPDATE`, hashString(req.Ticket)).
 			Scan(&handoff).Error; err != nil {
 			return err
 		}
-		if handoff.AgentID == 0 || (handoff.BrowserNonceHash != nil && hashString(req.BrowserNonce) != *handoff.BrowserNonceHash) {
+		var now int64
+		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			return err
+		}
+		providedNonceHash := hashString(req.BrowserNonce)
+		if handoff.AgentID == 0 || handoff.ExpiresAt < now || handoff.BrowserNonceHash == nil ||
+			subtle.ConstantTimeCompare([]byte(providedNonceHash), []byte(*handoff.BrowserNonceHash)) != 1 {
 			return errUnauthorized
 		}
 		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = ?

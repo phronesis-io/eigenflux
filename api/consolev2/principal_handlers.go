@@ -219,7 +219,7 @@ func (s *Service) addPrincipal(_ context.Context, c *app.RequestContext) {
 
 func principalScopesForOnboarding(state string) []string {
 	if state != "completed" {
-		return []string{"onboarding:write", "context:read", "feed:read", "feed:ack", "console:handoff:create"}
+		return []string{"onboarding:write", "context:read", "feed:read", "feed:ack", "commands:claim", "console:handoff:create"}
 	}
 	return []string{
 		"onboarding:write", "context:read", "feed:read", "feed:ack", "commands:claim",

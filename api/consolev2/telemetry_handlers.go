@@ -58,7 +58,21 @@ type telemetryBatchRequest struct {
 func (s *Service) allowTelemetryRequest(sessionID string, now time.Time) bool {
 	s.telemetryMu.Lock()
 	defer s.telemetryMu.Unlock()
-	state := s.telemetryRates[sessionID]
+	if s.telemetryNextSweep.IsZero() || !now.Before(s.telemetryNextSweep) {
+		cutoff := now.Add(-10 * time.Minute)
+		for key, candidate := range s.telemetryRates {
+			if candidate.WindowStart.Before(cutoff) {
+				delete(s.telemetryRates, key)
+			}
+		}
+		s.telemetryNextSweep = now.Add(time.Minute)
+	}
+	// Bound process memory during a bot/session-cardinality spike. Existing
+	// sessions keep working; new telemetry is expendable and may be dropped.
+	state, exists := s.telemetryRates[sessionID]
+	if !exists && len(s.telemetryRates) >= 200000 {
+		return false
+	}
 	if state.WindowStart.IsZero() || now.Sub(state.WindowStart) >= time.Minute {
 		state = telemetryRateState{WindowStart: now}
 	}
@@ -67,14 +81,6 @@ func (s *Service) allowTelemetryRequest(sessionID string, now time.Time) bool {
 	}
 	state.Requests++
 	s.telemetryRates[sessionID] = state
-	if len(s.telemetryRates) > 10000 {
-		cutoff := now.Add(-10 * time.Minute)
-		for key, candidate := range s.telemetryRates {
-			if candidate.WindowStart.Before(cutoff) {
-				delete(s.telemetryRates, key)
-			}
-		}
-	}
 	return true
 }
 

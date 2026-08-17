@@ -567,7 +567,11 @@ func BatchInsertActivityLogs(db *gorm.DB, logs []ActivityLog) error {
 
 // DeleteOldActivityLogs removes activity logs older than the specified timestamp.
 func DeleteOldActivityLogs(db *gorm.DB, beforeMs int64) (int64, error) {
-	tx := db.Where("created_at < ?", beforeMs).Delete(&ActivityLog{})
+	tx := db.Exec(`WITH target AS (
+		SELECT log_id FROM agent_activity_log
+		WHERE created_at < ? ORDER BY created_at, log_id LIMIT 5000
+	) DELETE FROM agent_activity_log AS activity USING target
+	WHERE activity.log_id = target.log_id`, beforeMs)
 	return tx.RowsAffected, tx.Error
 }
 

@@ -13,7 +13,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const commandLeaseTTL = 2 * time.Minute
+const (
+	commandLeaseTTL          = 2 * time.Minute
+	commandListPayloadBudget = 220 << 10
+)
 
 type createAgentCommandRequest struct {
 	CommandType    string          `json:"command_type"`
@@ -103,6 +106,24 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 		created = true
 		return nil
 	})
+	if errors.Is(err, errConflict) || isUniqueViolation(err) {
+		var existing struct {
+			CommandID       int64  `gorm:"column:command_id"`
+			PayloadHash     string `gorm:"column:payload_hash"`
+			ContextRevision int64  `gorm:"column:required_context_revision"`
+		}
+		readErr := s.db.Raw(`SELECT command_id, payload_hash, required_context_revision
+			FROM agent_commands WHERE agent_id = ? AND idempotency_key = ?`,
+			agentIDValue, req.IdempotencyKey).Scan(&existing).Error
+		switch {
+		case readErr != nil:
+			err = readErr
+		case existing.CommandID != 0 && existing.PayloadHash == requestHash:
+			commandID, contextRevision, created, err = existing.CommandID, existing.ContextRevision, false, nil
+		default:
+			err = errConflict
+		}
+	}
 	if errors.Is(err, errConflict) {
 		fail(c, http.StatusConflict, "COMMAND_CONFLICT", "command idempotency key conflicts or no active context exists", nil)
 		return
@@ -124,9 +145,16 @@ type commandView struct {
 	Status                  string  `gorm:"column:status"`
 	ClaimOwnerRuntimeID     *string `gorm:"column:claim_owner_runtime_id"`
 	ClaimEpoch              int64   `gorm:"column:claim_epoch"`
+	ClaimTokenHash          string  `gorm:"column:claim_token_hash"`
 	ClaimUntil              *int64  `gorm:"column:claim_until"`
 	AttemptCount            int     `gorm:"column:attempt_count"`
 	CreatedAt               int64   `gorm:"column:created_at"`
+}
+
+func (s *Service) commandClaimToken(agentIDValue, commandID int64, runtimeInstanceID string, claimEpoch int64) string {
+	seed := fmt.Sprintf("command-claim-v1\x00%d\x00%d\x00%s\x00%d",
+		agentIDValue, commandID, hashString(runtimeInstanceID), claimEpoch)
+	return "efclaim_" + keyedHash(s.otpPepper, seed)
 }
 
 func commandResponse(row commandView) map[string]interface{} {
@@ -154,11 +182,21 @@ func (s *Service) listPendingCommands(_ context.Context, c *app.RequestContext) 
 	}
 	now := time.Now().UnixMilli()
 	var rows []commandView
-	if err := s.db.Raw(`SELECT command_id, command_type, payload::text AS payload,
-		required_context_revision, status, claim_owner_runtime_id, claim_epoch, claim_until,
-		attempt_count, created_at FROM agent_commands
-		WHERE agent_id = ? AND (status IN ('pending','notified') OR (status = 'claimed' AND claim_until <= ?))
-		ORDER BY created_at, command_id LIMIT ?`, agentIDValue, now, limit).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(`WITH base AS (
+			SELECT command_id, command_type, payload, required_context_revision, status,
+				claim_owner_runtime_id, claim_epoch, claim_until, attempt_count, created_at
+			FROM agent_commands
+			WHERE agent_id = ? AND (status IN ('pending','notified') OR (status = 'claimed' AND claim_until <= ?))
+			ORDER BY created_at, command_id LIMIT ?
+		), candidates AS (
+			SELECT base.*,
+				row_number() OVER (ORDER BY created_at, command_id) AS row_num,
+				sum(octet_length(payload::text) + 256) OVER (ORDER BY created_at, command_id) AS cumulative_bytes
+			FROM base
+		) SELECT command_id, command_type, payload::text AS payload, required_context_revision,
+			status, claim_owner_runtime_id, claim_epoch, claim_until, attempt_count, created_at
+		FROM candidates WHERE cumulative_bytes <= ? OR row_num = 1
+		ORDER BY created_at, command_id`, agentIDValue, now, limit, commandListPayloadBudget).Scan(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "COMMAND_LIST_FAILED", "could not list Agent commands", nil)
 		return
 	}
@@ -182,32 +220,53 @@ func (s *Service) claimAgentCommand(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "command_id, runtime_instance_id, and applied_context_revision are required", nil)
 		return
 	}
-	claimToken, err := randomToken("efclaim_", 24)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not allocate command claim", nil)
-		return
-	}
-	now := time.Now().UnixMilli()
-	claimUntil := now + int64(commandLeaseTTL/time.Millisecond)
+	var claimToken string
+	var now, claimUntil int64
 	var row commandView
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Raw(`SELECT command_id, command_type, payload::text AS payload,
-			required_context_revision, status, claim_owner_runtime_id, claim_epoch, claim_until,
+			required_context_revision, status, claim_owner_runtime_id, claim_epoch, claim_token_hash, claim_until,
 			attempt_count, created_at FROM agent_commands
 			WHERE command_id = ? AND agent_id = ? FOR UPDATE`, commandID, agentIDValue).Scan(&row).Error; err != nil {
 			return err
 		}
+		var runtime struct {
+			AppliedRevision *int64 `gorm:"column:context_revision_applied"`
+			Now             int64  `gorm:"column:now_ms"`
+		}
+		if err := tx.Raw(`WITH clock AS (
+				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
+			) SELECT lease.context_revision_applied, clock.now_ms
+			FROM agent_runtime_leases lease CROSS JOIN clock
+			WHERE lease.agent_id = ? AND lease.runtime_instance_id = ?
+			  AND lease.lease_until > clock.now_ms
+			FOR UPDATE OF lease`, agentIDValue, req.RuntimeInstanceID).Scan(&runtime).Error; err != nil {
+			return err
+		}
+		if runtime.Now == 0 || runtime.AppliedRevision == nil || req.AppliedContextRevision != *runtime.AppliedRevision ||
+			(row.RequiredContextRevision != nil && *runtime.AppliedRevision < *row.RequiredContextRevision) {
+			return errOnboardingRequired
+		}
+		now = runtime.Now
+		if row.CommandID != 0 && row.Status == "claimed" && row.ClaimOwnerRuntimeID != nil &&
+			*row.ClaimOwnerRuntimeID == req.RuntimeInstanceID && row.ClaimUntil != nil && *row.ClaimUntil > now {
+			claimToken = s.commandClaimToken(agentIDValue, commandID, req.RuntimeInstanceID, row.ClaimEpoch)
+			if row.ClaimTokenHash != hashString(claimToken) {
+				return errConflict
+			}
+			return nil
+		}
+		claimUntil = now + int64(commandLeaseTTL/time.Millisecond)
 		if row.CommandID == 0 || (row.Status != "pending" && row.Status != "notified" &&
 			!(row.Status == "claimed" && row.ClaimUntil != nil && *row.ClaimUntil <= now)) {
 			return errConflict
 		}
-		if row.RequiredContextRevision != nil && req.AppliedContextRevision < *row.RequiredContextRevision {
-			return errOnboardingRequired
-		}
 		row.ClaimEpoch++
+		claimToken = s.commandClaimToken(agentIDValue, commandID, req.RuntimeInstanceID, row.ClaimEpoch)
 		row.Status = "claimed"
 		row.ClaimOwnerRuntimeID = &req.RuntimeInstanceID
 		row.ClaimUntil = &claimUntil
+		row.AttemptCount++
 		return tx.Exec(`UPDATE agent_commands SET status = 'claimed', claim_owner_runtime_id = ?,
 			claim_epoch = ?, claim_token_hash = ?, claim_until = ?, attempt_count = attempt_count + 1,
 			delivered_at = COALESCE(delivered_at, ?)
@@ -259,9 +318,14 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 		return
 	}
 	now := time.Now().UnixMilli()
-	res := s.db.Exec(`UPDATE agent_commands SET status = ?, result = ?::jsonb, completed_at = ?
+	completedAt := now
+	res := s.db.Exec(`WITH clock AS (
+			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
+		) UPDATE agent_commands SET status = ?, result = ?::jsonb, completed_at = ?
+		FROM clock
 		WHERE command_id = ? AND agent_id = ? AND status = 'claimed'
-		  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?`,
+		  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?
+		  AND claim_until > clock.now_ms`,
 		req.Status, string(req.Result), now, commandID, agentIDValue, req.RuntimeInstanceID,
 		req.ClaimEpoch, hashString(req.ClaimToken))
 	if res.Error != nil {
@@ -271,19 +335,24 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 	if res.RowsAffected != 1 {
 		var existing struct {
 			Status         string `gorm:"column:status"`
-			Result         string `gorm:"column:result"`
+			SameResult     bool   `gorm:"column:same_result"`
 			ClaimOwner     string `gorm:"column:claim_owner_runtime_id"`
 			ClaimEpoch     int64  `gorm:"column:claim_epoch"`
 			ClaimTokenHash string `gorm:"column:claim_token_hash"`
+			CompletedAt    int64  `gorm:"column:completed_at"`
 		}
-		_ = s.db.Raw(`SELECT status, result::text AS result, claim_owner_runtime_id,
-			claim_epoch, claim_token_hash FROM agent_commands WHERE command_id = ? AND agent_id = ?`,
-			commandID, agentIDValue).Scan(&existing).Error
-		if existing.Status != req.Status || existing.Result != string(req.Result) || existing.ClaimOwner != req.RuntimeInstanceID ||
+		if err := s.db.Raw(`SELECT status, result = ?::jsonb AS same_result, claim_owner_runtime_id,
+			claim_epoch, claim_token_hash, completed_at FROM agent_commands
+			WHERE command_id = ? AND agent_id = ?`, string(req.Result), commandID, agentIDValue).Scan(&existing).Error; err != nil {
+			fail(c, http.StatusInternalServerError, "COMMAND_COMPLETE_FAILED", "could not verify Agent command completion", nil)
+			return
+		}
+		if existing.Status != req.Status || !existing.SameResult || existing.ClaimOwner != req.RuntimeInstanceID ||
 			existing.ClaimEpoch != req.ClaimEpoch || existing.ClaimTokenHash != hashString(req.ClaimToken) {
 			fail(c, http.StatusConflict, "CLAIM_FENCED", "command claim is stale or owned by another runtime", nil)
 			return
 		}
+		completedAt = existing.CompletedAt
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"command_id": fmt.Sprintf("%d", commandID), "status": req.Status, "completed_at": now})
+	reply(c, http.StatusOK, map[string]interface{}{"command_id": fmt.Sprintf("%d", commandID), "status": req.Status, "completed_at": completedAt})
 }

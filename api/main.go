@@ -300,14 +300,19 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service) {
 	read("broadcasts/leaderboard", apihandler.BroadcastLeaderboard)
 	read("broadcasts/top", apihandler.TopBroadcasts)
 	read("broadcasts/new-users", apihandler.NewUserBroadcasts)
+	// These compatibility BFF routes preserve the unchanged Console pages even
+	// while the optional Card-enriched communication projection is disabled.
+	// ENABLE_COMMUNICATION_V2 controls only the dedicated additive V2 reads/WS;
+	// it is not an authorization boundary because the V1 communication feature
+	// remains available.
 	read("relations/friends", apihandler.ListFriends)
-	read("relations/contacted", apihandler.ContactedRelations)
 	read("relations/applications", apihandler.ListFriendRequests)
+	read("pm/conversations", apihandler.ListConversations)
+	read("pm/history", apihandler.GetConvHistory)
+	read("relations/contacted", apihandler.ContactedRelations)
 	write(http.MethodPost, "relations/apply", apihandler.SendFriendRequest)
 	write(http.MethodPost, "relations/handle", apihandler.HandleFriendRequest)
 	write(http.MethodPost, "relations/remark", apihandler.UpdateFriendRemark)
-	read("pm/conversations", apihandler.ListConversations)
-	read("pm/history", apihandler.GetConvHistory)
 	read("pm/unread", apihandler.GetUnreadBreakdown)
 	write(http.MethodPost, "pm/send", apihandler.SendPM)
 	write(http.MethodPost, "pm/read", apihandler.MarkConvRead)

@@ -79,6 +79,15 @@ CREATE INDEX idx_control_wakeup_pending
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '5min';
 
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM agent_principals LIMIT 1) THEN
+        RAISE EXCEPTION 'unsafe Console V2 schema rollback: disable feature flags instead';
+    END IF;
+END $$;
+-- +goose StatementEnd
+
 DROP TABLE IF EXISTS control_wakeup_outbox;
 DROP TABLE IF EXISTS agent_runtime_leases;
 DROP INDEX IF EXISTS uq_agent_attention_open_source;

@@ -96,6 +96,7 @@ func main() {
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
 	go StartActivityCleanup(ctx, mq.RDB)
+	go StartConsoleV2Cleanup(ctx, mq.RDB)
 	profileCleanupDone := make(chan struct{})
 	go func() {
 		defer close(profileCleanupDone)

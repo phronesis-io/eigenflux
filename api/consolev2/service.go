@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -42,6 +43,8 @@ const (
 	grantTTL          = 5 * time.Minute
 	proofClockSkew    = 5 * time.Minute
 	maxRequestBytes   = 256 << 10
+	maxAgentStreams   = 3
+	maxProcessStreams = 1000
 )
 
 var (
@@ -55,34 +58,61 @@ type IDGenerator interface {
 }
 
 type Service struct {
-	db                  *gorm.DB
-	idgen               IDGenerator
-	bootstrapSecret     string
-	otpPepper           string
-	publicURL           string
-	secureCookie        bool
-	emailSender         mailservice.Sender
-	emailQueue          chan emailJob
-	feedClient          feedservice.Client
-	notificationClient  notificationservice.Client
-	enableFeed          bool
-	enableControl       bool
-	enableCommunication bool
-	activityMu          sync.Mutex
-	activityConnections map[int64]int
-	activityWakeOnce    sync.Once
-	activityWakeMu      sync.RWMutex
-	activityWakeSubs    map[int64]map[chan struct{}]struct{}
-	redisClient         *redis.Client
-	communicationOnce   sync.Once
-	communicationWakeMu sync.RWMutex
-	communicationSubs   map[int64]map[chan communicationWakeEvent]struct{}
-	controlWakeOnce     sync.Once
-	controlWakeMu       sync.RWMutex
-	controlWakeSubs     map[int64]map[chan int64]struct{}
-	controlConnections  map[int64]int
-	telemetryMu         sync.Mutex
-	telemetryRates      map[string]telemetryRateState
+	db                       *gorm.DB
+	idgen                    IDGenerator
+	bootstrapSecret          string
+	otpPepper                string
+	publicURL                string
+	secureCookie             bool
+	emailSender              mailservice.Sender
+	emailQueue               chan emailJob
+	feedClient               feedservice.Client
+	notificationClient       notificationservice.Client
+	enableFeed               bool
+	enableControl            bool
+	enableCommunication      bool
+	activityMu               sync.Mutex
+	activityConnections      map[int64]int
+	activityTotal            int
+	activityWakeOnce         sync.Once
+	activityWakeMu           sync.RWMutex
+	activityWakeSubs         map[int64]map[chan struct{}]struct{}
+	redisClient              *redis.Client
+	communicationOnce        sync.Once
+	communicationWakeMu      sync.RWMutex
+	communicationSubs        map[int64]map[chan communicationWakeEvent]struct{}
+	communicationMu          sync.Mutex
+	communicationConnections map[int64]int
+	communicationTotal       int
+	controlWakeOnce          sync.Once
+	controlWakeMu            sync.RWMutex
+	controlWakeSubs          map[int64]map[chan int64]struct{}
+	controlConnections       map[int64]int
+	controlTotal             int
+	processStreamMu          sync.Mutex
+	processStreamTotal       int
+	telemetryMu              sync.Mutex
+	telemetryRates           map[string]telemetryRateState
+	telemetryNextSweep       time.Time
+	trustedProxyNets         []*net.IPNet
+}
+
+func (s *Service) tryAcquireProcessStream() bool {
+	s.processStreamMu.Lock()
+	defer s.processStreamMu.Unlock()
+	if s.processStreamTotal >= maxProcessStreams {
+		return false
+	}
+	s.processStreamTotal++
+	return true
+}
+
+func (s *Service) releaseProcessStream() {
+	s.processStreamMu.Lock()
+	if s.processStreamTotal > 0 {
+		s.processStreamTotal--
+	}
+	s.processStreamMu.Unlock()
 }
 
 func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, error) {
@@ -97,22 +127,32 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 	if strings.TrimSpace(cfg.ConsoleV2OTPPepper) == "" {
 		return nil, errors.New("CONSOLE_V2_OTP_PEPPER is required")
 	}
+	trustedProxyNets := make([]*net.IPNet, 0, len(cfg.ConsoleV2TrustedProxyCIDRs))
+	for _, cidr := range cfg.ConsoleV2TrustedProxyCIDRs {
+		_, network, parseErr := net.ParseCIDR(strings.TrimSpace(cidr))
+		if parseErr != nil {
+			return nil, errors.New("CONSOLE_V2_TRUSTED_PROXY_CIDRS contains an invalid CIDR")
+		}
+		trustedProxyNets = append(trustedProxyNets, network)
+	}
 	service := &Service{
-		db:                  gdb,
-		idgen:               idgen,
-		bootstrapSecret:     cfg.ConsoleV2BootstrapSecret,
-		otpPepper:           cfg.ConsoleV2OTPPepper,
-		publicURL:           publicURL,
-		secureCookie:        parsed.Scheme == "https",
-		enableFeed:          cfg.EnableFeedV2,
-		enableControl:       cfg.EnableControlChannelV2,
-		enableCommunication: cfg.EnableCommunicationV2,
-		activityConnections: make(map[int64]int),
-		activityWakeSubs:    make(map[int64]map[chan struct{}]struct{}),
-		communicationSubs:   make(map[int64]map[chan communicationWakeEvent]struct{}),
-		controlWakeSubs:     make(map[int64]map[chan int64]struct{}),
-		controlConnections:  make(map[int64]int),
-		telemetryRates:      make(map[string]telemetryRateState),
+		db:                       gdb,
+		idgen:                    idgen,
+		bootstrapSecret:          cfg.ConsoleV2BootstrapSecret,
+		otpPepper:                cfg.ConsoleV2OTPPepper,
+		publicURL:                publicURL,
+		secureCookie:             parsed.Scheme == "https",
+		enableFeed:               cfg.EnableFeedV2,
+		enableControl:            cfg.EnableControlChannelV2,
+		enableCommunication:      cfg.EnableCommunicationV2,
+		activityConnections:      make(map[int64]int),
+		activityWakeSubs:         make(map[int64]map[chan struct{}]struct{}),
+		communicationSubs:        make(map[int64]map[chan communicationWakeEvent]struct{}),
+		communicationConnections: make(map[int64]int),
+		controlWakeSubs:          make(map[int64]map[chan int64]struct{}),
+		controlConnections:       make(map[int64]int),
+		telemetryRates:           make(map[string]telemetryRateState),
+		trustedProxyNets:         trustedProxyNets,
 	}
 	if strings.TrimSpace(cfg.ResendApiKey) != "" {
 		service.emailSender = mailservice.NewResendSender(cfg.ResendApiKey, cfg.ResendFromEmail)
@@ -127,6 +167,31 @@ func (s *Service) SetFeedClient(client feedservice.Client) {
 
 func (s *Service) SetNotificationClient(client notificationservice.Client) {
 	s.notificationClient = client
+}
+
+// loadIdempotentResponse is used only after a transaction lost a race on a
+// revision or unique constraint. The normal mutation path pays no extra query;
+// a concurrent retry with the same request hash receives the committed result.
+func (s *Service) loadIdempotentResponse(agentID int64, operation, key, requestHash string, destination interface{}) (found, hashConflict bool, err error) {
+	var row struct {
+		RequestHash string `gorm:"column:request_hash"`
+		Response    string `gorm:"column:response_snapshot"`
+	}
+	if err = s.db.Raw(`SELECT request_hash, response_snapshot::text AS response_snapshot
+		FROM agent_idempotency_requests
+		WHERE agent_id = ? AND operation = ? AND idempotency_key = ?`, agentID, operation, key).Scan(&row).Error; err != nil {
+		return false, false, err
+	}
+	if row.RequestHash == "" {
+		return false, false, nil
+	}
+	if row.RequestHash != requestHash {
+		return true, true, nil
+	}
+	if err = json.Unmarshal([]byte(row.Response), destination); err != nil {
+		return true, false, err
+	}
+	return true, false, nil
 }
 
 // SetRedisClient enables one shared Pub/Sub subscriber per API process. SSE
@@ -153,7 +218,50 @@ func (s *Service) SetRedisClient(client *redis.Client) {
 // browser session. The business handler still receives agent_id from trusted
 // server context; no browser-supplied subject identifier is accepted.
 func (s *Service) ConsoleBFFHandlers(mutation bool, handler app.HandlerFunc) []app.HandlerFunc {
-	return []app.HandlerFunc{s.consoleAuth(mutation), s.requireCompleted, handler}
+	noStore := func(ctx context.Context, c *app.RequestContext) {
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("Pragma", "no-cache")
+		c.Next(ctx)
+	}
+	return []app.HandlerFunc{s.consoleAuth(mutation), s.requireCompleted, noStore, handler}
+}
+
+func (s *Service) CommunicationEnabled() bool { return s.enableCommunication }
+
+func (s *Service) CommunicationConversationsHandler() app.HandlerFunc {
+	return s.listCommunicationConversations
+}
+
+func (s *Service) CommunicationFriendsHandler() app.HandlerFunc {
+	return s.listCommunicationFriends
+}
+
+func (s *Service) CommunicationFriendRequestsHandler() app.HandlerFunc {
+	return s.listCommunicationFriendRequests
+}
+
+func validConsoleSameOrigin(origin, host, expectedURL string) bool {
+	expected, err := url.Parse(expectedURL)
+	if err != nil || expected.Scheme == "" || expected.Host == "" || !strings.EqualFold(host, expected.Host) {
+		return false
+	}
+	provided, err := url.Parse(origin)
+	if err != nil || provided.User != nil || provided.RawQuery != "" || provided.Fragment != "" ||
+		provided.Path != "" || provided.Scheme == "" || provided.Host == "" {
+		return false
+	}
+	return strings.EqualFold(provided.Scheme, expected.Scheme) && strings.EqualFold(provided.Host, expected.Host)
+}
+
+func (s *Service) requireSameOrigin() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		if !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL) {
+			fail(c, http.StatusForbidden, "ORIGIN_INVALID", "Console V2 request origin is invalid", nil)
+			c.Abort()
+			return
+		}
+		c.Next(ctx)
+	}
 }
 
 // Register exposes only V2 routes. The caller controls registration with the
@@ -165,14 +273,14 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agent-sessions/refresh", s.refreshAgentSession)
 	h.POST("/api/v2/account-email-bindings/challenges", s.consoleAuth(true), s.createEmailBindingChallenge)
 	h.POST("/api/v2/account-email-bindings/verify", s.consoleAuth(true), s.verifyEmailBinding)
-	h.POST("/api/v2/auth/email/challenges", s.createEmailLoginChallenge)
-	h.POST("/api/v2/auth/email/verify", s.verifyEmailLogin)
+	h.POST("/api/v2/auth/email/challenges", s.requireSameOrigin(), s.createEmailLoginChallenge)
+	h.POST("/api/v2/auth/email/verify", s.requireSameOrigin(), s.verifyEmailLogin)
 	h.POST("/api/v2/agents/me/principals/challenges", s.consoleAuth(true), s.createPrincipalChallenge)
 	h.POST("/api/v2/agents/me/principals", s.consoleAuth(true), s.addPrincipal)
 	h.GET("/api/v2/agents/me/principals", s.consoleAuth(false), s.listPrincipals)
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
-	h.POST("/api/v2/console/handoffs/exchange", s.exchangeHandoff)
+	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
 
@@ -361,6 +469,11 @@ type consoleSession struct {
 
 func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		if requireCSRF && !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL) {
+			fail(c, http.StatusForbidden, "ORIGIN_INVALID", "Console V2 request origin is invalid", nil)
+			c.Abort()
+			return
+		}
 		parts := strings.SplitN(string(c.Cookie(consoleCookieName)), ".", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)

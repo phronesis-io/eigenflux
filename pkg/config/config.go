@@ -69,6 +69,7 @@ type Config struct {
 	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker
 	ConsoleV2OTPPepper          string   // Server-side HMAC pepper for Console V2 email challenges
 	ConsoleV2PublicURL          string   // Browser origin used when constructing one-time handoff URLs
+	ConsoleV2TrustedProxyCIDRs  []string // Proxies allowed to supply client IP forwarding headers for V2 OTP limits
 	MockUniversalOTP            string   // fixed OTP for whitelist-matched requests
 	ESReplicas                  int      // Elasticsearch number_of_replicas
 	ESShards                    int      // Elasticsearch number_of_shards
@@ -241,6 +242,7 @@ func Load() *Config {
 		ConsoleV2BootstrapSecret:     getEnv("CONSOLE_V2_BOOTSTRAP_SECRET", ""),
 		ConsoleV2OTPPepper:           getEnv("CONSOLE_V2_OTP_PEPPER", ""),
 		ConsoleV2PublicURL:           getEnv("CONSOLE_V2_PUBLIC_URL", "http://localhost:5173"),
+		ConsoleV2TrustedProxyCIDRs:   getEnvStringList("CONSOLE_V2_TRUSTED_PROXY_CIDRS", nil),
 		MockUniversalOTP:             getEnv("MOCK_UNIVERSAL_OTP", "123456"),
 		ESReplicas:                   getEnvInt("ES_REPLICAS", 0),
 		ESShards:                     getEnvInt("ES_SHARDS", 1),

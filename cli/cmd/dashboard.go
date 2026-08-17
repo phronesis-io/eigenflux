@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -34,22 +37,31 @@ Example:
 		if _, v2Err := auth.LoadV2Credentials(srv.Name); v2Err == nil {
 			v2Client, _, err := newV2ClientForServer(srv.Name, true)
 			if err != nil {
-				return err
+				if !consoleV2Unavailable(err) {
+					return err
+				}
+			} else {
+				browserNonce, err := newBrowserNonce()
+				if err != nil {
+					return err
+				}
+				response, postErr := v2Client.Post("/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce})
+				if postErr == nil {
+					var data struct {
+						URL       string `json:"handoff_url"`
+						ExpiresAt int64  `json:"expires_at"`
+					}
+					if json.Unmarshal(response.Data, &data) != nil || data.URL == "" {
+						return fmt.Errorf("could not read Console V2 handoff from response")
+					}
+					output.PrintMessage("One-time Console V2 link (valid 5 min, single use):")
+					output.PrintData(map[string]interface{}{"url": data.URL, "expires_at": data.ExpiresAt}, resolveFormat())
+					return nil
+				}
+				if !consoleV2Unavailable(postErr) {
+					return postErr
+				}
 			}
-			response, err := v2Client.Post("/console/handoffs", map[string]interface{}{})
-			if err != nil {
-				return err
-			}
-			var data struct {
-				URL       string `json:"handoff_url"`
-				ExpiresAt int64  `json:"expires_at"`
-			}
-			if json.Unmarshal(response.Data, &data) != nil || data.URL == "" {
-				return fmt.Errorf("could not read Console V2 handoff from response")
-			}
-			output.PrintMessage("One-time Console V2 link (valid 5 min, single use):")
-			output.PrintData(map[string]interface{}{"url": data.URL, "expires_at": data.ExpiresAt}, resolveFormat())
-			return nil
 		}
 		c := newClient()
 		resp, err := c.Post("/console/auth-code", nil)
@@ -73,6 +85,11 @@ Example:
 		output.PrintData(map[string]interface{}{"url": url, "expires_in_seconds": 300}, resolveFormat())
 		return nil
 	},
+}
+
+func consoleV2Unavailable(err error) bool {
+	var apiErr *client.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
 func init() {

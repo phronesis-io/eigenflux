@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
+	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -45,7 +47,10 @@ func (s *Service) startEmailWorkers(workerCount, queueSize int) {
 				if job.to == "" {
 					continue
 				}
-				if err := s.emailSender.SendLoginVerifyMail(context.Background(), job.to, job.otp); err != nil {
+				sendContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				err := s.emailSender.SendLoginVerifyMail(sendContext, job.to, job.otp)
+				cancel()
+				if err != nil {
 					_ = s.db.Exec(`UPDATE v2_email_challenges SET status = 'revoked'
 						WHERE challenge_id = ? AND status = 'pending'`, job.challengeID).Error
 				}
@@ -75,11 +80,82 @@ func (s *Service) otpDigest(challengeID, purpose, normalizedEmail, otp string) s
 }
 
 func (s *Service) clientIPHash(c *app.RequestContext) string {
-	remote := "unknown"
-	if c.RemoteAddr() != nil && c.RemoteAddr().String() != "" {
-		remote = c.RemoteAddr().String()
-	}
+	remote := resolveV2ClientIP(c.RemoteAddr().String(),
+		string(c.Request.Header.Peek("X-Forwarded-For")),
+		string(c.Request.Header.Peek("X-Real-IP")), s.trustedProxyNets)
 	return keyedHash(s.otpPepper, remote)
+}
+
+func resolveV2ClientIP(remoteAddr, forwardedFor, realIP string, trustedProxyNets []*net.IPNet) string {
+	remote := strings.TrimSpace(remoteAddr)
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		remote = host
+	}
+	remoteIP := net.ParseIP(remote)
+	trustedProxy := false
+	for _, network := range trustedProxyNets {
+		if remoteIP != nil && network.Contains(remoteIP) {
+			trustedProxy = true
+			break
+		}
+	}
+	if trustedProxy {
+		forwarded := strings.TrimSpace(forwardedFor)
+		if comma := strings.IndexByte(forwarded, ','); comma >= 0 {
+			forwarded = strings.TrimSpace(forwarded[:comma])
+		}
+		if net.ParseIP(forwarded) == nil {
+			forwarded = strings.TrimSpace(realIP)
+		}
+		if net.ParseIP(forwarded) != nil {
+			remote = forwarded
+		}
+	}
+	if net.ParseIP(remote) == nil {
+		remote = "unknown"
+	}
+	return remote
+}
+
+var emailChallengeRateScript = redis.NewScript(`
+for i, key in ipairs(KEYS) do
+  local count = redis.call('INCR', key)
+  if count == 1 then redis.call('PEXPIRE', key, ARGV[1]) end
+  if count > tonumber(ARGV[i + 1]) then return 0 end
+end
+return 1
+`)
+
+func (s *Service) allowEmailChallenge(ctx context.Context, emailHash, clientIPHash string, sessionID *string) (bool, error) {
+	if s.redisClient == nil {
+		return false, errors.New("redis client is unavailable")
+	}
+	keys := []string{"console:v2:otp:email:" + emailHash, "console:v2:otp:ip:" + clientIPHash}
+	limits := []interface{}{int64(10 * time.Minute / time.Millisecond), int64(5), int64(20)}
+	if sessionID != nil {
+		keys = append(keys, "console:v2:otp:session:"+hashString(*sessionID))
+		limits = append(limits, int64(5))
+	}
+	keys = append(keys, "console:v2:otp:global")
+	limits = append(limits, int64(1000))
+	allowed, err := emailChallengeRateScript.Run(ctx, s.redisClient, keys, limits...).Int()
+	return allowed == 1, err
+}
+
+func (s *Service) preflightEmailChallengeRate(ctx context.Context, normalizedEmail, clientIPHash string, sessionID *string) (bool, error) {
+	if s.redisClient == nil {
+		return false, nil
+	}
+	rateContext, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	allowed, err := s.allowEmailChallenge(rateContext, keyedHash(s.otpPepper, normalizedEmail), clientIPHash, sessionID)
+	if err != nil {
+		return true, err
+	}
+	if !allowed {
+		return true, errRateLimited
+	}
+	return true, nil
 }
 
 type createEmailChallengeRequest struct {
@@ -100,29 +176,38 @@ type emailChallengeRow struct {
 	ExpiresAt           int64   `gorm:"column:expires_at"`
 }
 
-func (s *Service) insertEmailChallenge(tx *gorm.DB, normalizedEmail, purpose string, subjectAgentID *int64, sessionID *string, clientIPHash string, now int64) (emailJob, int64, error) {
+func (s *Service) insertEmailChallenge(tx *gorm.DB, normalizedEmail, purpose string, subjectAgentID *int64, sessionID *string, clientIPHash string, now int64, rateChecked bool) (emailJob, int64, error) {
 	emailHash := keyedHash(s.otpPepper, normalizedEmail)
-	windowStart := now - int64(10*time.Minute/time.Millisecond)
-	var emailCount, ipCount, sessionCount, globalCount int64
-	if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
-		WHERE normalized_email_hash = ? AND created_at >= ?`, emailHash, windowStart).Scan(&emailCount).Error; err != nil {
-		return emailJob{}, 0, err
-	}
-	if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
-		WHERE client_ip_hash = ? AND created_at >= ?`, clientIPHash, windowStart).Scan(&ipCount).Error; err != nil {
-		return emailJob{}, 0, err
-	}
-	if sessionID != nil {
-		if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
-			WHERE console_session_id = ? AND created_at >= ?`, *sessionID, windowStart).Scan(&sessionCount).Error; err != nil {
+	if !rateChecked {
+		// Integration/dev fallback. Production config wires the shared Redis
+		// client, avoiding a global database lock on every email request.
+		if err := tx.Exec(`SELECT
+			pg_advisory_xact_lock(hashtextextended('console-v2-otp-global', 0)),
+			pg_advisory_xact_lock(hashtextextended(?, 0))`, "console-v2-otp-ip:"+clientIPHash).Error; err != nil {
 			return emailJob{}, 0, err
 		}
-	}
-	if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges WHERE created_at >= ?`, windowStart).Scan(&globalCount).Error; err != nil {
-		return emailJob{}, 0, err
-	}
-	if emailCount >= 5 || ipCount >= 20 || sessionCount >= 5 || globalCount >= 1000 {
-		return emailJob{}, 0, errRateLimited
+		windowStart := now - int64(10*time.Minute/time.Millisecond)
+		var emailCount, ipCount, sessionCount, globalCount int64
+		if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
+			WHERE normalized_email_hash = ? AND created_at >= ?`, emailHash, windowStart).Scan(&emailCount).Error; err != nil {
+			return emailJob{}, 0, err
+		}
+		if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
+			WHERE client_ip_hash = ? AND created_at >= ?`, clientIPHash, windowStart).Scan(&ipCount).Error; err != nil {
+			return emailJob{}, 0, err
+		}
+		if sessionID != nil {
+			if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges
+				WHERE console_session_id = ? AND created_at >= ?`, *sessionID, windowStart).Scan(&sessionCount).Error; err != nil {
+				return emailJob{}, 0, err
+			}
+		}
+		if err := tx.Raw(`SELECT COUNT(*) FROM v2_email_challenges WHERE created_at >= ?`, windowStart).Scan(&globalCount).Error; err != nil {
+			return emailJob{}, 0, err
+		}
+		if emailCount >= 5 || ipCount >= 20 || sessionCount >= 5 || globalCount >= 1000 {
+			return emailJob{}, 0, errRateLimited
+		}
 	}
 	challengeID, err := randomToken("efec_", 18)
 	if err != nil {
@@ -163,7 +248,7 @@ func (s *Service) queueEmailChallenge(c *app.RequestContext, job emailJob, expir
 	}
 }
 
-func (s *Service) createEmailBindingChallenge(_ context.Context, c *app.RequestContext) {
+func (s *Service) createEmailBindingChallenge(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, ok := agentID(c)
 	sessionValue, hasSession := c.Get("console_session_id")
 	sessionID, sessionOK := sessionValue.(string)
@@ -182,6 +267,16 @@ func (s *Service) createEmailBindingChallenge(_ context.Context, c *app.RequestC
 		return
 	}
 	now := time.Now().UnixMilli()
+	clientIPHash := s.clientIPHash(c)
+	rateChecked, err := s.preflightEmailChallengeRate(ctx, normalizedEmail, clientIPHash, &sessionID)
+	if errors.Is(err, errRateLimited) {
+		fail(c, http.StatusTooManyRequests, "EMAIL_RATE_LIMITED", "too many verification attempts; try again later", nil)
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "EMAIL_RATE_LIMIT_UNAVAILABLE", "email verification is temporarily unavailable", nil)
+		return
+	}
 	var job emailJob
 	var expiresAt int64
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -189,7 +284,7 @@ func (s *Service) createEmailBindingChallenge(_ context.Context, c *app.RequestC
 			return err
 		}
 		var createErr error
-		job, expiresAt, createErr = s.insertEmailChallenge(tx, normalizedEmail, "bind", &agentIDValue, &sessionID, s.clientIPHash(c), now)
+		job, expiresAt, createErr = s.insertEmailChallenge(tx, normalizedEmail, "bind", &agentIDValue, &sessionID, clientIPHash, now, rateChecked)
 		return createErr
 	})
 	if errors.Is(err, errRateLimited) {
@@ -203,7 +298,7 @@ func (s *Service) createEmailBindingChallenge(_ context.Context, c *app.RequestC
 	s.queueEmailChallenge(c, job, expiresAt)
 }
 
-func (s *Service) createEmailLoginChallenge(_ context.Context, c *app.RequestContext) {
+func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestContext) {
 	if s.emailQueue == nil {
 		fail(c, http.StatusServiceUnavailable, "EMAIL_DELIVERY_UNAVAILABLE", "email verification is temporarily unavailable", nil)
 		return
@@ -226,6 +321,16 @@ func (s *Service) createEmailLoginChallenge(_ context.Context, c *app.RequestCon
 		return
 	}
 	now := time.Now().UnixMilli()
+	clientIPHash := s.clientIPHash(c)
+	rateChecked, err := s.preflightEmailChallengeRate(ctx, normalizedEmail, clientIPHash, nil)
+	if errors.Is(err, errRateLimited) {
+		fail(c, http.StatusTooManyRequests, "EMAIL_RATE_LIMITED", "too many verification attempts; try again later", nil)
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "EMAIL_RATE_LIMIT_UNAVAILABLE", "email verification is temporarily unavailable", nil)
+		return
+	}
 	var job emailJob
 	var expiresAt int64
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -276,7 +381,7 @@ func (s *Service) createEmailLoginChallenge(_ context.Context, c *app.RequestCon
 			subject = &bindings[0].AgentID
 		}
 		var createErr error
-		job, expiresAt, createErr = s.insertEmailChallenge(tx, normalizedEmail, req.Purpose, subject, nil, s.clientIPHash(c), now)
+		job, expiresAt, createErr = s.insertEmailChallenge(tx, normalizedEmail, req.Purpose, subject, nil, clientIPHash, now, rateChecked)
 		if subject == nil {
 			job.to = ""
 		}
@@ -446,13 +551,26 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 }
 
 func isUniqueViolation(err error) bool {
-	var pgErr *pq.Error
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	return sqlState(err) == "23505"
 }
 
 func isForeignKeyViolation(err error) bool {
-	var pgErr *pq.Error
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
+	return sqlState(err) == "23503"
+}
+
+// Both lib/pq and pgx expose SQLState(), while GORM's configured PostgreSQL
+// driver currently returns pgx errors. Keeping the check driver-neutral makes
+// the idempotency conflict path work in production as well as pq-based tests.
+func sqlState(err error) string {
+	var stateError interface{ SQLState() string }
+	if errors.As(err, &stateError) {
+		return stateError.SQLState()
+	}
+	var pqError *pq.Error
+	if errors.As(err, &pqError) {
+		return string(pqError.Code)
+	}
+	return ""
 }
 
 // ensureLegacyConsoleV2State is a lazy, idempotent safety net for accounts

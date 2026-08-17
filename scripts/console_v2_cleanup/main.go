@@ -14,6 +14,8 @@ import (
 	"os"
 	"time"
 
+	"eigenflux_server/pkg/consolev2retention"
+
 	_ "github.com/lib/pq"
 )
 
@@ -25,6 +27,18 @@ type cleanupJob struct {
 }
 
 func jobs() []cleanupJob {
+	shared := consolev2retention.Jobs()
+	result := make([]cleanupJob, 0, len(shared))
+	for _, job := range shared {
+		result = append(result, cleanupJob{name: job.Name, sql: job.SQL})
+	}
+	return result
+}
+
+// legacyJobs retains the original command-local matrix for source-level
+// compatibility. Runtime execution uses the shared matrix above so the cron
+// and operator command cannot drift.
+func legacyJobs() []cleanupJob {
 	return []cleanupJob{
 		{"bootstrap_grants", boundedDelete("agent_bootstrap_grants", "expires_at < clock_ms() - 7*day_ms()")},
 		{"signature_nonces", boundedDelete("agent_signature_nonces", "expires_at < clock_ms() - 7*day_ms()")},

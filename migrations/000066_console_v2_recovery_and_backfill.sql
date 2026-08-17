@@ -63,6 +63,16 @@ CREATE INDEX idx_console_v2_email_conflicts_unresolved
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '5min';
 
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM agent_principals LIMIT 1)
+       OR EXISTS (SELECT 1 FROM agents WHERE email_kind IN ('internal_alias', 'v2_bound') LIMIT 1) THEN
+        RAISE EXCEPTION 'unsafe Console V2 auth rollback: disable feature flags instead of removing recovery constraints';
+    END IF;
+END $$;
+-- +goose StatementEnd
+
 DROP TABLE IF EXISTS console_v2_email_conflicts;
 DROP TABLE IF EXISTS console_v2_backfill_state;
 DROP INDEX IF EXISTS uq_agent_email_binding_active_email;
@@ -76,6 +86,11 @@ ALTER TABLE console_v2_sessions
     DROP CONSTRAINT IF EXISTS chk_console_v2_sessions_auth_method,
     DROP COLUMN IF EXISTS recent_auth_at,
     DROP COLUMN IF EXISTS auth_method;
+
+-- Recovery principals exist only to anchor email-authenticated Console V2
+-- sessions. Removing them cascades those sessions before restoring the
+-- ed25519-only constraint, so rollback remains executable after real use.
+DELETE FROM agent_principals WHERE key_type = 'email-recovery-v1';
 
 ALTER TABLE agent_principals
     DROP CONSTRAINT chk_agent_principals_key_type,

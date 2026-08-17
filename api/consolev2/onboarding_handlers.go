@@ -14,6 +14,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 	"gorm.io/gorm"
+
+	"eigenflux_server/pkg/agentcard"
+	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
 type onboardingState struct {
@@ -196,6 +199,20 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 			VALUES (?, 'onboarding_draft_put', ?, ?, ?::jsonb, ?, ?)`, id, req.IdempotencyKey,
 			requestHash, string(snapshot), now+int64(24*time.Hour/time.Millisecond), now).Error
 	})
+	if err != nil && (errors.Is(err, errConflict) || isUniqueViolation(err)) {
+		var snapshot struct {
+			Revision int64 `json:"revision"`
+		}
+		found, hashConflict, replayErr := s.loadIdempotentResponse(id, "onboarding_draft_put", req.IdempotencyKey, requestHash, &snapshot)
+		switch {
+		case replayErr != nil:
+			err = replayErr
+		case found && hashConflict:
+			err = errConflict
+		case found:
+			newRevision, err = snapshot.Revision, nil
+		}
+	}
 	if errors.Is(err, errConflict) {
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "draft changed or idempotency key was reused with a different request", nil)
 		return
@@ -248,6 +265,8 @@ type draftPayload struct {
 	} `json:"intent_actions"`
 }
 
+var errInvalidOnboardingDraft = errors.New("invalid onboarding draft")
+
 func validateDraftPayload(payload draftPayload) error {
 	if utf8.RuneCountInString(payload.IdentityCard.AgentName) > 100 || utf8.RuneCountInString(payload.IdentityCard.Bio) > 2000 {
 		return errors.New("identity card exceeds its length limit")
@@ -271,7 +290,41 @@ func validateDraftPayload(payload draftPayload) error {
 	return nil
 }
 
-func (s *Service) confirmOnboardingStep(_ context.Context, c *app.RequestContext) {
+func validateDraftStep(payload draftPayload, step int16) error {
+	switch step {
+	case 2:
+		if err := validateIdentityCardFields(payload.IdentityCard.AgentName, payload.IdentityCard.Bio); err != nil {
+			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+		}
+	case 3:
+		return nil
+	case 4:
+		if strings.TrimSpace(payload.NetworkGoal) == "" {
+			return fmt.Errorf("%w: network_goal is required", errInvalidOnboardingDraft)
+		}
+		if utf8.RuneCountInString(payload.NetworkGoal) > 2000 {
+			return fmt.Errorf("%w: network goal exceeds 2000 characters", errInvalidOnboardingDraft)
+		}
+	case 5:
+		if len(payload.IntentActions) > 10 {
+			return fmt.Errorf("%w: at most 10 intent actions are allowed", errInvalidOnboardingDraft)
+		}
+		for _, intent := range payload.IntentActions {
+			if err := validateIntent(IntentWriteFields{
+				WatchFor: intent.WatchFor, TriggerWhen: intent.TriggerWhen,
+				ActionInstruction: intent.ActionInstruction, ActionPolicy: intent.ActionPolicy,
+				Priority: intent.Priority,
+			}); err != nil {
+				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+			}
+		}
+	default:
+		return fmt.Errorf("%w: unsupported onboarding step", errInvalidOnboardingDraft)
+	}
+	return nil
+}
+
+func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestContext) {
 	id, ok := agentID(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
@@ -317,7 +370,7 @@ func (s *Service) confirmOnboardingStep(_ context.Context, c *app.RequestContext
 		if err := json.Unmarshal([]byte(rawDraft), &payload); err != nil {
 			return err
 		}
-		if err := validateDraftPayload(payload); err != nil {
+		if err := validateDraftStep(payload, req.Step); err != nil {
 			return err
 		}
 		if err := applyConfirmedStep(tx, id, req.Step, payload, now); err != nil {
@@ -370,13 +423,31 @@ func (s *Service) confirmOnboardingStep(_ context.Context, c *app.RequestContext
 			VALUES (?, 'onboarding_confirm', ?, ?, ?::jsonb, ?, ?)`, id, req.IdempotencyKey,
 			requestHash, string(snapshot), now+int64(24*time.Hour/time.Millisecond), now).Error
 	})
+	if err != nil && (errors.Is(err, errConflict) || isUniqueViolation(err)) {
+		found, hashConflict, replayErr := s.loadIdempotentResponse(id, "onboarding_confirm", req.IdempotencyKey, requestHash, &response)
+		switch {
+		case replayErr != nil:
+			err = replayErr
+		case found && hashConflict:
+			err = errConflict
+		case found:
+			err = nil
+		}
+	}
 	if errors.Is(err, errConflict) {
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "onboarding step or revision changed", nil)
 		return
 	}
-	if err != nil {
+	if errors.Is(err, errInvalidOnboardingDraft) {
 		fail(c, http.StatusBadRequest, "CONFIRM_FAILED", err.Error(), nil)
 		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", nil)
+		return
+	}
+	if req.Step == 2 {
+		agentcard.PublishRebuild(ctx, id, "console_v2_onboarding_identity")
 	}
 	reply(c, http.StatusOK, response)
 }
@@ -385,10 +456,17 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 	switch step {
 	case 2:
 		if strings.TrimSpace(payload.IdentityCard.AgentName) == "" {
-			return errors.New("agent_name is required")
+			return fmt.Errorf("%w: agent_name is required", errInvalidOnboardingDraft)
 		}
-		return tx.Exec(`UPDATE agents SET agent_name = ?, bio = ?, updated_at = ? WHERE agent_id = ?`,
-			payload.IdentityCard.AgentName, payload.IdentityCard.Bio, now, agentID).Error
+		if err := tx.Exec(`UPDATE agents SET agent_name = ?, bio = ?, updated_at = ? WHERE agent_id = ?`,
+			payload.IdentityCard.AgentName, payload.IdentityCard.Bio, now, agentID).Error; err != nil {
+			return err
+		}
+		if err := profiledal.EnsureAgentProfileRow(tx, agentID); err != nil {
+			return err
+		}
+		_, err := profiledal.BumpProfileVersion(tx, agentID)
+		return err
 	case 3:
 		return tx.Exec(`INSERT INTO agent_settings
 			(agent_id, recurring_publish, auto_reply_pm, auto_comment, show_add_friend, updated_at)
@@ -400,7 +478,7 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 			payload.SecurityBoundary.AutoComment, payload.SecurityBoundary.ShowAddFriend, now).Error
 	case 4:
 		if strings.TrimSpace(payload.NetworkGoal) == "" {
-			return errors.New("network_goal is required")
+			return fmt.Errorf("%w: network_goal is required", errInvalidOnboardingDraft)
 		}
 		if err := tx.Exec(`UPDATE agent_network_goals SET status = 'deleted', updated_at = ?
 			WHERE agent_id = ? AND status = 'active'`, now, agentID).Error; err != nil {
@@ -459,12 +537,27 @@ func compileAndActivateContext(tx *gorm.DB, agentID, now int64) (json.RawMessage
 		WHERE agent_id = ? AND status = 'active' ORDER BY priority DESC, intent_id`, agentID).Scan(&intents).Error; err != nil {
 		return nil, 0, err
 	}
+	var boundary struct {
+		RecurringPublish bool `gorm:"column:recurring_publish" json:"recurring_publish"`
+		AutoReplyPM      bool `gorm:"column:auto_reply_pm" json:"auto_reply_pm"`
+		AutoComment      bool `gorm:"column:auto_comment" json:"auto_comment"`
+		ShowAddFriend    bool `gorm:"column:show_add_friend" json:"show_add_friend"`
+	}
+	if err := tx.Raw(`SELECT COALESCE(settings.recurring_publish, true) AS recurring_publish,
+			COALESCE(settings.auto_reply_pm, true) AS auto_reply_pm,
+			COALESCE(settings.auto_comment, true) AS auto_comment,
+			COALESCE(settings.show_add_friend, true) AS show_add_friend
+		FROM agents agent LEFT JOIN agent_settings settings ON settings.agent_id = agent.agent_id
+		WHERE agent.agent_id = ?`, agentID).Scan(&boundary).Error; err != nil {
+		return nil, 0, err
+	}
 	revision := head.CurrentRevision + 1
 	compiled, err := json.Marshal(map[string]interface{}{
-		"context_revision": revision,
-		"network_goal":     goal,
-		"intent_actions":   intents,
-		"safety":           map[string]string{"external_side_effects": "require_user_confirmation"},
+		"context_revision":  revision,
+		"network_goal":      goal,
+		"intent_actions":    intents,
+		"security_boundary": boundary,
+		"safety":            map[string]string{"external_side_effects": "require_user_confirmation"},
 	})
 	if err != nil {
 		return nil, 0, err

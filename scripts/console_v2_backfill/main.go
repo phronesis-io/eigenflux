@@ -287,6 +287,13 @@ func prepareLegacyAgents(ctx context.Context, tx *sql.Tx, agents []legacyAgent, 
 	}
 	batch := string(encoded)
 	statements := []string{
+		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(agent_id bigint))
+		 UPDATE agent_cards card SET public_card_version = card.card_version,
+		   public_card_generated_at = card.generated_at
+		 FROM source WHERE card.agent_id = source.agent_id
+		   AND $2::bigint >= 0
+		   AND (card.public_card_version <> card.card_version
+		        OR card.public_card_generated_at <> card.generated_at)`,
 		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(agent_id bigint, email text))
 		 INSERT INTO agent_email_bindings
 		 (agent_id, normalized_email, normalization_version, verification_state, status, created_at, updated_at)
@@ -306,10 +313,13 @@ func prepareLegacyAgents(ctx context.Context, tx *sql.Tx, agents []legacyAgent, 
 		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(agent_id bigint))
 		 SELECT pg_advisory_xact_lock(source.agent_id) FROM source
 		 WHERE $2::bigint >= 0 ORDER BY source.agent_id`,
-		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(agent_id bigint)),
+		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(
+		   agent_id bigint, recurring_publish boolean, auto_reply_pm boolean,
+		   auto_comment boolean, show_add_friend boolean)),
 		 candidate AS (
 		   SELECT head.agent_id, head.current_revision + 1 AS revision, goal.goal_id, goal.goal_text,
-		          goal.source, goal.status FROM source
+		          goal.source, goal.status, source.recurring_publish, source.auto_reply_pm,
+		          source.auto_comment, source.show_add_friend FROM source
 		   JOIN agent_context_heads head ON head.agent_id = source.agent_id AND head.active_revision IS NULL
 		   JOIN agent_network_goals goal ON goal.agent_id = source.agent_id AND goal.status = 'active'
 		 )
@@ -318,6 +328,9 @@ func prepareLegacyAgents(ctx context.Context, tx *sql.Tx, agents []legacyAgent, 
 		   'context_revision', revision,
 		   'network_goal', jsonb_build_object('goal_id', goal_id::text, 'text', goal_text, 'source', source, 'status', status),
 		   'intent_actions', '[]'::jsonb,
+		   'security_boundary', jsonb_build_object('recurring_publish', recurring_publish,
+		     'auto_reply_pm', auto_reply_pm, 'auto_comment', auto_comment,
+		     'show_add_friend', show_add_friend),
 		   'safety', jsonb_build_object('external_side_effects', 'require_user_confirmation')
 		 ), 1, $2 FROM candidate ON CONFLICT DO NOTHING`,
 		`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(agent_id bigint))

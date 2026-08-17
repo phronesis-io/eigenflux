@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 )
 
@@ -13,7 +14,7 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := provisionV2Request{
-		BootstrapGrant: "efbg_test", Nonce: "efn_test",
+		BootstrapGrant: "efbg_test", IdempotencyKey: "provision-test-request", Nonce: "efn_test",
 		PublicKey: base64.RawURLEncoding.EncodeToString(publicKey), IssuedAt: 123,
 		AgentName: "Agent", Draft: []byte(`{"network_goal":"test"}`),
 	}
@@ -29,5 +30,21 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	mutated, _ := provisionV2Transcript(request)
 	if ed25519.Verify(publicKey, mutated, signature) {
 		t.Fatal("CLI provision proof did not cover nonce")
+	}
+}
+
+func TestDefaultProvisionDraftKeepsAutomaticActionsDisabled(t *testing.T) {
+	var draft struct {
+		SecurityBoundary struct {
+			RecurringPublish bool `json:"recurring_publish"`
+			AutoReplyPM      bool `json:"auto_reply_pm"`
+			AutoComment      bool `json:"auto_comment"`
+		} `json:"security_boundary"`
+	}
+	if err := json.Unmarshal(defaultProvisionDraft("Test Agent"), &draft); err != nil {
+		t.Fatal(err)
+	}
+	if draft.SecurityBoundary.RecurringPublish || draft.SecurityBoundary.AutoReplyPM || draft.SecurityBoundary.AutoComment {
+		t.Fatalf("automatic actions must default to disabled: %#v", draft.SecurityBoundary)
 	}
 }
