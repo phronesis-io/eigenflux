@@ -50,12 +50,13 @@ func Register(h *server.Hertz, baseURL string) {
 }
 
 type mintBody struct {
-	UTMSource   string `json:"utm_source"`
-	UTMMedium   string `json:"utm_medium"`
-	UTMCampaign string `json:"utm_campaign"`
-	UTMContent  string `json:"utm_content"`
-	UTMTerm     string `json:"utm_term"`
-	Referrer    string `json:"referrer"`
+	UTMSource    string `json:"utm_source"`
+	UTMMedium    string `json:"utm_medium"`
+	UTMCampaign  string `json:"utm_campaign"`
+	UTMContent   string `json:"utm_content"`
+	UTMTerm      string `json:"utm_term"`
+	Referrer     string `json:"referrer"`
+	EntryChannel string `json:"entry_channel"`
 	// Platform click identifiers from the landing URL (paid traffic). Xingtu's
 	// non-app landing page supplies `clickid`; the frontend normalizes it to the
 	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
@@ -115,7 +116,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		UTMCampaign:             trunc(body.UTMCampaign, 255),
 		UTMContent:              trunc(body.UTMContent, 255),
 		UTMTerm:                 trunc(body.UTMTerm, 255),
-		Channel:                 deriveChannel(body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
+		Channel:                 deriveChannel(body.EntryChannel, body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
 		Referrer:                trunc(body.Referrer, 2048),
 		ClickID:                 trunc(body.ClickID, 128),
 		Twclid:                  trunc(body.Twclid, 128),
