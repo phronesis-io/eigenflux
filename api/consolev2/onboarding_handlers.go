@@ -248,12 +248,12 @@ type identityCardDraft struct {
 	AgentName         string   `json:"agent_name"`
 	Bio               string   `json:"bio"`
 	AgentDescription  string   `json:"agent_description"`
-	HumanDescription  string   `json:"human_description"`
+	HumanDescription  *string  `json:"human_description"`
 	WorkingLanguages  []string `json:"working_languages"`
 	Seeking           []string `json:"seeking"`
 	Offering          []string `json:"offering"`
-	Geo               string   `json:"geo"`
-	Timezone          string   `json:"timezone"`
+	Geo               *string  `json:"geo"`
+	Timezone          *string  `json:"timezone"`
 	AgentStatus       []string `json:"agent_status"`
 	HumanStatus       []string `json:"human_status"`
 	InterestsNegative []string `json:"interests_negative"`
@@ -312,10 +312,15 @@ func validateDraftStep(payload draftPayload, step int16) error {
 		if err := validateIdentityCardFields(payload.IdentityCard.AgentName, description); err != nil {
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 		}
-		identityFields := map[string]interface{}{
+		identityFields := map[string]interface{}{}
+		for name, value := range map[string]*string{
 			"human_description": payload.IdentityCard.HumanDescription,
 			"geo":               payload.IdentityCard.Geo,
 			"timezone":          payload.IdentityCard.Timezone,
+		} {
+			if value != nil {
+				identityFields[name] = *value
+			}
 		}
 		for name, value := range map[string][]string{
 			"working_languages":  payload.IdentityCard.WorkingLanguages,
@@ -538,16 +543,27 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 		if err != nil {
 			return err
 		}
-		values := map[string]interface{}{
-			"human_description":  payload.IdentityCard.HumanDescription,
+		values := map[string]interface{}{}
+		for key, value := range map[string]*string{
+			"human_description": payload.IdentityCard.HumanDescription,
+			"geo":               payload.IdentityCard.Geo,
+			"timezone":          payload.IdentityCard.Timezone,
+		} {
+			if value != nil {
+				values[key] = *value
+			}
+		}
+		for key, value := range map[string][]string{
 			"working_languages":  payload.IdentityCard.WorkingLanguages,
 			"seeking":            payload.IdentityCard.Seeking,
 			"offering":           payload.IdentityCard.Offering,
-			"geo":                payload.IdentityCard.Geo,
-			"timezone":           payload.IdentityCard.Timezone,
 			"agent_status":       payload.IdentityCard.AgentStatus,
 			"human_status":       payload.IdentityCard.HumanStatus,
 			"interests_negative": payload.IdentityCard.InterestsNegative,
+		} {
+			if value != nil {
+				values[key] = value
+			}
 		}
 		merge := make(map[string]json.RawMessage, len(values))
 		for key, value := range values {
