@@ -1,16 +1,49 @@
 package ratelimit
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	DefaultHourlyLimit = 10
-	ConfigPath         = "configs/pm/friend_request_limits.yaml"
+	DefaultHourlyLimit   = 10
+	ConfigPathEnv        = "FRIEND_REQUEST_LIMITS_CONFIG"
+	ProductionConfigPath = "/etc/eigenflux/friend_request_limits.yaml"
+	LegacyConfigPath     = "configs/pm/friend_request_limits.yaml"
 )
+
+// ResolveConfigPath selects the operator-managed friend-request limit file.
+// Production keeps the file outside immutable release directories; the legacy
+// repository-relative path remains available for local development.
+func ResolveConfigPath(production bool) string {
+	return resolveConfigPath(
+		os.Getenv(ConfigPathEnv),
+		production,
+		ProductionConfigPath,
+		LegacyConfigPath,
+		func(path string) error {
+			_, err := os.Stat(path)
+			return err
+		},
+	)
+}
+
+func resolveConfigPath(explicitPath string, production bool, productionPath, legacyPath string, stat func(string) error) string {
+	if path := strings.TrimSpace(explicitPath); path != "" {
+		return path
+	}
+	if production {
+		return productionPath
+	}
+	if err := stat(productionPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return productionPath
+	}
+	return legacyPath
+}
 
 // Config defines the hourly friend-request limit for all agents and selected overrides.
 type Config struct {

@@ -14,6 +14,18 @@ grep -Fq "export PATH='/snap/go/current/bin:" "${SOURCE_ROOT}/scripts/cloud/depl
 }
 echo "PASS: root-managed wrapper includes the production Go toolchain"
 
+grep -Fq 'FRIEND_REQUEST_LIMITS_CONFIG="${POLICY_DIR}/friend_request_limits.yaml"' \
+  "${SOURCE_ROOT}/scripts/cloud/install_main_deployer.sh" || {
+  echo "FAIL: installer does not manage the stable friend-request limit config" >&2
+  exit 1
+}
+grep -Fq 'elif [[ -f "${LEGACY_FRIEND_REQUEST_LIMITS_CONFIG}" ]]' \
+  "${SOURCE_ROOT}/scripts/cloud/install_main_deployer.sh" || {
+  echo "FAIL: installer does not migrate the legacy friend-request limit config" >&2
+  exit 1
+}
+echo "PASS: installer preserves a stable friend-request limit config"
+
 declare -f deploy_main_prepare_source | \
   grep -Fq 'deploy_main_git_as_user "${deploy_user}" "${deploy_home}"' || {
     echo "FAIL: source export bypasses the unprivileged deployment user" >&2

@@ -30,3 +30,55 @@ func TestValidateRejectsDuplicateOverrides(t *testing.T) {
 		t.Fatal("expected duplicate override to be rejected")
 	}
 }
+
+func TestResolveConfigPath(t *testing.T) {
+	t.Run("explicit override wins", func(t *testing.T) {
+		got := resolveConfigPath(" /custom/limits.yaml ", true, "/stable/limits.yaml", "legacy.yaml", func(string) error {
+			t.Fatal("stat should not run for an explicit path")
+			return nil
+		})
+		if got != "/custom/limits.yaml" {
+			t.Fatalf("resolveConfigPath() = %q, want explicit path", got)
+		}
+	})
+
+	t.Run("production always uses stable path", func(t *testing.T) {
+		got := resolveConfigPath("", true, "/stable/limits.yaml", "legacy.yaml", func(string) error {
+			t.Fatal("stat should not run in production")
+			return nil
+		})
+		if got != "/stable/limits.yaml" {
+			t.Fatalf("resolveConfigPath() = %q, want stable path", got)
+		}
+	})
+
+	t.Run("stable production path exists", func(t *testing.T) {
+		got := resolveConfigPath("", false, "/stable/limits.yaml", "legacy.yaml", func(path string) error {
+			if path != "/stable/limits.yaml" {
+				t.Fatalf("stat path = %q", path)
+			}
+			return nil
+		})
+		if got != "/stable/limits.yaml" {
+			t.Fatalf("resolveConfigPath() = %q, want stable path", got)
+		}
+	})
+
+	t.Run("stable path errors do not silently fall back", func(t *testing.T) {
+		got := resolveConfigPath("", false, "/stable/limits.yaml", "legacy.yaml", func(string) error {
+			return os.ErrPermission
+		})
+		if got != "/stable/limits.yaml" {
+			t.Fatalf("resolveConfigPath() = %q, want stable path", got)
+		}
+	})
+
+	t.Run("missing stable path uses local legacy path", func(t *testing.T) {
+		got := resolveConfigPath("", false, "/stable/limits.yaml", "legacy.yaml", func(string) error {
+			return os.ErrNotExist
+		})
+		if got != "legacy.yaml" {
+			t.Fatalf("resolveConfigPath() = %q, want legacy path", got)
+		}
+	})
+}
