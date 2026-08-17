@@ -214,6 +214,12 @@ Application units use one root-owned binary/source bundle under
 `/var/lib/eigenflux-deployer/current`, so relative runtime assets and `.env`
 are never loaded from the deployment checkout.
 
+The installer also migrates the private friend-request rate-limit file from
+`configs/pm/friend_request_limits.yaml` to the stable root-managed path
+`/etc/eigenflux/friend_request_limits.yaml` on first installation. Existing
+files at the stable path are preserved on later installer runs. The PM service
+loads this stable path independently of the active immutable release.
+
 ## Security Checklist
 
 - [ ] Set `APP_ENV=prod`

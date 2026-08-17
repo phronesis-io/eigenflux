@@ -43,6 +43,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `MOCK_UNIVERSAL_OTP` | `123456` | Fixed verification code when whitelist matched |
 | `MOCK_OTP_EMAIL_SUFFIXES` | -- | Comma-separated email suffix whitelist |
 | `MOCK_OTP_IP_WHITELIST` | -- | Comma-separated IP whitelist |
+| `FRIEND_REQUEST_LIMITS_CONFIG` | Production: `/etc/eigenflux/friend_request_limits.yaml`; non-production: stable path when present, otherwise `configs/pm/friend_request_limits.yaml` | Private per-agent friend-request hourly-limit configuration. Production requires a valid file |
 | `ID_WORKER_PREFIX` | `/eigenflux/idgen/workers` | Snowflake worker_id registration prefix in etcd |
 | `ID_SNOWFLAKE_EPOCH_MS` | -- | Snowflake algorithm custom epoch (milliseconds) |
 | `ID_WORKER_LEASE_TTL` | `30` | worker_id lease TTL (seconds) |

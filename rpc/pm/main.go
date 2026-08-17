@@ -96,12 +96,23 @@ func main() {
 	// Create ice breaker and validator
 	iceBreaker := icebreak.NewIceBreaker(db.RDB)
 	pmValidator := validator.NewValidator(db.DB, db.RDB)
-	friendRequestLimits, err := ratelimit.LoadFile(ratelimit.ConfigPath)
+	friendRequestLimitsPath := ratelimit.ResolveConfigPath(cfg.IsProd())
+	friendRequestLimits, err := ratelimit.LoadFile(friendRequestLimitsPath)
 	if errors.Is(err, os.ErrNotExist) {
+		if cfg.IsProd() {
+			log.Fatalf("friend request rate-limit config not found in production: %s", friendRequestLimitsPath)
+		}
 		friendRequestLimits = ratelimit.DefaultConfig()
-		logger.Default().Warn("friend request rate-limit config not found; using defaults", "path", ratelimit.ConfigPath)
+		logger.Default().Warn("friend request rate-limit config not found; using defaults", "path", friendRequestLimitsPath)
 	} else if err != nil {
 		log.Fatalf("failed to load friend request rate-limit config: %v", err)
+	} else {
+		logger.Default().Info(
+			"friend request rate-limit config loaded",
+			"path", friendRequestLimitsPath,
+			"defaultHourlyLimit", friendRequestLimits.DefaultHourlyLimit,
+			"overrideCount", len(friendRequestLimits.Overrides),
+		)
 	}
 
 	// Create etcd registry for this service

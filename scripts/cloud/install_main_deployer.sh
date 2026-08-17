@@ -11,6 +11,8 @@ POLICY_DIR="/etc/eigenflux"
 STATE_DIR="/var/lib/eigenflux-deployer"
 APP_DROPIN_DIR="/etc/systemd/system/eigenflux-app@.service.d"
 RUNTIME_ENV="${POLICY_DIR}/runtime.env"
+FRIEND_REQUEST_LIMITS_CONFIG="${POLICY_DIR}/friend_request_limits.yaml"
+LEGACY_FRIEND_REQUEST_LIMITS_CONFIG="${PROJECT_ROOT}/configs/pm/friend_request_limits.yaml"
 GITHUB_KNOWN_HOSTS="${POLICY_DIR}/github_known_hosts"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -47,6 +49,11 @@ command -v ssh-keygen >/dev/null
   echo "${DEPLOY_USER} must connect to github.com once before installation." >&2
   exit 1
 }
+if [[ ! -f "${FRIEND_REQUEST_LIMITS_CONFIG}" && ! -f "${LEGACY_FRIEND_REQUEST_LIMITS_CONFIG}" ]]; then
+  echo "Friend-request rate-limit config is required: ${FRIEND_REQUEST_LIMITS_CONFIG}" >&2
+  echo "Create it from configs/pm/friend_request_limits.example.yaml before installing." >&2
+  exit 1
+fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -67,6 +74,17 @@ ssh-keygen -F github.com -f "${DEPLOY_HOME}/.ssh/known_hosts" | \
 }
 install -o root -g root -m 0644 "${tmp_dir}/github_known_hosts" "${GITHUB_KNOWN_HOSTS}"
 install -o root -g root -m 0600 "${PROJECT_ROOT}/.env" "${RUNTIME_ENV}"
+if [[ -f "${FRIEND_REQUEST_LIMITS_CONFIG}" ]]; then
+  chown root:"${DEPLOY_GROUP}" "${FRIEND_REQUEST_LIMITS_CONFIG}"
+  chmod 0640 "${FRIEND_REQUEST_LIMITS_CONFIG}"
+elif [[ -f "${LEGACY_FRIEND_REQUEST_LIMITS_CONFIG}" ]]; then
+  install -o root -g "${DEPLOY_GROUP}" -m 0640 \
+    "${LEGACY_FRIEND_REQUEST_LIMITS_CONFIG}" "${FRIEND_REQUEST_LIMITS_CONFIG}"
+else
+  echo "Friend-request rate-limit config is required: ${FRIEND_REQUEST_LIMITS_CONFIG}" >&2
+  echo "Create it from configs/pm/friend_request_limits.example.yaml before installing." >&2
+  exit 1
+fi
 # Keep the application's legacy .env lookup read-only and identical to the
 # root-managed deployment environment.
 install -o root -g "${DEPLOY_GROUP}" -m 0640 "${RUNTIME_ENV}" "${PROJECT_ROOT}/.env"

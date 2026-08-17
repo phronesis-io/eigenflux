@@ -19,9 +19,10 @@ migrations. The official GitHub remote and executable artifact directory are
 fixed in the root-owned deployment files; changing the checkout's `origin` or
 ignored `build/` files cannot change what the service executes.
 
-Production environment values and the pinned GitHub host keys are root-owned
-under `/etc/eigenflux`. Agents must not edit `.env`; configuration changes are
-an explicit root operation followed by a deployment.
+Production environment values, the friend-request rate-limit config, and the
+pinned GitHub host keys are root-owned under `/etc/eigenflux`. Agents must not
+edit `.env`; configuration changes are an explicit root operation followed by
+a deployment.
 
 Application services execute and resolve relative resources from one
 root-owned release bundle under `/var/lib/eigenflux-deployer/current`; they
