@@ -258,6 +258,21 @@ func TestOnboardingStepValidationIgnoresIncompleteFutureSteps(t *testing.T) {
 	}
 }
 
+func TestOnboardingAllowsReconfirmingUnlockedPreviousStepWithoutMovingCursorBack(t *testing.T) {
+	if !canConfirmOnboardingStep("in_progress", 4, 2) {
+		t.Fatal("an already unlocked step should remain confirmable")
+	}
+	if got := nextOnboardingStep(4, 2); got != 4 {
+		t.Fatalf("re-confirming step 2 moved cursor to %d, want 4", got)
+	}
+	if canConfirmOnboardingStep("in_progress", 3, 4) {
+		t.Fatal("a locked future step must not be confirmable")
+	}
+	if got := nextOnboardingStep(3, 3); got != 4 {
+		t.Fatalf("confirming current step moved cursor to %d, want 4", got)
+	}
+}
+
 func TestOnboardingIntentValidationRejectsWhitespace(t *testing.T) {
 	var payload draftPayload
 	payload.IntentActions = append(payload.IntentActions, struct {

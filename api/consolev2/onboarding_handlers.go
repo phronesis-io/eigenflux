@@ -244,11 +244,23 @@ type confirmStepRequest struct {
 	IdempotencyKey             string `json:"idempotency_key"`
 }
 
+type identityCardDraft struct {
+	AgentName         string   `json:"agent_name"`
+	Bio               string   `json:"bio"`
+	AgentDescription  string   `json:"agent_description"`
+	HumanDescription  string   `json:"human_description"`
+	WorkingLanguages  []string `json:"working_languages"`
+	Seeking           []string `json:"seeking"`
+	Offering          []string `json:"offering"`
+	Geo               string   `json:"geo"`
+	Timezone          string   `json:"timezone"`
+	AgentStatus       []string `json:"agent_status"`
+	HumanStatus       []string `json:"human_status"`
+	InterestsNegative []string `json:"interests_negative"`
+}
+
 type draftPayload struct {
-	IdentityCard struct {
-		AgentName string `json:"agent_name"`
-		Bio       string `json:"bio"`
-	} `json:"identity_card"`
+	IdentityCard     identityCardDraft `json:"identity_card"`
 	SecurityBoundary struct {
 		RecurringPublish bool `json:"recurring_publish"`
 		AutoReplyPM      bool `json:"auto_reply_pm"`
@@ -293,8 +305,47 @@ func validateDraftPayload(payload draftPayload) error {
 func validateDraftStep(payload draftPayload, step int16) error {
 	switch step {
 	case 2:
-		if err := validateIdentityCardFields(payload.IdentityCard.AgentName, payload.IdentityCard.Bio); err != nil {
+		description := payload.IdentityCard.AgentDescription
+		if description == "" {
+			description = payload.IdentityCard.Bio
+		}
+		if err := validateIdentityCardFields(payload.IdentityCard.AgentName, description); err != nil {
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+		}
+		identityFields := map[string]interface{}{
+			"human_description": payload.IdentityCard.HumanDescription,
+			"geo":               payload.IdentityCard.Geo,
+			"timezone":          payload.IdentityCard.Timezone,
+		}
+		for name, value := range map[string][]string{
+			"working_languages":  payload.IdentityCard.WorkingLanguages,
+			"seeking":            payload.IdentityCard.Seeking,
+			"offering":           payload.IdentityCard.Offering,
+			"agent_status":       payload.IdentityCard.AgentStatus,
+			"human_status":       payload.IdentityCard.HumanStatus,
+			"interests_negative": payload.IdentityCard.InterestsNegative,
+		} {
+			// Older drafts did not include these additive Card fields. Missing
+			// must remain valid; an explicit empty array is still persisted.
+			if value != nil {
+				identityFields[name] = value
+			}
+		}
+		for name, value := range identityFields {
+			spec, ok := agentcard.LookupField(name)
+			if !ok {
+				return fmt.Errorf("%w: unsupported identity field %s", errInvalidOnboardingDraft, name)
+			}
+			raw, _ := json.Marshal(value)
+			normalized, err := agentcard.ValidateValue(spec, raw)
+			if err != nil {
+				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+			}
+			if spec.Public {
+				if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
+					return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+				}
+			}
 		}
 	case 3:
 		return nil
@@ -322,6 +373,17 @@ func validateDraftStep(payload draftPayload, step int16) error {
 		return fmt.Errorf("%w: unsupported onboarding step", errInvalidOnboardingDraft)
 	}
 	return nil
+}
+
+func canConfirmOnboardingStep(state string, currentStep, requestedStep int16) bool {
+	return state != "completed" && requestedStep >= 2 && requestedStep <= currentStep
+}
+
+func nextOnboardingStep(currentStep, confirmedStep int16) int16 {
+	if confirmedStep == currentStep && currentStep < 5 {
+		return currentStep + 1
+	}
+	return currentStep
 }
 
 func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestContext) {
@@ -358,7 +420,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			FROM agent_onboarding_v2 WHERE agent_id = ? FOR UPDATE`, id).Scan(&state).Error; err != nil {
 			return err
 		}
-		if state.State == "completed" || state.CurrentStep != req.Step || state.Revision != req.ExpectedOnboardingRevision {
+		// A user may revisit and re-confirm any already unlocked step. A prior
+		// step updates its canonical data but never moves the onboarding cursor
+		// backwards; future/locked steps remain rejected.
+		if !canConfirmOnboardingStep(state.State, state.CurrentStep, req.Step) || state.Revision != req.ExpectedOnboardingRevision {
 			return errConflict
 		}
 		var rawDraft string
@@ -377,10 +442,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			return err
 		}
 		newRevision := state.Revision + 1
-		nextStep := req.Step + 1
+		nextStep := nextOnboardingStep(state.CurrentStep, req.Step)
 		newState := "in_progress"
 		var contextRevision interface{}
-		if req.Step == 5 {
+		if req.Step == 5 && req.Step == state.CurrentStep {
 			compiled, revision, err := compileAndActivateContext(tx, id, now)
 			if err != nil {
 				return err
@@ -458,14 +523,44 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 		if strings.TrimSpace(payload.IdentityCard.AgentName) == "" {
 			return fmt.Errorf("%w: agent_name is required", errInvalidOnboardingDraft)
 		}
+		description := payload.IdentityCard.AgentDescription
+		if description == "" {
+			description = payload.IdentityCard.Bio
+		}
 		if err := tx.Exec(`UPDATE agents SET agent_name = ?, bio = ?, updated_at = ? WHERE agent_id = ?`,
-			payload.IdentityCard.AgentName, payload.IdentityCard.Bio, now, agentID).Error; err != nil {
+			payload.IdentityCard.AgentName, description, now, agentID).Error; err != nil {
 			return err
 		}
 		if err := profiledal.EnsureAgentProfileRow(tx, agentID); err != nil {
 			return err
 		}
-		_, err := profiledal.BumpProfileVersion(tx, agentID)
+		version, _, err := profiledal.GetProfileVersionAndData(tx, agentID)
+		if err != nil {
+			return err
+		}
+		values := map[string]interface{}{
+			"human_description":  payload.IdentityCard.HumanDescription,
+			"working_languages":  payload.IdentityCard.WorkingLanguages,
+			"seeking":            payload.IdentityCard.Seeking,
+			"offering":           payload.IdentityCard.Offering,
+			"geo":                payload.IdentityCard.Geo,
+			"timezone":           payload.IdentityCard.Timezone,
+			"agent_status":       payload.IdentityCard.AgentStatus,
+			"human_status":       payload.IdentityCard.HumanStatus,
+			"interests_negative": payload.IdentityCard.InterestsNegative,
+		}
+		merge := make(map[string]json.RawMessage, len(values))
+		for key, value := range values {
+			encoded, marshalErr := json.Marshal(value)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			merge[key] = encoded
+		}
+		_, conflict, err := profiledal.ApplyVersionedProfileDataUpdate(tx, agentID, version, merge)
+		if conflict {
+			return errConflict
+		}
 		return err
 	case 3:
 		return tx.Exec(`INSERT INTO agent_settings

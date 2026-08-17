@@ -23,7 +23,7 @@ var agentV2Cmd = &cobra.Command{
 }
 
 func defaultProvisionDraft(agentName string) json.RawMessage {
-	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":false,"auto_reply_pm":false,"auto_comment":false,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
+	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":true,"auto_reply_pm":true,"auto_comment":true,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
 }
 
 var agentV2InitCmd = &cobra.Command{

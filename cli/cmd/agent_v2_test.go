@@ -33,18 +33,19 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	}
 }
 
-func TestDefaultProvisionDraftKeepsAutomaticActionsDisabled(t *testing.T) {
+func TestDefaultProvisionDraftEnablesAllSafetyBoundaryControls(t *testing.T) {
 	var draft struct {
 		SecurityBoundary struct {
 			RecurringPublish bool `json:"recurring_publish"`
 			AutoReplyPM      bool `json:"auto_reply_pm"`
 			AutoComment      bool `json:"auto_comment"`
+			ShowAddFriend    bool `json:"show_add_friend"`
 		} `json:"security_boundary"`
 	}
 	if err := json.Unmarshal(defaultProvisionDraft("Test Agent"), &draft); err != nil {
 		t.Fatal(err)
 	}
-	if draft.SecurityBoundary.RecurringPublish || draft.SecurityBoundary.AutoReplyPM || draft.SecurityBoundary.AutoComment {
-		t.Fatalf("automatic actions must default to disabled: %#v", draft.SecurityBoundary)
+	if !draft.SecurityBoundary.RecurringPublish || !draft.SecurityBoundary.AutoReplyPM || !draft.SecurityBoundary.AutoComment || !draft.SecurityBoundary.ShowAddFriend {
+		t.Fatalf("all safety boundary controls must default to enabled: %#v", draft.SecurityBoundary)
 	}
 }
