@@ -218,13 +218,11 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 			SELECT participant_a AS peer_agent_id, updated_at, conv_id
 			FROM conversations WHERE participant_b = ? AND updated_at >= ?
 			UNION ALL
-			SELECT (item.payload_snapshot->'author_identity'->>'agent_id')::bigint AS peer_agent_id,
-				item.created_at AS updated_at, item.batch_item_id AS conv_id
-			FROM feed_batch_items item
-			JOIN feed_batches batch ON batch.batch_id = item.batch_id
-			WHERE batch.agent_id = ? AND batch.created_at >= ? AND item.created_at >= ?
-			  AND jsonb_typeof(item.payload_snapshot->'author_identity') = 'object'
-			  AND COALESCE(item.payload_snapshot->'author_identity'->>'agent_id', '') ~ '^[0-9]+$'
+			SELECT exposure.author_agent_id AS peer_agent_id,
+				exposure.last_seen_at AS updated_at, exposure.exposure_id AS conv_id
+			FROM agent_feed_exposures exposure
+			WHERE exposure.agent_id = ? AND exposure.last_seen_at >= ?
+			  AND exposure.author_agent_id IS NOT NULL
 		), grouped AS (
 			SELECT peer_agent_id, MAX(updated_at) AS last_interaction_at,
 				COUNT(*)::bigint AS interaction_count
@@ -234,7 +232,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 			COUNT(*) OVER() AS total_count
 		FROM grouped ORDER BY last_interaction_at DESC, peer_agent_id DESC LIMIT ?`,
 		agentIDValue, todayStart, agentIDValue, todayStart,
-		agentIDValue, todayStart-int64(feedMaxLeaseAge/time.Millisecond), todayStart,
+		agentIDValue, todayStart,
 		agentIDValue, todayEncounterLimit).Scan(&encounters).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load today's Agent encounters", nil)
 		return

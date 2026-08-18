@@ -63,7 +63,7 @@ type Config struct {
 	ResendFromEmail             string
 	EnableEmailVerification     bool     // Whether login requires OTP email verification
 	EnableConsoleV2             bool     // Enable the isolated Console V2 BFF and onboarding routes
-	EnableFeedV2                bool     // Enable the lease-based Feed V2 routes
+	EnableFeedV2                bool     // Enable the stateless latest-view Feed V2 route
 	EnableControlChannelV2      bool     // Enable Agent command and attention routes
 	EnableCommunicationV2       bool     // Enable V2 PM/friend responses enriched with public Agent Card data
 	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker

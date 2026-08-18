@@ -250,24 +250,19 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		gdb.Exec(`DELETE FROM raw_items WHERE item_id IN (?, ?)`, fakeFeed.ugcItemID(), fakeFeed.pgcItemID())
 	})
 	fakeFeed.failNext.Store(true)
-	retryRequest := createFeedBatchRequest{
-		ProcessingScope: "retry-window", RuntimeInstanceID: "integration-runtime",
-		IdempotencyKey: "retry-feed-" + agentID, Limit: 20,
-	}
-	status, _, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", retryRequest,
+	retryRequest := pullFeedRequest{Limit: 20}
+	status, _, _ := performJSON(t, h, "POST", "/api/v2/feed", retryRequest,
 		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("transient Feed failure status=%d", status)
 	}
-	status, retryPayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", retryRequest,
+	status, retryPayload, _ := performJSON(t, h, "POST", "/api/v2/feed", retryRequest,
 		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
 	if status != http.StatusOK {
 		t.Fatalf("same-key Feed retry did not recover status=%d payload=%#v", status, retryPayload)
 	}
-	status, baselinePayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", createFeedBatchRequest{
-		ProcessingScope: "heartbeat", RuntimeInstanceID: "integration-runtime",
-		IdempotencyKey: "baseline-feed-" + agentID, Limit: 20,
-	}, ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	status, baselinePayload, _ := performJSON(t, h, "POST", "/api/v2/feed", pullFeedRequest{Limit: 20},
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
 	if status != http.StatusOK {
 		t.Fatalf("baseline Feed status=%d payload=%#v", status, baselinePayload)
 	}
@@ -281,14 +276,6 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		if item["intent_match"] != nil || len(item["recommended_actions"].([]interface{})) != 0 {
 			t.Fatalf("baseline item leaked intent data: %#v", item)
 		}
-	}
-	baselineLease := baselineData["lease"].(map[string]interface{})
-	status, baselineAck, _ := performJSON(t, h, "POST", "/api/v2/feed/batches/"+baselineData["batch_id"].(string)+"/ack", ackFeedBatchRequest{
-		LeaseEpoch: int64(baselineLease["epoch"].(float64)), LeaseToken: baselineLease["token"].(string),
-		IdempotencyKey: "baseline-ack-" + agentID,
-	}, ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
-	if status != http.StatusOK || responseData(t, baselineAck)["status"] != "acked" {
-		t.Fatalf("baseline Feed ack status=%d payload=%#v", status, baselineAck)
 	}
 	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
 		RefreshToken: refreshToken, RotationRequestID: "refresh-" + hashString(refreshToken),
@@ -512,17 +499,23 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	contextRevision := int64(onboarding["active_context_revision"].(float64))
 	fakeFeed.authorID = agentIDInt
-	status, feedPayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches", createFeedBatchRequest{
-		ProcessingScope: "heartbeat", RuntimeInstanceID: "integration-runtime",
-		IdempotencyKey: "feed-" + agentID, Limit: 20,
-	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	status, feedPayload, _ := performJSON(t, h, "POST", "/api/v2/feed", pullFeedRequest{Limit: 20},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != 200 {
 		t.Fatalf("feed batch status=%d payload=%#v", status, feedPayload)
 	}
 	feedData := responseData(t, feedPayload)
 	feedItems := feedData["items"].([]interface{})
-	if len(feedItems) != 2 || feedData["control_context_snapshot"] == nil || feedData["schema_version"] != "feed_batch.v2" {
-		t.Fatalf("feed batch did not freeze items/context: %#v", feedData)
+	if len(feedItems) != 2 || feedData["control_context_snapshot"] == nil || feedData["schema_version"] != "feed.v2" {
+		t.Fatalf("Feed did not return items/context: %#v", feedData)
+	}
+	for _, removedField := range []string{"batch_id", "status", "lease"} {
+		if _, exists := feedData[removedField]; exists {
+			t.Fatalf("stateless Feed V2 unexpectedly returned %s: %#v", removedField, feedData)
+		}
+	}
+	if contract, _ := feedData["output_contract"].(string); contract == "" {
+		t.Fatalf("Feed V2 did not include the per-response safety contract: %#v", feedData)
 	}
 	ugc := feedItems[0].(map[string]interface{})
 	pgc := feedItems[1].(map[string]interface{})
@@ -560,15 +553,6 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("matched Feed item did not create one deduplicated attention item: %#v", attentionItems)
 	}
 	attentionID := attentionItems[0].(map[string]interface{})["attention_id"].(string)
-	lease := feedData["lease"].(map[string]interface{})
-	status, ackPayload, _ := performJSON(t, h, "POST", "/api/v2/feed/batches/"+feedData["batch_id"].(string)+"/ack", ackFeedBatchRequest{
-		LeaseEpoch: int64(lease["epoch"].(float64)), LeaseToken: lease["token"].(string),
-		IdempotencyKey: "ack-" + agentID,
-	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
-	if status != 200 || responseData(t, ackPayload)["status"] != "acked" {
-		t.Fatalf("feed ack status=%d payload=%#v", status, ackPayload)
-	}
-
 	status, commandPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
 		CommandType: "human_instruction", Payload: json.RawMessage(`{"instruction":"review the new signal"}`),
 		AttentionID: &attentionID, IdempotencyKey: "command-" + agentID,

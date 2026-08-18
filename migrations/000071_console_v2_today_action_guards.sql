@@ -8,11 +8,8 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_agent_commands_attention_actio
     ON agent_commands(agent_id, action_idempotency_key)
     WHERE command_type = 'attention_action' AND action_idempotency_key IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feed_batches_agent_created
-    ON feed_batches(agent_id, created_at DESC, batch_id);
 
 -- +goose Down
 
-DROP INDEX CONCURRENTLY IF EXISTS idx_feed_batches_agent_created;
 DROP INDEX CONCURRENTLY IF EXISTS uq_agent_commands_attention_action_key;
 ALTER TABLE agent_commands DROP COLUMN IF EXISTS action_idempotency_key;

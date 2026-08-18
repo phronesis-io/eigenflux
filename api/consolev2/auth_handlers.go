@@ -252,7 +252,7 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "ID_GENERATION_FAILED", "could not allocate Agent identity", nil)
 		return
 	}
-	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "feed:ack", "commands:claim", "console:handoff:create"}
+	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim", "console:handoff:create"}
 	keyFingerprint := fingerprint(publicKey)
 	var agentID, principalID, expiresAt int64
 	created := false

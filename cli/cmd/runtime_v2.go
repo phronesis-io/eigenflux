@@ -62,12 +62,6 @@ var runtimeV2HeartbeatCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// The outer heartbeat is also the durable Feed queue's renewal clock.
-		// A fenced terminal entry is moved to the bounded stale queue by the
-		// helper, allowing the next Feed poll to recover instead of wedging.
-		if _, err := renewQueuedFeedV2Lease(clientV2, server.Name, runtimeID, ""); err != nil {
-			return err
-		}
 		output.PrintData(response.Data, resolveFormat())
 		return nil
 	},

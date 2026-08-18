@@ -39,12 +39,11 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 		ContentClass  string `gorm:"column:content_class"`
 		AuthorAgentID int64  `gorm:"column:author_agent_id"`
 	}
-	if err := s.db.Raw(`SELECT item.payload_snapshot->>'content_class' AS content_class,
-		raw.author_agent_id FROM feed_batch_items item
-		JOIN feed_batches batch ON batch.batch_id = item.batch_id
-		JOIN raw_items raw ON raw.item_id = item.source_id
-		WHERE batch.agent_id = ? AND item.source_type = ? AND item.source_id = ?
-		ORDER BY batch.created_at DESC LIMIT 1`, agentIDValue, sourceType, sourceID).Scan(&source).Error; err != nil {
+	if err := s.db.Raw(`SELECT exposure.content_class, raw.author_agent_id
+		FROM agent_feed_exposures exposure
+		JOIN raw_items raw ON raw.item_id = exposure.source_id
+		WHERE exposure.agent_id = ? AND exposure.source_type = ? AND exposure.source_id = ?
+		LIMIT 1`, agentIDValue, sourceType, sourceID).Scan(&source).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "FEED_SOURCE_READ_FAILED", "could not authorize Feed source", nil)
 		return
 	}

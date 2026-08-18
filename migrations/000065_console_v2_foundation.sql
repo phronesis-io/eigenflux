@@ -364,91 +364,32 @@ CREATE TABLE IF NOT EXISTS agent_feed_v2_settings (
         CHECK (poll_interval_seconds BETWEEN 60 AND 86400)
 );
 
-CREATE TABLE IF NOT EXISTS feed_batches (
-    batch_id BIGSERIAL PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS agent_feed_exposures (
+    exposure_id BIGSERIAL PRIMARY KEY,
     agent_id BIGINT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
-    processing_scope VARCHAR(64) NOT NULL,
-    request_id VARCHAR(128) NOT NULL,
-    idempotency_key VARCHAR(128) NOT NULL,
-    request_hash VARCHAR(128) NOT NULL,
-    personalization_mode VARCHAR(24) NOT NULL,
-    onboarding_state_at_creation VARCHAR(24) NOT NULL,
-    context_revision BIGINT NULL,
-    status VARCHAR(16) NOT NULL DEFAULT 'ready',
-    response_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
-    lease_owner_runtime_id VARCHAR(128) NULL,
-    lease_epoch BIGINT NOT NULL DEFAULT 0,
-    lease_token_hash VARCHAR(128) NULL,
-    lease_until BIGINT NULL,
-    attempt_count INT NOT NULL DEFAULT 0,
-    created_at BIGINT NOT NULL,
-    acked_at BIGINT NULL,
-    CONSTRAINT uq_feed_batches_idempotency UNIQUE (agent_id, processing_scope, idempotency_key),
-    CONSTRAINT uq_feed_batches_scope_batch UNIQUE (agent_id, processing_scope, batch_id),
-    CONSTRAINT fk_feed_batches_context
-        FOREIGN KEY (agent_id, context_revision)
-        REFERENCES agent_context_revisions(agent_id, revision),
-    CONSTRAINT chk_feed_batches_personalization
-        CHECK (personalization_mode IN ('baseline', 'intent_aligned')),
-    CONSTRAINT chk_feed_batches_onboarding
-        CHECK (onboarding_state_at_creation IN ('in_progress', 'migration_pending', 'completed')),
-    CONSTRAINT chk_feed_batches_status
-        CHECK (status IN ('building', 'ready', 'leased', 'partial', 'acked', 'expired', 'dead')),
-    CONSTRAINT chk_feed_batches_response_meta CHECK (jsonb_typeof(response_meta) = 'object')
-);
-CREATE INDEX IF NOT EXISTS idx_feed_batches_agent_scope_created
-    ON feed_batches(agent_id, processing_scope, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_feed_batches_lease_expiry
-    ON feed_batches(status, lease_until)
-    WHERE status IN ('leased', 'partial');
-CREATE INDEX IF NOT EXISTS idx_feed_batches_terminal_created
-    ON feed_batches(created_at, batch_id)
-    WHERE status IN ('acked', 'dead', 'expired');
-
-CREATE TABLE IF NOT EXISTS feed_consumer_state (
-    agent_id BIGINT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
-    processing_scope VARCHAR(64) NOT NULL,
-    active_batch_id BIGINT NULL,
-    runtime_instance_id VARCHAR(128) NULL,
-    lease_epoch BIGINT NOT NULL DEFAULT 0,
-    lease_until BIGINT NULL,
-    updated_at BIGINT NOT NULL,
-    PRIMARY KEY (agent_id, processing_scope),
-    CONSTRAINT fk_feed_consumer_state_active_batch
-        FOREIGN KEY (agent_id, processing_scope, active_batch_id)
-        REFERENCES feed_batches(agent_id, processing_scope, batch_id)
-        DEFERRABLE INITIALLY DEFERRED
-);
-
-CREATE TABLE IF NOT EXISTS feed_batch_items (
-    batch_item_id BIGSERIAL PRIMARY KEY,
-    batch_id BIGINT NOT NULL REFERENCES feed_batches(batch_id) ON DELETE CASCADE,
-    ordinal INT NOT NULL,
     source_type VARCHAR(32) NOT NULL,
     source_id BIGINT NOT NULL,
-    payload_snapshot JSONB NOT NULL,
-    intent_match_snapshot JSONB NULL,
-    status VARCHAR(24) NOT NULL DEFAULT 'pending',
-    attempt_count INT NOT NULL DEFAULT 0,
-    last_error TEXT NULL,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    CONSTRAINT uq_feed_batch_items_ordinal UNIQUE (batch_id, ordinal),
-    CONSTRAINT chk_feed_batch_items_payload CHECK (jsonb_typeof(payload_snapshot) = 'object'),
-    CONSTRAINT chk_feed_batch_items_intent CHECK (
-        intent_match_snapshot IS NULL OR jsonb_typeof(intent_match_snapshot) = 'object'
-    ),
-    CONSTRAINT chk_feed_batch_items_status
-        CHECK (status IN ('pending', 'processed', 'skipped', 'retryable_failed', 'terminal_failed'))
+    content_class VARCHAR(16) NOT NULL,
+    author_agent_id BIGINT NULL REFERENCES agents(agent_id) ON DELETE SET NULL,
+    context_revision BIGINT NULL,
+    first_seen_at BIGINT NOT NULL,
+    last_seen_at BIGINT NOT NULL,
+    seen_count BIGINT NOT NULL DEFAULT 1,
+    CONSTRAINT uq_agent_feed_exposures_source UNIQUE (agent_id, source_type, source_id),
+    CONSTRAINT fk_agent_feed_exposures_context
+        FOREIGN KEY (agent_id, context_revision)
+        REFERENCES agent_context_revisions(agent_id, revision),
+    CONSTRAINT chk_agent_feed_exposures_content_class
+        CHECK (content_class IN ('ugc', 'pgc'))
 );
-CREATE INDEX IF NOT EXISTS idx_feed_batch_items_batch_status
-    ON feed_batch_items(batch_id, status, ordinal);
+CREATE INDEX IF NOT EXISTS idx_agent_feed_exposures_agent_seen
+    ON agent_feed_exposures(agent_id, last_seen_at DESC, exposure_id);
+CREATE INDEX IF NOT EXISTS idx_agent_feed_exposures_retention
+    ON agent_feed_exposures(last_seen_at, exposure_id);
 
 CREATE TABLE IF NOT EXISTS action_executions (
     action_execution_id BIGSERIAL PRIMARY KEY,
     agent_id BIGINT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
-    batch_id BIGINT NULL REFERENCES feed_batches(batch_id) ON DELETE SET NULL,
-    batch_item_id BIGINT NULL REFERENCES feed_batch_items(batch_item_id) ON DELETE SET NULL,
     action_type VARCHAR(32) NOT NULL,
     semantic_idempotency_key VARCHAR(128) NOT NULL,
     request_hash VARCHAR(128) NOT NULL,
@@ -462,8 +403,8 @@ CREATE TABLE IF NOT EXISTS action_executions (
     CONSTRAINT chk_action_executions_status
         CHECK (status IN ('prepared', 'dispatched', 'succeeded', 'failed', 'blocked', 'unknown'))
 );
-CREATE INDEX IF NOT EXISTS idx_action_executions_batch_item
-    ON action_executions(batch_id, batch_item_id, status);
+CREATE INDEX IF NOT EXISTS idx_action_executions_agent_status
+    ON action_executions(agent_id, status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS agent_attention_items (
     attention_id BIGSERIAL PRIMARY KEY,
@@ -606,9 +547,7 @@ DROP TABLE IF EXISTS agent_commands;
 DROP TABLE IF EXISTS agent_attention_intents;
 DROP TABLE IF EXISTS agent_attention_items;
 DROP TABLE IF EXISTS action_executions;
-DROP TABLE IF EXISTS feed_batch_items;
-DROP TABLE IF EXISTS feed_consumer_state;
-DROP TABLE IF EXISTS feed_batches;
+DROP TABLE IF EXISTS agent_feed_exposures;
 DROP TABLE IF EXISTS agent_feed_v2_settings;
 ALTER TABLE agent_onboarding_v2 DROP CONSTRAINT IF EXISTS fk_agent_onboarding_active_context;
 ALTER TABLE agent_context_heads DROP CONSTRAINT IF EXISTS fk_agent_context_heads_active_revision;

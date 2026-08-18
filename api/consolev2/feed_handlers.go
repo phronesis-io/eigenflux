@@ -16,51 +16,29 @@ import (
 	"gorm.io/gorm"
 
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
+	"eigenflux_server/pkg/feedcontract"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
 const (
-	feedLeaseTTL        = 2 * time.Minute
-	feedMaxLeaseAge     = 10 * time.Minute
-	feedBuildStaleAfter = 30 * time.Second
-	feedMaxItems        = 20
-	feedSnapshotBudget  = 192 << 10
-	feedResponseBudget  = 256 << 10
-	attentionTTL        = 90 * 24 * time.Hour
+	feedMaxItems       = 20
+	feedPayloadBudget  = 192 << 10
+	feedResponseBudget = 256 << 10
+	attentionTTL       = 90 * 24 * time.Hour
 )
 
-var (
-	errFeedBuilding  = errors.New("feed batch is building")
-	errFeedLeaseHeld = errors.New("feed batch lease is held")
-)
-
-type createFeedBatchRequest struct {
-	ProcessingScope        string           `json:"processing_scope"`
-	RuntimeInstanceID      string           `json:"runtime_instance_id"`
-	IdempotencyKey         string           `json:"idempotency_key"`
+type pullFeedRequest struct {
 	Limit                  int32            `json:"limit"`
 	KnownCardVersions      map[string]int64 `json:"known_public_card_versions,omitempty"`
 	ContextRevisionApplied *int64           `json:"context_revision_applied,omitempty"`
 }
 
-type feedBatchRow struct {
-	BatchID                   int64   `gorm:"column:batch_id"`
-	IdempotencyKey            string  `gorm:"column:idempotency_key"`
-	RequestHash               string  `gorm:"column:request_hash"`
-	PersonalizationMode       string  `gorm:"column:personalization_mode"`
-	OnboardingStateAtCreation string  `gorm:"column:onboarding_state_at_creation"`
-	ContextRevision           *int64  `gorm:"column:context_revision"`
-	Status                    string  `gorm:"column:status"`
-	LeaseOwnerRuntimeID       *string `gorm:"column:lease_owner_runtime_id"`
-	LeaseEpoch                int64   `gorm:"column:lease_epoch"`
-	LeaseTokenHash            *string `gorm:"column:lease_token_hash"`
-	LeaseUntil                *int64  `gorm:"column:lease_until"`
-	CreatedAt                 int64   `gorm:"column:created_at"`
-	ResponseMeta              string  `gorm:"column:response_meta"`
-	Now                       int64   `gorm:"column:now_ms"`
-}
-
-func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
+// pullFeedV2 is deliberately stateless with respect to delivery. Feed is a
+// time-sensitive signal, not a durable command queue: every poll returns the
+// latest view, and a busy host may coalesce an older pending view into a newer
+// one. Durable execution remains in agent_commands and the domain idempotency
+// layers for PM, broadcast, and trade actions.
+func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, ok := agentID(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "Agent V2 authentication is required", nil)
@@ -70,205 +48,43 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_V2_UNAVAILABLE", "Feed V2 is temporarily unavailable", nil)
 		return
 	}
-	var req createFeedBatchRequest
+	var req pullFeedRequest
 	if err := decodeBody(c, &req); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
 		return
 	}
-	if req.ProcessingScope == "" {
-		req.ProcessingScope = "default"
-	}
 	if req.Limit == 0 {
 		req.Limit = feedMaxItems
 	}
-	if req.RuntimeInstanceID == "" || len(req.RuntimeInstanceID) > 128 || req.IdempotencyKey == "" || len(req.IdempotencyKey) > 128 ||
-		len(req.ProcessingScope) > 64 || req.Limit < 1 || req.Limit > feedMaxItems || len(req.KnownCardVersions) > 100 ||
+	if req.Limit < 1 || req.Limit > feedMaxItems || len(req.KnownCardVersions) > 100 ||
 		(req.ContextRevisionApplied != nil && *req.ContextRevisionApplied < 0) {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "runtime_instance_id, idempotency_key, scope, or limit is invalid", nil)
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "limit, known Card versions, or context revision is invalid", nil)
 		return
 	}
-	requestBytes, _ := json.Marshal(req)
-	requestHash := hashString(string(requestBytes))
-	leaseToken, err := randomToken("eflease_", 24)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not allocate Feed lease", nil)
+	var onboarding struct {
+		State               string `gorm:"column:state"`
+		ContextRevision     *int64 `gorm:"column:active_context_revision"`
+		PollIntervalSeconds int    `gorm:"column:poll_interval_seconds"`
+	}
+	if err := s.db.Raw(`SELECT o.state, o.active_context_revision,
+		COALESCE(settings.poll_interval_seconds, 600) AS poll_interval_seconds
+		FROM agent_onboarding_v2 o
+		LEFT JOIN agent_feed_v2_settings settings ON settings.agent_id = o.agent_id
+		WHERE o.agent_id = ?`, agentIDValue).Scan(&onboarding).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "FEED_READ_FAILED", "could not load Feed personalization", nil)
 		return
 	}
-	var now int64
-	requestID, _ := randomToken("efreq_", 18)
-	var batch feedBatchRow
-	created := false
-	pollIntervalSeconds := 600
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`INSERT INTO feed_consumer_state
-			(agent_id, processing_scope, lease_epoch, updated_at)
-			VALUES (?, ?, 0, (extract(epoch FROM clock_timestamp())*1000)::bigint)
-			ON CONFLICT (agent_id, processing_scope) DO NOTHING`,
-			agentIDValue, req.ProcessingScope).Error; err != nil {
-			return err
-		}
-		var state struct {
-			ActiveBatchID *int64 `gorm:"column:active_batch_id"`
-			Now           int64  `gorm:"column:now_ms"`
-		}
-		if err := tx.Raw(`WITH clock AS (
-				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-			) SELECT state.active_batch_id, clock.now_ms
-			FROM feed_consumer_state state CROSS JOIN clock
-			WHERE state.agent_id = ? AND state.processing_scope = ?
-			FOR UPDATE OF state`, agentIDValue, req.ProcessingScope).Scan(&state).Error; err != nil {
-			return err
-		}
-		now = state.Now
-		if state.ActiveBatchID != nil {
-			if err := tx.Raw(`SELECT batch_id, idempotency_key, request_hash, personalization_mode,
-				onboarding_state_at_creation, context_revision, status, lease_owner_runtime_id,
-				lease_epoch, lease_token_hash, lease_until, created_at, response_meta::text AS response_meta
-				FROM feed_batches WHERE batch_id = ? AND agent_id = ? FOR UPDATE`, *state.ActiveBatchID, agentIDValue).Scan(&batch).Error; err != nil {
-				return err
-			}
-			if batch.Status == "building" && batch.CreatedAt+int64(feedBuildStaleAfter/time.Millisecond) > now {
-				return errFeedBuilding
-			}
-			if batch.Status == "building" {
-				if err := tx.Exec(`UPDATE feed_batches SET status = 'dead' WHERE batch_id = ?`, batch.BatchID).Error; err != nil {
-					return err
-				}
-				state.ActiveBatchID = nil
-			} else if (batch.Status == "leased" || batch.Status == "partial") && batch.LeaseUntil != nil && *batch.LeaseUntil > now &&
-				(batch.LeaseOwnerRuntimeID == nil || *batch.LeaseOwnerRuntimeID != req.RuntimeInstanceID) {
-				return errFeedLeaseHeld
-			} else if batch.Status == "ready" || batch.Status == "partial" || batch.Status == "leased" {
-				if batch.IdempotencyKey == req.IdempotencyKey && batch.RequestHash != requestHash {
-					return errConflict
-				}
-				leaseUntil := now + int64(feedLeaseTTL/time.Millisecond)
-				maxUntil := batch.CreatedAt + int64(feedMaxLeaseAge/time.Millisecond)
-				if leaseUntil > maxUntil {
-					leaseUntil = maxUntil
-				}
-				if leaseUntil <= now {
-					if err := tx.Exec(`UPDATE feed_batches SET status = 'expired' WHERE batch_id = ?`, batch.BatchID).Error; err != nil {
-						return err
-					}
-					state.ActiveBatchID = nil
-				} else {
-					batch.LeaseEpoch++
-					batch.LeaseUntil = &leaseUntil
-					batch.Status = "leased"
-					batch.LeaseOwnerRuntimeID = &req.RuntimeInstanceID
-					hash := hashString(leaseToken)
-					batch.LeaseTokenHash = &hash
-					return tx.Exec(`UPDATE feed_batches SET status = 'leased', lease_owner_runtime_id = ?,
-						lease_epoch = ?, lease_token_hash = ?, lease_until = ?, attempt_count = attempt_count + 1
-						WHERE batch_id = ?`, req.RuntimeInstanceID, batch.LeaseEpoch, hash, leaseUntil, batch.BatchID).Error
-				}
-			}
-			if state.ActiveBatchID != nil {
-				return errConflict
-			}
-			if err := tx.Exec(`UPDATE feed_consumer_state SET active_batch_id = NULL, updated_at = ?
-				WHERE agent_id = ? AND processing_scope = ?`, now, agentIDValue, req.ProcessingScope).Error; err != nil {
-				return err
-			}
-		}
-		// A transient source/encoding failure leaves the idempotency row in a
-		// terminal state. Reuse that same row under the existing per-scope lock
-		// so a ten-minute CLI key can recover without inserting a conflicting
-		// batch or widening the lock scope.
-		var terminal feedBatchRow
-		if err := tx.Raw(`SELECT batch_id, idempotency_key, request_hash, personalization_mode,
-			onboarding_state_at_creation, context_revision, status, lease_owner_runtime_id,
-			lease_epoch, lease_token_hash, lease_until, created_at, response_meta::text AS response_meta
-			FROM feed_batches WHERE agent_id = ? AND processing_scope = ? AND idempotency_key = ?
-			FOR UPDATE`, agentIDValue, req.ProcessingScope, req.IdempotencyKey).Scan(&terminal).Error; err != nil {
-			return err
-		}
-		if terminal.BatchID != 0 {
-			if terminal.RequestHash != requestHash {
-				return errConflict
-			}
-			if terminal.Status != "dead" && terminal.Status != "expired" {
-				return errConflict
-			}
-			if err := tx.Exec(`DELETE FROM feed_batch_items WHERE batch_id = ?`, terminal.BatchID).Error; err != nil {
-				return err
-			}
-			if err := tx.Exec(`UPDATE feed_batches SET request_id = ?, status = 'building', response_meta = '{}'::jsonb,
-				lease_owner_runtime_id = NULL, lease_token_hash = NULL, lease_until = NULL,
-				attempt_count = 0, created_at = ?, acked_at = NULL WHERE batch_id = ?`,
-				requestID, now, terminal.BatchID).Error; err != nil {
-				return err
-			}
-			batch = terminal
-			batch.Status, batch.CreatedAt, batch.ResponseMeta = "building", now, "{}"
-			batch.LeaseOwnerRuntimeID, batch.LeaseTokenHash, batch.LeaseUntil = nil, nil, nil
-			created = true
-			return tx.Exec(`UPDATE feed_consumer_state SET active_batch_id = ?, updated_at = ?
-				WHERE agent_id = ? AND processing_scope = ?`, batch.BatchID, now,
-				agentIDValue, req.ProcessingScope).Error
-		}
-
-		var onboarding struct {
-			State               string `gorm:"column:state"`
-			ContextRevision     *int64 `gorm:"column:active_context_revision"`
-			PollIntervalSeconds int    `gorm:"column:poll_interval_seconds"`
-		}
-		if err := tx.Raw(`SELECT o.state, o.active_context_revision,
-			COALESCE(s.poll_interval_seconds, 600) AS poll_interval_seconds
-			FROM agent_onboarding_v2 o LEFT JOIN agent_feed_v2_settings s ON s.agent_id = o.agent_id
-			WHERE o.agent_id = ?`, agentIDValue).Scan(&onboarding).Error; err != nil {
-			return err
-		}
-		if onboarding.State == "" {
-			return errUnauthorized
-		}
-		mode := "baseline"
-		if onboarding.State == "completed" {
-			mode = "intent_aligned"
-		}
-		pollIntervalSeconds = onboarding.PollIntervalSeconds
-		if err := tx.Raw(`INSERT INTO feed_batches
-			(agent_id, processing_scope, request_id, idempotency_key, request_hash,
-			 personalization_mode, onboarding_state_at_creation, context_revision, status,
-			 response_meta, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'building', '{}'::jsonb, ?) RETURNING batch_id,
-			 idempotency_key, request_hash, personalization_mode, onboarding_state_at_creation,
-			 context_revision, status, created_at, response_meta::text AS response_meta`,
-			agentIDValue, req.ProcessingScope, requestID, req.IdempotencyKey, requestHash, mode,
-			onboarding.State, onboarding.ContextRevision, now).Scan(&batch).Error; err != nil {
-			if isUniqueViolation(err) {
-				return errConflict
-			}
-			return err
-		}
-		created = true
-		return tx.Exec(`UPDATE feed_consumer_state SET active_batch_id = ?, updated_at = ?
-			WHERE agent_id = ? AND processing_scope = ?`, batch.BatchID, now, agentIDValue, req.ProcessingScope).Error
-	})
-	if errors.Is(err, errFeedBuilding) {
-		reply(c, http.StatusAccepted, map[string]interface{}{"status": "building", "batch_id": fmt.Sprintf("%d", batch.BatchID)})
-		return
-	}
-	if errors.Is(err, errFeedLeaseHeld) {
-		fail(c, http.StatusConflict, "FEED_BATCH_LEASED", "another runtime currently owns this Feed batch", nil)
-		return
-	}
-	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "FEED_BATCH_CONFLICT", "an active or idempotent Feed batch conflicts with this request", nil)
-		return
-	}
-	if errors.Is(err, errUnauthorized) {
+	if onboarding.State == "" {
 		fail(c, http.StatusUnauthorized, "AGENT_AUTH_INVALID", "Agent V2 identity is unavailable", nil)
 		return
 	}
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "FEED_BATCH_FAILED", "could not create Feed batch", nil)
-		return
-	}
-	if !created {
-		s.replyFeedBatch(c, agentIDValue, batch, leaseToken, req.ContextRevisionApplied)
-		return
+	mode := "baseline"
+	if onboarding.State == "completed" {
+		mode = "intent_aligned"
+		if onboarding.ContextRevision == nil || *onboarding.ContextRevision <= 0 {
+			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "completed onboarding has no active control context", nil)
+			return
+		}
 	}
 
 	action := "refresh"
@@ -276,96 +92,96 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		AgentId: agentIDValue, Action: &action, Limit: &req.Limit,
 	})
 	if rpcErr != nil || feedResp == nil || feedResp.BaseResp == nil || feedResp.BaseResp.Code != 0 {
-		s.abandonFeedBatch(agentIDValue, req.ProcessingScope, batch.BatchID)
 		fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
 		return
 	}
-	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, batch.BatchID,
-		batch.PersonalizationMode, batch.ContextRevision, feedResp.Items, req.KnownCardVersions)
+	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, mode,
+		onboarding.ContextRevision, feedResp.Items, req.KnownCardVersions)
 	if encodeErr != nil {
-		s.abandonFeedBatch(agentIDValue, req.ProcessingScope, batch.BatchID)
-		fail(c, http.StatusInternalServerError, "FEED_BATCH_FAILED", "could not encode Feed batch", nil)
+		fail(c, http.StatusInternalServerError, "FEED_READ_FAILED", "could not encode Feed response", nil)
 		return
 	}
+
 	contextDelivery := "none"
-	if batch.ContextRevision != nil {
+	if onboarding.ContextRevision != nil {
 		contextDelivery = "full"
-		if req.ContextRevisionApplied != nil && *req.ContextRevisionApplied == *batch.ContextRevision {
+		if req.ContextRevisionApplied != nil && *req.ContextRevisionApplied == *onboarding.ContextRevision {
 			contextDelivery = "unchanged"
 		}
 	}
-	metaBytes, _ := json.Marshal(map[string]interface{}{
-		"has_more": feedResp.HasMore, "impression_id": feedResp.ImpressionId,
-		"agent_card_updates": cardUpdates, "context_delivery": contextDelivery,
-		"poll_interval_seconds": pollIntervalSeconds,
-		"poll_phase_seconds":    agentIDValue % int64(pollIntervalSeconds),
-	})
 	itemsBytes, _ := json.Marshal(payloads)
-	if len(itemsBytes)+len(metaBytes) > feedSnapshotBudget {
+	if len(itemsBytes) > feedPayloadBudget {
 		shrinkFeedPayloads(payloads)
 		itemsBytes, _ = json.Marshal(payloads)
 	}
-	if len(itemsBytes)+len(metaBytes) > feedSnapshotBudget {
-		s.abandonFeedBatch(agentIDValue, req.ProcessingScope, batch.BatchID)
-		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed batch exceeds the V2 response budget", nil)
+	if len(itemsBytes) > feedPayloadBudget {
+		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed response exceeds the V2 response budget", nil)
 		return
 	}
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		var state struct {
-			ActiveBatchID *int64 `gorm:"column:active_batch_id"`
-			Now           int64  `gorm:"column:now_ms"`
-		}
-		if err := tx.Raw(`WITH clock AS (
-				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-			) SELECT state.active_batch_id, clock.now_ms
-			FROM feed_consumer_state state CROSS JOIN clock
-			WHERE state.agent_id = ? AND state.processing_scope = ?
-			FOR UPDATE OF state`, agentIDValue, req.ProcessingScope).Scan(&state).Error; err != nil {
-			return err
-		}
-		if state.ActiveBatchID == nil || *state.ActiveBatchID != batch.BatchID {
-			return errConflict
-		}
-		now = state.Now
-		leaseUntil := now + int64(feedLeaseTTL/time.Millisecond)
-		maxUntil := batch.CreatedAt + int64(feedMaxLeaseAge/time.Millisecond)
-		if leaseUntil > maxUntil {
-			leaseUntil = maxUntil
-		}
-		if leaseUntil <= now {
-			return errConflict
-		}
+	var now int64
+	if err := s.db.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "FEED_READ_FAILED", "could not timestamp Feed response", nil)
+		return
+	}
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		if len(payloads) > 0 {
-			if err := tx.Exec(`INSERT INTO feed_batch_items
-				(batch_id, ordinal, source_type, source_id, payload_snapshot, intent_match_snapshot,
-				 status, attempt_count, created_at, updated_at)
-				SELECT ?, (entry->>'ordinal')::int, entry->>'source_type', (entry->>'source_id')::bigint,
-				 entry->'payload', NULLIF(entry->'intent_match', 'null'::jsonb), 'pending', 0, ?, ?
-				FROM jsonb_array_elements(?::jsonb) AS entry`, batch.BatchID, now, now, string(itemsBytes)).Error; err != nil {
+			if err := persistFeedExposures(tx, agentIDValue, payloads, onboarding.ContextRevision, now); err != nil {
 				return err
 			}
 			if err := persistAttentionItems(tx, agentIDValue, payloads, now); err != nil {
 				return err
 			}
 		}
-		batch.LeaseEpoch = 1
-		batch.LeaseUntil = &leaseUntil
-		batch.LeaseOwnerRuntimeID = &req.RuntimeInstanceID
-		batch.Status = "leased"
-		batch.ResponseMeta = string(metaBytes)
-		hash := hashString(leaseToken)
-		batch.LeaseTokenHash = &hash
-		return tx.Exec(`UPDATE feed_batches SET status = 'leased', response_meta = ?::jsonb,
-			lease_owner_runtime_id = ?, lease_epoch = 1, lease_token_hash = ?, lease_until = ?, attempt_count = 1
-			WHERE batch_id = ? AND status = 'building'`, string(metaBytes), req.RuntimeInstanceID,
-			hash, leaseUntil, batch.BatchID).Error
-	})
-	if err != nil {
-		s.abandonFeedBatch(agentIDValue, req.ProcessingScope, batch.BatchID)
-		fail(c, http.StatusInternalServerError, "FEED_BATCH_FAILED", "could not persist Feed batch", nil)
+		return nil
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, "FEED_READ_FAILED", "could not record Feed exposure", nil)
 		return
 	}
-	s.replyFeedBatch(c, agentIDValue, batch, leaseToken, req.ContextRevisionApplied)
+
+	var controlContext interface{}
+	if onboarding.ContextRevision != nil && contextDelivery == "full" {
+		var raw string
+		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
+			WHERE agent_id = ? AND revision = ?`, agentIDValue, *onboarding.ContextRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
+			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not read control context", nil)
+			return
+		}
+	}
+	items := make([]map[string]interface{}, 0, len(payloads))
+	for _, item := range payloads {
+		payload := item.Payload
+		payload["intent_match"] = item.IntentMatch
+		items = append(items, payload)
+	}
+	response := map[string]interface{}{
+		"schema_version": "feed.v2", "impression_id": feedResp.ImpressionId,
+		"personalization": map[string]interface{}{
+			"mode": mode, "onboarding_state": onboarding.State,
+			"context_revision": onboarding.ContextRevision, "context_delivery": contextDelivery,
+		},
+		"control_context_snapshot": controlContext,
+		"agent_card_updates":       cardUpdates,
+		"cadence": map[string]interface{}{
+			"poll_interval_seconds": onboarding.PollIntervalSeconds,
+			"phase_seconds":         agentIDValue % int64(onboarding.PollIntervalSeconds),
+		},
+		"items": items, "notifications": []interface{}{},
+		"next_cursor": nil, "has_more": feedResp.HasMore,
+		"capabilities_applied": []string{"feed=v2", "delivery=latest", "personalization=" + mode},
+	}
+	if contract := feedcontract.Default(); contract != "" {
+		response["output_contract"] = contract
+	}
+	encoded, _ := json.Marshal(response)
+	if len(encoded) > feedResponseBudget {
+		response["agent_card_updates"] = map[string]interface{}{}
+		encoded, _ = json.Marshal(response)
+	}
+	if len(encoded) > feedResponseBudget {
+		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed response exceeds the V2 response budget", nil)
+		return
+	}
+	reply(c, http.StatusOK, response)
 }
 
 type attentionSeed struct {
@@ -375,6 +191,55 @@ type attentionSeed struct {
 	Summary         string        `json:"summary"`
 	ProposedActions interface{}   `json:"proposed_actions"`
 	MatchedIntentID []interface{} `json:"matched_intent_ids"`
+}
+
+type feedExposureSeed struct {
+	SourceType    string `json:"source_type"`
+	SourceID      int64  `json:"source_id"`
+	ContentClass  string `json:"content_class"`
+	AuthorAgentID *int64 `json:"author_agent_id,omitempty"`
+}
+
+// persistFeedExposures records only the compact projection needed by Today
+// and source-detail authorization. It has no delivery or processing state.
+func persistFeedExposures(tx *gorm.DB, agentID int64, items []frozenFeedItem, contextRevision *int64, now int64) error {
+	seeds := make([]feedExposureSeed, 0, len(items))
+	for _, item := range items {
+		contentClass, _ := item.Payload["content_class"].(string)
+		var authorAgentID *int64
+		if identity, ok := item.Payload["author_identity"].(map[string]interface{}); ok {
+			if rawID, ok := identity["agent_id"].(string); ok {
+				if parsed, err := strconv.ParseInt(rawID, 10, 64); err == nil && parsed > 0 {
+					authorAgentID = &parsed
+				}
+			}
+		}
+		seeds = append(seeds, feedExposureSeed{
+			SourceType: item.SourceType, SourceID: item.SourceID,
+			ContentClass: contentClass, AuthorAgentID: authorAgentID,
+		})
+	}
+	if len(seeds) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(seeds)
+	if err != nil {
+		return err
+	}
+	return tx.Exec(`INSERT INTO agent_feed_exposures
+		(agent_id, source_type, source_id, content_class, author_agent_id,
+		 context_revision, first_seen_at, last_seen_at, seen_count)
+		SELECT ?, seed.source_type, seed.source_id, seed.content_class,
+		 seed.author_agent_id, ?, ?, ?, 1
+		FROM jsonb_to_recordset(?::jsonb) AS seed(
+		 source_type text, source_id bigint, content_class text, author_agent_id bigint)
+		ON CONFLICT (agent_id, source_type, source_id) DO UPDATE SET
+		 content_class = EXCLUDED.content_class,
+		 author_agent_id = EXCLUDED.author_agent_id,
+		 context_revision = EXCLUDED.context_revision,
+		 last_seen_at = EXCLUDED.last_seen_at,
+		 seen_count = agent_feed_exposures.seen_count + 1`,
+		agentID, contextRevision, now, now, string(encoded)).Error
 }
 
 // persistAttentionItems performs one bulk upsert plus one bulk relation insert
@@ -497,7 +362,7 @@ type feedIntent struct {
 	ActionPolicy      string `json:"action_policy"`
 }
 
-func (s *Service) buildFeedPayloads(viewerID, batchID int64, mode string, contextRevision *int64, items []*feedrpc.FeedItem,
+func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision *int64, items []*feedrpc.FeedItem,
 	knownVersions map[string]int64) ([]frozenFeedItem, map[string]interface{}, error) {
 	authorSet := make(map[int64]struct{})
 	for _, item := range items {
@@ -610,7 +475,7 @@ func (s *Service) buildFeedPayloads(viewerID, batchID int64, mode string, contex
 		}
 		intentMatch := interface{}(nil)
 		if mode == "intent_aligned" {
-			match, actions := matchFeedIntents(batchID, item, intents)
+			match, actions := matchFeedIntents(viewerID, contextRevision, item, intents)
 			intentMatch = match
 			payload["recommended_actions"] = actions
 		}
@@ -619,7 +484,7 @@ func (s *Service) buildFeedPayloads(viewerID, batchID int64, mode string, contex
 	return out, cardUpdates, nil
 }
 
-func matchFeedIntents(batchID int64, item *feedrpc.FeedItem, intents []feedIntent) (map[string]interface{}, []interface{}) {
+func matchFeedIntents(viewerID int64, contextRevision *int64, item *feedrpc.FeedItem, intents []feedIntent) (map[string]interface{}, []interface{}) {
 	haystackParts := []string{item.BroadcastType}
 	if item.Summary != nil {
 		haystackParts = append(haystackParts, *item.Summary)
@@ -633,6 +498,10 @@ func matchFeedIntents(batchID int64, item *feedrpc.FeedItem, intents []feedInten
 	matchedIDs := make([]string, 0, len(intents))
 	actions := make([]interface{}, 0, len(intents))
 	bestScore := float64(0)
+	revision := int64(0)
+	if contextRevision != nil {
+		revision = *contextRevision
+	}
 	for _, intent := range intents {
 		terms := intentTerms(intent.WatchFor + " " + intent.TriggerWhen)
 		if len(terms) == 0 {
@@ -668,7 +537,7 @@ func matchFeedIntents(batchID int64, item *feedrpc.FeedItem, intents []feedInten
 			actionType, requiresConfirmation = "trade_action", true
 		}
 		actions = append(actions, map[string]interface{}{
-			"action_idempotency_key": "feed_" + hashString(fmt.Sprintf("%d:%d:%d", batchID, item.ItemId, intentIDNumber))[:24],
+			"action_idempotency_key": "feed_" + hashString(fmt.Sprintf("%d:%d:%d:%d", viewerID, item.ItemId, intentIDNumber, revision))[:24],
 			"type":                   actionType, "instruction": intent.ActionInstruction,
 			"policy": intent.ActionPolicy, "requires_user_confirmation": requiresConfirmation,
 		})
@@ -733,335 +602,4 @@ func shrinkFeedPayloads(items []frozenFeedItem) {
 			items[index].Payload["source_expectation"] = shortened
 		}
 	}
-}
-
-func (s *Service) abandonFeedBatch(agentID int64, scope string, batchID int64) {
-	_ = s.db.Transaction(func(tx *gorm.DB) error {
-		var activeBatchID *int64
-		if err := tx.Raw(`SELECT active_batch_id FROM feed_consumer_state
-			WHERE agent_id = ? AND processing_scope = ? FOR UPDATE`, agentID, scope).Scan(&activeBatchID).Error; err != nil {
-			return err
-		}
-		if activeBatchID == nil || *activeBatchID != batchID {
-			return nil
-		}
-		if err := tx.Exec(`UPDATE feed_batches SET status = 'dead' WHERE batch_id = ? AND status = 'building'`, batchID).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`UPDATE feed_consumer_state SET active_batch_id = NULL,
-			updated_at = (extract(epoch FROM clock_timestamp())*1000)::bigint
-			WHERE agent_id = ? AND processing_scope = ? AND active_batch_id = ?`, agentID, scope, batchID).Error
-	})
-}
-
-func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch feedBatchRow, leaseToken string, appliedRevision *int64) {
-	var itemRows []struct {
-		BatchItemID int64   `gorm:"column:batch_item_id"`
-		Ordinal     int     `gorm:"column:ordinal"`
-		Payload     string  `gorm:"column:payload_snapshot"`
-		IntentMatch *string `gorm:"column:intent_match_snapshot"`
-	}
-	if err := s.db.Raw(`SELECT batch_item_id, ordinal, payload_snapshot::text AS payload_snapshot,
-		intent_match_snapshot::text AS intent_match_snapshot FROM feed_batch_items
-		WHERE batch_id = ? ORDER BY ordinal`, batch.BatchID).Scan(&itemRows).Error; err != nil {
-		fail(c, http.StatusInternalServerError, "FEED_BATCH_READ_FAILED", "could not read Feed batch", nil)
-		return
-	}
-	items := make([]map[string]interface{}, 0, len(itemRows))
-	for _, row := range itemRows {
-		var payload map[string]interface{}
-		if json.Unmarshal([]byte(row.Payload), &payload) != nil {
-			fail(c, http.StatusInternalServerError, "FEED_BATCH_READ_FAILED", "could not decode Feed batch", nil)
-			return
-		}
-		payload["batch_item_id"] = fmt.Sprintf("%d", row.BatchItemID)
-		if row.IntentMatch != nil {
-			var match interface{}
-			_ = json.Unmarshal([]byte(*row.IntentMatch), &match)
-			payload["intent_match"] = match
-		} else {
-			payload["intent_match"] = nil
-		}
-		items = append(items, payload)
-	}
-	var meta map[string]interface{}
-	_ = json.Unmarshal([]byte(batch.ResponseMeta), &meta)
-	selectionRevision := batch.ContextRevision
-	executionRevision := batch.ContextRevision
-	if batch.OnboardingStateAtCreation == "completed" {
-		var current int64
-		if err := s.db.Raw(`SELECT active_revision FROM agent_context_heads WHERE agent_id = ?`, agentID).Scan(&current).Error; err != nil || current <= 0 {
-			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not resolve current control context", nil)
-			return
-		}
-		executionRevision = &current
-	}
-	var controlContext interface{}
-	contextDelivery := "none"
-	if executionRevision != nil {
-		contextDelivery = "full"
-		if appliedRevision != nil && *appliedRevision == *executionRevision {
-			contextDelivery = "unchanged"
-		}
-	}
-	if executionRevision != nil && contextDelivery != "unchanged" {
-		var raw string
-		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
-			WHERE agent_id = ? AND revision = ?`, agentID, *executionRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
-			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not read frozen control context", nil)
-			return
-		}
-	}
-	capabilities := []string{"feed_batch=v2", "personalization=" + batch.PersonalizationMode}
-	if executionRevision != nil {
-		capabilities = append(capabilities, "control_context=v2", "intent_match=v1")
-	}
-	response := map[string]interface{}{
-		"schema_version": "feed_batch.v2", "batch_id": fmt.Sprintf("%d", batch.BatchID),
-		"status": batch.Status, "impression_id": meta["impression_id"],
-		"lease": map[string]interface{}{
-			"epoch": batch.LeaseEpoch, "token": leaseToken, "expires_at": batch.LeaseUntil,
-		},
-		"personalization": map[string]interface{}{
-			"mode": batch.PersonalizationMode, "onboarding_state": batch.OnboardingStateAtCreation,
-			"context_revision": executionRevision, "selection_context_revision": selectionRevision,
-			"context_delivery": contextDelivery,
-		},
-		"control_context_snapshot": controlContext,
-		"agent_card_updates":       meta["agent_card_updates"],
-		"cadence": map[string]interface{}{
-			"poll_interval_seconds": meta["poll_interval_seconds"],
-			"phase_seconds":         meta["poll_phase_seconds"],
-		},
-		"items": items, "next_cursor": nil, "has_more": meta["has_more"],
-		"capabilities_applied": capabilities,
-	}
-	encoded, _ := json.Marshal(response)
-	if len(encoded) > feedResponseBudget {
-		response["agent_card_updates"] = map[string]interface{}{}
-		encoded, _ = json.Marshal(response)
-	}
-	if len(encoded) > feedResponseBudget {
-		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed batch exceeds the V2 response budget", nil)
-		return
-	}
-	reply(c, http.StatusOK, response)
-}
-
-type renewFeedLeaseRequest struct {
-	RuntimeInstanceID string `json:"runtime_instance_id"`
-	LeaseEpoch        int64  `json:"lease_epoch"`
-	LeaseToken        string `json:"lease_token"`
-}
-
-func (s *Service) renewFeedLease(_ context.Context, c *app.RequestContext) {
-	agentIDValue, _ := agentID(c)
-	batchID, err := strconv.ParseInt(c.Param("batch_id"), 10, 64)
-	var req renewFeedLeaseRequest
-	if err != nil || decodeBody(c, &req) != nil || req.RuntimeInstanceID == "" || req.LeaseEpoch <= 0 || req.LeaseToken == "" {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "batch_id and current lease proof are required", nil)
-		return
-	}
-	var now int64
-	var leaseUntil int64
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		var row feedBatchRow
-		if err := tx.Raw(`SELECT batch_id, status, lease_owner_runtime_id, lease_epoch,
-			lease_token_hash, lease_until, created_at FROM feed_batches
-			WHERE batch_id = ? AND agent_id = ? FOR UPDATE`, batchID, agentIDValue).Scan(&row).Error; err != nil {
-			return err
-		}
-		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
-			return err
-		}
-		if row.BatchID == 0 || (row.Status != "leased" && row.Status != "partial") || row.LeaseOwnerRuntimeID == nil ||
-			*row.LeaseOwnerRuntimeID != req.RuntimeInstanceID || row.LeaseEpoch != req.LeaseEpoch ||
-			row.LeaseTokenHash == nil || *row.LeaseTokenHash != hashString(req.LeaseToken) ||
-			row.LeaseUntil == nil || *row.LeaseUntil <= now {
-			return errConflict
-		}
-		leaseUntil = now + int64(feedLeaseTTL/time.Millisecond)
-		maxUntil := row.CreatedAt + int64(feedMaxLeaseAge/time.Millisecond)
-		if leaseUntil > maxUntil {
-			leaseUntil = maxUntil
-		}
-		if leaseUntil <= now {
-			return errConflict
-		}
-		res := tx.Exec(`UPDATE feed_batches SET lease_until = ?
-			WHERE batch_id = ? AND agent_id = ? AND lease_epoch = ?
-			  AND lease_until > (extract(epoch FROM clock_timestamp())*1000)::bigint`,
-			leaseUntil, batchID, agentIDValue, req.LeaseEpoch)
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected != 1 {
-			return errConflict
-		}
-		return nil
-	})
-	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "LEASE_FENCED", "Feed lease is stale, expired, or owned by another runtime", nil)
-		return
-	}
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "LEASE_RENEW_FAILED", "could not renew Feed lease", nil)
-		return
-	}
-	reply(c, http.StatusOK, map[string]interface{}{"batch_id": fmt.Sprintf("%d", batchID), "lease_epoch": req.LeaseEpoch, "lease_until": leaseUntil})
-}
-
-type feedItemResult struct {
-	BatchItemID string `json:"batch_item_id"`
-	Status      string `json:"status"`
-	LastError   string `json:"last_error,omitempty"`
-}
-
-type ackFeedBatchRequest struct {
-	LeaseEpoch     int64            `json:"lease_epoch"`
-	LeaseToken     string           `json:"lease_token"`
-	IdempotencyKey string           `json:"idempotency_key"`
-	ItemResults    []feedItemResult `json:"item_results"`
-}
-
-func (s *Service) ackFeedBatch(_ context.Context, c *app.RequestContext) {
-	agentIDValue, _ := agentID(c)
-	batchID, err := strconv.ParseInt(c.Param("batch_id"), 10, 64)
-	var req ackFeedBatchRequest
-	if err != nil || decodeBody(c, &req) != nil || req.LeaseEpoch <= 0 || req.LeaseToken == "" || req.IdempotencyKey == "" || len(req.ItemResults) > feedMaxItems {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "batch_id, lease proof, and idempotency_key are required", nil)
-		return
-	}
-	normalized := make([]map[string]interface{}, 0, len(req.ItemResults))
-	for _, item := range req.ItemResults {
-		id, parseErr := strconv.ParseInt(item.BatchItemID, 10, 64)
-		if parseErr != nil || id <= 0 || len(item.LastError) > 1000 {
-			fail(c, http.StatusBadRequest, "INVALID_ITEM_RESULT", "item result is invalid", nil)
-			return
-		}
-		switch item.Status {
-		case "processed", "skipped", "retryable_failed", "terminal_failed":
-		default:
-			fail(c, http.StatusBadRequest, "INVALID_ITEM_RESULT", "unsupported item result status", nil)
-			return
-		}
-		normalized = append(normalized, map[string]interface{}{"batch_item_id": id, "status": item.Status, "last_error": item.LastError})
-	}
-	resultsJSON, _ := json.Marshal(normalized)
-	requestHash := hashString(fmt.Sprintf("%d:%s:%s", req.LeaseEpoch, hashString(req.LeaseToken), resultsJSON))
-	operation := fmt.Sprintf("feed_ack:%d", batchID)
-	response := map[string]interface{}{}
-	var now int64
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		var prior struct{ RequestHash, Response string }
-		if err := tx.Raw(`SELECT request_hash, response_snapshot::text AS response FROM agent_idempotency_requests
-			WHERE agent_id = ? AND operation = ? AND idempotency_key = ?`, agentIDValue, operation, req.IdempotencyKey).Scan(&prior).Error; err != nil {
-			return err
-		}
-		if prior.RequestHash != "" {
-			if prior.RequestHash != requestHash {
-				return errConflict
-			}
-			return json.Unmarshal([]byte(prior.Response), &response)
-		}
-		var scope string
-		if err := tx.Raw(`SELECT processing_scope FROM feed_batches
-			WHERE batch_id = ? AND agent_id = ?`, batchID, agentIDValue).Scan(&scope).Error; err != nil {
-			return err
-		}
-		if scope == "" {
-			return errConflict
-		}
-		var state struct {
-			ActiveBatchID *int64 `gorm:"column:active_batch_id"`
-		}
-		if err := tx.Raw(`SELECT active_batch_id FROM feed_consumer_state
-			WHERE agent_id = ? AND processing_scope = ? FOR UPDATE`, agentIDValue, scope).Scan(&state).Error; err != nil {
-			return err
-		}
-		if state.ActiveBatchID == nil || *state.ActiveBatchID != batchID {
-			return errConflict
-		}
-		var batch feedBatchRow
-		if err := tx.Raw(`WITH clock AS (
-				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-			) SELECT batch.batch_id, batch.processing_scope, batch.status, batch.lease_epoch,
-				batch.lease_token_hash, batch.lease_until, clock.now_ms
-			FROM feed_batches batch CROSS JOIN clock
-			WHERE batch.batch_id = ? AND batch.agent_id = ? FOR UPDATE OF batch`, batchID, agentIDValue).Scan(&batch).Error; err != nil {
-			return err
-		}
-		now = batch.Now
-		if batch.BatchID == 0 || (batch.Status != "leased" && batch.Status != "partial") || batch.LeaseEpoch != req.LeaseEpoch ||
-			batch.LeaseTokenHash == nil || *batch.LeaseTokenHash != hashString(req.LeaseToken) ||
-			batch.LeaseUntil == nil || *batch.LeaseUntil <= now {
-			return errConflict
-		}
-		if len(normalized) == 0 {
-			if err := tx.Exec(`UPDATE feed_batch_items SET status = 'processed', updated_at = ?
-				WHERE batch_id = ? AND status IN ('pending','retryable_failed')`, now, batchID).Error; err != nil {
-				return err
-			}
-		} else if err := tx.Exec(`UPDATE feed_batch_items AS item SET status = result.status,
-			last_error = NULLIF(result.last_error, ''), attempt_count = item.attempt_count + 1, updated_at = ?
-			FROM jsonb_to_recordset(?::jsonb) AS result(batch_item_id bigint, status text, last_error text)
-			WHERE item.batch_id = ? AND item.batch_item_id = result.batch_item_id`, now, string(resultsJSON), batchID).Error; err != nil {
-			return err
-		}
-		var unresolved int64
-		if err := tx.Raw(`SELECT COUNT(*) FROM feed_batch_items
-			WHERE batch_id = ? AND status IN ('pending','retryable_failed')`, batchID).Scan(&unresolved).Error; err != nil {
-			return err
-		}
-		status := "partial"
-		if unresolved == 0 {
-			status = "acked"
-		}
-		batchUpdate := tx.Exec(`WITH clock AS (
-				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-			) UPDATE feed_batches SET status = ?,
-			acked_at = CASE WHEN ? = 'acked' THEN clock.now_ms ELSE acked_at END
-			FROM clock
-			WHERE batch_id = ? AND agent_id = ? AND lease_epoch = ? AND lease_token_hash = ?
-			  AND lease_until > clock.now_ms`,
-			status, status, batchID, agentIDValue, req.LeaseEpoch, hashString(req.LeaseToken))
-		if batchUpdate.Error != nil {
-			return batchUpdate.Error
-		}
-		if batchUpdate.RowsAffected != 1 {
-			return errConflict
-		}
-		if status == "acked" {
-			if err := tx.Exec(`UPDATE feed_consumer_state SET active_batch_id = NULL, updated_at = ?
-				WHERE agent_id = ? AND processing_scope = ? AND active_batch_id = ?`, now, agentIDValue, scope, batchID).Error; err != nil {
-				return err
-			}
-		}
-		response = map[string]interface{}{"batch_id": fmt.Sprintf("%d", batchID), "status": status, "remaining_items": unresolved}
-		snapshot, _ := json.Marshal(response)
-		return tx.Exec(`INSERT INTO agent_idempotency_requests
-			(agent_id, operation, idempotency_key, request_hash, response_snapshot, expires_at, created_at)
-			VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)`, agentIDValue, operation, req.IdempotencyKey,
-			requestHash, string(snapshot), now+int64(24*time.Hour/time.Millisecond), now).Error
-	})
-	if err != nil && (errors.Is(err, errConflict) || isUniqueViolation(err)) {
-		found, hashConflict, replayErr := s.loadIdempotentResponse(agentIDValue, operation, req.IdempotencyKey, requestHash, &response)
-		switch {
-		case replayErr != nil:
-			err = replayErr
-		case found && hashConflict:
-			err = errConflict
-		case found:
-			err = nil
-		}
-	}
-	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "LEASE_FENCED", "Feed lease is stale or idempotency key conflicts", nil)
-		return
-	}
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "FEED_ACK_FAILED", "could not acknowledge Feed batch", nil)
-		return
-	}
-	reply(c, http.StatusOK, response)
 }

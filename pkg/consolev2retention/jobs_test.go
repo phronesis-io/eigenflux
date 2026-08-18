@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestRetentionMatrixIsBoundedAndPreservesFeedSourceReference(t *testing.T) {
+func TestRetentionMatrixIsBounded(t *testing.T) {
 	required := map[string]bool{
 		"bootstrap_grants": false, "signature_nonces": false, "email_challenges": false,
 		"handoffs": false, "console_sessions": false, "credential_sessions": false,
 		"idempotency_responses": false, "telemetry_events": false, "usage_sessions": false,
-		"runtime_leases": false, "control_outbox": false, "feed_payload_redaction": false,
-		"terminal_consumer_state": false, "feed_batches": false, "attention_expiry": false,
+		"runtime_leases": false, "control_outbox": false, "feed_exposures": false,
+		"attention_expiry": false,
 	}
 	seen := make(map[string]bool)
 	for _, job := range Jobs() {
@@ -24,11 +24,6 @@ func TestRetentionMatrixIsBoundedAndPreservesFeedSourceReference(t *testing.T) {
 		}
 		if !strings.Contains(job.SQL, "$1") {
 			t.Fatalf("retention job %q is not batch bounded", job.Name)
-		}
-		if job.Name == "feed_payload_redaction" {
-			if !strings.Contains(job.SQL, "'source_ref'") || strings.Contains(job.SQL, "DELETE FROM feed_batch_items") {
-				t.Fatal("Feed redaction must preserve source_ref and must not hard-delete items before parent retention")
-			}
 		}
 	}
 	for name, found := range required {

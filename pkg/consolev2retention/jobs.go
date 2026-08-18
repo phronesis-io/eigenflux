@@ -30,33 +30,7 @@ func Jobs() []Job {
 		{"usage_sessions", boundedDelete("console_usage_sessions", "updated_at < clock_ms() - 90*day_ms()")},
 		{"runtime_leases", boundedDelete("agent_runtime_leases", "lease_until < clock_ms() - day_ms()")},
 		{"control_outbox", boundedDelete("control_wakeup_outbox", "status IN ('delivered','dead') AND created_at < clock_ms() - 7*day_ms()")},
-		{"feed_payload_redaction", `WITH constants AS (
-			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms, 86400000::bigint AS day_ms
-		), target AS (
-			SELECT item.ctid FROM feed_batch_items item JOIN feed_batches batch ON batch.batch_id = item.batch_id
-			CROSS JOIN constants
-			WHERE batch.status IN ('acked','dead','expired') AND batch.created_at < constants.clock_ms - 7*constants.day_ms
-			  AND COALESCE(item.payload_snapshot->>'redacted', 'false') <> 'true'
-			ORDER BY batch.created_at, item.batch_item_id LIMIT $1
-		)
-		UPDATE feed_batch_items item SET payload_snapshot = jsonb_build_object(
-			'source_ref', item.payload_snapshot->'source_ref', 'redacted', true),
-			intent_match_snapshot = CASE WHEN item.intent_match_snapshot IS NULL THEN NULL ELSE
-				jsonb_build_object('status', item.intent_match_snapshot->'status',
-					'matched_intent_ids', COALESCE(item.intent_match_snapshot->'matched_intent_ids', '[]'::jsonb)) END,
-			last_error = NULL, updated_at = constants.clock_ms
-		FROM target CROSS JOIN constants WHERE item.ctid = target.ctid`},
-		{"terminal_consumer_state", `WITH constants AS (
-			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms, 86400000::bigint AS day_ms
-		), target AS (
-			SELECT state.ctid FROM feed_consumer_state state JOIN feed_batches batch ON batch.batch_id = state.active_batch_id
-			CROSS JOIN constants
-			WHERE batch.status IN ('acked','dead','expired') AND batch.created_at < constants.clock_ms - 30*constants.day_ms
-			ORDER BY batch.created_at, batch.batch_id LIMIT $1
-		)
-		UPDATE feed_consumer_state state SET active_batch_id = NULL, updated_at = constants.clock_ms
-		FROM target CROSS JOIN constants WHERE state.ctid = target.ctid`},
-		{"feed_batches", boundedDelete("feed_batches", "status IN ('acked','dead','expired') AND created_at < clock_ms() - 30*day_ms() AND NOT EXISTS (SELECT 1 FROM feed_consumer_state state WHERE state.active_batch_id = row.batch_id)")},
+		{"feed_exposures", boundedDelete("agent_feed_exposures", "last_seen_at < clock_ms() - 30*day_ms()")},
 		{"commands", boundedDelete("agent_commands", "status IN ('completed','failed','expired') AND COALESCE(completed_at, created_at) < clock_ms() - 30*day_ms()")},
 		{"attention_expiry", `WITH constants AS (
 			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms

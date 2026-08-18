@@ -9,7 +9,6 @@ import (
 	"eigenflux_server/pkg/logger"
 
 	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 )
 
 const (
@@ -76,37 +75,4 @@ func cleanupConsoleV2WithLock(ctx context.Context, rdb *redis.Client) {
 			logger.Default().Info("Console V2 cleanup completed", "job", job.Name, "rows", totals[job.Name])
 		}
 	}
-}
-
-func deleteTerminalFeedItems(gdb *gorm.DB, cutoff int64, limit int) (int64, error) {
-	result := gdb.Exec(`WITH target AS (
-		SELECT item.batch_item_id FROM feed_batch_items item
-		JOIN feed_batches batch ON batch.batch_id = item.batch_id
-		WHERE batch.status IN ('acked','dead','expired') AND batch.created_at < ?
-		ORDER BY batch.created_at, item.batch_item_id LIMIT ?
-	) DELETE FROM feed_batch_items item USING target
-	WHERE item.batch_item_id = target.batch_item_id`, cutoff, limit)
-	return result.RowsAffected, result.Error
-}
-
-func clearTerminalFeedStates(gdb *gorm.DB, cutoff int64, limit int) (int64, error) {
-	result := gdb.Exec(`WITH target AS (
-		SELECT state.agent_id, state.processing_scope FROM feed_consumer_state state
-		JOIN feed_batches batch ON batch.batch_id = state.active_batch_id
-		WHERE batch.status IN ('acked','dead','expired') AND batch.created_at < ?
-		ORDER BY batch.created_at, batch.batch_id LIMIT ?
-	) UPDATE feed_consumer_state state SET active_batch_id = NULL,
-		updated_at = (extract(epoch FROM clock_timestamp())*1000)::bigint
-	FROM target WHERE state.agent_id = target.agent_id AND state.processing_scope = target.processing_scope`, cutoff, limit)
-	return result.RowsAffected, result.Error
-}
-
-func deleteTerminalFeedBatches(gdb *gorm.DB, cutoff int64, limit int) (int64, error) {
-	result := gdb.Exec(`WITH target AS (
-		SELECT batch.batch_id FROM feed_batches batch
-		WHERE batch.status IN ('acked','dead','expired') AND batch.created_at < ?
-		  AND NOT EXISTS (SELECT 1 FROM feed_consumer_state state WHERE state.active_batch_id = batch.batch_id)
-		ORDER BY batch.created_at, batch.batch_id LIMIT ?
-	) DELETE FROM feed_batches batch USING target WHERE batch.batch_id = target.batch_id`, cutoff, limit)
-	return result.RowsAffected, result.Error
 }

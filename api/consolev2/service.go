@@ -301,12 +301,10 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/today", s.consoleAuth(false), s.requireCompleted, s.getToday)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
-		h.POST("/api/v2/feed/batches", s.agentAuth("feed:read"), s.createFeedBatch)
+		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)
 		h.GET("/api/v2/feed/items/:source_type/:source_id", s.agentAuth("feed:read"), s.getFeedSourceItem)
-		h.POST("/api/v2/feed/batches/:batch_id/lease:renew", s.agentAuth("feed:read"), s.renewFeedLease)
-		h.POST("/api/v2/feed/batches/:batch_id/ack", s.agentAuth("feed:ack"), s.ackFeedBatch)
 		h.GET("/api/v2/notifications/pending", s.agentAuth("feed:read"), s.listPendingNotifications)
-		h.POST("/api/v2/notifications/ack", s.agentAuth("feed:ack"), s.ackPendingNotifications)
+		h.POST("/api/v2/notifications/ack", s.agentAuth("notifications:ack"), s.ackPendingNotifications)
 	}
 	if s.enableControl {
 		h.POST("/api/v2/agent-commands", s.consoleAuth(true), s.requireCompleted, s.createAgentCommand)

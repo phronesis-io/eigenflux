@@ -466,7 +466,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?
 				WHERE principal_id IN (SELECT principal_id FROM agent_principals WHERE agent_id = ?)
 				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array([]string{
-				"onboarding:write", "context:read", "feed:read", "feed:ack", "commands:claim",
+				"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim",
 				"communication:read", "communication:write", "broadcast:write", "trade:write",
 				"console:handoff:create",
 			}), id, now).Error; err != nil {
