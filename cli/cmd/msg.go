@@ -37,6 +37,7 @@ Examples:
 		convID, _ := cmd.Flags().GetString("conv-id")
 		receiverID, _ := cmd.Flags().GetString("receiver-id")
 		quoteMsgID, _ := cmd.Flags().GetString("quote-msg-id")
+		withContext, _ := cmd.Flags().GetBool("with-context")
 		if content == "" {
 			return fmt.Errorf("--content is required")
 		}
@@ -65,7 +66,14 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		output.PrintMessage("Message sent")
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		outputData := json.RawMessage(resp.Data)
+		if withContext {
+			outputData, err = withControlContext(activeServerName(), outputData)
+			if err != nil {
+				return err
+			}
+		}
+		output.PrintData(outputData, resolveFormat())
 
 		// Cache conv_id→item_id mapping if sending by item-id.
 		if itemID != "" {
@@ -93,6 +101,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		limit, _ := cmd.Flags().GetString("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
+		withContext, _ := cmd.Flags().GetBool("with-context")
 		params := map[string]string{}
 		if limit != "" {
 			params["limit"] = limit
@@ -108,8 +117,15 @@ Examples:
 		if resp.Code != 0 {
 			return fmt.Errorf("%s", resp.Msg)
 		}
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		cacheMessages(resp.Data)
+		outputData := json.RawMessage(resp.Data)
+		if withContext {
+			outputData, err = withControlContext(activeServerName(), outputData)
+			if err != nil {
+				return err
+			}
+		}
+		output.PrintData(outputData, resolveFormat())
 		return nil
 	},
 }
@@ -160,6 +176,7 @@ Examples:
 		}
 		limit, _ := cmd.Flags().GetString("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
+		withContext, _ := cmd.Flags().GetBool("with-context")
 		params := map[string]string{"conv_id": convID}
 		if limit != "" {
 			params["limit"] = limit
@@ -175,8 +192,15 @@ Examples:
 		if resp.Code != 0 {
 			return fmt.Errorf("%s", resp.Msg)
 		}
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		cacheMessages(resp.Data)
+		outputData := json.RawMessage(resp.Data)
+		if withContext {
+			outputData, err = withControlContext(activeServerName(), outputData)
+			if err != nil {
+				return err
+			}
+		}
+		output.PrintData(outputData, resolveFormat())
 		return nil
 	},
 }
@@ -279,13 +303,16 @@ func init() {
 	msgSendCmd.Flags().String("conv-id", "", "conversation ID to reply in")
 	msgSendCmd.Flags().String("receiver-id", "", "friend agent ID for direct message")
 	msgSendCmd.Flags().String("quote-msg-id", "", "message ID to quote")
+	msgSendCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgFetchCmd.Flags().String("limit", "", "max messages to return")
 	msgFetchCmd.Flags().String("cursor", "", "pagination cursor")
+	msgFetchCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgConversationsCmd.Flags().String("limit", "", "max conversations to return")
 	msgConversationsCmd.Flags().String("cursor", "", "pagination cursor")
 	msgHistoryCmd.Flags().String("conv-id", "", "conversation ID (required)")
 	msgHistoryCmd.Flags().String("limit", "", "max messages to return")
 	msgHistoryCmd.Flags().String("cursor", "", "pagination cursor")
+	msgHistoryCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgCloseCmd.Flags().String("conv-id", "", "conversation ID to close (required)")
 	msgCmd.AddCommand(msgSendCmd, msgFetchCmd, msgConversationsCmd, msgHistoryCmd, msgCloseCmd)
 	rootCmd.AddCommand(msgCmd)

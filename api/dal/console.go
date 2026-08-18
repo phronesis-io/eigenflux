@@ -18,12 +18,14 @@ import (
 
 // ActivityLog maps to agent_activity_log table.
 type ActivityLog struct {
-	LogID     int64  `gorm:"column:log_id;primaryKey"`
-	AgentID   int64  `gorm:"column:agent_id;not null"`
-	EventType string `gorm:"column:event_type;type:varchar(32);not null"`
-	Summary   string `gorm:"column:summary;type:text"`
-	Detail    string `gorm:"column:detail;type:jsonb"`
-	CreatedAt int64  `gorm:"column:created_at;not null"`
+	LogID         int64   `gorm:"column:log_id;primaryKey"`
+	AgentID       int64   `gorm:"column:agent_id;not null"`
+	AgentSeq      *int64  `gorm:"column:agent_seq"`
+	SourceEventID *string `gorm:"column:source_event_id"`
+	EventType     string  `gorm:"column:event_type;type:varchar(32);not null"`
+	Summary       string  `gorm:"column:summary;type:text"`
+	Detail        string  `gorm:"column:detail;type:jsonb"`
+	CreatedAt     int64   `gorm:"column:created_at;not null"`
 }
 
 func (ActivityLog) TableName() string { return "agent_activity_log" }
@@ -565,7 +567,11 @@ func BatchInsertActivityLogs(db *gorm.DB, logs []ActivityLog) error {
 
 // DeleteOldActivityLogs removes activity logs older than the specified timestamp.
 func DeleteOldActivityLogs(db *gorm.DB, beforeMs int64) (int64, error) {
-	tx := db.Where("created_at < ?", beforeMs).Delete(&ActivityLog{})
+	tx := db.Exec(`WITH target AS (
+		SELECT log_id FROM agent_activity_log
+		WHERE created_at < ? ORDER BY created_at, log_id LIMIT 5000
+	) DELETE FROM agent_activity_log AS activity USING target
+	WHERE activity.log_id = target.log_id`, beforeMs)
 	return tx.RowsAffected, tx.Error
 }
 

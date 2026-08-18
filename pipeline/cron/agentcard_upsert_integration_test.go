@@ -52,19 +52,39 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	if changed.CardVersion != first.CardVersion+1 {
 		t.Fatal("content change did not advance card_version")
 	}
-	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{"p":1}`, 1, source+1, fence+3); err != nil {
+	if changed.PublicCardVersion != first.PublicCardVersion+1 {
+		t.Fatal("public content change did not advance public_card_version")
+	}
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{"p":2}`, 1, source, fence+3); err != nil {
+		t.Fatal(err)
+	}
+	privateChanged, _ := profiledal.GetAgentCard(tx, agentID)
+	if privateChanged.CardVersion != changed.CardVersion+1 {
+		t.Fatal("private content change did not advance card_version")
+	}
+	if privateChanged.PublicCardVersion != changed.PublicCardVersion || privateChanged.PublicCardGeneratedAt != changed.PublicCardGeneratedAt {
+		t.Fatal("private content change advanced public projection metadata")
+	}
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":2}`, `{"p":2}`, 1, source+1, fence+4); err != nil {
 		t.Fatal(err)
 	}
 	advanced, _ := profiledal.GetAgentCard(tx, agentID)
-	if advanced.SourceVersion != source+1 || advanced.CardVersion != changed.CardVersion {
+	if advanced.SourceVersion != source+1 || advanced.CardVersion != privateChanged.CardVersion {
 		t.Fatal("source-only advance changed visible version")
 	}
-	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":3}`, `{"p":1}`, 1, source+2, fence+1); err != nil {
+	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"v":3}`, `{"p":2}`, 1, source+2, fence+1); err != nil {
 		t.Fatalf("newer source with an older fence was rejected: %v", err)
 	}
 	newerSource, _ := profiledal.GetAgentCard(tx, agentID)
 	if newerSource.SourceVersion != source+2 || newerSource.CardVersion != advanced.CardVersion+1 {
 		t.Fatal("lexicographically newer source was not accepted")
+	}
+	cards, err := profiledal.GetAgentCards(tx, []int64{agentID, agentID, 0, -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[agentID] == nil || cards[agentID].PrivateCard != "" {
+		t.Fatal("batch card projection must deduplicate IDs and exclude private card data")
 	}
 	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+2); err == nil {
 		t.Fatal("stale different projection was acknowledged")

@@ -282,14 +282,16 @@ func BumpProfileVersion(db *gorm.DB, agentID int64) (int64, error) {
 // AgentCard is the rebuildable read projection row. Card JSON stays opaque
 // text at the DAL layer; pkg/agentcard owns its shape.
 type AgentCard struct {
-	AgentID       int64  `gorm:"column:agent_id;primaryKey"`
-	PublicCard    string `gorm:"column:public_card"`
-	PrivateCard   string `gorm:"column:private_card"`
-	SchemaVersion int32  `gorm:"column:schema_version"`
-	SourceVersion int64  `gorm:"column:source_version"`
-	RebuildFence  int64  `gorm:"column:rebuild_fence"`
-	CardVersion   int64  `gorm:"column:card_version"`
-	GeneratedAt   int64  `gorm:"column:generated_at"`
+	AgentID               int64  `gorm:"column:agent_id;primaryKey"`
+	PublicCard            string `gorm:"column:public_card"`
+	PrivateCard           string `gorm:"column:private_card"`
+	SchemaVersion         int32  `gorm:"column:schema_version"`
+	SourceVersion         int64  `gorm:"column:source_version"`
+	RebuildFence          int64  `gorm:"column:rebuild_fence"`
+	CardVersion           int64  `gorm:"column:card_version"`
+	PublicCardVersion     int64  `gorm:"column:public_card_version"`
+	GeneratedAt           int64  `gorm:"column:generated_at"`
+	PublicCardGeneratedAt int64  `gorm:"column:public_card_generated_at"`
 }
 
 func (AgentCard) TableName() string { return "agent_cards" }
@@ -299,7 +301,8 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 	var card AgentCard
 	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
 			private_card::text as private_card, schema_version,
-			source_version, rebuild_fence, card_version, generated_at
+			source_version, rebuild_fence, card_version, public_card_version,
+			generated_at, public_card_generated_at
 		FROM agent_cards WHERE agent_id = ?`, agentID).Scan(&card).Error
 	if err != nil {
 		return nil, err
@@ -308,6 +311,45 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return &card, nil
+}
+
+// GetAgentCards loads the already-built public projection for a bounded set of
+// agents in one query. Missing cards are intentionally absent from the result:
+// list endpoints must not synchronously rebuild one card per peer.
+func GetAgentCards(db *gorm.DB, agentIDs []int64) (map[int64]*AgentCard, error) {
+	cardsByAgent := make(map[int64]*AgentCard)
+	if len(agentIDs) == 0 {
+		return cardsByAgent, nil
+	}
+
+	deduplicated := make([]int64, 0, len(agentIDs))
+	seen := make(map[int64]struct{}, len(agentIDs))
+	for _, agentID := range agentIDs {
+		if agentID <= 0 {
+			continue
+		}
+		if _, ok := seen[agentID]; ok {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		deduplicated = append(deduplicated, agentID)
+	}
+	if len(deduplicated) == 0 {
+		return cardsByAgent, nil
+	}
+
+	var cards []*AgentCard
+	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
+			schema_version, public_card_version, public_card_generated_at
+		FROM agent_cards
+		WHERE agent_id IN ?`, deduplicated).Scan(&cards).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, card := range cards {
+		cardsByAgent[card.AgentID] = card
+	}
+	return cardsByAgent, nil
 }
 
 // NextAgentCardRebuildFence allocates a database-monotonic fencing token for
@@ -338,9 +380,11 @@ func UpsertAgentCard(db *gorm.DB, agentID int64, publicCard, privateCard string,
 // The fence is advanced even for an identical card: otherwise a stale holder
 // could write a different equal-version snapshot after a newer no-op rebuild.
 func UpsertAgentCardWithFence(db *gorm.DB, agentID int64, publicCard, privateCard string, schemaVersion int32, sourceVersion, rebuildFence int64) error {
+	now := time.Now().UnixMilli()
 	result := db.Exec(`INSERT INTO agent_cards
-			(agent_id, public_card, private_card, schema_version, source_version, rebuild_fence, card_version, generated_at)
-		VALUES (?, ?::jsonb, ?::jsonb, ?, ?, ?, 1, ?)
+			(agent_id, public_card, private_card, schema_version, source_version, rebuild_fence,
+			 card_version, public_card_version, generated_at, public_card_generated_at)
+		VALUES (?, ?::jsonb, ?::jsonb, ?, ?, ?, 1, 1, ?, ?)
 		ON CONFLICT (agent_id) DO UPDATE SET
 			public_card    = EXCLUDED.public_card,
 			private_card   = EXCLUDED.private_card,
@@ -352,15 +396,23 @@ func UpsertAgentCardWithFence(db *gorm.DB, agentID int64, publicCard, privateCar
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
 				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
 				THEN 1 ELSE 0 END,
+			public_card_version = agent_cards.public_card_version + CASE WHEN
+				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
+				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
+				THEN 1 ELSE 0 END,
 			generated_at   = CASE WHEN
 				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
 				OR agent_cards.private_card IS DISTINCT FROM EXCLUDED.private_card
 				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
-				THEN EXCLUDED.generated_at ELSE agent_cards.generated_at END
+				THEN EXCLUDED.generated_at ELSE agent_cards.generated_at END,
+			public_card_generated_at = CASE WHEN
+				agent_cards.public_card IS DISTINCT FROM EXCLUDED.public_card
+				OR agent_cards.schema_version IS DISTINCT FROM EXCLUDED.schema_version
+				THEN EXCLUDED.public_card_generated_at ELSE agent_cards.public_card_generated_at END
 		WHERE agent_cards.source_version < EXCLUDED.source_version
 			OR (agent_cards.source_version = EXCLUDED.source_version
 				AND agent_cards.rebuild_fence < EXCLUDED.rebuild_fence)`,
-		agentID, publicCard, privateCard, schemaVersion, sourceVersion, rebuildFence, time.Now().UnixMilli())
+		agentID, publicCard, privateCard, schemaVersion, sourceVersion, rebuildFence, now, now)
 	if result.Error != nil {
 		return result.Error
 	}

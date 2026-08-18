@@ -129,6 +129,36 @@ func TestLoadMilestoneRuleCacheTTLDefault(t *testing.T) {
 	}
 }
 
+func TestConsoleV2FeatureFlagsDefaultOff(t *testing.T) {
+	t.Setenv("ENABLE_CONSOLE_V2", "")
+	t.Setenv("ENABLE_FEED_V2", "")
+	t.Setenv("ENABLE_CONTROL_CHANNEL_V2", "")
+	t.Setenv("ENABLE_COMMUNICATION_V2", "")
+	t.Setenv("POSTGRES_PORT", "")
+	t.Setenv("REDIS_PORT", "")
+	t.Setenv("ETCD_PORT", "")
+
+	cfg := Load()
+	if cfg.EnableConsoleV2 || cfg.EnableFeedV2 || cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 {
+		t.Fatal("Console V2 feature flags must default to disabled")
+	}
+}
+
+func TestConsoleV2FeatureFlagsCanBeEnabledIndependently(t *testing.T) {
+	t.Setenv("ENABLE_CONSOLE_V2", "true")
+	t.Setenv("ENABLE_FEED_V2", "false")
+	t.Setenv("ENABLE_CONTROL_CHANNEL_V2", "true")
+	t.Setenv("ENABLE_COMMUNICATION_V2", "false")
+	t.Setenv("POSTGRES_PORT", "")
+	t.Setenv("REDIS_PORT", "")
+	t.Setenv("ETCD_PORT", "")
+
+	cfg := Load()
+	if !cfg.EnableConsoleV2 || cfg.EnableFeedV2 || !cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 {
+		t.Fatal("Console V2 feature flags were not loaded independently")
+	}
+}
+
 func TestLoadRedisPassword(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "secret-redis-password")
 	t.Setenv("POSTGRES_PORT", "")

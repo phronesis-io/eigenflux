@@ -45,6 +45,7 @@ func (AgentSession) TableName() string { return "agent_sessions" }
 type Agent struct {
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
 	Email              string `gorm:"column:email;not null;unique"`
+	EmailKind          string `gorm:"column:email_kind;not null"`
 	AgentName          string `gorm:"column:agent_name;not null"`
 	Bio                string `gorm:"column:bio"`
 	CreatedAt          int64  `gorm:"column:created_at;not null"`
@@ -150,6 +151,7 @@ func CreateMinimalAgent(db *gorm.DB, agentID int64, email string) (*Agent, error
 	agent := &Agent{
 		AgentID:   agentID,
 		Email:     email,
+		EmailKind: "legacy_real",
 		AgentName: "",
 		Bio:       "",
 		CreatedAt: now,

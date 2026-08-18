@@ -541,6 +541,12 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 			respond(c, http.StatusUnprocessableEntity, 422, verr.Error(), nil)
 			return
 		}
+		if req.Source == "console_v2" {
+			if verr := agentcard.ValidateConsoleV2Value(name, val); verr != nil {
+				respond(c, http.StatusUnprocessableEntity, 422, verr.Error(), nil)
+				return
+			}
+		}
 		if perr := agentcard.ValidatePublicContent(spec, val); perr != nil {
 			respond(c, http.StatusUnprocessableEntity, 422, perr.Error(), nil)
 			return

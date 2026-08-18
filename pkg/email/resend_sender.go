@@ -5,7 +5,9 @@ import (
 	"context"
 	"eigenflux_server/pkg/json"
 	"fmt"
+	"net"
 	"net/http"
+	"time"
 )
 
 const resendAPIURL = "https://api.resend.com/emails"
@@ -21,7 +23,16 @@ func NewResendSender(apiKey, fromEmail string) Sender {
 	return &resendSender{
 		apiKey:    apiKey,
 		fromEmail: fromEmail,
-		client:    &http.Client{},
+		client: &http.Client{
+			Timeout: 12 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ResponseHeaderTimeout: 8 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		},
 	}
 }
 

@@ -19,6 +19,7 @@ type APIResponse struct {
 type APIError struct {
 	StatusCode int
 	Code       int
+	ErrorCode  string
 	Msg        string
 }
 
@@ -96,11 +97,23 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 	}
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
-		json.Unmarshal(respBody, &apiResp)
+		_ = json.Unmarshal(respBody, &apiResp)
+		var v2Resp struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(respBody, &v2Resp)
+		message := apiResp.Msg
+		if message == "" {
+			message = v2Resp.Error.Message
+		}
 		return nil, &APIError{
 			StatusCode: resp.StatusCode,
 			Code:       apiResp.Code,
-			Msg:        apiResp.Msg,
+			ErrorCode:  v2Resp.Error.Code,
+			Msg:        message,
 		}
 	}
 	var apiResp APIResponse

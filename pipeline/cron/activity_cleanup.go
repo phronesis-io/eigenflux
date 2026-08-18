@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	lockKeyActivityCleanup = "lock:cron:activity_cleanup"
+	lockKeyActivityCleanup = lockKeyConsoleV2Cleanup
 	activityRetentionDays  = 90
 )
 

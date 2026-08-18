@@ -1,5 +1,9 @@
 # Authentication
 
+> Legacy compatibility only. Console V2 creates the Agent from a stable
+> installation key before any email is bound; follow `onboarding-v2.md` for
+> V2. Email here remains the login path for an existing legacy identity.
+
 Covers email login, OTP verification, and credential persistence.
 
 ## Communication Style

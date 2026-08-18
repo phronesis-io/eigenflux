@@ -73,13 +73,13 @@ func DeleteMilestoneNotifications(ctx context.Context, rdb *redis.Client, agentI
 const milestoneNotificationStatusNotified int16 = 1
 
 // MarkMilestoneEventsNotified updates milestone_events notification_status in the DB.
-func MarkMilestoneEventsNotified(ctx context.Context, db *gorm.DB, eventIDs []int64, notifiedAt int64) error {
+func MarkMilestoneEventsNotified(ctx context.Context, db *gorm.DB, agentID int64, eventIDs []int64, notifiedAt int64) error {
 	if len(eventIDs) == 0 {
 		return nil
 	}
 	return db.WithContext(ctx).
 		Table("milestone_events").
-		Where("event_id IN ?", eventIDs).
+		Where("author_agent_id = ? AND event_id IN ? AND notification_status = 0", agentID, eventIDs).
 		Updates(map[string]interface{}{
 			"notification_status": milestoneNotificationStatusNotified,
 			"notified_at":         notifiedAt,

@@ -166,7 +166,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 		if err := dal.DeleteMilestoneNotifications(ctx, s.rdb, req.AgentId, milestoneIDs); err != nil {
 			logger.Ctx(ctx).Error("failed to delete milestone notifications from Redis", "agentID", req.AgentId, "err", err)
 		}
-		if err := dal.MarkMilestoneEventsNotified(ctx, s.db, milestoneIDs, now); err != nil {
+		if err := dal.MarkMilestoneEventsNotified(ctx, s.db, req.AgentId, milestoneIDs, now); err != nil {
 			logger.Ctx(ctx).Error("failed to mark milestone events notified", "agentID", req.AgentId, "err", err)
 		}
 	}

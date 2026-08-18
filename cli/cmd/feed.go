@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,6 +61,18 @@ Examples:
 		serverName := activeServerName()
 		if serverName == "" {
 			return fmt.Errorf("no active server")
+		}
+		if _, v2Err := auth.LoadV2Credentials(serverName); v2Err == nil {
+			if cursor == "" && (action == "" || action == "refresh") {
+				v2PollErr := pollFeedV2(cmd, serverName, limit)
+				if v2PollErr == nil {
+					return nil
+				}
+				var apiErr *client.APIError
+				if !errors.As(v2PollErr, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+					return v2PollErr
+				}
+			}
 		}
 		_, agentID := profileStateScopeForServer(serverName)
 		c := newClientForServer(serverName)

@@ -210,6 +210,11 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 			}
 		}
 	}
+	if agent.EmailKind != "" && agent.EmailKind != "legacy_real" {
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 403, Msg: "this identity must use Console V2 authentication"},
+		}, nil
+	}
 
 	now := time.Now().UnixMilli()
 	_ = dal.SetEmailVerifiedAt(db.DB, agent.AgentID, now)
@@ -272,6 +277,23 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 	if !emailRegexp.MatchString(normalizedEmail) {
 		return &auth.StartLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "invalid email format"},
+		}, nil
+	}
+	// Console V2 identities must never reach the V1 direct-login or email-send
+	// paths. The reserved alias is rejected without I/O; a bound V2 email uses
+	// the existing unique email index for one cheap policy lookup.
+	if strings.HasSuffix(normalizedEmail, "@identity.invalid") {
+		return &auth.StartLoginResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: "email is unavailable for this login method"},
+		}, nil
+	}
+	if existing, lookupErr := dal.GetAgentByEmail(db.DB, normalizedEmail); lookupErr != nil {
+		return &auth.StartLoginResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to validate login policy"},
+		}, nil
+	} else if existing != nil && existing.EmailKind != "" && existing.EmailKind != "legacy_real" {
+		return &auth.StartLoginResp{
+			BaseResp: &base.BaseResp{Code: 400, Msg: "email is unavailable for this login method"},
 		}, nil
 	}
 
