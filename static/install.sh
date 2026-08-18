@@ -53,6 +53,10 @@ while [ $# -gt 0 ]; do
       printf '  EIGENFLUX_SETUP_HOSTS       "all", or a comma-separated host list, to also set up\n'
       printf '                              hosts other than the one running the installer\n'
       printf '  EIGENFLUX_SKIP_AGENT_SETUP  Skip all host setup (CLI + skills still install)\n'
+      printf '  EIGENFLUX_BOOTSTRAP_GRANT / EIGENFLUX_BOOTSTRAP_NONCE\n'
+      printf '                              Short-lived values injected by an approved install channel\n'
+      printf '  EIGENFLUX_ONBOARDING_DRAFT_FILE\n'
+      printf '                              Agent-prefilled JSON draft; with the values above, provision now\n'
       exit 0
       ;;
     *) shift ;;
@@ -392,7 +396,54 @@ migrate_config() {
   "$INSTALL_DIR/eigenflux" $MIGRATE_ARGS migrate 2>/dev/null || true
 }
 
-# ── Step 4: Detect and configure AI agents ────────────────────
+# ── Step 4: Consume an approved V2 installation grant ─────────
+#
+# The public installer never mints grants and never contains the broker secret.
+# An approved channel may inject a short-lived key-bound grant/nonce together
+# with the Agent-prefilled draft it just produced. Consume them immediately so
+# the same local Ed25519 key always resolves to the same Agent, then print the
+# one-time Console URL returned by the CLI. Plain installs remain unchanged and
+# let the ef-profile skill drive this step interactively.
+
+provision_agent_v2() {
+  grant="${EIGENFLUX_BOOTSTRAP_GRANT:-}"
+  nonce="${EIGENFLUX_BOOTSTRAP_NONCE:-}"
+  draft_file="${EIGENFLUX_ONBOARDING_DRAFT_FILE:-}"
+
+  if [ -z "$grant" ] && [ -z "$nonce" ] && [ -z "$draft_file" ]; then
+    return 0
+  fi
+  if [ -z "$grant" ] || [ -z "$nonce" ] || [ -z "$draft_file" ]; then
+    err "Controlled Agent V2 provisioning requires grant, nonce, and EIGENFLUX_ONBOARDING_DRAFT_FILE together."
+    return 1
+  fi
+  if [ ! -f "$draft_file" ] || [ ! -r "$draft_file" ]; then
+    err "Agent-prefilled onboarding draft is not readable: $draft_file"
+    return 1
+  fi
+
+  install_dir="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}"
+  ef_bin="$install_dir/eigenflux"
+  [ -x "$ef_bin" ] || ef_bin="$(command -v eigenflux 2>/dev/null || true)"
+  if [ -z "$ef_bin" ]; then
+    err "EigenFlux CLI is unavailable after installation; cannot provision Agent V2."
+    return 1
+  fi
+
+  info ""
+  info "Provisioning the Agent identity prepared by the approved install channel..."
+  if [ -n "${EIGENFLUX_AGENT_NAME:-}" ]; then
+    "$ef_bin" agent provision --draft-file "$draft_file" --agent-name "$EIGENFLUX_AGENT_NAME"
+  else
+    "$ef_bin" agent provision --draft-file "$draft_file"
+  fi
+  unset EIGENFLUX_BOOTSTRAP_GRANT EIGENFLUX_BOOTSTRAP_NONCE
+  grant=""
+  nonce=""
+  ok "Agent identity provisioned. Use the returned Console link; the installer will not open a browser automatically."
+}
+
+# ── Step 5: Detect and configure AI agents ────────────────────
 
 setup_agents() {
   # Opt-out: skip all agent/plugin auto-setup (CLI + skills still install).
@@ -1054,6 +1105,7 @@ install_cli
 report_attribution
 install_skills
 migrate_config
+provision_agent_v2
 setup_agents
 setup_codex
 

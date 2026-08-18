@@ -298,6 +298,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.PUT("/api/v2/agents/me/profile/fields", s.consoleAuth(true), s.requireCompleted, s.putProfileFields)
 	h.GET("/api/v2/console/activity", s.consoleAuth(false), s.requireCompleted, s.listActivity)
 	h.GET("/api/v2/console/activity/stream", s.consoleAuth(false), s.requireCompleted, s.streamActivity)
+	h.GET("/api/v2/console/today", s.consoleAuth(false), s.requireCompleted, s.getToday)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed/batches", s.agentAuth("feed:read"), s.createFeedBatch)

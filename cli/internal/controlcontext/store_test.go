@@ -28,6 +28,22 @@ func TestSaveAndLoadSnapshot(t *testing.T) {
 	}
 }
 
+func TestDeleteSnapshotIsIdempotent(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	if err := Save("test", Snapshot{Revision: 3, Context: json.RawMessage(`{"intent_actions":[]}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete("test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load("test"); !os.IsNotExist(err) {
+		t.Fatalf("load after delete error=%v", err)
+	}
+	if err := Delete("test"); err != nil {
+		t.Fatalf("second delete should be idempotent: %v", err)
+	}
+}
+
 func compactJSON(value []byte) []byte {
 	var out bytes.Buffer
 	_ = json.Compact(&out, value)

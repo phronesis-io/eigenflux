@@ -65,3 +65,14 @@ func Save(serverName string, snapshot Snapshot) error {
 	}
 	return os.Rename(tmpPath, path)
 }
+
+// Delete removes a cached immutable context when the server reports that the
+// current Agent has not completed onboarding. This prevents an older identity
+// using the same local server name from being reported as applied.
+func Delete(serverName string) error {
+	err := os.Remove(pathFor(serverName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}

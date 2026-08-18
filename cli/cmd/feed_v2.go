@@ -70,10 +70,96 @@ func runtimeInstanceID(serverName string) (string, error) {
 	return "cli_" + hex.EncodeToString(digest[:8]), nil
 }
 
+// synchronizeRuntimeForFeedV2 closes the context/application loop before a
+// Feed batch is leased. Completed Agents first persist the latest immutable
+// control context and then report that exact revision on the Runtime lease.
+// Incomplete onboarding intentionally has no formal context yet, so it keeps
+// receiving the baseline Feed contract without inventing a revision.
+func synchronizeRuntimeForFeedV2(clientV2 *clientpkg.Client, serverName, runtimeID string) (int64, error) {
+	revision := int64(0)
+	if cached, cacheErr := controlcontext.Load(serverName); cacheErr == nil {
+		revision = cached.Revision
+	}
+	response, err := clientV2.Get("/agent-context", map[string]string{"if_newer": strconv.FormatInt(revision, 10)})
+	if err != nil {
+		var apiErr *clientpkg.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden || apiErr.ErrorCode != "ONBOARDING_INCOMPLETE" {
+			return 0, err
+		}
+		// A cached completed-context revision must not bleed into a newly
+		// provisioned/incomplete identity that happens to reuse the same server
+		// name on disk.
+		if err := controlcontext.Delete(serverName); err != nil {
+			return 0, err
+		}
+		revision = 0
+	} else {
+		var snapshot struct {
+			ContextRevision int64           `json:"context_revision"`
+			Unchanged       bool            `json:"unchanged"`
+			ControlContext  json.RawMessage `json:"control_context"`
+		}
+		if json.Unmarshal(response.Data, &snapshot) != nil || snapshot.ContextRevision <= 0 {
+			return 0, fmt.Errorf("invalid control-context response before Feed V2 poll")
+		}
+		if !snapshot.Unchanged {
+			if len(snapshot.ControlContext) == 0 {
+				return 0, fmt.Errorf("new control-context revision has no payload")
+			}
+			if err := controlcontext.Save(serverName, controlcontext.Snapshot{
+				Revision: snapshot.ContextRevision, Context: snapshot.ControlContext,
+			}); err != nil {
+				return 0, err
+			}
+		}
+		revision = snapshot.ContextRevision
+	}
+	heartbeat := map[string]interface{}{
+		"runtime_instance_id": runtimeID,
+		"capabilities":        []string{"cli", "feed", "commands"},
+	}
+	if revision > 0 {
+		heartbeat["applied_context_revision"] = revision
+	}
+	if _, err := clientV2.Post("/runtime/heartbeat", heartbeat); err != nil {
+		var apiErr *clientpkg.APIError
+		// Command V2 can be rolled out independently. A missing heartbeat route
+		// must not disable Feed V2, while any enabled-route failure remains fatal.
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			return 0, err
+		}
+	}
+	return revision, nil
+}
+
 func feedV2IdempotencyKey(runtimeID string, now time.Time) string {
 	window := now.Unix() / 600
 	digest := sha256.Sum256([]byte(runtimeID + ":" + strconv.FormatInt(window, 10)))
 	return "feed_cli_" + hex.EncodeToString(digest[:12])
+}
+
+func hydrateFeedV2ControlContext(serverName string, payload json.RawMessage, appliedRevision int64) (json.RawMessage, error) {
+	if appliedRevision <= 0 {
+		return payload, nil
+	}
+	var envelope map[string]interface{}
+	if json.Unmarshal(payload, &envelope) != nil {
+		return nil, fmt.Errorf("invalid Feed V2 response")
+	}
+	if envelope["control_context_snapshot"] != nil {
+		return payload, nil
+	}
+	cached, err := controlcontext.Load(serverName)
+	if err != nil || cached.Revision != appliedRevision || len(cached.Context) == 0 {
+		return nil, fmt.Errorf("Feed V2 references context revision %d but its local snapshot is unavailable", appliedRevision)
+	}
+	var contextValue interface{}
+	if json.Unmarshal(cached.Context, &contextValue) != nil {
+		return nil, fmt.Errorf("cached Agent V2 control context is invalid")
+	}
+	envelope["control_context_snapshot"] = contextValue
+	envelope["control_context_source"] = "local_applied_cache"
+	return json.Marshal(envelope)
 }
 
 func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
@@ -98,6 +184,10 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	if err != nil {
 		return err
 	}
+	appliedRevision, err := synchronizeRuntimeForFeedV2(clientV2, serverName, runtimeID)
+	if err != nil {
+		return err
+	}
 	if len(entries) > 0 {
 		renewed, renewErr := renewQueuedFeedV2Lease(clientV2, serverName, runtimeID, entries[0].BatchID)
 		if renewErr != nil {
@@ -119,18 +209,22 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 		"idempotency_key": feedV2IdempotencyKey(runtimeID, time.Now()),
 		"limit":           parsedLimit, "known_public_card_versions": knownVersions,
 	}
-	if snapshot, cacheErr := controlcontext.Load(serverName); cacheErr == nil {
-		request["context_revision_applied"] = snapshot.Revision
+	if appliedRevision > 0 {
+		request["context_revision_applied"] = appliedRevision
 	}
 	response, err := clientV2.Post("/feed/batches", request)
 	if err != nil {
 		return err
 	}
-	depth, err := queue.Enqueue(response.Data)
+	payload, err := hydrateFeedV2ControlContext(serverName, response.Data, appliedRevision)
 	if err != nil {
 		return err
 	}
-	return renderFeedV2(cmd, response.Data, depth)
+	depth, err := queue.Enqueue(payload)
+	if err != nil {
+		return err
+	}
+	return renderFeedV2(cmd, payload, depth)
 }
 
 func renderFeedV2(cmd *cobra.Command, payload json.RawMessage, depth int) error {

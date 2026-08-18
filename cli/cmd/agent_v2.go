@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -23,7 +24,30 @@ var agentV2Cmd = &cobra.Command{
 }
 
 func defaultProvisionDraft(agentName string) json.RawMessage {
-	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":true,"auto_reply_pm":true,"auto_comment":true,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
+	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":false,"auto_reply_pm":false,"auto_comment":false,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
+}
+
+func readProvisionDraft(path string) (json.RawMessage, error) {
+	var (
+		data []byte
+		err  error
+	)
+	if path == "-" {
+		data, err = io.ReadAll(io.LimitReader(os.Stdin, (64<<10)+1))
+	} else {
+		data, err = os.ReadFile(path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 64<<10 {
+		return nil, fmt.Errorf("onboarding draft must not exceed 64KB")
+	}
+	var object map[string]interface{}
+	if json.Unmarshal(data, &object) != nil {
+		return nil, fmt.Errorf("--draft-file must contain a JSON object")
+	}
+	return data, nil
 }
 
 var agentV2InitCmd = &cobra.Command{
@@ -93,6 +117,12 @@ var agentV2ProvisionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		grant, _ := cmd.Flags().GetString("bootstrap-grant")
 		nonce, _ := cmd.Flags().GetString("nonce")
+		if grant == "" {
+			grant = os.Getenv("EIGENFLUX_BOOTSTRAP_GRANT")
+		}
+		if nonce == "" {
+			nonce = os.Getenv("EIGENFLUX_BOOTSTRAP_NONCE")
+		}
 		agentName, _ := cmd.Flags().GetString("agent-name")
 		draftFile, _ := cmd.Flags().GetString("draft-file")
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
@@ -116,13 +146,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		draft := defaultProvisionDraft(agentName)
 		if draftFile != "" {
-			draft, err = os.ReadFile(draftFile)
+			draft, err = readProvisionDraft(draftFile)
 			if err != nil {
 				return err
-			}
-			var object map[string]interface{}
-			if json.Unmarshal(draft, &object) != nil {
-				return fmt.Errorf("--draft-file must contain a JSON object")
 			}
 		}
 		request := provisionV2Request{
@@ -191,10 +217,10 @@ var agentV2ProvisionCmd = &cobra.Command{
 }
 
 func init() {
-	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "short-lived grant issued by the controlled installation broker")
-	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce issued with the bootstrap grant")
+	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "short-lived grant issued by the controlled installation broker (or EIGENFLUX_BOOTSTRAP_GRANT)")
+	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce issued with the bootstrap grant (or EIGENFLUX_BOOTSTRAP_NONCE)")
 	agentV2ProvisionCmd.Flags().String("agent-name", "EigenFlux Agent", "Agent name used to prefill onboarding")
-	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file")
+	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file ('-' reads stdin)")
 	agentV2ProvisionCmd.Flags().Bool("no-handoff", false, "provision without creating a Console V2 link")
 	agentV2Cmd.AddCommand(agentV2InitCmd, agentV2ProvisionCmd)
 	rootCmd.AddCommand(agentV2Cmd)

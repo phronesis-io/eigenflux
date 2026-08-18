@@ -33,7 +33,7 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	}
 }
 
-func TestDefaultProvisionDraftEnablesAllSafetyBoundaryControls(t *testing.T) {
+func TestDefaultProvisionDraftRequiresHumanConfirmationForAutonomousActions(t *testing.T) {
 	var draft struct {
 		SecurityBoundary struct {
 			RecurringPublish bool `json:"recurring_publish"`
@@ -45,7 +45,7 @@ func TestDefaultProvisionDraftEnablesAllSafetyBoundaryControls(t *testing.T) {
 	if err := json.Unmarshal(defaultProvisionDraft("Test Agent"), &draft); err != nil {
 		t.Fatal(err)
 	}
-	if !draft.SecurityBoundary.RecurringPublish || !draft.SecurityBoundary.AutoReplyPM || !draft.SecurityBoundary.AutoComment || !draft.SecurityBoundary.ShowAddFriend {
-		t.Fatalf("all safety boundary controls must default to enabled: %#v", draft.SecurityBoundary)
+	if draft.SecurityBoundary.RecurringPublish || draft.SecurityBoundary.AutoReplyPM || draft.SecurityBoundary.AutoComment || !draft.SecurityBoundary.ShowAddFriend {
+		t.Fatalf("autonomous actions must default off while the social entry remains visible: %#v", draft.SecurityBoundary)
 	}
 }
