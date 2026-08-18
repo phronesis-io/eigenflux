@@ -10,19 +10,23 @@ import (
 func TestHydrateFeedV2ControlContextFromAppliedCache(t *testing.T) {
 	t.Setenv("EIGENFLUX_HOME", t.TempDir())
 	if err := controlcontext.Save("test", controlcontext.Snapshot{
-		Revision: 7,
-		Context:  json.RawMessage(`{"network_goal":{"text":"Find collaborators"},"intent_actions":[]}`),
+		OwnerAgentID: "agent-1",
+		Revision:     7,
+		Context:      json.RawMessage(`{"context_revision":7,"network_goal":{"text":"Find collaborators"},"intent_actions":[]}`),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	payload, err := hydrateFeedV2ControlContext("test", json.RawMessage(`{
+	payload, revision, err := hydrateFeedV2ControlContext("test", "agent-1", json.RawMessage(`{
 		"schema_version":"feed_batch.v2",
 		"control_context_snapshot":null,
-		"personalization":{"context_revision":7,"context_delivery":"unchanged"},
+		"personalization":{"mode":"intent_aligned","context_revision":7,"context_delivery":"unchanged"},
 		"items":[]
-	}`), 7)
+	}`), 7, false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if revision != 7 {
+		t.Fatalf("revision=%d want=7", revision)
 	}
 	var got struct {
 		Source  string `json:"control_context_source"`
@@ -43,13 +47,31 @@ func TestHydrateFeedV2ControlContextFromAppliedCache(t *testing.T) {
 func TestHydrateFeedV2ControlContextRejectsRevisionMismatch(t *testing.T) {
 	t.Setenv("EIGENFLUX_HOME", t.TempDir())
 	if err := controlcontext.Save("test", controlcontext.Snapshot{
-		Revision: 6, Context: json.RawMessage(`{"intent_actions":[]}`),
+		OwnerAgentID: "agent-1", Revision: 6, Context: json.RawMessage(`{"context_revision":6,"intent_actions":[]}`),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := hydrateFeedV2ControlContext("test", json.RawMessage(`{
-		"schema_version":"feed_batch.v2","control_context_snapshot":null,"items":[]
-	}`), 7); err == nil {
+	if _, _, err := hydrateFeedV2ControlContext("test", "agent-1", json.RawMessage(`{
+		"schema_version":"feed_batch.v2","control_context_snapshot":null,
+		"personalization":{"mode":"intent_aligned","context_revision":7},"items":[]
+	}`), 7, false); err == nil {
 		t.Fatal("expected revision mismatch to fail closed")
+	}
+}
+
+func TestHydrateFeedV2ControlContextSavesNewFullRevision(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	payload, revision, err := hydrateFeedV2ControlContext("test", "agent-1", json.RawMessage(`{
+		"schema_version":"feed_batch.v2",
+		"control_context_snapshot":{"context_revision":8,"network_goal":{"text":"New goal"}},
+		"personalization":{"mode":"intent_aligned","context_revision":8,"context_delivery":"full"},
+		"items":[]
+	}`), 7, false)
+	if err != nil || revision != 8 || !json.Valid(payload) {
+		t.Fatalf("revision=%d payload=%s err=%v", revision, payload, err)
+	}
+	cached, err := controlcontext.Load("test", "agent-1")
+	if err != nil || cached.Revision != 8 {
+		t.Fatalf("cached=%#v err=%v", cached, err)
 	}
 }

@@ -27,8 +27,16 @@ func TestCalculateCardCompletionUsesEditableRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed != 8 || total != 13 || percent != 61 {
+	if completed != 7 || total != 11 || percent != 63 {
 		t.Fatalf("unexpected completion completed=%d total=%d percent=%d", completed, total, percent)
+	}
+}
+
+func TestTodayStartAcceptsDisplayTimezone(t *testing.T) {
+	now := time.Date(2026, 8, 18, 17, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 8, 18, 16, 0, 0, 0, time.UTC).UnixMilli()
+	if got := todayStartFromPrivateCard(`{"timezone":"Asia/Singapore (UTC+8)"}`, now); got != want {
+		t.Fatalf("today start=%d want=%d", got, want)
 	}
 }
 

@@ -29,6 +29,7 @@ type Entry struct {
 
 type state struct {
 	Version           int              `json:"version"`
+	OwnerAgentID      string           `json:"owner_agent_id,omitempty"`
 	Entries           []Entry          `json:"entries"`
 	Stale             []Entry          `json:"stale,omitempty"`
 	KnownCardVersions map[string]int64 `json:"known_public_card_versions,omitempty"`
@@ -47,19 +48,52 @@ func New(dir string) *Queue {
 func (q *Queue) load() (state, error) {
 	data, err := os.ReadFile(q.path)
 	if os.IsNotExist(err) {
-		return state{Version: 1, KnownCardVersions: map[string]int64{}}, nil
+		return state{Version: 2, KnownCardVersions: map[string]int64{}}, nil
 	}
 	if err != nil {
 		return state{}, err
 	}
 	var stored state
-	if json.Unmarshal(data, &stored) != nil || stored.Version != 1 {
+	if json.Unmarshal(data, &stored) != nil || (stored.Version != 1 && stored.Version != 2) {
 		return state{}, fmt.Errorf("Feed V2 queue is corrupt; preserve %s for recovery", q.path)
 	}
 	if stored.KnownCardVersions == nil {
 		stored.KnownCardVersions = map[string]int64{}
 	}
 	return stored, nil
+}
+
+// BindOwner makes the queue identity-scoped. Legacy or different-owner active
+// entries are retained only in the bounded stale list and can never be ACKed by
+// the newly active Agent.
+func (q *Queue) BindOwner(ownerAgentID string) error {
+	ownerAgentID = strings.TrimSpace(ownerAgentID)
+	if ownerAgentID == "" {
+		return fmt.Errorf("Feed V2 queue requires an Agent owner")
+	}
+	return q.withLock(func() error {
+		stored, err := q.load()
+		if err != nil {
+			return err
+		}
+		if stored.Version == 2 && stored.OwnerAgentID == ownerAgentID {
+			return nil
+		}
+		now := time.Now().UnixMilli()
+		for _, entry := range stored.Entries {
+			entry.StaleAt = now
+			entry.StaleReason = "OWNER_CHANGED"
+			stored.Stale = append(stored.Stale, entry)
+		}
+		if len(stored.Stale) > MaxEntries {
+			stored.Stale = stored.Stale[len(stored.Stale)-MaxEntries:]
+		}
+		stored.Version = 2
+		stored.OwnerAgentID = ownerAgentID
+		stored.Entries = nil
+		stored.KnownCardVersions = map[string]int64{}
+		return q.save(stored)
+	})
 }
 
 func (q *Queue) save(stored state) error {
@@ -128,7 +162,11 @@ func parseEntry(payload json.RawMessage) (Entry, map[string]int64, error) {
 			Version int64 `json:"public_card_version"`
 		} `json:"agent_card_updates"`
 	}
-	if json.Unmarshal(payload, &envelope) != nil || envelope.BatchID == "" || envelope.Lease.Epoch <= 0 || envelope.Lease.Token == "" {
+	if json.Unmarshal(payload, &envelope) != nil {
+		return Entry{}, nil, fmt.Errorf("invalid Feed V2 batch payload")
+	}
+	parsedBatchID, parseErr := strconv.ParseInt(envelope.BatchID, 10, 64)
+	if parseErr != nil || parsedBatchID <= 0 || strconv.FormatInt(parsedBatchID, 10) != envelope.BatchID || envelope.Lease.Epoch <= 0 || envelope.Lease.Token == "" {
 		return Entry{}, nil, fmt.Errorf("invalid Feed V2 batch payload")
 	}
 	versions := make(map[string]int64, len(envelope.CardUpdates))

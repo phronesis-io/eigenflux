@@ -25,6 +25,12 @@ type todayEncounter struct {
 	PeerAgentID      int64 `gorm:"column:peer_agent_id" json:"peer_agent_id,string"`
 	LastInteraction  int64 `gorm:"column:last_interaction_at" json:"last_interaction_at"`
 	InteractionCount int64 `gorm:"column:interaction_count" json:"interaction_count"`
+	TotalCount       int64 `gorm:"column:total_count" json:"-"`
+}
+
+var consoleV2CardCompletionFields = []string{
+	"agent_name", "agent_description", "human_description", "working_languages",
+	"seeking", "offering", "geo", "timezone", "agent_status", "human_status", "interests_negative",
 }
 
 type todayCommandReceipt struct {
@@ -68,16 +74,19 @@ func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, err
 		}
 	}
 	completed := 0
-	for _, spec := range agentcard.EditableFields {
+	for _, field := range consoleV2CardCompletionFields {
 		source := privateCard
-		if spec.Public {
-			source = publicCard
+		for _, spec := range agentcard.EditableFields {
+			if spec.Name == field && spec.Public {
+				source = publicCard
+				break
+			}
 		}
-		if cardFieldPresent(source[spec.Name]) {
+		if cardFieldPresent(source[field]) {
 			completed++
 		}
 	}
-	total := len(agentcard.EditableFields)
+	total := len(consoleV2CardCompletionFields)
 	percent := 0
 	if total > 0 {
 		percent = completed * 100 / total
@@ -85,16 +94,24 @@ func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, err
 	return completed, total, percent, nil
 }
 
-func todayStartFromPrivateCard(privateJSON string, now time.Time) int64 {
+func todayLocationFromPrivateCard(privateJSON string) (*time.Location, string) {
 	location := time.UTC
+	name := "UTC"
 	var privateCard map[string]interface{}
 	if json.Unmarshal([]byte(privateJSON), &privateCard) == nil {
 		if timezone, ok := privateCard["timezone"].(string); ok {
-			if loaded, err := time.LoadLocation(strings.TrimSpace(timezone)); err == nil {
+			candidate := strings.TrimSpace(strings.SplitN(timezone, "(", 2)[0])
+			if loaded, err := time.LoadLocation(candidate); err == nil {
 				location = loaded
+				name = candidate
 			}
 		}
 	}
+	return location, name
+}
+
+func todayStartFromPrivateCard(privateJSON string, now time.Time) int64 {
+	location, _ := todayLocationFromPrivateCard(privateJSON)
 	localNow := now.In(location)
 	return time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location).UTC().UnixMilli()
 }
@@ -104,9 +121,9 @@ func (s *Service) loadTodayAttentions(agentID, since int64) ([]attentionView, []
 		Focus         int64 `gorm:"column:focus_count"`
 		Participation int64 `gorm:"column:participation_count"`
 	}
-	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE status = 'open' AND jsonb_array_length(proposed_actions) = 0) AS focus_count,
-		COUNT(*) FILTER (WHERE status = 'open' AND jsonb_array_length(proposed_actions) > 0) AS participation_count
-		FROM agent_attention_items WHERE agent_id = ? AND created_at >= ?`, agentID, since).Scan(&counts).Error; err != nil {
+	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE NOT (proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb)) AS focus_count,
+		COUNT(*) FILTER (WHERE proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb) AS participation_count
+		FROM agent_attention_items WHERE agent_id = ? AND status = 'open' AND created_at >= ?`, agentID, since).Scan(&counts).Error; err != nil {
 		return nil, nil, 0, 0, err
 	}
 
@@ -114,9 +131,9 @@ func (s *Service) loadTodayAttentions(agentID, since int64) ([]attentionView, []
 		var rows []attentionView
 		query := attentionSelect + ` WHERE item.agent_id = ? AND item.created_at >= ? AND item.status = 'open'`
 		if participation {
-			query += ` AND jsonb_array_length(item.proposed_actions) > 0`
+			query += ` AND item.proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb`
 		} else {
-			query += ` AND jsonb_array_length(item.proposed_actions) = 0`
+			query += ` AND NOT (item.proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb)`
 		}
 		query += ` GROUP BY item.attention_id ORDER BY item.created_at DESC, item.attention_id DESC LIMIT ?`
 		if err := s.db.Raw(query, agentID, since, limit).Scan(&rows).Error; err != nil {
@@ -189,12 +206,12 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not calculate Agent Card completion", nil)
 		return
 	}
+	location, timezoneName := todayLocationFromPrivateCard(card.PrivateCard)
 	todayStart := todayStartFromPrivateCard(card.PrivateCard, now)
+	todayDay := now.In(location).Format("2006-01-02")
 
 	var encounters []todayEncounter
-	if err := s.db.Raw(`SELECT peer_agent_id, MAX(updated_at) AS last_interaction_at,
-		COUNT(*)::bigint AS interaction_count
-		FROM (
+	if err := s.db.Raw(`WITH recent AS (
 			SELECT participant_b AS peer_agent_id, updated_at, conv_id
 			FROM conversations WHERE participant_a = ? AND updated_at >= ?
 			UNION ALL
@@ -205,18 +222,28 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 				item.created_at AS updated_at, item.batch_item_id AS conv_id
 			FROM feed_batch_items item
 			JOIN feed_batches batch ON batch.batch_id = item.batch_id
-			WHERE batch.agent_id = ? AND item.created_at >= ?
+			WHERE batch.agent_id = ? AND batch.created_at >= ? AND item.created_at >= ?
 			  AND jsonb_typeof(item.payload_snapshot->'author_identity') = 'object'
 			  AND COALESCE(item.payload_snapshot->'author_identity'->>'agent_id', '') ~ '^[0-9]+$'
-		) recent
-		WHERE peer_agent_id <> ?
-		GROUP BY peer_agent_id
-		ORDER BY MAX(updated_at) DESC, peer_agent_id DESC LIMIT ?`, agentIDValue, todayStart, agentIDValue, todayStart,
-		agentIDValue, todayStart, agentIDValue, todayEncounterLimit).Scan(&encounters).Error; err != nil {
+		), grouped AS (
+			SELECT peer_agent_id, MAX(updated_at) AS last_interaction_at,
+				COUNT(*)::bigint AS interaction_count
+			FROM recent WHERE peer_agent_id <> ? GROUP BY peer_agent_id
+		)
+		SELECT peer_agent_id, last_interaction_at, interaction_count,
+			COUNT(*) OVER() AS total_count
+		FROM grouped ORDER BY last_interaction_at DESC, peer_agent_id DESC LIMIT ?`,
+		agentIDValue, todayStart, agentIDValue, todayStart,
+		agentIDValue, todayStart-int64(feedMaxLeaseAge/time.Millisecond), todayStart,
+		agentIDValue, todayEncounterLimit).Scan(&encounters).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load today's Agent encounters", nil)
 		return
 	}
 	peerIDs := make([]int64, 0, len(encounters))
+	encounterCount := int64(0)
+	if len(encounters) > 0 {
+		encounterCount = encounters[0].TotalCount
+	}
 	for _, encounter := range encounters {
 		peerIDs = append(peerIDs, encounter.PeerAgentID)
 	}
@@ -270,13 +297,15 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"generated_at": now.UnixMilli(),
+		"day":          todayDay, "timezone": timezoneName, "window_start": todayStart,
+		"capabilities": map[string]interface{}{"control_enabled": s.enableControl},
 		"network_goal": goalData,
 		"card_completion": map[string]interface{}{
 			"completed_fields": completedFields, "total_fields": totalFields, "percent": completionPercent,
 		},
 		"brief": map[string]interface{}{
 			"focus_count": focusCount, "participation_count": participationCount,
-			"encounter_count": len(encounters), "activity_count": activityCount,
+			"encounter_count": encounterCount, "activity_count": activityCount,
 		},
 		"encounters": encounters, "agent_contexts": contexts,
 		"participation_items": participationItems, "focus_items": focusItems,

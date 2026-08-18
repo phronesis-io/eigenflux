@@ -19,10 +19,13 @@ func payload(batch string, epoch int64, token string, cardVersion int64) json.Ra
 
 func TestQueueRenewsAndBoundsStaleEntries(t *testing.T) {
 	queue := New(t.TempDir())
-	if _, err := queue.Enqueue(payload("renew-me", 3, "proof", 1)); err != nil {
+	if err := queue.BindOwner("agent-1"); err != nil {
 		t.Fatal(err)
 	}
-	renewed, err := queue.Renew("renew-me", func(entry Entry) (int64, error) {
+	if _, err := queue.Enqueue(payload("10", 3, "proof", 1)); err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := queue.Renew("10", func(entry Entry) (int64, error) {
 		if entry.LeaseEpoch != 3 || entry.LeaseToken != "proof" {
 			t.Fatalf("renew used stale proof: %#v", entry)
 		}
@@ -31,7 +34,7 @@ func TestQueueRenewsAndBoundsStaleEntries(t *testing.T) {
 	if err != nil || renewed.LeaseUntil != 9000 || !json.Valid(renewed.Payload) {
 		t.Fatalf("renewed=%#v err=%v", renewed, err)
 	}
-	if _, err := queue.MoveToStale("renew-me", "LEASE_FENCED"); err != nil {
+	if _, err := queue.MoveToStale("10", "LEASE_FENCED"); err != nil {
 		t.Fatal(err)
 	}
 	entries, _, _ := queue.Snapshot()
@@ -47,6 +50,9 @@ func TestQueueRenewsAndBoundsStaleEntries(t *testing.T) {
 
 func TestQueuePersistsReplacesLeaseAndAcknowledges(t *testing.T) {
 	queue := New(t.TempDir())
+	if err := queue.BindOwner("agent-1"); err != nil {
+		t.Fatal(err)
+	}
 	depth, err := queue.Enqueue(payload("1", 1, "old", 7))
 	if err != nil || depth != 1 {
 		t.Fatalf("enqueue depth=%d err=%v", depth, err)
@@ -84,12 +90,33 @@ func TestQueuePersistsReplacesLeaseAndAcknowledges(t *testing.T) {
 
 func TestQueueEnforcesSafetyLimit(t *testing.T) {
 	queue := New(t.TempDir())
+	if err := queue.BindOwner("agent-1"); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < MaxEntries; i++ {
-		if _, err := queue.Enqueue(payload(string(rune('a'+i)), 1, "token", 1)); err != nil {
+		if _, err := queue.Enqueue(payload(string(rune('1'+i)), 1, "token", 1)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := queue.Enqueue(payload("overflow", 1, "token", 1)); err == nil {
+	if _, err := queue.Enqueue(payload("99", 1, "token", 1)); err == nil {
 		t.Fatal("queue accepted an entry above its safety limit")
+	}
+}
+
+func TestBindOwnerIsolatesPreviousAgentState(t *testing.T) {
+	queue := New(t.TempDir())
+	if err := queue.BindOwner("agent-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queue.Enqueue(payload("1", 1, "proof", 7)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.BindOwner("agent-b"); err != nil {
+		t.Fatal(err)
+	}
+	entries, versions, err := queue.Snapshot()
+	stale, staleErr := queue.StaleSnapshot()
+	if err != nil || staleErr != nil || len(entries) != 0 || len(versions) != 0 || len(stale) != 1 || stale[0].StaleReason != "OWNER_CHANGED" {
+		t.Fatalf("entries=%#v versions=%#v stale=%#v err=%v staleErr=%v", entries, versions, stale, err, staleErr)
 	}
 }

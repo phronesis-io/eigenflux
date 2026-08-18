@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/controlcontext"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -27,8 +28,12 @@ var contextV2PullCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		credentials, err := auth.LoadV2Credentials(server.Name)
+		if err != nil {
+			return err
+		}
 		if ifNewer == 0 {
-			if cached, cacheErr := controlcontext.Load(server.Name); cacheErr == nil {
+			if cached, cacheErr := controlcontext.Load(server.Name, credentials.AgentID); cacheErr == nil {
 				ifNewer = cached.Revision
 			}
 		}
@@ -49,7 +54,7 @@ var contextV2PullCmd = &cobra.Command{
 				return fmt.Errorf("new control-context revision has no payload")
 			}
 			if err := controlcontext.Save(server.Name, controlcontext.Snapshot{
-				Revision: data.ContextRevision, Context: data.ControlContext,
+				OwnerAgentID: credentials.AgentID, Revision: data.ContextRevision, Context: data.ControlContext,
 			}); err != nil {
 				return err
 			}

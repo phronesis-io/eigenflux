@@ -267,7 +267,7 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if !created {
-		s.replyFeedBatch(c, agentIDValue, batch, leaseToken)
+		s.replyFeedBatch(c, agentIDValue, batch, leaseToken, req.ContextRevisionApplied)
 		return
 	}
 
@@ -365,7 +365,7 @@ func (s *Service) createFeedBatch(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "FEED_BATCH_FAILED", "could not persist Feed batch", nil)
 		return
 	}
-	s.replyFeedBatch(c, agentIDValue, batch, leaseToken)
+	s.replyFeedBatch(c, agentIDValue, batch, leaseToken, req.ContextRevisionApplied)
 }
 
 type attentionSeed struct {
@@ -754,7 +754,7 @@ func (s *Service) abandonFeedBatch(agentID int64, scope string, batchID int64) {
 	})
 }
 
-func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch feedBatchRow, leaseToken string) {
+func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch feedBatchRow, leaseToken string, appliedRevision *int64) {
 	var itemRows []struct {
 		BatchItemID int64   `gorm:"column:batch_item_id"`
 		Ordinal     int     `gorm:"column:ordinal"`
@@ -786,18 +786,34 @@ func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch fee
 	}
 	var meta map[string]interface{}
 	_ = json.Unmarshal([]byte(batch.ResponseMeta), &meta)
+	selectionRevision := batch.ContextRevision
+	executionRevision := batch.ContextRevision
+	if batch.OnboardingStateAtCreation == "completed" {
+		var current int64
+		if err := s.db.Raw(`SELECT active_revision FROM agent_context_heads WHERE agent_id = ?`, agentID).Scan(&current).Error; err != nil || current <= 0 {
+			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not resolve current control context", nil)
+			return
+		}
+		executionRevision = &current
+	}
 	var controlContext interface{}
-	contextDelivery, _ := meta["context_delivery"].(string)
-	if batch.ContextRevision != nil && contextDelivery != "unchanged" {
+	contextDelivery := "none"
+	if executionRevision != nil {
+		contextDelivery = "full"
+		if appliedRevision != nil && *appliedRevision == *executionRevision {
+			contextDelivery = "unchanged"
+		}
+	}
+	if executionRevision != nil && contextDelivery != "unchanged" {
 		var raw string
 		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
-			WHERE agent_id = ? AND revision = ?`, agentID, *batch.ContextRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
+			WHERE agent_id = ? AND revision = ?`, agentID, *executionRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
 			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not read frozen control context", nil)
 			return
 		}
 	}
 	capabilities := []string{"feed_batch=v2", "personalization=" + batch.PersonalizationMode}
-	if batch.ContextRevision != nil {
+	if executionRevision != nil {
 		capabilities = append(capabilities, "control_context=v2", "intent_match=v1")
 	}
 	response := map[string]interface{}{
@@ -808,7 +824,8 @@ func (s *Service) replyFeedBatch(c *app.RequestContext, agentID int64, batch fee
 		},
 		"personalization": map[string]interface{}{
 			"mode": batch.PersonalizationMode, "onboarding_state": batch.OnboardingStateAtCreation,
-			"context_revision": batch.ContextRevision, "context_delivery": contextDelivery,
+			"context_revision": executionRevision, "selection_context_revision": selectionRevision,
+			"context_delivery": contextDelivery,
 		},
 		"control_context_snapshot": controlContext,
 		"agent_card_updates":       meta["agent_card_updates"],

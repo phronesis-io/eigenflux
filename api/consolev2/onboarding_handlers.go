@@ -346,6 +346,9 @@ func validateDraftStep(payload draftPayload, step int16) error {
 			if err != nil {
 				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 			}
+			if err := agentcard.ValidateConsoleV2Value(name, normalized); err != nil {
+				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+			}
 			if spec.Public {
 				if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
 					return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)

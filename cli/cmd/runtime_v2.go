@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/controlcontext"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -21,6 +22,10 @@ var runtimeV2HeartbeatCmd = &cobra.Command{
 	Short: "Renew the short Runtime lease and reconcile pending commands",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		clientV2, server, err := newV2ClientForServer(serverFlag, true)
+		if err != nil {
+			return err
+		}
+		credentials, err := auth.LoadV2Credentials(server.Name)
 		if err != nil {
 			return err
 		}
@@ -50,7 +55,7 @@ var runtimeV2HeartbeatCmd = &cobra.Command{
 		if sessionRef, _ := cmd.Flags().GetString("session-ref"); sessionRef != "" {
 			request["session_ref"] = sessionRef
 		}
-		if snapshot, cacheErr := controlcontext.Load(server.Name); cacheErr == nil && snapshot.Revision > 0 {
+		if snapshot, cacheErr := controlcontext.Load(server.Name, credentials.AgentID); cacheErr == nil && snapshot.Revision > 0 {
 			request["applied_context_revision"] = snapshot.Revision
 		}
 		response, err := clientV2.Post("/runtime/heartbeat", request)
@@ -100,7 +105,11 @@ var runtimeV2CommandClaimCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		snapshot, err := controlcontext.Load(server.Name)
+		credentials, err := auth.LoadV2Credentials(server.Name)
+		if err != nil {
+			return err
+		}
+		snapshot, err := controlcontext.Load(server.Name, credentials.AgentID)
 		if err != nil || snapshot.Revision <= 0 {
 			return fmt.Errorf("no applied Agent V2 context; run 'eigenflux context pull' first")
 		}

@@ -379,6 +379,8 @@ migrate_config() {
   OPENCLAW_STATEDIR="$HOME/.openclaw"
   MIGRATE_ARGS=""
 
+  EF_HOME="${EIGENFLUX_HOME:-$HOME/.eigenflux}"
+
   if [ -d "$OPENCLAW_STATEDIR" ]; then
     EF_HOME="${OPENCLAW_STATEDIR}/.eigenflux"
     ENV_FILE="${OPENCLAW_STATEDIR}/.env"
@@ -392,6 +394,10 @@ migrate_config() {
 
     MIGRATE_ARGS="--homedir ${EF_HOME}"
   fi
+
+  # Keep migrate, controlled provision, and the subsequently started plugin on
+  # one identity directory in this installer process as well as future shells.
+  export EIGENFLUX_HOME="$EF_HOME"
 
   "$INSTALL_DIR/eigenflux" $MIGRATE_ARGS migrate 2>/dev/null || true
 }

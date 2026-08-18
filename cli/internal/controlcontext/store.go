@@ -10,29 +10,31 @@ import (
 )
 
 type Snapshot struct {
-	Revision int64           `json:"context_revision"`
-	Context  json.RawMessage `json:"control_context"`
+	OwnerAgentID string          `json:"owner_agent_id"`
+	Revision     int64           `json:"context_revision"`
+	Context      json.RawMessage `json:"control_context"`
 }
 
 func pathFor(serverName string) string {
 	return filepath.Join(config.HomeDir(), "servers", serverName, "control-context.json")
 }
 
-func Load(serverName string) (Snapshot, error) {
+func Load(serverName, ownerAgentID string) (Snapshot, error) {
 	data, err := os.ReadFile(pathFor(serverName))
 	if err != nil {
 		return Snapshot{}, err
 	}
 	var snapshot Snapshot
-	if json.Unmarshal(data, &snapshot) != nil || snapshot.Revision <= 0 || len(snapshot.Context) == 0 {
+	if json.Unmarshal(data, &snapshot) != nil || snapshot.OwnerAgentID == "" ||
+		snapshot.OwnerAgentID != ownerAgentID || snapshot.Revision <= 0 || len(snapshot.Context) == 0 {
 		return Snapshot{}, fmt.Errorf("invalid control-context cache")
 	}
 	return snapshot, nil
 }
 
 func Save(serverName string, snapshot Snapshot) error {
-	if snapshot.Revision <= 0 || len(snapshot.Context) == 0 {
-		return fmt.Errorf("control context requires a positive revision and payload")
+	if snapshot.OwnerAgentID == "" || snapshot.Revision <= 0 || len(snapshot.Context) == 0 {
+		return fmt.Errorf("control context requires an owner, positive revision, and payload")
 	}
 	path := pathFor(serverName)
 	dir := filepath.Dir(path)

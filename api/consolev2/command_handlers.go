@@ -19,10 +19,11 @@ const (
 )
 
 type createAgentCommandRequest struct {
-	CommandType    string          `json:"command_type"`
-	Payload        json.RawMessage `json:"payload"`
-	AttentionID    *string         `json:"attention_id,omitempty"`
-	IdempotencyKey string          `json:"idempotency_key"`
+	CommandType          string          `json:"command_type"`
+	Payload              json.RawMessage `json:"payload"`
+	AttentionID          *string         `json:"attention_id,omitempty"`
+	ActionIdempotencyKey string          `json:"action_idempotency_key,omitempty"`
+	IdempotencyKey       string          `json:"idempotency_key"`
 }
 
 func validCommandType(value string) bool {
@@ -58,7 +59,11 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 		}
 		attentionID = &parsed
 	}
-	requestHash := hashString(req.CommandType + "\x00" + string(req.Payload) + "\x00" + fmt.Sprint(attentionID))
+	if req.CommandType == "attention_action" && (attentionID == nil || req.ActionIdempotencyKey == "" || len(req.ActionIdempotencyKey) > 128) {
+		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_ACTION", "attention_id and action_idempotency_key are required", nil)
+		return
+	}
+	requestHash := hashString(req.CommandType + "\x00" + string(req.Payload) + "\x00" + fmt.Sprint(attentionID) + "\x00" + req.ActionIdempotencyKey)
 	now := time.Now().UnixMilli()
 	var commandID, contextRevision int64
 	created := false
@@ -78,6 +83,53 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 			commandID = prior.CommandID
 			return nil
 		}
+		if req.CommandType == "attention_action" {
+			var attention struct {
+				Status    string `gorm:"column:status"`
+				ExpiresAt *int64 `gorm:"column:expires_at"`
+				Actions   string `gorm:"column:proposed_actions"`
+			}
+			if err := tx.Raw(`SELECT status, expires_at, proposed_actions::text AS proposed_actions
+				FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? FOR UPDATE`,
+				agentIDValue, *attentionID).Scan(&attention).Error; err != nil {
+				return err
+			}
+			if attention.Status != "open" || (attention.ExpiresAt != nil && *attention.ExpiresAt <= now) {
+				return errConflict
+			}
+			var actions []map[string]interface{}
+			if json.Unmarshal([]byte(attention.Actions), &actions) != nil {
+				return errConflict
+			}
+			var canonical map[string]interface{}
+			for _, action := range actions {
+				if key, _ := action["action_idempotency_key"].(string); key == req.ActionIdempotencyKey {
+					canonical = action
+					break
+				}
+			}
+			if canonical == nil || canonical["requires_user_confirmation"] != true {
+				return errConflict
+			}
+			canonicalBytes, marshalErr := json.Marshal(canonical)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			req.Payload = canonicalBytes
+			requestHash = hashString(req.CommandType + "\x00" + string(canonicalBytes) + "\x00" + fmt.Sprint(attentionID) + "\x00" + req.ActionIdempotencyKey)
+			var existing struct {
+				CommandID       int64 `gorm:"column:command_id"`
+				ContextRevision int64 `gorm:"column:required_context_revision"`
+			}
+			if err := tx.Raw(`SELECT command_id, required_context_revision FROM agent_commands
+				WHERE agent_id = ? AND action_idempotency_key = ?`, agentIDValue, req.ActionIdempotencyKey).Scan(&existing).Error; err != nil {
+				return err
+			}
+			if existing.CommandID != 0 {
+				commandID, contextRevision = existing.CommandID, existing.ContextRevision
+				return nil
+			}
+		}
 		if err := tx.Raw(`SELECT active_revision FROM agent_context_heads
 			WHERE agent_id = ? FOR UPDATE`, agentIDValue).Scan(&contextRevision).Error; err != nil {
 			return err
@@ -87,10 +139,10 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 		}
 		if err := tx.Raw(`INSERT INTO agent_commands
 			(agent_id, attention_id, command_type, payload, payload_hash, required_context_revision,
-			 status, idempotency_key, created_at)
-			VALUES (?, ?, ?, ?::jsonb, ?, ?, 'pending', ?, ?) RETURNING command_id`,
+			 status, idempotency_key, action_idempotency_key, created_at)
+			VALUES (?, ?, ?, ?::jsonb, ?, ?, 'pending', ?, NULLIF(?, ''), ?) RETURNING command_id`,
 			agentIDValue, attentionID, req.CommandType, string(req.Payload), requestHash,
-			contextRevision, req.IdempotencyKey, now).Scan(&commandID).Error; err != nil {
+			contextRevision, req.IdempotencyKey, req.ActionIdempotencyKey, now).Scan(&commandID).Error; err != nil {
 			if isUniqueViolation(err) {
 				return errConflict
 			}
@@ -319,20 +371,36 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 	}
 	now := time.Now().UnixMilli()
 	completedAt := now
-	res := s.db.Exec(`WITH clock AS (
-			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-		) UPDATE agent_commands SET status = ?, result = ?::jsonb, completed_at = ?
-		FROM clock
-		WHERE command_id = ? AND agent_id = ? AND status = 'claimed'
-		  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?
-		  AND claim_until > clock.now_ms`,
-		req.Status, string(req.Result), now, commandID, agentIDValue, req.RuntimeInstanceID,
-		req.ClaimEpoch, hashString(req.ClaimToken))
-	if res.Error != nil {
+	updatedCommandID := int64(0)
+	updateErr := s.db.Transaction(func(tx *gorm.DB) error {
+		var updated struct {
+			CommandID   int64  `gorm:"column:command_id"`
+			AttentionID *int64 `gorm:"column:attention_id"`
+		}
+		if err := tx.Raw(`WITH clock AS (
+				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
+			) UPDATE agent_commands SET status = ?, result = ?::jsonb, completed_at = ?
+			FROM clock
+			WHERE command_id = ? AND agent_id = ? AND status = 'claimed'
+			  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?
+			  AND claim_until > clock.now_ms
+			RETURNING command_id, attention_id`,
+			req.Status, string(req.Result), now, commandID, agentIDValue, req.RuntimeInstanceID,
+			req.ClaimEpoch, hashString(req.ClaimToken)).Scan(&updated).Error; err != nil {
+			return err
+		}
+		updatedCommandID = updated.CommandID
+		if updated.CommandID != 0 && updated.AttentionID != nil && req.Status == "completed" {
+			return tx.Exec(`UPDATE agent_attention_items SET status = 'acted'
+				WHERE agent_id = ? AND attention_id = ? AND status = 'open'`, agentIDValue, *updated.AttentionID).Error
+		}
+		return nil
+	})
+	if updateErr != nil {
 		fail(c, http.StatusInternalServerError, "COMMAND_COMPLETE_FAILED", "could not complete Agent command", nil)
 		return
 	}
-	if res.RowsAffected != 1 {
+	if updatedCommandID == 0 {
 		var existing struct {
 			Status         string `gorm:"column:status"`
 			SameResult     bool   `gorm:"column:same_result"`

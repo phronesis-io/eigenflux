@@ -714,7 +714,7 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	reply(c, http.StatusCreated, map[string]interface{}{
-		"handoff_url": s.publicURL + "/dashboard/v2/handoff?ticket=" + url.QueryEscape(ticket) + "#nonce=" + url.QueryEscape(req.BrowserNonce),
+		"handoff_url": s.publicURL + "/dashboard/handoff?ticket=" + url.QueryEscape(ticket) + "#nonce=" + url.QueryEscape(req.BrowserNonce),
 		"expires_at":  now + int64(handoffTTL/time.Millisecond),
 	})
 }

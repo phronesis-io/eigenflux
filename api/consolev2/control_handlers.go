@@ -326,7 +326,7 @@ type profileFieldsRequest struct {
 }
 
 func validateIdentityCardFields(name, bio string) error {
-	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(bio) > 2000 {
+	if strings.TrimSpace(name) == "" {
 		return errors.New("valid agent_name and bio are required")
 	}
 	for field, value := range map[string]string{"agent_name": name, "agent_description": bio} {
@@ -340,6 +340,9 @@ func validateIdentityCardFields(name, bio string) error {
 			return err
 		}
 		if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
+			return err
+		}
+		if err := agentcard.ValidateConsoleV2Value(field, normalized); err != nil {
 			return err
 		}
 	}
