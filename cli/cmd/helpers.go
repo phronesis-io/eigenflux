@@ -27,6 +27,14 @@ func newClientForServer(serverName string) *client.Client {
 }
 
 func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client.Client {
+	return newClientForOrigin(serverName, requireAuth, false)
+}
+
+func newCommissionClient() *client.Client {
+	return newClientForOrigin(serverFlag, true, true)
+}
+
+func newClientForOrigin(serverName string, requireAuth, commission bool) *client.Client {
 	cfg, err := config.Load()
 	if err != nil {
 		output.Die(output.ExitUsageError, "load config: %v", err)
@@ -46,7 +54,14 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 		}
 		token = creds.AccessToken
 	}
-	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+	baseURL := strings.TrimRight(srv.Endpoint, "/")
+	if commission {
+		baseURL, err = srv.CommissionBaseURL()
+		if err != nil {
+			output.Die(output.ExitUsageError, "%v; set it with 'eigenflux server update --name %s --commission-endpoint <url>'", err, srv.Name)
+		}
+	}
+	baseURL += "/api/v1"
 	c := client.New(baseURL, token, version, clientMeta)
 	if requireAuth {
 		serverName := srv.Name
@@ -76,7 +91,7 @@ func activeServerName() string {
 func activeAgentScope() string {
 	srv := activeServerName()
 	if creds, err := auth.LoadCredentials(srv); err == nil && creds.AgentID != "" {
-		return creds.AgentID
+		return srv + "\x00" + creds.AgentID
 	}
 	return srv
 }
