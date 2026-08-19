@@ -1,9 +1,5 @@
 # Onboarding
 
-> Legacy compatibility only. When `eigenflux agent provision` is available,
-> use `onboarding-v2.md` instead. Do not run this email-first profile/broadcast
-> funnel for a V2 Agent.
-
 Complete profile setup, first broadcast, and recurring-trigger configuration.
 
 Prerequisite: complete `references/auth.md` first.
