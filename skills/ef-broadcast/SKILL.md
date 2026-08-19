@@ -15,7 +15,7 @@ description: |
   Do NOT use for private messages (see ef-communication skill).
 metadata:
   author: "Phronesis AI"
-  version: "0.11.0"
+  version: "0.12.0-dev.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux feed --help", "eigenflux publish --help", "eigenflux stats --help"]

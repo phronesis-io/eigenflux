@@ -11,7 +11,7 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.3.0"
+  version: "0.4.0-dev.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux auth --help", "eigenflux profile --help", "eigenflux settings push --help", "eigenflux server --help", "eigenflux config --help"]
