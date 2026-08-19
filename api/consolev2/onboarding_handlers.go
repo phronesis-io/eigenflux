@@ -16,6 +16,8 @@ import (
 	"gorm.io/gorm"
 
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/mq"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
@@ -131,7 +133,15 @@ type putDraftRequest struct {
 	ExpectedRevision int64           `json:"expected_revision"`
 	IdempotencyKey   string          `json:"idempotency_key"`
 	Draft            json.RawMessage `json:"draft"`
-	FieldProvenance  json.RawMessage `json:"field_provenance,omitempty"`
+	// Kept for rolling client compatibility. Field ownership is derived from
+	// the authenticated actor and this request value is intentionally ignored.
+	FieldProvenance json.RawMessage `json:"field_provenance,omitempty"`
+}
+
+type putDraftResponse struct {
+	Revision        int64             `json:"revision"`
+	FieldProvenance map[string]string `json:"field_provenance"`
+	BlockedPaths    []string          `json:"blocked_paths"`
 }
 
 func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
@@ -158,20 +168,12 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "draft must be a JSON object", nil)
 		return
 	}
-	if len(req.FieldProvenance) == 0 {
-		req.FieldProvenance = json.RawMessage(`{}`)
-	}
-	var provenance map[string]interface{}
-	if json.Unmarshal(req.FieldProvenance, &provenance) != nil {
-		fail(c, http.StatusBadRequest, "INVALID_PROVENANCE", "field_provenance must be a JSON object", nil)
-		return
-	}
-	requestHash := hashString(fmt.Sprintf("%d:%s:%s", req.ExpectedRevision, req.Draft, req.FieldProvenance))
 	actorType := "agent_prefill"
 	if _, console := c.Get("console_session_id"); console {
 		actorType = "human_edit"
 	}
-	var newRevision int64
+	requestHash := hashString(fmt.Sprintf("%d:%s:%s", req.ExpectedRevision, req.Draft, actorType))
+	response := putDraftResponse{FieldProvenance: map[string]string{}, BlockedPaths: []string{}}
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prior struct {
@@ -186,12 +188,7 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 			if prior.RequestHash != requestHash {
 				return errConflict
 			}
-			var snap struct {
-				Revision int64 `json:"revision"`
-			}
-			_ = json.Unmarshal([]byte(prior.Response), &snap)
-			newRevision = snap.Revision
-			return nil
+			return json.Unmarshal([]byte(prior.Response), &response)
 		}
 		var row onboardingState
 		if err := tx.Raw(`SELECT state, current_step, revision FROM agent_onboarding_v2
@@ -201,35 +198,67 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		if row.State == "completed" || row.Revision != req.ExpectedRevision {
 			return errConflict
 		}
-		newRevision = row.Revision + 1
+		var stored struct {
+			DraftData       string `gorm:"column:draft_data"`
+			FieldProvenance string `gorm:"column:field_provenance"`
+			ActorType       string `gorm:"column:actor_type"`
+		}
+		if err := tx.Raw(`SELECT draft_data::text AS draft_data,
+				field_provenance::text AS field_provenance, actor_type
+			FROM agent_onboarding_drafts WHERE agent_id = ?
+			ORDER BY revision DESC LIMIT 1`, id).Scan(&stored).Error; err != nil {
+			return err
+		}
+		previous, err := decodeJSONObject(json.RawMessage(stored.DraftData))
+		if err != nil {
+			return err
+		}
+		incoming, err := decodeJSONObject(req.Draft)
+		if err != nil {
+			return err
+		}
+		provenance := decodeProvenance(json.RawMessage(stored.FieldProvenance))
+		if len(provenance) == 0 && validProvenance(stored.ActorType) {
+			provenance = deriveInitialProvenance(previous, stored.ActorType)
+		}
+		merged, provenance, blockedPaths := mergeOnboardingDraft(previous, incoming, provenance, actorType)
+		mergedJSON, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		provenanceJSON, err := json.Marshal(provenance)
+		if err != nil {
+			return err
+		}
+		newRevision := row.Revision + 1
+		response = putDraftResponse{
+			Revision: newRevision, FieldProvenance: provenance, BlockedPaths: blockedPaths,
+		}
 		if err := tx.Exec(`INSERT INTO agent_onboarding_drafts
 			(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
 			VALUES (?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)`, id, newRevision,
-			string(req.Draft), string(req.FieldProvenance), actorType, req.IdempotencyKey, now).Error; err != nil {
+			string(mergedJSON), string(provenanceJSON), actorType, req.IdempotencyKey, now).Error; err != nil {
 			return err
 		}
 		if res := tx.Exec(`UPDATE agent_onboarding_v2 SET revision = ?, updated_at = ?
 			WHERE agent_id = ? AND revision = ?`, newRevision, now, id, row.Revision); res.Error != nil || res.RowsAffected != 1 {
 			return errConflict
 		}
-		snapshot, _ := json.Marshal(map[string]interface{}{"revision": newRevision})
+		snapshot, _ := json.Marshal(response)
 		return tx.Exec(`INSERT INTO agent_idempotency_requests
 			(agent_id, operation, idempotency_key, request_hash, response_snapshot, expires_at, created_at)
 			VALUES (?, 'onboarding_draft_put', ?, ?, ?::jsonb, ?, ?)`, id, req.IdempotencyKey,
 			requestHash, string(snapshot), now+int64(24*time.Hour/time.Millisecond), now).Error
 	})
 	if err != nil && (errors.Is(err, errConflict) || isUniqueViolation(err)) {
-		var snapshot struct {
-			Revision int64 `json:"revision"`
-		}
-		found, hashConflict, replayErr := s.loadIdempotentResponse(id, "onboarding_draft_put", req.IdempotencyKey, requestHash, &snapshot)
+		found, hashConflict, replayErr := s.loadIdempotentResponse(id, "onboarding_draft_put", req.IdempotencyKey, requestHash, &response)
 		switch {
 		case replayErr != nil:
 			err = replayErr
 		case found && hashConflict:
 			err = errConflict
 		case found:
-			newRevision, err = snapshot.Revision, nil
+			err = nil
 		}
 	}
 	if errors.Is(err, errConflict) {
@@ -240,7 +269,7 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "DRAFT_SAVE_FAILED", "could not save onboarding draft", nil)
 		return
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"revision": newRevision})
+	reply(c, http.StatusOK, response)
 }
 
 func (s *Service) getOnboardingDraft(_ context.Context, c *app.RequestContext) {
@@ -453,19 +482,33 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if !canConfirmOnboardingStep(state.State, state.CurrentStep, req.Step) || state.Revision != req.ExpectedOnboardingRevision {
 			return errConflict
 		}
-		var rawDraft string
-		if err := tx.Raw(`SELECT draft_data::text FROM agent_onboarding_drafts
-			WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, id).Scan(&rawDraft).Error; err != nil {
+		var storedDraft struct {
+			DraftData       string `gorm:"column:draft_data"`
+			FieldProvenance string `gorm:"column:field_provenance"`
+			ActorType       string `gorm:"column:actor_type"`
+		}
+		if err := tx.Raw(`SELECT draft_data::text AS draft_data,
+				field_provenance::text AS field_provenance, actor_type
+			FROM agent_onboarding_drafts
+			WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, id).Scan(&storedDraft).Error; err != nil {
 			return err
 		}
 		var payload draftPayload
-		if err := json.Unmarshal([]byte(rawDraft), &payload); err != nil {
+		if err := json.Unmarshal([]byte(storedDraft.DraftData), &payload); err != nil {
 			return err
+		}
+		provenance := decodeProvenance(json.RawMessage(storedDraft.FieldProvenance))
+		if len(provenance) == 0 && validProvenance(storedDraft.ActorType) {
+			rawObject, decodeErr := decodeJSONObject(json.RawMessage(storedDraft.DraftData))
+			if decodeErr != nil {
+				return decodeErr
+			}
+			provenance = deriveInitialProvenance(rawObject, storedDraft.ActorType)
 		}
 		if err := validateDraftStep(payload, req.Step); err != nil {
 			return err
 		}
-		if err := applyConfirmedStep(tx, id, req.Step, payload, now); err != nil {
+		if err := applyConfirmedStep(tx, id, req.Step, payload, provenance, now); err != nil {
 			return err
 		}
 		newRevision := state.Revision + 1
@@ -489,6 +532,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 				"communication:read", "communication:write", "broadcast:write", "trade:write",
 				"console:handoff:create",
 			}), id, now).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`UPDATE agents SET profile_completed_at = COALESCE(profile_completed_at, ?),
+				updated_at = ? WHERE agent_id = ?`, now, now, id).Error; err != nil {
 				return err
 			}
 			contextRevision = revision
@@ -541,10 +588,25 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	if req.Step == 2 {
 		agentcard.PublishRebuild(ctx, id, "console_v2_onboarding_identity")
 	}
+	if req.Step == 5 && response["state"] == "completed" {
+		publishProfileCompletion(ctx, id)
+	}
 	reply(c, http.StatusOK, response)
 }
 
-func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPayload, now int64) error {
+func publishProfileCompletion(ctx context.Context, agentID int64) {
+	if mq.RDB == nil {
+		logger.Default().Warn("profile completion publish skipped: redis unavailable", "agentID", agentID)
+		return
+	}
+	if _, err := mq.Publish(ctx, "stream:profile:update", map[string]interface{}{
+		"agent_id": strconv.FormatInt(agentID, 10),
+	}); err != nil {
+		logger.Default().Warn("profile completion publish failed", "agentID", agentID, "err", err)
+	}
+}
+
+func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPayload, provenance map[string]string, now int64) error {
 	switch step {
 	case 2:
 		if strings.TrimSpace(payload.IdentityCard.AgentName) == "" {
@@ -619,7 +681,8 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 		}
 		return tx.Exec(`INSERT INTO agent_network_goals
 			(agent_id, goal_text, source, status, version, created_at, updated_at)
-			VALUES (?, ?, 'human_edit', 'active', 1, ?, ?)`, agentID, payload.NetworkGoal, now, now).Error
+			VALUES (?, ?, ?, 'active', 1, ?, ?)`, agentID, payload.NetworkGoal,
+			canonicalSource(provenance, "network_goal"), now, now).Error
 	case 5:
 		if err := tx.Exec(`UPDATE agent_intent_actions SET status = 'deleted', updated_at = ?
 			WHERE agent_id = ? AND status <> 'deleted'`, now, agentID).Error; err != nil {
@@ -629,9 +692,9 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 			if err := tx.Exec(`INSERT INTO agent_intent_actions
 				(agent_id, watch_for, trigger_when, action_instruction, action_policy, priority,
 				 source, status, version, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, 'human_edit', 'active', 1, ?, ?)`, agentID,
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)`, agentID,
 				intent.WatchFor, intent.TriggerWhen, intent.ActionInstruction, intent.ActionPolicy,
-				intent.Priority, now, now).Error; err != nil {
+				intent.Priority, canonicalSource(provenance, "intent_actions"), now, now).Error; err != nil {
 				return err
 			}
 		}
