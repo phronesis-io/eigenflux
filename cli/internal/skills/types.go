@@ -51,6 +51,7 @@ const (
 // CDNDefault is the public CDN base; overridable via EIGENFLUX_CDN_URL.
 const CDNDefault = "https://cdn.eigenflux.ai"
 
+
 // Manifest is the authoritative description of a skills bundle. The content
 // `revision` (plus per-skill sha256) is authoritative; cli_version is
 // informational and display_version is cosmetic — both may be empty.
