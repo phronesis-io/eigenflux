@@ -261,6 +261,11 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "onboarding_draft must be a JSON object no larger than 64KB", nil)
 		return
 	}
+	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent))
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not derive onboarding field sources", nil)
+		return
+	}
 
 	requestHash, receiptHashErr := provisionReceiptHash(req)
 	if receiptHashErr != nil {
@@ -391,8 +396,9 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 			}
 			if err := tx.Exec(`INSERT INTO agent_onboarding_drafts
 				(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
-				VALUES (?, 1, ?::jsonb, '{}'::jsonb, 'agent_prefill', ?, ?)`,
-				agentID, string(req.Draft), "provision:"+hashString(req.BootstrapGrant), now).Error; err != nil {
+				VALUES (?, 1, ?::jsonb, ?::jsonb, 'agent_prefill', ?, ?)`,
+				agentID, string(req.Draft), string(initialProvenance),
+				"provision:"+hashString(req.BootstrapGrant), now).Error; err != nil {
 				return err
 			}
 			created = true

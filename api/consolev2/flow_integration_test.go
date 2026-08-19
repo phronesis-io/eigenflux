@@ -381,6 +381,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if onboarding["state"] != "completed" || onboarding["active_context_revision"] == nil {
 		t.Fatalf("onboarding completion is not bound to an active context: %#v", onboarding)
 	}
+	var profileCompletedAt *int64
+	if err := gdb.Raw(`SELECT profile_completed_at FROM agents WHERE agent_id = ?`, agentIDInt).
+		Scan(&profileCompletedAt).Error; err != nil || profileCompletedAt == nil {
+		t.Fatalf("V2 onboarding did not mark the profile complete: completed_at=%v err=%v", profileCompletedAt, err)
+	}
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
