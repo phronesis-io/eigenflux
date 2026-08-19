@@ -106,6 +106,12 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BACKFILL_WORKERS` | `4` | Concurrent workers used by embedding backfill |
 | `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
+| `ENABLE_COMMISSION_INDEX` | `false` | Enables the Commission Redis-stream projection, its index bootstrap, and Commission discovery endpoints |
+| `COMMISSION_SOURCE_SERVICE` / `COMMISSION_ORDER_SOURCE_SERVICE` | `CommissionService` / `OrderService` | etcd service names for authoritative catalogue and statistics RPCs |
+| `COMMISSION_INDEX_NAME` / `COMMISSION_INDEX_ALIAS` | `commissions-v1` / `commissions` | Backing Elasticsearch index and its stable read/write alias |
+| `COMMISSION_INDEX_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:index` / `cg:commission:index` / `stream:commission:index:dlq` | Commission source notification stream, consumer group, and poison-message stream |
+| `COMMISSION_INDEX_CONSUMER_WORKERS` / `_RETRIES` | `2` / `3` | Projection worker count and maximum pending retries before DLQ |
+| `COMMISSION_BACKFILL_PAGE_SIZE` | `100` | Active snapshots fetched per `commission_backfill` page |
 | `SEARCH_CACHE_TTL` | `2` | Search cache TTL (seconds) |
 | `PROFILE_CACHE_TTL` | `60` | User profile cache TTL (seconds) |
 | `MILESTONE_RULE_CACHE_TTL` | `60` | Milestone rule cache TTL (seconds) |
