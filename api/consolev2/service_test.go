@@ -8,9 +8,12 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	redis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -206,6 +209,88 @@ func TestV2ClientIPOnlyTrustsConfiguredProxy(t *testing.T) {
 	}
 	if got := resolveV2ClientIP("10.1.2.3:4321", "198.51.100.8, 10.2.3.4", "", []*net.IPNet{trusted}); got != "198.51.100.8" {
 		t.Fatalf("trusted proxy client IP = %s", got)
+	}
+}
+
+func TestRegistrationSubnetUsesIPv4Slash24AndIPv6Slash64(t *testing.T) {
+	for input, expected := range map[string]string{
+		"203.0.113.81":         "203.0.113.0/24",
+		"2001:db8:abcd:12::99": "2001:db8:abcd:12::/64",
+		"not-an-ip":            "unknown",
+	} {
+		if actual := registrationSubnet(input); actual != expected {
+			t.Fatalf("registrationSubnet(%q)=%q want %q", input, actual, expected)
+		}
+	}
+}
+
+func TestPublicRegistrationRequiresBootstrapSecretAndPositiveLimits(t *testing.T) {
+	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := config.Config{
+		EnablePublicRegistration: true,
+		ConsoleV2OTPPepper:       "test-otp-pepper",
+		ConsoleV2PublicURL:       "https://console.example.test",
+		ConsoleV2Registration: config.RegLimit{
+			WindowSec: 86400, IPLimit: 500, SubnetLimit: 500, KeyLimit: 5, GlobalLimit: 1000,
+		},
+	}
+	if _, err := NewService(gdb, &fixedIDGenerator{}, &base); err == nil || !strings.Contains(err.Error(), "BOOTSTRAP_SECRET") {
+		t.Fatalf("public registration accepted an empty bootstrap secret: %v", err)
+	}
+	base.ConsoleV2BootstrapSecret = "test-bootstrap-secret"
+	base.ConsoleV2Registration.KeyLimit = 0
+	if _, err := NewService(gdb, &fixedIDGenerator{}, &base); err == nil || !strings.Contains(err.Error(), "limits") {
+		t.Fatalf("public registration accepted invalid limits: %v", err)
+	}
+}
+
+func TestPublicRegistrationRateLimiterAppliesEveryDimension(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		limits    registrationRateLimits
+		firstIP   string
+		firstKey  string
+		secondIP  string
+		secondKey string
+	}{
+		{
+			name: "ip", limits: registrationRateLimits{Window: time.Hour, IP: 1, Subnet: 10, PublicKey: 10, Global: 10},
+			firstIP: "203.0.113.10", firstKey: "key-a", secondIP: "203.0.113.10", secondKey: "key-b",
+		},
+		{
+			name: "subnet", limits: registrationRateLimits{Window: time.Hour, IP: 10, Subnet: 1, PublicKey: 10, Global: 10},
+			firstIP: "203.0.113.10", firstKey: "key-a", secondIP: "203.0.113.11", secondKey: "key-b",
+		},
+		{
+			name: "public key", limits: registrationRateLimits{Window: time.Hour, IP: 10, Subnet: 10, PublicKey: 1, Global: 10},
+			firstIP: "203.0.113.10", firstKey: "key-a", secondIP: "198.51.100.10", secondKey: "key-a",
+		},
+		{
+			name: "global", limits: registrationRateLimits{Window: time.Hour, IP: 10, Subnet: 10, PublicKey: 10, Global: 1},
+			firstIP: "203.0.113.10", firstKey: "key-a", secondIP: "198.51.100.10", secondKey: "key-b",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			t.Cleanup(func() { _ = client.Close() })
+			service := &Service{redisClient: client, otpPepper: "test-registration-pepper", registrationLimits: test.limits}
+
+			first, err := service.allowPublicRegistration(context.Background(), test.firstIP, test.firstKey)
+			if err != nil || !first.Allowed {
+				t.Fatalf("first request decision=%#v err=%v", first, err)
+			}
+			second, err := service.allowPublicRegistration(context.Background(), test.secondIP, test.secondKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second.Allowed || second.RetryAfterMS <= 0 {
+				t.Fatalf("second request was not rate limited: %#v", second)
+			}
+		})
 	}
 }
 

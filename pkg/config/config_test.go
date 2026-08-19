@@ -134,13 +134,19 @@ func TestConsoleV2FeatureFlagsDefaultOff(t *testing.T) {
 	t.Setenv("ENABLE_FEED_V2", "")
 	t.Setenv("ENABLE_CONTROL_CHANNEL_V2", "")
 	t.Setenv("ENABLE_COMMUNICATION_V2", "")
+	t.Setenv("ENABLE_PUBLIC_AGENT_REGISTRATION", "")
 	t.Setenv("POSTGRES_PORT", "")
 	t.Setenv("REDIS_PORT", "")
 	t.Setenv("ETCD_PORT", "")
 
 	cfg := Load()
-	if cfg.EnableConsoleV2 || cfg.EnableFeedV2 || cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 {
+	if cfg.EnableConsoleV2 || cfg.EnableFeedV2 || cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 || cfg.EnablePublicRegistration {
 		t.Fatal("Console V2 feature flags must default to disabled")
+	}
+	if cfg.ConsoleV2Registration.WindowSec != 86400 || cfg.ConsoleV2Registration.IPLimit != 500 ||
+		cfg.ConsoleV2Registration.SubnetLimit != 500 || cfg.ConsoleV2Registration.KeyLimit != 5 ||
+		cfg.ConsoleV2Registration.GlobalLimit != 1000 {
+		t.Fatalf("unexpected public registration defaults: %#v", cfg.ConsoleV2Registration)
 	}
 }
 
@@ -149,12 +155,13 @@ func TestConsoleV2FeatureFlagsCanBeEnabledIndependently(t *testing.T) {
 	t.Setenv("ENABLE_FEED_V2", "false")
 	t.Setenv("ENABLE_CONTROL_CHANNEL_V2", "true")
 	t.Setenv("ENABLE_COMMUNICATION_V2", "false")
+	t.Setenv("ENABLE_PUBLIC_AGENT_REGISTRATION", "true")
 	t.Setenv("POSTGRES_PORT", "")
 	t.Setenv("REDIS_PORT", "")
 	t.Setenv("ETCD_PORT", "")
 
 	cfg := Load()
-	if !cfg.EnableConsoleV2 || cfg.EnableFeedV2 || !cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 {
+	if !cfg.EnableConsoleV2 || cfg.EnableFeedV2 || !cfg.EnableControlChannelV2 || cfg.EnableCommunicationV2 || !cfg.EnablePublicRegistration {
 		t.Fatal("Console V2 feature flags were not loaded independently")
 	}
 }
