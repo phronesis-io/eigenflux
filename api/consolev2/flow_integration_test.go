@@ -406,6 +406,16 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if status != 200 || responseData(t, bindPayload)["verification_level"] != "email_verified" {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
 	}
+	status, boundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != 200 {
+		t.Fatalf("bound session status=%d payload=%#v", status, boundSessionPayload)
+	}
+	boundSession := responseData(t, boundSessionPayload)
+	if boundSession["email"] != boundEmail || boundSession["email_bound"] != true ||
+		boundSession["verification_level"] != "email_verified" {
+		t.Fatalf("bound session did not expose verified binding: %#v", boundSession)
+	}
 	var emailKind string
 	if err := gdb.Raw(`SELECT email_kind FROM agents WHERE agent_id = ?`, agentID).Scan(&emailKind).Error; err != nil || emailKind != "v2_bound" {
 		t.Fatalf("bound Agent email_kind=%q err=%v", emailKind, err)

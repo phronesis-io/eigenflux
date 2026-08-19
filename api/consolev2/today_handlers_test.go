@@ -27,7 +27,7 @@ func TestCalculateCardCompletionUsesEditableRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed != 7 || total != 11 || percent != 63 {
+	if completed != 7 || total != 11 || percent != 64 {
 		t.Fatalf("unexpected completion completed=%d total=%d percent=%d", completed, total, percent)
 	}
 }
@@ -43,6 +43,33 @@ func TestTodayStartAcceptsDisplayTimezone(t *testing.T) {
 func TestCalculateCardCompletionRejectsInvalidProjection(t *testing.T) {
 	if _, _, _, err := calculateCardCompletion(`{"agent_name":`, `{}`); err == nil {
 		t.Fatal("invalid Card projection should fail closed")
+	}
+}
+
+func TestCalculateCurrentCardCompletionUsesFactData(t *testing.T) {
+	profileData := `{
+		"human_description":"Works on agent infrastructure",
+		"working_languages":["zh-CN","en"],
+		"seeking":[],
+		"offering":["research"],
+		"geo":"Singapore",
+		"timezone":"Asia/Singapore",
+		"agent_status":[],
+		"human_status":[],
+		"interests_negative":[]
+	}`
+	completed, total, percent, err := calculateCurrentCardCompletion("Atlas", "Research assistant", profileData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed != 7 || total != 11 || percent != 64 {
+		t.Fatalf("unexpected current completion completed=%d total=%d percent=%d", completed, total, percent)
+	}
+}
+
+func TestCalculateCurrentCardCompletionRejectsInvalidFactData(t *testing.T) {
+	if _, _, _, err := calculateCurrentCardCompletion("Atlas", "Research assistant", `{"timezone":`); err == nil {
+		t.Fatal("invalid fact data should fail closed")
 	}
 }
 

@@ -73,20 +73,39 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var identity struct {
-		AgentName string `gorm:"column:agent_name"`
-		Bio       string `gorm:"column:bio"`
-		CreatedAt int64  `gorm:"column:created_at"`
+		AgentName     string `gorm:"column:agent_name"`
+		Bio           string `gorm:"column:bio"`
+		CreatedAt     int64  `gorm:"column:created_at"`
+		IsOfficial    bool   `gorm:"column:is_official"`
+		BoundEmail    string `gorm:"column:bound_email"`
+		EmailVerified bool   `gorm:"column:email_verified"`
 	}
-	if err := s.db.Raw(`SELECT agent_name, bio, created_at FROM agents WHERE agent_id = ?`, id).Scan(&identity).Error; err != nil {
+	if err := s.db.Raw(`SELECT a.agent_name, a.bio, a.created_at, a.is_official,
+		COALESCE(b.normalized_email, '') AS bound_email,
+		(b.binding_id IS NOT NULL) AS email_verified
+		FROM agents a
+		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
+			AND b.status = 'active' AND b.verification_state = 'verified'
+		WHERE a.agent_id = ?`, id).Scan(&identity).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "SESSION_READ_FAILED", "could not read Agent identity", nil)
 		return
 	}
+	verificationLevel := "unverified"
+	if identity.EmailVerified {
+		verificationLevel = "email_verified"
+	}
+	if identity.IsOfficial {
+		verificationLevel = "official"
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"agent_id":   fmt.Sprintf("%d", id),
-		"agent_name": identity.AgentName,
-		"bio":        identity.Bio,
-		"created_at": identity.CreatedAt,
-		"onboarding": state,
+		"agent_id":           fmt.Sprintf("%d", id),
+		"agent_name":         identity.AgentName,
+		"bio":                identity.Bio,
+		"created_at":         identity.CreatedAt,
+		"email":              identity.BoundEmail,
+		"email_bound":        identity.EmailVerified,
+		"verification_level": verificationLevel,
+		"onboarding":         state,
 	})
 }
 
