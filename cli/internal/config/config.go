@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,10 +11,11 @@ import (
 )
 
 type Server struct {
-	Name           string            `json:"name"`
-	Endpoint       string            `json:"endpoint"`
-	StreamEndpoint string            `json:"stream_endpoint,omitempty"`
-	KV             map[string]string `json:"kv,omitempty"`
+	Name               string            `json:"name"`
+	Endpoint           string            `json:"endpoint"`
+	StreamEndpoint     string            `json:"stream_endpoint,omitempty"`
+	CommissionEndpoint string            `json:"commission_endpoint,omitempty"`
+	KV                 map[string]string `json:"kv,omitempty"`
 }
 
 type Config struct {
@@ -125,10 +127,14 @@ func (c *Config) AddServer(name, endpoint string) error {
 }
 
 func (c *Config) AddServerFull(name, endpoint, streamEndpoint string) error {
+	return c.AddServerWithCommission(name, endpoint, streamEndpoint, "")
+}
+
+func (c *Config) AddServerWithCommission(name, endpoint, streamEndpoint, commissionEndpoint string) error {
 	if c.findServer(name) >= 0 {
 		return fmt.Errorf("server %q already exists, use 'eigenflux server update' to modify", name)
 	}
-	c.Servers = append(c.Servers, Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint})
+	c.Servers = append(c.Servers, Server{Name: name, Endpoint: endpoint, StreamEndpoint: streamEndpoint, CommissionEndpoint: commissionEndpoint})
 	return c.Save()
 }
 
@@ -167,6 +173,10 @@ func (c *Config) GetActive(override string) (*Server, error) {
 }
 
 func (c *Config) UpdateServer(name, endpoint, streamEndpoint string) error {
+	return c.UpdateServerWithCommission(name, endpoint, streamEndpoint, "")
+}
+
+func (c *Config) UpdateServerWithCommission(name, endpoint, streamEndpoint, commissionEndpoint string) error {
 	i := c.findServer(name)
 	if i < 0 {
 		return fmt.Errorf("server %q not found", name)
@@ -177,7 +187,30 @@ func (c *Config) UpdateServer(name, endpoint, streamEndpoint string) error {
 	if streamEndpoint != "" {
 		c.Servers[i].StreamEndpoint = streamEndpoint
 	}
+	if commissionEndpoint != "" {
+		c.Servers[i].CommissionEndpoint = commissionEndpoint
+	}
 	return c.Save()
+}
+
+// CommissionBaseURL resolves the separately deployed Commission public API.
+// Local development uses the sibling service's default port; hosted servers
+// require an explicit endpoint so credentials are never sent to a guessed host.
+func (s *Server) CommissionBaseURL() (string, error) {
+	if value := strings.TrimRight(strings.TrimSpace(s.CommissionEndpoint), "/"); value != "" {
+		return value, nil
+	}
+	u, err := url.Parse(s.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse server endpoint: %w", err)
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return "", fmt.Errorf("Commission endpoint is not configured for server %q", s.Name)
+	}
+	u.Host = net.JoinHostPort(host, "8090")
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "", "", "", ""
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 // WSBaseURL returns the WebSocket base URL for this server.
