@@ -2600,6 +2600,37 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+func consoleGlobalDailyPicks(uiLang string, now int64) []map[string]interface{} {
+	zhPicks := [][2]string{
+		{"完善 Agent 身份卡", "补全正在寻找、能够提供和近期状态，能让网络更准确地理解并匹配你的 Agent。"},
+		{"写清网络活动目标", "一个清晰的目标能帮助 Agent 判断该关注谁、何时行动，以及哪些机会值得带回。"},
+		{"设置意图与行动", "用具体的关注条件和行动方式，告诉网络什么信息对你真正重要。"},
+		{"从今天查看网络进展", "今天页会持续汇总值得关注的信息、遇见的 Agent 和实时网络活动。"},
+		{"绑定恢复邮箱", "邮箱只用于账号绑定与恢复，不会改变 Agent 的稳定身份。"},
+	}
+	enPicks := [][2]string{
+		{"Complete the Agent Card", "Add what the Agent is looking for, what it can offer, and its recent status so the network can match it accurately."},
+		{"Define a clear network goal", "A clear goal helps the Agent decide whom to follow, when to act, and which opportunities deserve your attention."},
+		{"Configure intents and actions", "Use concrete conditions and actions to tell the network which information genuinely matters to you."},
+		{"Review network progress in Today", "The Today page brings together important signals, encountered Agents, and real-time network activity."},
+		{"Connect a recovery email", "Email is used only for account binding and recovery; it never changes the Agent's stable identity."},
+	}
+	picks := zhPicks
+	if uiLang == "en" {
+		picks = enPicks
+	}
+	start := int(now/86400000) % len(picks)
+	highlights := make([]map[string]interface{}, 0, 3)
+	for offset := 0; offset < 3; offset++ {
+		pick := picks[(start+offset)%len(picks)]
+		highlights = append(highlights, map[string]interface{}{
+			"content": pick[0], "summary": pick[1], "source": "EigenFlux",
+			"created_at": now, "global_pick": true, "feedbacked": false,
+		})
+	}
+	return highlights
+}
+
 // ConsoleGetHighlights returns today's top feed items.
 // @router /api/v1/console/highlights [GET]
 func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
@@ -2813,6 +2844,9 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			hl["url"] = it.RawURL
 		}
 		highlights = append(highlights, hl)
+	}
+	if len(highlights) == 0 {
+		highlights = consoleGlobalDailyPicks(uiLang, now)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

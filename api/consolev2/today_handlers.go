@@ -60,6 +60,21 @@ func cardFieldPresent(value interface{}) bool {
 	}
 }
 
+func calculateCardCompletionValues(values map[string]interface{}) (int, int, int) {
+	completed := 0
+	for _, field := range consoleV2CardCompletionFields {
+		if cardFieldPresent(values[field]) {
+			completed++
+		}
+	}
+	total := len(consoleV2CardCompletionFields)
+	percent := 0
+	if total > 0 {
+		percent = (completed*100 + total/2) / total
+	}
+	return completed, total, percent
+}
+
 func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, error) {
 	publicCard := map[string]interface{}{}
 	privateCard := map[string]interface{}{}
@@ -73,7 +88,7 @@ func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, err
 			return 0, 0, 0, err
 		}
 	}
-	completed := 0
+	values := map[string]interface{}{}
 	for _, field := range consoleV2CardCompletionFields {
 		source := privateCard
 		for _, spec := range agentcard.EditableFields {
@@ -82,15 +97,22 @@ func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, err
 				break
 			}
 		}
-		if cardFieldPresent(source[field]) {
-			completed++
+		values[field] = source[field]
+	}
+	completed, total, percent := calculateCardCompletionValues(values)
+	return completed, total, percent, nil
+}
+
+func calculateCurrentCardCompletion(agentName, agentDescription, profileJSON string) (int, int, int, error) {
+	values := map[string]interface{}{}
+	if strings.TrimSpace(profileJSON) != "" {
+		if err := json.Unmarshal([]byte(profileJSON), &values); err != nil {
+			return 0, 0, 0, err
 		}
 	}
-	total := len(consoleV2CardCompletionFields)
-	percent := 0
-	if total > 0 {
-		percent = completed * 100 / total
-	}
+	values["agent_name"] = agentName
+	values["agent_description"] = agentDescription
+	completed, total, percent := calculateCardCompletionValues(values)
 	return completed, total, percent, nil
 }
 
@@ -193,15 +215,24 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	}
 
 	var card struct {
-		PublicCard  string `gorm:"column:public_card"`
-		PrivateCard string `gorm:"column:private_card"`
+		PublicCard       string `gorm:"column:public_card"`
+		PrivateCard      string `gorm:"column:private_card"`
+		AgentName        string `gorm:"column:agent_name"`
+		AgentDescription string `gorm:"column:agent_description"`
+		ProfileData      string `gorm:"column:profile_data"`
 	}
-	if err := s.db.Raw(`SELECT public_card::text AS public_card, private_card::text AS private_card
-		FROM agent_cards WHERE agent_id = ?`, agentIDValue).Scan(&card).Error; err != nil {
+	if err := s.db.Raw(`SELECT COALESCE(card.public_card, '{}'::jsonb)::text AS public_card,
+			COALESCE(card.private_card, '{}'::jsonb)::text AS private_card,
+			agent.agent_name, agent.bio AS agent_description,
+			COALESCE(profile.profile_data, '{}'::jsonb)::text AS profile_data
+		FROM agents agent
+		LEFT JOIN agent_cards card ON card.agent_id = agent.agent_id
+		LEFT JOIN agent_profiles profile ON profile.agent_id = agent.agent_id
+		WHERE agent.agent_id = ?`, agentIDValue).Scan(&card).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Agent Card", nil)
 		return
 	}
-	completedFields, totalFields, completionPercent, err := calculateCardCompletion(card.PublicCard, card.PrivateCard)
+	completedFields, totalFields, completionPercent, err := calculateCurrentCardCompletion(card.AgentName, card.AgentDescription, card.ProfileData)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not calculate Agent Card completion", nil)
 		return
