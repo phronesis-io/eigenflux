@@ -6,7 +6,20 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	"cli.eigenflux.ai/internal/client"
 )
+
+type captureV2Poster struct {
+	path string
+	body map[string]interface{}
+}
+
+func (poster *captureV2Poster) Post(path string, body interface{}) (*client.APIResponse, error) {
+	poster.path = path
+	poster.body, _ = body.(map[string]interface{})
+	return &client.APIResponse{Data: json.RawMessage(`{"bootstrap_grant":"efbg_auto","nonce":"efn_auto"}`)}, nil
+}
 
 func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -47,5 +60,30 @@ func TestDefaultProvisionDraftRequiresHumanConfirmationForAutonomousActions(t *t
 	}
 	if draft.SecurityBoundary.RecurringPublish || draft.SecurityBoundary.AutoReplyPM || draft.SecurityBoundary.AutoComment || !draft.SecurityBoundary.ShowAddFriend {
 		t.Fatalf("autonomous actions must default off while the social entry remains visible: %#v", draft.SecurityBoundary)
+	}
+}
+
+func TestAutomaticRegistrationChallengeBindsRequestToPublicKey(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := &captureV2Poster{}
+	grant, nonce, err := requestAutomaticRegistrationChallenge(poster, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant != "efbg_auto" || nonce != "efn_auto" {
+		t.Fatalf("unexpected challenge grant=%q nonce=%q", grant, nonce)
+	}
+	if poster.path != "/agent-identities/registration-challenges" {
+		t.Fatalf("automatic registration path=%q", poster.path)
+	}
+	if poster.body["public_key"] != base64.RawURLEncoding.EncodeToString(publicKey) {
+		t.Fatal("automatic registration did not bind the canonical public key")
+	}
+	requestID, _ := poster.body["idempotency_key"].(string)
+	if len(requestID) < 16 {
+		t.Fatalf("automatic registration idempotency key is too short: %q", requestID)
 	}
 }
