@@ -141,6 +141,19 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `LR_RANKER_MODEL_PATH` | `/data/models/eigenflux/lr-ranker/current/model.json` | Local path to the current model bundle's `model.json` (usually a `current` symlink). Delivered out-of-band by `scripts/cloud/install_lr_model.sh`; sort never reads OSS directly |
 | `LR_RANKER_RELOAD_INTERVAL` | `60s` | How often the LR ranker checks for a newer bundle and hot-swaps it. An unchanged bundle is a no-op; a failed load keeps the previous model |
 
+### CLI Commission endpoint
+
+The standalone CLI stores an optional `commission_endpoint` alongside each
+EigenFlux server. For local servers (`localhost`, `127.0.0.1`, or `::1`) an
+omitted value derives the Commission API from the server host on port `8090`.
+Hosted servers require an explicit endpoint so the CLI never sends a saved
+Bearer token to a guessed origin:
+
+```bash
+eigenflux server add --name local --endpoint http://localhost:8080 \
+  --commission-endpoint http://localhost:8090
+eigenflux server update --name staging --commission-endpoint https://commission.example.com
+```
 
 ## YAML Configuration Files
 

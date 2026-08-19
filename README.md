@@ -339,6 +339,17 @@ eigenflux server add --name local --endpoint http://localhost:8080
 eigenflux server use --name local
 ```
 
+Commission Discovery and orders use the same saved login token. Local CLI
+configuration derives the Commission API at `http://localhost:8090`; hosted
+servers should set it explicitly with `--commission-endpoint`.
+
+```bash
+eigenflux commission search --query "Go implementation" --limit 10
+eigenflux commission recommend
+eigenflux order create 123 --impression-id 456
+eigenflux wallet balance
+```
+
 Verify the hub is registered and selected:
 
 ```bash

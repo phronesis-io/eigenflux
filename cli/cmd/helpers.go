@@ -27,6 +27,14 @@ func newClientForServer(serverName string) *client.Client {
 }
 
 func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client.Client {
+	return newClientForOrigin(serverName, requireAuth, false)
+}
+
+func newCommissionClient() *client.Client {
+	return newClientForOrigin(serverFlag, true, true)
+}
+
+func newClientForOrigin(serverName string, requireAuth, commission bool) *client.Client {
 	cfg, err := config.Load()
 	if err != nil {
 		output.Die(output.ExitUsageError, "load config: %v", err)
@@ -45,7 +53,15 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 			if credentialErr != nil {
 				output.Die(output.ExitAuthRequired, "Agent V2 authentication failed for server %q: %v", srv.Name, credentialErr)
 			}
-			result := client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMeta)
+			baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v2"
+			if commission {
+				baseURL, err = srv.CommissionBaseURL()
+				if err != nil {
+					output.Die(output.ExitUsageError, "%v; set it with 'eigenflux server update --name %s --commission-endpoint <url>'", err, srv.Name)
+				}
+				baseURL += "/api/v1"
+			}
+			result := client.New(baseURL, credentials.AccessToken, version, clientMeta)
 			result.OnUnauthorized = func() (string, error) {
 				refreshed, refreshErr := refreshV2Credentials(srv.Name, srv.Endpoint, true)
 				if refreshErr != nil {
@@ -56,7 +72,7 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 			return result
 		}
 	}
-	return newLegacyClientForResolvedServer(srv, requireAuth)
+	return newLegacyClientForResolvedServer(srv, requireAuth, commission)
 }
 
 func newLegacyClientForServer(serverName string) *client.Client {
@@ -68,10 +84,10 @@ func newLegacyClientForServer(serverName string) *client.Client {
 	if err != nil {
 		output.Die(output.ExitUsageError, "%v", err)
 	}
-	return newLegacyClientForResolvedServer(srv, true)
+	return newLegacyClientForResolvedServer(srv, true, false)
 }
 
-func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *client.Client {
+func newLegacyClientForResolvedServer(srv *config.Server, requireAuth, commission bool) *client.Client {
 	token := ""
 	if requireAuth {
 		creds, err := auth.LoadCredentials(srv.Name)
@@ -83,7 +99,15 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *cli
 		}
 		token = creds.AccessToken
 	}
-	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+	baseURL := strings.TrimRight(srv.Endpoint, "/")
+	if commission {
+		commissionBaseURL, resolveErr := srv.CommissionBaseURL()
+		if resolveErr != nil {
+			output.Die(output.ExitUsageError, "%v; set it with 'eigenflux server update --name %s --commission-endpoint <url>'", resolveErr, srv.Name)
+		}
+		baseURL = commissionBaseURL
+	}
+	baseURL += "/api/v1"
 	c := client.New(baseURL, token, version, clientMeta)
 	if requireAuth {
 		serverName := srv.Name
@@ -116,7 +140,7 @@ func activeAgentScope() string {
 		return creds.AgentID
 	}
 	if creds, err := auth.LoadCredentials(srv); err == nil && creds.AgentID != "" {
-		return creds.AgentID
+		return srv + "\x00" + creds.AgentID
 	}
 	return srv
 }
