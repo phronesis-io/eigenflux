@@ -66,8 +66,11 @@ var agentV2InitCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		homeDir, homeSource := config.HomeDirInfo()
 		output.PrintData(map[string]interface{}{
 			"server": server.Name, "created": created,
+			"home":            homeDir,
+			"home_source":     homeSource,
 			"key_type":        "ed25519-v1",
 			"public_key":      base64.RawURLEncoding.EncodeToString(publicKey),
 			"key_fingerprint": auth.IdentityFingerprint(publicKey),
@@ -97,6 +100,32 @@ type provisionV2Proof struct {
 	Draft          json.RawMessage `json:"onboarding_draft,omitempty"`
 }
 
+type v2Poster interface {
+	Post(path string, body interface{}) (*client.APIResponse, error)
+}
+
+func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.PublicKey) (string, string, error) {
+	requestNonce, err := newBrowserNonce()
+	if err != nil {
+		return "", "", err
+	}
+	response, err := v2.Post("/agent-identities/registration-challenges", map[string]interface{}{
+		"public_key":      base64.RawURLEncoding.EncodeToString(publicKey),
+		"idempotency_key": "registration-" + requestNonce,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	var challenge struct {
+		BootstrapGrant string `json:"bootstrap_grant"`
+		Nonce          string `json:"nonce"`
+	}
+	if json.Unmarshal(response.Data, &challenge) != nil || challenge.BootstrapGrant == "" || challenge.Nonce == "" {
+		return "", "", fmt.Errorf("invalid automatic Agent registration challenge")
+	}
+	return challenge.BootstrapGrant, challenge.Nonce, nil
+}
+
 func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 	payload, err := json.Marshal(provisionV2Proof{
 		BootstrapGrant: request.BootstrapGrant, Nonce: request.Nonce,
@@ -123,12 +152,12 @@ var agentV2ProvisionCmd = &cobra.Command{
 		if nonce == "" {
 			nonce = os.Getenv("EIGENFLUX_BOOTSTRAP_NONCE")
 		}
+		if (grant == "") != (nonce == "") {
+			return fmt.Errorf("--bootstrap-grant and --nonce must be provided together")
+		}
 		agentName, _ := cmd.Flags().GetString("agent-name")
 		draftFile, _ := cmd.Flags().GetString("draft-file")
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
-		if grant == "" || nonce == "" {
-			return fmt.Errorf("--bootstrap-grant and --nonce are required")
-		}
 		if strings.TrimSpace(agentName) == "" {
 			agentName = "EigenFlux Agent"
 		}
@@ -143,6 +172,13 @@ var agentV2ProvisionCmd = &cobra.Command{
 		publicKey, privateKey, _, err := auth.LoadOrCreateIdentity(server.Name)
 		if err != nil {
 			return err
+		}
+		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, clientMeta)
+		if grant == "" {
+			grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
+			if err != nil {
+				return err
+			}
 		}
 		draft := defaultProvisionDraft(agentName)
 		if draftFile != "" {
@@ -162,7 +198,6 @@ var agentV2ProvisionCmd = &cobra.Command{
 			return err
 		}
 		request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
-		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, clientMeta)
 		response, err := v2.Post("/agent-identities/provision", request)
 		if err != nil {
 			return err
@@ -191,6 +226,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 			"agent_id": provisioned.AgentID, "created": provisioned.Created,
 			"next_step": provisioned.NextStep,
 		}
+		homeDir, homeSource := config.HomeDirInfo()
+		result["home"] = homeDir
+		result["home_source"] = homeSource
 		if !noHandoff {
 			authenticated := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", provisioned.AccessToken, version, clientMeta)
 			browserNonce, nonceErr := newBrowserNonce()
@@ -217,8 +255,8 @@ var agentV2ProvisionCmd = &cobra.Command{
 }
 
 func init() {
-	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "short-lived grant issued by the controlled installation broker (or EIGENFLUX_BOOTSTRAP_GRANT)")
-	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce issued with the bootstrap grant (or EIGENFLUX_BOOTSTRAP_NONCE)")
+	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "optional short-lived controlled-channel grant (automatic registration is used when omitted)")
+	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce paired with --bootstrap-grant")
 	agentV2ProvisionCmd.Flags().String("agent-name", "EigenFlux Agent", "Agent name used to prefill onboarding")
 	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file ('-' reads stdin)")
 	agentV2ProvisionCmd.Flags().Bool("no-handoff", false, "provision without creating a Console V2 link")

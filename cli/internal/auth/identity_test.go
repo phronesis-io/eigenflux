@@ -34,6 +34,25 @@ func TestLoadOrCreateIdentityIsStableAndPrivate(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateIdentitySeparatesHomes(t *testing.T) {
+	homeOne := t.TempDir()
+	homeTwo := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", homeOne)
+	publicOne, _, createdOne, err := LoadOrCreateIdentity("eigenflux")
+	if err != nil || !createdOne {
+		t.Fatalf("create first Home identity: created=%v err=%v", createdOne, err)
+	}
+
+	t.Setenv("EIGENFLUX_HOME", homeTwo)
+	publicTwo, _, createdTwo, err := LoadOrCreateIdentity("eigenflux")
+	if err != nil || !createdTwo {
+		t.Fatalf("create second Home identity: created=%v err=%v", createdTwo, err)
+	}
+	if bytes.Equal(publicOne, publicTwo) {
+		t.Fatal("different EigenFlux Homes reused the same public key")
+	}
+}
+
 func TestLoadOrCreateIdentityRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)
