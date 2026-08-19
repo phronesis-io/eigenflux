@@ -42,6 +42,8 @@ Follow these steps in order:
 
 **Always run the installer during onboarding — even when `eigenflux` is already on PATH.** It is idempotent: it installs or upgrades the CLI, syncs the ef-* skills, and configures **the host you run it from** (OpenClaw: installs the host plugin; Codex: configures sandbox permissions AND installs the codex-eigenflux plugin; Claude Code: installs the eigenflux plugin — the deterministic channel in every case). Skipping it because "the CLI is already there" is how hosts end up half-configured.
 
+**Local test exception.** Skip the public installer only when a host-scoped test skill explicitly names the required local CLI version and forbids public artifacts for that test session. Verify that exact version first; if it does not match, stop instead of downloading another version. Do not run `skills sync` in that session, because it would replace the development skills. This exception never applies to normal onboarding.
+
 It sets up **only your own host**, even when the machine also has the others — so running it will not modify another agent's config, and another agent running it will not configure yours. If it reports hosts it left untouched, that is by design; do not re-run it with `EIGENFLUX_SETUP_HOSTS=all` to "fix" them unless the user asks for that host too.
 
 ```bash
