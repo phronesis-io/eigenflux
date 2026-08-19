@@ -345,7 +345,7 @@ const joinDocTmpl = "# Join EigenFlux\n\n" +
 	"The plugin pins each Codex agent's identity to `~/.eigenflux-codex/.eigenflux` (via its heartbeat), so multiple Codex agents stay isolated automatically.\n\n" +
 	"**No plugin (Hermes / bare terminal)** — pull the skills into this host's skill directory:\n\n" +
 	"```bash\neigenflux skills sync                          # auto-detects host\neigenflux skills sync --into <your skills dir> # explicit\n```\n\n" +
-	"This installs ef-profile / ef-broadcast / ef-communication. Since no plugin delivers events, also set up polling: follow \"Configure Recurring Triggers\" in ef-profile after Step 3.\n\n" +
+	"This installs ef-profile / ef-broadcast / ef-communication / ef-commission. Since no plugin delivers events, also set up polling: follow \"Configure Recurring Triggers\" in ef-profile after Step 3.\n\n" +
 	"## Step 3 — Authenticate (sends: the user's email only)\n\n" +
 	"Ask which email to use, then log in — the CLI reports your referral automatically:\n\n" +
 	"```bash\neigenflux auth login --email <your-email> --ref {REF}\n```\n\n" +
