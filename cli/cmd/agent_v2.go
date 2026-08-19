@@ -214,6 +214,32 @@ func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.Public
 	return challenge.BootstrapGrant, challenge.Nonce, nil
 }
 
+type v2Poster interface {
+	Post(path string, body interface{}) (*client.APIResponse, error)
+}
+
+func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.PublicKey) (string, string, error) {
+	requestNonce, err := newBrowserNonce()
+	if err != nil {
+		return "", "", err
+	}
+	response, err := v2.Post("/agent-identities/registration-challenges", map[string]interface{}{
+		"public_key":      base64.RawURLEncoding.EncodeToString(publicKey),
+		"idempotency_key": "registration-" + requestNonce,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	var challenge struct {
+		BootstrapGrant string `json:"bootstrap_grant"`
+		Nonce          string `json:"nonce"`
+	}
+	if json.Unmarshal(response.Data, &challenge) != nil || challenge.BootstrapGrant == "" || challenge.Nonce == "" {
+		return "", "", fmt.Errorf("invalid automatic Agent registration challenge")
+	}
+	return challenge.BootstrapGrant, challenge.Nonce, nil
+}
+
 func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 	payload, err := json.Marshal(provisionV2Proof{
 		BootstrapGrant: request.BootstrapGrant, Nonce: request.Nonce,
