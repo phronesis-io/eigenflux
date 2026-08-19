@@ -71,6 +71,8 @@ type Service struct {
 	enableFeed               bool
 	enableControl            bool
 	enableCommunication      bool
+	enablePublicRegistration bool
+	registrationLimits       registrationRateLimits
 	activityMu               sync.Mutex
 	activityConnections      map[int64]int
 	activityTotal            int
@@ -135,6 +137,19 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		}
 		trustedProxyNets = append(trustedProxyNets, network)
 	}
+	registrationLimits := registrationRateLimits{
+		Window:    time.Duration(cfg.ConsoleV2Registration.WindowSec) * time.Second,
+		IP:        int64(cfg.ConsoleV2Registration.IPLimit),
+		Subnet:    int64(cfg.ConsoleV2Registration.SubnetLimit),
+		PublicKey: int64(cfg.ConsoleV2Registration.KeyLimit),
+		Global:    int64(cfg.ConsoleV2Registration.GlobalLimit),
+	}
+	if cfg.EnablePublicRegistration && !registrationLimits.valid() {
+		return nil, errors.New("public Agent registration limits must all be positive")
+	}
+	if cfg.EnablePublicRegistration && strings.TrimSpace(cfg.ConsoleV2BootstrapSecret) == "" {
+		return nil, errors.New("CONSOLE_V2_BOOTSTRAP_SECRET is required for public Agent registration")
+	}
 	service := &Service{
 		db:                       gdb,
 		idgen:                    idgen,
@@ -145,6 +160,8 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		enableFeed:               cfg.EnableFeedV2,
 		enableControl:            cfg.EnableControlChannelV2,
 		enableCommunication:      cfg.EnableCommunicationV2,
+		enablePublicRegistration: cfg.EnablePublicRegistration,
+		registrationLimits:       registrationLimits,
 		activityConnections:      make(map[int64]int),
 		activityWakeSubs:         make(map[int64]map[chan struct{}]struct{}),
 		communicationSubs:        make(map[int64]map[chan communicationWakeEvent]struct{}),
@@ -268,6 +285,9 @@ func (s *Service) requireSameOrigin() app.HandlerFunc {
 // Console V2 feature flag, so disabled deployments retain the exact V1 surface.
 func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/bootstrap-grants", s.issueBootstrapGrant)
+	if s.enablePublicRegistration {
+		h.POST("/api/v2/agent-identities/registration-challenges", s.issuePublicRegistrationChallenge)
+	}
 	h.POST("/api/v2/agent-identities/provision", s.provision)
 	h.POST("/api/v2/agent-sessions/refresh-challenges", s.createRefreshChallenge)
 	h.POST("/api/v2/agent-sessions/refresh", s.refreshAgentSession)

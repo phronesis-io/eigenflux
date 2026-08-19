@@ -18,6 +18,24 @@ const (
 	defaultProjectTitle = "MyHub"
 )
 
+type RegLimit struct {
+	WindowSec   int
+	IPLimit     int
+	SubnetLimit int
+	KeyLimit    int
+	GlobalLimit int
+}
+
+func loadConsoleV2RegistrationLimits() RegLimit {
+	return RegLimit{
+		WindowSec:   getEnvInt("CONSOLE_V2_REGISTRATION_WINDOW_SEC", 86400),
+		IPLimit:     getEnvInt("CONSOLE_V2_REGISTRATION_IP_LIMIT", 500),
+		SubnetLimit: getEnvInt("CONSOLE_V2_REGISTRATION_SUBNET_LIMIT", 500),
+		KeyLimit:    getEnvInt("CONSOLE_V2_REGISTRATION_KEY_LIMIT", 5),
+		GlobalLimit: getEnvInt("CONSOLE_V2_REGISTRATION_GLOBAL_LIMIT", 1000),
+	}
+}
+
 type Config struct {
 	EtcdAddr                    string
 	PgDSN                       string
@@ -66,10 +84,12 @@ type Config struct {
 	EnableFeedV2                bool     // Enable the stateless latest-view Feed V2 route
 	EnableControlChannelV2      bool     // Enable Agent command and attention routes
 	EnableCommunicationV2       bool     // Enable V2 PM/friend responses enriched with public Agent Card data
+	EnablePublicRegistration    bool     // Allow Agents to obtain a rate-limited key-bound bootstrap challenge without a broker
 	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker
 	ConsoleV2OTPPepper          string   // Server-side HMAC pepper for Console V2 email challenges
 	ConsoleV2PublicURL          string   // Browser origin used when constructing one-time handoff URLs
 	ConsoleV2TrustedProxyCIDRs  []string // Proxies allowed to supply client IP forwarding headers for V2 OTP limits
+	ConsoleV2Registration       RegLimit // Public automatic registration rate limits
 	MockUniversalOTP            string   // fixed OTP for whitelist-matched requests
 	ESReplicas                  int      // Elasticsearch number_of_replicas
 	ESShards                    int      // Elasticsearch number_of_shards
@@ -239,10 +259,12 @@ func Load() *Config {
 		EnableFeedV2:                 getEnvBool("ENABLE_FEED_V2", false),
 		EnableControlChannelV2:       getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),
 		EnableCommunicationV2:        getEnvBool("ENABLE_COMMUNICATION_V2", false),
+		EnablePublicRegistration:     getEnvBool("ENABLE_PUBLIC_AGENT_REGISTRATION", false),
 		ConsoleV2BootstrapSecret:     getEnv("CONSOLE_V2_BOOTSTRAP_SECRET", ""),
 		ConsoleV2OTPPepper:           getEnv("CONSOLE_V2_OTP_PEPPER", ""),
 		ConsoleV2PublicURL:           getEnv("CONSOLE_V2_PUBLIC_URL", "http://localhost:5173"),
 		ConsoleV2TrustedProxyCIDRs:   getEnvStringList("CONSOLE_V2_TRUSTED_PROXY_CIDRS", nil),
+		ConsoleV2Registration:        loadConsoleV2RegistrationLimits(),
 		MockUniversalOTP:             getEnv("MOCK_UNIVERSAL_OTP", "123456"),
 		ESReplicas:                   getEnvInt("ES_REPLICAS", 0),
 		ESShards:                     getEnvInt("ES_SHARDS", 1),

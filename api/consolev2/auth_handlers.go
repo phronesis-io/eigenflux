@@ -26,6 +26,27 @@ type issueGrantRequest struct {
 	PublicKey      string `json:"public_key"`
 }
 
+type bootstrapGrantResult struct {
+	BootstrapGrant string
+	Nonce          string
+	ExpiresAt      int64
+	KeyFingerprint string
+}
+
+func (result bootstrapGrantResult) response() map[string]interface{} {
+	return map[string]interface{}{
+		"bootstrap_grant": result.BootstrapGrant,
+		"nonce":           result.Nonce,
+		"expires_at":      result.ExpiresAt,
+		"key_fingerprint": result.KeyFingerprint,
+		"proof": map[string]interface{}{
+			"algorithm": "ed25519",
+			"domain":    "EF-AUTH-V2",
+			"body":      "sign the canonical provision payload described by the API contract",
+		},
+	}
+}
+
 func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) {
 	if s.bootstrapSecret == "" || subtleHeaderMismatch(string(c.GetHeader("X-Bootstrap-Broker-Secret")), s.bootstrapSecret) {
 		fail(c, http.StatusNotFound, "NOT_FOUND", "resource not found", nil)
@@ -52,6 +73,19 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 		req.Policy = "limited"
 	}
 
+	result, err := s.issueBootstrapGrantRecord(req, publicKey)
+	if errors.Is(err, errConflict) {
+		fail(c, http.StatusConflict, "ENTITLEMENT_CONFLICT", "this installation entitlement is bound to a different request", nil)
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "BOOTSTRAP_GRANT_FAILED", "could not issue bootstrap grant", nil)
+		return
+	}
+	reply(c, http.StatusCreated, result.response())
+}
+
+func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed25519.PublicKey) (bootstrapGrantResult, error) {
 	keyFingerprint := fingerprint(publicKey)
 	entitlementHash := keyedHash(s.bootstrapSecret, req.EntitlementID)
 	requestID := req.IdempotencyKey
@@ -59,7 +93,7 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 	grant := "efbg_" + keyedHash(s.bootstrapSecret, "grant\x00"+receiptSeed)
 	nonce := "efn_" + keyedHash(s.bootstrapSecret, "nonce\x00"+receiptSeed)
 	var expiresAt int64
-	err = s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, entitlementHash).Error; err != nil {
 			return err
 		}
@@ -114,25 +148,15 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 			(nonce_hash, key_fingerprint, domain, expires_at, created_at)
 			VALUES (?, ?, 'provision', ?, ?)`, hashString(nonce), keyFingerprint, expiresAt, now).Error
 	})
-	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "ENTITLEMENT_CONFLICT", "this installation entitlement is bound to a different request", nil)
-		return
-	}
 	if err != nil {
-		fail(c, http.StatusInternalServerError, "BOOTSTRAP_GRANT_FAILED", "could not issue bootstrap grant", nil)
-		return
+		return bootstrapGrantResult{}, err
 	}
-	reply(c, http.StatusCreated, map[string]interface{}{
-		"bootstrap_grant": grant,
-		"nonce":           nonce,
-		"expires_at":      expiresAt,
-		"key_fingerprint": keyFingerprint,
-		"proof": map[string]interface{}{
-			"algorithm": "ed25519",
-			"domain":    "EF-AUTH-V2",
-			"body":      "sign the canonical provision payload described by the API contract",
-		},
-	})
+	return bootstrapGrantResult{
+		BootstrapGrant: grant,
+		Nonce:          nonce,
+		ExpiresAt:      expiresAt,
+		KeyFingerprint: keyFingerprint,
+	}, nil
 }
 
 func subtleHeaderMismatch(got, want string) bool {
