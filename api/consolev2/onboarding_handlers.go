@@ -18,6 +18,7 @@ import (
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/runtimeidentity"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
@@ -60,7 +61,29 @@ func (s *Service) loadOnboarding(agentID int64) (onboardingState, onboardingDraf
 		Revision: stored.Revision, DraftData: json.RawMessage(stored.DraftData),
 		FieldProvenance: json.RawMessage(stored.FieldProvenance), ActorType: stored.ActorType, CreatedAt: stored.CreatedAt,
 	}
-	return state, draft, err
+	if err != nil {
+		return state, draft, err
+	}
+	normalized, normalizeErr := normalizeLoadedOnboardingDraft(draft)
+	return state, normalized, normalizeErr
+}
+
+func normalizeLoadedOnboardingDraft(draft onboardingDraft) (onboardingDraft, error) {
+	normalizedData, draftObject, err := normalizeOnboardingDraftJSON(draft.DraftData)
+	if err != nil {
+		return draft, err
+	}
+	provenance := decodeProvenance(draft.FieldProvenance)
+	if len(provenance) == 0 && validProvenance(draft.ActorType) {
+		provenance = deriveInitialProvenance(draftObject, draft.ActorType, nil, draft.CreatedAt)
+	}
+	normalizedProvenance, err := json.Marshal(provenance)
+	if err != nil {
+		return draft, err
+	}
+	draft.DraftData = normalizedData
+	draft.FieldProvenance = normalizedProvenance
+	return draft, nil
 }
 
 func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
@@ -75,19 +98,28 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var identity struct {
-		AgentName     string `gorm:"column:agent_name"`
-		Bio           string `gorm:"column:bio"`
-		CreatedAt     int64  `gorm:"column:created_at"`
-		IsOfficial    bool   `gorm:"column:is_official"`
-		BoundEmail    string `gorm:"column:bound_email"`
-		EmailVerified bool   `gorm:"column:email_verified"`
+		AgentName      string `gorm:"column:agent_name"`
+		Bio            string `gorm:"column:bio"`
+		CreatedAt      int64  `gorm:"column:created_at"`
+		IsOfficial     bool   `gorm:"column:is_official"`
+		BoundEmail     string `gorm:"column:bound_email"`
+		EmailVerified  bool   `gorm:"column:email_verified"`
+		RuntimeName    string `gorm:"column:runtime_name"`
+		RuntimeVersion string `gorm:"column:runtime_version"`
+		RuntimeMode    string `gorm:"column:runtime_mode"`
+		ClientHost     string `gorm:"column:client_host"`
 	}
 	if err := s.db.Raw(`SELECT a.agent_name, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
-		(b.binding_id IS NOT NULL) AS email_verified
+		(b.binding_id IS NOT NULL) AS email_verified,
+		COALESCE(settings.runtime_name, '') AS runtime_name,
+		COALESCE(settings.runtime_version, '') AS runtime_version,
+		COALESCE(settings.mode, '') AS runtime_mode,
+		COALESCE(settings.client_host, '') AS client_host
 		FROM agents a
 		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
 			AND b.status = 'active' AND b.verification_state = 'verified'
+		LEFT JOIN agent_settings settings ON settings.agent_id = a.agent_id
 		WHERE a.agent_id = ?`, id).Scan(&identity).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "SESSION_READ_FAILED", "could not read Agent identity", nil)
 		return
@@ -99,6 +131,9 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	if identity.IsOfficial {
 		verificationLevel = "official"
 	}
+	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
+		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
+	)
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":           fmt.Sprintf("%d", id),
 		"agent_name":         identity.AgentName,
@@ -107,8 +142,30 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"email":              identity.BoundEmail,
 		"email_bound":        identity.EmailVerified,
 		"verification_level": verificationLevel,
+		"runtime":            runtime,
+		"runtime_name":       runtimeName,
+		"runtime_version":    runtimeVersion,
+		"runtime_mode":       identity.RuntimeMode,
 		"onboarding":         state,
 	})
+}
+
+func consoleSessionRuntime(name, version, clientHost string) (runtime, runtimeName, runtimeVersion string) {
+	runtimeName = strings.TrimSpace(name)
+	runtimeVersion = strings.TrimSpace(version)
+	if runtimeName == "" {
+		if identity, ok := runtimeidentity.Parse(clientHost); ok {
+			runtimeName, runtimeVersion = identity.Name, identity.Version
+		}
+	}
+	if runtimeName == "" {
+		return "", "", ""
+	}
+	runtime = runtimeName
+	if runtimeVersion != "" {
+		runtime += "/" + runtimeVersion
+	}
+	return runtime, runtimeName, runtimeVersion
 }
 
 func (s *Service) deleteConsoleSession(_ context.Context, c *app.RequestContext) {
@@ -130,18 +187,16 @@ func (s *Service) deleteConsoleSession(_ context.Context, c *app.RequestContext)
 }
 
 type putDraftRequest struct {
-	ExpectedRevision int64           `json:"expected_revision"`
-	IdempotencyKey   string          `json:"idempotency_key"`
-	Draft            json.RawMessage `json:"draft"`
-	// Kept for rolling client compatibility. Field ownership is derived from
-	// the authenticated actor and this request value is intentionally ignored.
-	FieldProvenance json.RawMessage `json:"field_provenance,omitempty"`
+	ExpectedRevision int64             `json:"expected_revision"`
+	IdempotencyKey   string            `json:"idempotency_key"`
+	Draft            json.RawMessage   `json:"draft"`
+	FieldProvenance  map[string]string `json:"field_provenance,omitempty"`
 }
 
 type putDraftResponse struct {
-	Revision        int64             `json:"revision"`
-	FieldProvenance map[string]string `json:"field_provenance"`
-	BlockedPaths    []string          `json:"blocked_paths"`
+	Revision        int64                      `json:"revision"`
+	FieldProvenance map[string]fieldProvenance `json:"field_provenance"`
+	BlockedPaths    []string                   `json:"blocked_paths"`
 }
 
 func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
@@ -163,17 +218,27 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "draft must be a JSON object no larger than 64KB", nil)
 		return
 	}
-	var draftObject map[string]interface{}
-	if json.Unmarshal(req.Draft, &draftObject) != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "draft must be a JSON object", nil)
+	normalizedDraft, draftObject, normalizeErr := normalizeOnboardingDraftJSON(req.Draft)
+	if normalizeErr != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", normalizeErr.Error(), nil)
 		return
 	}
+	req.Draft = normalizedDraft
 	actorType := "agent_prefill"
 	if _, console := c.Get("console_session_id"); console {
 		actorType = "human_edit"
 	}
-	requestHash := hashString(fmt.Sprintf("%d:%s:%s", req.ExpectedRevision, req.Draft, actorType))
-	response := putDraftResponse{FieldProvenance: map[string]string{}, BlockedPaths: []string{}}
+	if actorType == provenanceAgent {
+		if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
+			fail(c, http.StatusBadRequest, "INVALID_FIELD_PROVENANCE", err.Error(), nil)
+			return
+		}
+	} else {
+		req.FieldProvenance = nil
+	}
+	provenanceRequestJSON, _ := json.Marshal(req.FieldProvenance)
+	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, req.Draft, provenanceRequestJSON, actorType))
+	response := putDraftResponse{FieldProvenance: map[string]fieldProvenance{}, BlockedPaths: []string{}}
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prior struct {
@@ -213,15 +278,12 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		if err != nil {
 			return err
 		}
-		incoming, err := decodeJSONObject(req.Draft)
-		if err != nil {
-			return err
-		}
+		incoming := draftObject
 		provenance := decodeProvenance(json.RawMessage(stored.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(stored.ActorType) {
-			provenance = deriveInitialProvenance(previous, stored.ActorType)
+			provenance = deriveInitialProvenance(previous, stored.ActorType, nil, now)
 		}
-		merged, provenance, blockedPaths := mergeOnboardingDraft(previous, incoming, provenance, actorType)
+		merged, provenance, blockedPaths := mergeOnboardingDraft(previous, incoming, provenance, actorType, req.FieldProvenance, now)
 		mergedJSON, err := json.Marshal(merged)
 		if err != nil {
 			return err
@@ -493,21 +555,22 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, id).Scan(&storedDraft).Error; err != nil {
 			return err
 		}
+		normalizedDraftJSON, rawDraft, err := normalizeOnboardingDraftJSON(json.RawMessage(storedDraft.DraftData))
+		if err != nil {
+			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+		}
 		var payload draftPayload
-		if err := json.Unmarshal([]byte(storedDraft.DraftData), &payload); err != nil {
+		if err := json.Unmarshal(normalizedDraftJSON, &payload); err != nil {
 			return err
 		}
 		provenance := decodeProvenance(json.RawMessage(storedDraft.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(storedDraft.ActorType) {
-			rawObject, decodeErr := decodeJSONObject(json.RawMessage(storedDraft.DraftData))
-			if decodeErr != nil {
-				return decodeErr
-			}
-			provenance = deriveInitialProvenance(rawObject, storedDraft.ActorType)
+			provenance = deriveInitialProvenance(rawDraft, storedDraft.ActorType, nil, now)
 		}
 		if err := validateDraftStep(payload, req.Step); err != nil {
 			return err
 		}
+		provenance = confirmStepProvenance(rawDraft, provenance, req.Step, now)
 		if err := applyConfirmedStep(tx, id, req.Step, payload, provenance, now); err != nil {
 			return err
 		}
@@ -551,6 +614,16 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 				WHERE agent_id = ? AND revision = ?`, nextStep, newRevision, now, id, state.Revision); res.Error != nil || res.RowsAffected != 1 {
 				return errConflict
 			}
+		}
+		provenanceJSON, err := json.Marshal(provenance)
+		if err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO agent_onboarding_drafts
+			(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
+			VALUES (?, ?, ?::jsonb, ?::jsonb, 'human_edit', ?, ?)`, id, newRevision,
+			string(normalizedDraftJSON), string(provenanceJSON), "confirm:"+hashString(req.IdempotencyKey), now).Error; err != nil {
+			return err
 		}
 		response = map[string]interface{}{
 			"state": newState, "current_step": nextStep, "revision": newRevision,
@@ -606,7 +679,7 @@ func publishProfileCompletion(ctx context.Context, agentID int64) {
 	}
 }
 
-func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPayload, provenance map[string]string, now int64) error {
+func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPayload, provenance map[string]fieldProvenance, now int64) error {
 	switch step {
 	case 2:
 		if strings.TrimSpace(payload.IdentityCard.AgentName) == "" {

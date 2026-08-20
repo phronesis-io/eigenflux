@@ -27,6 +27,12 @@ func (g *fixedIDGenerator) NextID() (int64, error) {
 	return g.id, nil
 }
 
+func TestConsoleHandoffTTL(t *testing.T) {
+	if handoffTTL != 15*time.Minute {
+		t.Fatalf("handoffTTL = %s, want 15m", handoffTTL)
+	}
+}
+
 func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -304,6 +310,22 @@ func TestNotificationIssuerIdentityFailsClosed(t *testing.T) {
 	for _, sourceType := range []string{"friend_request", "unknown", ""} {
 		if identity := notificationIssuerIdentity(sourceType); identity != nil {
 			t.Fatalf("%s notification was incorrectly marked as platform official", sourceType)
+		}
+	}
+}
+
+func TestConsoleSessionRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name, version, host, wantRuntime, wantName, wantVersion string
+	}{
+		{name: "workbuddy", version: "5.3.14", host: "openclaw/1.2.3", wantRuntime: "workbuddy/5.3.14", wantName: "workbuddy", wantVersion: "5.3.14"},
+		{host: "openclaw/1.2.3", wantRuntime: "openclaw/1.2.3", wantName: "openclaw", wantVersion: "1.2.3"},
+		{host: "terminal"},
+	} {
+		runtime, name, version := consoleSessionRuntime(test.name, test.version, test.host)
+		if runtime != test.wantRuntime || name != test.wantName || version != test.wantVersion {
+			t.Fatalf("consoleSessionRuntime(%q, %q, %q) = (%q, %q, %q)",
+				test.name, test.version, test.host, runtime, name, version)
 		}
 	}
 }
