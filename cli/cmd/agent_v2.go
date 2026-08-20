@@ -28,7 +28,76 @@ func defaultProvisionDraft(agentName string) json.RawMessage {
 	return json.RawMessage(fmt.Sprintf(`{"identity_card":{"agent_name":%q,"bio":""},"security_boundary":{"recurring_publish":false,"auto_reply_pm":false,"auto_comment":false,"show_add_friend":true},"network_goal":"","intent_actions":[]}`, agentName))
 }
 
-func readProvisionDraft(path string) (json.RawMessage, error) {
+var provisionDraftFieldPaths = []string{
+	"identity_card.agent_name", "identity_card.bio", "identity_card.agent_description",
+	"identity_card.human_description", "identity_card.working_languages", "identity_card.seeking",
+	"identity_card.offering", "identity_card.geo", "identity_card.timezone",
+	"identity_card.agent_status", "identity_card.human_status", "identity_card.interests_negative",
+	"security_boundary.recurring_publish", "security_boundary.auto_reply_pm",
+	"security_boundary.auto_comment", "security_boundary.show_add_friend",
+	"network_goal", "intent_actions",
+}
+
+func provisionDraftPathValue(root map[string]interface{}, path string) (interface{}, bool) {
+	var current interface{} = root
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func meaningfulProvisionDraftValue(value interface{}, exists bool) bool {
+	if !exists || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []interface{}:
+		return len(typed) > 0
+	case map[string]interface{}:
+		return len(typed) > 0
+	default:
+		return true
+	}
+}
+
+func deriveProvisionFieldProvenance(draft map[string]interface{}, supplied map[string]string) (map[string]string, error) {
+	known := make(map[string]struct{}, len(provisionDraftFieldPaths))
+	for _, path := range provisionDraftFieldPaths {
+		known[path] = struct{}{}
+	}
+	for path, source := range supplied {
+		if _, ok := known[path]; !ok || (source != "agent_inferred" && source != "agent_user_context" && source != "system_generated") {
+			return nil, fmt.Errorf("invalid field_provenance for %s", path)
+		}
+	}
+	result := map[string]string{}
+	for _, path := range provisionDraftFieldPaths {
+		value, exists := provisionDraftPathValue(draft, path)
+		if !meaningfulProvisionDraftValue(value, exists) {
+			continue
+		}
+		source := supplied[path]
+		if source == "" {
+			source = "agent_inferred"
+			if strings.HasPrefix(path, "security_boundary.") {
+				source = "system_generated"
+			}
+		}
+		result[path] = source
+	}
+	return result, nil
+}
+
+func readProvisionDraft(path string) (json.RawMessage, map[string]string, error) {
 	var (
 		data []byte
 		err  error
@@ -39,16 +108,32 @@ func readProvisionDraft(path string) (json.RawMessage, error) {
 		data, err = os.ReadFile(path)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(data) > 64<<10 {
-		return nil, fmt.Errorf("onboarding draft must not exceed 64KB")
+		return nil, nil, fmt.Errorf("onboarding draft must not exceed 64KB")
 	}
 	var object map[string]interface{}
 	if json.Unmarshal(data, &object) != nil {
-		return nil, fmt.Errorf("--draft-file must contain a JSON object")
+		return nil, nil, fmt.Errorf("--draft-file must contain a JSON object")
 	}
-	return data, nil
+	supplied := map[string]string{}
+	if raw, ok := object["field_provenance"]; ok {
+		encoded, _ := json.Marshal(raw)
+		if json.Unmarshal(encoded, &supplied) != nil {
+			return nil, nil, fmt.Errorf("field_provenance must map field paths to Agent source values")
+		}
+		delete(object, "field_provenance")
+	}
+	provenance, err := deriveProvisionFieldProvenance(object, supplied)
+	if err != nil {
+		return nil, nil, err
+	}
+	normalized, err := json.Marshal(object)
+	if err != nil {
+		return nil, nil, err
+	}
+	return normalized, provenance, nil
 }
 
 var agentV2InitCmd = &cobra.Command{
@@ -81,24 +166,26 @@ var agentV2InitCmd = &cobra.Command{
 }
 
 type provisionV2Request struct {
-	BootstrapGrant string          `json:"bootstrap_grant"`
-	IdempotencyKey string          `json:"idempotency_key"`
-	Nonce          string          `json:"nonce"`
-	PublicKey      string          `json:"public_key"`
-	IssuedAt       int64           `json:"issued_at"`
-	AgentName      string          `json:"agent_name"`
-	Signature      string          `json:"signature"`
-	Draft          json.RawMessage `json:"onboarding_draft,omitempty"`
+	BootstrapGrant  string            `json:"bootstrap_grant"`
+	IdempotencyKey  string            `json:"idempotency_key"`
+	Nonce           string            `json:"nonce"`
+	PublicKey       string            `json:"public_key"`
+	IssuedAt        int64             `json:"issued_at"`
+	AgentName       string            `json:"agent_name"`
+	Signature       string            `json:"signature"`
+	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
+	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
 
 type provisionV2Proof struct {
-	BootstrapGrant string          `json:"bootstrap_grant"`
-	IdempotencyKey string          `json:"idempotency_key"`
-	Nonce          string          `json:"nonce"`
-	PublicKey      string          `json:"public_key"`
-	IssuedAt       int64           `json:"issued_at"`
-	AgentName      string          `json:"agent_name"`
-	Draft          json.RawMessage `json:"onboarding_draft,omitempty"`
+	BootstrapGrant  string            `json:"bootstrap_grant"`
+	IdempotencyKey  string            `json:"idempotency_key"`
+	Nonce           string            `json:"nonce"`
+	PublicKey       string            `json:"public_key"`
+	IssuedAt        int64             `json:"issued_at"`
+	AgentName       string            `json:"agent_name"`
+	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
+	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
 
 type v2Poster interface {
@@ -132,7 +219,7 @@ func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 		BootstrapGrant: request.BootstrapGrant, Nonce: request.Nonce,
 		IdempotencyKey: request.IdempotencyKey,
 		PublicKey:      request.PublicKey, IssuedAt: request.IssuedAt,
-		AgentName: request.AgentName, Draft: request.Draft,
+		AgentName: request.AgentName, Draft: request.Draft, FieldProvenance: request.FieldProvenance,
 	})
 	if err != nil {
 		return nil, err
@@ -197,8 +284,14 @@ var agentV2ProvisionCmd = &cobra.Command{
 			}
 		}
 		draft := defaultProvisionDraft(agentName)
+		var draftObject map[string]interface{}
+		_ = json.Unmarshal(draft, &draftObject)
+		fieldProvenance, err := deriveProvisionFieldProvenance(draftObject, nil)
+		if err != nil {
+			return err
+		}
 		if draftFile != "" {
-			draft, err = readProvisionDraft(draftFile)
+			draft, fieldProvenance, err = readProvisionDraft(draftFile)
 			if err != nil {
 				return err
 			}
@@ -208,6 +301,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 			IdempotencyKey: fmt.Sprintf("provision-%x", sha256.Sum256([]byte(grant))),
 			PublicKey:      base64.RawURLEncoding.EncodeToString(publicKey),
 			IssuedAt:       time.Now().UnixMilli(), AgentName: agentName, Draft: draft,
+			FieldProvenance: fieldProvenance,
 		}
 		transcript, err := provisionV2Transcript(request)
 		if err != nil {
