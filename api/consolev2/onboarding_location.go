@@ -29,6 +29,15 @@ var onboardingTimezoneAliases = map[string]string{
 	"EUROPE/LONDON":       "Europe/London",
 }
 
+var onboardingListFields = []string{
+	"working_languages",
+	"seeking",
+	"offering",
+	"agent_status",
+	"human_status",
+	"interests_negative",
+}
+
 func normalizeOnboardingCountry(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -104,12 +113,58 @@ func normalizeOnboardingDraftLocations(draft map[string]interface{}) error {
 	return nil
 }
 
+func normalizeOnboardingDraftLists(draft map[string]interface{}) error {
+	identity, ok := draft["identity_card"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	for _, field := range onboardingListFields {
+		raw, exists := identity[field]
+		if !exists || raw == nil {
+			continue
+		}
+		switch value := raw.(type) {
+		case []interface{}:
+			items := make([]string, 0, len(value))
+			for _, item := range value {
+				text, ok := item.(string)
+				if !ok {
+					return fmt.Errorf("%s must contain strings", field)
+				}
+				if text = strings.TrimSpace(text); text != "" {
+					items = append(items, text)
+				}
+			}
+			identity[field] = items
+		case string:
+			items := strings.FieldsFunc(value, func(r rune) bool {
+				switch r {
+				case '·', ',', '，', ';', '；', '\n', '\r':
+					return true
+				default:
+					return false
+				}
+			})
+			for index := range items {
+				items[index] = strings.TrimSpace(items[index])
+			}
+			identity[field] = items
+		default:
+			return fmt.Errorf("%s must be an array of strings", field)
+		}
+	}
+	return nil
+}
+
 func normalizeOnboardingDraftJSON(raw json.RawMessage) (json.RawMessage, map[string]interface{}, error) {
 	draft, err := decodeJSONObject(raw)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := normalizeOnboardingDraftLocations(draft); err != nil {
+		return nil, nil, err
+	}
+	if err := normalizeOnboardingDraftLists(draft); err != nil {
 		return nil, nil, err
 	}
 	encoded, err := json.Marshal(draft)

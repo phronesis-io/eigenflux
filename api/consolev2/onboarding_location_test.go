@@ -44,6 +44,56 @@ func TestNormalizeOnboardingDraftLocationsRejectsUnsupportedValues(t *testing.T)
 	}
 }
 
+func TestNormalizeOnboardingDraftListsSupportsLegacyScalars(t *testing.T) {
+	raw := json.RawMessage(`{
+		"identity_card": {
+			"working_languages": "中文 · English",
+			"seeking": "",
+			"offering": ["研究", " ", "任务整理"]
+		}
+	}`)
+	normalized, _, err := normalizeOnboardingDraftJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload draftPayload
+	if err := json.Unmarshal(normalized, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := payload.IdentityCard.WorkingLanguages, []string{"中文", "English"}; !equalStrings(got, want) {
+		t.Fatalf("working_languages = %#v, want %#v", got, want)
+	}
+	if len(payload.IdentityCard.Seeking) != 0 {
+		t.Fatalf("seeking = %#v, want empty", payload.IdentityCard.Seeking)
+	}
+	if got, want := payload.IdentityCard.Offering, []string{"研究", "任务整理"}; !equalStrings(got, want) {
+		t.Fatalf("offering = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeOnboardingDraftListsRejectsInvalidTypes(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"identity_card":{"seeking":42}}`),
+		json.RawMessage(`{"identity_card":{"seeking":["valid",42]}}`),
+	} {
+		if _, _, err := normalizeOnboardingDraftJSON(raw); err == nil {
+			t.Fatalf("expected invalid list field to fail: %s", raw)
+		}
+	}
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestNormalizeLoadedOnboardingDraftFillsPreReleaseEmptyProvenance(t *testing.T) {
 	draft, err := normalizeLoadedOnboardingDraft(onboardingDraft{
 		Revision: 2,
