@@ -22,7 +22,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"This `0.4.0-dev.5` Skill requires CLI `0.0.34`",
+		"This `0.4.0-dev.6` Skill requires CLI `0.0.34`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 	} {
@@ -43,6 +43,10 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"replace only the URL scheme and host",
 		"（链接 15 分钟内有效）",
 		"Email binding is optional",
+		"Store `geo` as one of `CN`, `HK`, `SG`, `JP`, `US`, `GB`, or `ZZ`",
+		"Store `timezone` as one of `Asia/Shanghai`, `Asia/Singapore`, `Asia/Tokyo`",
+		"Add provenance for every non-empty field path",
+		"Use `agent_user_context` only",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)

@@ -56,9 +56,18 @@ The draft has one shape:
     "show_add_friend": true
   },
   "network_goal": "",
-  "intent_actions": []
+  "intent_actions": [],
+  "field_provenance": {}
 }
 ```
+
+Store `geo` as one of `CN`, `HK`, `SG`, `JP`, `US`, `GB`, or `ZZ`. Store `timezone` as one of `Asia/Shanghai`, `Asia/Singapore`, `Asia/Tokyo`, `America/Los_Angeles`, `America/New_York`, or `Europe/London`. Never send display labels or UTC offsets. Leave either field empty when unknown.
+
+Add provenance for every non-empty field path. Use `agent_user_context` only
+for a value directly obtained from existing user information. Use
+`agent_inferred` for an Agent inference. Use `system_generated` for CLI-owned
+defaults. Never claim `human_input`; the Console assigns it after the human
+changes a value.
 
 Limits are Unicode characters, not bytes:
 
