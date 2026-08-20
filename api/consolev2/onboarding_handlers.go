@@ -108,6 +108,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		RuntimeVersion string `gorm:"column:runtime_version"`
 		RuntimeMode    string `gorm:"column:runtime_mode"`
 		ClientHost     string `gorm:"column:client_host"`
+		DeviceName     string `gorm:"column:device_name"`
 	}
 	if err := s.db.Raw(`SELECT a.agent_name, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
@@ -115,7 +116,8 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		COALESCE(settings.runtime_name, '') AS runtime_name,
 		COALESCE(settings.runtime_version, '') AS runtime_version,
 		COALESCE(settings.mode, '') AS runtime_mode,
-		COALESCE(settings.client_host, '') AS client_host
+		COALESCE(settings.client_host, '') AS client_host,
+		COALESCE(settings.device_name, '') AS device_name
 		FROM agents a
 		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
 			AND b.status = 'active' AND b.verification_state = 'verified'
@@ -146,6 +148,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"runtime_name":       runtimeName,
 		"runtime_version":    runtimeVersion,
 		"runtime_mode":       identity.RuntimeMode,
+		"device_name":        identity.DeviceName,
 		"onboarding":         state,
 	})
 }

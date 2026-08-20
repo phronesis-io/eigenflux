@@ -52,6 +52,7 @@ type AgentSettings struct {
 	FeedDeliveryPreference string `gorm:"column:feed_delivery_preference"`
 	Mode                   string `gorm:"column:mode"`
 	ClientHost             string `gorm:"column:client_host"`
+	DeviceName             string `gorm:"column:device_name"`
 	RuntimeName            string `gorm:"column:runtime_name"`
 	RuntimeVersion         string `gorm:"column:runtime_version"`
 	RuntimeReportedAt      int64  `gorm:"column:runtime_reported_at"`
@@ -202,6 +203,26 @@ func UpdateRuntimeIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersi
 			"runtime_reported_at": now,
 			"updated_at":          now,
 		}).Error
+}
+
+// UpdateHandoffClientIdentity records the computer that generated a Console
+// handoff and, when present, the current Agent product identity in one write.
+func UpdateHandoffClientIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion, deviceName string) error {
+	vals := map[string]interface{}{}
+	now := time.Now().UnixMilli()
+	if runtimeName != "" {
+		vals["runtime_name"] = runtimeName
+		vals["runtime_version"] = runtimeVersion
+		vals["runtime_reported_at"] = now
+	}
+	// The handoff represents the current computer. Clear a stale value when an
+	// older CLI cannot report it instead of displaying the previous machine.
+	vals["device_name"] = deviceName
+	if _, err := GetSettings(db, agentID); err != nil {
+		return err
+	}
+	vals["updated_at"] = now
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }
 
 // UpdateAgentModel persists the agent's reported runtime model (X-Client-Model).
