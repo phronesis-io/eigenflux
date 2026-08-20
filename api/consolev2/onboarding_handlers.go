@@ -574,7 +574,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		}
 		var payload draftPayload
 		if err := json.Unmarshal(normalizedDraftJSON, &payload); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 		}
 		provenance := decodeProvenance(json.RawMessage(storedDraft.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(storedDraft.ActorType) {
