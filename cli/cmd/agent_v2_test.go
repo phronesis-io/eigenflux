@@ -87,3 +87,28 @@ func TestAutomaticRegistrationChallengeBindsRequestToPublicKey(t *testing.T) {
 		t.Fatalf("automatic registration idempotency key is too short: %q", requestID)
 	}
 }
+
+func TestValidateConsoleHandoffURLRequiresCompleteOneTimeLink(t *testing.T) {
+	valid := []string{
+		"https://www.eigenflux.ai/dashboard/handoff?ticket=efht_test#nonce=nonce_test",
+		"http://127.0.0.1:4173/dashboard/handoff?ticket=efht_test#nonce=nonce_test",
+	}
+	for _, rawURL := range valid {
+		if err := validateConsoleHandoffURL(rawURL); err != nil {
+			t.Errorf("expected complete handoff URL to pass: %v", err)
+		}
+	}
+
+	invalid := []string{
+		"http://127.0.0.1:4173/dashboard/handoff",
+		"http://127.0.0.1:4173/dashboard/handoff?ticket=efht_test",
+		"http://127.0.0.1:4173/dashboard/handoff#nonce=nonce_test",
+		"/dashboard/handoff?ticket=efht_test#nonce=nonce_test",
+		"http://127.0.0.1:4173/dashboard/claim?ticket=efht_test#nonce=nonce_test",
+	}
+	for _, rawURL := range invalid {
+		if err := validateConsoleHandoffURL(rawURL); err == nil {
+			t.Errorf("expected incomplete handoff URL to fail: %q", rawURL)
+		}
+	}
+}

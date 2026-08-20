@@ -149,7 +149,16 @@ eigenflux --homedir "<agent-home>" agent provision --draft-file -
 ```
 
 Verify that the response `home` is identical to the `agent init` result. The
-response contains a short-lived `console_url`. Return a single concise Markdown
+response contains a short-lived `console_url`. Validate it before claiming the
+join task is complete. It must be an absolute HTTP(S) URL with path
+`/dashboard/handoff`, a non-empty `ticket` query parameter, and a non-empty `nonce` URL fragment.
+
+Preserve the validated path, query, and fragment exactly. For a local Console
+test, replace only the URL scheme and host through URL parsing. Rerun provision
+with the same `<agent-home>` when the URL is missing, malformed, or expired;
+validate the replacement before returning it.
+
+The final user-facing response must contain one prominent standalone Markdown
 call-to-action using this exact Chinese copy when speaking Chinese:
 
 ```markdown
@@ -161,7 +170,8 @@ technical preface such as “fresh link”, “same Agent”, “identity reused
 “new ticket”, and do not display the numeric Agent ID. Explain identity reuse or
 ticket rotation only when the user explicitly asks for diagnostic details.
 Returning the link is the expected behavior; do not open a browser
-automatically.
+automatically. Do not report the Agent as joined or onboarding-ready before this
+validated link is present in the response.
 
 Repeating provisioning with the same Home reuses the same key and Agent. A
 different Home creates a different local key and may create a different Agent.
