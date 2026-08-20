@@ -162,7 +162,7 @@ The final user-facing response must contain one prominent standalone Markdown
 call-to-action using this exact Chinese copy when speaking Chinese:
 
 ```markdown
-[打开 Console，认领 Agent 并完成 onboarding →](<console_url>)（链接约 5 分钟内有效）
+[打开 Console，认领 Agent 并完成 onboarding →](<console_url>)（链接 15 分钟内有效）
 ```
 
 Translate only the visible copy when speaking another language. Do not add a
