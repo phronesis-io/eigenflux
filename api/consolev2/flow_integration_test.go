@@ -122,6 +122,16 @@ func responseData(t *testing.T, payload map[string]interface{}) map[string]inter
 	return data
 }
 
+func responseErrorCode(t *testing.T, payload map[string]interface{}) string {
+	t.Helper()
+	apiError, ok := payload["error"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("response has no error object: %#v", payload)
+	}
+	code, _ := apiError["code"].(string)
+	return code
+}
+
 func cookiePair(setCookies [][]byte, name string) string {
 	prefix := name + "="
 	for _, raw := range setCookies {
@@ -362,6 +372,35 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	cookieHeader := consoleCookie + "; " + csrfCookie
 
+	status, unboundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
+		Step: 2, ExpectedOnboardingRevision: 1, IdempotencyKey: "confirm-unbound-" + agentID,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusConflict || responseErrorCode(t, unboundConfirmPayload) != "EMAIL_BINDING_REQUIRED" {
+		t.Fatalf("unbound onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
+	}
+
+	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
+	status, bindChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
+		Email: boundEmail,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != 202 {
+		t.Fatalf("email binding challenge status=%d payload=%#v", status, bindChallengePayload)
+	}
+	var bindMail capturedEmail
+	select {
+	case bindMail = <-mailbox:
+	case <-time.After(2 * time.Second):
+		t.Fatal("email binding OTP was not queued")
+	}
+	status, bindPayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/verify", verifyEmailRequest{
+		ChallengeID: responseData(t, bindChallengePayload)["challenge_id"].(string),
+		Email:       boundEmail,
+		OTP:         bindMail.otp,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != 200 || responseData(t, bindPayload)["verification_level"] != "email_verified" {
+		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
+	}
+
 	revision := int64(1)
 	for step := int16(2); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
@@ -396,27 +435,6 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
 
-	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
-	status, bindChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
-		Email: boundEmail,
-	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != 202 {
-		t.Fatalf("email binding challenge status=%d payload=%#v", status, bindChallengePayload)
-	}
-	var bindMail capturedEmail
-	select {
-	case bindMail = <-mailbox:
-	case <-time.After(2 * time.Second):
-		t.Fatal("email binding OTP was not queued")
-	}
-	status, bindPayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/verify", verifyEmailRequest{
-		ChallengeID: responseData(t, bindChallengePayload)["challenge_id"].(string),
-		Email:       boundEmail,
-		OTP:         bindMail.otp,
-	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != 200 || responseData(t, bindPayload)["verification_level"] != "email_verified" {
-		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
-	}
 	status, boundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
 	if status != 200 {

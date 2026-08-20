@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS agent_network_memberships (
 INSERT INTO agent_network_memberships (agent_id, joined_at)
 SELECT agent_id, created_at
 FROM agents
-ON CONFLICT (agent_id) DO NOTHING
-ORDER BY created_at, agent_id;
+ORDER BY created_at, agent_id
+ON CONFLICT (agent_id) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION ensure_agent_network_membership()
 RETURNS TRIGGER AS $$
@@ -39,8 +39,8 @@ FOR EACH ROW EXECUTE FUNCTION ensure_agent_network_membership();
 INSERT INTO agent_network_memberships (agent_id, joined_at)
 SELECT agent_id, created_at
 FROM agents
-ON CONFLICT (agent_id) DO NOTHING
-ORDER BY created_at, agent_id;
+ORDER BY created_at, agent_id
+ON CONFLICT (agent_id) DO NOTHING;
 COMMIT;
 
 -- +goose Down
