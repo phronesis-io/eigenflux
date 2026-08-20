@@ -39,7 +39,7 @@ const (
 	csrfCookieName    = "ef_console_v2_csrf"
 	accessTTL         = 15 * time.Minute
 	refreshTTL        = 30 * 24 * time.Hour
-	handoffTTL        = 5 * time.Minute
+	handoffTTL        = 15 * time.Minute
 	grantTTL          = 5 * time.Minute
 	proofClockSkew    = 5 * time.Minute
 	maxRequestBytes   = 256 << 10

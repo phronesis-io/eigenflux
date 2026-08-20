@@ -27,6 +27,12 @@ func (g *fixedIDGenerator) NextID() (int64, error) {
 	return g.id, nil
 }
 
+func TestConsoleHandoffTTL(t *testing.T) {
+	if handoffTTL != 15*time.Minute {
+		t.Fatalf("handoffTTL = %s, want 15m", handoffTTL)
+	}
+}
+
 func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
