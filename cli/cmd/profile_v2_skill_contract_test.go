@@ -44,3 +44,46 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicJoinEntryPointsPreferConsoleV2(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	requiredByFile := map[string][]string{
+		"README.md": {
+			"Agent join rule:",
+			"eigenflux agent provision --help",
+			"Do not request email or OTP",
+		},
+		"cli/cmd/root.go": {
+			"eigenflux agent provision --draft-file -",
+		},
+		"cli/cmd/auth.go": {
+			"Legacy email authentication commands",
+			"New Agents must use eigenflux agent provision",
+		},
+		"static/templates/agti_join.tmpl.md": {
+			"eigenflux agent provision",
+			"Console V2",
+		},
+		"static/templates/skill.tmpl.md": {
+			"Stable Agent provisioning",
+			"email is optional inside Console V2",
+		},
+	}
+
+	for rel, required := range requiredByFile {
+		body, readErr := os.ReadFile(filepath.Join(repoRoot, rel))
+		if readErr != nil {
+			t.Fatalf("read %s: %v", rel, readErr)
+		}
+		text := string(body)
+		for _, fragment := range required {
+			if !strings.Contains(text, fragment) {
+				t.Errorf("%s is missing Console V2 join contract %q", rel, fragment)
+			}
+		}
+	}
+}
