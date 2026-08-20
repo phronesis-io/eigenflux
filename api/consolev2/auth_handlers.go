@@ -174,35 +174,38 @@ func subtleHeaderMismatch(got, want string) bool {
 }
 
 type provisionRequest struct {
-	BootstrapGrant string          `json:"bootstrap_grant"`
-	IdempotencyKey string          `json:"idempotency_key"`
-	Nonce          string          `json:"nonce"`
-	PublicKey      string          `json:"public_key"`
-	IssuedAt       int64           `json:"issued_at"`
-	AgentName      string          `json:"agent_name"`
-	Signature      string          `json:"signature"`
-	Draft          json.RawMessage `json:"onboarding_draft,omitempty"`
+	BootstrapGrant  string            `json:"bootstrap_grant"`
+	IdempotencyKey  string            `json:"idempotency_key"`
+	Nonce           string            `json:"nonce"`
+	PublicKey       string            `json:"public_key"`
+	IssuedAt        int64             `json:"issued_at"`
+	AgentName       string            `json:"agent_name"`
+	Signature       string            `json:"signature"`
+	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
+	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
 
 type provisionProofPayload struct {
-	BootstrapGrant string          `json:"bootstrap_grant"`
-	IdempotencyKey string          `json:"idempotency_key"`
-	Nonce          string          `json:"nonce"`
-	PublicKey      string          `json:"public_key"`
-	IssuedAt       int64           `json:"issued_at"`
-	AgentName      string          `json:"agent_name"`
-	Draft          json.RawMessage `json:"onboarding_draft,omitempty"`
+	BootstrapGrant  string            `json:"bootstrap_grant"`
+	IdempotencyKey  string            `json:"idempotency_key"`
+	Nonce           string            `json:"nonce"`
+	PublicKey       string            `json:"public_key"`
+	IssuedAt        int64             `json:"issued_at"`
+	AgentName       string            `json:"agent_name"`
+	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
+	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
 
 func provisionTranscript(req provisionRequest) ([]byte, error) {
 	payload := provisionProofPayload{
-		BootstrapGrant: req.BootstrapGrant,
-		IdempotencyKey: req.IdempotencyKey,
-		Nonce:          req.Nonce,
-		PublicKey:      req.PublicKey,
-		IssuedAt:       req.IssuedAt,
-		AgentName:      req.AgentName,
-		Draft:          req.Draft,
+		BootstrapGrant:  req.BootstrapGrant,
+		IdempotencyKey:  req.IdempotencyKey,
+		Nonce:           req.Nonce,
+		PublicKey:       req.PublicKey,
+		IssuedAt:        req.IssuedAt,
+		AgentName:       req.AgentName,
+		Draft:           req.Draft,
+		FieldProvenance: req.FieldProvenance,
 	}
 	canonical, err := json.Marshal(payload)
 	if err != nil {
@@ -215,6 +218,7 @@ func provisionReceiptHash(req provisionRequest) (string, error) {
 	payload := provisionProofPayload{
 		BootstrapGrant: req.BootstrapGrant, IdempotencyKey: req.IdempotencyKey,
 		Nonce: req.Nonce, PublicKey: req.PublicKey, AgentName: req.AgentName, Draft: req.Draft,
+		FieldProvenance: req.FieldProvenance,
 	}
 	canonical, err := json.Marshal(payload)
 	if err != nil {
@@ -259,12 +263,21 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	if len(req.Draft) == 0 {
 		req.Draft = json.RawMessage(`{}`)
 	}
-	var draftObject map[string]interface{}
-	if len(req.Draft) > 64<<10 || json.Unmarshal(req.Draft, &draftObject) != nil {
+	if len(req.Draft) > 64<<10 {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "onboarding_draft must be a JSON object no larger than 64KB", nil)
 		return
 	}
-	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent))
+	normalizedDraft, draftObject, err := normalizeOnboardingDraftJSON(req.Draft)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+		return
+	}
+	if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_FIELD_PROVENANCE", err.Error(), nil)
+		return
+	}
+	req.Draft = normalizedDraft
+	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent, req.FieldProvenance, wallNow))
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not derive onboarding field sources", nil)
 		return
