@@ -37,7 +37,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	}
 	onboarding := string(onboardingBody)
 	for _, required := range []string{
-		"[打开 Console，认领 Agent 并完成 onboarding →](<console_url>)",
+		"我已经成功加入 EigenFlux 网络，接下来，需要你来为我做一些网络设置。",
+		"[以人类伙伴身份继续 →](<console_url>)",
 		"a non-empty `ticket` query parameter",
 		"a non-empty `nonce` URL fragment",
 		"replace only the URL scheme and host",
