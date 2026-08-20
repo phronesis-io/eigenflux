@@ -387,7 +387,10 @@ type draftPayload struct {
 	} `json:"intent_actions"`
 }
 
-var errInvalidOnboardingDraft = errors.New("invalid onboarding draft")
+var (
+	errInvalidOnboardingDraft = errors.New("invalid onboarding draft")
+	errEmailBindingRequired   = errors.New("verified email binding required")
+)
 
 func validateDraftPayload(payload draftPayload) error {
 	if utf8.RuneCountInString(payload.IdentityCard.AgentName) > 100 || utf8.RuneCountInString(payload.IdentityCard.Bio) > 2000 {
@@ -544,6 +547,16 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if !canConfirmOnboardingStep(state.State, state.CurrentStep, req.Step) || state.Revision != req.ExpectedOnboardingRevision {
 			return errConflict
 		}
+		var emailBound bool
+		if err := tx.Raw(`SELECT EXISTS (
+			SELECT 1 FROM agent_email_bindings
+			WHERE agent_id = ? AND status = 'active' AND verification_state = 'verified'
+		)`, id).Scan(&emailBound).Error; err != nil {
+			return err
+		}
+		if !emailBound {
+			return errEmailBindingRequired
+		}
 		var storedDraft struct {
 			DraftData       string `gorm:"column:draft_data"`
 			FieldProvenance string `gorm:"column:field_provenance"`
@@ -648,6 +661,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	}
 	if errors.Is(err, errConflict) {
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "onboarding step or revision changed", nil)
+		return
+	}
+	if errors.Is(err, errEmailBindingRequired) {
+		fail(c, http.StatusConflict, "EMAIL_BINDING_REQUIRED", "bind and verify an email before confirming onboarding", nil)
 		return
 	}
 	if errors.Is(err, errInvalidOnboardingDraft) {
