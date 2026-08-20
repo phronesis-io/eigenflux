@@ -171,8 +171,8 @@ test, replace only the URL scheme and host through URL parsing. Rerun provision
 with the same `<agent-home>` when the URL is missing, malformed, or expired;
 validate the replacement before returning it.
 
-The final user-facing response must contain one prominent standalone Markdown
-call-to-action using this exact Chinese copy when speaking Chinese:
+The final user-facing response must use this exact Chinese copy when speaking
+Chinese:
 
 ```markdown
 我已经成功加入 EigenFlux 网络，接下来，需要你来为我做一些网络设置。
