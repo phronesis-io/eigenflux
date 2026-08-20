@@ -18,6 +18,7 @@ import (
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/runtimeidentity"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
@@ -75,19 +76,28 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var identity struct {
-		AgentName     string `gorm:"column:agent_name"`
-		Bio           string `gorm:"column:bio"`
-		CreatedAt     int64  `gorm:"column:created_at"`
-		IsOfficial    bool   `gorm:"column:is_official"`
-		BoundEmail    string `gorm:"column:bound_email"`
-		EmailVerified bool   `gorm:"column:email_verified"`
+		AgentName      string `gorm:"column:agent_name"`
+		Bio            string `gorm:"column:bio"`
+		CreatedAt      int64  `gorm:"column:created_at"`
+		IsOfficial     bool   `gorm:"column:is_official"`
+		BoundEmail     string `gorm:"column:bound_email"`
+		EmailVerified  bool   `gorm:"column:email_verified"`
+		RuntimeName    string `gorm:"column:runtime_name"`
+		RuntimeVersion string `gorm:"column:runtime_version"`
+		RuntimeMode    string `gorm:"column:runtime_mode"`
+		ClientHost     string `gorm:"column:client_host"`
 	}
 	if err := s.db.Raw(`SELECT a.agent_name, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
-		(b.binding_id IS NOT NULL) AS email_verified
+		(b.binding_id IS NOT NULL) AS email_verified,
+		COALESCE(settings.runtime_name, '') AS runtime_name,
+		COALESCE(settings.runtime_version, '') AS runtime_version,
+		COALESCE(settings.mode, '') AS runtime_mode,
+		COALESCE(settings.client_host, '') AS client_host
 		FROM agents a
 		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
 			AND b.status = 'active' AND b.verification_state = 'verified'
+		LEFT JOIN agent_settings settings ON settings.agent_id = a.agent_id
 		WHERE a.agent_id = ?`, id).Scan(&identity).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "SESSION_READ_FAILED", "could not read Agent identity", nil)
 		return
@@ -99,6 +109,9 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	if identity.IsOfficial {
 		verificationLevel = "official"
 	}
+	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
+		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
+	)
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":           fmt.Sprintf("%d", id),
 		"agent_name":         identity.AgentName,
@@ -107,8 +120,30 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"email":              identity.BoundEmail,
 		"email_bound":        identity.EmailVerified,
 		"verification_level": verificationLevel,
+		"runtime":            runtime,
+		"runtime_name":       runtimeName,
+		"runtime_version":    runtimeVersion,
+		"runtime_mode":       identity.RuntimeMode,
 		"onboarding":         state,
 	})
+}
+
+func consoleSessionRuntime(name, version, clientHost string) (runtime, runtimeName, runtimeVersion string) {
+	runtimeName = strings.TrimSpace(name)
+	runtimeVersion = strings.TrimSpace(version)
+	if runtimeName == "" {
+		if identity, ok := runtimeidentity.Parse(clientHost); ok {
+			runtimeName, runtimeVersion = identity.Name, identity.Version
+		}
+	}
+	if runtimeName == "" {
+		return "", "", ""
+	}
+	runtime = runtimeName
+	if runtimeVersion != "" {
+		runtime += "/" + runtimeVersion
+	}
+	return runtime, runtimeName, runtimeVersion
 }
 
 func (s *Service) deleteConsoleSession(_ context.Context, c *app.RequestContext) {
