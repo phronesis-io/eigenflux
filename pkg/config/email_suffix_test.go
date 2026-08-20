@@ -1,6 +1,20 @@
 package config
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
+
+var controlledPGCTestPatterns = []string{
+	"kairui[0-9]@pgc.eigenflux.one",
+	"kairui[1-9][0-9]@pgc.eigenflux.one",
+	"lingan[0-9]@pgc.eigenflux.one",
+	"lingan[1-9][0-9]@pgc.eigenflux.one",
+	"weici[0-9]@pgc.eigenflux.one",
+	"weici[1-9][0-9]@pgc.eigenflux.one",
+	"vic[0-9]@pgc.eigenflux.one",
+	"vic[1-9][0-9]@pgc.eigenflux.one",
+}
 
 func TestEmailMatchesAnySuffix(t *testing.T) {
 	suffixes := []string{"@eftestbot.com", "kairui1@pgc.example.com"}
@@ -32,14 +46,9 @@ func TestEmailMatchesAnySuffix(t *testing.T) {
 func TestEmailMatchesAnyPattern(t *testing.T) {
 	patterns := []string{
 		"@eftestbot.com",
-		"kairui[0-9]@pgc.eigenflux.one",
-		"kairui[1-9][0-9]@pgc.eigenflux.one",
-		"weici[0-9]@pgc.eigenflux.one",
-		"weici[1-9][0-9]@pgc.eigenflux.one",
-		"lingan[0-9]@pgc.eigenflux.one",
-		"lingan[1-9][0-9]@pgc.eigenflux.one",
 		"exact@example.com",
 	}
+	patterns = append(patterns, controlledPGCTestPatterns...)
 	cases := []struct {
 		email string
 		want  bool
@@ -52,6 +61,8 @@ func TestEmailMatchesAnyPattern(t *testing.T) {
 		{"weici99@pgc.eigenflux.one", true},
 		{"lingan7@pgc.eigenflux.one", true},
 		{"lingan42@pgc.eigenflux.one", true},
+		{"vic0@pgc.eigenflux.one", true},
+		{"vic99@pgc.eigenflux.one", true},
 		{"exact@example.com", true},
 		{"kairui@pgc.eigenflux.one", false},
 		{"kairuia@pgc.eigenflux.one", false},
@@ -67,5 +78,26 @@ func TestEmailMatchesAnyPattern(t *testing.T) {
 	}
 	if EmailMatchesAnyPattern("anything@example.com", []string{"[invalid"}) {
 		t.Error("invalid glob patterns must fail closed")
+	}
+}
+
+func TestControlledPGCTestPatternsCoverZeroThroughNinetyNine(t *testing.T) {
+	for _, prefix := range []string{"kairui", "lingan", "weici", "vic"} {
+		for suffix := 0; suffix <= 99; suffix++ {
+			email := fmt.Sprintf("%s%d@pgc.eigenflux.one", prefix, suffix)
+			if !EmailMatchesAnyPattern(email, controlledPGCTestPatterns) {
+				t.Fatalf("controlled test account did not match: %s", email)
+			}
+		}
+		for _, invalid := range []string{
+			prefix + "@pgc.eigenflux.one",
+			prefix + "00@pgc.eigenflux.one",
+			prefix + "09@pgc.eigenflux.one",
+			prefix + "100@pgc.eigenflux.one",
+		} {
+			if EmailMatchesAnyPattern(invalid, controlledPGCTestPatterns) {
+				t.Fatalf("invalid controlled test account matched: %s", invalid)
+			}
+		}
 	}
 }

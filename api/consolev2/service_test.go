@@ -5,7 +5,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -215,6 +217,55 @@ func TestV2ClientIPOnlyTrustsConfiguredProxy(t *testing.T) {
 	}
 	if got := resolveV2ClientIP("10.1.2.3:4321", "198.51.100.8, 10.2.3.4", "", []*net.IPNet{trusted}); got != "198.51.100.8" {
 		t.Fatalf("trusted proxy client IP = %s", got)
+	}
+}
+
+func TestConsoleV2FixedOTPMatchesControlledPGCTestAccounts(t *testing.T) {
+	patterns := make([]string, 0, 8)
+	for _, prefix := range []string{"kairui", "lingan", "weici", "vic"} {
+		patterns = append(patterns,
+			prefix+"[0-9]@pgc.eigenflux.one",
+			prefix+"[1-9][0-9]@pgc.eigenflux.one",
+		)
+	}
+	svc := &Service{testEmailPatterns: patterns, testOTP: "246810"}
+	for _, prefix := range []string{"kairui", "lingan", "weici", "vic"} {
+		for suffix := 0; suffix <= 99; suffix++ {
+			email := fmt.Sprintf("%s%d@pgc.eigenflux.one", prefix, suffix)
+			otp, skipDelivery, err := svc.generateChallengeOTP(email)
+			if err != nil || !skipDelivery || otp != "246810" {
+				t.Fatalf("fixed V2 OTP mismatch for %s: otp=%q skip=%v err=%v", email, otp, skipDelivery, err)
+			}
+		}
+	}
+	for _, email := range []string{
+		"lingan09@pgc.eigenflux.one",
+		"vic100@pgc.eigenflux.one",
+		"other0@pgc.eigenflux.one",
+	} {
+		otp, skipDelivery, err := svc.generateChallengeOTP(email)
+		if err != nil || skipDelivery || len(otp) != 6 {
+			t.Fatalf("non-test V2 address entered fixed OTP path: %s otp=%q skip=%v err=%v", email, otp, skipDelivery, err)
+		}
+	}
+}
+
+func TestConsoleV2FixedOTPPathDoesNotRequireEmailDelivery(t *testing.T) {
+	svc := &Service{}
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.POST("/challenge", func(_ context.Context, c *app.RequestContext) {
+		svc.queueEmailChallenge(c, emailJob{
+			challengeID:  "efec_test",
+			skipDelivery: true,
+		}, 123456)
+	})
+	status, payload, _ := performJSON(t, h, "POST", "/challenge", map[string]interface{}{})
+	if status != http.StatusAccepted {
+		t.Fatalf("fixed OTP challenge required an email queue: status=%d payload=%#v", status, payload)
+	}
+	data := responseData(t, payload)
+	if data["challenge_id"] != "efec_test" || data["accepted"] != true {
+		t.Fatalf("unexpected fixed OTP challenge response: %#v", data)
 	}
 }
 
