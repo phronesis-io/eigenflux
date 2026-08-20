@@ -266,6 +266,7 @@ func main() {
 	if consoleV2Service != nil {
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service)
+		h.GET("/api/v2/public/agents/:agent_id/card", agentcardapi.GetSharedPublicCard)
 		log.Print("Console V2 routes registered")
 	}
 
