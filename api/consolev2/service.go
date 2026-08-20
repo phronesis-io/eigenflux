@@ -62,6 +62,8 @@ type Service struct {
 	idgen                    IDGenerator
 	bootstrapSecret          string
 	otpPepper                string
+	testEmailPatterns        []string
+	testOTP                  string
 	publicURL                string
 	secureCookie             bool
 	emailSender              mailservice.Sender
@@ -155,6 +157,8 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		idgen:                    idgen,
 		bootstrapSecret:          cfg.ConsoleV2BootstrapSecret,
 		otpPepper:                cfg.ConsoleV2OTPPepper,
+		testEmailPatterns:        append([]string(nil), cfg.OfficialTestEmailSuffixes...),
+		testOTP:                  strings.TrimSpace(cfg.OfficialTestOTP),
 		publicURL:                publicURL,
 		secureCookie:             parsed.Scheme == "https",
 		enableFeed:               cfg.EnableFeedV2,
@@ -176,6 +180,13 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		service.startEmailWorkers(2, 256)
 	}
 	return service, nil
+}
+
+func (s *Service) fixedTestOTP(normalizedEmail string) (string, bool) {
+	if s.testOTP == "" || !config.EmailMatchesAnyPattern(normalizedEmail, s.testEmailPatterns) {
+		return "", false
+	}
+	return s.testOTP, true
 }
 
 func (s *Service) SetFeedClient(client feedservice.Client) {

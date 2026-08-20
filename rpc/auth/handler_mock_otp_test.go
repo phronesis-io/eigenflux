@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"eigenflux_server/rpc/auth/dal"
@@ -215,6 +216,26 @@ func TestTestAccountOTP(t *testing.T) {
 			ch := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &candidate, ClientIP: &noIP}
 			if svc.isOTPMatched("111111", ch) {
 				t.Fatalf("fixed test OTP must not pass for %s", candidate)
+			}
+		}
+	})
+
+	t.Run("controlled_pgc_ranges_use_fixed_otp", func(t *testing.T) {
+		patterns := make([]string, 0, 8)
+		for _, prefix := range []string{"kairui", "lingan", "weici", "vic"} {
+			patterns = append(patterns,
+				prefix+"[0-9]@pgc.eigenflux.one",
+				prefix+"[1-9][0-9]@pgc.eigenflux.one",
+			)
+		}
+		svc := &AuthServiceImpl{testEmailSuffixes: patterns, testOTP: "111111"}
+		for _, prefix := range []string{"kairui", "lingan", "weici", "vic"} {
+			for suffix := 0; suffix <= 99; suffix++ {
+				email := fmt.Sprintf("%s%d@pgc.eigenflux.one", prefix, suffix)
+				challenge := &dal.AuthEmailChallenge{CodeHash: sha256Hex("654321"), Email: &email, ClientIP: &noIP}
+				if !svc.isOTPMatched("111111", challenge) {
+					t.Fatalf("fixed V1 OTP did not match %s", email)
+				}
 			}
 		}
 	})

@@ -29,9 +29,10 @@ var (
 )
 
 type emailJob struct {
-	challengeID string
-	to          string
-	otp         string
+	challengeID  string
+	to           string
+	otp          string
+	skipDelivery bool
 }
 
 func (s *Service) startEmailWorkers(workerCount, queueSize int) {
@@ -77,6 +78,14 @@ func generateV2OTP() (string, error) {
 
 func (s *Service) otpDigest(challengeID, purpose, normalizedEmail, otp string) string {
 	return keyedHash(s.otpPepper, strings.Join([]string{challengeID, purpose, normalizedEmail, otp}, "\x00"))
+}
+
+func (s *Service) generateChallengeOTP(normalizedEmail string) (string, bool, error) {
+	if otp, matched := s.fixedTestOTP(normalizedEmail); matched {
+		return otp, true, nil
+	}
+	otp, err := generateV2OTP()
+	return otp, false, err
 }
 
 func (s *Service) clientIPHash(c *app.RequestContext) string {
@@ -213,7 +222,7 @@ func (s *Service) insertEmailChallenge(tx *gorm.DB, normalizedEmail, purpose str
 	if err != nil {
 		return emailJob{}, 0, err
 	}
-	otp, err := generateV2OTP()
+	otp, skipDelivery, err := s.generateChallengeOTP(normalizedEmail)
 	if err != nil {
 		return emailJob{}, 0, err
 	}
@@ -226,10 +235,16 @@ func (s *Service) insertEmailChallenge(tx *gorm.DB, normalizedEmail, purpose str
 		clientIPHash, now).Error; err != nil {
 		return emailJob{}, 0, err
 	}
-	return emailJob{challengeID: challengeID, to: normalizedEmail, otp: otp}, expiresAt, nil
+	return emailJob{challengeID: challengeID, to: normalizedEmail, otp: otp, skipDelivery: skipDelivery}, expiresAt, nil
 }
 
 func (s *Service) queueEmailChallenge(c *app.RequestContext, job emailJob, expiresAt int64) {
+	if job.skipDelivery {
+		reply(c, http.StatusAccepted, map[string]interface{}{
+			"accepted": true, "challenge_id": job.challengeID, "expires_at": expiresAt,
+		})
+		return
+	}
 	if s.emailQueue == nil {
 		_ = s.db.Exec(`UPDATE v2_email_challenges SET status = 'revoked'
 			WHERE challenge_id = ? AND status = 'pending'`, job.challengeID).Error
@@ -299,10 +314,6 @@ func (s *Service) createEmailBindingChallenge(ctx context.Context, c *app.Reques
 }
 
 func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestContext) {
-	if s.emailQueue == nil {
-		fail(c, http.StatusServiceUnavailable, "EMAIL_DELIVERY_UNAVAILABLE", "email verification is temporarily unavailable", nil)
-		return
-	}
 	var req createEmailChallengeRequest
 	if err := decodeBody(c, &req); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "a valid email is required", nil)
@@ -318,6 +329,10 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 	normalizedEmail, err := normalizeV2Email(req.Email)
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "a valid email is required", nil)
+		return
+	}
+	if _, isTestAccount := s.fixedTestOTP(normalizedEmail); s.emailQueue == nil && !isTestAccount {
+		fail(c, http.StatusServiceUnavailable, "EMAIL_DELIVERY_UNAVAILABLE", "email verification is temporarily unavailable", nil)
 		return
 	}
 	now := time.Now().UnixMilli()
