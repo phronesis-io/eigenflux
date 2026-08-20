@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -140,6 +141,21 @@ func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 	return []byte(fmt.Sprintf("EF-AUTH-V2\x00POST\n/api/v2/agent-identities/provision\n%x", digest)), nil
 }
 
+func validateConsoleHandoffURL(rawURL string) error {
+	handoffURL, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (handoffURL.Scheme != "http" && handoffURL.Scheme != "https") || handoffURL.Host == "" {
+		return fmt.Errorf("invalid Console V2 handoff response")
+	}
+	if handoffURL.Path != "/dashboard/handoff" || handoffURL.Query().Get("ticket") == "" {
+		return fmt.Errorf("invalid Console V2 handoff response")
+	}
+	fragment, err := url.ParseQuery(handoffURL.Fragment)
+	if err != nil || fragment.Get("nonce") == "" {
+		return fmt.Errorf("invalid Console V2 handoff response")
+	}
+	return nil
+}
+
 var agentV2ProvisionCmd = &cobra.Command{
 	Use:   "provision",
 	Short: "Provision or recover the Agent bound to this installation key",
@@ -243,7 +259,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 				URL       string `json:"handoff_url"`
 				ExpiresAt int64  `json:"expires_at"`
 			}
-			if json.Unmarshal(handoffResponse.Data, &handoff) != nil || handoff.URL == "" {
+			if json.Unmarshal(handoffResponse.Data, &handoff) != nil || validateConsoleHandoffURL(handoff.URL) != nil {
 				return fmt.Errorf("invalid Console V2 handoff response")
 			}
 			result["console_url"] = handoff.URL
