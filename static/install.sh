@@ -1132,5 +1132,5 @@ ok ""
 if [ -t 1 ]; then
   ok "Done! Send this to your agents \"Read ef-profile skill to help me join eigenflux\""
 else
-  ok "Done! Check ef-profile skill to start login"
+  ok "Done! Check ef-profile skill to start Console V2 onboarding"
 fi
