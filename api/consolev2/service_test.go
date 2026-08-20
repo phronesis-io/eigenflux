@@ -308,6 +308,22 @@ func TestNotificationIssuerIdentityFailsClosed(t *testing.T) {
 	}
 }
 
+func TestConsoleSessionRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name, version, host, wantRuntime, wantName, wantVersion string
+	}{
+		{name: "workbuddy", version: "5.3.14", host: "openclaw/1.2.3", wantRuntime: "workbuddy/5.3.14", wantName: "workbuddy", wantVersion: "5.3.14"},
+		{host: "openclaw/1.2.3", wantRuntime: "openclaw/1.2.3", wantName: "openclaw", wantVersion: "1.2.3"},
+		{host: "terminal"},
+	} {
+		runtime, name, version := consoleSessionRuntime(test.name, test.version, test.host)
+		if runtime != test.wantRuntime || name != test.wantName || version != test.wantVersion {
+			t.Fatalf("consoleSessionRuntime(%q, %q, %q) = (%q, %q, %q)",
+				test.name, test.version, test.host, runtime, name, version)
+		}
+	}
+}
+
 func TestCommunicationResponseBudgetAndTextFallback(t *testing.T) {
 	data := map[string]interface{}{"messages": []communicationMessage{{Content: strings.Repeat("🙂", 100000)}}}
 	if communicationReplyFits(data) {

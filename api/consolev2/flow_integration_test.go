@@ -209,7 +209,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			t.Fatal(err)
 		}
 		req.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
-		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req)
+		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req,
+			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"})
 		if status != 200 {
 			t.Fatalf("provision status=%d payload=%#v", status, payload)
 		}
@@ -380,6 +381,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	onboarding := responseData(t, sessionPayload)["onboarding"].(map[string]interface{})
 	if onboarding["state"] != "completed" || onboarding["active_context_revision"] == nil {
 		t.Fatalf("onboarding completion is not bound to an active context: %#v", onboarding)
+	}
+	session := responseData(t, sessionPayload)
+	if session["runtime"] != "workbuddy/5.3.14" || session["runtime_name"] != "workbuddy" ||
+		session["runtime_version"] != "5.3.14" {
+		t.Fatalf("console session did not expose the provision runtime: %#v", session)
 	}
 	var profileCompletedAt *int64
 	if err := gdb.Raw(`SELECT profile_completed_at FROM agents WHERE agent_id = ?`, agentIDInt).

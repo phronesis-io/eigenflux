@@ -16,6 +16,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 	"gorm.io/gorm"
+
+	consoledal "eigenflux_server/api/dal"
+	"eigenflux_server/pkg/runtimeidentity"
 )
 
 type issueGrantRequest struct {
@@ -283,6 +286,7 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	}
 	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim", "console:handoff:create"}
 	keyFingerprint := fingerprint(publicKey)
+	observedRuntime, hasObservedRuntime := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
 	var agentID, principalID, expiresAt int64
 	created := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -437,6 +441,15 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "PROVISION_FAILED", "could not provision Agent identity", nil)
 		return
+	}
+	// Provision is the first authenticated request in Console V2 onboarding.
+	// Persist its validated, self-reported product identity synchronously so the
+	// claim page can name the actual runtime before the first settings heartbeat.
+	if hasObservedRuntime {
+		if err := consoledal.UpdateRuntimeIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version); err != nil {
+			fail(c, http.StatusInternalServerError, "PROVISION_RUNTIME_REPORT_FAILED", "could not record Agent runtime", nil)
+			return
+		}
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":         fmt.Sprintf("%d", agentID),
