@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"cli.eigenflux.ai/internal/client"
@@ -30,6 +32,7 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 		BootstrapGrant: "efbg_test", IdempotencyKey: "provision-test-request", Nonce: "efn_test",
 		PublicKey: base64.RawURLEncoding.EncodeToString(publicKey), IssuedAt: 123,
 		AgentName: "Agent", Draft: []byte(`{"network_goal":"test"}`),
+		FieldProvenance: map[string]string{"network_goal": "agent_user_context"},
 	}
 	transcript, err := provisionV2Transcript(request)
 	if err != nil {
@@ -43,6 +46,70 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	mutated, _ := provisionV2Transcript(request)
 	if ed25519.Verify(publicKey, mutated, signature) {
 		t.Fatal("CLI provision proof did not cover nonce")
+	}
+	request.Nonce = "efn_test"
+	request.FieldProvenance["network_goal"] = "agent_inferred"
+	mutated, _ = provisionV2Transcript(request)
+	if ed25519.Verify(publicKey, mutated, signature) {
+		t.Fatal("CLI provision proof did not cover field provenance")
+	}
+}
+
+func TestDeriveProvisionFieldProvenanceDefaultsAndPreservesExplicitSource(t *testing.T) {
+	draft := map[string]interface{}{
+		"identity_card": map[string]interface{}{
+			"agent_name": "Atlas", "geo": "CN", "timezone": "", "working_languages": []interface{}{},
+		},
+		"security_boundary": map[string]interface{}{"recurring_publish": false},
+	}
+	got, err := deriveProvisionFieldProvenance(draft, map[string]string{
+		"identity_card.geo": "agent_user_context",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["identity_card.agent_name"] != "agent_inferred" || got["identity_card.geo"] != "agent_user_context" {
+		t.Fatalf("unexpected provenance: %#v", got)
+	}
+	if _, ok := got["identity_card.timezone"]; ok {
+		t.Fatalf("empty timezone must not have provenance: %#v", got)
+	}
+	if got["security_boundary.recurring_publish"] != "system_generated" {
+		t.Fatalf("explicit false security setting must remain attributed: %#v", got)
+	}
+}
+
+func TestDeriveProvisionFieldProvenanceRejectsUnknownSources(t *testing.T) {
+	draft := map[string]interface{}{"identity_card": map[string]interface{}{"geo": "CN"}}
+	if _, err := deriveProvisionFieldProvenance(draft, map[string]string{"identity_card.geo": "human_input"}); err == nil {
+		t.Fatal("Agent must not claim a human source")
+	}
+	if _, err := deriveProvisionFieldProvenance(draft, map[string]string{"identity_card.unknown": "agent_inferred"}); err == nil {
+		t.Fatal("unknown field path must be rejected")
+	}
+}
+
+func TestReadProvisionDraftSeparatesProvenanceMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "draft.json")
+	if err := os.WriteFile(path, []byte(`{
+		"identity_card":{"agent_name":"Atlas","geo":"CN"},
+		"field_provenance":{"identity_card.geo":"agent_user_context"}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	draft, provenance, err := readProvisionDraft(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]interface{}
+	if err := json.Unmarshal(draft, &object); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := object["field_provenance"]; exists {
+		t.Fatalf("provenance metadata leaked into onboarding draft: %s", draft)
+	}
+	if provenance["identity_card.agent_name"] != "agent_inferred" || provenance["identity_card.geo"] != "agent_user_context" {
+		t.Fatalf("unexpected separated provenance: %#v", provenance)
 	}
 }
 
