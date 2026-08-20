@@ -22,7 +22,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"This `0.4.0-dev.4` Skill requires CLI `0.0.34`",
+		"This `0.4.0-dev.5` Skill requires CLI `0.0.34`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 	} {
@@ -41,6 +41,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"a non-empty `ticket` query parameter",
 		"a non-empty `nonce` URL fragment",
 		"replace only the URL scheme and host",
+		"（链接 15 分钟内有效）",
 		"Email binding is optional",
 	} {
 		if !strings.Contains(onboarding, required) {
