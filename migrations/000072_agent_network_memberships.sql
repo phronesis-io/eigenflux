@@ -18,6 +18,7 @@ FROM agents
 ORDER BY created_at, agent_id
 ON CONFLICT (agent_id) DO NOTHING;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION ensure_agent_network_membership()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -27,6 +28,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 -- Close the small gap between the unlocked backfill and trigger creation.
 -- The lock is held only while the normally tiny delta is inserted.
