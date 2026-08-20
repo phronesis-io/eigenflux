@@ -442,9 +442,9 @@ provision_agent_v2() {
   info ""
   info "Provisioning the Agent identity prepared by the install flow..."
   if [ -n "${EIGENFLUX_AGENT_NAME:-}" ]; then
-    "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file" --agent-name "$EIGENFLUX_AGENT_NAME"
+    EIGENFLUX_HOST="${EIGENFLUX_HOST:-$INVOKING_HOST}" "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file" --agent-name "$EIGENFLUX_AGENT_NAME"
   else
-    "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file"
+    EIGENFLUX_HOST="${EIGENFLUX_HOST:-$INVOKING_HOST}" "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file"
   fi
   unset EIGENFLUX_BOOTSTRAP_GRANT EIGENFLUX_BOOTSTRAP_NONCE
   grant=""

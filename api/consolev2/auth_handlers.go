@@ -753,6 +753,18 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "browser_nonce is required", nil)
 		return
 	}
+	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+	deviceName := strings.TrimSpace(string(c.GetHeader("X-Client-Device-Name")))
+	if runes := []rune(deviceName); len(runes) > 128 {
+		deviceName = string(runes[:128])
+	}
+	if strings.IndexFunc(deviceName, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		deviceName = ""
+	}
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+		fail(c, http.StatusInternalServerError, "HANDOFF_CLIENT_REPORT_FAILED", "could not record Console client identity", nil)
+		return
+	}
 	ticket, err := randomToken("efht_", 32)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not create handoff", nil)

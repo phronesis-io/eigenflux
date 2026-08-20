@@ -353,7 +353,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 
 	browserNonce := strings.Repeat("n", 32)
 	status, handoffPayload, _ := performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce},
-		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken},
+		ut.Header{Key: "X-Client-Host", Value: "codex"},
+		ut.Header{Key: "X-Client-Device-Name", Value: "Lynn-MacBook-Pro"})
 	if status != 201 {
 		t.Fatalf("handoff status=%d payload=%#v", status, handoffPayload)
 	}
@@ -422,9 +424,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("onboarding completion is not bound to an active context: %#v", onboarding)
 	}
 	session := responseData(t, sessionPayload)
-	if session["runtime"] != "workbuddy/5.3.14" || session["runtime_name"] != "workbuddy" ||
-		session["runtime_version"] != "5.3.14" {
-		t.Fatalf("console session did not expose the provision runtime: %#v", session)
+	if session["runtime"] != "codex" || session["runtime_name"] != "codex" || session["runtime_version"] != "" {
+		t.Fatalf("console session did not expose the latest handoff runtime: %#v", session)
+	}
+	if session["device_name"] != "Lynn-MacBook-Pro" {
+		t.Fatalf("console session did not expose the handoff computer name: %#v", session)
 	}
 	var profileCompletedAt *int64
 	if err := gdb.Raw(`SELECT profile_completed_at FROM agents WHERE agent_id = ?`, agentIDInt).

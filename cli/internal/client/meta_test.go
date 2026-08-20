@@ -30,6 +30,7 @@ func TestResolveMeta(t *testing.T) {
 func TestResolveMetaWithEnv(t *testing.T) {
 	clearRuntimeEnv(t)
 	t.Setenv("EIGENFLUX_HOST", "openclaw/0.0.10")
+	t.Setenv("EIGENFLUX_DEVICE_NAME", "Lynn-MacBook-Pro.local")
 	t.Setenv("EIGENFLUX_CHANNEL", "feishu")
 	t.Setenv("EIGENFLUX_MODEL", "claude-opus-4-8")
 	m := ResolveMeta()
@@ -42,6 +43,9 @@ func TestResolveMetaWithEnv(t *testing.T) {
 	if m.Model != "claude-opus-4-8" {
 		t.Errorf("Model = %q, want %q", m.Model, "claude-opus-4-8")
 	}
+	if m.DeviceName != "Lynn-MacBook-Pro" {
+		t.Errorf("DeviceName = %q, want %q", m.DeviceName, "Lynn-MacBook-Pro")
+	}
 }
 
 func TestResolveMetaDetectsWorkBuddy(t *testing.T) {
@@ -50,6 +54,24 @@ func TestResolveMetaDetectsWorkBuddy(t *testing.T) {
 	t.Setenv("WORKBUDDY_APP_VERSION", "5.3.8")
 	if got := ResolveMeta().Host; got != "workbuddy/5.3.8" {
 		t.Fatalf("Host = %q, want workbuddy/5.3.8", got)
+	}
+}
+
+func TestResolveMetaDetectsCodex(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("CODEX_THREAD_ID", "thread-test")
+	if got := ResolveMeta().Host; got != "codex" {
+		t.Fatalf("Host = %q, want codex", got)
+	}
+}
+
+func TestResolveMetaCodexWinsOverInheritedWorkBuddyMetadata(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("CODEX_SANDBOX", "seatbelt")
+	t.Setenv("WORKBUDDY_APP_NAME", "WorkBuddy")
+	t.Setenv("WORKBUDDY_APP_VERSION", "5.3.14")
+	if got := ResolveMeta().Host; got != "codex" {
+		t.Fatalf("Host = %q, want codex", got)
 	}
 }
 
@@ -86,6 +108,11 @@ func clearRuntimeEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"EIGENFLUX_HOST",
+		"EIGENFLUX_DEVICE_NAME",
+		"CODEX_THREAD_ID",
+		"CODEX_SANDBOX",
+		"CODEX_SHELL",
+		"CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
 		"WORKBUDDY_APP_NAME",
 		"WORKBUDDY_APP_VERSION",
 		"WORKBUDDY_PRODUCT_NAME",
@@ -99,9 +126,12 @@ func clearRuntimeEnv(t *testing.T) {
 
 func TestMetaSetHeadersModel(t *testing.T) {
 	h := http.Header{}
-	Meta{Model: "claude-opus-4-8"}.SetHeaders(h)
+	Meta{Model: "claude-opus-4-8", DeviceName: "Lynn-MacBook-Pro"}.SetHeaders(h)
 	if got := h.Get("X-Client-Model"); got != "claude-opus-4-8" {
 		t.Errorf("X-Client-Model = %q, want %q", got, "claude-opus-4-8")
+	}
+	if got := h.Get("X-Client-Device-Name"); got != "Lynn-MacBook-Pro" {
+		t.Errorf("X-Client-Device-Name = %q", got)
 	}
 	// Empty model must not emit the header.
 	h2 := http.Header{}
