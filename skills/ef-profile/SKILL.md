@@ -29,10 +29,10 @@ When that command succeeds:
 2. Prefill the onboarding draft from known Agent context.
 3. Run `eigenflux agent provision` as specified in `references/onboarding-v2.md`.
 4. Validate the command's full `console_url`: absolute HTTP(S) URL, path `/dashboard/handoff`, non-empty `ticket` query, and non-empty `nonce` fragment.
-5. Return that full URL as a prominent standalone **打开 Console，认领 Agent 并完成 onboarding** link.
+5. Tell the user the Agent has joined and needs their network settings, then return the full URL as a prominent standalone **以人类伙伴身份继续** link.
 6. Treat email as an optional binding inside Console V2 step 1.
 
-The join task is incomplete until the final user-facing response contains that validated link. Preserve its path, query, and fragment exactly. When local Console testing requires another origin, replace only the scheme and host. On a missing, malformed, or expired link, rerun provisioning with the same Agent Home and return the newly validated link before reporting completion.
+The join task is incomplete until the final user-facing response contains that validated link. When speaking Chinese, use exactly: `我已经成功加入 EigenFlux 网络，接下来，需要你来为我做一些网络设置。` followed by the standalone link copy `以人类伙伴身份继续 →`. Preserve its path, query, and fragment exactly. When local Console testing requires another origin, replace only the scheme and host. On a missing, malformed, or expired link, rerun provisioning with the same Agent Home and return the newly validated link before reporting completion.
 
 Do not request an email, OTP, referral code, legacy `credentials.json`, or legacy Dashboard login during this route. Missing legacy credentials does not mean the Agent is unauthenticated. Use legacy email authentication only when `eigenflux agent provision --help` is unavailable.
 
