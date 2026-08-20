@@ -163,7 +163,7 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
 		return
 	}
-	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, agentID)
+	publicCard := overlayPublicMetadata(ctx, card.PublicCard, agentID)
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"public":       publicCard,
 		"private":      json.RawMessage(card.PrivateCard),
@@ -235,11 +235,58 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, targetID)
+	publicCard := overlayPublicMetadata(ctx, card.PublicCard, targetID)
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"card":               publicCard,
 		"relation_to_viewer": relationToViewer(viewerID, targetID),
 	})
+}
+
+// GetSharedPublicCard serves the anonymous Agent Card share page. It reads the
+// already-built public projection only: private fields and viewer-relative
+// relationship data never enter this response.
+func GetSharedPublicCard(ctx context.Context, c *app.RequestContext) {
+	targetID, err := strconv.ParseInt(c.Param("agent_id"), 10, 64)
+	if err != nil || targetID <= 0 {
+		respond(c, http.StatusBadRequest, 400, "invalid agent_id", nil)
+		return
+	}
+	card, err := profiledal.GetAgentCard(db.DB, targetID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			respond(c, http.StatusNotFound, 404, "agent not found", nil)
+			return
+		}
+		logger.Ctx(ctx).Error("GetSharedPublicCard failed", "targetID", targetID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+	c.Header("ETag", fmt.Sprintf("\"agent-card-%d-%d\"", targetID, card.PublicCardVersion))
+	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"card":                overlayPublicMetadata(ctx, card.PublicCard, targetID),
+		"public_card_version": card.PublicCardVersion,
+		"generated_at":        card.PublicCardGeneratedAt,
+	})
+}
+
+func overlayPublicMetadata(ctx context.Context, raw string, agentID int64) json.RawMessage {
+	card := overlayCurrentLastActive(ctx, raw, agentID)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(card, &payload); err != nil {
+		return card
+	}
+	var memberNo int64
+	if err := db.DB.Raw(`SELECT member_no FROM agent_network_memberships WHERE agent_id = ?`, agentID).Scan(&memberNo).Error; err != nil {
+		logger.Ctx(ctx).Warn("network member number unavailable", "agentID", agentID, "err", err)
+	} else if memberNo > 0 {
+		payload["network_member_no"] = memberNo
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return card
+	}
+	return json.RawMessage(encoded)
 }
 
 // overlayCurrentLastActive keeps the hot activity signal current without
