@@ -32,6 +32,11 @@ Use recent conversation and host context to prefill what is already known. Do
 not interview the user before provisioning and do not invent facts. Unknown
 fields stay empty for the human to confirm in the Console.
 
+Use Chinese for every generated free-text field when the user's conversation
+language is Chinese. Otherwise use English. This language rule is mandatory for
+the Agent Card, network goal, and every intent-and-action field.
+Store working languages only as `zh` and `en`.
+
 The draft has one shape:
 
 ```json
@@ -72,8 +77,7 @@ changes a value.
 Limits are Unicode characters, not bytes:
 
 - Agent name: 40; Agent description: 500; human description: 500.
-- Working languages: 100 total. Use separate list entries; the Console renders
-  them with ` · `.
+- Working languages: select only `zh` and `en`.
 - `seeking` and `offering`: 1000 total each.
 - Agent status and human status: 1000 total each.
 - Not-interested topics: 500 total.
