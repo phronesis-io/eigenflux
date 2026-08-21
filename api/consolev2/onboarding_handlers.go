@@ -403,8 +403,8 @@ func validateDraftPayload(payload draftPayload) error {
 		return errors.New("at most 10 intent actions are allowed")
 	}
 	for _, intent := range payload.IntentActions {
-		if intent.WatchFor == "" || intent.TriggerWhen == "" || intent.ActionInstruction == "" {
-			return errors.New("each intent requires watch_for, trigger_when, and action_instruction")
+		if strings.TrimSpace(intent.WatchFor) == "" {
+			return errors.New("each intent requires watch_for")
 		}
 		switch intent.ActionPolicy {
 		case "analyze_only", "draft", "network_action", "trade_action":
@@ -469,15 +469,13 @@ func validateDraftStep(payload draftPayload, step int16) error {
 			}
 		}
 	case 3:
-		return nil
-	case 4:
 		if strings.TrimSpace(payload.NetworkGoal) == "" {
 			return fmt.Errorf("%w: network_goal is required", errInvalidOnboardingDraft)
 		}
 		if utf8.RuneCountInString(payload.NetworkGoal) > 2000 {
 			return fmt.Errorf("%w: network goal exceeds 2000 characters", errInvalidOnboardingDraft)
 		}
-	case 5:
+	case 4:
 		if len(payload.IntentActions) > 10 {
 			return fmt.Errorf("%w: at most 10 intent actions are allowed", errInvalidOnboardingDraft)
 		}
@@ -490,6 +488,8 @@ func validateDraftStep(payload draftPayload, step int16) error {
 				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 			}
 		}
+	case 5:
+		return nil
 	default:
 		return fmt.Errorf("%w: unsupported onboarding step", errInvalidOnboardingDraft)
 	}
@@ -753,15 +753,6 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 		}
 		return err
 	case 3:
-		return tx.Exec(`INSERT INTO agent_settings
-			(agent_id, recurring_publish, auto_reply_pm, auto_comment, show_add_friend, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT (agent_id) DO UPDATE SET recurring_publish = EXCLUDED.recurring_publish,
-				auto_reply_pm = EXCLUDED.auto_reply_pm, auto_comment = EXCLUDED.auto_comment,
-				show_add_friend = EXCLUDED.show_add_friend, updated_at = EXCLUDED.updated_at`, agentID,
-			payload.SecurityBoundary.RecurringPublish, payload.SecurityBoundary.AutoReplyPM,
-			payload.SecurityBoundary.AutoComment, payload.SecurityBoundary.ShowAddFriend, now).Error
-	case 4:
 		if strings.TrimSpace(payload.NetworkGoal) == "" {
 			return fmt.Errorf("%w: network_goal is required", errInvalidOnboardingDraft)
 		}
@@ -773,7 +764,7 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 			(agent_id, goal_text, source, status, version, created_at, updated_at)
 			VALUES (?, ?, ?, 'active', 1, ?, ?)`, agentID, payload.NetworkGoal,
 			canonicalSource(provenance, "network_goal"), now, now).Error
-	case 5:
+	case 4:
 		if err := tx.Exec(`UPDATE agent_intent_actions SET status = 'deleted', updated_at = ?
 			WHERE agent_id = ? AND status <> 'deleted'`, now, agentID).Error; err != nil {
 			return err
@@ -788,6 +779,15 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 				return err
 			}
 		}
+	case 5:
+		return tx.Exec(`INSERT INTO agent_settings
+			(agent_id, recurring_publish, auto_reply_pm, auto_comment, show_add_friend, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT (agent_id) DO UPDATE SET recurring_publish = EXCLUDED.recurring_publish,
+				auto_reply_pm = EXCLUDED.auto_reply_pm, auto_comment = EXCLUDED.auto_comment,
+				show_add_friend = EXCLUDED.show_add_friend, updated_at = EXCLUDED.updated_at`, agentID,
+			payload.SecurityBoundary.RecurringPublish, payload.SecurityBoundary.AutoReplyPM,
+			payload.SecurityBoundary.AutoComment, payload.SecurityBoundary.ShowAddFriend, now).Error
 	}
 	return nil
 }

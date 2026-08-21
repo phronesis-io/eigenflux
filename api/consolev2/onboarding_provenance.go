@@ -310,11 +310,11 @@ func confirmStepProvenance(draft map[string]interface{}, provenance map[string]f
 	case 2:
 		paths = onboardingDraftFieldPaths[:12]
 	case 3:
-		paths = onboardingDraftFieldPaths[12:16]
-	case 4:
 		paths = onboardingDraftFieldPaths[16:17]
-	case 5:
+	case 4:
 		paths = onboardingDraftFieldPaths[17:18]
+	case 5:
+		paths = onboardingDraftFieldPaths[12:16]
 	}
 	for _, path := range paths {
 		value, exists := draftPathValue(draft, path)
