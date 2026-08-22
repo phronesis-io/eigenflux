@@ -220,7 +220,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		}
 		req.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req,
-			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"})
+			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"},
+			ut.Header{Key: "X-Client-Device-Name", Value: "Lynn-MacBook-Pro"})
 		if status != 200 {
 			t.Fatalf("provision status=%d payload=%#v", status, payload)
 		}

@@ -264,7 +264,8 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 
 func isSupportedActivityType(value string) bool {
 	switch value {
-	case "feed_pull", "broadcast", "feedback", "message_sent", "reply_received", "profile_update", "friend_added":
+	case "feed_pull", "broadcast", "feedback", "message_sent", "reply_received", "profile_update", "friend_added",
+		"agent_joined", "agent_card_update", "network_goal_update", "intent_actions_update", "onboarding_completed":
 		return true
 	default:
 		return false

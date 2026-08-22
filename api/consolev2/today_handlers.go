@@ -22,10 +22,11 @@ const (
 )
 
 type todayEncounter struct {
-	PeerAgentID      int64 `gorm:"column:peer_agent_id" json:"peer_agent_id,string"`
-	LastInteraction  int64 `gorm:"column:last_interaction_at" json:"last_interaction_at"`
-	InteractionCount int64 `gorm:"column:interaction_count" json:"interaction_count"`
-	TotalCount       int64 `gorm:"column:total_count" json:"-"`
+	PeerAgentID      int64  `gorm:"column:peer_agent_id" json:"peer_agent_id,string"`
+	LastInteraction  int64  `gorm:"column:last_interaction_at" json:"last_interaction_at"`
+	InteractionCount int64  `gorm:"column:interaction_count" json:"interaction_count"`
+	CountryCode      string `gorm:"column:country_code" json:"country_code,omitempty"`
+	TotalCount       int64  `gorm:"column:total_count" json:"-"`
 }
 
 var consoleV2CardCompletionFields = []string{
@@ -259,9 +260,12 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 				COUNT(*)::bigint AS interaction_count
 			FROM recent WHERE peer_agent_id <> ? GROUP BY peer_agent_id
 		)
-		SELECT peer_agent_id, last_interaction_at, interaction_count,
+		SELECT grouped.peer_agent_id, grouped.last_interaction_at, grouped.interaction_count,
+			COALESCE(NULLIF(profile.profile_data->>'geo', ''), NULLIF(profile.country, ''), '') AS country_code,
 			COUNT(*) OVER() AS total_count
-		FROM grouped ORDER BY last_interaction_at DESC, peer_agent_id DESC LIMIT ?`,
+		FROM grouped
+		LEFT JOIN agent_profiles profile ON profile.agent_id = grouped.peer_agent_id
+		ORDER BY grouped.last_interaction_at DESC, grouped.peer_agent_id DESC LIMIT ?`,
 		agentIDValue, todayStart, agentIDValue, todayStart,
 		agentIDValue, todayStart,
 		agentIDValue, todayEncounterLimit).Scan(&encounters).Error; err != nil {
@@ -273,7 +277,13 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	if len(encounters) > 0 {
 		encounterCount = encounters[0].TotalCount
 	}
-	for _, encounter := range encounters {
+	for index := range encounters {
+		if normalized, normalizeErr := normalizeOnboardingCountry(encounters[index].CountryCode); normalizeErr == nil {
+			encounters[index].CountryCode = normalized
+		} else {
+			encounters[index].CountryCode = ""
+		}
+		encounter := encounters[index]
 		peerIDs = append(peerIDs, encounter.PeerAgentID)
 	}
 	relations, err := s.loadViewerRelations(agentIDValue, peerIDs)

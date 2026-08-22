@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/feedcontract"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -182,6 +183,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	reply(c, http.StatusOK, response)
+	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }
 
 type attentionSeed struct {

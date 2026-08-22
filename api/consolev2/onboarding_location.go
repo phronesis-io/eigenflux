@@ -48,7 +48,7 @@ func normalizeOnboardingCountry(raw string) (string, error) {
 	}
 	upper := strings.ToUpper(value)
 	if countryCodePattern.MatchString(upper) {
-		return "", fmt.Errorf("country code %s is not supported by Console V2", upper)
+		return upper, nil
 	}
 	return "", fmt.Errorf("geo must use a supported ISO 3166-1 alpha-2 code")
 }
@@ -78,7 +78,7 @@ func normalizeOnboardingTimezone(raw, countryCode string) (string, error) {
 	if _, err := time.LoadLocation(withoutOffset); err != nil {
 		return "", fmt.Errorf("timezone must use a valid IANA identifier")
 	}
-	return "", fmt.Errorf("timezone %s is not supported by Console V2", withoutOffset)
+	return withoutOffset, nil
 }
 
 func normalizeOnboardingDraftLocations(draft map[string]interface{}) error {

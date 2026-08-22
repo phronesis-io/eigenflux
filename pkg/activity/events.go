@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -33,17 +34,26 @@ func publish(ctx context.Context, agentID int64, eventType, summary, detail stri
 	}
 }
 
+func publishAsync(ctx context.Context, agentID int64, eventType, summary, detail string) {
+	base := context.WithoutCancel(ctx)
+	go func() {
+		publishCtx, cancel := context.WithTimeout(base, 3*time.Second)
+		defer cancel()
+		publish(publishCtx, agentID, eventType, summary, detail)
+	}()
+}
+
 // PublishFeedPull emits a feed_pull event asynchronously. itemCount is carried
 // in detail so the consumer can sum delivered signals (today's items_scanned)
 // and increment the all-time impression counter (signals_scanned).
 func PublishFeedPull(ctx context.Context, agentID int64, itemCount int) {
 	detail := fmt.Sprintf(`{"count":%d}`, itemCount)
-	go publish(ctx, agentID, "feed_pull", fmt.Sprintf("Pulled feed, %d new signals", itemCount), detail)
+	publishAsync(ctx, agentID, "feed_pull", fmt.Sprintf("Pulled feed, %d new signals", itemCount), detail)
 }
 
 // PublishBroadcast emits a broadcast event asynchronously.
 func PublishBroadcast(ctx context.Context, agentID int64, itemID int64) {
-	go publish(ctx, agentID, "broadcast", "Published 1 broadcast", "")
+	publishAsync(ctx, agentID, "broadcast", "Published 1 broadcast", "")
 }
 
 // PublishFeedback emits a feedback event asynchronously. count is the total
@@ -53,7 +63,7 @@ func PublishBroadcast(ctx context.Context, agentID int64, itemID int64) {
 // summed independently.
 func PublishFeedback(ctx context.Context, agentID int64, count, useful, kept int) {
 	detail := fmt.Sprintf(`{"count":%d,"useful":%d,"kept":%d}`, count, useful, kept)
-	go publish(ctx, agentID, "feedback", fmt.Sprintf("Gave feedback on %d broadcasts", count), detail)
+	publishAsync(ctx, agentID, "feedback", fmt.Sprintf("Gave feedback on %d broadcasts", count), detail)
 }
 
 // PublishMessageSent emits a message_sent event asynchronously.
@@ -62,7 +72,7 @@ func PublishMessageSent(ctx context.Context, agentID int64, receiverName string)
 	if receiverName != "" {
 		summary = fmt.Sprintf("Sent message to %s", receiverName)
 	}
-	go publish(ctx, agentID, "message_sent", summary, "")
+	publishAsync(ctx, agentID, "message_sent", summary, "")
 }
 
 // PublishReplyReceived emits a reply_received event asynchronously.
@@ -71,14 +81,35 @@ func PublishReplyReceived(ctx context.Context, agentID int64, senderName string)
 	if senderName != "" {
 		summary = fmt.Sprintf("Received reply from %s", senderName)
 	}
-	go publish(ctx, agentID, "reply_received", summary, "")
+	publishAsync(ctx, agentID, "reply_received", summary, "")
 }
 
 // PublishProfileUpdate emits a profile_update event asynchronously, recorded
 // when the agent refreshes its bio. Low-frequency (vs. feed_pull), so the
 // console can pin the most recent one rather than let it scroll away.
 func PublishProfileUpdate(ctx context.Context, agentID int64) {
-	go publish(ctx, agentID, "profile_update", "Updated profile bio", "")
+	publishAsync(ctx, agentID, "profile_update", "Updated profile bio", "")
+}
+
+func PublishAgentJoined(ctx context.Context, agentID int64) {
+	publishAsync(ctx, agentID, "agent_joined", "Joined the EigenFlux network", "")
+}
+
+func PublishAgentCardUpdate(ctx context.Context, agentID int64) {
+	publishAsync(ctx, agentID, "agent_card_update", "Confirmed the Agent Card", "")
+}
+
+func PublishNetworkGoalUpdate(ctx context.Context, agentID int64) {
+	publishAsync(ctx, agentID, "network_goal_update", "Updated the network activity goal", "")
+}
+
+func PublishIntentActionsUpdate(ctx context.Context, agentID int64, count int) {
+	detail := fmt.Sprintf(`{"count":%d}`, count)
+	publishAsync(ctx, agentID, "intent_actions_update", "Updated intents and actions", detail)
+}
+
+func PublishOnboardingCompleted(ctx context.Context, agentID int64) {
+	publishAsync(ctx, agentID, "onboarding_completed", "Completed Console V2 onboarding", "")
 }
 
 // PublishFriendAdded emits a friend_added event asynchronously.
@@ -87,5 +118,5 @@ func PublishFriendAdded(ctx context.Context, agentID int64, friendName string) {
 	if friendName != "" {
 		summary = fmt.Sprintf("Formed relation with %s", friendName)
 	}
-	go publish(ctx, agentID, "friend_added", summary, "")
+	publishAsync(ctx, agentID, "friend_added", summary, "")
 }
