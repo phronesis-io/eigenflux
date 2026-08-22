@@ -296,11 +296,9 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	if len(encounters) > 0 {
 		encounterCount = encounters[0].TotalCount
 	}
-	for _, encounter := range encounters {
-		peerIDs = append(peerIDs, encounter.PeerAgentID)
-	}
 	for index := range encounters {
 		encounters[index].CountryCode = todayCountryCode(encounters[index].CountryCode)
+		peerIDs = append(peerIDs, encounters[index].PeerAgentID)
 	}
 	relations, err := s.loadViewerRelations(agentIDValue, peerIDs)
 	if err != nil {

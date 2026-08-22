@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -522,6 +523,8 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	}
 	requestHash := hashString(fmt.Sprintf("%d:%d", req.Step, req.ExpectedOnboardingRevision))
 	var response map[string]interface{}
+	replayed := false
+	confirmedIntentCount := 0
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prior struct {
@@ -577,6 +580,9 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		var payload draftPayload
 		if err := json.Unmarshal(normalizedDraftJSON, &payload); err != nil {
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+		}
+		if req.Step == 4 {
+			confirmedIntentCount = len(payload.IntentActions)
 		}
 		provenance := decodeProvenance(json.RawMessage(storedDraft.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(storedDraft.ActorType) {
@@ -658,6 +664,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		case found && hashConflict:
 			err = errConflict
 		case found:
+			replayed = true
 			err = nil
 		}
 	}
@@ -677,11 +684,19 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", nil)
 		return
 	}
-	if req.Step == 2 {
+	if !replayed && req.Step == 2 {
 		agentcard.PublishRebuild(ctx, id, "console_v2_onboarding_identity")
+		activity.PublishAgentCardUpdate(ctx, id)
 	}
-	if req.Step == 5 && response["state"] == "completed" {
+	if !replayed && req.Step == 3 {
+		activity.PublishNetworkGoalUpdate(ctx, id)
+	}
+	if !replayed && req.Step == 4 {
+		activity.PublishIntentActionsUpdate(ctx, id, confirmedIntentCount)
+	}
+	if !replayed && req.Step == 5 && response["state"] == "completed" {
 		publishProfileCompletion(ctx, id)
+		activity.PublishOnboardingCompleted(ctx, id)
 	}
 	reply(c, http.StatusOK, response)
 }

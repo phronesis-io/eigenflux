@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	consoledal "eigenflux_server/api/dal"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/runtimeidentity"
 )
 
@@ -240,7 +241,7 @@ func normalizeDeviceName(value string) (string, bool) {
 	return value, true
 }
 
-func (s *Service) provision(_ context.Context, c *app.RequestContext) {
+func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	var req provisionRequest
 	if err := decodeBody(c, &req); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
@@ -479,6 +480,9 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
 		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
 		return
+	}
+	if created {
+		activity.PublishAgentJoined(ctx, agentID)
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":         fmt.Sprintf("%d", agentID),
