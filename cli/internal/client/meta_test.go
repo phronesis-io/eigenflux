@@ -19,6 +19,9 @@ func TestResolveMeta(t *testing.T) {
 	if m.Host != "terminal" {
 		t.Errorf("Host = %q, want %q (default)", m.Host, "terminal")
 	}
+	if m.DeviceName == "" {
+		t.Error("DeviceName should be reported by the local CLI")
+	}
 	if m.Channel != "cli" {
 		t.Errorf("Channel = %q, want %q (default)", m.Channel, "cli")
 	}
@@ -138,6 +141,14 @@ func TestMetaSetHeadersModel(t *testing.T) {
 	Meta{}.SetHeaders(h2)
 	if _, ok := h2["X-Client-Model"]; ok {
 		t.Error("X-Client-Model should be absent when Model is empty")
+	}
+}
+
+func TestMetaSetHeadersDeviceName(t *testing.T) {
+	h := http.Header{}
+	Meta{DeviceName: "Lynn-MacBook-Pro"}.SetHeaders(h)
+	if got := h.Get("X-Client-Device-Name"); got != "Lynn-MacBook-Pro" {
+		t.Fatalf("X-Client-Device-Name = %q", got)
 	}
 }
 

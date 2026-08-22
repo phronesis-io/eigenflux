@@ -180,7 +180,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	}
 	activity.PublishFeedPull(ctx, agentIDValue, len(feedResp.Items))
 	reply(c, http.StatusOK, response)
-	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }
 
 type feedExposureSeed struct {
