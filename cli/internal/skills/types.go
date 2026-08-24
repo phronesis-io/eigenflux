@@ -95,16 +95,17 @@ func (m *Manifest) names() map[string]string {
 
 // SyncOptions configures a Sync run.
 type SyncOptions struct {
-	Into       string       // explicit target dir; highest precedence
-	Host       string       // openclaw|claude-code|codex|terminal; "" => autodetect
-	CLIVersion string       // current binary version, supplied by the cmd layer
-	CDNBase    string       // default CDNDefault
-	IfStale    bool         // background mode: keep local silently on fetch failure (revision match always short-circuits the download)
-	Quiet      bool         // never return an error (exit 0); for startup hooks
-	FromBundle bool         // offline-first-install: fall back to BundleDir
-	BundleDir  string       // local skills dir for InstallFromBundle / fallback
-	Allowlist  []string     // production skill names; defaults to ProdAllowlist
-	HTTPClient *http.Client // injectable for tests
+	Into         string       // explicit target dir; highest precedence
+	Host         string       // openclaw|claude-code|codex|terminal; "" => autodetect
+	CLIVersion   string       // current binary version, supplied by the cmd layer
+	CDNBase      string       // default CDNDefault
+	IfStale      bool         // background mode: keep local silently on fetch failure (revision match always short-circuits the download)
+	Quiet        bool         // never return an error (exit 0); for startup hooks
+	FromBundle   bool         // offline-first-install: fall back to BundleDir
+	BundleDir    string       // local skills dir for InstallFromBundle / fallback
+	ForceManaged bool         // replace edited managed skills; local development installs only
+	Allowlist    []string     // production skill names; defaults to ProdAllowlist
+	HTTPClient   *http.Client // injectable for tests
 }
 
 func (o SyncOptions) allowlist() []string {
