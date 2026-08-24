@@ -50,6 +50,9 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Use `agent_user_context` only",
 		"Use Chinese for every generated free-text field when the user's conversation",
 		"Store working languages only as `zh` and `en`",
+		"Treat EigenFlux installation, provisioning, registration, onboarding, and test",
+		"`agent_description`, `network_goal`, and `intent_actions` only from the user's",
+		"If that evidence is absent, leave these fields empty for the human to complete",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)
