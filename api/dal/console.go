@@ -272,8 +272,6 @@ func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount
 		     SELECT to_char(to_timestamp(created_at / 1000.0), 'YYYY-MM-DD') AS date, COUNT(*) AS count
 		       FROM agent_activity_log
 		      WHERE agent_id = ? AND created_at >= ?
-		        AND event_type NOT IN ('agent_joined','agent_card_update','network_goal_update','intent_actions_update','onboarding_completed')
-		        AND (event_type <> 'feed_pull' OR COALESCE((detail->>'count')::bigint, 0) > 0)
 		      GROUP BY 1
 		   UNION ALL
 		     SELECT to_char(to_timestamp(feedback_at / 1000.0), 'YYYY-MM-DD'), COUNT(*)
