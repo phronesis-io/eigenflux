@@ -96,8 +96,8 @@ type IntentWriteFields struct {
 }
 
 func validateIntent(fields IntentWriteFields) error {
-	if strings.TrimSpace(fields.WatchFor) == "" || strings.TrimSpace(fields.TriggerWhen) == "" || strings.TrimSpace(fields.ActionInstruction) == "" {
-		return errors.New("intent text fields are required")
+	if strings.TrimSpace(fields.WatchFor) == "" {
+		return errors.New("watch_for is required")
 	}
 	if utf8.RuneCountInString(fields.WatchFor) > 1000 || utf8.RuneCountInString(fields.TriggerWhen) > 1000 || utf8.RuneCountInString(fields.ActionInstruction) > 2000 {
 		return errors.New("intent text exceeds its length limit")

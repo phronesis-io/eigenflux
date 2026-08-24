@@ -406,13 +406,12 @@ func validateDraftPayload(payload draftPayload) error {
 		return errors.New("at most 10 intent actions are allowed")
 	}
 	for _, intent := range payload.IntentActions {
-		if intent.WatchFor == "" || intent.TriggerWhen == "" || intent.ActionInstruction == "" {
-			return errors.New("each intent requires watch_for, trigger_when, and action_instruction")
-		}
-		switch intent.ActionPolicy {
-		case "analyze_only", "draft", "network_action", "trade_action":
-		default:
-			return errors.New("unsupported action_policy")
+		if err := validateIntent(IntentWriteFields{
+			WatchFor: intent.WatchFor, TriggerWhen: intent.TriggerWhen,
+			ActionInstruction: intent.ActionInstruction, ActionPolicy: intent.ActionPolicy,
+			Priority: intent.Priority,
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
