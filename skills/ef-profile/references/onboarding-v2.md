@@ -135,7 +135,7 @@ other runtimes, prefer their native recurring-task API, then a persistent task
 loop or OS scheduler as the fallback. Do not edit a scheduler database file
 directly.
 
-Create one active task named `EigenFlux`, running every 2 hours. Tell the user
+Create one active task named `EigenFlux 网络收件箱`, running every 2 hours. Tell the user
 that the task is being added because it is user-visible, but do not turn the
 step into an approval question. The task must use the same explicit
 `<agent-home>` from step 1 and follow this behavior:
