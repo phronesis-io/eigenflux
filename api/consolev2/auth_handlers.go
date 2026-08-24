@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
@@ -227,6 +229,17 @@ func provisionReceiptHash(req provisionRequest) (string, error) {
 	return hashString(string(canonical)), nil
 }
 
+func normalizeDeviceName(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", true
+	}
+	if utf8.RuneCountInString(value) > 128 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return "", false
+	}
+	return value, true
+}
+
 func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	var req provisionRequest
 	if err := decodeBody(c, &req); err != nil {
@@ -259,6 +272,11 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	}
 	if strings.TrimSpace(req.AgentName) == "" {
 		req.AgentName = "EigenFlux Agent"
+	}
+	deviceName, validDeviceName := normalizeDeviceName(string(c.GetHeader("X-Client-Device-Name")))
+	if !validDeviceName {
+		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
+		return
 	}
 	if len(req.Draft) == 0 {
 		req.Draft = json.RawMessage(`{}`)
@@ -299,7 +317,7 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	}
 	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim", "console:handoff:create"}
 	keyFingerprint := fingerprint(publicKey)
-	observedRuntime, hasObservedRuntime := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
 	var agentID, principalID, expiresAt int64
 	created := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -458,11 +476,9 @@ func (s *Service) provision(_ context.Context, c *app.RequestContext) {
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
-	if hasObservedRuntime {
-		if err := consoledal.UpdateRuntimeIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version); err != nil {
-			fail(c, http.StatusInternalServerError, "PROVISION_RUNTIME_REPORT_FAILED", "could not record Agent runtime", nil)
-			return
-		}
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
+		return
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":         fmt.Sprintf("%d", agentID),
@@ -751,6 +767,16 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 	}
 	if len(req.BrowserNonce) < 32 || len(req.BrowserNonce) > 256 {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "browser_nonce is required", nil)
+		return
+	}
+	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+	deviceName, validDeviceName := normalizeDeviceName(string(c.GetHeader("X-Client-Device-Name")))
+	if !validDeviceName {
+		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
+		return
+	}
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+		fail(c, http.StatusInternalServerError, "HANDOFF_CLIENT_REPORT_FAILED", "could not record Console client identity", nil)
 		return
 	}
 	ticket, err := randomToken("efht_", 32)
