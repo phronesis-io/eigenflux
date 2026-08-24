@@ -113,3 +113,25 @@ func TestTodayStartFallsBackToUTC(t *testing.T) {
 		t.Fatalf("today start=%d want=%d", got, want)
 	}
 }
+
+func TestTodayObservationStateUsesDurableMilestones(t *testing.T) {
+	tests := []struct {
+		name                                      string
+		hasData, scanDone, connected, runtimeSeen bool
+		want                                      string
+	}{
+		{name: "waiting before first runtime", want: "waiting"},
+		{name: "offline after a known runtime stops", runtimeSeen: true, want: "offline"},
+		{name: "starting while first scan runs", connected: true, runtimeSeen: true, want: "starting"},
+		{name: "confirmed empty only after scan completion", scanDone: true, connected: true, runtimeSeen: true, want: "complete_empty"},
+		{name: "offline remains visible after a completed scan", scanDone: true, runtimeSeen: true, want: "offline"},
+		{name: "module data wins over background state", hasData: true, scanDone: true, want: "data"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := todayObservationState(test.hasData, test.scanDone, test.connected, test.runtimeSeen); got != test.want {
+				t.Fatalf("state=%q want=%q", got, test.want)
+			}
+		})
+	}
+}
