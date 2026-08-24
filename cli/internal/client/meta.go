@@ -100,6 +100,9 @@ func resolveRuntimeHost() string {
 	if host := strings.TrimSpace(os.Getenv("EIGENFLUX_HOST")); host != "" {
 		return host
 	}
+	if host, ok := workBuddyHomeRuntime(); ok {
+		return host
+	}
 	if codexRuntime() {
 		return "codex"
 	}
@@ -111,6 +114,22 @@ func resolveRuntimeHost() string {
 		return "workbuddy/" + normalized
 	}
 	return "workbuddy"
+}
+
+func workBuddyHomeRuntime() (string, bool) {
+	for dir := filepath.Clean(config.HomeDir()); ; dir = filepath.Dir(dir) {
+		base := strings.ToLower(filepath.Base(dir))
+		if base == ".workbuddy" || base == "workbuddy" {
+			if version, ok := normalizeRuntimePart(os.Getenv("WORKBUDDY_APP_VERSION")); ok {
+				return "workbuddy/" + version, true
+			}
+			return "workbuddy", true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+	}
 }
 
 func codexRuntime() bool {

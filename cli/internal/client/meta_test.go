@@ -78,6 +78,16 @@ func TestResolveMetaCodexWinsOverInheritedWorkBuddyMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveMetaWorkBuddyHomeWinsOverCodexProcessMarkers(t *testing.T) {
+	clearRuntimeEnv(t)
+	t.Setenv("EIGENFLUX_HOME", filepath.Join(t.TempDir(), ".workbuddy", "eigenflux"))
+	t.Setenv("CODEX_SANDBOX", "seatbelt")
+	t.Setenv("WORKBUDDY_APP_VERSION", "5.3.14")
+	if got := ResolveMeta().Host; got != "workbuddy/5.3.14" {
+		t.Fatalf("Host = %q, want workbuddy/5.3.14 for the WorkBuddy-owned EigenFlux home", got)
+	}
+}
+
 func TestResolveMetaExplicitHostWinsOverWorkBuddy(t *testing.T) {
 	clearRuntimeEnv(t)
 	t.Setenv("WORKBUDDY_PRODUCT_NAME", "WorkBuddy")
@@ -111,6 +121,7 @@ func clearRuntimeEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"EIGENFLUX_HOST",
+		"EIGENFLUX_HOME",
 		"EIGENFLUX_DEVICE_NAME",
 		"CODEX_THREAD_ID",
 		"CODEX_SANDBOX",
