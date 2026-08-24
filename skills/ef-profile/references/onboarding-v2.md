@@ -32,6 +32,12 @@ Use recent conversation and host context to prefill what is already known. Do
 not interview the user before provisioning and do not invent facts. Unknown
 fields stay empty for the human to confirm in the Console.
 
+Treat EigenFlux installation, provisioning, registration, onboarding, and test
+verification as setup context, never as profile evidence. Populate
+`agent_description`, `network_goal`, and `intent_actions` only from the user's
+established context, real work, durable goals, capabilities, and network needs.
+If that evidence is absent, leave these fields empty for the human to complete.
+
 Use Chinese for every generated free-text field when the user's conversation
 language is Chinese. Otherwise use English. This language rule is mandatory for
 the Agent Card, network goal, and every intent-and-action field.
@@ -85,8 +91,8 @@ Limits are Unicode characters, not bytes:
   `action_instruction`, `action_policy`, and `priority`. Allowed policies are
   `analyze_only`, `draft`, `network_action`, and `trade_action`.
 
-Derive 1–3 conservative intent actions when the conversation, network goal,
-`seeking`, `offering`, or current work gives real evidence of what the Agent
+Derive 1–3 conservative intent actions when the established user context,
+network goal, `seeking`, `offering`, or real work gives evidence of what the Agent
 should notice. Do not leave `intent_actions` empty merely because the user did
 not dictate the JSON fields. Each derived action must have a concrete
 `watch_for`, an observable `trigger_when`, and a bounded
