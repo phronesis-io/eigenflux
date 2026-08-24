@@ -106,7 +106,7 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 		return nil, softFail(opts, err)
 	}
 
-	preserved, err := preserveUnmanaged(real, newDir, local, remote)
+	preserved, err := preserveUnmanaged(real, newDir, local, remote, opts.ForceManaged)
 	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)
@@ -271,7 +271,7 @@ func reconcileZombies(local, remote *Manifest) []string {
 // skipped because the user hand-edited them (so callers can surface that the
 // skill is stuck on a local fork). Third-party folders are preserved verbatim
 // but not reported, since no update was ever due for them.
-func preserveUnmanaged(real, newDir string, local, remote *Manifest) (skippedUpdate []string, err error) {
+func preserveUnmanaged(real, newDir string, local, remote *Manifest, forceManaged bool) (skippedUpdate []string, err error) {
 	inRemote := remote.names()
 	recorded := map[string]string{}
 	if local != nil && local.ManagedBy == ManagedByValue {
@@ -309,7 +309,7 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest) (skippedUpd
 		// and report that we skipped the update for it.
 		if want, isManaged := recorded[name]; isManaged {
 			cur, err := dirSHA256(src)
-			if err == nil && cur != want {
+			if err == nil && cur != want && !forceManaged {
 				if err := replaceCopy(src, dst); err != nil {
 					return nil, err
 				}
