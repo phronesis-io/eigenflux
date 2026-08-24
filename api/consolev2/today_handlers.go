@@ -455,9 +455,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 			FROM agent_runtime_leases WHERE agent_id = ?
 		), activity AS (
 			SELECT COUNT(*)::bigint AS activity_count,
-				COUNT(*) FILTER (WHERE event_type NOT IN
-				 ('agent_joined','agent_card_update','network_goal_update','intent_actions_update','onboarding_completed')
-				 AND (event_type <> 'feed_pull' OR COALESCE((detail->>'count')::bigint, 0) > 0))::bigint AS heat_activity_count,
+				COUNT(*)::bigint AS heat_activity_count,
 				COALESCE(MIN(created_at) FILTER (WHERE event_type = 'feed_pull'), 0)::bigint AS first_scan_completed_at,
 				COALESCE(MAX(created_at) FILTER (WHERE event_type = 'feed_pull'), 0)::bigint AS last_scan_at
 			FROM agent_activity_log WHERE agent_id = ? AND created_at >= ?
