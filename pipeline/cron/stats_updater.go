@@ -14,6 +14,7 @@ import (
 	"eigenflux_server/rpc/sort/dal"
 
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 const (
@@ -187,14 +188,10 @@ func calibrateStatsWithLock(ctx context.Context, rdb *redis.Client) {
 		return
 	}
 
-	// Count high-quality items from item_stats table (score_1_count > 0 OR score_2_count > 0)
-	var hqCount int64
-	if err := db.DB.Model(&struct {
-		ItemID int64 `gorm:"column:item_id"`
-	}{}).Table("item_stats").
-		Where("score_1_count > 0 OR score_2_count > 0").
-		Count(&hqCount).Error; err != nil {
-		logger.Default().Error("failed to count high-quality items from item_stats", "err", err)
+	// Match the Redis counter: every positive feedback (score 1 or 2) counts once.
+	hqCount, err := countPositiveFeedback(db.DB)
+	if err != nil {
+		logger.Default().Error("failed to count positive feedback from item_stats", "err", err)
 		return
 	}
 
@@ -210,4 +207,12 @@ func calibrateStatsWithLock(ctx context.Context, rdb *redis.Client) {
 	}
 
 	logger.Default().Info("stats calibrated", "items", itemCount, "highQuality", hqCount)
+}
+
+func countPositiveFeedback(database *gorm.DB) (int64, error) {
+	var count int64
+	err := database.Table("item_stats").
+		Select("COALESCE(SUM(score_1_count + score_2_count), 0)").
+		Scan(&count).Error
+	return count, err
 }
