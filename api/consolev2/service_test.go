@@ -67,6 +67,28 @@ func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	}
 }
 
+func TestNormalizeDeviceName(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+		ok    bool
+	}{
+		{name: "trimmed", value: "  Lynn-MacBook-Pro  ", want: "Lynn-MacBook-Pro", ok: true},
+		{name: "empty", value: "  ", want: "", ok: true},
+		{name: "control character", value: "Lynn\nMac", want: "", ok: false},
+		{name: "too long", value: strings.Repeat("电", 129), want: "", ok: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := normalizeDeviceName(test.value)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("normalizeDeviceName(%q) = (%q, %v), want (%q, %v)", test.value, got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
 func TestRefreshTranscriptVerifiesAndCoversTokenAndNonce(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
