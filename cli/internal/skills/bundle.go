@@ -14,6 +14,10 @@ func InstallFromBundle(opts SyncOptions) (*SyncResult, error) {
 	if opts.BundleDir == "" {
 		return nil, fmt.Errorf("skills install: --from-bundle <dir> required")
 	}
+	// An explicit local bundle is the developer-selected source of truth. Unlike
+	// public Sync, it must replace an older locally modified copy of a managed
+	// ef-* skill so branch testing cannot silently keep stale instructions.
+	opts.ForceManaged = true
 	real, parent, err := prepareDir(opts)
 	if err != nil {
 		return nil, softFail(opts, err)

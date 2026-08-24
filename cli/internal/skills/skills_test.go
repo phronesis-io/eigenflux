@@ -355,7 +355,7 @@ func TestRecoverInterruptedRollsBack(t *testing.T) {
 	}
 }
 
-func TestPreserveReportsUserEdit(t *testing.T) {
+func TestInstallFromBundleReplacesManagedUserEdit(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "skills")
 	bundle := stageSkills(t, map[string]map[string]string{
 		"ef-broadcast": {"SKILL.md": "b1"},
@@ -374,12 +374,12 @@ func TestPreserveReportsUserEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Preserved) != 1 || res.Preserved[0] != "ef-broadcast" {
-		t.Fatalf("expected ef-broadcast reported preserved, got %v", res.Preserved)
+	if len(res.Preserved) != 0 {
+		t.Fatalf("local bundle must replace edited managed skills, preserved %v", res.Preserved)
 	}
 	got, _ := os.ReadFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"))
-	if string(got) != "b1-EDITED" {
-		t.Fatalf("user edit was clobbered: %q", got)
+	if string(got) != "b1" {
+		t.Fatalf("local bundle did not replace managed skill: %q", got)
 	}
 }
 

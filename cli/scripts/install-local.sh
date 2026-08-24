@@ -116,34 +116,18 @@ install_skills() {
   fi
 
   echo -e "${CYAN}Installing EigenFlux skills (from local bundle)...${NC}"
-  # Reuse the CLI's atomic install path: it stages the production allowlist,
-  # verifies, and swaps into the host's real skill-load dir (gate-4 routing).
-  HOST_ARG=""
-  [ -d "$HOME/.openclaw" ] && HOST_ARG="--host openclaw"
-  "$INSTALL_DIR/eigenflux" skills install --from-bundle "$SKILLS_SRC" $HOST_ARG
+  # Reuse the CLI's atomic install path. The current runtime environment picks
+  # its own skill-load directory; merely having another host installed must not
+  # redirect this test install.
+  "$INSTALL_DIR/eigenflux" skills install --from-bundle "$SKILLS_SRC"
 }
 
 # ── Step 3: Post-install migration ───────────────────────────
 
 post_install() {
-  OPENCLAW_STATEDIR="$HOME/.openclaw"
-  MIGRATE_ARGS=()
-
-  if [ -d "$OPENCLAW_STATEDIR" ]; then
-    EF_HOME="${OPENCLAW_STATEDIR}/.eigenflux"
-    ENV_FILE="${OPENCLAW_STATEDIR}/.env"
-    ENV_LINE="EIGENFLUX_HOME=\"${EF_HOME}\""
-
-    touch "$ENV_FILE"
-    if ! grep -q '^EIGENFLUX_HOME=' "$ENV_FILE" 2>/dev/null; then
-      printf '%s\n' "$ENV_LINE" >> "$ENV_FILE"
-      echo -e "${CYAN}Set EIGENFLUX_HOME in ${ENV_FILE}${NC}"
-    fi
-
-    MIGRATE_ARGS=(--homedir "$EF_HOME")
-  fi
-
-  "$INSTALL_DIR/eigenflux" "${MIGRATE_ARGS[@]}" migrate 2>/dev/null || true
+  # Migrate only the home inherited by the current Agent runtime. A sibling
+  # ~/.openclaw directory is not evidence that OpenClaw is the caller.
+  "$INSTALL_DIR/eigenflux" migrate 2>/dev/null || true
 }
 
 # ── Main ──────────────────────────────────────────────────────
