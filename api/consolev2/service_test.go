@@ -462,8 +462,22 @@ func TestOnboardingIntentValidationRejectsWhitespace(t *testing.T) {
 		ActionPolicy      string `json:"action_policy"`
 		Priority          int16  `json:"priority"`
 	}{WatchFor: "   ", TriggerWhen: "signal", ActionInstruction: "report", ActionPolicy: "analyze_only"})
-	if err := validateDraftStep(payload, 5); err == nil {
+	if err := validateDraftStep(payload, 4); err == nil {
 		t.Fatal("whitespace-only intent passed validation")
+	}
+}
+
+func TestOnboardingIntentValidationAllowsOptionalConditionAndAction(t *testing.T) {
+	var payload draftPayload
+	payload.IntentActions = append(payload.IntentActions, struct {
+		WatchFor          string `json:"watch_for"`
+		TriggerWhen       string `json:"trigger_when"`
+		ActionInstruction string `json:"action_instruction"`
+		ActionPolicy      string `json:"action_policy"`
+		Priority          int16  `json:"priority"`
+	}{WatchFor: "AI Agent infrastructure", ActionPolicy: "analyze_only"})
+	if err := validateDraftStep(payload, 4); err != nil {
+		t.Fatalf("optional intent fields blocked onboarding completion: %v", err)
 	}
 }
 
