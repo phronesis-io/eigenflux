@@ -15,6 +15,27 @@ ALTER TABLE agents
 ALTER TABLE invite_codes
     ADD COLUMN IF NOT EXISTS revoked_at BIGINT NULL;
 
+-- A short ID may be assigned once to a legacy NULL row during backfill, but it
+-- must never rotate after becoming public. This protects copied handles and
+-- public Agent Card URLs even if a future internal writer bypasses the API.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION enforce_agent_short_id_immutable()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.short_id IS NOT NULL AND NEW.short_id IS DISTINCT FROM OLD.short_id THEN
+        RAISE EXCEPTION 'agent short_id is immutable'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+DROP TRIGGER IF EXISTS trg_agents_short_id_immutable ON agents;
+CREATE TRIGGER trg_agents_short_id_immutable
+    BEFORE UPDATE OF short_id ON agents
+    FOR EACH ROW EXECUTE FUNCTION enforce_agent_short_id_immutable();
+
 -- +goose StatementBegin
 DO $$
 BEGIN
@@ -55,6 +76,8 @@ SET lock_timeout = '5s';
 SET statement_timeout = '30min';
 
 DROP INDEX CONCURRENTLY IF EXISTS uq_agents_short_id_partial;
+DROP TRIGGER IF EXISTS trg_agents_short_id_immutable ON agents;
+DROP FUNCTION IF EXISTS enforce_agent_short_id_immutable();
 ALTER TABLE agents DROP CONSTRAINT IF EXISTS chk_agents_short_id_format;
 ALTER TABLE agents DROP COLUMN IF EXISTS short_id;
 ALTER TABLE invite_codes DROP COLUMN IF EXISTS revoked_at;
