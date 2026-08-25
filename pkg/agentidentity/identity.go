@@ -91,7 +91,7 @@ func Lookup(ctx context.Context, db *gorm.DB, shortID string) (int64, error) {
 	}
 	var agentID int64
 	result := db.WithContext(ctx).Raw(
-		`SELECT agent_id FROM agents WHERE short_id = ?`, shortID,
+		`SELECT agent_id FROM agents WHERE short_id = ? AND short_id IS NOT NULL`, shortID,
 	).Scan(&agentID)
 	if result.Error != nil {
 		metrics.AgentShortIDLookupTotal.WithLabelValues("error").Inc()

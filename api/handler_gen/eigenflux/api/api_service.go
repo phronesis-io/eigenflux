@@ -1476,8 +1476,18 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
 			return
 		}
+		publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, peerIDs)
+		if identityErr != nil {
+			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
+			return
+		}
 		for i := range conversations {
 			conversations[i]["peer_name_en"] = englishNames[peerOf[i]]
+			if identity, exists := publicIdentities[peerOf[i]]; exists {
+				conversations[i]["peer_short_id"] = identity.ShortID
+				conversations[i]["peer_display_name"] = identity.DisplayName
+				conversations[i]["peer_name"] = identity.DisplayName
+			}
 		}
 		var officialIDs []int64
 		if err := db.DB.Raw("SELECT agent_id FROM agents WHERE agent_id IN ? AND is_official", peerIDs).Scan(&officialIDs).Error; err == nil {

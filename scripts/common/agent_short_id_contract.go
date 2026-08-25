@@ -43,11 +43,22 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if err := db.Exec(`SET lock_timeout = '5s'`).Error; err != nil {
+	// Pin the whole contract to one PostgreSQL session. SET lock_timeout and
+	// statement_timeout are session-scoped, while CREATE INDEX CONCURRENTLY
+	// must stay outside a transaction. Without a pinned connection GORM may
+	// execute later DDL on another pool connection with no safety timeout.
+	if err := db.Connection(runContract); err != nil {
 		fatal(err)
 	}
+	fmt.Fprintln(os.Stderr, "agent short-id contract complete: missing=0 invalid=0 duplicate_groups=0 not_null=true unique_index=valid")
+}
+
+func runContract(db *gorm.DB) error {
+	if err := db.Exec(`SET lock_timeout = '5s'`).Error; err != nil {
+		return err
+	}
 	if err := db.Exec(`SET statement_timeout = '30min'`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 
 	// A NOT VALID check starts rejecting new NULL writes immediately. Validation
@@ -58,57 +69,57 @@ func main() {
 			CHECK (short_id IS NOT NULL) NOT VALID;
 		END IF;
 	END $$`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 	if err := db.Exec(`ALTER TABLE agents VALIDATE CONSTRAINT chk_agents_short_id_format`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 	if err := db.Exec(`ALTER TABLE agents VALIDATE CONSTRAINT chk_agents_short_id_present`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 
 	counts, err := readContractCounts(db)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 	if counts.Missing != 0 || counts.Invalid != 0 || counts.Duplicates != 0 {
-		fatal(fmt.Errorf("contract preflight failed: missing=%d invalid=%d duplicate_groups=%d", counts.Missing, counts.Invalid, counts.Duplicates))
+		return fmt.Errorf("contract preflight failed: missing=%d invalid=%d duplicate_groups=%d", counts.Missing, counts.Invalid, counts.Duplicates)
 	}
 
 	state, err := readIndexState(db, "uq_agents_short_id")
 	if err != nil {
-		fatal(err)
+		return err
 	}
 	if state.Exists && (!state.Valid || !state.Ready || !state.Live || !state.Unique || state.HasFilter) {
 		if err := db.Exec(`DROP INDEX CONCURRENTLY uq_agents_short_id`).Error; err != nil {
-			fatal(fmt.Errorf("drop incomplete short-id index: %w", err))
+			return fmt.Errorf("drop incomplete short-id index: %w", err)
 		}
 		state = indexState{}
 	}
 	if !state.Exists {
 		if err := db.Exec(`CREATE UNIQUE INDEX CONCURRENTLY uq_agents_short_id
 			ON agents (short_id COLLATE "C")`).Error; err != nil {
-			fatal(fmt.Errorf("create complete short-id index: %w", err))
+			return fmt.Errorf("create complete short-id index: %w", err)
 		}
 	}
 	state, err = readIndexState(db, "uq_agents_short_id")
 	if err != nil {
-		fatal(err)
+		return err
 	}
 	if !state.Exists || !state.Valid || !state.Ready || !state.Live || !state.Unique || state.HasFilter {
-		fatal(fmt.Errorf("complete short-id index is not valid: %+v", state))
+		return fmt.Errorf("complete short-id index is not valid: %+v", state)
 	}
 
 	if err := db.Exec(`ALTER TABLE agents ALTER COLUMN short_id SET NOT NULL`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 	if err := db.Exec(`ALTER TABLE agents DROP CONSTRAINT IF EXISTS chk_agents_short_id_present`).Error; err != nil {
-		fatal(err)
+		return err
 	}
 	if err := db.Exec(`DROP INDEX CONCURRENTLY IF EXISTS uq_agents_short_id_partial`).Error; err != nil {
-		fatal(err)
+		return err
 	}
-	fmt.Fprintln(os.Stderr, "agent short-id contract complete: missing=0 invalid=0 duplicate_groups=0 not_null=true unique_index=valid")
+	return nil
 }
 
 func readContractCounts(db *gorm.DB) (contractCounts, error) {
