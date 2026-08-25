@@ -30,6 +30,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	mailservice "eigenflux_server/pkg/email"
 )
@@ -479,6 +480,7 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 		c.Set("agent_id", principal.AgentID)
 		c.Set("principal_id", principal.PrincipalID)
 		c.Set("agent_credential_session_id", principal.SessionID)
+		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
 		c.Next(ctx)
 	}
 }

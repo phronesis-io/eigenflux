@@ -172,6 +172,110 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+const agentCardPageSnapshotSQL = `SELECT agent.agent_name,
+		agent.bio,
+		COALESCE(profile.profile_version, 0) AS profile_version,
+		COALESCE(profile.profile_data, '{}'::jsonb)::text AS profile_data,
+		COALESCE(goal.goal_text, '') AS network_goal,
+		COALESCE(intents.items, '[]'::jsonb)::text AS intent_actions,
+		COALESCE(membership.member_no, 0) AS member_no
+	FROM agents AS agent
+	LEFT JOIN agent_profiles AS profile ON profile.agent_id = agent.agent_id
+	LEFT JOIN agent_network_memberships AS membership ON membership.agent_id = agent.agent_id
+	LEFT JOIN agent_network_goals AS goal
+	  ON goal.agent_id = agent.agent_id AND goal.status = 'active'
+	LEFT JOIN LATERAL (
+		SELECT jsonb_agg(jsonb_build_object(
+			'intent_id', intent.intent_id::text,
+			'watch_for', intent.watch_for
+		) ORDER BY intent.priority DESC, intent.intent_id) AS items
+		FROM agent_intent_actions AS intent
+		WHERE intent.agent_id = agent.agent_id AND intent.status = 'active'
+	) AS intents ON TRUE
+	WHERE agent.agent_id = ?`
+
+type agentCardPageSnapshot struct {
+	AgentName      string `gorm:"column:agent_name"`
+	Bio            string `gorm:"column:bio"`
+	ProfileVersion int64  `gorm:"column:profile_version"`
+	ProfileData    string `gorm:"column:profile_data"`
+	NetworkGoal    string `gorm:"column:network_goal"`
+	IntentActions  string `gorm:"column:intent_actions"`
+	MemberNo       int64  `gorm:"column:member_no"`
+}
+
+// GetMyCardPage is the Console V2 Agent Card first-paint read model. It keeps
+// the browser on one authenticated request and deliberately does not load the
+// append-only field-change history required by the automated refresh flow.
+func GetMyCardPage(ctx context.Context, c *app.RequestContext) {
+	agentID, ok := callerAgentID(c)
+	if !ok {
+		return
+	}
+	card, err := loadCardRebuildOnMiss(ctx, agentID)
+	if err != nil {
+		logger.Ctx(ctx).Error("GetMyCardPage card read failed", "agentID", agentID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to load card page", nil)
+		return
+	}
+
+	var snapshot agentCardPageSnapshot
+	result := db.DB.Raw(agentCardPageSnapshotSQL, agentID).Scan(&snapshot)
+	if result.Error != nil || snapshot.AgentName == "" {
+		logger.Ctx(ctx).Error("GetMyCardPage snapshot read failed", "agentID", agentID, "err", result.Error)
+		respond(c, http.StatusInternalServerError, 500, "failed to load card page", nil)
+		return
+	}
+
+	profileData := map[string]json.RawMessage{}
+	if err := json.Unmarshal([]byte(snapshot.ProfileData), &profileData); err != nil {
+		logger.Ctx(ctx).Error("GetMyCardPage profile decode failed", "agentID", agentID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to load card page", nil)
+		return
+	}
+	currentValues := currentAgentCardValues(snapshot.AgentName, snapshot.Bio, profileData)
+	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, agentID)
+	publicCard = overlayMemberNumber(publicCard, snapshot.MemberNo)
+
+	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"card": map[string]interface{}{
+			"public":       publicCard,
+			"private":      json.RawMessage(card.PrivateCard),
+			"card_version": card.CardVersion,
+			"generated_at": card.GeneratedAt,
+		},
+		"profile_version": snapshot.ProfileVersion,
+		"current_values":  currentValues,
+		"network_goal":    snapshot.NetworkGoal,
+		"intent_actions":  json.RawMessage(snapshot.IntentActions),
+	})
+}
+
+func currentAgentCardValues(agentName, bio string, profileData map[string]json.RawMessage) map[string]interface{} {
+	values := make(map[string]interface{}, len(agentcard.EditableFields))
+	for _, spec := range agentcard.EditableFields {
+		switch spec.Name {
+		case "agent_name":
+			values[spec.Name] = agentName
+		case "agent_description":
+			values[spec.Name] = bio
+		default:
+			raw, exists := profileData[spec.Name]
+			if !exists {
+				values[spec.Name] = nil
+				continue
+			}
+			var value interface{}
+			if err := json.Unmarshal(raw, &value); err != nil {
+				values[spec.Name] = nil
+				continue
+			}
+			values[spec.Name] = value
+		}
+	}
+	return values
+}
+
 // GetPublicCard returns another agent's public card plus the viewer-relative
 // relation block. Blocked pairs (either direction) get an indistinguishable
 // 404 so blocking is not observable.
@@ -272,16 +376,22 @@ func GetSharedPublicCard(ctx context.Context, c *app.RequestContext) {
 
 func overlayPublicMetadata(ctx context.Context, raw string, agentID int64) json.RawMessage {
 	card := overlayCurrentLastActive(ctx, raw, agentID)
+	var memberNo int64
+	if err := db.DB.Raw(`SELECT member_no FROM agent_network_memberships WHERE agent_id = ?`, agentID).Scan(&memberNo).Error; err != nil {
+		logger.Ctx(ctx).Warn("network member number unavailable", "agentID", agentID, "err", err)
+	}
+	return overlayMemberNumber(card, memberNo)
+}
+
+func overlayMemberNumber(card json.RawMessage, memberNo int64) json.RawMessage {
+	if memberNo <= 0 {
+		return card
+	}
 	var payload map[string]interface{}
 	if err := json.Unmarshal(card, &payload); err != nil {
 		return card
 	}
-	var memberNo int64
-	if err := db.DB.Raw(`SELECT member_no FROM agent_network_memberships WHERE agent_id = ?`, agentID).Scan(&memberNo).Error; err != nil {
-		logger.Ctx(ctx).Warn("network member number unavailable", "agentID", agentID, "err", err)
-	} else if memberNo > 0 {
-		payload["network_member_no"] = memberNo
-	}
+	payload["network_member_no"] = memberNo
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return card
