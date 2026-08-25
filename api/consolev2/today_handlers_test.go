@@ -1,9 +1,34 @@
 package consolev2
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestTodayCountryCodeNormalizesKnownAndISOValues(t *testing.T) {
+	tests := map[string]string{
+		"CN": "CN", "China": "CN", "中国大陆": "CN",
+		"SG": "SG", "Singapore": "SG", "DE": "DE",
+		"": "", "ZZ": "", "not-a-country": "",
+	}
+	for input, want := range tests {
+		if got := todayCountryCode(input); got != want {
+			t.Fatalf("todayCountryCode(%q)=%q want=%q", input, got, want)
+		}
+	}
+}
+
+func TestTodayEncounterReturnsCountryCode(t *testing.T) {
+	payload, err := json.Marshal(todayEncounter{PeerAgentID: 123, CountryCode: "SG"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"peer_agent_id":"123"`) || !strings.Contains(string(payload), `"country_code":"SG"`) {
+		t.Fatalf("unexpected Today encounter payload: %s", payload)
+	}
+}
 
 func TestCalculateCardCompletionUsesEditableRegistry(t *testing.T) {
 	publicCard := `{
