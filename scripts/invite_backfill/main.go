@@ -1,13 +1,10 @@
-// Command invite_backfill provisions the stable KOL invite code for every
-// existing agent that doesn't have one yet (new agents get theirs at
-// registration; pre-feature accounts also get one lazily on their first
-// dashboard load). Internal fleet accounts (bot/pgc emails) are skipped — they
-// never invite anyone and would only pollute the KOL leaderboard.
+// Command invite_backfill audits legacy personal EFI coverage. New personal
+// codes are intentionally not issued; agents.short_id is the public handle.
 //
 // Idempotent and re-runnable: agents that already own a code are not touched.
 //
 //	go run ./scripts/invite_backfill --dry-run  # report only
-//	go run ./scripts/invite_backfill            # create missing codes
+//	go run ./scripts/invite_backfill            # report only; never writes
 package main
 
 import (
@@ -16,11 +13,10 @@ import (
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
-	"eigenflux_server/pkg/invite"
 )
 
 func main() {
-	dryRun := flag.Bool("dry-run", false, "report how many codes would be created without writing")
+	dryRun := flag.Bool("dry-run", false, "report legacy personal-code coverage")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -38,23 +34,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("list agents missing invite codes: %v", err)
 	}
-	log.Printf("%d agents missing a KOL invite code", len(agentIDs))
-	if *dryRun {
-		log.Println("dry-run: no write")
-		return
-	}
-
-	created, failed := 0, 0
-	for _, id := range agentIDs {
-		if _, err := invite.EnsureForAgent(db.DB, id); err != nil {
-			failed++
-			log.Printf("agent %d: %v", id, err)
-			continue
-		}
-		created++
-	}
-	log.Printf("done: %d created, %d failed", created, failed)
-	if failed > 0 {
-		log.Fatal("some agents failed — re-run to retry (idempotent)")
-	}
+	log.Printf("%d agents have no legacy KOL invite code; no codes were issued because short_id is the public handle", len(agentIDs))
+	_ = *dryRun
 }

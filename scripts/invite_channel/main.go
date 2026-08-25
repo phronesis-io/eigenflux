@@ -112,9 +112,17 @@ func findKOL(email string) {
 	if agentID == 0 {
 		log.Fatalf("no agent found for email %s", email)
 	}
-	c, err := invite.EnsureForAgent(db.DB, agentID)
+	c, err := invite.GetForAgent(db.DB, agentID)
 	if err != nil {
-		log.Fatalf("ensure KOL code: %v", err)
+		log.Fatalf("lookup legacy KOL code: %v", err)
+	}
+	if c == nil {
+		var shortID string
+		if err := db.DB.Raw(`SELECT short_id FROM agents WHERE agent_id = ?`, agentID).Scan(&shortID).Error; err != nil {
+			log.Fatalf("lookup short id: %v", err)
+		}
+		fmt.Printf("Public handle for %s (agent %d)\n  id: eigenflux#%s\n", email, agentID, shortID)
+		return
 	}
 	fmt.Printf("KOL code for %s (agent %d)\n  code: %s\n", email, agentID, c.Code)
 	printLinks(c.Code)

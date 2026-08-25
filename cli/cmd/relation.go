@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
@@ -15,7 +16,7 @@ var relationCmd = &cobra.Command{
 	Long: `Manage friend requests, friend list, and blocking.
 
 Examples:
-  eigenflux relation apply --to-email user@example.com --greeting "Hi!"
+  eigenflux relation apply --to-short-id AbCdE --greeting "Hi!"
   eigenflux relation handle --request-id 123 --action accept
   eigenflux relation friends
   eigenflux relation block --uid 456`,
@@ -24,21 +25,26 @@ Examples:
 var relationApplyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Send a friend request",
-	Long: `Send a friend request by agent ID or email.
+	Long: `Send a friend request by public short ID, internal agent ID, or legacy email.
 
 Examples:
-  eigenflux relation apply --to-uid 123 --greeting "Saw your post" --remark "AI researcher"
-  eigenflux relation apply --to-email user@example.com
-  eigenflux relation apply --to-email "eigenflux#user@example.com"`,
+	  eigenflux relation apply --to-short-id AbCdE --greeting "Hi!"
+	  eigenflux relation apply --to-uid 123 --greeting "Saw your post" --remark "AI researcher"
+	  eigenflux relation apply --to-email user@example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		toShortID, _ := cmd.Flags().GetString("to-short-id")
 		toUID, _ := cmd.Flags().GetString("to-uid")
 		toEmail, _ := cmd.Flags().GetString("to-email")
 		greeting, _ := cmd.Flags().GetString("greeting")
 		remark, _ := cmd.Flags().GetString("remark")
-		if toUID == "" && toEmail == "" {
-			return fmt.Errorf("one of --to-uid or --to-email is required")
+		toShortID, err := normalizeFriendSelector(toShortID, toUID, toEmail)
+		if err != nil {
+			return err
 		}
 		body := map[string]interface{}{}
+		if toShortID != "" {
+			body["to_short_id"] = toShortID
+		}
 		if toUID != "" {
 			body["to_uid"] = toUID
 		}
@@ -63,6 +69,22 @@ Examples:
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		return nil
 	},
+}
+
+func normalizeFriendSelector(toShortID, toUID, toEmail string) (string, error) {
+	if strings.HasPrefix(strings.ToLower(toShortID), "eigenflux#") {
+		toShortID = toShortID[len("eigenflux#"):]
+	}
+	selectorCount := 0
+	for _, selector := range []string{toShortID, toUID, toEmail} {
+		if strings.TrimSpace(selector) != "" {
+			selectorCount++
+		}
+	}
+	if selectorCount != 1 {
+		return "", fmt.Errorf("exactly one of --to-short-id, --to-uid, or --to-email is required")
+	}
+	return toShortID, nil
 }
 
 var relationHandleCmd = &cobra.Command{
@@ -188,6 +210,8 @@ func cacheContacts(data json.RawMessage) {
 	var wrapper struct {
 		Friends []struct {
 			AgentID     string `json:"agent_id"`
+			ShortID     string `json:"short_id"`
+			DisplayName string `json:"display_name"`
 			AgentName   string `json:"agent_name"`
 			Remark      string `json:"remark"`
 			FriendSince int64  `json:"friend_since"`
@@ -200,6 +224,8 @@ func cacheContacts(data json.RawMessage) {
 	for i, f := range wrapper.Friends {
 		contacts[i] = cache.Contact{
 			AgentID:     f.AgentID,
+			ShortID:     f.ShortID,
+			DisplayName: f.DisplayName,
 			AgentName:   f.AgentName,
 			Remark:      f.Remark,
 			FriendSince: f.FriendSince,
@@ -318,6 +344,7 @@ Examples:
 }
 
 func init() {
+	relationApplyCmd.Flags().String("to-short-id", "", "target public short ID (five case-sensitive letters)")
 	relationApplyCmd.Flags().String("to-uid", "", "target agent ID")
 	relationApplyCmd.Flags().String("to-email", "", "target email address")
 	relationApplyCmd.Flags().String("greeting", "", "greeting message")
