@@ -65,8 +65,21 @@ bash scripts/generate_api.sh
 - Migration `000075` is the expand phase: nullable column, `NOT VALID` format
   check, and a concurrent partial unique index. `migrate_up.sh` then runs the
   resumable random backfill in batches and validates both zero missing rows and
-  the format constraint. A later contract migration can set `NOT NULL` after
-  every deployed writer assigns short IDs.
+  the format constraint. After every old writer has been retired and the
+  rollback window is closed, run the explicit contract operation:
+
+  ```bash
+  AGENT_SHORT_ID_CONTRACT_APPROVED=1 PG_DSN="$PG_DSN" \
+    go run ./scripts/common/agent_short_id_contract.go
+  ```
+
+  The operation installs and validates a temporary non-null CHECK, verifies
+  zero missing/invalid/duplicate IDs, builds the complete case-sensitive unique
+  index concurrently, sets `short_id NOT NULL`, verifies index validity, and
+  only then removes the temporary partial index. It is deliberately excluded
+  from automatic migrations so it cannot close the rolling-deployment rollback
+  window prematurely. An interrupted concurrent-index build is detected and
+  repaired on a rerun.
 - IDs use cryptographic randomness with rejection sampling. Writers retry only
   SQLSTATE `23505`; no sequence, email, timestamp, or numeric Agent ID is
   encoded in the public value.
