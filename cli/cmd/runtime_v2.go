@@ -135,9 +135,9 @@ var runtimeV2CommandCompleteCmd = &cobra.Command{
 			(status != "completed" && status != "failed") {
 			return fmt.Errorf("command ID, claim token, positive claim epoch, and completed|failed status are required")
 		}
-		var result map[string]interface{}
-		if json.Unmarshal([]byte(resultText), &result) != nil {
-			return fmt.Errorf("--result must be a JSON object")
+		result, err := parseRuntimeCommandResult(resultText)
+		if err != nil {
+			return err
 		}
 		clientV2, server, err := newV2ClientForServer(serverFlag, true)
 		if err != nil {
@@ -157,6 +157,14 @@ var runtimeV2CommandCompleteCmd = &cobra.Command{
 		output.PrintData(response.Data, resolveFormat())
 		return nil
 	},
+}
+
+func parseRuntimeCommandResult(resultText string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(resultText), &result); err != nil || result == nil {
+		return nil, fmt.Errorf("--result must be a JSON object")
+	}
+	return result, nil
 }
 
 func init() {
