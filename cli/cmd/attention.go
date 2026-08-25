@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -25,6 +26,7 @@ const (
 	attentionActionLimit     = 5
 	attentionCustomFlagLimit = 20
 	attentionMaxLifetimeMS   = int64(90 * 24 * 60 * 60 * 1000)
+	attentionFutureSkewMS    = int64(5 * time.Minute / time.Millisecond)
 )
 
 var attentionBatchIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
@@ -200,6 +202,10 @@ func requireJSONEOF(decoder *json.Decoder) error {
 }
 
 func validateAttentionPublishRequest(request attentionPublishRequest) error {
+	return validateAttentionPublishRequestAt(request, time.Now().UnixMilli())
+}
+
+func validateAttentionPublishRequestAt(request attentionPublishRequest, now int64) error {
 	if request.SchemaVersion != attentionSchemaVersion {
 		return fmt.Errorf("schema_version must be %q", attentionSchemaVersion)
 	}
@@ -215,14 +221,14 @@ func validateAttentionPublishRequest(request attentionPublishRequest) error {
 			return fmt.Errorf("items[%d].client_item_id is duplicated in this batch", index)
 		}
 		seenItems[item.ClientItemID] = struct{}{}
-		if err := validateAttentionItem(item); err != nil {
+		if err := validateAttentionItemAt(item, now); err != nil {
 			return fmt.Errorf("items[%d]: %w", index, err)
 		}
 	}
 	return nil
 }
 
-func validateAttentionItem(item attentionItem) error {
+func validateAttentionItemAt(item attentionItem, now int64) error {
 	if !attentionBatchIDPattern.MatchString(item.ClientItemID) {
 		return fmt.Errorf("client_item_id must be a stable identifier of 8-128 ASCII letters, digits, underscores, or hyphens")
 	}
@@ -246,9 +252,10 @@ func validateAttentionItem(item attentionItem) error {
 	if item.Surface == "participation" && strings.TrimSpace(item.Recommendation) == "" {
 		return fmt.Errorf("recommendation is required for participation items")
 	}
-	if item.GeneratedAt < 1_000_000_000_000 || item.ExpiresAt <= item.GeneratedAt ||
+	if item.GeneratedAt < 1_000_000_000_000 || item.GeneratedAt > now+attentionFutureSkewMS ||
+		item.ExpiresAt <= item.GeneratedAt ||
 		item.ExpiresAt > item.GeneratedAt+attentionMaxLifetimeMS {
-		return fmt.Errorf("generated_at and expires_at must be Unix milliseconds with a positive lifetime no longer than 90 days")
+		return fmt.Errorf("generated_at and expires_at must be Unix milliseconds, generated_at cannot exceed 5 minutes in the future, and lifetime must be positive and no longer than 90 days")
 	}
 	if item.SourceRef != nil {
 		if _, ok := attentionSourceTypes[item.SourceRef.Type]; !ok {
@@ -408,15 +415,21 @@ func rejectFullLocalIntentAdds(serverName, ownerAgentID string, request attentio
 	}
 	snapshot, err := controlcontext.Load(serverName, ownerAgentID)
 	if err != nil {
-		return nil
+		return fmt.Errorf("cannot validate active intent capacity; run 'eigenflux context pull' first: %w", err)
 	}
 	var context struct {
 		IntentActions []struct {
 			Status string `json:"status"`
 		} `json:"intent_actions"`
 	}
-	if json.Unmarshal(snapshot.Context, &context) != nil {
-		return nil
+	if json.Unmarshal(snapshot.Context, &context) != nil || context.IntentActions == nil {
+		return fmt.Errorf("cannot validate active intent capacity; run 'eigenflux context pull' first")
+	}
+	for _, item := range request.Items {
+		if item.Category == "intent_update" && item.ContextRef != nil && item.ContextRef.Operation == "add" &&
+			item.ContextRef.ContextRevision != snapshot.Revision {
+			return fmt.Errorf("intent_update operation=add must use the latest locally applied context revision; run 'eigenflux context pull' first")
+		}
 	}
 	active := 0
 	for _, intent := range context.IntentActions {

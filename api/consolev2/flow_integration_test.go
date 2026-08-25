@@ -949,6 +949,14 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 		t.Fatalf("Attention command claim status=%d payload=%#v", status, claimPayload)
 	}
 	claimData := responseData(t, claimPayload)
+	status, invalidCompletePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
+		RuntimeInstanceID: "attention-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
+		ClaimToken: claimData["claim_token"].(string), Status: "completed",
+		Result: json.RawMessage(`{"summary":"Applied.","related_entities":[{"type":"broadcast","id":"123","url":"http://127.0.0.1/private"}]}`),
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusBadRequest || responseErrorCode(t, invalidCompletePayload) != "INVALID_ATTENTION_RESULT" {
+		t.Fatalf("unsafe Attention command result status=%d payload=%#v", status, invalidCompletePayload)
+	}
 	status, completePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
 		RuntimeInstanceID: "attention-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
 		ClaimToken: claimData["claim_token"].(string), Status: "completed",

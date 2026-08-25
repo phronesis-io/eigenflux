@@ -11,7 +11,8 @@ func TestRetentionMatrixIsBounded(t *testing.T) {
 		"handoffs": false, "console_sessions": false, "credential_sessions": false,
 		"idempotency_responses": false, "telemetry_events": false, "usage_sessions": false,
 		"runtime_leases": false, "control_outbox": false, "feed_exposures": false,
-		"command_expiry": false, "commands": false, "attention_text_redaction": false, "attention_expiry": false,
+		"command_expiry": false, "commands": false, "attention_command_payload_redaction": false,
+		"attention_text_redaction": false, "attention_expiry": false,
 		"attention_items": false, "activity": false,
 	}
 	seen := make(map[string]bool)
@@ -25,6 +26,12 @@ func TestRetentionMatrixIsBounded(t *testing.T) {
 		}
 		if !strings.Contains(job.SQL, "$1") {
 			t.Fatalf("retention job %q is not batch bounded", job.Name)
+		}
+		if job.Name == "attention_command_payload_redaction" &&
+			(!strings.Contains(job.SQL, "attention_snapshot,title") ||
+				!strings.Contains(job.SQL, "attention_snapshot,body") ||
+				!strings.Contains(job.SQL, "attention_snapshot,recommendation")) {
+			t.Fatalf("Attention command payload redaction does not remove every authored text field")
 		}
 	}
 	for name, found := range required {

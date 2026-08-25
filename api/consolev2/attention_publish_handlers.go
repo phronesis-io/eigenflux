@@ -79,6 +79,12 @@ type attentionPublishRow struct {
 	ClientItemID string `gorm:"column:client_item_id"`
 }
 
+type attentionRateRemaining struct {
+	Total         int64 `json:"total"`
+	Participation int64 `json:"participation"`
+	Focus         int64 `json:"focus"`
+}
+
 var attentionRateScript = redis.NewScript(`
 local now_parts = redis.call('TIME')
 local now = tonumber(now_parts[1]) * 1000 + math.floor(tonumber(now_parts[2]) / 1000)
@@ -105,20 +111,33 @@ for i = 5, #ARGV, 2 do
   end
 end
 
-if redis.call('ZCARD', KEYS[1]) + add_total > total_limit or
-   redis.call('ZCARD', KEYS[2]) + add_participation > participation_limit or
-   redis.call('ZCARD', KEYS[3]) + add_focus > focus_limit then
+local current_total = redis.call('ZCARD', KEYS[1])
+local current_participation = redis.call('ZCARD', KEYS[2])
+local current_focus = redis.call('ZCARD', KEYS[3])
+local next_total = current_total + add_total
+local next_participation = current_participation + add_participation
+local next_focus = current_focus + add_focus
+
+if next_total > total_limit or next_participation > participation_limit or next_focus > focus_limit then
 	local retry = 1
-	local function include_retry(key)
-		local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-		if #oldest == 2 then
-			retry = math.max(retry, window - (now - tonumber(oldest[2])))
+	local boundary_found = false
+	local function include_retry(key, overflow)
+		if overflow > 0 then
+			local boundary = redis.call('ZRANGE', key, overflow - 1, overflow - 1, 'WITHSCORES')
+			if #boundary == 2 then
+				boundary_found = true
+				retry = math.max(retry, window - (now - tonumber(boundary[2])))
+			end
 		end
 	end
-	if redis.call('ZCARD', KEYS[1]) + add_total > total_limit then include_retry(KEYS[1]) end
-	if redis.call('ZCARD', KEYS[2]) + add_participation > participation_limit then include_retry(KEYS[2]) end
-	if redis.call('ZCARD', KEYS[3]) + add_focus > focus_limit then include_retry(KEYS[3]) end
-	return {0, retry}
+	include_retry(KEYS[1], next_total - total_limit)
+	include_retry(KEYS[2], next_participation - participation_limit)
+	include_retry(KEYS[3], next_focus - focus_limit)
+	if not boundary_found then retry = window end
+	return {0, retry,
+		math.max(total_limit - current_total, 0),
+		math.max(participation_limit - current_participation, 0),
+		math.max(focus_limit - current_focus, 0)}
 end
 
 for i = 5, #ARGV, 2 do
@@ -132,13 +151,40 @@ for i = 5, #ARGV, 2 do
   end
 end
 for i = 1, 3 do redis.call('PEXPIRE', KEYS[i], window + 60000) end
-return {1, 0}
+return {1, 0,
+	math.max(total_limit - next_total, 0),
+	math.max(participation_limit - next_participation, 0),
+	math.max(focus_limit - next_focus, 0)}
 `)
 
 var attentionRateReleaseScript = redis.NewScript(`
 for i = 1, #ARGV do
 	for key_index = 1, #KEYS do
 		redis.call('ZREM', KEYS[key_index], ARGV[i])
+	end
+end
+return 1
+`)
+
+var attentionRateReconcileScript = redis.NewScript(`
+local window = tonumber(ARGV[1])
+for i = 1, 3 do
+	redis.call('DEL', KEYS[i])
+end
+for i = 2, #ARGV, 3 do
+	local member = ARGV[i]
+	local surface = ARGV[i + 1]
+	local score = ARGV[i + 2]
+	redis.call('ZADD', KEYS[1], score, member)
+	if surface == 'participation' then
+		redis.call('ZADD', KEYS[2], score, member)
+	else
+		redis.call('ZADD', KEYS[3], score, member)
+	end
+end
+for i = 1, 3 do
+	if redis.call('ZCARD', KEYS[i]) > 0 then
+		redis.call('PEXPIRE', KEYS[i], window + 60000)
 	end
 end
 return 1
@@ -178,6 +224,9 @@ func decodeAttentionPublishBody(c *app.RequestContext) (attentionPublishRequest,
 	raw, err := c.Body()
 	if err != nil || len(raw) == 0 || len(raw) > attentionPublishBodyLimit {
 		return attentionPublishRequest{}, nil, errors.New("request body must be between 1 byte and 32 KiB")
+	}
+	if !utf8.Valid(raw) {
+		return attentionPublishRequest{}, nil, errors.New("request body must be valid UTF-8")
 	}
 	var req attentionPublishRequest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -340,42 +389,102 @@ func validateAttentionPublish(req *attentionPublishRequest, now int64) error {
 	return nil
 }
 
-func (s *Service) allowAttentionPublish(ctx context.Context, agentID int64, items []attentionPublishItem) (int64, error) {
-	if s.redisClient == nil {
-		return 0, errors.New("Attention rate limiter is unavailable")
-	}
+func attentionRateKeys(agentID int64) []string {
 	prefix := fmt.Sprintf("console:v2:attention:{%d}:", agentID)
-	keys := []string{prefix + "total", prefix + "participation", prefix + "focus"}
+	return []string{prefix + "total", prefix + "participation", prefix + "focus"}
+}
+
+func attentionRateMember(clientItemID, reservationToken string) string {
+	member := hashString(clientItemID)
+	if reservationToken != "" {
+		member += ":" + reservationToken
+	}
+	return member
+}
+
+func (s *Service) allowAttentionPublish(ctx context.Context, agentID int64, items []attentionPublishItem, reservationToken string) (int64, attentionRateRemaining, error) {
+	if s.redisClient == nil {
+		return 0, attentionRateRemaining{}, errors.New("Attention rate limiter is unavailable")
+	}
+	keys := attentionRateKeys(agentID)
 	args := []interface{}{attentionRateWindow.Milliseconds(), attentionHourlyTotal, attentionHourlyParticipate, attentionHourlyFocus}
 	for _, item := range items {
-		args = append(args, hashString(item.ClientItemID), item.Surface)
+		args = append(args, attentionRateMember(item.ClientItemID, reservationToken), item.Surface)
 	}
 	values, err := attentionRateScript.Run(ctx, s.redisClient, keys, args...).Slice()
-	if err != nil || len(values) != 2 {
-		return 0, fmt.Errorf("Attention rate limiter failed: %w", err)
+	if err != nil || len(values) != 5 {
+		return 0, attentionRateRemaining{}, fmt.Errorf("Attention rate limiter failed: %w", err)
 	}
 	allowed, _ := values[0].(int64)
 	retryAfter, _ := values[1].(int64)
+	remaining := attentionRateRemaining{}
+	remaining.Total, _ = values[2].(int64)
+	remaining.Participation, _ = values[3].(int64)
+	remaining.Focus, _ = values[4].(int64)
 	if allowed != 1 {
-		return retryAfter, errConflict
+		return retryAfter, remaining, errConflict
 	}
-	return 0, nil
+	return 0, remaining, nil
 }
 
-func (s *Service) releaseAttentionPublish(ctx context.Context, agentID int64, items []attentionPublishItem) error {
+func remainingAttentionQuota(total, participation, focus int64) attentionRateRemaining {
+	remaining := attentionRateRemaining{
+		Total:         attentionHourlyTotal - total,
+		Participation: attentionHourlyParticipate - participation,
+		Focus:         attentionHourlyFocus - focus,
+	}
+	if remaining.Total < 0 {
+		remaining.Total = 0
+	}
+	if remaining.Participation < 0 {
+		remaining.Participation = 0
+	}
+	if remaining.Focus < 0 {
+		remaining.Focus = 0
+	}
+	return remaining
+}
+
+func (s *Service) releaseAttentionPublish(ctx context.Context, agentID int64, items []attentionPublishItem, reservationToken string) error {
 	if len(items) == 0 {
 		return nil
 	}
 	if s.redisClient == nil {
 		return errors.New("Attention rate limiter is unavailable")
 	}
-	prefix := fmt.Sprintf("console:v2:attention:{%d}:", agentID)
-	keys := []string{prefix + "total", prefix + "participation", prefix + "focus"}
+	keys := attentionRateKeys(agentID)
 	members := make([]interface{}, 0, len(items))
 	for _, item := range items {
-		members = append(members, hashString(item.ClientItemID))
+		members = append(members, attentionRateMember(item.ClientItemID, reservationToken))
 	}
 	return attentionRateReleaseScript.Run(ctx, s.redisClient, keys, members...).Err()
+}
+
+type attentionRateRow struct {
+	ClientItemID string `gorm:"column:client_item_id"`
+	Surface      string `gorm:"column:surface"`
+	CreatedAt    int64  `gorm:"column:created_at"`
+}
+
+func loadAttentionRateRows(tx *gorm.DB, agentID, cutoff int64) ([]attentionRateRow, error) {
+	var rows []attentionRateRow
+	err := tx.Raw(`SELECT client_item_id, surface, created_at
+		FROM agent_attention_items
+		WHERE agent_id = ? AND producer = 'agent' AND created_at >= ?
+		ORDER BY created_at, attention_id`, agentID, cutoff).Scan(&rows).Error
+	return rows, err
+}
+
+func (s *Service) reconcileAttentionRateWindow(ctx context.Context, agentID int64, rows []attentionRateRow) error {
+	if s.redisClient == nil {
+		return errors.New("Attention rate limiter is unavailable")
+	}
+	args := make([]interface{}, 0, 1+len(rows)*3)
+	args = append(args, attentionRateWindow.Milliseconds())
+	for _, row := range rows {
+		args = append(args, attentionRateMember(row.ClientItemID, ""), row.Surface, row.CreatedAt)
+	}
+	return attentionRateReconcileScript.Run(ctx, s.redisClient, attentionRateKeys(agentID), args...).Err()
 }
 
 func parseOptionalPositiveID(raw *string) (int64, bool) {
@@ -434,6 +543,7 @@ func authorizeAttentionSources(tx *gorm.DB, agentID int64, items []attentionPubl
 				JOIN agent_feed_exposures exposure ON exposure.agent_id = ?
 				 AND exposure.source_type = 'broadcast' AND exposure.source_id = requested.parent_id
 				WHERE conversation.origin_type = 'broadcast'
+				  AND conversation.origin_id > 0
 				  AND conversation.origin_id = requested.parent_id
 				  AND (message.sender_id = ? OR message.receiver_id = ?)`, string(encoded), agentID, agentID, agentID).Scan(&count)
 		case "private_message":
@@ -586,8 +696,16 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		reply(c, http.StatusOK, replayPayload)
 		return
 	}
+	reservationToken, tokenErr := randomToken("", 12)
+	if tokenErr != nil {
+		fail(c, http.StatusInternalServerError, "ATTENTION_PUBLISH_FAILED", "could not reserve Attention quota", nil)
+		return
+	}
 	result := map[string]interface{}{}
 	rateRetryAfter := int64(0)
+	rateRemaining := attentionRateRemaining{
+		Total: attentionHourlyTotal, Participation: attentionHourlyParticipate, Focus: attentionHourlyFocus,
+	}
 	rateUnavailable := false
 	var reservedItems []attentionPublishItem
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -633,6 +751,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 				agentIDValue, now-attentionRateWindow.Milliseconds()).Scan(&quotas).Error; err != nil {
 				return err
 			}
+			rateRemaining = remainingAttentionQuota(quotas.Total, quotas.Participation, quotas.Focus)
 			newParticipation := 0
 			for _, item := range newItems {
 				if item.Surface == "participation" {
@@ -651,15 +770,37 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 			if err := validateAttentionContextRefs(tx, agentIDValue, newItems); err != nil {
 				return err
 			}
+			expectedRemaining := remainingAttentionQuota(
+				quotas.Total+int64(len(newItems)),
+				quotas.Participation+int64(newParticipation),
+				quotas.Focus+int64(len(newItems)-newParticipation),
+			)
 			var limitErr error
-			rateRetryAfter, limitErr = s.allowAttentionPublish(ctx, agentIDValue, newItems)
-			if limitErr != nil {
-				if !errors.Is(limitErr, errConflict) {
-					rateUnavailable = true
+			rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, newItems, reservationToken)
+			if limitErr == nil {
+				reservedItems = newItems
+			}
+			if errors.Is(limitErr, errConflict) || (limitErr == nil && rateRemaining != expectedRemaining) {
+				rateRows, rowsErr := loadAttentionRateRows(tx, agentIDValue, now-attentionRateWindow.Milliseconds())
+				if rowsErr != nil {
+					return rowsErr
 				}
+				if reconcileErr := s.reconcileAttentionRateWindow(ctx, agentIDValue, rateRows); reconcileErr != nil {
+					rateUnavailable = true
+					return reconcileErr
+				}
+				rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, newItems, reservationToken)
+				if limitErr == nil {
+					reservedItems = newItems
+				}
+			}
+			if limitErr != nil {
+				if errors.Is(limitErr, errConflict) {
+					return errAttentionRateLimited
+				}
+				rateUnavailable = true
 				return limitErr
 			}
-			reservedItems = newItems
 			seeds := make([]attentionInsertSeed, 0, len(newItems))
 			for _, item := range newItems {
 				sourceType, sourceRef := "agent", interface{}(map[string]interface{}{})
@@ -712,11 +853,14 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		return nil
 	})
 	if err != nil && len(reservedItems) > 0 {
-		_ = s.releaseAttentionPublish(ctx, agentIDValue, reservedItems)
+		_ = s.releaseAttentionPublish(ctx, agentIDValue, reservedItems, reservationToken)
 	}
 	if errors.Is(err, errAttentionRateLimited) {
-		c.Header("Retry-After", strconv.FormatInt((rateRetryAfter+999)/1000, 10))
-		fail(c, http.StatusTooManyRequests, "ATTENTION_RATE_LIMITED", "Attention upload limit was reached", map[string]interface{}{"retry_after_ms": rateRetryAfter})
+		retryAfterSeconds := (rateRetryAfter + 999) / 1000
+		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+		fail(c, http.StatusTooManyRequests, "ATTENTION_RATE_LIMITED", "Attention upload limit was reached", map[string]interface{}{
+			"remaining": rateRemaining, "retry_after_seconds": retryAfterSeconds, "retry_after_ms": rateRetryAfter,
+		})
 		return
 	}
 	if rateUnavailable {

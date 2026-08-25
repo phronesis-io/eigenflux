@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,6 +65,94 @@ func TestReadAttentionPublishRequestRejectsUnknownAndOversizedJSON(t *testing.T)
 	}
 }
 
+func TestValidateAttentionPublishRequestEnforcesProtocolBounds(t *testing.T) {
+	now := int64(1_787_600_000_000)
+	tests := []struct {
+		name   string
+		mutate func(*attentionPublishRequest)
+		want   string
+	}{
+		{name: "empty batch", mutate: func(request *attentionPublishRequest) { request.Items = nil }, want: "items must contain between 1 and 10"},
+		{name: "eleven items", mutate: func(request *attentionPublishRequest) {
+			base := request.Items[0]
+			request.Items = make([]attentionItem, 11)
+			for index := range request.Items {
+				request.Items[index] = base
+				request.Items[index].ClientItemID = fmt.Sprintf("item-%08d", index)
+			}
+		}, want: "items must contain between 1 and 10"},
+		{name: "no actions", mutate: func(request *attentionPublishRequest) { request.Items[0].Actions = nil }, want: "actions must contain between 1 and 5"},
+		{name: "six actions", mutate: func(request *attentionPublishRequest) {
+			request.Items[0].Actions = []attentionAction{
+				{ActionKey: "a1", Kind: "preset", Flag: "observe_first", Appearance: "primary"},
+				{ActionKey: "a2", Kind: "preset", Flag: "follow_up", Appearance: "secondary"},
+				{ActionKey: "a3", Kind: "preset", Flag: "follow_up", Appearance: "secondary"},
+				{ActionKey: "a4", Kind: "preset", Flag: "follow_up", Appearance: "secondary"},
+				{ActionKey: "a5", Kind: "preset", Flag: "follow_up", Appearance: "secondary"},
+				{ActionKey: "a6", Kind: "preset", Flag: "follow_up", Appearance: "secondary"},
+			}
+		}, want: "actions must contain between 1 and 5"},
+		{name: "invalid idempotency key", mutate: func(request *attentionPublishRequest) { request.IdempotencyKey = "short" }, want: "idempotency_key"},
+		{name: "invalid language", mutate: func(request *attentionPublishRequest) { request.Items[0].Language = "zh" }, want: "language must be zh-CN or en"},
+		{name: "cross-surface category", mutate: func(request *attentionPublishRequest) { request.Items[0].Category = "important_signal" }, want: "not valid for surface"},
+		{name: "required source missing", mutate: func(request *attentionPublishRequest) { request.Items[0].SourceRef = nil }, want: "source_ref is required"},
+		{name: "future generated at", mutate: func(request *attentionPublishRequest) {
+			request.Items[0].GeneratedAt = now + attentionFutureSkewMS + 1
+			request.Items[0].ExpiresAt = request.Items[0].GeneratedAt + 1
+		}, want: "cannot exceed 5 minutes in the future"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validAttentionPublishRequest()
+			test.mutate(&request)
+			if err := validateAttentionPublishRequestAt(request, now); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("wanted %q validation error, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestAttentionProtocolEnumsRemainExact(t *testing.T) {
+	wantCategories := map[string][]string{
+		"participation": {"action_recommendation", "goal_calibration", "intent_update", "other_decision"},
+		"focus":         {"important_signal", "opportunity", "relationship_created", "relationship_feedback", "watch_update", "other_attention"},
+	}
+	wantFlags := map[string][]string{
+		"participation": {"approve_first_contact", "observe_first", "apply_goal_update", "keep_goal", "apply_intent_update", "keep_intent", "follow_up", "not_interested"},
+		"focus":         {"open_source", "ask_agent_contact", "add_watch", "ask_agent_summarize", "draft_broadcast", "follow_up", "not_interested"},
+	}
+	for surface, expected := range wantCategories {
+		if len(attentionCategories[surface]) != len(expected) {
+			t.Fatalf("%s category count = %d, want %d", surface, len(attentionCategories[surface]), len(expected))
+		}
+		for _, value := range expected {
+			if _, ok := attentionCategories[surface][value]; !ok {
+				t.Errorf("%s is missing category %q", surface, value)
+			}
+		}
+	}
+	for surface, expected := range wantFlags {
+		if len(attentionPresetFlags[surface]) != len(expected) {
+			t.Fatalf("%s preset count = %d, want %d", surface, len(attentionPresetFlags[surface]), len(expected))
+		}
+		for _, value := range expected {
+			if _, ok := attentionPresetFlags[surface][value]; !ok {
+				t.Errorf("%s is missing preset flag %q", surface, value)
+			}
+		}
+	}
+	wantSources := []string{"broadcast", "broadcast_reply", "friend_request", "relation", "private_message", "context", "activity"}
+	if len(attentionSourceTypes) != len(wantSources) {
+		t.Fatalf("source type count = %d, want %d", len(attentionSourceTypes), len(wantSources))
+	}
+	for _, value := range wantSources {
+		if _, ok := attentionSourceTypes[value]; !ok {
+			t.Errorf("source types are missing %q", value)
+		}
+	}
+}
+
 func TestValidateAttentionPublishRequestEnforcesActionContract(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -107,6 +196,11 @@ func TestValidateAttentionPublishRequestEnforcesActionContract(t *testing.T) {
 				t.Fatalf("wanted %q validation error, got %v", test.want, err)
 			}
 		})
+	}
+	request := validAttentionPublishRequest()
+	request.Items[0].Actions[1].Flag = strings.Repeat("a", attentionCustomFlagLimit)
+	if err := validateAttentionPublishRequest(request); err != nil {
+		t.Fatalf("custom flag at the 20-byte boundary was rejected: %v", err)
 	}
 }
 
@@ -161,6 +255,43 @@ func TestRejectFullLocalIntentAdds(t *testing.T) {
 	request.Items[0].ContextRef.IntentID = stringPointer("11")
 	if err := rejectFullLocalIntentAdds("test", "agent-1", request); err != nil {
 		t.Fatalf("updating an existing intent must remain allowed: %v", err)
+	}
+}
+
+func TestRejectIntentAddRequiresMatchingLocalContext(t *testing.T) {
+	config.SetHomeDir(t.TempDir())
+	t.Cleanup(func() { config.SetHomeDir("") })
+	request := validAttentionPublishRequest()
+	request.Items[0].Category = "intent_update"
+	request.Items[0].ContextRef = &attentionContextRef{ContextRevision: 7, Operation: "add"}
+	request.Items[0].Actions = []attentionAction{{ActionKey: "accept", Kind: "preset", Flag: "apply_intent_update", Appearance: "primary"}}
+
+	if err := rejectFullLocalIntentAdds("test", "agent-1", request); err == nil || !strings.Contains(err.Error(), "context pull") {
+		t.Fatalf("missing cache must fail closed, got %v", err)
+	}
+	if err := controlcontext.Save("test", controlcontext.Snapshot{
+		OwnerAgentID: "agent-1", Revision: 7, Context: json.RawMessage(`{"network_goal":{}}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectFullLocalIntentAdds("test", "agent-1", request); err == nil || !strings.Contains(err.Error(), "context pull") {
+		t.Fatalf("cache without intent_actions must fail closed, got %v", err)
+	}
+	if err := controlcontext.Save("test", controlcontext.Snapshot{
+		OwnerAgentID: "agent-1", Revision: 8, Context: json.RawMessage(`{"intent_actions":[]}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectFullLocalIntentAdds("test", "agent-1", request); err == nil || !strings.Contains(err.Error(), "latest locally applied context revision") {
+		t.Fatalf("revision mismatch must fail closed, got %v", err)
+	}
+	if err := controlcontext.Save("test", controlcontext.Snapshot{
+		OwnerAgentID: "agent-1", Revision: 7, Context: json.RawMessage(`{"intent_actions":[]}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectFullLocalIntentAdds("test", "agent-1", request); err != nil {
+		t.Fatalf("matching context below capacity must permit intent add: %v", err)
 	}
 }
 

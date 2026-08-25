@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/cloudwego/hertz/pkg/app"
 	redis "github.com/redis/go-redis/v9"
 )
 
@@ -65,6 +66,14 @@ func TestValidateAttentionPublishPreservesAgentAuthoredText(t *testing.T) {
 	}
 }
 
+func TestDecodeAttentionPublishBodyRejectsInvalidUTF8(t *testing.T) {
+	var requestContext app.RequestContext
+	requestContext.Request.SetBody([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+	if _, _, err := decodeAttentionPublishBody(&requestContext); err == nil || !strings.Contains(err.Error(), "UTF-8") {
+		t.Fatalf("invalid UTF-8 request body must be rejected, got %v", err)
+	}
+}
+
 func TestValidateAttentionPublishRejectsPartialOrUnsafeActions(t *testing.T) {
 	now := time.Now().UnixMilli()
 	tests := []struct {
@@ -111,21 +120,65 @@ func TestAttentionRateLimiterIsAtomicAcrossBothSurfaces(t *testing.T) {
 	for index := 0; index < attentionHourlyFocus; index++ {
 		focus = append(focus, attentionPublishItem{ClientItemID: "focus-" + string(rune('a'+index)), Surface: "focus"})
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 42, participation); err != nil || retry != 0 {
+	if retry, _, err := service.allowAttentionPublish(context.Background(), 42, participation, "request-participation"); err != nil || retry != 0 {
 		t.Fatalf("participation quota batch rejected: retry=%d err=%v", retry, err)
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 42, focus[:10]); err != nil || retry != 0 {
+	if retry, _, err := service.allowAttentionPublish(context.Background(), 42, focus[:10], "request-focus-1"); err != nil || retry != 0 {
 		t.Fatalf("first focus batch rejected: retry=%d err=%v", retry, err)
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 42, focus[10:]); err != nil || retry != 0 {
+	if retry, remaining, err := service.allowAttentionPublish(context.Background(), 42, focus[10:], "request-focus-2"); err != nil || retry != 0 {
 		t.Fatalf("second focus batch rejected: retry=%d err=%v", retry, err)
+	} else if remaining.Total != 0 || remaining.Participation != 0 || remaining.Focus != 0 {
+		t.Fatalf("full quota returned incorrect remaining counts: %#v", remaining)
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 42, participation); err != nil || retry != 0 {
+	if retry, _, err := service.allowAttentionPublish(context.Background(), 42, participation, "request-participation"); err != nil || retry != 0 {
 		t.Fatalf("stable client IDs must replay without quota: retry=%d err=%v", retry, err)
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 42,
-		[]attentionPublishItem{{ClientItemID: "another-focus", Surface: "focus"}}); err == nil || retry <= 0 {
+	if retry, remaining, err := service.allowAttentionPublish(context.Background(), 42,
+		[]attentionPublishItem{{ClientItemID: "another-focus", Surface: "focus"}}, "request-overflow"); err == nil || retry <= 0 {
 		t.Fatalf("21st distinct item was not rejected: retry=%d err=%v", retry, err)
+	} else if remaining.Total != 0 || remaining.Focus != 0 {
+		t.Fatalf("rejected quota returned incorrect remaining counts: %#v", remaining)
+	}
+}
+
+func TestAttentionRateLimiterEnforcesParticipationQuotaBeforeTotalQuota(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	service := &Service{redisClient: client}
+	items := make([]attentionPublishItem, 0, attentionHourlyParticipate)
+	for index := 0; index < attentionHourlyParticipate; index++ {
+		items = append(items, attentionPublishItem{ClientItemID: "participation-limit-" + string(rune('a'+index)), Surface: "participation"})
+	}
+	if _, _, err := service.allowAttentionPublish(context.Background(), 44, items, "request-limit"); err != nil {
+		t.Fatalf("participation quota setup failed: %v", err)
+	}
+	retry, remaining, err := service.allowAttentionPublish(context.Background(), 44,
+		[]attentionPublishItem{{ClientItemID: "participation-overflow", Surface: "participation"}}, "request-overflow")
+	if err == nil || retry <= 0 {
+		t.Fatalf("fifth participation item was not rejected: retry=%d err=%v", retry, err)
+	}
+	if remaining.Total != attentionHourlyTotal-attentionHourlyParticipate || remaining.Participation != 0 || remaining.Focus != attentionHourlyFocus {
+		t.Fatalf("participation rejection returned incorrect remaining counts: %#v", remaining)
+	}
+}
+
+func TestAttentionRateLimiterReturnsWindowRetryWhenBatchAloneCannotFit(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	service := &Service{redisClient: client}
+	items := make([]attentionPublishItem, 0, attentionHourlyParticipate+1)
+	for index := 0; index < attentionHourlyParticipate+1; index++ {
+		items = append(items, attentionPublishItem{ClientItemID: "oversized-participation-" + string(rune('a'+index)), Surface: "participation"})
+	}
+	retry, remaining, err := service.allowAttentionPublish(context.Background(), 47, items, "oversized-request")
+	if err == nil || retry != attentionRateWindow.Milliseconds() {
+		t.Fatalf("oversized participation batch retry=%d err=%v", retry, err)
+	}
+	if remaining.Total != attentionHourlyTotal || remaining.Participation != attentionHourlyParticipate || remaining.Focus != attentionHourlyFocus {
+		t.Fatalf("oversized batch returned incorrect remaining counts: %#v", remaining)
 	}
 }
 
@@ -138,10 +191,10 @@ func TestAttentionRateReservationCanBeReleasedAfterPersistenceFailure(t *testing
 		{ClientItemID: "release-participation", Surface: "participation"},
 		{ClientItemID: "release-focus", Surface: "focus"},
 	}
-	if retry, err := service.allowAttentionPublish(context.Background(), 43, items); err != nil || retry != 0 {
+	if retry, _, err := service.allowAttentionPublish(context.Background(), 43, items, "failed-request"); err != nil || retry != 0 {
 		t.Fatalf("reservation rejected: retry=%d err=%v", retry, err)
 	}
-	if err := service.releaseAttentionPublish(context.Background(), 43, items); err != nil {
+	if err := service.releaseAttentionPublish(context.Background(), 43, items, "failed-request"); err != nil {
 		t.Fatalf("reservation release failed: %v", err)
 	}
 	for _, suffix := range []string{"total", "participation", "focus"} {
@@ -152,6 +205,59 @@ func TestAttentionRateReservationCanBeReleasedAfterPersistenceFailure(t *testing
 		if count != 0 {
 			t.Fatalf("released %s quota still contains %d members", suffix, count)
 		}
+	}
+}
+
+func TestAttentionRateReleaseDoesNotRemoveLaterRetryReservation(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	service := &Service{redisClient: client}
+	items := []attentionPublishItem{{ClientItemID: "same-client-item", Surface: "focus"}}
+	if _, _, err := service.allowAttentionPublish(context.Background(), 45, items, "failed-request"); err != nil {
+		t.Fatalf("failed request reservation setup failed: %v", err)
+	}
+	if _, _, err := service.allowAttentionPublish(context.Background(), 45, items, "successful-retry"); err != nil {
+		t.Fatalf("retry reservation setup failed: %v", err)
+	}
+	if err := service.releaseAttentionPublish(context.Background(), 45, items, "failed-request"); err != nil {
+		t.Fatalf("failed request reservation release failed: %v", err)
+	}
+	for _, suffix := range []string{"total", "focus"} {
+		count, err := client.ZCard(context.Background(), "console:v2:attention:{45}:"+suffix).Result()
+		if err != nil || count != 1 {
+			t.Fatalf("retry %s reservation was removed: count=%d err=%v", suffix, count, err)
+		}
+	}
+}
+
+func TestAttentionRateReconcileDropsCrashReservationAndMirrorsDatabaseRows(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	service := &Service{redisClient: client}
+	stale := []attentionPublishItem{{ClientItemID: "crashed-before-commit", Surface: "participation"}}
+	if _, _, err := service.allowAttentionPublish(context.Background(), 46, stale, "crashed-request"); err != nil {
+		t.Fatalf("crash reservation setup failed: %v", err)
+	}
+	rows := []attentionRateRow{
+		{ClientItemID: "committed-participation", Surface: "participation", CreatedAt: time.Now().Add(-time.Minute).UnixMilli()},
+		{ClientItemID: "committed-focus", Surface: "focus", CreatedAt: time.Now().Add(-time.Minute).UnixMilli()},
+	}
+	if err := service.reconcileAttentionRateWindow(context.Background(), 46, rows); err != nil {
+		t.Fatalf("rate window reconciliation failed: %v", err)
+	}
+	total, err := client.ZCard(context.Background(), "console:v2:attention:{46}:total").Result()
+	if err != nil || total != 2 {
+		t.Fatalf("reconciled total count=%d err=%v", total, err)
+	}
+	participation, err := client.ZCard(context.Background(), "console:v2:attention:{46}:participation").Result()
+	if err != nil || participation != 1 {
+		t.Fatalf("reconciled participation count=%d err=%v", participation, err)
+	}
+	focus, err := client.ZCard(context.Background(), "console:v2:attention:{46}:focus").Result()
+	if err != nil || focus != 1 {
+		t.Fatalf("reconciled focus count=%d err=%v", focus, err)
 	}
 }
 

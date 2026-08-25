@@ -45,6 +45,29 @@ func Jobs() []Job {
 		WHERE command.command_id = target.command_id
 		  AND command.status IN ('pending','notified','claimed')`},
 		{"commands", boundedDelete("agent_commands", "status IN ('completed','failed','expired') AND COALESCE(completed_at, created_at) < clock_ms() - 30*day_ms()")},
+		{"attention_command_payload_redaction", `WITH constants AS (
+			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
+		), target AS (
+			SELECT command.command_id
+			FROM agent_commands command
+			JOIN agent_attention_items item ON item.attention_id = command.attention_id
+			CROSS JOIN constants
+			WHERE command.command_type = 'attention_response'
+			  AND item.producer = 'agent'
+			  AND item.redacted_at IS NULL
+			  AND item.generated_at < constants.clock_ms - 7*24*60*60*1000
+			  AND (COALESCE(command.payload #>> '{attention_snapshot,title}', '') <> ''
+			    OR COALESCE(command.payload #>> '{attention_snapshot,body}', '') <> ''
+			    OR COALESCE(command.payload #>> '{attention_snapshot,recommendation}', '') <> '')
+			ORDER BY item.generated_at, command.command_id LIMIT $1
+		)
+		UPDATE agent_commands command SET payload =
+			jsonb_set(
+				jsonb_set(
+					jsonb_set(command.payload, '{attention_snapshot,title}', '""'::jsonb, false),
+					'{attention_snapshot,body}', '""'::jsonb, false),
+				'{attention_snapshot,recommendation}', '""'::jsonb, false)
+		FROM target WHERE command.command_id = target.command_id`},
 		{"attention_text_redaction", `WITH constants AS (
 			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
 		), target AS (

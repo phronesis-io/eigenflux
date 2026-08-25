@@ -1,13 +1,18 @@
 package consolev2
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/gorm"
@@ -352,6 +357,78 @@ type completeAgentCommandRequest struct {
 	Result            json.RawMessage `json:"result"`
 }
 
+type attentionCommandResultEntity struct {
+	Type          string `json:"type"`
+	ID            string `json:"id"`
+	URL           string `json:"url,omitempty"`
+	Label         string `json:"label,omitempty"`
+	TrustedPublic bool   `json:"trusted_public,omitempty"`
+}
+
+type attentionCommandResult struct {
+	Summary         string                         `json:"summary"`
+	RelatedEntities []attentionCommandResultEntity `json:"related_entities,omitempty"`
+}
+
+var attentionCommandResultEntityTypes = map[string]bool{
+	"agent": true, "broadcast": true, "broadcast_reply": true,
+	"friend_request": true, "relation": true, "private_message": true,
+	"network_goal": true, "intent": true, "activity": true,
+}
+
+func validAttentionResultURL(raw string, trustedPublic bool) bool {
+	if raw == "" {
+		return !trustedPublic
+	}
+	// External links need an independent server-side public-domain verifier.
+	// Until one exists, accept only same-origin routes; a Runtime assertion is
+	// not sufficient to mark an arbitrary HTTPS URL trusted.
+	if trustedPublic || len(raw) > 512 || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") ||
+		strings.ContainsAny(raw, "\\#") || strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		return false
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.User != nil || parsed.Fragment != "" {
+		return false
+	}
+	for key := range parsed.Query() {
+		key = strings.ToLower(key)
+		if strings.Contains(key, "ticket") || strings.Contains(key, "token") || strings.Contains(key, "nonce") ||
+			strings.Contains(key, "secret") || strings.Contains(key, "grant") || strings.Contains(key, "credential") ||
+			strings.Contains(key, "password") || strings.Contains(key, "session") || strings.Contains(key, "signature") ||
+			strings.Contains(key, "authorization") || strings.Contains(key, "api_key") || strings.Contains(key, "apikey") {
+			return false
+		}
+	}
+	return true
+}
+
+func validateAttentionCommandResult(raw json.RawMessage) error {
+	var result attentionCommandResult
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return errors.New("Attention result must match the summary and related_entities contract")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("Attention result must contain one JSON object")
+	}
+	if strings.TrimSpace(result.Summary) == "" || utf8.RuneCountInString(result.Summary) > 500 || len(result.RelatedEntities) > 5 {
+		return errors.New("Attention result summary or related_entities is invalid")
+	}
+	for _, entity := range result.RelatedEntities {
+		if !attentionCommandResultEntityTypes[entity.Type] || !attentionActionKeyPattern.MatchString(entity.ID) ||
+			utf8.RuneCountInString(entity.Label) > 120 ||
+			(entity.Label != "" && strings.TrimSpace(entity.Label) == "") ||
+			!validAttentionResultURL(entity.URL, entity.TrustedPublic) {
+			return errors.New("Attention result related entity is invalid")
+		}
+	}
+	return nil
+}
+
+var errInvalidAttentionCommandResult = errors.New("invalid Attention command result")
+
 func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	commandID, err := strconv.ParseInt(c.Param("command_id"), 10, 64)
@@ -373,6 +450,16 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 	completedAt := now
 	updatedCommandID := int64(0)
 	updateErr := s.db.Transaction(func(tx *gorm.DB) error {
+		var lockedCommandType string
+		if err := tx.Raw(`SELECT command_type FROM agent_commands
+			WHERE command_id = ? AND agent_id = ? FOR UPDATE`, commandID, agentIDValue).Scan(&lockedCommandType).Error; err != nil {
+			return err
+		}
+		if lockedCommandType == "attention_response" {
+			if resultErr := validateAttentionCommandResult(req.Result); resultErr != nil {
+				return fmt.Errorf("%w: %v", errInvalidAttentionCommandResult, resultErr)
+			}
+		}
 		var updated struct {
 			CommandID   int64  `gorm:"column:command_id"`
 			AttentionID *int64 `gorm:"column:attention_id"`
@@ -396,24 +483,31 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 		}
 		updatedCommandID = updated.CommandID
 		if updated.CommandID != 0 && updated.AttentionID != nil {
-			if req.Status == "completed" {
-				status := "open"
-				if updated.Terminal {
-					status = "acted"
+			responseStatus := req.Status
+			if updated.Terminal {
+				itemStatus := "open"
+				if req.Status == "completed" {
+					itemStatus = "acted"
 				}
-				return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = 'completed',
+				return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = ?,
 					updated_at = ?, item_revision = item_revision + 1
-					WHERE agent_id = ? AND attention_id = ? AND status IN ('open','selected','pending')`,
-					status, now, agentIDValue, *updated.AttentionID).Error
+					WHERE agent_id = ? AND attention_id = ? AND status = 'pending'`,
+					itemStatus, responseStatus, now, agentIDValue, *updated.AttentionID).Error
 			}
-			status := "open"
-			return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = 'failed',
+			// open_source is repeatable and never owns the item's terminal state.
+			// If a terminal choice is already pending, a late source-drawer receipt
+			// must not reopen the item or overwrite that choice's pending status.
+			return tx.Exec(`UPDATE agent_attention_items SET response_status = ?,
 				updated_at = ?, item_revision = item_revision + 1
-				WHERE agent_id = ? AND attention_id = ? AND status IN ('open','selected','pending')`,
-				status, now, agentIDValue, *updated.AttentionID).Error
+				WHERE agent_id = ? AND attention_id = ? AND status = 'open'`,
+				responseStatus, now, agentIDValue, *updated.AttentionID).Error
 		}
 		return nil
 	})
+	if errors.Is(updateErr, errInvalidAttentionCommandResult) {
+		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_RESULT", "Attention command result is invalid", nil)
+		return
+	}
 	if updateErr != nil {
 		fail(c, http.StatusInternalServerError, "COMMAND_COMPLETE_FAILED", "could not complete Agent command", nil)
 		return

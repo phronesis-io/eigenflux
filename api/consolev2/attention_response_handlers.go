@@ -321,24 +321,98 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 	}
 	detail := map[string]interface{}{}
 	found := false
+	peerAgentID := int64(0)
 	switch source.Type {
 	case "broadcast":
 		var row struct {
-			Content   string `gorm:"column:content"`
-			Summary   string `gorm:"column:summary"`
-			URL       string `gorm:"column:url"`
-			AuthorID  int64  `gorm:"column:author_id"`
-			UpdatedAt int64  `gorm:"column:updated_at"`
+			Content       string `gorm:"column:content"`
+			Summary       string `gorm:"column:summary"`
+			URL           string `gorm:"column:url"`
+			AuthorID      int64  `gorm:"column:author_id"`
+			UpdatedAt     int64  `gorm:"column:updated_at"`
+			ConsumedCount int64  `gorm:"column:consumed_count"`
+			HelpfulCount  int64  `gorm:"column:helpful_count"`
+			TotalScore    int64  `gorm:"column:total_score"`
 		}
 		result := s.db.Raw(`SELECT raw.raw_content AS content, processed.summary, raw.raw_url AS url,
-			raw.author_agent_id AS author_id, processed.updated_at
+			raw.author_agent_id AS author_id, processed.updated_at,
+			COALESCE(stats.consumed_count, 0) AS consumed_count,
+			COALESCE(stats.score_1_count, 0) + COALESCE(stats.score_2_count, 0) AS helpful_count,
+			COALESCE(stats.total_score, 0) AS total_score
 			FROM agent_feed_exposures exposure
 			JOIN raw_items raw ON raw.item_id = exposure.source_id
 			JOIN processed_items processed ON processed.item_id = exposure.source_id
+			LEFT JOIN item_stats stats ON stats.item_id = exposure.source_id
 			WHERE exposure.agent_id = ? AND exposure.source_type = 'broadcast' AND exposure.source_id = ?`, agentIDValue, sourceID).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.AuthorID > 0
-		detail = map[string]interface{}{"content": row.Content, "summary": row.Summary, "url": row.URL, "author_agent_id": fmt.Sprintf("%d", row.AuthorID), "updated_at": row.UpdatedAt}
+		detail = map[string]interface{}{
+			"content": row.Content, "summary": row.Summary, "url": row.URL,
+			"author_agent_id": fmt.Sprintf("%d", row.AuthorID), "updated_at": row.UpdatedAt,
+			"interaction": map[string]interface{}{
+				"consumed_count": row.ConsumedCount, "helpful_count": row.HelpfulCount, "total_score": row.TotalScore,
+			},
+		}
+		if found {
+			identities, identityErr := s.resolveIdentityAssertions([]int64{row.AuthorID})
+			if identityErr != nil {
+				err = identityErr
+				break
+			}
+			if identity, exists := identities[row.AuthorID]; exists {
+				detail["author_identity"] = identity
+			}
+			relations, relationErr := s.loadViewerRelations(agentIDValue, []int64{row.AuthorID})
+			if relationErr != nil {
+				err = relationErr
+				break
+			}
+			authorRelation := relations[row.AuthorID]
+			if authorRelation == "" {
+				authorRelation = "none"
+			}
+			detail["author_relation"] = authorRelation
+
+			const replyLimit = 20
+			var replyRows []struct {
+				MessageID      int64  `gorm:"column:msg_id"`
+				ConversationID int64  `gorm:"column:conv_id"`
+				SenderID       int64  `gorm:"column:sender_id"`
+				ReceiverID     int64  `gorm:"column:receiver_id"`
+				Content        string `gorm:"column:content"`
+				CreatedAt      int64  `gorm:"column:created_at"`
+			}
+			repliesResult := s.db.Raw(`SELECT message.msg_id, message.conv_id, message.sender_id,
+				message.receiver_id, message.content, message.created_at
+				FROM conversations conversation
+				JOIN private_messages message ON message.conv_id = conversation.conv_id
+				WHERE conversation.origin_type = 'broadcast' AND conversation.origin_id = ?
+				  AND conversation.origin_id > 0
+				  AND conversation.status = 0
+				  AND (conversation.participant_a = ? OR conversation.participant_b = ?)
+				ORDER BY message.msg_id DESC LIMIT ?`, sourceID, agentIDValue, agentIDValue, replyLimit+1).Scan(&replyRows)
+			if repliesResult.Error != nil {
+				err = repliesResult.Error
+				break
+			}
+			hasMoreReplies := len(replyRows) > replyLimit
+			if hasMoreReplies {
+				replyRows = replyRows[:replyLimit]
+			}
+			replies := make([]map[string]interface{}, 0, len(replyRows))
+			for _, replyRow := range replyRows {
+				content, truncated := truncateRunes(replyRow.Content, 2000)
+				replies = append(replies, map[string]interface{}{
+					"message_id":      strconv.FormatInt(replyRow.MessageID, 10),
+					"conversation_id": strconv.FormatInt(replyRow.ConversationID, 10),
+					"sender_id":       strconv.FormatInt(replyRow.SenderID, 10),
+					"receiver_id":     strconv.FormatInt(replyRow.ReceiverID, 10),
+					"content":         content, "content_truncated": truncated, "created_at": replyRow.CreatedAt,
+				})
+			}
+			detail["related_replies"] = replies
+			detail["related_replies_has_more"] = hasMoreReplies
+		}
 	case "broadcast_reply":
 		parentID, ok := parseOptionalPositiveID(source.ParentID)
 		if !ok {
@@ -373,6 +447,7 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			JOIN raw_items raw ON raw.item_id = exposure.source_id
 			JOIN processed_items processed ON processed.item_id = exposure.source_id
 			WHERE message.msg_id = ? AND conversation.origin_type = 'broadcast'
+			  AND conversation.origin_id > 0
 			  AND conversation.origin_id = ?
 			  AND (message.sender_id = ? OR message.receiver_id = ?)`,
 			agentIDValue, parentID, sourceID, parentID, agentIDValue, agentIDValue).Scan(&row)
@@ -423,7 +498,15 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			WHERE id = ? AND (from_uid = ? OR to_uid = ?)`, sourceID, agentIDValue, agentIDValue).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.ID > 0
-		detail = map[string]interface{}{"request_id": fmt.Sprintf("%d", row.ID), "from_agent_id": fmt.Sprintf("%d", row.FromID), "to_agent_id": fmt.Sprintf("%d", row.ToID), "status": row.Status, "greeting": row.Greeting, "created_at": row.CreatedAt}
+		peerAgentID = row.FromID
+		if peerAgentID == agentIDValue {
+			peerAgentID = row.ToID
+		}
+		requestStatus := map[int16]string{0: "pending", 1: "accepted", 2: "rejected"}[row.Status]
+		if requestStatus == "" {
+			requestStatus = "unknown"
+		}
+		detail = map[string]interface{}{"request_id": fmt.Sprintf("%d", row.ID), "from_agent_id": fmt.Sprintf("%d", row.FromID), "to_agent_id": fmt.Sprintf("%d", row.ToID), "status": requestStatus, "greeting": row.Greeting, "created_at": row.CreatedAt}
 	case "relation":
 		var row struct {
 			ID        int64 `gorm:"column:id"`
@@ -436,6 +519,10 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			WHERE id = ? AND (from_uid = ? OR to_uid = ?)`, sourceID, agentIDValue, agentIDValue).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.ID > 0
+		peerAgentID = row.FromID
+		if peerAgentID == agentIDValue {
+			peerAgentID = row.ToID
+		}
 		detail = map[string]interface{}{"relation_id": fmt.Sprintf("%d", row.ID), "from_agent_id": fmt.Sprintf("%d", row.FromID), "to_agent_id": fmt.Sprintf("%d", row.ToID), "relation_type": row.Relation, "created_at": row.CreatedAt}
 	case "context":
 		var row struct {
@@ -493,6 +580,43 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 	if !found || len(detail) == 0 {
 		fail(c, http.StatusNotFound, "ATTENTION_SOURCE_NOT_FOUND", "Attention source is unavailable", nil)
 		return
+	}
+	if peerAgentID > 0 {
+		relations := map[int64]string{peerAgentID: "pending"}
+		if source.Type == "relation" {
+			relations, err = s.loadViewerRelations(agentIDValue, []int64{peerAgentID})
+			if err != nil {
+				fail(c, http.StatusInternalServerError, "ATTENTION_SOURCE_READ_FAILED", "could not read Attention relation state", nil)
+				return
+			}
+		}
+		contexts, contextErr := s.loadCommunicationContexts(agentIDValue, []int64{peerAgentID}, relations)
+		if contextErr != nil {
+			fail(c, http.StatusInternalServerError, "ATTENTION_SOURCE_READ_FAILED", "could not read Attention Agent summary", nil)
+			return
+		}
+		if agentContext, exists := contexts[strconv.FormatInt(peerAgentID, 10)]; exists {
+			detail["agent_context"] = agentContext
+		}
+		if source.Type == "relation" {
+			var recent communicationMessage
+			recentResult := s.db.Raw(`SELECT message.msg_id, message.conv_id, message.sender_id,
+				message.receiver_id, message.content, message.is_read, message.created_at
+				FROM conversations conversation
+				JOIN private_messages message ON message.conv_id = conversation.conv_id
+				WHERE conversation.status = 0
+				  AND ((conversation.participant_a = ? AND conversation.participant_b = ?)
+				    OR (conversation.participant_a = ? AND conversation.participant_b = ?))
+				ORDER BY message.msg_id DESC LIMIT 1`, agentIDValue, peerAgentID, peerAgentID, agentIDValue).Scan(&recent)
+			if recentResult.Error != nil {
+				fail(c, http.StatusInternalServerError, "ATTENTION_SOURCE_READ_FAILED", "could not read recent relation activity", nil)
+				return
+			}
+			if recentResult.RowsAffected == 1 && recent.MsgID > 0 {
+				boundCommunicationMessage(&recent, 2000)
+				detail["last_message"] = recent
+			}
+		}
 	}
 	reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "source_ref": source, "detail": detail})
 }
