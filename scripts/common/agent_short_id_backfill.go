@@ -40,13 +40,18 @@ func main() {
 		if len(ids) == 0 {
 			break
 		}
-		for _, agentID := range ids {
-			if err := assignShortID(db, agentID); err != nil {
-				fatal(fmt.Errorf("backfill agent %d: %w", agentID, err))
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			for _, agentID := range ids {
+				if err := assignShortID(tx, agentID); err != nil {
+					return fmt.Errorf("backfill agent %d: %w", agentID, err)
+				}
 			}
-			cursor = agentID
-			processed++
+			return nil
+		}); err != nil {
+			fatal(err)
 		}
+		cursor = ids[len(ids)-1]
+		processed += int64(len(ids))
 		fmt.Fprintf(os.Stderr, "agent short-id backfill: processed=%d collisions=%d\n", processed, backfillCollisions)
 	}
 	if err := db.Exec(`ALTER TABLE agents VALIDATE CONSTRAINT chk_agents_short_id_format`).Error; err != nil {
@@ -68,13 +73,18 @@ func assignShortID(db *gorm.DB, agentID int64) error {
 		if err != nil {
 			return err
 		}
-		result := db.Exec(`UPDATE agents SET short_id = ?
-			WHERE agent_id = ? AND short_id IS NULL`, shortID, agentID)
-		if result.Error == nil {
+		// A candidate collision aborts a PostgreSQL transaction until rollback.
+		// Isolate each attempt in a nested transaction/savepoint so the outer
+		// 500-row batch can continue and still commit atomically.
+		err = db.Transaction(func(candidate *gorm.DB) error {
+			return candidate.Exec(`UPDATE agents SET short_id = ?
+				WHERE agent_id = ? AND short_id IS NULL`, shortID, agentID).Error
+		})
+		if err == nil {
 			return nil
 		}
-		if sqlState(result.Error) != "23505" {
-			return result.Error
+		if sqlState(err) != "23505" {
+			return err
 		}
 		backfillCollisions++
 	}

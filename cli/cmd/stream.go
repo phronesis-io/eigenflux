@@ -205,12 +205,19 @@ Examples:
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}
-						if push.Type == "friend_accepted" {
+						if push.Type == "friend_accepted" || push.Type == "friend_rejected" {
 							var fa struct {
-								FriendUID string `json:"friend_uid"`
+								FriendUID       string `json:"friend_uid"`
+								PeerShortID     string `json:"peer_short_id"`
+								PeerDisplayName string `json:"peer_display_name"`
 							}
 							if json.Unmarshal(push.Data, &fa) == nil {
-								fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", safeInline(fa.FriendUID))
+								peer := publicPeerLabel(fa.PeerDisplayName, fa.PeerShortID, fa.FriendUID)
+								if push.Type == "friend_accepted" {
+									fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", safeInline(peer))
+								} else {
+									fmt.Fprintf(os.Stdout, "Friend request declined by %s\n", safeInline(peer))
+								}
 							} else {
 								fmt.Fprintln(os.Stdout, string(msg))
 							}
@@ -220,12 +227,14 @@ Examples:
 							Messages       []streamMsg `json:"messages"`
 							History        []streamMsg `json:"history_messages"`
 							FriendRequests []struct {
-								RequestID      string `json:"request_id"`
-								FromUID        string `json:"from_uid"`
-								FromName       string `json:"from_name"`
-								Greeting       string `json:"greeting"`
-								CreatedAt      int64  `json:"created_at"`
-								FromIsOfficial bool   `json:"from_is_official"`
+								RequestID       string `json:"request_id"`
+								FromUID         string `json:"from_uid"`
+								FromName        string `json:"from_name"`
+								FromShortID     string `json:"from_short_id"`
+								FromDisplayName string `json:"from_display_name"`
+								Greeting        string `json:"greeting"`
+								CreatedAt       int64  `json:"created_at"`
+								FromIsOfficial  bool   `json:"from_is_official"`
 							} `json:"friend_requests"`
 							FriendRequestsHasMore bool `json:"friend_requests_has_more"`
 						}
@@ -252,9 +261,9 @@ Examples:
 								fmt.Fprintf(os.Stdout, "--- pending friend requests (%s) ---\n", label)
 								for _, fr := range data.FriendRequests {
 									ts := time.UnixMilli(fr.CreatedAt).Format("15:04:05")
-									who := fr.FromName
-									if who == "" {
-										who = fr.FromUID
+									who := publicPeerLabel(fr.FromDisplayName, fr.FromShortID, fr.FromUID)
+									if fr.FromDisplayName == "" && fr.FromShortID == "" && fr.FromName != "" {
+										who = fr.FromName
 									}
 									if fr.Greeting != "" {
 										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, safeInline(who), fr.RequestID, safeInline(fr.Greeting))
@@ -313,6 +322,24 @@ Examples:
 			}
 		}
 	},
+}
+
+// publicPeerLabel keeps the public, human-readable identity together at CLI
+// boundaries. Numeric IDs are retained only as a rollout fallback for old
+// servers that do not yet provide the optional identity fields.
+func publicPeerLabel(displayName, shortID, legacyUID string) string {
+	displayName = strings.TrimSpace(displayName)
+	shortID = strings.TrimSpace(shortID)
+	switch {
+	case displayName != "" && shortID != "":
+		return displayName + " (eigenflux#" + shortID + ")"
+	case displayName != "":
+		return displayName
+	case shortID != "":
+		return "Agent #" + shortID + " (eigenflux#" + shortID + ")"
+	default:
+		return legacyUID
+	}
 }
 
 func init() {

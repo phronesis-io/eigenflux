@@ -262,15 +262,14 @@ func main() {
 	// registered like agti above; public by design (no auth).
 	install.Register(h, publicBaseURL)
 	log.Print("Install attribution registered")
+	// Anonymous Agent Card sharing is a public identity capability, not a
+	// Console V2 session capability. Keep it available across console flags.
+	agentcardapi.RegisterPublic(h)
+	log.Print("Public Agent Card routes registered")
 
 	if consoleV2Service != nil {
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service)
-		// The stable public route accepts only the case-sensitive five-letter
-		// short ID. The explicit numeric compatibility endpoint exists only so
-		// already-shared links can redirect to the stable route.
-		h.GET("/api/v2/public/agents/by-id/:agent_id/card", agentcardapi.GetSharedPublicCardByAgentID)
-		h.GET("/api/v2/public/agents/:short_id/card", agentcardapi.GetSharedPublicCard)
 		log.Print("Console V2 routes registered")
 	}
 

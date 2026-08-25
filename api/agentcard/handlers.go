@@ -105,6 +105,14 @@ func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }
 
+// RegisterPublic wires the anonymous, stable Agent Card routes independently
+// from Console V2. Public Agent identity must remain reachable when the
+// authenticated console is disabled or being rolled back.
+func RegisterPublic(h *server.Hertz) {
+	h.GET("/api/v2/public/agents/by-id/:agent_id/card", GetSharedPublicCardByAgentID)
+	h.GET("/api/v2/public/agents/:short_id/card", GetSharedPublicCard)
+}
+
 func respond(c *app.RequestContext, status int, code int, msg string, data map[string]interface{}) {
 	resp := map[string]interface{}{"code": code, "msg": msg}
 	if data != nil {
