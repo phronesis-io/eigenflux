@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/feedcontract"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -181,6 +182,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed response exceeds the V2 response budget", nil)
 		return
 	}
+	activity.PublishFeedPull(ctx, agentIDValue, len(feedResp.Items))
 	reply(c, http.StatusOK, response)
 }
 

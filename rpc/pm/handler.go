@@ -11,6 +11,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/pm"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
@@ -194,6 +195,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	}
 
 	logger.Ctx(ctx).Info("new conversation", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID, "itemID", itemID)
+	activity.PublishMessageReceived(ctx, receiverID, senderName)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -293,6 +295,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 	}
 
 	logger.Ctx(ctx).Info("reply sent", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", receiverID)
+	activity.PublishMessageReceived(ctx, receiverID, senderName)
 
 	return &pm.SendPMResp{
 		MsgId:    msgID,
@@ -354,6 +357,7 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", req.ReceiverId, "msgID", msgID, "err", err)
 	}
 	logger.Ctx(ctx).Info("FriendPM new conv", "convID", convID, "msgID", msgID, "senderID", req.SenderId, "receiverID", req.ReceiverId)
+	activity.PublishMessageReceived(ctx, req.ReceiverId, nameMap[req.SenderId])
 	return &pm.SendPMResp{MsgId: msgID, ConvId: convID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
@@ -784,6 +788,8 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	}
 
 	if notifyRecipient {
+		activity.PublishFriendRequestSent(ctx, req.FromUid)
+		activity.PublishFriendRequestReceived(ctx, req.ToUid)
 		logger.Ctx(ctx).Info("SendFriendRequest created", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 		go func() {
 			if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
@@ -794,6 +800,8 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 			logger.Ctx(ctx).Error("failed to publish friend request push notification", "agentID", req.ToUid, "err", err)
 		}
 	} else {
+		activity.PublishFriendAdded(ctx, req.FromUid, "")
+		activity.PublishFriendAdded(ctx, req.ToUid, "")
 		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
 		go func() {
 			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, requestID, req.ToUid, "friend_accepted", ""); err != nil {
@@ -946,6 +954,9 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 	switch responseNotifType {
 	case "friend_accepted":
 		logger.Ctx(ctx).Info("FriendRequest accepted", "requestID", req.RequestId, "fromUID", friendReq.FromUID, "toUID", friendReq.ToUID)
+		// The HTTP gateway already records the accepting Agent. Record the
+		// original requester here so both sides see the established relation.
+		activity.PublishFriendAdded(ctx, friendReq.FromUID, "")
 		agentcard.PublishRebuild(ctx, friendReq.FromUID, "friend_added")
 		agentcard.PublishRebuild(ctx, friendReq.ToUID, "friend_added")
 		go func() {
