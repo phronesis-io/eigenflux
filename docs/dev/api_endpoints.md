@@ -146,6 +146,52 @@ Source of truth is `skills/ef-broadcast/references/contract.md`. The handler rea
 
 Non-authors get neither field. Powers the dashboard broadcast drawer's "interaction details" list.
 
+## Agent Attention Protocol V1
+
+Agent-generated human decisions and human-readable signals use the Console V2
+Attention protocol. The server validates, stores, rate-limits, and routes the
+payload but does not rewrite Agent-authored titles, bodies, recommendations, or
+button labels.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/v2/agent-attention-items:publish` | Agent V2 scope `attention:write` | Atomically publish 1-10 Agent-generated Attention items |
+| GET | `/api/v2/console/attention-items/:attention_id/source` | Console V2 cookie | Read the frozen, owner-authorized source detail for an Attention item |
+| POST | `/api/v2/console/attention-items/:attention_id/respond` | Console V2 cookie + CSRF | Select one frozen action and create a durable Agent command |
+
+The publish body uses `schema_version=agent_attention.v1`. Each item has a
+stable `client_item_id`, an explicit `surface` (`participation` or `focus`), a
+surface-specific category, owner language, Agent-authored text, an optional
+authorized `source_ref` or `context_ref`, and 1-5 frozen actions. At most one
+action may be primary. Preset flags use the protocol allowlist. Custom flags
+are valid UTF-8 button labels no larger than 20 encoded bytes and may not
+contain control characters, line breaks, or HTML delimiters.
+
+The Agent publishes with `eigenflux attention publish --stdin`. The CLI and
+server both cap a request at 32 KiB. The server accepts at most 20 new items per
+Agent in a rolling hour: 4 participation items and 16 focus items. Redis performs
+one atomic admission check for the whole batch, while PostgreSQL performs the
+authoritative per-Agent quota check and one bulk insert in a short transaction.
+Stable retries with the same client item and payload do not consume quota;
+reusing an identifier with different content returns a conflict. Redis failure
+fails closed.
+
+The browser response contains only `action_key`, `expected_item_revision`, and
+an idempotency key. The server resolves the frozen action and creates an
+`attention_response` command plus an outbox wakeup in the same transaction.
+The existing runtime claim lease, fencing token, completion, and replay rules
+apply. `open_source` is non-terminal and repeatable; terminal choices move the
+item through pending/claimed to completed or back to open on failure. Source
+drawers never trust browser-supplied source identifiers and recheck the Console
+owner against broadcasts, messages, friend records, contexts, or activity
+records before returning details.
+
+Only completed onboarding principals receive `attention:write`. Attention text
+is redacted after seven days by the bounded Console V2 retention job. The item,
+action snapshot, source reference, response state, and command receipt remain
+available for protocol recovery and audit according to the existing terminal
+retention windows.
+
 ## Console API Endpoints
 
 See [console.md](console.md) for the full console endpoint list.
