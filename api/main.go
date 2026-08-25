@@ -295,6 +295,7 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service) {
 	write(http.MethodPut, "console/settings", apihandler.ConsoleUpdateSettings)
 	read("agents/me", consoleV2GetMe)
 	read("agents/me/card", agentcardapi.GetMyCard)
+	read("agents/me/card/page", agentcardapi.GetMyCardPage)
 	read("agents/me/card/refresh-context", agentcardapi.GetRefreshContext)
 	write(http.MethodPut, "agents/me/profile/fields", agentcardapi.PutProfileFields)
 	read("agents/me/beat_coverage", apihandler.GetBeatCoverage)
