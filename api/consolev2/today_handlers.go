@@ -210,38 +210,58 @@ func todayStartFromPrivateCard(privateJSON string, now time.Time) int64 {
 	return time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location).UTC().UnixMilli()
 }
 
-func (s *Service) loadTodayAttentions(agentID, since int64) ([]attentionView, []attentionView, int64, int64, error) {
+type todayAttentionPage struct {
+	Rows       []attentionView
+	NextCursor string
+	HasMore    bool
+}
+
+func (s *Service) loadTodayAttentions(agentID, since int64, participationCursor, focusCursor attentionCursor) (todayAttentionPage, todayAttentionPage, int64, int64, error) {
 	var counts struct {
 		Focus         int64 `gorm:"column:focus_count"`
 		Participation int64 `gorm:"column:participation_count"`
 	}
-	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE NOT (proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb)) AS focus_count,
-		COUNT(*) FILTER (WHERE proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb) AS participation_count
-		FROM agent_attention_items WHERE agent_id = ? AND status = 'open' AND created_at >= ?`, agentID, since).Scan(&counts).Error; err != nil {
-		return nil, nil, 0, 0, err
+	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE surface = 'focus') AS focus_count,
+		COUNT(*) FILTER (WHERE surface = 'participation') AS participation_count
+		FROM agent_attention_items WHERE agent_id = ? AND producer = 'agent'
+		  AND status IN ('open','selected','pending','acted') AND created_at >= ?`, agentID, since).Scan(&counts).Error; err != nil {
+		return todayAttentionPage{}, todayAttentionPage{}, 0, 0, err
 	}
 
-	load := func(participation bool, limit int) ([]attentionView, error) {
+	load := func(participation bool, limit int, cursor attentionCursor) (todayAttentionPage, error) {
 		var rows []attentionView
-		query := attentionSelect + ` WHERE item.agent_id = ? AND item.created_at >= ? AND item.status = 'open'`
+		query := attentionSelect + ` WHERE item.agent_id = ? AND item.producer = 'agent'
+			AND item.created_at >= ? AND item.status IN ('open','selected','pending','acted')`
+		args := []interface{}{agentID, since}
 		if participation {
-			query += ` AND item.proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb`
+			query += ` AND item.surface = 'participation'`
 		} else {
-			query += ` AND NOT (item.proposed_actions @> '[{"requires_user_confirmation":true}]'::jsonb)`
+			query += ` AND item.surface = 'focus'`
+		}
+		if cursor.AttentionID > 0 {
+			query += ` AND (item.created_at, item.attention_id) < (?, ?)`
+			args = append(args, cursor.CreatedAt, cursor.AttentionID)
 		}
 		query += ` GROUP BY item.attention_id ORDER BY item.created_at DESC, item.attention_id DESC LIMIT ?`
-		if err := s.db.Raw(query, agentID, since, limit).Scan(&rows).Error; err != nil {
-			return nil, err
+		args = append(args, limit+1)
+		if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+			return todayAttentionPage{}, err
 		}
-		return rows, nil
+		page := todayAttentionPage{Rows: rows, HasMore: len(rows) > limit}
+		if page.HasMore {
+			page.Rows = rows[:limit]
+			last := page.Rows[len(page.Rows)-1]
+			page.NextCursor = encodeAttentionCursor(attentionCursor{CreatedAt: last.CreatedAt, AttentionID: last.AttentionID})
+		}
+		return page, nil
 	}
-	participation, err := load(true, todayParticipationLimit)
+	participation, err := load(true, todayParticipationLimit, participationCursor)
 	if err != nil {
-		return nil, nil, 0, 0, err
+		return todayAttentionPage{}, todayAttentionPage{}, 0, 0, err
 	}
-	focus, err := load(false, todayFocusLimit)
+	focus, err := load(false, todayFocusLimit, focusCursor)
 	if err != nil {
-		return nil, nil, 0, 0, err
+		return todayAttentionPage{}, todayAttentionPage{}, 0, 0, err
 	}
 	return participation, focus, counts.Focus, counts.Participation, nil
 }
@@ -296,12 +316,49 @@ func (s *Service) loadTodayAttentionSources(agentID int64, rows ...[]attentionVi
 	var sources []todayAttentionSource
 	if err := s.db.Raw(`WITH requested AS (
 			SELECT * FROM jsonb_to_recordset(?::jsonb) AS row(source_type text, source_id bigint)
-		)
+		), resolved AS (
 		SELECT exposure.source_type, exposure.source_id, exposure.author_agent_id
 		FROM requested
 		JOIN agent_feed_exposures exposure ON exposure.agent_id = ?
 		 AND exposure.source_type = requested.source_type AND exposure.source_id = requested.source_id
-		WHERE exposure.author_agent_id IS NOT NULL`, string(encoded), agentID).Scan(&sources).Error; err != nil {
+		WHERE exposure.author_agent_id IS NOT NULL
+		UNION ALL
+		SELECT requested.source_type, requested.source_id,
+			CASE WHEN message.sender_id = ? THEN message.receiver_id ELSE message.sender_id END
+		FROM requested JOIN private_messages message ON message.msg_id = requested.source_id
+		WHERE requested.source_type = 'private_message'
+		  AND (message.sender_id = ? OR message.receiver_id = ?)
+		UNION ALL
+		SELECT requested.source_type, requested.source_id,
+			CASE WHEN message.sender_id = ? THEN message.receiver_id ELSE message.sender_id END
+		FROM requested
+		JOIN private_messages message ON message.msg_id = requested.source_id
+		JOIN conversations conversation ON conversation.conv_id = message.conv_id
+		JOIN agent_feed_exposures exposure ON exposure.agent_id = ?
+		 AND exposure.source_type = 'broadcast' AND exposure.source_id = conversation.origin_id
+		WHERE requested.source_type = 'broadcast_reply'
+		  AND conversation.origin_type = 'broadcast'
+		  AND (message.sender_id = ? OR message.receiver_id = ?)
+		UNION ALL
+		SELECT requested.source_type, requested.source_id,
+			CASE WHEN request.from_uid = ? THEN request.to_uid ELSE request.from_uid END
+		FROM requested JOIN friend_requests request ON request.id = requested.source_id
+		WHERE requested.source_type = 'friend_request'
+		  AND (request.from_uid = ? OR request.to_uid = ?)
+		UNION ALL
+		SELECT requested.source_type, requested.source_id,
+			CASE WHEN relation.from_uid = ? THEN relation.to_uid ELSE relation.from_uid END
+		FROM requested JOIN user_relations relation ON relation.id = requested.source_id
+		WHERE requested.source_type = 'relation'
+		  AND (relation.from_uid = ? OR relation.to_uid = ?)
+		)
+		SELECT source_type, source_id, author_agent_id FROM resolved WHERE author_agent_id IS NOT NULL`,
+		string(encoded),
+		agentID,
+		agentID, agentID, agentID,
+		agentID, agentID, agentID, agentID,
+		agentID, agentID, agentID,
+		agentID, agentID, agentID).Scan(&sources).Error; err != nil {
 		return nil, err
 	}
 	for _, source := range sources {
@@ -313,6 +370,16 @@ func (s *Service) loadTodayAttentionSources(agentID int64, rows ...[]attentionVi
 func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	now := time.Now().UTC()
+	participationCursor, err := decodeAttentionCursor(c.Query("participation_cursor"))
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_CURSOR", "participation cursor is invalid", nil)
+		return
+	}
+	focusCursor, err := decodeAttentionCursor(c.Query("focus_cursor"))
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_CURSOR", "focus cursor is invalid", nil)
+		return
+	}
 
 	var goal struct {
 		GoalID   int64  `gorm:"column:goal_id"`
@@ -391,13 +458,20 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		encounters[index].CountryCode = todayCountryCode(encounters[index].CountryCode)
 		peerIDs = append(peerIDs, encounters[index].PeerAgentID)
 	}
-	participation, focus, focusCount, participationCount, err := s.loadTodayAttentions(agentIDValue, todayStart)
+	attentionSince := now.Add(-24 * time.Hour).UnixMilli()
+	participationPage, focusPage, focusCount, participationCount, err := s.loadTodayAttentions(
+		agentIDValue, attentionSince, participationCursor, focusCursor)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Attention items", nil)
 		return
 	}
-	attentionIDs := make([]int64, 0, len(participation))
+	participation := participationPage.Rows
+	focus := focusPage.Rows
+	attentionIDs := make([]int64, 0, len(participation)+len(focus))
 	for _, item := range participation {
+		attentionIDs = append(attentionIDs, item.AttentionID)
+	}
+	for _, item := range focus {
 		attentionIDs = append(attentionIDs, item.AttentionID)
 	}
 	receipts, err := s.loadTodayCommandReceipts(agentIDValue, attentionIDs)
@@ -415,7 +489,11 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	}
 	focusItems := make([]map[string]interface{}, 0, len(focus))
 	for _, item := range focus {
-		focusItems = append(focusItems, attentionResponse(item))
+		view := attentionResponse(item)
+		if receipt, exists := receipts[item.AttentionID]; exists {
+			view["latest_command"] = receipt
+		}
+		focusItems = append(focusItems, view)
 	}
 	sourceAgents, err := s.loadTodayAttentionSources(agentIDValue, participation, focus)
 	if err != nil {
@@ -516,5 +594,9 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		"module_states": moduleStates,
 		"encounters":    encounters, "agent_contexts": contexts,
 		"participation_items": participationItems, "focus_items": focusItems,
+		"attention_pagination": map[string]interface{}{
+			"participation": map[string]interface{}{"next_cursor": participationPage.NextCursor, "has_more": participationPage.HasMore},
+			"focus":         map[string]interface{}{"next_cursor": focusPage.NextCursor, "has_more": focusPage.HasMore},
+		},
 	})
 }

@@ -130,9 +130,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 			if err := persistFeedExposures(tx, agentIDValue, payloads, onboarding.ContextRevision, now); err != nil {
 				return err
 			}
-			if err := persistAttentionItems(tx, agentIDValue, payloads, now); err != nil {
-				return err
-			}
 		}
 		return nil
 	}); err != nil {

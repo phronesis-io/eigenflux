@@ -339,6 +339,7 @@ func (s *Service) Register(h *server.Hertz) {
 		h.POST("/api/v2/notifications/ack", s.agentAuth("notifications:ack"), s.ackPendingNotifications)
 	}
 	if s.enableControl {
+		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.POST("/api/v2/agent-commands", s.consoleAuth(true), s.requireCompleted, s.createAgentCommand)
 		h.GET("/api/v2/agent-commands/pending", s.agentAuth("commands:claim"), s.listPendingCommands)
 		h.POST("/api/v2/agent-commands/:command_id/claim", s.agentAuth("commands:claim"), s.claimAgentCommand)
@@ -347,6 +348,8 @@ func (s *Service) Register(h *server.Hertz) {
 		h.GET("/api/v2/runtime/control/stream", s.agentAuth("commands:claim"), s.streamRuntimeControl)
 		h.GET("/api/v2/console/attention-items", s.consoleAuth(false), s.requireCompleted, s.listAttentionItems)
 		h.GET("/api/v2/console/attention-items/:attention_id", s.consoleAuth(false), s.requireCompleted, s.getAttentionItem)
+		h.GET("/api/v2/console/attention-items/:attention_id/source", s.consoleAuth(false), s.requireCompleted, s.getAttentionSource)
+		h.POST("/api/v2/console/attention-items/:attention_id/respond", s.consoleAuth(true), s.requireCompleted, s.respondAttentionItem)
 		h.POST("/api/v2/console/attention-items/:attention_id/dismiss", s.consoleAuth(true), s.requireCompleted, s.dismissAttentionItem)
 	}
 	if s.enableCommunication {

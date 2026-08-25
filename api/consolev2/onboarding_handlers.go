@@ -617,7 +617,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array([]string{
 				"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim",
 				"communication:read", "communication:write", "broadcast:write", "trade:write",
-				"console:handoff:create",
+				"attention:write", "console:handoff:create",
 			}), id, now).Error; err != nil {
 				return err
 			}

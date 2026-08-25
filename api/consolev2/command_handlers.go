@@ -376,6 +376,8 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 		var updated struct {
 			CommandID   int64  `gorm:"column:command_id"`
 			AttentionID *int64 `gorm:"column:attention_id"`
+			CommandType string `gorm:"column:command_type"`
+			Terminal    bool   `gorm:"column:terminal"`
 		}
 		if err := tx.Raw(`WITH clock AS (
 				SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
@@ -384,15 +386,31 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			WHERE command_id = ? AND agent_id = ? AND status = 'claimed'
 			  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?
 			  AND claim_until > clock.now_ms
-			RETURNING command_id, attention_id`,
+			RETURNING command_id, attention_id, command_type,
+				CASE WHEN command_type = 'attention_action' THEN true
+					 WHEN command_type = 'attention_response' THEN COALESCE(payload->>'terminal', 'false') = 'true'
+					 ELSE false END AS terminal`,
 			req.Status, string(req.Result), now, commandID, agentIDValue, req.RuntimeInstanceID,
 			req.ClaimEpoch, hashString(req.ClaimToken)).Scan(&updated).Error; err != nil {
 			return err
 		}
 		updatedCommandID = updated.CommandID
-		if updated.CommandID != 0 && updated.AttentionID != nil && req.Status == "completed" {
-			return tx.Exec(`UPDATE agent_attention_items SET status = 'acted'
-				WHERE agent_id = ? AND attention_id = ? AND status = 'open'`, agentIDValue, *updated.AttentionID).Error
+		if updated.CommandID != 0 && updated.AttentionID != nil {
+			if req.Status == "completed" {
+				status := "open"
+				if updated.Terminal {
+					status = "acted"
+				}
+				return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = 'completed',
+					updated_at = ?, item_revision = item_revision + 1
+					WHERE agent_id = ? AND attention_id = ? AND status IN ('open','selected','pending')`,
+					status, now, agentIDValue, *updated.AttentionID).Error
+			}
+			status := "open"
+			return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = 'failed',
+				updated_at = ?, item_revision = item_revision + 1
+				WHERE agent_id = ? AND attention_id = ? AND status IN ('open','selected','pending')`,
+				status, now, agentIDValue, *updated.AttentionID).Error
 		}
 		return nil
 	})

@@ -19,14 +19,30 @@ type attentionCursor struct {
 
 type attentionView struct {
 	AttentionID    int64  `gorm:"column:attention_id"`
+	Producer       string `gorm:"column:producer"`
+	Surface        string `gorm:"column:surface"`
+	Category       string `gorm:"column:category"`
+	ClientItemID   string `gorm:"column:client_item_id"`
+	Language       string `gorm:"column:language"`
 	Title          string `gorm:"column:title"`
 	Summary        string `gorm:"column:summary"`
+	Body           string `gorm:"column:body"`
+	Recommendation string `gorm:"column:recommendation"`
 	SourceType     string `gorm:"column:source_type"`
 	SourceID       int64  `gorm:"column:source_id"`
+	SourceRef      string `gorm:"column:source_ref"`
+	ContextRef     string `gorm:"column:context_ref"`
 	Proposed       string `gorm:"column:proposed_actions"`
+	Actions        string `gorm:"column:actions_snapshot"`
 	MatchedIntents string `gorm:"column:matched_intent_ids"`
 	Status         string `gorm:"column:status"`
+	ItemRevision   int64  `gorm:"column:item_revision"`
+	SelectedAction string `gorm:"column:selected_action_key"`
+	ResponseStatus string `gorm:"column:response_status"`
 	CreatedAt      int64  `gorm:"column:created_at"`
+	GeneratedAt    int64  `gorm:"column:generated_at"`
+	UpdatedAt      int64  `gorm:"column:updated_at"`
+	RespondedAt    *int64 `gorm:"column:responded_at"`
 	ExpiresAt      *int64 `gorm:"column:expires_at"`
 }
 
@@ -51,23 +67,44 @@ func decodeAttentionCursor(raw string) (attentionCursor, error) {
 }
 
 func attentionResponse(row attentionView) map[string]interface{} {
-	var actions, intents interface{}
-	if json.Unmarshal([]byte(row.Proposed), &actions) != nil {
+	var actions, intents, sourceRef, contextRef interface{}
+	actionJSON := row.Actions
+	if actionJSON == "" || actionJSON == "[]" {
+		actionJSON = row.Proposed
+	}
+	if json.Unmarshal([]byte(actionJSON), &actions) != nil {
 		actions = []interface{}{}
 	}
 	if json.Unmarshal([]byte(row.MatchedIntents), &intents) != nil {
 		intents = []interface{}{}
 	}
+	if json.Unmarshal([]byte(row.SourceRef), &sourceRef) != nil {
+		sourceRef = map[string]interface{}{"type": row.SourceType, "id": fmt.Sprintf("%d", row.SourceID)}
+	}
+	if json.Unmarshal([]byte(row.ContextRef), &contextRef) != nil {
+		contextRef = map[string]interface{}{}
+	}
 	return map[string]interface{}{
 		"attention_id": fmt.Sprintf("%d", row.AttentionID), "title": row.Title, "summary": row.Summary,
-		"source_ref":         map[string]interface{}{"type": row.SourceType, "id": fmt.Sprintf("%d", row.SourceID)},
-		"matched_intent_ids": intents, "proposed_actions": actions, "status": row.Status,
-		"created_at": row.CreatedAt, "expires_at": row.ExpiresAt,
+		"producer": row.Producer, "surface": row.Surface, "category": row.Category,
+		"client_item_id": row.ClientItemID, "language": row.Language,
+		"body": row.Body, "recommendation": row.Recommendation,
+		"source_ref": sourceRef, "context_ref": contextRef,
+		"actions": actions, "matched_intent_ids": intents, "proposed_actions": actions,
+		"status": row.Status, "item_revision": row.ItemRevision,
+		"selected_action_key": row.SelectedAction, "response_status": row.ResponseStatus,
+		"created_at": row.CreatedAt, "generated_at": row.GeneratedAt, "updated_at": row.UpdatedAt,
+		"responded_at": row.RespondedAt, "expires_at": row.ExpiresAt,
 	}
 }
 
-const attentionSelect = `SELECT item.attention_id, item.title, item.summary, item.source_type, item.source_id,
-	item.proposed_actions::text AS proposed_actions, item.status, item.created_at, item.expires_at,
+const attentionSelect = `SELECT item.attention_id, item.producer, item.surface, item.category,
+	item.client_item_id, item.language, item.title, item.summary, item.body, item.recommendation,
+	item.source_type, item.source_id, item.source_ref::text AS source_ref,
+	item.context_ref::text AS context_ref, item.proposed_actions::text AS proposed_actions,
+	item.actions_snapshot::text AS actions_snapshot, item.status, item.item_revision,
+	COALESCE(item.selected_action_key, '') AS selected_action_key, item.response_status,
+	item.created_at, item.generated_at, item.updated_at, item.responded_at, item.expires_at,
 	COALESCE(jsonb_agg(link.intent_id::text ORDER BY link.intent_id)
 		FILTER (WHERE link.intent_id IS NOT NULL), '[]'::jsonb)::text AS matched_intent_ids
 	FROM agent_attention_items item
@@ -94,7 +131,7 @@ func (s *Service) listAttentionItems(_ context.Context, c *app.RequestContext) {
 	if status == "" {
 		status = "open"
 	}
-	if status != "open" && status != "acted" && status != "dismissed" && status != "expired" {
+	if status != "open" && status != "selected" && status != "pending" && status != "acted" && status != "dismissed" && status != "expired" {
 		fail(c, http.StatusBadRequest, "INVALID_STATUS", "attention status is invalid", nil)
 		return
 	}

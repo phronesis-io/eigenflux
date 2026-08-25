@@ -31,17 +31,49 @@ func Jobs() []Job {
 		{"runtime_leases", boundedDelete("agent_runtime_leases", "lease_until < clock_ms() - day_ms()")},
 		{"control_outbox", boundedDelete("control_wakeup_outbox", "status IN ('delivered','dead') AND created_at < clock_ms() - 7*day_ms()")},
 		{"feed_exposures", boundedDelete("agent_feed_exposures", "last_seen_at < clock_ms() - 30*day_ms()")},
+		{"command_expiry", `WITH constants AS (
+			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
+		), target AS (
+			SELECT command.command_id FROM agent_commands command CROSS JOIN constants
+			WHERE command.status IN ('pending','notified','claimed')
+			  AND command.created_at < constants.clock_ms - 30*24*60*60*1000
+			ORDER BY command.created_at, command.command_id LIMIT $1
+		)
+		UPDATE agent_commands command SET status = 'expired', completed_at = constants.clock_ms,
+			claim_owner_runtime_id = NULL, claim_token_hash = NULL, claim_until = NULL
+		FROM target CROSS JOIN constants
+		WHERE command.command_id = target.command_id
+		  AND command.status IN ('pending','notified','claimed')`},
 		{"commands", boundedDelete("agent_commands", "status IN ('completed','failed','expired') AND COALESCE(completed_at, created_at) < clock_ms() - 30*day_ms()")},
+		{"attention_text_redaction", `WITH constants AS (
+			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
+		), target AS (
+			SELECT item.attention_id FROM agent_attention_items item CROSS JOIN constants
+			WHERE item.producer = 'agent' AND item.redacted_at IS NULL
+			  AND item.generated_at < constants.clock_ms - 7*24*60*60*1000
+			ORDER BY item.generated_at, item.attention_id LIMIT $1
+		)
+		UPDATE agent_attention_items item SET title = '', summary = '', body = '', recommendation = '',
+			redacted_at = constants.clock_ms, updated_at = constants.clock_ms
+		FROM target CROSS JOIN constants WHERE item.attention_id = target.attention_id`},
 		{"attention_expiry", `WITH constants AS (
 			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
 		), target AS (
 			SELECT item.attention_id FROM agent_attention_items item CROSS JOIN constants
-			WHERE item.status = 'open' AND item.expires_at IS NOT NULL
+			WHERE item.status IN ('open','selected','pending') AND item.expires_at IS NOT NULL
 			  AND item.expires_at < constants.clock_ms
+			  AND NOT EXISTS (
+				SELECT 1 FROM agent_commands command
+				WHERE command.agent_id = item.agent_id AND command.attention_id = item.attention_id
+				  AND command.status IN ('pending','notified','claimed')
+			  )
 			ORDER BY item.expires_at, item.attention_id LIMIT $1
 		)
-		UPDATE agent_attention_items item SET status = 'expired'
-		FROM target WHERE item.attention_id = target.attention_id AND item.status = 'open'`},
+		UPDATE agent_attention_items item SET status = 'expired',
+			response_status = CASE WHEN item.status IN ('selected','pending') THEN 'failed' ELSE item.response_status END,
+			updated_at = constants.clock_ms, item_revision = item.item_revision + 1
+		FROM target CROSS JOIN constants WHERE item.attention_id = target.attention_id
+		  AND item.status IN ('open','selected','pending')`},
 		{"attention_items", boundedDelete("agent_attention_items", "status IN ('acted','dismissed','expired') AND created_at < clock_ms() - 90*day_ms() AND NOT EXISTS (SELECT 1 FROM agent_commands command WHERE command.attention_id = row.attention_id)")},
 		{"activity", boundedDelete("agent_activity_log", "created_at < clock_ms() - 90*day_ms()")},
 	}

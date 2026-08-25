@@ -11,7 +11,8 @@ func TestRetentionMatrixIsBounded(t *testing.T) {
 		"handoffs": false, "console_sessions": false, "credential_sessions": false,
 		"idempotency_responses": false, "telemetry_events": false, "usage_sessions": false,
 		"runtime_leases": false, "control_outbox": false, "feed_exposures": false,
-		"attention_expiry": false,
+		"command_expiry": false, "commands": false, "attention_text_redaction": false, "attention_expiry": false,
+		"attention_items": false, "activity": false,
 	}
 	seen := make(map[string]bool)
 	for _, job := range Jobs() {

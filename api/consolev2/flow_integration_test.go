@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
+	redis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -170,6 +172,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	redisServer := miniredis.RunT(t)
+	svc.redisClient = redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { _ = svc.redisClient.Close() })
 	mailbox := make(chan capturedEmail, 4)
 	svc.emailSender = &captureEmailSender{sent: mailbox}
 	svc.startEmailWorkers(1, 16)
@@ -439,6 +444,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
+	testAgentAttentionProtocol(t, gdb, h, idgen, agentIDInt, originalAccessToken, cookieHeader, csrf)
 
 	status, boundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
@@ -593,13 +599,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("attention list status=%d payload=%#v", status, attentionPayload)
 	}
 	attentionItems := responseData(t, attentionPayload)["attention_items"].([]interface{})
-	if len(attentionItems) != 1 {
-		t.Fatalf("matched Feed item did not create one deduplicated attention item: %#v", attentionItems)
+	if len(attentionItems) != 0 {
+		t.Fatalf("the server must not author Attention items from Feed matches: %#v", attentionItems)
 	}
-	attentionID := attentionItems[0].(map[string]interface{})["attention_id"].(string)
 	status, commandPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
 		CommandType: "human_instruction", Payload: json.RawMessage(`{"instruction":"review the new signal"}`),
-		AttentionID: &attentionID, IdempotencyKey: "command-" + agentID,
+		IdempotencyKey: "command-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 	if status != 201 {
 		t.Fatalf("command create status=%d payload=%#v", status, commandPayload)
@@ -805,6 +810,181 @@ func testTelemetryAggregation(t *testing.T, gdb *gorm.DB, h *server.Hertz, agent
 	t.Cleanup(func() {
 		gdb.Exec(`DELETE FROM telemetry_events_v2 WHERE event_id = ?`, eventID)
 		gdb.Exec(`DELETE FROM console_usage_sessions WHERE session_id = ?`, usageSessionID)
+	})
+}
+
+func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen *fixedIDGenerator,
+	agentID int64, accessToken, cookieHeader, csrf string,
+) {
+	t.Helper()
+	now := time.Now().UnixMilli()
+	activityID, _ := idgen.NextID()
+	if err := gdb.Exec(`INSERT INTO agent_activity_log
+		(log_id, agent_id, event_type, summary, detail, created_at, source_event_id)
+		VALUES (?, ?, 'profile_update', 'Agent Card updated', '{}'::jsonb, ?, ?)`,
+		activityID, agentID, now, fmt.Sprintf("attention-source-%d", activityID)).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := attentionPublishRequest{
+		SchemaVersion:  "agent_attention.v1",
+		IdempotencyKey: fmt.Sprintf("attention-upload-%d", activityID),
+		Items: []attentionPublishItem{
+			{
+				ClientItemID: fmt.Sprintf("decision-%d", activityID), Surface: "participation",
+				Category: "other_decision", Language: "en", Title: "Choose the next research direction",
+				Body: "The Agent found two valid research paths.", Recommendation: "Continue with the higher-confidence path.",
+				Actions: []attentionProtocolAction{
+					{ActionKey: "a1", Kind: "custom", Flag: "Continue", Appearance: "primary"},
+					{ActionKey: "a2", Kind: "preset", Flag: "observe_first", Appearance: "secondary"},
+				},
+				GeneratedAt: now, ExpiresAt: now + int64(24*time.Hour/time.Millisecond),
+			},
+			{
+				ClientItemID: fmt.Sprintf("signal-%d", activityID), Surface: "focus",
+				Category: "other_attention", Language: "en", Title: "Agent Card was updated",
+				Body:      "The latest Agent Card projection is ready to review.",
+				SourceRef: &attentionSourceRef{Type: "activity", ID: strconv.FormatInt(activityID, 10)},
+				Actions: []attentionProtocolAction{
+					{ActionKey: "source", Kind: "preset", Flag: "open_source", Appearance: "primary"},
+					{ActionKey: "dismiss", Kind: "preset", Flag: "not_interested", Appearance: "secondary"},
+				},
+				GeneratedAt: now, ExpiresAt: now + int64(24*time.Hour/time.Millisecond),
+			},
+		},
+	}
+	status, publishPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items:publish", request,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusCreated {
+		t.Fatalf("Attention publish status=%d payload=%#v", status, publishPayload)
+	}
+	publishData := responseData(t, publishPayload)
+	if publishData["accepted"] != float64(2) || publishData["replay"] != false {
+		t.Fatalf("Attention publish result mismatch: %#v", publishData)
+	}
+	items := publishData["items"].([]interface{})
+	attentionIDs := make(map[string]string, len(items))
+	for _, raw := range items {
+		item := raw.(map[string]interface{})
+		attentionIDs[item["client_item_id"].(string)] = item["attention_id"].(string)
+	}
+	decisionID := attentionIDs[fmt.Sprintf("decision-%d", activityID)]
+	signalID := attentionIDs[fmt.Sprintf("signal-%d", activityID)]
+	if decisionID == "" || signalID == "" {
+		t.Fatalf("Attention IDs missing from publish response: %#v", publishData)
+	}
+
+	status, replayPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items:publish", request,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, replayPayload)["replay"] != true {
+		t.Fatalf("Attention publish replay status=%d payload=%#v", status, replayPayload)
+	}
+
+	status, sourcePayload, _ := performJSON(t, h, "GET", "/api/v2/console/attention-items/"+signalID+"/source", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK || responseData(t, sourcePayload)["detail"].(map[string]interface{})["log_id"] != strconv.FormatInt(activityID, 10) {
+		t.Fatalf("Attention source status=%d payload=%#v", status, sourcePayload)
+	}
+
+	response := respondAttentionRequest{
+		ActionKey: "a1", ExpectedItemRevision: 1,
+		IdempotencyKey: fmt.Sprintf("attention-response-%d", activityID),
+	}
+	status, responsePayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+decisionID+"/respond", response,
+		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusAccepted {
+		t.Fatalf("Attention response status=%d payload=%#v", status, responsePayload)
+	}
+	responseDataValue := responseData(t, responsePayload)
+	if responseDataValue["selected_flag"] != "Continue" || responseDataValue["command_status"] != "pending" {
+		t.Fatalf("Attention response did not freeze the selected action: %#v", responseDataValue)
+	}
+	commandID := responseDataValue["command_id"].(string)
+	status, responseReplayPayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+decisionID+"/respond", response,
+		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusOK || responseData(t, responseReplayPayload)["selected_flag"] != "Continue" ||
+		responseData(t, responseReplayPayload)["replay"] != true {
+		t.Fatalf("Attention response replay status=%d payload=%#v", status, responseReplayPayload)
+	}
+
+	var commandCount int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_commands
+		WHERE agent_id = ? AND attention_id = ? AND command_type = 'attention_response'`,
+		agentID, mustParseInt64(t, decisionID)).Scan(&commandCount).Error; err != nil || commandCount != 1 {
+		t.Fatalf("Attention response command count=%d err=%v", commandCount, err)
+	}
+	var frozenPayload string
+	if err := gdb.Raw(`SELECT payload::text FROM agent_commands
+		WHERE agent_id = ? AND attention_id = ? AND command_type = 'attention_response'`,
+		agentID, mustParseInt64(t, decisionID)).Scan(&frozenPayload).Error; err != nil {
+		t.Fatalf("Attention response payload read failed: %v", err)
+	}
+	var commandPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(frozenPayload), &commandPayload); err != nil {
+		t.Fatalf("Attention response payload decode failed: %v", err)
+	}
+	snapshot, ok := commandPayload["attention_snapshot"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Attention response omitted frozen snapshot: %#v", commandPayload)
+	}
+	for _, key := range []string{"title", "body", "recommendation", "source_ref", "category", "surface", "language", "actions", "context_ref"} {
+		if _, exists := snapshot[key]; !exists {
+			t.Fatalf("Attention response snapshot omitted %q: %#v", key, snapshot)
+		}
+	}
+	var contextRevision int64
+	if err := gdb.Raw(`SELECT active_revision FROM agent_context_heads WHERE agent_id = ?`, agentID).Scan(&contextRevision).Error; err != nil || contextRevision <= 0 {
+		t.Fatalf("Attention response context revision=%d err=%v", contextRevision, err)
+	}
+	status, heartbeatPayload, _ := performJSON(t, h, "POST", "/api/v2/runtime/heartbeat", runtimeHeartbeatRequest{
+		RuntimeInstanceID: "attention-runtime", Capabilities: []string{"commands"},
+		AppliedContextRevision: &contextRevision,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK {
+		t.Fatalf("Attention runtime heartbeat status=%d payload=%#v", status, heartbeatPayload)
+	}
+	status, claimPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/claim", claimAgentCommandRequest{
+		RuntimeInstanceID: "attention-runtime", AppliedContextRevision: contextRevision,
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK {
+		t.Fatalf("Attention command claim status=%d payload=%#v", status, claimPayload)
+	}
+	claimData := responseData(t, claimPayload)
+	status, completePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
+		RuntimeInstanceID: "attention-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
+		ClaimToken: claimData["claim_token"].(string), Status: "completed",
+		Result: json.RawMessage(`{"summary":"Applied the selected Attention action."}`),
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, completePayload)["status"] != "completed" {
+		t.Fatalf("Attention command complete status=%d payload=%#v", status, completePayload)
+	}
+	status, todayPayload, _ := performJSON(t, h, "GET", "/api/v2/console/today", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK {
+		t.Fatalf("Today Attention status=%d payload=%#v", status, todayPayload)
+	}
+	today := responseData(t, todayPayload)
+	if len(today["participation_items"].([]interface{})) == 0 || len(today["focus_items"].([]interface{})) == 0 {
+		t.Fatalf("Today did not expose both Attention surfaces: %#v", today)
+	}
+	brief := today["brief"].(map[string]interface{})
+	if brief["participation_count"].(float64) < 1 || brief["focus_count"].(float64) < 1 {
+		t.Fatalf("Today counts excluded visible acted Attention: %#v", brief)
+	}
+	participation := today["participation_items"].([]interface{})[0].(map[string]interface{})
+	latest := participation["latest_command"].(map[string]interface{})
+	if participation["status"] != "acted" || latest["status"] != "completed" {
+		t.Fatalf("Today did not retain the completed Attention receipt: %#v", participation)
+	}
+
+	t.Cleanup(func() {
+		gdb.Exec(`DELETE FROM control_wakeup_outbox WHERE agent_id = ? AND entity_id IN
+			(SELECT command_id FROM agent_commands WHERE agent_id = ? AND attention_id IN (?, ?))`,
+			agentID, agentID, mustParseInt64(t, decisionID), mustParseInt64(t, signalID))
+		gdb.Exec(`DELETE FROM agent_commands WHERE agent_id = ? AND attention_id IN (?, ?)`,
+			agentID, mustParseInt64(t, decisionID), mustParseInt64(t, signalID))
+		gdb.Exec(`DELETE FROM agent_attention_items WHERE agent_id = ? AND attention_id IN (?, ?)`,
+			agentID, mustParseInt64(t, decisionID), mustParseInt64(t, signalID))
+		gdb.Exec(`DELETE FROM agent_activity_log WHERE log_id = ?`, activityID)
 	})
 }
 
