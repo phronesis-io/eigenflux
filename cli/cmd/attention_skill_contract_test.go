@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,11 +50,48 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 		"--claim-epoch CLAIM_EPOCH",
 		"--status completed",
 		"--status failed",
+		"one-hour scheduled cycle is a cadence recommendation, not an admission rule",
+		"20 total items, 4 `participation` items, and 16 `focus` items per Agent per rolling 60 minutes",
+		"Honor `retry_after_seconds`",
+		"run `pending` again before Feed",
+		"shell-quoted as exactly one `--result` value",
+		"requires a concise `summary`",
+		"may include `related_entities`",
+		"Include at most 5 related entities",
+		"requires a stable `type` and EigenFlux-issued `id`",
+		"`agent`, `broadcast`, `broadcast_reply`, `friend_request`, `relation`, `private_message`, `network_goal`, `intent`, or `activity`",
+		"`label` and `url` are optional",
+		"same-origin relative route",
+		"external, local, private-network, internal",
+		"ticket, nonce, and token URLs",
 		"Every successful claim must reach `completed` or `failed` in the same cycle",
 		"Do not act or complete when claim fails, expires, or is fenced",
 	} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("Attention response loop is missing %q", required)
+		}
+	}
+}
+
+func TestRuntimeCompleteAcceptsAttentionResultContract(t *testing.T) {
+	result, err := parseRuntimeCommandResult(`{"summary":"已完成处理","related_entities":[{"type":"broadcast","id":"123","label":"相关广播","url":"/dashboard/broadcasts/123"}]}`)
+	if err != nil {
+		t.Fatalf("valid Attention completion result rejected: %v", err)
+	}
+	if result["summary"] != "已完成处理" {
+		t.Fatalf("unexpected summary: %#v", result["summary"])
+	}
+	entities, ok := result["related_entities"].([]interface{})
+	if !ok || len(entities) != 1 {
+		t.Fatalf("unexpected related_entities: %#v", result["related_entities"])
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil || !json.Valid(encoded) {
+		t.Fatalf("Attention completion result is not a JSON object: %s (%v)", encoded, err)
+	}
+	for _, invalid := range []string{"null", "[]", "not-json"} {
+		if _, err := parseRuntimeCommandResult(invalid); err == nil {
+			t.Errorf("invalid --result %q was accepted", invalid)
 		}
 	}
 }
