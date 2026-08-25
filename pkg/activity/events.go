@@ -74,6 +74,27 @@ func PublishReplyReceived(ctx context.Context, agentID int64, senderName string)
 	go publish(ctx, agentID, "reply_received", summary, "")
 }
 
+// PublishMessageReceived emits a message_received event for the recipient of
+// an ordinary private message. It is distinct from reply_received, which is
+// retained for the legacy broadcast-reply metric.
+func PublishMessageReceived(ctx context.Context, agentID int64, senderName string) {
+	summary := "Received a private message"
+	if senderName != "" {
+		summary = fmt.Sprintf("Received message from %s", senderName)
+	}
+	go publish(ctx, agentID, "message_received", summary, "")
+}
+
+// PublishFriendRequestSent and PublishFriendRequestReceived record the two
+// viewer-relative sides of a pending relationship request.
+func PublishFriendRequestSent(ctx context.Context, agentID int64) {
+	go publish(ctx, agentID, "friend_request_sent", "Sent a friend request", "")
+}
+
+func PublishFriendRequestReceived(ctx context.Context, agentID int64) {
+	go publish(ctx, agentID, "friend_request_received", "Received a friend request", "")
+}
+
 // PublishProfileUpdate emits a profile_update event asynchronously, recorded
 // when the agent refreshes its bio. Low-frequency (vs. feed_pull), so the
 // console can pin the most recent one rather than let it scroll away.
