@@ -249,19 +249,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 }
 
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection, eventPayload string) {
-	var responseEvent struct {
-		Type            string `json:"type"`
-		FriendUID       string `json:"friend_uid"`
-		PeerShortID     string `json:"peer_short_id"`
-		PeerDisplayName string `json:"peer_display_name"`
-	}
-	if err := json.Unmarshal([]byte(eventPayload), &responseEvent); err == nil &&
-		(responseEvent.Type == "friend_accepted" || responseEvent.Type == "friend_rejected") &&
-		responseEvent.FriendUID != "" && responseEvent.PeerShortID != "" && responseEvent.PeerDisplayName != "" {
-		envelope := Message{Type: responseEvent.Type, Data: map[string]string{
-			"friend_uid": responseEvent.FriendUID, "peer_short_id": responseEvent.PeerShortID,
-			"peer_display_name": responseEvent.PeerDisplayName,
-		}}
+	if envelope, ok := friendResponseEnvelope(eventPayload); ok {
 		payload, err := json.Marshal(envelope)
 		if err != nil {
 			logger.Ctx(ctx).Error("ws: marshal friend response failed", "err", err)
@@ -373,4 +361,26 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		conn.PMCursor = resp.NextCursor
 	}
 	logger.Ctx(ctx).Info("ws: pushed", "agentID", conn.AgentID, "event", eventPayload, "msgCount", len(msgs), "frCount", len(pending), "cursor", conn.PMCursor)
+}
+
+func friendResponseEnvelope(eventPayload string) (Message, bool) {
+	var event struct {
+		Type            string `json:"type"`
+		FriendUID       string `json:"friend_uid"`
+		PeerShortID     string `json:"peer_short_id"`
+		PeerDisplayName string `json:"peer_display_name"`
+	}
+	if err := json.Unmarshal([]byte(eventPayload), &event); err != nil {
+		return Message{}, false
+	}
+	if event.Type != "friend_accepted" && event.Type != "friend_rejected" {
+		return Message{}, false
+	}
+	if event.FriendUID == "" || event.PeerShortID == "" || event.PeerDisplayName == "" {
+		return Message{}, false
+	}
+	return Message{Type: event.Type, Data: map[string]string{
+		"friend_uid": event.FriendUID, "peer_short_id": event.PeerShortID,
+		"peer_display_name": event.PeerDisplayName,
+	}}, true
 }

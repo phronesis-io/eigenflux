@@ -725,8 +725,8 @@ func testLegacyEmailRecovery(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen 
 	now := time.Now().UnixMilli()
 	email := fmt.Sprintf("legacy-v2-%d@example.com", legacyAgentID)
 	if err := gdb.Exec(`INSERT INTO agents
-		(agent_id, email, email_kind, agent_name, bio, created_at, updated_at)
-		VALUES (?, ?, 'legacy_real', 'Legacy Recovery Agent', 'legacy bio', ?, ?)`, legacyAgentID, email, now, now).Error; err != nil {
+		(agent_id, short_id, email, email_kind, agent_name, bio, created_at, updated_at)
+		VALUES (?, 'LeGcy', ?, 'legacy_real', 'Legacy Recovery Agent', 'legacy bio', ?, ?)`, legacyAgentID, email, now, now).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := gdb.Exec(`INSERT INTO agent_profiles (agent_id, status, updated_at) VALUES (?, 0, ?)`, legacyAgentID, now).Error; err != nil {
@@ -845,9 +845,9 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 	foreignConvID, _ := idgen.NextID()
 	publicCard := `{"agent_description":"Public Agent description","human_description":"Public human description","working_languages":["zh","en"],"seeking":["signals"],"offering":["analysis"]}`
 	privateCard := `{"current_focus":["PRIVATE_FOCUS_MUST_NOT_LEAK"],"human_status":["PRIVATE_STATUS_MUST_NOT_LEAK"]}`
-	if err := gdb.Exec(`INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at, is_official)
-		VALUES (?, ?, 'Official Peer', 'peer bio', ?, ?, true),
-		       (?, ?, 'Request Peer', 'request bio', ?, ?, false)`,
+	if err := gdb.Exec(`INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at, is_official)
+		VALUES (?, 'OfPee', ?, 'Official Peer', 'peer bio', ?, ?, true),
+		       (?, 'RqPee', ?, 'Request Peer', 'request bio', ?, ?, false)`,
 		peerID, fmt.Sprintf("peer-%d@example.com", peerID), now, now,
 		requestPeerID, fmt.Sprintf("request-peer-%d@example.com", requestPeerID), now, now).Error; err != nil {
 		t.Fatal(err)
