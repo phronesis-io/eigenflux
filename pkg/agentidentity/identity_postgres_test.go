@@ -65,12 +65,18 @@ func TestPostgresShortIDCaseAndContractSemantics(t *testing.T) {
 	}
 
 	if err := tx.Transaction(func(candidate *gorm.DB) error {
-		return candidate.Exec(`UPDATE agents SET short_id = ? WHERE agent_id = ?`, lower, agentIDs[1]).Error
+		return candidate.Exec(`INSERT INTO agents
+			(agent_id, short_id, email, agent_name, bio, created_at, updated_at)
+			VALUES (?, ?, ?, '', '', ?, ?)`, base+2, lower,
+			fmt.Sprintf("short-id-duplicate-%d@example.test", base+2), base, base).Error
 	}); sqlState(err) != "23505" {
 		t.Fatalf("duplicate exact short ID SQLSTATE=%q err=%v, want 23505", sqlState(err), err)
 	}
 	if err := tx.Transaction(func(candidate *gorm.DB) error {
-		return candidate.Exec(`UPDATE agents SET short_id = 'abc1e' WHERE agent_id = ?`, agentIDs[1]).Error
+		return candidate.Exec(`INSERT INTO agents
+			(agent_id, short_id, email, agent_name, bio, created_at, updated_at)
+			VALUES (?, 'abc1e', ?, '', '', ?, ?)`, base+3,
+			fmt.Sprintf("short-id-illegal-%d@example.test", base+3), base, base).Error
 	}); err == nil {
 		t.Fatal("illegal short ID was accepted")
 	}
@@ -82,7 +88,10 @@ func TestPostgresShortIDCaseAndContractSemantics(t *testing.T) {
 	}
 	if nullable == "NO" {
 		if err := tx.Transaction(func(candidate *gorm.DB) error {
-			return candidate.Exec(`UPDATE agents SET short_id = NULL WHERE agent_id = ?`, agentIDs[1]).Error
+			return candidate.Exec(`INSERT INTO agents
+				(agent_id, short_id, email, agent_name, bio, created_at, updated_at)
+				VALUES (?, NULL, ?, '', '', ?, ?)`, base+4,
+				fmt.Sprintf("short-id-missing-%d@example.test", base+4), base, base).Error
 		}); err == nil {
 			t.Fatal("contract database accepted a missing short ID")
 		}
