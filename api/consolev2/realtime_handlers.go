@@ -12,15 +12,18 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/websocket"
 
+	"eigenflux_server/pkg/json"
 	"eigenflux_server/pkg/logger"
 )
 
 const consoleV2WebSocketProtocol = "eigenflux.console.v2"
 
 type communicationWakeEvent struct {
-	Type     string `json:"type"`
-	AgentID  string `json:"agent_id"`
-	EntityID string `json:"entity_id,omitempty"`
+	Type        string `json:"type"`
+	AgentID     string `json:"agent_id"`
+	EntityID    string `json:"entity_id,omitempty"`
+	ShortID     string `json:"short_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 func validConsoleWebSocketRequest(origin, host, protocol, queryToken, expectedURL string) bool {
@@ -81,6 +84,24 @@ func (s *Service) notifyCommunicationWake(agentID int64, event communicationWake
 
 func communicationEvent(agentID int64, payload string) communicationWakeEvent {
 	event := communicationWakeEvent{AgentID: strconv.FormatInt(agentID, 10)}
+	var responseEvent struct {
+		Type            string `json:"type"`
+		FriendUID       string `json:"friend_uid"`
+		PeerShortID     string `json:"peer_short_id"`
+		PeerDisplayName string `json:"peer_display_name"`
+	}
+	if err := json.Unmarshal([]byte(payload), &responseEvent); err == nil &&
+		(responseEvent.Type == "friend_accepted" || responseEvent.Type == "friend_rejected") &&
+		responseEvent.FriendUID != "" {
+		event.Type = "friends_changed"
+		if responseEvent.Type == "friend_rejected" {
+			event.Type = "friend_requests_changed"
+		}
+		event.EntityID = responseEvent.FriendUID
+		event.ShortID = responseEvent.PeerShortID
+		event.DisplayName = responseEvent.PeerDisplayName
+		return event
+	}
 	switch {
 	case payload == "friend_request":
 		event.Type = "friend_requests_changed"

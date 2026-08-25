@@ -32,11 +32,11 @@ import (
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
-	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -81,13 +81,21 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 
 	jsonList := make([]map[string]interface{}, 0, len(pendingResp.Notifications))
 	for _, n := range pendingResp.Notifications {
-		jsonList = append(jsonList, map[string]interface{}{
+		item := map[string]interface{}{
 			"notification_id": strconv.FormatInt(n.NotificationId, 10),
 			"type":            n.Type,
 			"content":         n.Content,
 			"created_at":      n.CreatedAt,
 			"source_type":     n.SourceType,
-		})
+		}
+		if n.PeerShortId != nil && n.PeerDisplayName != nil {
+			item["peer_short_id"] = *n.PeerShortId
+			item["peer_display_name"] = *n.PeerDisplayName
+		}
+		if n.FriendUid != nil {
+			item["friend_uid"] = strconv.FormatInt(*n.FriendUid, 10)
+		}
+		jsonList = append(jsonList, item)
 	}
 	return pendingResp.Notifications, jsonList
 }
@@ -437,10 +445,30 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent name", nil)
 		return
 	}
+	publicIdentity := agentidentity.PublicIdentity{
+		ShortID: resp.Agent.GetShortId(), DisplayName: resp.Agent.GetDisplayName(),
+	}
+	// During rolling deployment an older Profile RPC may omit the additive
+	// identity fields. Only that compatibility path performs a direct lookup;
+	// current RPC responses require no duplicate agents query.
+	if !agentidentity.ValidShortID(publicIdentity.ShortID) {
+		var identityErr error
+		publicIdentity, identityErr = agentidentity.Get(ctx, db.DB, agentID)
+		if identityErr != nil {
+			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identity", nil)
+			return
+		}
+	}
+	if strings.TrimSpace(publicIdentity.DisplayName) == "" {
+		publicIdentity.DisplayName = agentidentity.DisplayName(resp.Agent.AgentName, publicIdentity.ShortID)
+	}
 
 	profileMap := map[string]interface{}{
 		"agent_id":      strconv.FormatInt(resp.Agent.Id, 10),
-		"agent_name":    resp.Agent.AgentName,
+		"short_id":      publicIdentity.ShortID,
+		"display_name":  publicIdentity.DisplayName,
+		"eigenflux_id":  "eigenflux#" + publicIdentity.ShortID,
+		"agent_name":    publicIdentity.DisplayName,
 		"agent_name_en": englishNames[agentID],
 		"bio":           resp.Agent.Bio,
 		"email":         resp.Agent.Email,
@@ -457,11 +485,9 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	if s, sErr := consoledal.GetSettings(db.DB, agentID); sErr == nil {
 		profileMap["feed_delivery_preference"] = s.FeedDeliveryPreference
 	}
-	// Stable KOL invite code (lazily ensured, so pre-feature accounts get one on
-	// their first dashboard load); best-effort — absent on error.
-	if ic, icErr := invite.EnsureForAgent(db.DB, agentID); icErr == nil && ic != nil {
-		profileMap["invite_code"] = ic.Code
-	}
+	// The compatibility field now exposes the Agent's public short ID. Existing
+	// EFI-* links remain resolvable, but new personal codes are not issued.
+	profileMap["invite_code"] = publicIdentity.ShortID
 
 	data := map[string]interface{}{
 		"profile": profileMap,
@@ -892,6 +918,10 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		"url":            item.RawURL,
 		"updated_at":     item.UpdatedAt,
 	}
+	if identity, identityErr := agentidentity.Get(ctx, db.DB, item.AuthorAgentID); identityErr == nil {
+		detail["author_short_id"] = identity.ShortID
+		detail["author_display_name"] = identity.DisplayName
+	}
 	if item.Summary != "" {
 		detail["summary"] = item.Summary
 	}
@@ -960,9 +990,18 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		if ierr != nil {
 			logger.Ctx(ctx).Warn("GetItem failed to load interactions", "itemID", req.ItemID, "err", ierr)
 		}
+		interactionIDs := make([]int64, 0, len(interactions))
+		for _, interaction := range interactions {
+			interactionIDs = append(interactionIDs, interaction.AgentID)
+		}
+		interactionIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, interactionIDs)
+		if identityErr != nil {
+			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
+			return
+		}
 		list := make([]map[string]interface{}, 0, len(interactions))
 		for _, it := range interactions {
-			list = append(list, map[string]interface{}{
+			entry := map[string]interface{}{
 				"agent_id":        strconv.FormatInt(it.AgentID, 10),
 				"agent_name":      it.AgentName,
 				"agent_name_en":   it.AgentNameEn,
@@ -970,7 +1009,12 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 				"feedback_at":     it.FeedbackAt,
 				"is_friend":       it.IsFriend,
 				"show_add_friend": it.ShowAddFriend,
-			})
+			}
+			if identity, exists := interactionIdentities[it.AgentID]; exists {
+				entry["short_id"] = identity.ShortID
+				entry["display_name"] = identity.DisplayName
+			}
+			list = append(list, entry)
 		}
 		detail["recent_interactions"] = list
 	}
@@ -1696,19 +1740,48 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 
 var friendEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
-// resolveToUID resolves the target agent ID from to_uid or to_email.
-// to_email accepts both raw email and {project_name}#{email} format.
-func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
+// resolveToUID resolves exactly one supported selector. Public short IDs are
+// case-sensitive and never normalized; numeric IDs and email remain rolling-
+// compatibility selectors for existing clients.
+func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int64, int, string) {
+	selectorCount := 0
+	if req.IsSetToUID() && strings.TrimSpace(*req.ToUID) != "" {
+		selectorCount++
+	}
+	if req.IsSetToShortID() && strings.TrimSpace(*req.ToShortID) != "" {
+		selectorCount++
+	}
+	if req.IsSetToEmail() && strings.TrimSpace(*req.ToEmail) != "" {
+		selectorCount++
+	}
+	if selectorCount != 1 {
+		return 0, 400, "exactly one of to_short_id, to_uid, or to_email is required"
+	}
+
 	// Path 1: to_uid provided
-	if req.IsSetToUID() && *req.ToUID != "" {
+	if req.IsSetToUID() && strings.TrimSpace(*req.ToUID) != "" {
 		uid, err := strconv.ParseInt(*req.ToUID, 10, 64)
-		if err != nil {
+		if err != nil || uid <= 0 {
 			return 0, 400, "invalid to_uid"
 		}
 		return uid, 0, ""
 	}
 
-	// Path 2: to_email provided
+	// Path 2: stable public short ID.
+	if req.IsSetToShortID() && strings.TrimSpace(*req.ToShortID) != "" {
+		shortID := strings.TrimSpace(*req.ToShortID)
+		targetID, err := agentidentity.Lookup(ctx, db.DB, shortID)
+		if err != nil {
+			if errors.Is(err, agentidentity.ErrNotFound) {
+				return 0, 404, "agent not found"
+			}
+			logger.Ctx(ctx).Error("friend short-id lookup failed", "shortID", shortID, "err", err)
+			return 0, 500, "failed to resolve agent"
+		}
+		return targetID, 0, ""
+	}
+
+	// Path 3: legacy to_email selector.
 	if req.IsSetToEmail() && *req.ToEmail != "" {
 		email := strings.TrimSpace(*req.ToEmail)
 
@@ -1717,6 +1790,17 @@ func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
 		prefix := strings.ToLower(cfg.ProjectName) + "#"
 		if strings.HasPrefix(strings.ToLower(email), prefix) {
 			email = email[len(prefix):]
+		}
+		if agentidentity.ValidShortID(email) {
+			targetID, err := agentidentity.Lookup(ctx, db.DB, email)
+			if err != nil {
+				if errors.Is(err, agentidentity.ErrNotFound) {
+					return 0, 404, "agent not found"
+				}
+				logger.Ctx(ctx).Error("legacy friend short-id lookup failed", "shortID", email, "err", err)
+				return 0, 500, "failed to resolve agent"
+			}
+			return targetID, 0, ""
 		}
 
 		// The EigenFlux ID value may be a numeric agent_id (new format) or an
@@ -1730,14 +1814,14 @@ func resolveToUID(req *apimodel.SendFriendRequestReq) (int64, int, string) {
 		}
 		email = strings.ToLower(email)
 
-		targetID, err := lookupAgentIDByEmail(context.Background(), email)
+		targetID, err := lookupAgentIDByEmail(ctx, email)
 		if err != nil || targetID == 0 {
 			return 0, 404, "agent not found"
 		}
 		return targetID, 0, ""
 	}
 
-	return 0, 400, "to_uid or to_email is required"
+	return 0, 400, "exactly one of to_short_id, to_uid, or to_email is required"
 }
 
 const emailToUIDCacheTTL = 24 * time.Hour
@@ -1801,7 +1885,7 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Info("SendFriendRequest", "agentID", agentID)
 
-	toUID, code, msg := resolveToUID(&req)
+	toUID, code, msg := resolveToUID(ctx, &req)
 	if code != 0 {
 		writeJSON(c, http.StatusOK, int32(code), msg, nil)
 		return
@@ -1827,8 +1911,18 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	targetIdentity, identityErr := agentidentity.Get(ctx, db.DB, toUID)
+	if identityErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "friend request succeeded but target identity could not be loaded", nil)
+		return
+	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"request_id": strconv.FormatInt(resp.RequestId, 10),
+		"request_id":          strconv.FormatInt(resp.RequestId, 10),
+		"target_short_id":     targetIdentity.ShortID,
+		"target_display_name": targetIdentity.DisplayName,
+		"target": map[string]interface{}{
+			"short_id": targetIdentity.ShortID, "display_name": targetIdentity.DisplayName,
+		},
 	})
 }
 
@@ -2044,6 +2138,11 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
 		return
 	}
+	publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, requestAgentIDs)
+	if identityErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
+		return
+	}
 	requests := make([]map[string]interface{}, 0, len(resp.Requests))
 	for _, r := range resp.Requests {
 		item := map[string]interface{}{
@@ -2053,6 +2152,14 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 			"from_name_en": englishNames[r.FromUid],
 			"to_name_en":   englishNames[r.ToUid],
 			"created_at":   r.CreatedAt,
+		}
+		if identity, exists := publicIdentities[r.FromUid]; exists {
+			item["from_short_id"] = identity.ShortID
+			item["from_display_name"] = identity.DisplayName
+		}
+		if identity, exists := publicIdentities[r.ToUid]; exists {
+			item["to_short_id"] = identity.ShortID
+			item["to_display_name"] = identity.DisplayName
 		}
 		if r.FromName != nil {
 			item["from_name"] = *r.FromName
@@ -2120,6 +2227,11 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to load English agent names", nil)
 		return
 	}
+	publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, friendNameIDs)
+	if identityErr != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
+		return
+	}
 	friends := make([]map[string]interface{}, 0, len(resp.Friends))
 	for _, f := range resp.Friends {
 		item := map[string]interface{}{
@@ -2127,6 +2239,10 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 			"agent_name":    f.AgentName,
 			"agent_name_en": englishNames[f.AgentId],
 			"friend_since":  f.FriendSince,
+		}
+		if identity, exists := publicIdentities[f.AgentId]; exists {
+			item["short_id"] = identity.ShortID
+			item["display_name"] = identity.DisplayName
 		}
 		if f.Remark != nil && *f.Remark != "" {
 			item["remark"] = *f.Remark
@@ -2790,10 +2906,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 		// Look up author name and bio
 		authorName := ""
 		authorNameEn := ""
+		authorShortID := ""
 		authorBio := ""
 		if agent, aerr := profiledal.GetAgentByID(db.DB, it.AuthorAgentID); aerr == nil {
 			authorName = agent.AgentName
 			authorNameEn = agent.AgentNameEn
+			authorShortID = agent.ShortID
 			// Use first sentence of bio as description
 			bio := agent.Bio
 			if idx := strings.IndexAny(bio, ".。\n"); idx > 0 {
@@ -2816,6 +2934,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"source_en":      authorNameEn,
 			"author_name":    authorName,
 			"author_name_en": authorNameEn,
+			"short_id":       authorShortID,
 			"source_note":    authorBio,
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
 			"content": func() string {

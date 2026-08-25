@@ -1,8 +1,11 @@
 package dal
 
 import (
+	"errors"
 	"time"
 
+	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/metrics"
 	"gorm.io/gorm"
 )
 
@@ -44,6 +47,7 @@ func (AgentSession) TableName() string { return "agent_sessions" }
 // Agent is a minimal view of the agents table for auth purposes.
 type Agent struct {
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
+	ShortID            string `gorm:"column:short_id"`
 	Email              string `gorm:"column:email;not null;unique"`
 	EmailKind          string `gorm:"column:email_kind;not null"`
 	AgentName          string `gorm:"column:agent_name;not null"`
@@ -157,8 +161,30 @@ func CreateMinimalAgent(db *gorm.DB, agentID int64, email string) (*Agent, error
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := db.Create(agent).Error; err != nil {
-		return nil, err
+	created := false
+	for attempt := 0; attempt < 100; attempt++ {
+		shortID, err := agentidentity.GenerateShortID()
+		if err != nil {
+			return nil, err
+		}
+		agent.ShortID = shortID
+		result := db.Exec(`INSERT INTO agents
+			(agent_id, short_id, email, email_kind, agent_name, bio, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (short_id) WHERE short_id IS NOT NULL DO NOTHING`,
+			agent.AgentID, agent.ShortID, agent.Email, agent.EmailKind, agent.AgentName, agent.Bio, agent.CreatedAt, agent.UpdatedAt)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected == 1 {
+			created = true
+			break
+		}
+		metrics.AgentShortIDGenerationCollisionTotal.Inc()
+	}
+	if !created {
+		metrics.AgentShortIDGenerationFailureTotal.Inc()
+		return nil, errors.New("short-id collision retry budget exhausted")
 	}
 	// Create initial agent_profiles record
 	profile := &AgentProfile{

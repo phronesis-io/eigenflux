@@ -489,10 +489,13 @@ struct SendFriendRequestReq {
     2: optional string to_email (api.body="to_email")
     3: optional string greeting (api.body="greeting")
     4: optional string remark (api.body="remark")
+    5: optional string to_short_id (api.body="to_short_id")
 }
 
 struct SendFriendRequestData {
     1: required string request_id
+    2: optional string target_short_id
+    3: optional string target_display_name
 }
 
 struct SendFriendRequestResp {
@@ -555,6 +558,8 @@ struct FriendRequestData {
     5: optional string from_name
     6: optional string to_name
     7: optional string greeting
+    8: optional string from_short_id
+    9: optional string to_short_id
 }
 
 struct ListFriendRequestsData {
@@ -579,6 +584,8 @@ struct FriendData {
     3: required i64 friend_since
     4: optional string remark
     5: optional string bio
+    6: optional string short_id
+    7: optional string display_name
 }
 
 struct ListFriendsData {

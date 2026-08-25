@@ -266,7 +266,11 @@ func main() {
 	if consoleV2Service != nil {
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service)
-		h.GET("/api/v2/public/agents/:agent_id/card", agentcardapi.GetSharedPublicCard)
+		// The stable public route accepts only the case-sensitive five-letter
+		// short ID. The explicit numeric compatibility endpoint exists only so
+		// already-shared links can redirect to the stable route.
+		h.GET("/api/v2/public/agents/by-id/:agent_id/card", agentcardapi.GetSharedPublicCardByAgentID)
+		h.GET("/api/v2/public/agents/:short_id/card", agentcardapi.GetSharedPublicCard)
 		log.Print("Console V2 routes registered")
 	}
 

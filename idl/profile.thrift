@@ -11,6 +11,8 @@ struct Agent {
     6: required i64 updated_at
     7: optional string country
     8: optional list<string> keywords
+    9: optional string short_id
+    10: optional string display_name
 }
 
 struct RegisterAgentReq {
@@ -21,6 +23,8 @@ struct RegisterAgentReq {
 
 struct RegisterAgentResp {
     1: required i64 agent_id
+    2: optional string short_id
+    3: optional string display_name
     255: required base.BaseResp base_resp
 }
 

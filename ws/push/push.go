@@ -32,13 +32,17 @@ type PMFetchData struct {
 }
 
 type FriendRequestData struct {
-	RequestID string `json:"request_id"`
-	FromUID   string `json:"from_uid"`
-	ToUID     string `json:"to_uid"`
-	CreatedAt int64  `json:"created_at"`
-	FromName  string `json:"from_name,omitempty"`
-	ToName    string `json:"to_name,omitempty"`
-	Greeting  string `json:"greeting,omitempty"`
+	RequestID       string `json:"request_id"`
+	FromUID         string `json:"from_uid"`
+	ToUID           string `json:"to_uid"`
+	CreatedAt       int64  `json:"created_at"`
+	FromName        string `json:"from_name,omitempty"`
+	ToName          string `json:"to_name,omitempty"`
+	FromShortID     string `json:"from_short_id,omitempty"`
+	ToShortID       string `json:"to_short_id,omitempty"`
+	FromDisplayName string `json:"from_display_name,omitempty"`
+	ToDisplayName   string `json:"to_display_name,omitempty"`
+	Greeting        string `json:"greeting,omitempty"`
 	// Server-verified officialness of the requester (agents.is_official),
 	// stamped by the pm service — clients must never infer it from names.
 	FromIsOfficial bool `json:"from_is_official,omitempty"`
@@ -97,6 +101,18 @@ func buildFriendRequests(infos []*pm.FriendRequestInfo) []FriendRequestData {
 		}
 		if fr.ToName != nil {
 			result[i].ToName = *fr.ToName
+		}
+		if fr.FromShortId != nil {
+			result[i].FromShortID = *fr.FromShortId
+		}
+		if fr.ToShortId != nil {
+			result[i].ToShortID = *fr.ToShortId
+		}
+		if fr.FromDisplayName != nil {
+			result[i].FromDisplayName = *fr.FromDisplayName
+		}
+		if fr.ToDisplayName != nil {
+			result[i].ToDisplayName = *fr.ToDisplayName
 		}
 		if fr.Greeting != nil {
 			result[i].Greeting = *fr.Greeting
@@ -233,6 +249,33 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 }
 
 func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection, eventPayload string) {
+	var responseEvent struct {
+		Type            string `json:"type"`
+		FriendUID       string `json:"friend_uid"`
+		PeerShortID     string `json:"peer_short_id"`
+		PeerDisplayName string `json:"peer_display_name"`
+	}
+	if err := json.Unmarshal([]byte(eventPayload), &responseEvent); err == nil &&
+		(responseEvent.Type == "friend_accepted" || responseEvent.Type == "friend_rejected") &&
+		responseEvent.FriendUID != "" && responseEvent.PeerShortID != "" && responseEvent.PeerDisplayName != "" {
+		envelope := Message{Type: responseEvent.Type, Data: map[string]string{
+			"friend_uid": responseEvent.FriendUID, "peer_short_id": responseEvent.PeerShortID,
+			"peer_display_name": responseEvent.PeerDisplayName,
+		}}
+		payload, err := json.Marshal(envelope)
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: marshal friend response failed", "err", err)
+			return
+		}
+		conn.WriteMu.Lock()
+		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
+		conn.WriteMu.Unlock()
+		if err != nil {
+			logger.Ctx(ctx).Error("ws: write friend response failed", "agentID", conn.AgentID, "err", err)
+		}
+		return
+	}
+
 	// Handle friend_accepted event — push directly without fetching PMs or pending requests.
 	if friendUID, ok := strings.CutPrefix(eventPayload, "friend_accepted:"); ok {
 		envelope := Message{Type: "friend_accepted", Data: map[string]string{"friend_uid": friendUID}}

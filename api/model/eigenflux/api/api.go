@@ -18152,10 +18152,11 @@ func (p *CloseConvResp) String() string {
 
 // ===== Friend/Block Structs =====
 type SendFriendRequestReq struct {
-	ToUID    *string `thrift:"to_uid,1,optional" form:"to_uid" json:"to_uid,omitempty"`
-	ToEmail  *string `thrift:"to_email,2,optional" form:"to_email" json:"to_email,omitempty"`
-	Greeting *string `thrift:"greeting,3,optional" form:"greeting" json:"greeting,omitempty"`
-	Remark   *string `thrift:"remark,4,optional" form:"remark" json:"remark,omitempty"`
+	ToUID     *string `thrift:"to_uid,1,optional" form:"to_uid" json:"to_uid,omitempty"`
+	ToEmail   *string `thrift:"to_email,2,optional" form:"to_email" json:"to_email,omitempty"`
+	Greeting  *string `thrift:"greeting,3,optional" form:"greeting" json:"greeting,omitempty"`
+	Remark    *string `thrift:"remark,4,optional" form:"remark" json:"remark,omitempty"`
+	ToShortID *string `thrift:"to_short_id,5,optional" form:"to_short_id" json:"to_short_id,omitempty"`
 }
 
 func NewSendFriendRequestReq() *SendFriendRequestReq {
@@ -18201,11 +18202,21 @@ func (p *SendFriendRequestReq) GetRemark() (v string) {
 	return *p.Remark
 }
 
+var SendFriendRequestReq_ToShortID_DEFAULT string
+
+func (p *SendFriendRequestReq) GetToShortID() (v string) {
+	if !p.IsSetToShortID() {
+		return SendFriendRequestReq_ToShortID_DEFAULT
+	}
+	return *p.ToShortID
+}
+
 var fieldIDToName_SendFriendRequestReq = map[int16]string{
 	1: "to_uid",
 	2: "to_email",
 	3: "greeting",
 	4: "remark",
+	5: "to_short_id",
 }
 
 func (p *SendFriendRequestReq) IsSetToUID() bool {
@@ -18222,6 +18233,10 @@ func (p *SendFriendRequestReq) IsSetGreeting() bool {
 
 func (p *SendFriendRequestReq) IsSetRemark() bool {
 	return p.Remark != nil
+}
+
+func (p *SendFriendRequestReq) IsSetToShortID() bool {
+	return p.ToShortID != nil
 }
 
 func (p *SendFriendRequestReq) Read(iprot thrift.TProtocol) (err error) {
@@ -18270,6 +18285,14 @@ func (p *SendFriendRequestReq) Read(iprot thrift.TProtocol) (err error) {
 		case 4:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -18348,6 +18371,17 @@ func (p *SendFriendRequestReq) ReadField4(iprot thrift.TProtocol) error {
 	p.Remark = _field
 	return nil
 }
+func (p *SendFriendRequestReq) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ToShortID = _field
+	return nil
+}
 
 func (p *SendFriendRequestReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -18369,6 +18403,10 @@ func (p *SendFriendRequestReq) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -18465,6 +18503,25 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
+func (p *SendFriendRequestReq) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetToShortID() {
+		if err = oprot.WriteFieldBegin("to_short_id", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ToShortID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
 func (p *SendFriendRequestReq) String() string {
 	if p == nil {
 		return "<nil>"
@@ -18474,7 +18531,9 @@ func (p *SendFriendRequestReq) String() string {
 }
 
 type SendFriendRequestData struct {
-	RequestID string `thrift:"request_id,1,required" form:"request_id,required" json:"request_id,required" query:"request_id,required"`
+	RequestID         string  `thrift:"request_id,1,required" form:"request_id,required" json:"request_id,required" query:"request_id,required"`
+	TargetShortID     *string `thrift:"target_short_id,2,optional" form:"target_short_id" json:"target_short_id,omitempty" query:"target_short_id"`
+	TargetDisplayName *string `thrift:"target_display_name,3,optional" form:"target_display_name" json:"target_display_name,omitempty" query:"target_display_name"`
 }
 
 func NewSendFriendRequestData() *SendFriendRequestData {
@@ -18488,8 +18547,36 @@ func (p *SendFriendRequestData) GetRequestID() (v string) {
 	return p.RequestID
 }
 
+var SendFriendRequestData_TargetShortID_DEFAULT string
+
+func (p *SendFriendRequestData) GetTargetShortID() (v string) {
+	if !p.IsSetTargetShortID() {
+		return SendFriendRequestData_TargetShortID_DEFAULT
+	}
+	return *p.TargetShortID
+}
+
+var SendFriendRequestData_TargetDisplayName_DEFAULT string
+
+func (p *SendFriendRequestData) GetTargetDisplayName() (v string) {
+	if !p.IsSetTargetDisplayName() {
+		return SendFriendRequestData_TargetDisplayName_DEFAULT
+	}
+	return *p.TargetDisplayName
+}
+
 var fieldIDToName_SendFriendRequestData = map[int16]string{
 	1: "request_id",
+	2: "target_short_id",
+	3: "target_display_name",
+}
+
+func (p *SendFriendRequestData) IsSetTargetShortID() bool {
+	return p.TargetShortID != nil
+}
+
+func (p *SendFriendRequestData) IsSetTargetDisplayName() bool {
+	return p.TargetDisplayName != nil
 }
 
 func (p *SendFriendRequestData) Read(iprot thrift.TProtocol) (err error) {
@@ -18518,6 +18605,22 @@ func (p *SendFriendRequestData) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetRequestID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -18567,6 +18670,28 @@ func (p *SendFriendRequestData) ReadField1(iprot thrift.TProtocol) error {
 	p.RequestID = _field
 	return nil
 }
+func (p *SendFriendRequestData) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.TargetShortID = _field
+	return nil
+}
+func (p *SendFriendRequestData) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.TargetDisplayName = _field
+	return nil
+}
 
 func (p *SendFriendRequestData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -18576,6 +18701,14 @@ func (p *SendFriendRequestData) Write(oprot thrift.TProtocol) (err error) {
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -18611,6 +18744,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *SendFriendRequestData) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetTargetShortID() {
+		if err = oprot.WriteFieldBegin("target_short_id", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.TargetShortID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *SendFriendRequestData) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetTargetDisplayName() {
+		if err = oprot.WriteFieldBegin("target_display_name", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.TargetDisplayName); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
 }
 
 func (p *SendFriendRequestData) String() string {
@@ -20764,13 +20935,15 @@ func (p *ListFriendRequestsReq) String() string {
 }
 
 type FriendRequestData struct {
-	RequestID string  `thrift:"request_id,1,required" form:"request_id,required" json:"request_id,required" query:"request_id,required"`
-	FromUID   string  `thrift:"from_uid,2,required" form:"from_uid,required" json:"from_uid,required" query:"from_uid,required"`
-	ToUID     string  `thrift:"to_uid,3,required" form:"to_uid,required" json:"to_uid,required" query:"to_uid,required"`
-	CreatedAt int64   `thrift:"created_at,4,required" form:"created_at,required" json:"created_at,required" query:"created_at,required"`
-	FromName  *string `thrift:"from_name,5,optional" form:"from_name" json:"from_name,omitempty" query:"from_name"`
-	ToName    *string `thrift:"to_name,6,optional" form:"to_name" json:"to_name,omitempty" query:"to_name"`
-	Greeting  *string `thrift:"greeting,7,optional" form:"greeting" json:"greeting,omitempty" query:"greeting"`
+	RequestID   string  `thrift:"request_id,1,required" form:"request_id,required" json:"request_id,required" query:"request_id,required"`
+	FromUID     string  `thrift:"from_uid,2,required" form:"from_uid,required" json:"from_uid,required" query:"from_uid,required"`
+	ToUID       string  `thrift:"to_uid,3,required" form:"to_uid,required" json:"to_uid,required" query:"to_uid,required"`
+	CreatedAt   int64   `thrift:"created_at,4,required" form:"created_at,required" json:"created_at,required" query:"created_at,required"`
+	FromName    *string `thrift:"from_name,5,optional" form:"from_name" json:"from_name,omitempty" query:"from_name"`
+	ToName      *string `thrift:"to_name,6,optional" form:"to_name" json:"to_name,omitempty" query:"to_name"`
+	Greeting    *string `thrift:"greeting,7,optional" form:"greeting" json:"greeting,omitempty" query:"greeting"`
+	FromShortID *string `thrift:"from_short_id,8,optional" form:"from_short_id" json:"from_short_id,omitempty" query:"from_short_id"`
+	ToShortID   *string `thrift:"to_short_id,9,optional" form:"to_short_id" json:"to_short_id,omitempty" query:"to_short_id"`
 }
 
 func NewFriendRequestData() *FriendRequestData {
@@ -20823,6 +20996,24 @@ func (p *FriendRequestData) GetGreeting() (v string) {
 	return *p.Greeting
 }
 
+var FriendRequestData_FromShortID_DEFAULT string
+
+func (p *FriendRequestData) GetFromShortID() (v string) {
+	if !p.IsSetFromShortID() {
+		return FriendRequestData_FromShortID_DEFAULT
+	}
+	return *p.FromShortID
+}
+
+var FriendRequestData_ToShortID_DEFAULT string
+
+func (p *FriendRequestData) GetToShortID() (v string) {
+	if !p.IsSetToShortID() {
+		return FriendRequestData_ToShortID_DEFAULT
+	}
+	return *p.ToShortID
+}
+
 var fieldIDToName_FriendRequestData = map[int16]string{
 	1: "request_id",
 	2: "from_uid",
@@ -20831,6 +21022,8 @@ var fieldIDToName_FriendRequestData = map[int16]string{
 	5: "from_name",
 	6: "to_name",
 	7: "greeting",
+	8: "from_short_id",
+	9: "to_short_id",
 }
 
 func (p *FriendRequestData) IsSetFromName() bool {
@@ -20843,6 +21036,14 @@ func (p *FriendRequestData) IsSetToName() bool {
 
 func (p *FriendRequestData) IsSetGreeting() bool {
 	return p.Greeting != nil
+}
+
+func (p *FriendRequestData) IsSetFromShortID() bool {
+	return p.FromShortID != nil
+}
+
+func (p *FriendRequestData) IsSetToShortID() bool {
+	return p.ToShortID != nil
 }
 
 func (p *FriendRequestData) Read(iprot thrift.TProtocol) (err error) {
@@ -20923,6 +21124,22 @@ func (p *FriendRequestData) Read(iprot thrift.TProtocol) (err error) {
 		case 7:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -21055,6 +21272,28 @@ func (p *FriendRequestData) ReadField7(iprot thrift.TProtocol) error {
 	p.Greeting = _field
 	return nil
 }
+func (p *FriendRequestData) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.FromShortID = _field
+	return nil
+}
+func (p *FriendRequestData) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ToShortID = _field
+	return nil
+}
 
 func (p *FriendRequestData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -21088,6 +21327,14 @@ func (p *FriendRequestData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
 			goto WriteFieldError
 		}
 	}
@@ -21231,6 +21478,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *FriendRequestData) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetFromShortID() {
+		if err = oprot.WriteFieldBegin("from_short_id", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.FromShortID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *FriendRequestData) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetToShortID() {
+		if err = oprot.WriteFieldBegin("to_short_id", thrift.STRING, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ToShortID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
 }
 
 func (p *FriendRequestData) String() string {
@@ -21936,6 +22221,8 @@ type FriendData struct {
 	FriendSince int64   `thrift:"friend_since,3,required" form:"friend_since,required" json:"friend_since,required" query:"friend_since,required"`
 	Remark      *string `thrift:"remark,4,optional" form:"remark" json:"remark,omitempty" query:"remark"`
 	Bio         *string `thrift:"bio,5,optional" form:"bio" json:"bio,omitempty" query:"bio"`
+	ShortID     *string `thrift:"short_id,6,optional" form:"short_id" json:"short_id,omitempty" query:"short_id"`
+	DisplayName *string `thrift:"display_name,7,optional" form:"display_name" json:"display_name,omitempty" query:"display_name"`
 }
 
 func NewFriendData() *FriendData {
@@ -21975,12 +22262,32 @@ func (p *FriendData) GetBio() (v string) {
 	return *p.Bio
 }
 
+var FriendData_ShortID_DEFAULT string
+
+func (p *FriendData) GetShortID() (v string) {
+	if !p.IsSetShortID() {
+		return FriendData_ShortID_DEFAULT
+	}
+	return *p.ShortID
+}
+
+var FriendData_DisplayName_DEFAULT string
+
+func (p *FriendData) GetDisplayName() (v string) {
+	if !p.IsSetDisplayName() {
+		return FriendData_DisplayName_DEFAULT
+	}
+	return *p.DisplayName
+}
+
 var fieldIDToName_FriendData = map[int16]string{
 	1: "agent_id",
 	2: "agent_name",
 	3: "friend_since",
 	4: "remark",
 	5: "bio",
+	6: "short_id",
+	7: "display_name",
 }
 
 func (p *FriendData) IsSetRemark() bool {
@@ -21989,6 +22296,14 @@ func (p *FriendData) IsSetRemark() bool {
 
 func (p *FriendData) IsSetBio() bool {
 	return p.Bio != nil
+}
+
+func (p *FriendData) IsSetShortID() bool {
+	return p.ShortID != nil
+}
+
+func (p *FriendData) IsSetDisplayName() bool {
+	return p.DisplayName != nil
 }
 
 func (p *FriendData) Read(iprot thrift.TProtocol) (err error) {
@@ -22051,6 +22366,22 @@ func (p *FriendData) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -22156,6 +22487,28 @@ func (p *FriendData) ReadField5(iprot thrift.TProtocol) error {
 	p.Bio = _field
 	return nil
 }
+func (p *FriendData) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ShortID = _field
+	return nil
+}
+func (p *FriendData) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.DisplayName = _field
+	return nil
+}
 
 func (p *FriendData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -22181,6 +22534,14 @@ func (p *FriendData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -22288,6 +22649,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *FriendData) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetShortID() {
+		if err = oprot.WriteFieldBegin("short_id", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ShortID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *FriendData) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDisplayName() {
+		if err = oprot.WriteFieldBegin("display_name", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.DisplayName); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *FriendData) String() string {

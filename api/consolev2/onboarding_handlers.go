@@ -100,6 +100,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	}
 	var identity struct {
 		AgentName      string `gorm:"column:agent_name"`
+		ShortID        string `gorm:"column:short_id"`
 		Bio            string `gorm:"column:bio"`
 		CreatedAt      int64  `gorm:"column:created_at"`
 		IsOfficial     bool   `gorm:"column:is_official"`
@@ -111,7 +112,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		ClientHost     string `gorm:"column:client_host"`
 		DeviceName     string `gorm:"column:device_name"`
 	}
-	if err := s.db.Raw(`SELECT a.agent_name, a.bio, a.created_at, a.is_official,
+	if err := s.db.Raw(`SELECT a.agent_name, a.short_id, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
 		(b.binding_id IS NOT NULL) AS email_verified,
 		COALESCE(settings.runtime_name, '') AS runtime_name,
@@ -139,6 +140,8 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	)
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":           fmt.Sprintf("%d", id),
+		"short_id":           identity.ShortID,
+		"eigenflux_id":       "eigenflux#" + identity.ShortID,
 		"agent_name":         identity.AgentName,
 		"bio":                identity.Bio,
 		"created_at":         identity.CreatedAt,

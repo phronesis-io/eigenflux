@@ -19,6 +19,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/config"
 )
 
@@ -375,13 +376,13 @@ func TestPublicRegistrationRateLimiterAppliesEveryDimension(t *testing.T) {
 
 func TestNotificationIssuerIdentityFailsClosed(t *testing.T) {
 	for _, sourceType := range []string{"system", "milestone", "trade"} {
-		identity := notificationIssuerIdentity(sourceType)
+		identity := notificationIssuerIdentity(&notificationrpc.PendingNotification{SourceType: sourceType})
 		if identity == nil || identity["verification_level"] != "official" {
 			t.Fatalf("%s notification did not receive platform identity", sourceType)
 		}
 	}
 	for _, sourceType := range []string{"friend_request", "unknown", ""} {
-		if identity := notificationIssuerIdentity(sourceType); identity != nil {
+		if identity := notificationIssuerIdentity(&notificationrpc.PendingNotification{SourceType: sourceType}); identity != nil {
 			t.Fatalf("%s notification was incorrectly marked as platform official", sourceType)
 		}
 	}

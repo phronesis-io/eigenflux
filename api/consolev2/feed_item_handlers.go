@@ -70,7 +70,7 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 		}
 		if identity, exists := identities[source.AuthorAgentID]; exists {
 			authorIdentity = map[string]interface{}{
-				"agent_id": identity.SubjectID, "agent_name": identity.DisplayName,
+				"agent_id": identity.SubjectID, "short_id": identity.ShortID, "agent_name": identity.DisplayName,
 				"verification_level": identity.VerificationLevel,
 			}
 		}

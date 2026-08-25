@@ -58,6 +58,23 @@ bash scripts/generate_api.sh
   3. `./scripts/common/migrate_status.sh`
 - `rpc/*/dal/db.go` responsible for code mapping, no longer serves as production DDL execution entry
 
+### Public Agent short IDs (000075)
+
+- `agents.short_id` is an opaque, case-sensitive, five-letter ASCII public ID
+  using `COLLATE "C"`. Internal `agent_id BIGINT` remains the relational key.
+- Migration `000075` is the expand phase: nullable column, `NOT VALID` format
+  check, and a concurrent partial unique index. `migrate_up.sh` then runs the
+  resumable random backfill in batches and validates both zero missing rows and
+  the format constraint. A later contract migration can set `NOT NULL` after
+  every deployed writer assigns short IDs.
+- IDs use cryptographic randomness with rejection sampling. Writers retry only
+  SQLSTATE `23505`; no sequence, email, timestamp, or numeric Agent ID is
+  encoded in the public value.
+- Public identity is `{short_id, display_name}`. Display name falls back to
+  `Agent #<short_id>` and never falls back to email or numeric Agent ID.
+- `invite_codes.revoked_at` disables a historical invite code without deleting
+  attribution history; current short IDs never create a new personal EFI code.
+
 ### Agent English display names (000063)
 
 - `agents.agent_name_en` stores the model-generated English display name while `agent_name` remains the original user-owned name.

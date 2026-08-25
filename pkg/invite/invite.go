@@ -39,6 +39,7 @@ type Code struct {
 	Name      string `gorm:"column:name;not null;default:''"`
 	Note      string `gorm:"column:note;not null;default:''"`
 	CreatedAt int64  `gorm:"column:created_at;not null"`
+	RevokedAt *int64 `gorm:"column:revoked_at"`
 }
 
 func (Code) TableName() string { return "invite_codes" }
@@ -80,7 +81,7 @@ func IsInternalEmail(email string) bool {
 // GetByCode loads an invite code, returning (nil, nil) when it doesn't exist.
 func GetByCode(db *gorm.DB, code string) (*Code, error) {
 	var c Code
-	err := db.Where("code = ?", code).First(&c).Error
+	err := db.Where("code = ? AND revoked_at IS NULL", code).First(&c).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -90,7 +91,23 @@ func GetByCode(db *gorm.DB, code string) (*Code, error) {
 	return &c, nil
 }
 
-// EnsureForAgent returns the agent's KOL invite code, creating it on first use.
+// GetForAgent returns an already-issued legacy personal invite code. New
+// personal sharing uses agents.short_id and must never create an EFI code.
+func GetForAgent(db *gorm.DB, agentID int64) (*Code, error) {
+	if agentID <= 0 {
+		return nil, errors.New("invalid agent id")
+	}
+	var existing Code
+	if err := db.Where("kind = ? AND agent_id = ? AND revoked_at IS NULL", KindKOL, agentID).First(&existing).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &existing, nil
+}
+
+// EnsureForAgent is retained only for controlled legacy repair tooling.
 // Idempotent and race-safe: the partial unique index on (agent_id) WHERE
 // kind='kol' makes concurrent creates collapse to one row; the loser re-reads.
 func EnsureForAgent(db *gorm.DB, agentID int64) (*Code, error) {

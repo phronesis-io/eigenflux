@@ -14,10 +14,13 @@ const pmNotifyKeyPrefix = "pm:notify:"
 
 // PMNotification is the shape stored in pm:notify:{agent_id} Redis hash.
 type PMNotification struct {
-	NotificationID string `json:"notification_id"`
-	Type           string `json:"type"`
-	Content        string `json:"content"`
-	CreatedAt      int64  `json:"created_at"`
+	NotificationID  string `json:"notification_id"`
+	Type            string `json:"type"`
+	Content         string `json:"content"`
+	CreatedAt       int64  `json:"created_at"`
+	FriendUID       int64  `json:"friend_uid"`
+	PeerShortID     string `json:"peer_short_id"`
+	PeerDisplayName string `json:"peer_display_name"`
 }
 
 func pmNotifyKey(agentID int64) string {

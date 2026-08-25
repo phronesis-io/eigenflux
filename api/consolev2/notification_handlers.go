@@ -18,7 +18,21 @@ func platformIssuerIdentity() map[string]interface{} {
 	}
 }
 
-func notificationIssuerIdentity(sourceType string) map[string]interface{} {
+func notificationIssuerIdentity(notification *notificationrpc.PendingNotification) map[string]interface{} {
+	if notification != nil && notification.PeerShortId != nil && notification.PeerDisplayName != nil {
+		subjectID := ""
+		if notification.FriendUid != nil {
+			subjectID = fmt.Sprintf("%d", *notification.FriendUid)
+		}
+		return map[string]interface{}{
+			"subject_type": "agent", "subject_id": subjectID, "short_id": *notification.PeerShortId,
+			"display_name": *notification.PeerDisplayName, "verification_level": "unverified",
+		}
+	}
+	sourceType := ""
+	if notification != nil {
+		sourceType = notification.SourceType
+	}
 	switch strings.ToLower(strings.TrimSpace(sourceType)) {
 	case "system", "milestone", "trade":
 		return platformIssuerIdentity()
@@ -56,7 +70,7 @@ func (s *Service) listPendingNotifications(ctx context.Context, c *app.RequestCo
 			"source_ref":      map[string]interface{}{"type": notification.SourceType, "id": fmt.Sprintf("%d", notification.NotificationId)},
 			"type":            notification.Type, "source_type": notification.SourceType,
 			"content": content, "content_truncated": truncated, "created_at": notification.CreatedAt,
-			"issuer_identity": notificationIssuerIdentity(notification.SourceType), "action_authority": "none",
+			"issuer_identity": notificationIssuerIdentity(notification), "action_authority": "none",
 		})
 	}
 	reply(c, http.StatusOK, map[string]interface{}{

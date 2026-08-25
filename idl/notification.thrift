@@ -8,6 +8,9 @@ struct PendingNotification {
     3: required string type
     4: required string content
     5: required i64 created_at
+    6: optional string peer_short_id
+    7: optional string peer_display_name
+    8: optional i64 friend_uid
 }
 
 struct AckNotificationItem {

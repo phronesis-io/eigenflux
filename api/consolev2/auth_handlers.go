@@ -21,6 +21,9 @@ import (
 
 	consoledal "eigenflux_server/api/dal"
 	"eigenflux_server/pkg/activity"
+	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/runtimeidentity"
 )
 
@@ -402,9 +405,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				return tokenErr
 			}
 			alias := strings.ToLower(aliasToken) + "@identity.invalid"
-			if err := tx.Exec(`INSERT INTO agents
-				(agent_id, email, email_kind, agent_name, bio, created_at, updated_at)
-				VALUES (?, ?, 'internal_alias', ?, '', ?, ?)`, agentID, alias, req.AgentName, now, now).Error; err != nil {
+			if err := insertProvisionedAgent(tx, agentID, alias, req.AgentName, now); err != nil {
 				return err
 			}
 			if err := tx.Exec(`INSERT INTO agent_profiles (agent_id, status, updated_at) VALUES (?, 0, ?)`, agentID, now).Error; err != nil {
@@ -474,6 +475,14 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "PROVISION_FAILED", "could not provision Agent identity", nil)
 		return
 	}
+	if created {
+		agentcard.PublishRebuild(ctx, agentID, "agent_v2_provisioned")
+	}
+	publicIdentity, identityErr := agentidentity.Get(ctx, s.db, agentID)
+	if identityErr != nil {
+		fail(c, http.StatusInternalServerError, "PROVISION_IDENTITY_READ_FAILED", "could not load public Agent identity", nil)
+		return
+	}
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
@@ -486,6 +495,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":         fmt.Sprintf("%d", agentID),
+		"short_id":         publicIdentity.ShortID,
+		"eigenflux_id":     "eigenflux#" + publicIdentity.ShortID,
 		"principal_id":     fmt.Sprintf("%d", principalID),
 		"created":          created,
 		"access_token":     accessToken,
@@ -495,6 +506,29 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		"next_step":        2,
 		"scopes":           initialScopes,
 	})
+}
+
+func insertProvisionedAgent(tx *gorm.DB, agentID int64, alias, agentName string, now int64) error {
+	for attempt := 0; attempt < 100; attempt++ {
+		shortID, err := agentidentity.GenerateShortID()
+		if err != nil {
+			return err
+		}
+		result := tx.Exec(`INSERT INTO agents
+			(agent_id, short_id, email, email_kind, agent_name, bio, created_at, updated_at)
+			VALUES (?, ?, ?, 'internal_alias', ?, '', ?, ?)
+			ON CONFLICT (short_id) WHERE short_id IS NOT NULL DO NOTHING`,
+			agentID, shortID, alias, agentName, now, now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			return nil
+		}
+		metrics.AgentShortIDGenerationCollisionTotal.Inc()
+	}
+	metrics.AgentShortIDGenerationFailureTotal.Inc()
+	return errors.New("short-id collision retry budget exhausted")
 }
 
 type refreshChallengeRequest struct {

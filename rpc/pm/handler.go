@@ -13,8 +13,10 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm"
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/notifyutil"
@@ -49,6 +51,27 @@ type PMServiceImpl struct {
 	iceBreaker          *icebreak.IceBreaker
 	validator           *validator.Validator
 	friendRequestLimits *ratelimit.Config
+}
+
+func publicIdentityForNotification(ctx context.Context, agentID int64) (agentidentity.PublicIdentity, bool) {
+	identity, err := agentidentity.Get(ctx, db.DB, agentID)
+	if err != nil {
+		metrics.FriendNotificationIdentityMissingTotal.Inc()
+		logger.Ctx(ctx).Error("friend notification identity lookup failed", "peerAgentID", agentID, "err", err)
+		return agentidentity.PublicIdentity{}, false
+	}
+	return identity, true
+}
+
+func publishFriendResponseEvent(ctx context.Context, recipientID, peerID int64, identity agentidentity.PublicIdentity, notifType string) {
+	payload, err := notifyutil.MarshalFriendResponseEvent(notifType, peerID, identity.ShortID, identity.DisplayName)
+	if err != nil {
+		logger.Ctx(ctx).Error("friend response event marshal failed", "recipientID", recipientID, "peerID", peerID, "err", err)
+		return
+	}
+	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", recipientID), payload).Err(); err != nil {
+		logger.Ctx(ctx).Error("friend response event publish failed", "recipientID", recipientID, "peerID", peerID, "type", notifType, "err", err)
+	}
 }
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
@@ -791,11 +814,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		activity.PublishFriendRequestSent(ctx, req.FromUid)
 		activity.PublishFriendRequestReceived(ctx, req.ToUid)
 		logger.Ctx(ctx).Info("SendFriendRequest created", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
-		go func() {
-			if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, greeting); err != nil {
-				logger.Default().Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
-			}
-		}()
+		peerIdentity, identityOK := publicIdentityForNotification(ctx, req.FromUid)
+		if identityOK {
+			go func(identity agentidentity.PublicIdentity) {
+				if err := notifyutil.WriteFriendRequestNotification(context.Background(), db.RDB, requestID, req.ToUid, req.FromUid, identity.ShortID, identity.DisplayName, greeting); err != nil {
+					logger.Default().Error("failed to write friend request notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
+				}
+			}(peerIdentity)
+		}
 		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ToUid), "friend_request").Err(); err != nil {
 			logger.Ctx(ctx).Error("failed to publish friend request push notification", "agentID", req.ToUid, "err", err)
 		}
@@ -803,13 +829,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		activity.PublishFriendAdded(ctx, req.FromUid, "")
 		activity.PublishFriendAdded(ctx, req.ToUid, "")
 		logger.Ctx(ctx).Info("SendFriendRequest auto-accepted mutual request", "requestID", requestID, "fromUID", req.FromUid, "toUID", req.ToUid)
-		go func() {
-			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, requestID, req.ToUid, "friend_accepted", ""); err != nil {
-				logger.Default().Error("failed to write auto-accept friend notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
-			}
-		}()
-		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ToUid), fmt.Sprintf("friend_accepted:%d", req.FromUid)).Err(); err != nil {
-			logger.Ctx(ctx).Error("failed to publish auto-accept push notification", "agentID", req.ToUid, "err", err)
+		peerIdentity, identityOK := publicIdentityForNotification(ctx, req.FromUid)
+		if identityOK {
+			go func(identity agentidentity.PublicIdentity) {
+				if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, requestID, req.ToUid, req.FromUid, identity.ShortID, identity.DisplayName, "friend_accepted", ""); err != nil {
+					logger.Default().Error("failed to write auto-accept friend notification", "requestID", requestID, "agentID", req.ToUid, "err", err)
+				}
+			}(peerIdentity)
+			publishFriendResponseEvent(ctx, req.ToUid, req.FromUid, peerIdentity, "friend_accepted")
 		}
 	}
 	s.deletePendingFriendRequestNotifications(deletions)
@@ -959,21 +986,26 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		activity.PublishFriendAdded(ctx, friendReq.FromUID, "")
 		agentcard.PublishRebuild(ctx, friendReq.FromUID, "friend_added")
 		agentcard.PublishRebuild(ctx, friendReq.ToUID, "friend_added")
-		go func() {
-			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
-				logger.Default().Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
-			}
-		}()
-		if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", friendReq.FromUID), fmt.Sprintf("friend_accepted:%d", friendReq.ToUID)).Err(); err != nil {
-			logger.Ctx(ctx).Error("failed to publish friend accepted push notification", "agentID", friendReq.FromUID, "err", err)
+		peerIdentity, identityOK := publicIdentityForNotification(ctx, friendReq.ToUID)
+		if identityOK {
+			go func(identity agentidentity.PublicIdentity) {
+				if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, friendReq.ToUID, identity.ShortID, identity.DisplayName, responseNotifType, reason); err != nil {
+					logger.Default().Error("failed to write friend accepted notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
+				}
+			}(peerIdentity)
+			publishFriendResponseEvent(ctx, friendReq.FromUID, friendReq.ToUID, peerIdentity, responseNotifType)
 		}
 	case "friend_rejected":
 		logger.Ctx(ctx).Info("FriendRequest rejected", "requestID", req.RequestId, "agentID", req.AgentId)
-		go func() {
-			if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, responseNotifType, reason); err != nil {
-				logger.Default().Error("failed to write friend rejected notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
-			}
-		}()
+		peerIdentity, identityOK := publicIdentityForNotification(ctx, friendReq.ToUID)
+		if identityOK {
+			go func(identity agentidentity.PublicIdentity) {
+				if err := notifyutil.WriteFriendResponseNotification(context.Background(), db.RDB, req.RequestId, friendReq.FromUID, friendReq.ToUID, identity.ShortID, identity.DisplayName, responseNotifType, reason); err != nil {
+					logger.Default().Error("failed to write friend rejected notification", "requestID", req.RequestId, "agentID", friendReq.FromUID, "err", err)
+				}
+			}(peerIdentity)
+			publishFriendResponseEvent(ctx, friendReq.FromUID, friendReq.ToUID, peerIdentity, responseNotifType)
+		}
 	default:
 		logger.Ctx(ctx).Info("FriendRequest cancelled", "requestID", req.RequestId, "agentID", req.AgentId)
 	}
@@ -1110,20 +1142,34 @@ func (s *PMServiceImpl) ListFriendRequests(ctx context.Context, req *pm.ListFrie
 			uids = append(uids, r.FromUID, r.ToUID)
 			fromUIDs = append(fromUIDs, r.FromUID)
 		}
-		nameMap, _ := dal.BatchGetAgentNames(db.DB, uids)
+		identities, identityErr := agentidentity.GetBatch(ctx, db.DB, uids)
+		if identityErr != nil {
+			logger.Ctx(ctx).Error("ListFriendRequests identity lookup failed", "agentID", req.AgentId, "err", identityErr)
+			return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to resolve public identity"}}, nil
+		}
 		official := officialFlagsFor(ctx, fromUIDs)
 		for _, r := range requests {
-			fromName := nameMap[r.FromUID]
-			toName := nameMap[r.ToUID]
+			fromIdentity, fromOK := identities[r.FromUID]
+			toIdentity, toOK := identities[r.ToUID]
+			if !fromOK || !toOK {
+				logger.Ctx(ctx).Error("ListFriendRequests identity missing", "requestID", r.ID, "fromUID", r.FromUID, "toUID", r.ToUID)
+				return &pm.ListFriendRequestsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "public identity unavailable"}}, nil
+			}
+			fromName, toName := fromIdentity.DisplayName, toIdentity.DisplayName
+			fromShortID, toShortID := fromIdentity.ShortID, toIdentity.ShortID
 			fromIsOfficial := official[r.FromUID]
 			info := &pm.FriendRequestInfo{
-				RequestId:      r.ID,
-				FromUid:        r.FromUID,
-				ToUid:          r.ToUID,
-				CreatedAt:      r.CreatedAt,
-				FromName:       &fromName,
-				ToName:         &toName,
-				FromIsOfficial: &fromIsOfficial,
+				RequestId:       r.ID,
+				FromUid:         r.FromUID,
+				ToUid:           r.ToUID,
+				CreatedAt:       r.CreatedAt,
+				FromName:        &fromName,
+				ToName:          &toName,
+				FromShortId:     &fromShortID,
+				ToShortId:       &toShortID,
+				FromDisplayName: &fromName,
+				ToDisplayName:   &toName,
+				FromIsOfficial:  &fromIsOfficial,
 			}
 			if r.Greeting != "" {
 				info.Greeting = &r.Greeting
@@ -1157,11 +1203,28 @@ func (s *PMServiceImpl) ListFriends(ctx context.Context, req *pm.ListFriendsReq)
 	logger.Ctx(ctx).Info("ListFriends", "agentID", req.AgentId, "count", len(friends))
 
 	var result []*pm.FriendInfo
+	friendIDs := make([]int64, 0, len(friends))
+	for _, friend := range friends {
+		friendIDs = append(friendIDs, friend.AgentID)
+	}
+	identities, identityErr := agentidentity.GetBatch(ctx, db.DB, friendIDs)
+	if identityErr != nil {
+		logger.Ctx(ctx).Error("ListFriends identity lookup failed", "agentID", req.AgentId, "err", identityErr)
+		return &pm.ListFriendsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to resolve public identity"}}, nil
+	}
 	for _, f := range friends {
+		identity, ok := identities[f.AgentID]
+		if !ok {
+			logger.Ctx(ctx).Error("ListFriends identity missing", "agentID", req.AgentId, "friendUID", f.AgentID)
+			return &pm.ListFriendsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "public identity unavailable"}}, nil
+		}
+		shortID, displayName := identity.ShortID, identity.DisplayName
 		info := &pm.FriendInfo{
 			AgentId:     f.AgentID,
-			AgentName:   f.AgentName,
+			AgentName:   displayName,
 			FriendSince: f.FriendSince,
+			ShortId:     &shortID,
+			DisplayName: &displayName,
 		}
 		if f.Remark != "" {
 			info.Remark = &f.Remark
