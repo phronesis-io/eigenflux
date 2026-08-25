@@ -22,7 +22,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"This `0.4.0-dev.7` Skill requires CLI `0.0.34`",
+		"This `0.4.0-dev.8` Skill requires CLI `0.0.34`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 	} {
