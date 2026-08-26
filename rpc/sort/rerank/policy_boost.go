@@ -1,9 +1,9 @@
 package rerank
 
 import (
-	"sort"
-
 	"eigenflux_server/rpc/sort/rank"
+	"sort"
+	"strconv"
 )
 
 // BoostRule multiplies the score of an item candidate whose Field value is in
@@ -29,7 +29,7 @@ type BoostPolicy struct {
 func (p *BoostPolicy) Name() string { return "boost" }
 
 func (p *BoostPolicy) Apply(cands []rank.Candidate) []rank.Candidate {
-	if len(cands) == 0 || len(p.Rules) == 0 {
+	if len(cands) == 0 || (len(p.Rules) == 0 && len(p.ItemWeights) == 0) {
 		return cands
 	}
 
@@ -39,6 +39,11 @@ func (p *BoostPolicy) Apply(cands []rank.Candidate) []rank.Candidate {
 		}
 		bc, ok := c.(*rank.BasicCandidate)
 		if !ok {
+			continue
+		}
+		if weight, ok := p.ItemWeights[c.ID()]; ok {
+			bc.SetScore(bc.Score() * weight)
+			bc.AddReason("boost:item_id=" + strconv.FormatInt(c.ID(), 10))
 			continue
 		}
 		fields, ok := itemBoostFields(bc.Source())

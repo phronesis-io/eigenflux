@@ -42,6 +42,37 @@ func TestBoostPolicy_MultipliesAndResorts(t *testing.T) {
 	assert.Contains(t, supply.Reasons(), "boost:type=supply")
 }
 
+func TestBoostPolicy_ItemWhitelistMultipliesAndResorts(t *testing.T) {
+	cold := rank.NewCandidate(1, rank.CandidateItem, 1.0, nil, nil)
+	whitelisted := rank.NewCandidate(2, rank.CandidateItem, 0.6, nil, nil)
+
+	policy := &BoostPolicy{ItemWeights: map[int64]float64{2: 2}}
+	out := policy.Apply([]rank.Candidate{cold, whitelisted})
+
+	require.Len(t, out, 2)
+	assert.Equal(t, int64(2), out[0].ID())
+	assert.InDelta(t, 1.2, out[0].Score(), 1e-9)
+	assert.Equal(t, []string{"boost:item_id=2"}, whitelisted.Reasons())
+	assert.Equal(t, int64(1), out[1].ID())
+	assert.InDelta(t, 1.0, out[1].Score(), 1e-9)
+}
+
+func TestBoostPolicy_ItemWhitelistOverridesAttributeRules(t *testing.T) {
+	c := boostCand(7, 1.0, "supply", "ugc")
+	policy := &BoostPolicy{
+		ItemWeights: map[int64]float64{7: 2},
+		Rules: []BoostRule{
+			{Field: "type", Values: []string{"supply"}, Weight: 3},
+			{Field: "content_class", Values: []string{"ugc"}, Weight: 4},
+		},
+	}
+
+	policy.Apply([]rank.Candidate{c})
+
+	assert.InDelta(t, 2.0, c.Score(), 1e-9)
+	assert.Equal(t, []string{"boost:item_id=7"}, c.Reasons())
+}
+
 func TestBoostPolicy_RulesCompound(t *testing.T) {
 	// A UGC demand item matches both rules: ×1.3 ×1.2 = ×1.56.
 	c := boostCand(1, 1.0, "demand", "ugc")
