@@ -1,7 +1,7 @@
 -- +goose NO TRANSACTION
 -- +goose Up
 
--- Expand only. Keep the protocol flag disabled until 000078 and 000079 have
+-- Expand only. Keep the protocol flag disabled until 000079 and 000080 have
 -- completed and every application instance understands agent_attention.v1.
 SET lock_timeout = '2s';
 SET statement_timeout = '5min';
