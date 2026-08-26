@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/controlcontext"
 )
@@ -301,6 +304,34 @@ func TestAttentionPublishCommandContract(t *testing.T) {
 	}
 	if attentionPublishCmd.Flags().Lookup("stdin") == nil {
 		t.Fatal("attention publish must expose --stdin")
+	}
+}
+
+func TestAttentionPublishFormatsMachineReadableRetry(t *testing.T) {
+	cause := &client.APIError{
+		StatusCode:        http.StatusTooManyRequests,
+		ErrorCode:         "ATTENTION_RATE_LIMITED",
+		Msg:               "limit reached",
+		RetryAfterSeconds: 37,
+		Details:           json.RawMessage(`{"remaining":{"total":0},"retry_after_seconds":37}`),
+	}
+	err := formatAttentionPublishError(cause, "json")
+	if !errors.Is(err, cause) {
+		t.Fatal("machine-readable error must preserve the API error cause")
+	}
+	var payload struct {
+		Status            int   `json:"status"`
+		RetryAfterSeconds int64 `json:"retry_after_seconds"`
+		Error             struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(err.Error()), &payload) != nil || payload.Status != http.StatusTooManyRequests ||
+		payload.RetryAfterSeconds != 37 || payload.Error.Code != "ATTENTION_RATE_LIMITED" {
+		t.Fatalf("unexpected machine-readable error: %s", err)
+	}
+	if got := formatAttentionPublishError(cause, "table"); got != cause {
+		t.Fatal("human-readable format must preserve the original error")
 	}
 }
 

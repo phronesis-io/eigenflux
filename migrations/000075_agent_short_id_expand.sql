@@ -31,10 +31,22 @@ END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
-DROP TRIGGER IF EXISTS trg_agents_short_id_immutable ON agents;
-CREATE TRIGGER trg_agents_short_id_immutable
-    BEFORE UPDATE OF short_id ON agents
-    FOR EACH ROW EXECUTE FUNCTION enforce_agent_short_id_immutable();
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trg_agents_short_id_immutable'
+          AND tgrelid = 'agents'::regclass
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER trg_agents_short_id_immutable
+            BEFORE UPDATE OF short_id ON agents
+            FOR EACH ROW EXECUTE FUNCTION enforce_agent_short_id_immutable();
+    END IF;
+END $$;
+-- +goose StatementEnd
 
 -- +goose StatementBegin
 DO $$
@@ -74,6 +86,15 @@ END $$;
 -- +goose Down
 SET lock_timeout = '5s';
 SET statement_timeout = '30min';
+
+-- A published short ID and an invite revocation are permanent identity/audit
+-- data. Production rollback must use feature flags and keep these columns.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    RAISE EXCEPTION 'short IDs and invite revocation history are permanent; disable the feature instead';
+END $$;
+-- +goose StatementEnd
 
 DROP INDEX CONCURRENTLY IF EXISTS uq_agents_short_id_partial;
 DROP TRIGGER IF EXISTS trg_agents_short_id_immutable ON agents;

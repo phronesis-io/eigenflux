@@ -154,7 +154,7 @@ var attentionPublishCmd = &cobra.Command{
 
 		response, err := clientV2.Post(attentionPublishEndpoint, request)
 		if err != nil {
-			return err
+			return formatAttentionPublishError(err, resolveFormat())
 		}
 		output.PrintData(response.Data, resolveFormat())
 		return nil

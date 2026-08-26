@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,10 +19,12 @@ type APIResponse struct {
 }
 
 type APIError struct {
-	StatusCode int
-	Code       int
-	ErrorCode  string
-	Msg        string
+	StatusCode        int
+	Code              int
+	ErrorCode         string
+	Msg               string
+	Details           json.RawMessage
+	RetryAfterSeconds int64
 }
 
 func (e *APIError) Error() string {
@@ -100,8 +104,9 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		_ = json.Unmarshal(respBody, &apiResp)
 		var v2Resp struct {
 			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
+				Code    string          `json:"code"`
+				Message string          `json:"message"`
+				Details json.RawMessage `json:"details"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(respBody, &v2Resp)
@@ -109,11 +114,14 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		if message == "" {
 			message = v2Resp.Error.Message
 		}
+		retryAfterSeconds := parseRetryAfterSeconds(resp.Header.Get("Retry-After"), v2Resp.Error.Details)
 		return nil, &APIError{
-			StatusCode: resp.StatusCode,
-			Code:       apiResp.Code,
-			ErrorCode:  v2Resp.Error.Code,
-			Msg:        message,
+			StatusCode:        resp.StatusCode,
+			Code:              apiResp.Code,
+			ErrorCode:         v2Resp.Error.Code,
+			Msg:               message,
+			Details:           v2Resp.Error.Details,
+			RetryAfterSeconds: retryAfterSeconds,
 		}
 	}
 	var apiResp APIResponse
@@ -124,6 +132,19 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		c.OnSuccess()
 	}
 	return &apiResp, nil
+}
+
+func parseRetryAfterSeconds(header string, details json.RawMessage) int64 {
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(header), 10, 64); err == nil && seconds > 0 {
+		return seconds
+	}
+	var payload struct {
+		RetryAfterSeconds int64 `json:"retry_after_seconds"`
+	}
+	if json.Unmarshal(details, &payload) == nil && payload.RetryAfterSeconds > 0 {
+		return payload.RetryAfterSeconds
+	}
+	return 0
 }
 
 func (c *Client) Get(path string, params map[string]string) (*APIResponse, error) {
