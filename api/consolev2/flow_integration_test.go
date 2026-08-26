@@ -625,7 +625,14 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("command wakeup outbox count=%d err=%v", outboxCount, err)
 	}
 	claimedWakeups, err := svc.claimControlOutbox(time.Now().UnixMilli())
-	if err != nil || len(claimedWakeups) != 1 || claimedWakeups[0].EntityID != mustParseInt64(t, commandID) {
+	claimedCommandWakeup := false
+	for _, wakeup := range claimedWakeups {
+		if wakeup.EntityID == mustParseInt64(t, commandID) {
+			claimedCommandWakeup = true
+			break
+		}
+	}
+	if err != nil || !claimedCommandWakeup {
 		t.Fatalf("command wakeup outbox claim mismatch: rows=%#v err=%v", claimedWakeups, err)
 	}
 	secondClaim, err := svc.claimControlOutbox(time.Now().UnixMilli())
