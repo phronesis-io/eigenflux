@@ -7,14 +7,14 @@ import (
 	apimodel "eigenflux_server/api/model/eigenflux/api"
 )
 
-func TestResolveToUIDRequiresExactlyOneSelector(t *testing.T) {
+func TestResolveToUIDPreservesLegacyUIDPriority(t *testing.T) {
 	shortID, uid := "AbCdE", "123"
-	_, code, _ := resolveToUID(context.Background(), &apimodel.SendFriendRequestReq{
+	got, code, message := resolveToUID(context.Background(), &apimodel.SendFriendRequestReq{
 		ToShortID: &shortID,
 		ToUID:     &uid,
 	})
-	if code != 400 {
-		t.Fatalf("code=%d, want 400", code)
+	if got != 123 || code != 0 || message != "" {
+		t.Fatalf("got=(%d,%d,%q), want (123,0,empty)", got, code, message)
 	}
 }
 

@@ -37,6 +37,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
+	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -455,8 +456,8 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 		var identityErr error
 		publicIdentity, identityErr = agentidentity.Get(ctx, db.DB, agentID)
 		if identityErr != nil {
-			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identity", nil)
-			return
+			logger.Ctx(ctx).Warn("GetMe failed to load optional public Agent identity", "agentID", agentID, "err", identityErr)
+			publicIdentity = agentidentity.PublicIdentity{}
 		}
 	}
 	if strings.TrimSpace(publicIdentity.DisplayName) == "" {
@@ -468,7 +469,7 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 		"short_id":      publicIdentity.ShortID,
 		"display_name":  publicIdentity.DisplayName,
 		"eigenflux_id":  "eigenflux#" + publicIdentity.ShortID,
-		"agent_name":    publicIdentity.DisplayName,
+		"agent_name":    resp.Agent.AgentName,
 		"agent_name_en": englishNames[agentID],
 		"bio":           resp.Agent.Bio,
 		"email":         resp.Agent.Email,
@@ -485,9 +486,11 @@ func GetMe(ctx context.Context, c *app.RequestContext) {
 	if s, sErr := consoledal.GetSettings(db.DB, agentID); sErr == nil {
 		profileMap["feed_delivery_preference"] = s.FeedDeliveryPreference
 	}
-	// The compatibility field now exposes the Agent's public short ID. Existing
-	// EFI-* links remain resolvable, but new personal codes are not issued.
-	profileMap["invite_code"] = publicIdentity.ShortID
+	// Preserve the V1 invite_code contract. Short IDs are additive public
+	// identity fields and must not rotate the legacy attribution value.
+	if ic, icErr := invite.EnsureForAgent(db.DB, agentID); icErr == nil && ic != nil {
+		profileMap["invite_code"] = ic.Code
+	}
 
 	data := map[string]interface{}{
 		"profile": profileMap,
@@ -996,8 +999,8 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		}
 		interactionIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, interactionIDs)
 		if identityErr != nil {
-			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
-			return
+			logger.Ctx(ctx).Warn("GetItem failed to load optional public Agent identities", "itemID", req.ItemID, "err", identityErr)
+			interactionIdentities = map[int64]agentidentity.PublicIdentity{}
 		}
 		list := make([]map[string]interface{}, 0, len(interactions))
 		for _, it := range interactions {
@@ -1478,15 +1481,14 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		}
 		publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, peerIDs)
 		if identityErr != nil {
-			writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
-			return
+			logger.Ctx(ctx).Warn("ListConversations failed to load optional public Agent identities", "agentID", agentID, "err", identityErr)
+			publicIdentities = map[int64]agentidentity.PublicIdentity{}
 		}
 		for i := range conversations {
 			conversations[i]["peer_name_en"] = englishNames[peerOf[i]]
 			if identity, exists := publicIdentities[peerOf[i]]; exists {
 				conversations[i]["peer_short_id"] = identity.ShortID
 				conversations[i]["peer_display_name"] = identity.DisplayName
-				conversations[i]["peer_name"] = identity.DisplayName
 			}
 		}
 		var officialIDs []int64
@@ -1750,24 +1752,10 @@ func DeleteMyItem(ctx context.Context, c *app.RequestContext) {
 
 var friendEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
-// resolveToUID resolves exactly one supported selector. Public short IDs are
-// case-sensitive and never normalized; numeric IDs and email remain rolling-
-// compatibility selectors for existing clients.
+// resolveToUID preserves the V1 selector priority while adding public short
+// IDs. Existing clients that send both to_uid and to_email continue to resolve
+// to_uid first.
 func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int64, int, string) {
-	selectorCount := 0
-	if req.IsSetToUID() && strings.TrimSpace(*req.ToUID) != "" {
-		selectorCount++
-	}
-	if req.IsSetToShortID() && strings.TrimSpace(*req.ToShortID) != "" {
-		selectorCount++
-	}
-	if req.IsSetToEmail() && strings.TrimSpace(*req.ToEmail) != "" {
-		selectorCount++
-	}
-	if selectorCount != 1 {
-		return 0, 400, "exactly one of to_short_id, to_uid, or to_email is required"
-	}
-
 	// Path 1: to_uid provided
 	if req.IsSetToUID() && strings.TrimSpace(*req.ToUID) != "" {
 		uid, err := strconv.ParseInt(*req.ToUID, 10, 64)
@@ -1831,7 +1819,7 @@ func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int6
 		return targetID, 0, ""
 	}
 
-	return 0, 400, "exactly one of to_short_id, to_uid, or to_email is required"
+	return 0, 400, "to_short_id, to_uid, or to_email is required"
 }
 
 const emailToUIDCacheTTL = 24 * time.Hour
@@ -1921,19 +1909,19 @@ func SendFriendRequest(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	targetIdentity, identityErr := agentidentity.Get(ctx, db.DB, toUID)
-	if identityErr != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, "friend request succeeded but target identity could not be loaded", nil)
-		return
+	data := map[string]interface{}{
+		"request_id": strconv.FormatInt(resp.RequestId, 10),
 	}
-	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"request_id":          strconv.FormatInt(resp.RequestId, 10),
-		"target_short_id":     targetIdentity.ShortID,
-		"target_display_name": targetIdentity.DisplayName,
-		"target": map[string]interface{}{
+	if targetIdentity, identityErr := agentidentity.Get(ctx, db.DB, toUID); identityErr == nil {
+		data["target_short_id"] = targetIdentity.ShortID
+		data["target_display_name"] = targetIdentity.DisplayName
+		data["target"] = map[string]interface{}{
 			"short_id": targetIdentity.ShortID, "display_name": targetIdentity.DisplayName,
-		},
-	})
+		}
+	} else {
+		logger.Ctx(ctx).Warn("SendFriendRequest failed to load optional target identity", "targetAgentID", toUID, "err", identityErr)
+	}
+	writeJSON(c, http.StatusOK, 0, "success", data)
 }
 
 // HandleFriendRequest .
@@ -2150,8 +2138,8 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 	}
 	publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, requestAgentIDs)
 	if identityErr != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
-		return
+		logger.Ctx(ctx).Warn("ListFriendRequests failed to load optional public Agent identities", "agentID", agentID, "err", identityErr)
+		publicIdentities = map[int64]agentidentity.PublicIdentity{}
 	}
 	requests := make([]map[string]interface{}, 0, len(resp.Requests))
 	for _, r := range resp.Requests {
@@ -2239,8 +2227,8 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 	}
 	publicIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, friendNameIDs)
 	if identityErr != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, "failed to load public Agent identities", nil)
-		return
+		logger.Ctx(ctx).Warn("ListFriends failed to load optional public Agent identities", "agentID", agentID, "err", identityErr)
+		publicIdentities = map[int64]agentidentity.PublicIdentity{}
 	}
 	friends := make([]map[string]interface{}, 0, len(resp.Friends))
 	for _, f := range resp.Friends {

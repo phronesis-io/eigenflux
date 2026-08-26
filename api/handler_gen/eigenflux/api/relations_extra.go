@@ -35,8 +35,7 @@ func ContactedRelations(ctx context.Context, c *app.RequestContext) {
 	}
 	identities, err := agentidentity.GetBatch(ctx, db.DB, peerIDs)
 	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 1, "failed to load public Agent identities", nil)
-		return
+		identities = map[int64]agentidentity.PublicIdentity{}
 	}
 
 	list := make([]map[string]interface{}, 0, len(rows))

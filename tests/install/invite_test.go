@@ -49,21 +49,25 @@ func TestInviteCodeFlow(t *testing.T) {
 	cleanupInvite(t)
 	t.Cleanup(func() { cleanupInvite(t) })
 
-	// --- Agent registers; the short ID is exposed as the compatibility
-	// invite_code on /agents/me without creating a new personal EFI code. ---
+	// --- Agent registers; the short ID is additive while the V1 invite_code
+	// remains the stable EFI attribution code expected by existing clients. ---
 	kolToken, kolID, _ := testutil.LoginAndGetToken(t, inviterEmail)
 	me := testutil.DoGet(t, "/api/v1/agents/me", kolToken)
 	profile := me["data"].(map[string]interface{})["profile"].(map[string]interface{})
-	code, _ := profile["invite_code"].(string)
+	code, _ := profile["short_id"].(string)
 	if !shortIDRe.MatchString(code) {
-		t.Fatalf("expected a case-sensitive five-letter short ID on /agents/me, got %q", code)
+		t.Fatalf("expected a case-sensitive five-letter short_id on /agents/me, got %q", code)
+	}
+	legacyCode, _ := profile["invite_code"].(string)
+	if !strings.HasPrefix(legacyCode, "EFI-") {
+		t.Fatalf("expected legacy EFI invite_code on /agents/me, got %q", legacyCode)
 	}
 	var personalEFICodes int
 	if err := testutil.TestDB.QueryRow(`SELECT count(*) FROM invite_codes WHERE kind = 'kol' AND agent_id = $1`, kolID).Scan(&personalEFICodes); err != nil {
 		t.Fatalf("count personal EFI codes: %v", err)
 	}
-	if personalEFICodes != 0 {
-		t.Fatalf("new Agents must not receive personal EFI codes, got %d", personalEFICodes)
+	if personalEFICodes != 1 {
+		t.Fatalf("V1 compatibility must retain one personal EFI code, got %d", personalEFICodes)
 	}
 
 	// --- /r/<invite-code> mints a one-shot ref and serves the join doc ---

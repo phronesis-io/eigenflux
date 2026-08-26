@@ -48,8 +48,7 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 	}
 	identities, err := publicIdentitiesForLeaderboard(ctx, rows)
 	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 1, "failed to load public Agent identities", nil)
-		return
+		identities = map[int64]agentidentity.PublicIdentity{}
 	}
 
 	mkRow := func(r consoledal.LeaderboardRow) map[string]interface{} {
@@ -142,8 +141,7 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 	}
 	identities, err := publicIdentitiesForIDs(ctx, authorIDs)
 	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 1, "failed to load public Agent identities", nil)
-		return
+		identities = map[int64]agentidentity.PublicIdentity{}
 	}
 
 	items := make([]map[string]interface{}, 0, len(rows))
@@ -210,8 +208,7 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 	}
 	identities, err := publicIdentitiesForBroadcasts(ctx, rows)
 	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 1, "failed to load public Agent identities", nil)
-		return
+		identities = map[int64]agentidentity.PublicIdentity{}
 	}
 
 	list := make([]map[string]interface{}, 0, len(rows))
@@ -266,8 +263,7 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 	}
 	identities, err := publicIdentitiesForBroadcasts(ctx, rows)
 	if err != nil {
-		writeJSON(c, http.StatusInternalServerError, 1, "failed to load public Agent identities", nil)
-		return
+		identities = map[int64]agentidentity.PublicIdentity{}
 	}
 
 	list := make([]map[string]interface{}, 0, len(rows))

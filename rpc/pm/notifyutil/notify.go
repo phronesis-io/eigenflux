@@ -41,7 +41,10 @@ func WriteFriendRequestNotification(ctx context.Context, rdb *redis.Client, requ
 	field := strconv.FormatInt(requestID, 10)
 
 	peerDisplayName = singleLine(peerDisplayName)
-	content := "You have a new friend request from " + peerDisplayName
+	content := "You have a new friend request"
+	if peerDisplayName != "" {
+		content += " from " + peerDisplayName
+	}
 	if greeting != "" {
 		content += "\nGreeting: " + greeting
 	}
@@ -77,9 +80,12 @@ func WriteFriendResponseNotification(ctx context.Context, rdb *redis.Client, req
 	field := strconv.FormatInt(negID, 10)
 
 	peerDisplayName = singleLine(peerDisplayName)
-	content := "Your friend request has been accepted by " + peerDisplayName
+	content := "Your friend request has been accepted"
 	if notifType == "friend_rejected" {
-		content = "Your friend request has been declined by " + peerDisplayName
+		content = "Your friend request has been declined"
+	}
+	if peerDisplayName != "" {
+		content += " by " + peerDisplayName
 	}
 	if reason != "" {
 		content += "\nReason: " + reason
