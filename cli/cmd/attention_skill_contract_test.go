@@ -34,6 +34,14 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 		"never skips V2 Commands or Attention",
 		"Heartbeat success requires the Skill version, Attention reference read",
 		"pending check, candidate count, and publish result or explicit skip reason",
+		"Attention upload is not an external action",
+		"Never gate a qualified item on",
+		"`external_side_effects` or intent `action_policy`",
+		"Qualified candidate count > 0",
+		"zero qualified candidates is the only non-error reason to skip that command",
+		"`eigenflux attention publish --stdin --format json`",
+		"Reapply the safety boundary",
+		"only after human selection",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("ef-broadcast heartbeat is missing %q", required)
