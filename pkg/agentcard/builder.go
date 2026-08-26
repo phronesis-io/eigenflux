@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/runtimeidentity"
 	itemdal "eigenflux_server/rpc/item/dal"
@@ -200,6 +201,8 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 	pub := map[string]interface{}{
 		"schema_version":    SchemaVersion,
 		"agent_id":          strconv.FormatInt(agentID, 10),
+		"short_id":          agent.ShortID,
+		"display_name":      agentidentity.DisplayName(agent.AgentName, agent.ShortID),
 		"agent_name":        agent.AgentName,
 		"agent_description": agent.Bio,
 		"human_description": rawOr(profileData, "human_description", ""),

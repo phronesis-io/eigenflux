@@ -16,6 +16,7 @@ func TestNormalizeOnboardingDraftLocationsUsesStableValues(t *testing.T) {
 		{name: "canonical", geo: "CN", timezone: "Asia/Shanghai", wantGeo: "CN", wantTimezone: "Asia/Shanghai"},
 		{name: "display aliases", geo: "China", timezone: "Asia/Shanghai (UTC+8)", wantGeo: "CN", wantTimezone: "Asia/Shanghai"},
 		{name: "Singapore offset", geo: "Singapore", timezone: "UTC+8", wantGeo: "SG", wantTimezone: "Asia/Singapore"},
+		{name: "other stable values", geo: "FR", timezone: "Europe/Paris", wantGeo: "FR", wantTimezone: "Europe/Paris"},
 		{name: "ambiguous offset stays empty", geo: "", timezone: "UTC+8", wantGeo: "", wantTimezone: ""},
 	}
 	for _, test := range tests {

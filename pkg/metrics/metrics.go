@@ -25,6 +25,32 @@ var (
 	})
 )
 
+// Public Agent identity rollout metrics. Labels are deliberately bounded;
+// short IDs and Agent IDs never appear in metric labels.
+var (
+	AgentShortIDMissingTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "agent_short_id_missing_total", Help: "Agent rows observed without a valid public short ID.",
+	})
+	AgentShortIDGenerationCollisionTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "agent_short_id_generation_collision_total", Help: "Public short-ID candidates rejected by the database unique constraint.",
+	})
+	AgentShortIDGenerationFailureTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "agent_short_id_generation_failure_total", Help: "Public short-ID generation failures excluding uniqueness collisions.",
+	})
+	AgentShortIDLookupTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "agent_short_id_lookup_total", Help: "Public short-ID lookups by bounded result.",
+	}, []string{"result"})
+	AgentShortIDLookupRateLimitedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "agent_short_id_lookup_rate_limited_total", Help: "Anonymous public short-ID lookups rejected before database access.",
+	})
+	LegacyPersonalInviteResolutionTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "legacy_personal_invite_resolution_total", Help: "Successful resolutions of legacy personal EFI invite codes.",
+	})
+	FriendNotificationIdentityMissingTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "friend_notification_identity_missing_total", Help: "Friend notification events that could not resolve peer public identity.",
+	})
+)
+
 // RPC metrics (Kitex services).
 var (
 	RPCRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -188,5 +214,9 @@ func init() {
 		LLMCallDuration, LLMReasoningTokens, LLMCompletionTokens,
 		LRRankerReloadTotal, LRRankerFallbackTotal, LRRankerScoredItemsTotal,
 		LRRankerScoreDuration, LRRankerModelAge, LRRankerModelInfo,
+		AgentShortIDMissingTotal, AgentShortIDGenerationCollisionTotal,
+		AgentShortIDGenerationFailureTotal, AgentShortIDLookupTotal,
+		AgentShortIDLookupRateLimitedTotal, LegacyPersonalInviteResolutionTotal,
+		FriendNotificationIdentityMissingTotal,
 	)
 }

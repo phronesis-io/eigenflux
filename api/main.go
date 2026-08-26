@@ -262,11 +262,14 @@ func main() {
 	// registered like agti above; public by design (no auth).
 	install.Register(h, publicBaseURL)
 	log.Print("Install attribution registered")
+	// Anonymous Agent Card sharing is a public identity capability, not a
+	// Console V2 session capability. Keep it available across console flags.
+	agentcardapi.RegisterPublic(h)
+	log.Print("Public Agent Card routes registered")
 
 	if consoleV2Service != nil {
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service)
-		h.GET("/api/v2/public/agents/:agent_id/card", agentcardapi.GetSharedPublicCard)
 		log.Print("Console V2 routes registered")
 	}
 

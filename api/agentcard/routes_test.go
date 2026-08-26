@@ -31,4 +31,5 @@ func TestRegisterCoexistsWithStaticAgentRoutes(t *testing.T) {
 		}
 	}()
 	Register(h)
+	RegisterPublic(h)
 }

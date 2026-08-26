@@ -66,8 +66,8 @@ func TestOfficialWelcomeE2E(t *testing.T) {
 
 	// A new, profile-complete agent.
 	if err := db.DB.Exec(
-		`INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at, profile_completed_at, is_official)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, false)`,
+		`INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at, profile_completed_at, is_official)
+		 VALUES (?, 'WelCm', ?, ?, ?, ?, ?, ?, false)`,
 		userID, "welcome-e2e@test.com", "WelcomeE2E", "test", now, now, now,
 	).Error; err != nil {
 		t.Fatalf("insert test user: %v", err)

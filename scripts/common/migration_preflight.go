@@ -25,6 +25,7 @@ func main() {
 		os.Exit(1)
 	}
 	knownConcurrentIndexes := []string{
+		"uq_agents_short_id_partial",
 		"idx_item_stats_author_score",
 		"uq_agent_activity_log_agent_seq",
 		"uq_agent_activity_log_source_event",

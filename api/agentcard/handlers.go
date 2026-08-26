@@ -6,7 +6,9 @@ package agentcardapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,8 +25,10 @@ import (
 	"eigenflux_server/api/middleware"
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -101,6 +105,14 @@ func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }
 
+// RegisterPublic wires the anonymous, stable Agent Card routes independently
+// from Console V2. Public Agent identity must remain reachable when the
+// authenticated console is disabled or being rolled back.
+func RegisterPublic(h *server.Hertz) {
+	h.GET("/api/v2/public/agents/by-id/:agent_id/card", GetSharedPublicCardByAgentID)
+	h.GET("/api/v2/public/agents/:short_id/card", GetSharedPublicCard)
+}
+
 func respond(c *app.RequestContext, status int, code int, msg string, data map[string]interface{}) {
 	resp := map[string]interface{}{"code": code, "msg": msg}
 	if data != nil {
@@ -173,6 +185,7 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 }
 
 const agentCardPageSnapshotSQL = `SELECT agent.agent_name,
+		agent.short_id,
 		agent.bio,
 		COALESCE(profile.profile_version, 0) AS profile_version,
 		COALESCE(profile.profile_data, '{}'::jsonb)::text AS profile_data,
@@ -196,6 +209,7 @@ const agentCardPageSnapshotSQL = `SELECT agent.agent_name,
 
 type agentCardPageSnapshot struct {
 	AgentName      string `gorm:"column:agent_name"`
+	ShortID        string `gorm:"column:short_id"`
 	Bio            string `gorm:"column:bio"`
 	ProfileVersion int64  `gorm:"column:profile_version"`
 	ProfileData    string `gorm:"column:profile_data"`
@@ -235,7 +249,7 @@ func GetMyCardPage(ctx context.Context, c *app.RequestContext) {
 	}
 	currentValues := currentAgentCardValues(snapshot.AgentName, snapshot.Bio, profileData)
 	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, agentID)
-	publicCard = overlayMemberNumber(publicCard, snapshot.MemberNo)
+	publicCard = overlayPublicIdentity(publicCard, snapshot.MemberNo, snapshot.ShortID, snapshot.AgentName)
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"card": map[string]interface{}{
@@ -305,6 +319,7 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if !allowed {
+		metrics.AgentShortIDLookupRateLimitedTotal.Inc()
 		c.Header("Retry-After", "60")
 		respond(c, http.StatusTooManyRequests, 429, "too many card reads, slow down", nil)
 		return
@@ -346,18 +361,50 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-// GetSharedPublicCard serves the anonymous Agent Card share page. It reads the
-// already-built public projection only: private fields and viewer-relative
-// relationship data never enter this response.
+// GetSharedPublicCard serves the stable anonymous Agent Card route. The URL
+// accepts only the public short ID; numeric database IDs never appear in newly
+// generated share links.
 func GetSharedPublicCard(ctx context.Context, c *app.RequestContext) {
-	targetID, err := strconv.ParseInt(c.Param("agent_id"), 10, 64)
-	if err != nil || targetID <= 0 {
-		respond(c, http.StatusBadRequest, 400, "invalid agent_id", nil)
+	if !allowAnonymousCardLookup(ctx, c) {
 		return
 	}
-	card, err := profiledal.GetAgentCard(db.DB, targetID)
+	shortID := c.Param("short_id")
+	targetID, err := agentidentity.Lookup(ctx, db.DB, shortID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, agentidentity.ErrNotFound) {
+			respond(c, http.StatusNotFound, 404, "agent not found", nil)
+			return
+		}
+		logger.Ctx(ctx).Error("GetSharedPublicCard identity lookup failed", "shortID", shortID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to resolve agent", nil)
+		return
+	}
+	serveSharedPublicCard(ctx, c, targetID, shortID)
+}
+
+// GetSharedPublicCardByAgentID resolves legacy numeric links. New clients must
+// use GetSharedPublicCard and the short-ID share_path returned here.
+func GetSharedPublicCardByAgentID(ctx context.Context, c *app.RequestContext) {
+	if !allowAnonymousCardLookup(ctx, c) {
+		return
+	}
+	targetID, err := strconv.ParseInt(c.Param("agent_id"), 10, 64)
+	if err != nil || targetID <= 0 {
+		respond(c, http.StatusNotFound, 404, "agent not found", nil)
+		return
+	}
+	identity, err := agentidentity.Get(ctx, db.DB, targetID)
+	if err != nil {
+		respond(c, http.StatusNotFound, 404, "agent not found", nil)
+		return
+	}
+	serveSharedPublicCard(ctx, c, targetID, identity.ShortID)
+}
+
+func serveSharedPublicCard(ctx context.Context, c *app.RequestContext, targetID int64, shortID string) {
+	card, err := loadCardRebuildOnMiss(ctx, targetID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, agentcard.ErrAgentNotFound) {
 			respond(c, http.StatusNotFound, 404, "agent not found", nil)
 			return
 		}
@@ -366,37 +413,78 @@ func GetSharedPublicCard(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	c.Header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
-	c.Header("ETag", fmt.Sprintf("\"agent-card-%d-%d\"", targetID, card.PublicCardVersion))
+	c.Header("ETag", fmt.Sprintf("\"agent-card-%s-%d\"", shortID, card.PublicCardVersion))
+	identity, err := agentidentity.Get(ctx, db.DB, targetID)
+	if err != nil {
+		respond(c, http.StatusNotFound, 404, "agent not found", nil)
+		return
+	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"card":                overlayPublicMetadata(ctx, card.PublicCard, targetID),
+		"public_identity":     identity,
+		"share_path":          "/agent/" + identity.ShortID,
 		"public_card_version": card.PublicCardVersion,
 		"generated_at":        card.PublicCardGeneratedAt,
 	})
 }
 
-func overlayPublicMetadata(ctx context.Context, raw string, agentID int64) json.RawMessage {
-	card := overlayCurrentLastActive(ctx, raw, agentID)
-	var memberNo int64
-	if err := db.DB.Raw(`SELECT member_no FROM agent_network_memberships WHERE agent_id = ?`, agentID).Scan(&memberNo).Error; err != nil {
-		logger.Ctx(ctx).Warn("network member number unavailable", "agentID", agentID, "err", err)
+func allowAnonymousCardLookup(ctx context.Context, c *app.RequestContext) bool {
+	digest := sha256.Sum256([]byte(c.ClientIP()))
+	subject := int64(binary.BigEndian.Uint64(digest[:8]) & 0x7fffffffffffffff)
+	allowed, err := checkFixedWindow(ctx, mq.RDB, subject, "public-card-anonymous", 120, time.Minute, time.Now())
+	if err != nil {
+		logger.Ctx(ctx).Error("anonymous public card rate limiter unavailable", "err", err)
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusServiceUnavailable, 503, "card reads are temporarily unavailable", nil)
+		return false
 	}
-	return overlayMemberNumber(card, memberNo)
+	if !allowed {
+		c.Header("Retry-After", "60")
+		respond(c, http.StatusTooManyRequests, 429, "too many card reads, slow down", nil)
+		return false
+	}
+	return true
 }
 
-func overlayMemberNumber(card json.RawMessage, memberNo int64) json.RawMessage {
-	if memberNo <= 0 {
-		return card
+func overlayPublicMetadata(ctx context.Context, raw string, agentID int64) json.RawMessage {
+	card := overlayCurrentLastActive(ctx, raw, agentID)
+	var metadata struct {
+		MemberNo  int64  `gorm:"column:member_no"`
+		ShortID   string `gorm:"column:short_id"`
+		AgentName string `gorm:"column:agent_name"`
 	}
+	if err := db.DB.Raw(`SELECT COALESCE(m.member_no, 0) AS member_no, a.short_id, a.agent_name
+		FROM agents a LEFT JOIN agent_network_memberships m ON m.agent_id = a.agent_id
+		WHERE a.agent_id = ?`, agentID).Scan(&metadata).Error; err != nil {
+		logger.Ctx(ctx).Warn("network member number unavailable", "agentID", agentID, "err", err)
+	}
+	return overlayPublicIdentity(card, metadata.MemberNo, metadata.ShortID, metadata.AgentName)
+}
+
+func overlayPublicIdentity(card json.RawMessage, memberNo int64, shortID, agentName string) json.RawMessage {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(card, &payload); err != nil {
 		return card
 	}
-	payload["network_member_no"] = memberNo
+	if memberNo > 0 {
+		payload["network_member_no"] = memberNo
+	}
+	if agentidentity.ValidShortID(shortID) {
+		payload["short_id"] = shortID
+		payload["display_name"] = agentidentity.DisplayName(agentName, shortID)
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return card
 	}
 	return json.RawMessage(encoded)
+}
+
+// overlayMemberNumber remains as the narrow compatibility helper used by
+// existing projection tests and internal callers that do not yet carry a
+// public identity.
+func overlayMemberNumber(card json.RawMessage, memberNo int64) json.RawMessage {
+	return overlayPublicIdentity(card, memberNo, "", "")
 }
 
 // overlayCurrentLastActive keeps the hot activity signal current without

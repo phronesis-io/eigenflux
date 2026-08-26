@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/profile"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/reqinfo"
@@ -46,21 +47,25 @@ func (s *ProfileServiceImpl) RegisterAgent(ctx context.Context, req *profile.Reg
 		AgentName: req.GetAgentName(),
 		Bio:       req.GetBio(),
 	}
-	if err := dal.CreateAgent(db.DB, agent); err != nil {
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.CreateAgent(tx, agent); err != nil {
+			return err
+		}
+		return dal.CreateAgentProfile(tx, &dal.AgentProfile{AgentID: agent.AgentID, Status: 0})
+	})
+	if err != nil {
 		return &profile.RegisterAgentResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
 		}, nil
 	}
-	// Create initial agent_profiles record with status=0 (pending)
-	ap := &dal.AgentProfile{
-		AgentID: agent.AgentID,
-		Status:  0,
-	}
-	dal.CreateAgentProfile(db.DB, ap)
+	agentcard.PublishRebuild(ctx, agent.AgentID, "agent_registered")
+	displayName := agentidentity.DisplayName(agent.AgentName, agent.ShortID)
 
 	return &profile.RegisterAgentResp{
-		AgentId:  agent.AgentID,
-		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
+		AgentId:     agent.AgentID,
+		ShortId:     &agent.ShortID,
+		DisplayName: &displayName,
+		BaseResp:    &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 
@@ -259,16 +264,19 @@ func (s *ProfileServiceImpl) GetAgent(ctx context.Context, req *profile.GetAgent
 		}
 	}
 
+	displayName := agentidentity.DisplayName(agent.AgentName, agent.ShortID)
 	resp := &profile.GetAgentResp{
 		Agent: &profile.Agent{
-			Id:        agent.AgentID,
-			Email:     agent.Email,
-			AgentName: agent.AgentName,
-			Bio:       agent.Bio,
-			CreatedAt: agent.CreatedAt,
-			UpdatedAt: updatedAt,
-			Country:   &country,
-			Keywords:  keywords,
+			Id:          agent.AgentID,
+			Email:       agent.Email,
+			AgentName:   agent.AgentName,
+			Bio:         agent.Bio,
+			CreatedAt:   agent.CreatedAt,
+			UpdatedAt:   updatedAt,
+			Country:     &country,
+			Keywords:    keywords,
+			ShortId:     &agent.ShortID,
+			DisplayName: &displayName,
 		},
 		Influence: &profile.InfluenceMetrics{
 			TotalItems:    influence.TotalItems,

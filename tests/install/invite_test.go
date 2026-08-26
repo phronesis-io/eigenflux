@@ -16,11 +16,13 @@ func TestMain(m *testing.M) {
 }
 
 var inviteRefRe = regexp.MustCompile(`EF-[0-9A-Za-z]{8}`)
+var shortIDRe = regexp.MustCompile(`^[A-Za-z]{5}$`)
 
 const (
 	inviterEmail = "invite_kol@test.com"
 	inviteeEmail = "invite_new@test.com"
 	paidEmail    = "invite_paid@test.com"
+	legacyCode   = "EFI-tE5tAa"
 )
 
 func cleanupInvite(t *testing.T) {
@@ -28,16 +30,17 @@ func cleanupInvite(t *testing.T) {
 	// Remove invite codes owned by the test accounts and any tokens minted for
 	// them, then the accounts themselves (CleanupTestEmails doesn't know about
 	// invite tables).
-	testutil.TestDB.Exec(`DELETE FROM install_tokens WHERE invite_code IN
+	testutil.TestDB.Exec(`DELETE FROM install_tokens WHERE invite_code = $1 OR invite_code IN
 		(SELECT code FROM invite_codes WHERE agent_id IN
-			(SELECT agent_id FROM agents WHERE email IN ($1, $2)))`, inviterEmail, inviteeEmail)
+			(SELECT agent_id FROM agents WHERE email IN ($2, $3))) OR invite_code IN
+		(SELECT short_id FROM agents WHERE email IN ($2, $3))`, legacyCode, inviterEmail, inviteeEmail)
 	testutil.TestDB.Exec(`DELETE FROM invite_codes WHERE agent_id IN
 		(SELECT agent_id FROM agents WHERE email IN ($1, $2))`, inviterEmail, inviteeEmail)
 	testutil.CleanupTestEmails(t, inviterEmail, inviteeEmail, paidEmail)
 }
 
-// TestInviteCodeFlow covers the stable-invite-code path end to end: a KOL's
-// code is auto-provisioned and visible on /agents/me, resolving /r/<code>
+// TestInviteCodeFlow covers the public short-ID path end to end: an Agent's
+// immutable short ID is visible on /agents/me, resolving /r/<short-id>
 // mints a fresh one-shot ref, and the login-time report both keeps the funnel
 // semantics and writes the registration attribution (first-wins, self-invite
 // skipped).
@@ -46,13 +49,25 @@ func TestInviteCodeFlow(t *testing.T) {
 	cleanupInvite(t)
 	t.Cleanup(func() { cleanupInvite(t) })
 
-	// --- KOL registers; the code is provisioned and exposed on /agents/me ---
+	// --- Agent registers; the short ID is additive while the V1 invite_code
+	// remains the stable EFI attribution code expected by existing clients. ---
 	kolToken, kolID, _ := testutil.LoginAndGetToken(t, inviterEmail)
 	me := testutil.DoGet(t, "/api/v1/agents/me", kolToken)
 	profile := me["data"].(map[string]interface{})["profile"].(map[string]interface{})
-	code, _ := profile["invite_code"].(string)
-	if !strings.HasPrefix(code, "EFI-") || len(code) != 10 {
-		t.Fatalf("expected an EFI-xxxxxx invite code on /agents/me, got %q", code)
+	code, _ := profile["short_id"].(string)
+	if !shortIDRe.MatchString(code) {
+		t.Fatalf("expected a case-sensitive five-letter short_id on /agents/me, got %q", code)
+	}
+	legacyCode, _ := profile["invite_code"].(string)
+	if !strings.HasPrefix(legacyCode, "EFI-") {
+		t.Fatalf("expected legacy EFI invite_code on /agents/me, got %q", legacyCode)
+	}
+	var personalEFICodes int
+	if err := testutil.TestDB.QueryRow(`SELECT count(*) FROM invite_codes WHERE kind = 'kol' AND agent_id = $1`, kolID).Scan(&personalEFICodes); err != nil {
+		t.Fatalf("count personal EFI codes: %v", err)
+	}
+	if personalEFICodes != 1 {
+		t.Fatalf("V1 compatibility must retain one personal EFI code, got %d", personalEFICodes)
 	}
 
 	// --- /r/<invite-code> mints a one-shot ref and serves the join doc ---
@@ -166,6 +181,27 @@ func TestInviteCodeFlow(t *testing.T) {
 	// still attributes the KOL.
 	if attr4["channel"] != "redskills" {
 		t.Fatalf("explicit utm_source should keep the platform channel, got %v", attr4["channel"])
+	}
+
+	// --- historical personal EFI links remain readable until revoked. ---
+	if _, err := testutil.TestDB.Exec(`INSERT INTO invite_codes(code, kind, agent_id, name, note, created_at)
+		VALUES ($1, 'kol', $2, '', 'legacy compatibility fixture', extract(epoch from now())::bigint * 1000)`, legacyCode, kolID); err != nil {
+		t.Fatalf("insert historical personal EFI code: %v", err)
+	}
+	legacyDoc := httpGet(t, testutil.BaseURL+"/r/"+legacyCode)
+	if inviteRefRe.FindString(legacyDoc) == "" {
+		t.Fatalf("historical personal EFI link did not resolve")
+	}
+	if _, err := testutil.TestDB.Exec(`UPDATE invite_codes SET revoked_at = extract(epoch from now())::bigint * 1000 WHERE code = $1`, legacyCode); err != nil {
+		t.Fatalf("revoke historical personal EFI code: %v", err)
+	}
+	legacyResp, err := http.Get(testutil.BaseURL + "/r/" + legacyCode)
+	if err != nil {
+		t.Fatalf("GET revoked historical link: %v", err)
+	}
+	legacyResp.Body.Close()
+	if legacyResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("revoked historical personal EFI link should 404, got %d", legacyResp.StatusCode)
 	}
 
 	// --- paid path (no invite code): the verified report pins the platform

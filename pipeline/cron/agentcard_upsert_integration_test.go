@@ -151,8 +151,8 @@ func TestInfluenceRollupTracksFactMutations(t *testing.T) {
 	}
 	t.Cleanup(func() { tx.Rollback() })
 	const agentID, otherID, itemID, movedItemID = int64(9_100_001), int64(9_100_002), int64(9_200_001), int64(9_200_002)
-	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at) VALUES
-		(?, 'rollup-a@test.local', 'rollup-a', 1, 1), (?, 'rollup-b@test.local', 'rollup-b', 1, 1)`, agentID, otherID).Error; err != nil {
+	if err := tx.Exec(`INSERT INTO agents(agent_id,short_id,email,agent_name,created_at,updated_at) VALUES
+		(?, 'RoLlA', 'rollup-a@test.local', 'rollup-a', 1, 1), (?, 'RoLlB', 'rollup-b@test.local', 'rollup-b', 1, 1)`, agentID, otherID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES
@@ -194,8 +194,8 @@ func TestInfluenceBackfillRepairsDirectGooseState(t *testing.T) {
 	}
 	t.Cleanup(func() { tx.Rollback() })
 	const agentID, itemID = int64(9_110_001), int64(9_210_001)
-	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at)
-		VALUES (?,'backfill@test.local','backfill',1,1)`, agentID).Error; err != nil {
+	if err := tx.Exec(`INSERT INTO agents(agent_id,short_id,email,agent_name,created_at,updated_at)
+		VALUES (?,'BaCkf','backfill@test.local','backfill',1,1)`, agentID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES (?,?,'x',1)`, itemID, agentID).Error; err != nil {
@@ -239,7 +239,7 @@ func TestRollingDeploymentFenceTrigger(t *testing.T) {
 	}
 	t.Cleanup(func() { tx.Rollback() })
 	const agentID = int64(9_300_001)
-	if err := tx.Exec(`INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at) VALUES (?,'rolling@test.local','rolling',1,1)`, agentID).Error; err != nil {
+	if err := tx.Exec(`INSERT INTO agents(agent_id,short_id,email,agent_name,created_at,updated_at) VALUES (?,'RoLin','rolling@test.local','rolling',1,1)`, agentID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO agent_cards(agent_id,public_card,private_card,schema_version,source_version,card_version,generated_at,rebuild_fence)

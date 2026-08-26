@@ -1795,14 +1795,18 @@ var fieldIDToName_ListFriendRequestsReq = map[int16]string{
 }
 
 type FriendRequestInfo struct {
-	RequestId      int64   `thrift:"request_id,1,required" frugal:"1,required,i64" json:"request_id"`
-	FromUid        int64   `thrift:"from_uid,2,required" frugal:"2,required,i64" json:"from_uid"`
-	ToUid          int64   `thrift:"to_uid,3,required" frugal:"3,required,i64" json:"to_uid"`
-	CreatedAt      int64   `thrift:"created_at,4,required" frugal:"4,required,i64" json:"created_at"`
-	FromName       *string `thrift:"from_name,5,optional" frugal:"5,optional,string" json:"from_name,omitempty"`
-	ToName         *string `thrift:"to_name,6,optional" frugal:"6,optional,string" json:"to_name,omitempty"`
-	Greeting       *string `thrift:"greeting,7,optional" frugal:"7,optional,string" json:"greeting,omitempty"`
-	FromIsOfficial *bool   `thrift:"from_is_official,8,optional" frugal:"8,optional,bool" json:"from_is_official,omitempty"`
+	RequestId       int64   `thrift:"request_id,1,required" frugal:"1,required,i64" json:"request_id"`
+	FromUid         int64   `thrift:"from_uid,2,required" frugal:"2,required,i64" json:"from_uid"`
+	ToUid           int64   `thrift:"to_uid,3,required" frugal:"3,required,i64" json:"to_uid"`
+	CreatedAt       int64   `thrift:"created_at,4,required" frugal:"4,required,i64" json:"created_at"`
+	FromName        *string `thrift:"from_name,5,optional" frugal:"5,optional,string" json:"from_name,omitempty"`
+	ToName          *string `thrift:"to_name,6,optional" frugal:"6,optional,string" json:"to_name,omitempty"`
+	Greeting        *string `thrift:"greeting,7,optional" frugal:"7,optional,string" json:"greeting,omitempty"`
+	FromIsOfficial  *bool   `thrift:"from_is_official,8,optional" frugal:"8,optional,bool" json:"from_is_official,omitempty"`
+	FromShortId     *string `thrift:"from_short_id,9,optional" frugal:"9,optional,string" json:"from_short_id,omitempty"`
+	ToShortId       *string `thrift:"to_short_id,10,optional" frugal:"10,optional,string" json:"to_short_id,omitempty"`
+	FromDisplayName *string `thrift:"from_display_name,11,optional" frugal:"11,optional,string" json:"from_display_name,omitempty"`
+	ToDisplayName   *string `thrift:"to_display_name,12,optional" frugal:"12,optional,string" json:"to_display_name,omitempty"`
 }
 
 func NewFriendRequestInfo() *FriendRequestInfo {
@@ -1863,6 +1867,42 @@ func (p *FriendRequestInfo) GetFromIsOfficial() (v bool) {
 	}
 	return *p.FromIsOfficial
 }
+
+var FriendRequestInfo_FromShortId_DEFAULT string
+
+func (p *FriendRequestInfo) GetFromShortId() (v string) {
+	if !p.IsSetFromShortId() {
+		return FriendRequestInfo_FromShortId_DEFAULT
+	}
+	return *p.FromShortId
+}
+
+var FriendRequestInfo_ToShortId_DEFAULT string
+
+func (p *FriendRequestInfo) GetToShortId() (v string) {
+	if !p.IsSetToShortId() {
+		return FriendRequestInfo_ToShortId_DEFAULT
+	}
+	return *p.ToShortId
+}
+
+var FriendRequestInfo_FromDisplayName_DEFAULT string
+
+func (p *FriendRequestInfo) GetFromDisplayName() (v string) {
+	if !p.IsSetFromDisplayName() {
+		return FriendRequestInfo_FromDisplayName_DEFAULT
+	}
+	return *p.FromDisplayName
+}
+
+var FriendRequestInfo_ToDisplayName_DEFAULT string
+
+func (p *FriendRequestInfo) GetToDisplayName() (v string) {
+	if !p.IsSetToDisplayName() {
+		return FriendRequestInfo_ToDisplayName_DEFAULT
+	}
+	return *p.ToDisplayName
+}
 func (p *FriendRequestInfo) SetRequestId(val int64) {
 	p.RequestId = val
 }
@@ -1887,6 +1927,18 @@ func (p *FriendRequestInfo) SetGreeting(val *string) {
 func (p *FriendRequestInfo) SetFromIsOfficial(val *bool) {
 	p.FromIsOfficial = val
 }
+func (p *FriendRequestInfo) SetFromShortId(val *string) {
+	p.FromShortId = val
+}
+func (p *FriendRequestInfo) SetToShortId(val *string) {
+	p.ToShortId = val
+}
+func (p *FriendRequestInfo) SetFromDisplayName(val *string) {
+	p.FromDisplayName = val
+}
+func (p *FriendRequestInfo) SetToDisplayName(val *string) {
+	p.ToDisplayName = val
+}
 
 func (p *FriendRequestInfo) IsSetFromName() bool {
 	return p.FromName != nil
@@ -1904,6 +1956,22 @@ func (p *FriendRequestInfo) IsSetFromIsOfficial() bool {
 	return p.FromIsOfficial != nil
 }
 
+func (p *FriendRequestInfo) IsSetFromShortId() bool {
+	return p.FromShortId != nil
+}
+
+func (p *FriendRequestInfo) IsSetToShortId() bool {
+	return p.ToShortId != nil
+}
+
+func (p *FriendRequestInfo) IsSetFromDisplayName() bool {
+	return p.FromDisplayName != nil
+}
+
+func (p *FriendRequestInfo) IsSetToDisplayName() bool {
+	return p.ToDisplayName != nil
+}
+
 func (p *FriendRequestInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -1912,14 +1980,18 @@ func (p *FriendRequestInfo) String() string {
 }
 
 var fieldIDToName_FriendRequestInfo = map[int16]string{
-	1: "request_id",
-	2: "from_uid",
-	3: "to_uid",
-	4: "created_at",
-	5: "from_name",
-	6: "to_name",
-	7: "greeting",
-	8: "from_is_official",
+	1:  "request_id",
+	2:  "from_uid",
+	3:  "to_uid",
+	4:  "created_at",
+	5:  "from_name",
+	6:  "to_name",
+	7:  "greeting",
+	8:  "from_is_official",
+	9:  "from_short_id",
+	10: "to_short_id",
+	11: "from_display_name",
+	12: "to_display_name",
 }
 
 type ListFriendRequestsResp struct {
@@ -2069,6 +2141,8 @@ type FriendInfo struct {
 	Bio           *string `thrift:"bio,5,optional" frugal:"5,optional,string" json:"bio,omitempty"`
 	LastDmPreview *string `thrift:"last_dm_preview,6,optional" frugal:"6,optional,string" json:"last_dm_preview,omitempty"`
 	LastDmTime    *int64  `thrift:"last_dm_time,7,optional" frugal:"7,optional,i64" json:"last_dm_time,omitempty"`
+	ShortId       *string `thrift:"short_id,8,optional" frugal:"8,optional,string" json:"short_id,omitempty"`
+	DisplayName   *string `thrift:"display_name,9,optional" frugal:"9,optional,string" json:"display_name,omitempty"`
 }
 
 func NewFriendInfo() *FriendInfo {
@@ -2125,6 +2199,24 @@ func (p *FriendInfo) GetLastDmTime() (v int64) {
 	}
 	return *p.LastDmTime
 }
+
+var FriendInfo_ShortId_DEFAULT string
+
+func (p *FriendInfo) GetShortId() (v string) {
+	if !p.IsSetShortId() {
+		return FriendInfo_ShortId_DEFAULT
+	}
+	return *p.ShortId
+}
+
+var FriendInfo_DisplayName_DEFAULT string
+
+func (p *FriendInfo) GetDisplayName() (v string) {
+	if !p.IsSetDisplayName() {
+		return FriendInfo_DisplayName_DEFAULT
+	}
+	return *p.DisplayName
+}
 func (p *FriendInfo) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -2146,6 +2238,12 @@ func (p *FriendInfo) SetLastDmPreview(val *string) {
 func (p *FriendInfo) SetLastDmTime(val *int64) {
 	p.LastDmTime = val
 }
+func (p *FriendInfo) SetShortId(val *string) {
+	p.ShortId = val
+}
+func (p *FriendInfo) SetDisplayName(val *string) {
+	p.DisplayName = val
+}
 
 func (p *FriendInfo) IsSetRemark() bool {
 	return p.Remark != nil
@@ -2163,6 +2261,14 @@ func (p *FriendInfo) IsSetLastDmTime() bool {
 	return p.LastDmTime != nil
 }
 
+func (p *FriendInfo) IsSetShortId() bool {
+	return p.ShortId != nil
+}
+
+func (p *FriendInfo) IsSetDisplayName() bool {
+	return p.DisplayName != nil
+}
+
 func (p *FriendInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -2178,6 +2284,8 @@ var fieldIDToName_FriendInfo = map[int16]string{
 	5: "bio",
 	6: "last_dm_preview",
 	7: "last_dm_time",
+	8: "short_id",
+	9: "display_name",
 }
 
 type ListFriendsResp struct {
