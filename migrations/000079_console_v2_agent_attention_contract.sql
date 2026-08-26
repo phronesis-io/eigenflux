@@ -5,7 +5,11 @@ SET LOCAL statement_timeout = '5min';
 -- +goose StatementBegin
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM agent_attention_items WHERE producer <> 'agent' LIMIT 1) THEN
+    IF EXISTS (
+        SELECT 1 FROM agent_attention_items
+        WHERE producer <> 'agent' OR protocol_version <> 'agent_attention.v1'
+        LIMIT 1
+    ) THEN
         RAISE EXCEPTION 'legacy Attention rows remain; 000078 must finish before contract';
     END IF;
     IF EXISTS (
@@ -15,6 +19,14 @@ BEGIN
         LIMIT 1
     ) THEN
         RAISE EXCEPTION 'invalid agent_attention.v1 rows prevent contract migration';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM agent_commands
+        WHERE command_type = 'attention_response'
+          AND payload->>'protocol_version' IS DISTINCT FROM 'agent_attention.v1'
+        LIMIT 1
+    ) THEN
+        RAISE EXCEPTION 'invalid agent_attention.v1 command payload prevents contract migration';
     END IF;
 END $$;
 -- +goose StatementEnd
@@ -29,6 +41,7 @@ ALTER TABLE agent_attention_items
             AND jsonb_typeof(actions_snapshot) = 'array') NOT VALID,
     ADD CONSTRAINT chk_agent_attention_protocol_kind
         CHECK (producer = 'agent'
+            AND protocol_version = 'agent_attention.v1'
             AND ((surface = 'participation' AND category IN
                     ('action_recommendation', 'goal_calibration', 'intent_update', 'other_decision'))
                 OR (surface = 'focus' AND category IN
@@ -49,6 +62,12 @@ ALTER TABLE agent_attention_items VALIDATE CONSTRAINT chk_agent_attention_protoc
 ALTER TABLE agent_attention_items VALIDATE CONSTRAINT chk_agent_attention_protocol_actions;
 ALTER TABLE agent_attention_items VALIDATE CONSTRAINT chk_agent_attention_protocol_revision;
 ALTER TABLE agent_attention_items VALIDATE CONSTRAINT chk_agent_attention_protocol_required;
+
+ALTER TABLE agent_commands
+    ADD CONSTRAINT chk_agent_commands_attention_protocol
+        CHECK (command_type <> 'attention_response'
+            OR payload->>'protocol_version' = 'agent_attention.v1') NOT VALID;
+ALTER TABLE agent_commands VALIDATE CONSTRAINT chk_agent_commands_attention_protocol;
 
 ALTER TABLE agent_attention_items
     ALTER COLUMN client_item_id SET NOT NULL,

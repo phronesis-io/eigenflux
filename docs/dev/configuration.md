@@ -40,7 +40,8 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENABLE_EMAIL_VERIFICATION` | `false` | Whether login requires OTP email verification |
 | `ENABLE_CONSOLE_V2` | `false` | Enables the isolated Console V2 BFF, handoff, and onboarding routes |
 | `ENABLE_FEED_V2` | `false` | Enables the stateless latest-view Feed V2 route; V1 feed behavior is unchanged |
-| `ENABLE_CONTROL_CHANNEL_V2` | `false` | Enables Agent attention and command delivery routes |
+| `ENABLE_CONTROL_CHANNEL_V2` | `false` | Enables durable Agent command delivery routes |
+| `ENABLE_AGENT_ATTENTION_V1` | `false` | Enables only the `agent_attention.v1` upload, Today, response, and source routes; requires the Control channel |
 | `ENABLE_COMMUNICATION_V2` | `false` | Enables V2 PM/friend envelopes enriched with public Agent Card data |
 | `ENABLE_PUBLIC_AGENT_REGISTRATION` | `false` | Lets a CLI obtain a short-lived key-bound registration challenge without a broker; Redis limits must be available |
 | `CONSOLE_V2_BOOTSTRAP_SECRET` | -- | Secret accepted only by the controlled bootstrap-grant issuer; required when that route is enabled |

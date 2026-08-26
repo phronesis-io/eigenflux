@@ -65,6 +65,7 @@ func TestAttentionSchemaEnumsMatchCLI(t *testing.T) {
 	}
 	var schema struct {
 		Extensions struct {
+			PersistedProtocolVersion string   `json:"persisted_protocol_version"`
 			PublishBodyMaxBytes     int      `json:"publish_body_max_bytes"`
 			CustomFlagMaxUTF8Bytes  int      `json:"custom_flag_max_utf8_bytes"`
 			ParticipationCategories []string `json:"participation_categories"`
@@ -80,6 +81,9 @@ func TestAttentionSchemaEnumsMatchCLI(t *testing.T) {
 	}
 	if schema.Extensions.PublishBodyMaxBytes != attentionBodyLimit || schema.Extensions.CustomFlagMaxUTF8Bytes != attentionCustomFlagLimit {
 		t.Fatalf("schema limits drifted: %#v", schema.Extensions)
+	}
+	if schema.Extensions.PersistedProtocolVersion != attentionSchemaVersion {
+		t.Fatalf("persisted protocol version=%q, want %q", schema.Extensions.PersistedProtocolVersion, attentionSchemaVersion)
 	}
 	assertAttentionStringSet(t, schema.Extensions.ParticipationPresetFlag, attentionPresetFlags["participation"])
 	assertAttentionStringSet(t, schema.Extensions.FocusPresetFlag, attentionPresetFlags["focus"])
