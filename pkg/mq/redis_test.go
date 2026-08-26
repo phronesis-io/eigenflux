@@ -30,6 +30,15 @@ func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	return mr, client
 }
 
+func TestPublishWithoutInitializedRedisReturnsError(t *testing.T) {
+	previous := RDB
+	RDB = nil
+	t.Cleanup(func() { RDB = previous })
+
+	_, err := Publish(context.Background(), "stream:test:missing", map[string]interface{}{"foo": "bar"})
+	require.EqualError(t, err, "redis is not initialized")
+}
+
 func TestConsumePendingClaimsExistingPendingMessages(t *testing.T) {
 	_, client := setupTestRedis(t)
 	ctx := context.Background()

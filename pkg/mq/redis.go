@@ -67,6 +67,9 @@ func Publish(ctx context.Context, stream string, values map[string]interface{}) 
 // bypassing the exempt list and default cap. MaxLen with Approx lets Redis trim
 // old entries cheaply at insert time. A non-positive maxLen writes unbounded.
 func PublishCapped(ctx context.Context, stream string, maxLen int64, values map[string]interface{}) (string, error) {
+	if RDB == nil {
+		return "", fmt.Errorf("redis is not initialized")
+	}
 	args := &redis.XAddArgs{Stream: stream, Values: values}
 	if maxLen > 0 {
 		args.MaxLen = maxLen
