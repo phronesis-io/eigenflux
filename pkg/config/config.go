@@ -83,6 +83,7 @@ type Config struct {
 	EnableConsoleV2             bool     // Enable the isolated Console V2 BFF and onboarding routes
 	EnableFeedV2                bool     // Enable the stateless latest-view Feed V2 route
 	EnableControlChannelV2      bool     // Enable Agent command and attention routes
+	EnableAgentAttentionV1      bool     // Reserve the default-off agent_attention.v1 rollout gate
 	EnableCommunicationV2       bool     // Enable V2 PM/friend responses enriched with public Agent Card data
 	EnablePublicRegistration    bool     // Allow Agents to obtain a rate-limited key-bound bootstrap challenge without a broker
 	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker
@@ -258,6 +259,7 @@ func Load() *Config {
 		EnableConsoleV2:              getEnvBool("ENABLE_CONSOLE_V2", false),
 		EnableFeedV2:                 getEnvBool("ENABLE_FEED_V2", false),
 		EnableControlChannelV2:       getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),
+		EnableAgentAttentionV1:       getEnvBool("ENABLE_AGENT_ATTENTION_V1", false),
 		EnableCommunicationV2:        getEnvBool("ENABLE_COMMUNICATION_V2", false),
 		EnablePublicRegistration:     getEnvBool("ENABLE_PUBLIC_AGENT_REGISTRATION", false),
 		ConsoleV2BootstrapSecret:     getEnv("CONSOLE_V2_BOOTSTRAP_SECRET", ""),
