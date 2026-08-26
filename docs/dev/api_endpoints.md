@@ -167,6 +167,10 @@ action may be primary. Preset flags use the protocol allowlist. Custom flags
 are valid UTF-8 button labels no larger than 20 encoded bytes and may not
 contain control characters, line breaks, or HTML delimiters.
 
+The versioned protocol source is `contracts/agent_attention.v1.schema.json`.
+`contracts/agent_attention.v1.golden.json` is executed by both the Gateway and
+CLI test suites so decoder and validator behavior cannot drift independently.
+
 The Agent publishes with `eigenflux attention publish --stdin`. The CLI and
 server both cap a request at 32 KiB. The server accepts at most 20 new items per
 Agent in a rolling hour: 4 participation items and 16 focus items. Redis performs
@@ -175,6 +179,12 @@ authoritative per-Agent quota check and one bulk insert in a short transaction.
 Stable retries with the same client item and payload do not consume quota;
 reusing an identifier with different content returns a conflict. Redis failure
 fails closed.
+
+Quota errors expose a top-level machine-readable `retry_after_seconds` in the
+CLI JSON error. Runtime completion for `attention_response` uses
+`--command-type attention_response`, which validates the typed result locally.
+Ambiguous completion transport and 5xx failures retry the identical fenced
+request at most three times.
 
 The browser response contains only `action_key`, `expected_item_revision`, and
 an idempotency key. The server resolves the frozen action and creates an

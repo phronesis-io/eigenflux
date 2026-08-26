@@ -73,6 +73,7 @@ type Service struct {
 	notificationClient       notificationservice.Client
 	enableFeed               bool
 	enableControl            bool
+	enableAttentionV1        bool
 	enableCommunication      bool
 	enablePublicRegistration bool
 	registrationLimits       registrationRateLimits
@@ -153,6 +154,9 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 	if cfg.EnablePublicRegistration && strings.TrimSpace(cfg.ConsoleV2BootstrapSecret) == "" {
 		return nil, errors.New("CONSOLE_V2_BOOTSTRAP_SECRET is required for public Agent registration")
 	}
+	if cfg.EnableAgentAttentionV1 && !cfg.EnableControlChannelV2 {
+		return nil, errors.New("ENABLE_AGENT_ATTENTION_V1 requires ENABLE_CONTROL_CHANNEL_V2")
+	}
 	service := &Service{
 		db:                       gdb,
 		idgen:                    idgen,
@@ -164,6 +168,7 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		secureCookie:             parsed.Scheme == "https",
 		enableFeed:               cfg.EnableFeedV2,
 		enableControl:            cfg.EnableControlChannelV2,
+		enableAttentionV1:        cfg.EnableAgentAttentionV1,
 		enableCommunication:      cfg.EnableCommunicationV2,
 		enablePublicRegistration: cfg.EnablePublicRegistration,
 		registrationLimits:       registrationLimits,
@@ -202,11 +207,15 @@ func (s *Service) SetNotificationClient(client notificationservice.Client) {
 // revision or unique constraint. The normal mutation path pays no extra query;
 // a concurrent retry with the same request hash receives the committed result.
 func (s *Service) loadIdempotentResponse(agentID int64, operation, key, requestHash string, destination interface{}) (found, hashConflict bool, err error) {
+	return loadIdempotentResponseFrom(s.db, agentID, operation, key, requestHash, destination)
+}
+
+func loadIdempotentResponseFrom(db *gorm.DB, agentID int64, operation, key, requestHash string, destination interface{}) (found, hashConflict bool, err error) {
 	var row struct {
 		RequestHash string `gorm:"column:request_hash"`
 		Response    string `gorm:"column:response_snapshot"`
 	}
-	if err = s.db.Raw(`SELECT request_hash, response_snapshot::text AS response_snapshot
+	if err = db.Raw(`SELECT request_hash, response_snapshot::text AS response_snapshot
 		FROM agent_idempotency_requests
 		WHERE agent_id = ? AND operation = ? AND idempotency_key = ?`, agentID, operation, key).Scan(&row).Error; err != nil {
 		return false, false, err
@@ -339,13 +348,15 @@ func (s *Service) Register(h *server.Hertz) {
 		h.POST("/api/v2/notifications/ack", s.agentAuth("notifications:ack"), s.ackPendingNotifications)
 	}
 	if s.enableControl {
-		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.POST("/api/v2/agent-commands", s.consoleAuth(true), s.requireCompleted, s.createAgentCommand)
 		h.GET("/api/v2/agent-commands/pending", s.agentAuth("commands:claim"), s.listPendingCommands)
 		h.POST("/api/v2/agent-commands/:command_id/claim", s.agentAuth("commands:claim"), s.claimAgentCommand)
 		h.POST("/api/v2/agent-commands/:command_id/complete", s.agentAuth("commands:claim"), s.completeAgentCommand)
 		h.POST("/api/v2/runtime/heartbeat", s.agentAuth("commands:claim"), s.runtimeHeartbeat)
 		h.GET("/api/v2/runtime/control/stream", s.agentAuth("commands:claim"), s.streamRuntimeControl)
+	}
+	if s.enableAttentionV1 {
+		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.GET("/api/v2/console/attention-items", s.consoleAuth(false), s.requireCompleted, s.listAttentionItems)
 		h.GET("/api/v2/console/attention-items/:attention_id", s.consoleAuth(false), s.requireCompleted, s.getAttentionItem)
 		h.GET("/api/v2/console/attention-items/:attention_id/source", s.consoleAuth(false), s.requireCompleted, s.getAttentionSource)

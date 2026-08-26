@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -26,7 +25,6 @@ const (
 	feedMaxItems       = 20
 	feedPayloadBudget  = 192 << 10
 	feedResponseBudget = 256 << 10
-	attentionTTL       = 90 * 24 * time.Hour
 )
 
 type pullFeedRequest struct {
@@ -185,15 +183,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }
 
-type attentionSeed struct {
-	SourceType      string        `json:"source_type"`
-	SourceID        int64         `json:"source_id"`
-	Title           string        `json:"title"`
-	Summary         string        `json:"summary"`
-	ProposedActions interface{}   `json:"proposed_actions"`
-	MatchedIntentID []interface{} `json:"matched_intent_ids"`
-}
-
 type feedExposureSeed struct {
 	SourceType    string `json:"source_type"`
 	SourceID      int64  `json:"source_id"`
@@ -241,70 +230,6 @@ func persistFeedExposures(tx *gorm.DB, agentID int64, items []frozenFeedItem, co
 		 last_seen_at = EXCLUDED.last_seen_at,
 		 seen_count = agent_feed_exposures.seen_count + 1`,
 		agentID, contextRevision, now, now, string(encoded)).Error
-}
-
-// persistAttentionItems performs one bulk upsert plus one bulk relation insert
-// for the whole Feed page. Its query count is constant (two) for 1–20 items.
-func persistAttentionItems(tx *gorm.DB, agentID int64, items []frozenFeedItem, now int64) error {
-	seeds := make([]attentionSeed, 0, len(items))
-	for _, item := range items {
-		match, ok := item.IntentMatch.(map[string]interface{})
-		if !ok || match["status"] != "matched" {
-			continue
-		}
-		matched, ok := match["matched_intent_ids"].([]string)
-		if !ok || len(matched) == 0 {
-			continue
-		}
-		preview, _ := item.Payload["preview"].(map[string]interface{})
-		text, _ := preview["text"].(string)
-		title, _ := truncateRunes(text, 120)
-		summary, _ := truncateRunes(text, 500)
-		if title == "" {
-			title = "值得关注的网络动态"
-		}
-		ids := make([]interface{}, 0, len(matched))
-		for _, id := range matched {
-			ids = append(ids, id)
-		}
-		actions := item.Payload["recommended_actions"]
-		if actions == nil {
-			actions = []interface{}{}
-		}
-		seeds = append(seeds, attentionSeed{
-			SourceType: item.SourceType, SourceID: item.SourceID, Title: title, Summary: summary,
-			ProposedActions: actions, MatchedIntentID: ids,
-		})
-	}
-	if len(seeds) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(seeds)
-	if err != nil {
-		return err
-	}
-	if err := tx.Exec(`INSERT INTO agent_attention_items
-		(agent_id, title, summary, source_type, source_id, proposed_actions, status, created_at, expires_at)
-		SELECT ?, seed.title, seed.summary, seed.source_type, seed.source_id,
-			seed.proposed_actions, 'open', ?, ?
-		FROM jsonb_to_recordset(?::jsonb) AS seed(
-			source_type text, source_id bigint, title text, summary text,
-			proposed_actions jsonb, matched_intent_ids jsonb)
-		ON CONFLICT (agent_id, source_type, source_id) WHERE status = 'open' DO NOTHING`,
-		agentID, now, now+int64(attentionTTL/time.Millisecond), string(encoded)).Error; err != nil {
-		return err
-	}
-	return tx.Exec(`INSERT INTO agent_attention_intents (agent_id, attention_id, intent_id)
-		SELECT ?, item.attention_id, intent.intent_id
-		FROM jsonb_to_recordset(?::jsonb) AS seed(
-			source_type text, source_id bigint, title text, summary text,
-			proposed_actions jsonb, matched_intent_ids jsonb)
-		JOIN agent_attention_items item ON item.agent_id = ?
-		 AND item.source_type = seed.source_type AND item.source_id = seed.source_id AND item.status = 'open'
-		CROSS JOIN LATERAL jsonb_array_elements_text(seed.matched_intent_ids) matched(intent_id)
-		JOIN agent_intent_actions intent ON intent.agent_id = ?
-		 AND intent.intent_id = matched.intent_id::bigint
-		ON CONFLICT DO NOTHING`, agentID, string(encoded), agentID, agentID).Error
 }
 
 type frozenFeedItem struct {

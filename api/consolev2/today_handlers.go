@@ -147,6 +147,14 @@ func calculateCardCompletionValues(values map[string]interface{}) (int, int, int
 	return completed, total, percent
 }
 
+func (s *Service) todayCapabilities() map[string]interface{} {
+	return map[string]interface{}{
+		"control_enabled":            s.enableControl,
+		"attention_enabled":          s.enableAttentionV1,
+		"agent_attention_v1_enabled": s.enableAttentionV1,
+	}
+}
+
 func calculateCardCompletion(publicJSON, privateJSON string) (int, int, int, error) {
 	publicCard := map[string]interface{}{}
 	privateCard := map[string]interface{}{}
@@ -224,14 +232,16 @@ func (s *Service) loadTodayAttentions(agentID, since int64, participationCursor,
 	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE surface = 'focus') AS focus_count,
 		COUNT(*) FILTER (WHERE surface = 'participation') AS participation_count
 		FROM agent_attention_items WHERE agent_id = ? AND producer = 'agent'
-		  AND status IN ('open','selected','pending','acted') AND created_at >= ?`, agentID, since).Scan(&counts).Error; err != nil {
+		  AND status IN ('open','selected','pending','acted') AND created_at >= ?
+		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentID, since).Scan(&counts).Error; err != nil {
 		return todayAttentionPage{}, todayAttentionPage{}, 0, 0, err
 	}
 
 	load := func(participation bool, limit int, cursor attentionCursor) (todayAttentionPage, error) {
 		var rows []attentionView
 		query := attentionSelect + ` WHERE item.agent_id = ? AND item.producer = 'agent'
-			AND item.created_at >= ? AND item.status IN ('open','selected','pending','acted')`
+			AND item.created_at >= ? AND item.status IN ('open','selected','pending','acted')
+			AND item.expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`
 		args := []interface{}{agentID, since}
 		if participation {
 			query += ` AND item.surface = 'participation'`
@@ -242,7 +252,7 @@ func (s *Service) loadTodayAttentions(agentID, since int64, participationCursor,
 			query += ` AND (item.created_at, item.attention_id) < (?, ?)`
 			args = append(args, cursor.CreatedAt, cursor.AttentionID)
 		}
-		query += ` GROUP BY item.attention_id ORDER BY item.created_at DESC, item.attention_id DESC LIMIT ?`
+		query += ` ORDER BY item.created_at DESC, item.attention_id DESC LIMIT ?`
 		args = append(args, limit+1)
 		if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
 			return todayAttentionPage{}, err
@@ -275,7 +285,7 @@ func (s *Service) loadTodayCommandReceipts(agentID int64, attentionIDs []int64) 
 	if err := s.db.Raw(`SELECT DISTINCT ON (attention_id) attention_id, command_id, status,
 		created_at, completed_at, COALESCE(result, '{}'::jsonb)::text AS result
 		FROM agent_commands
-		WHERE agent_id = ? AND attention_id = ANY(?)
+		WHERE agent_id = ? AND attention_id = ANY(?) AND command_type = 'attention_response'
 		ORDER BY attention_id, created_at DESC, command_id DESC`, agentID, pq.Array(attentionIDs)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -573,7 +583,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		"schema_version": "console_today.v2",
 		"generated_at":   now.UnixMilli(),
 		"day":            todayDay, "timezone": timezoneName, "window_start": todayStart,
-		"capabilities": map[string]interface{}{"control_enabled": s.enableControl},
+		"capabilities": s.todayCapabilities(),
 		"network_goal": goalData,
 		"card_completion": map[string]interface{}{
 			"completed_fields": completedFields, "total_fields": totalFields, "percent": completionPercent,

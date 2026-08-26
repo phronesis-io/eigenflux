@@ -5,16 +5,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"eigenflux_server/pkg/agentidentity"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-const shortIDBackfillBatch = 500
+const shortIDBackfillBatch = 100
 
 var backfillCollisions int64
 
@@ -40,15 +42,10 @@ func main() {
 		if len(ids) == 0 {
 			break
 		}
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			for _, agentID := range ids {
-				if err := assignShortID(tx, agentID); err != nil {
-					return fmt.Errorf("backfill agent %d: %w", agentID, err)
-				}
+		for _, agentID := range ids {
+			if err := assignShortID(db, agentID); err != nil {
+				fatal(fmt.Errorf("backfill agent %d: %w", agentID, err))
 			}
-			return nil
-		}); err != nil {
-			fatal(err)
 		}
 		cursor = ids[len(ids)-1]
 		processed += int64(len(ids))
@@ -73,13 +70,13 @@ func assignShortID(db *gorm.DB, agentID int64) error {
 		if err != nil {
 			return err
 		}
-		// A candidate collision aborts a PostgreSQL transaction until rollback.
-		// Isolate each attempt in a nested transaction/savepoint so the outer
-		// 500-row batch can continue and still commit atomically.
-		err = db.Transaction(func(candidate *gorm.DB) error {
-			return candidate.Exec(`UPDATE agents SET short_id = ?
-				WHERE agent_id = ? AND short_id IS NULL`, shortID, agentID).Error
-		})
+		// Each candidate is one autocommit statement. A unique collision aborts
+		// only that statement, avoiding hundreds of nested SAVEPOINTs and row
+		// locks held across an entire deployment batch.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = db.WithContext(ctx).Exec(`UPDATE agents SET short_id = ?
+			WHERE agent_id = ? AND short_id IS NULL`, shortID, agentID).Error
+		cancel()
 		if err == nil {
 			return nil
 		}

@@ -55,7 +55,7 @@ func loadAttentionResponseReplay(tx *gorm.DB, agentID, attentionID, expectedRevi
 	}
 	result := tx.Raw(`SELECT actions_snapshot::text AS actions_snapshot,
 		source_ref::text AS source_ref, status, item_revision FROM agent_attention_items
-		WHERE agent_id = ? AND attention_id = ?`, agentID, attentionID).Scan(&row)
+		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'`, agentID, attentionID).Scan(&row)
 	if result.Error != nil {
 		return 0, "", "", false, result.Error
 	}
@@ -135,7 +135,8 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		if err := tx.Raw(`SELECT producer, status, surface, category, language, title, body, recommendation,
 			actions_snapshot::text AS actions_snapshot, context_ref::text AS context_ref,
 			payload_hash, item_revision, expires_at, source_ref::text AS source_ref
-			FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? FOR UPDATE`,
+			FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint FOR UPDATE`,
 			agentIDValue, attentionID).Scan(&item).Error; err != nil {
 			return err
 		}
@@ -234,7 +235,9 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		}
 		if err := tx.Raw(`UPDATE agent_attention_items SET status = ?, selected_action_key = ?,
 			response_status = 'pending', responded_at = ?, updated_at = ?, item_revision = item_revision + 1
-			WHERE agent_id = ? AND attention_id = ? AND status = 'open' AND item_revision = ?
+			WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+			  AND status = 'open' AND item_revision = ?
+			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint
 			RETURNING item_revision`, itemStatus, selected.ActionKey, now, now, agentIDValue, attentionID,
 			req.ExpectedItemRevision).Scan(&itemRevision).Error; err != nil {
 			return err
@@ -300,7 +303,8 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 	}
 	var stored string
 	storedResult := s.db.Raw(`SELECT source_ref::text FROM agent_attention_items
-		WHERE agent_id = ? AND attention_id = ?`, agentIDValue, attentionID).Scan(&stored)
+		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentIDValue, attentionID).Scan(&stored)
 	if storedResult.Error != nil {
 		fail(c, http.StatusInternalServerError, "ATTENTION_SOURCE_READ_FAILED", "could not read Attention source", nil)
 		return
@@ -448,15 +452,19 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			JOIN processed_items processed ON processed.item_id = exposure.source_id
 			WHERE message.msg_id = ? AND conversation.origin_type = 'broadcast'
 			  AND conversation.origin_id > 0
+			  AND conversation.status = 0
 			  AND conversation.origin_id = ?
 			  AND (message.sender_id = ? OR message.receiver_id = ?)`,
 			agentIDValue, parentID, sourceID, parentID, agentIDValue, agentIDValue).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.ReplyMessageID > 0 && row.ParentItemID == parentID
+		parentContent, parentTruncated := truncateRunes(row.ParentContent, 12000)
+		replyContent, replyTruncated := truncateRunes(row.ReplyContent, 2000)
 		detail = map[string]interface{}{
 			"parent_broadcast": map[string]interface{}{
 				"source_ref": map[string]interface{}{"type": "broadcast", "id": strconv.FormatInt(row.ParentItemID, 10)},
-				"content":    row.ParentContent, "summary": row.ParentSummary, "url": row.ParentURL,
+				"content":    parentContent, "content_truncated": parentTruncated,
+				"summary": row.ParentSummary, "url": row.ParentURL,
 				"author_agent_id": strconv.FormatInt(row.ParentAuthorAgentID, 10), "updated_at": row.ParentUpdatedAt,
 			},
 			"reply": map[string]interface{}{
@@ -464,8 +472,25 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 				"conversation_id": strconv.FormatInt(row.ConversationID, 10),
 				"sender_id":       strconv.FormatInt(row.ReplySenderID, 10),
 				"receiver_id":     strconv.FormatInt(row.ReplyReceiverID, 10),
-				"content":         row.ReplyContent, "created_at": row.ReplyCreatedAt,
+				"content":         replyContent, "content_truncated": replyTruncated, "created_at": row.ReplyCreatedAt,
 			},
+		}
+		if found {
+			participantIDs := uniqueInt64([]int64{row.ParentAuthorAgentID, row.ReplySenderID, row.ReplyReceiverID})
+			identities, identityErr := s.resolveIdentityAssertions(participantIDs)
+			if identityErr != nil {
+				err = identityErr
+				break
+			}
+			identityDetail := make(map[string]interface{}, len(identities))
+			for id, identity := range identities {
+				identityDetail[strconv.FormatInt(id, 10)] = identity
+			}
+			detail["agent_identities"] = identityDetail
+			peerAgentID = row.ReplySenderID
+			if peerAgentID == agentIDValue {
+				peerAgentID = row.ReplyReceiverID
+			}
 		}
 	case "private_message":
 		var row struct {
@@ -484,7 +509,8 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 		result := s.db.Raw(query, sourceID, agentIDValue, agentIDValue).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.MessageID > 0
-		detail = map[string]interface{}{"message_id": fmt.Sprintf("%d", row.MessageID), "conversation_id": fmt.Sprintf("%d", row.ConversationID), "sender_id": fmt.Sprintf("%d", row.SenderID), "receiver_id": fmt.Sprintf("%d", row.ReceiverID), "content": row.Content, "created_at": row.CreatedAt, "origin_id": row.OriginID}
+		content, truncated := truncateRunes(row.Content, 2000)
+		detail = map[string]interface{}{"message_id": fmt.Sprintf("%d", row.MessageID), "conversation_id": fmt.Sprintf("%d", row.ConversationID), "sender_id": fmt.Sprintf("%d", row.SenderID), "receiver_id": fmt.Sprintf("%d", row.ReceiverID), "content": content, "content_truncated": truncated, "created_at": row.CreatedAt, "origin_id": row.OriginID}
 	case "friend_request":
 		var row struct {
 			ID        int64  `gorm:"column:id"`

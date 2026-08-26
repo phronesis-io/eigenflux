@@ -87,6 +87,52 @@ func TestClientHandles401(t *testing.T) {
 	}
 }
 
+func TestClientPreservesV2RetryMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "37")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"code": "ATTENTION_RATE_LIMITED", "message": "limit reached",
+				"details": map[string]interface{}{"retry_after_seconds": 45, "remaining": map[string]int{"total": 0}},
+			},
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "at_test", "0.0.34", Meta{})
+	_, err := c.Post("/api/v2/agent-attention-items:publish", map[string]interface{}{})
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T (%v)", err, err)
+	}
+	if apiErr.ErrorCode != "ATTENTION_RATE_LIMITED" || apiErr.RetryAfterSeconds != 37 {
+		t.Fatalf("unexpected retry error: %#v", apiErr)
+	}
+	var details map[string]interface{}
+	if json.Unmarshal(apiErr.Details, &details) != nil || details["retry_after_seconds"] != float64(45) {
+		t.Fatalf("retry details were not preserved: %s", apiErr.Details)
+	}
+}
+
+func TestClientFallsBackToV2RetryDetails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"code": "ATTENTION_RATE_LIMITED", "message": "limit reached",
+				"details": map[string]interface{}{"retry_after_seconds": 45},
+			},
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "at_test", "0.0.34", Meta{})
+	_, err := c.Post("/api/v2/agent-attention-items:publish", map[string]interface{}{})
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr.RetryAfterSeconds != 45 {
+		t.Fatalf("details retry fallback missing: %#v (%v)", apiErr, err)
+	}
+}
+
 func TestClientDelete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {

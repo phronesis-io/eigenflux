@@ -22,13 +22,16 @@ import (
 )
 
 const (
-	attentionPublishBodyLimit  = 32 << 10
-	attentionPublishBatchMax   = 10
-	attentionHourlyTotal       = 20
-	attentionHourlyParticipate = 4
-	attentionHourlyFocus       = 16
-	attentionRateWindow        = time.Hour
-	attentionTextRetention     = 7 * 24 * time.Hour
+	attentionPublishBodyLimit   = 32 << 10
+	attentionPublishBatchMax    = 10
+	attentionHourlyTotal        = 20
+	attentionHourlyParticipate  = 4
+	attentionHourlyFocus        = 16
+	attentionRateWindow         = time.Hour
+	attentionTextRetention      = 7 * 24 * time.Hour
+	attentionPublishDBTimeout   = 2 * time.Second
+	attentionPublishReadTimeout = 500 * time.Millisecond
+	attentionRedisTimeout       = 250 * time.Millisecond
 )
 
 type attentionSourceRef struct {
@@ -411,7 +414,9 @@ func (s *Service) allowAttentionPublish(ctx context.Context, agentID int64, item
 	for _, item := range items {
 		args = append(args, attentionRateMember(item.ClientItemID, reservationToken), item.Surface)
 	}
-	values, err := attentionRateScript.Run(ctx, s.redisClient, keys, args...).Slice()
+	redisCtx, cancel := context.WithTimeout(ctx, attentionRedisTimeout)
+	defer cancel()
+	values, err := attentionRateScript.Run(redisCtx, s.redisClient, keys, args...).Slice()
 	if err != nil || len(values) != 5 {
 		return 0, attentionRateRemaining{}, fmt.Errorf("Attention rate limiter failed: %w", err)
 	}
@@ -457,7 +462,9 @@ func (s *Service) releaseAttentionPublish(ctx context.Context, agentID int64, it
 	for _, item := range items {
 		members = append(members, attentionRateMember(item.ClientItemID, reservationToken))
 	}
-	return attentionRateReleaseScript.Run(ctx, s.redisClient, keys, members...).Err()
+	redisCtx, cancel := context.WithTimeout(ctx, attentionRedisTimeout)
+	defer cancel()
+	return attentionRateReleaseScript.Run(redisCtx, s.redisClient, keys, members...).Err()
 }
 
 type attentionRateRow struct {
@@ -484,7 +491,9 @@ func (s *Service) reconcileAttentionRateWindow(ctx context.Context, agentID int6
 	for _, row := range rows {
 		args = append(args, attentionRateMember(row.ClientItemID, ""), row.Surface, row.CreatedAt)
 	}
-	return attentionRateReconcileScript.Run(ctx, s.redisClient, attentionRateKeys(agentID), args...).Err()
+	redisCtx, cancel := context.WithTimeout(ctx, attentionRedisTimeout)
+	defer cancel()
+	return attentionRateReconcileScript.Run(redisCtx, s.redisClient, attentionRateKeys(agentID), args...).Err()
 }
 
 func parseOptionalPositiveID(raw *string) (int64, bool) {
@@ -544,6 +553,7 @@ func authorizeAttentionSources(tx *gorm.DB, agentID int64, items []attentionPubl
 				 AND exposure.source_type = 'broadcast' AND exposure.source_id = requested.parent_id
 				WHERE conversation.origin_type = 'broadcast'
 				  AND conversation.origin_id > 0
+				  AND conversation.status = 0
 				  AND conversation.origin_id = requested.parent_id
 				  AND (message.sender_id = ? OR message.receiver_id = ?)`, string(encoded), agentID, agentID, agentID).Scan(&count)
 		case "private_message":
@@ -685,7 +695,16 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 	}
 	requestHash := hashString(string(raw))
 	var replayPayload map[string]interface{}
-	if found, conflict, readErr := s.loadIdempotentResponse(agentIDValue, "attention_publish", req.IdempotencyKey, requestHash, &replayPayload); readErr != nil {
+	readCtx, cancelRead := context.WithTimeout(ctx, attentionPublishReadTimeout)
+	found, conflict, readErr := loadIdempotentResponseFrom(s.db.WithContext(readCtx), agentIDValue,
+		"attention_publish", req.IdempotencyKey, requestHash, &replayPayload)
+	cancelRead()
+	if readErr != nil {
+		if attentionPublishTemporarilyUnavailable(readErr) {
+			c.Header("Retry-After", "1")
+			fail(c, http.StatusServiceUnavailable, "ATTENTION_PUBLISH_BUSY", "Attention upload is temporarily busy", nil)
+			return
+		}
 		fail(c, http.StatusInternalServerError, "ATTENTION_PUBLISH_FAILED", "could not verify Attention request", nil)
 		return
 	} else if conflict {
@@ -708,9 +727,21 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 	}
 	rateUnavailable := false
 	var reservedItems []attentionPublishItem
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`SELECT pg_advisory_xact_lock(?)`, agentIDValue^int64(0x41_54_54_4e)).Error; err != nil {
+	operationCtx, cancelOperation := context.WithTimeout(ctx, attentionPublishDBTimeout)
+	defer cancelOperation()
+	err = s.db.WithContext(operationCtx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`SET LOCAL lock_timeout = '250ms'`).Error; err != nil {
 			return err
+		}
+		if err := tx.Exec(`SET LOCAL statement_timeout = '1750ms'`).Error; err != nil {
+			return err
+		}
+		var lockAcquired bool
+		if err := tx.Raw(`SELECT pg_try_advisory_xact_lock(?)`, agentIDValue^int64(0x41_54_54_4e)).Scan(&lockAcquired).Error; err != nil {
+			return err
+		}
+		if !lockAcquired {
+			return errAttentionPublishBusy
 		}
 		clientIDs := make([]string, 0, len(req.Items))
 		for _, item := range req.Items {
@@ -721,7 +752,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 			PayloadHash  string `gorm:"column:payload_hash"`
 		}
 		if err := tx.Raw(`SELECT client_item_id, payload_hash FROM agent_attention_items
-			WHERE agent_id = ? AND client_item_id = ANY(?)`, agentIDValue, pq.Array(clientIDs)).Scan(&existing).Error; err != nil {
+			WHERE agent_id = ? AND producer = 'agent' AND client_item_id = ANY(?)`, agentIDValue, pq.Array(clientIDs)).Scan(&existing).Error; err != nil {
 			return err
 		}
 		existingHashes := make(map[string]string, len(existing))
@@ -818,12 +849,12 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 			}
 			if err := tx.Exec(`INSERT INTO agent_attention_items
 				(agent_id, producer, surface, category, client_item_id, payload_hash, language,
-				 title, summary, body, recommendation, source_type, source_id, source_ref, context_ref,
-				 proposed_actions, actions_snapshot, status, item_revision, response_status,
+				 title, body, recommendation, source_type, source_id, source_ref, context_ref,
+				 actions_snapshot, status, item_revision, response_status,
 				 generated_at, created_at, updated_at, expires_at)
 				SELECT ?, 'agent', seed.surface, seed.category, seed.client_item_id, seed.payload_hash,
-				 seed.language, seed.title, seed.body, seed.body, seed.recommendation, seed.source_type,
-				 seed.source_id, seed.source_ref, seed.context_ref, seed.actions, seed.actions,
+				 seed.language, seed.title, seed.body, seed.recommendation, seed.source_type,
+				 seed.source_id, seed.source_ref, seed.context_ref, seed.actions,
 				 'open', 1, 'none', seed.generated_at, ?, ?, seed.expires_at
 				FROM jsonb_to_recordset(?::jsonb) AS seed(
 				 client_item_id text, payload_hash text, surface text, category text, language text,
@@ -835,7 +866,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		}
 		var rows []attentionPublishRow
 		if err := tx.Raw(`SELECT attention_id, client_item_id FROM agent_attention_items
-			WHERE agent_id = ? AND client_item_id = ANY(?) ORDER BY attention_id`, agentIDValue, pq.Array(clientIDs)).Scan(&rows).Error; err != nil {
+			WHERE agent_id = ? AND producer = 'agent' AND client_item_id = ANY(?) ORDER BY attention_id`, agentIDValue, pq.Array(clientIDs)).Scan(&rows).Error; err != nil {
 			return err
 		}
 		items := make([]map[string]interface{}, 0, len(rows))
@@ -853,7 +884,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		return nil
 	})
 	if err != nil && len(reservedItems) > 0 {
-		_ = s.releaseAttentionPublish(ctx, agentIDValue, reservedItems, reservationToken)
+		_ = s.releaseAttentionPublish(context.Background(), agentIDValue, reservedItems, reservationToken)
 	}
 	if errors.Is(err, errAttentionRateLimited) {
 		retryAfterSeconds := (rateRetryAfter + 999) / 1000
@@ -867,13 +898,21 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusServiceUnavailable, "ATTENTION_RATE_LIMIT_UNAVAILABLE", "Attention upload is temporarily unavailable", nil)
 		return
 	}
+	if attentionPublishTemporarilyUnavailable(err) {
+		c.Header("Retry-After", "1")
+		fail(c, http.StatusServiceUnavailable, "ATTENTION_PUBLISH_BUSY", "Attention upload is temporarily busy", nil)
+		return
+	}
 	if errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusForbidden, "ATTENTION_SOURCE_FORBIDDEN", "one or more Attention sources are unavailable", nil)
 		return
 	}
 	if errors.Is(err, errConflict) || isUniqueViolation(err) {
 		var replay map[string]interface{}
-		found, conflict, replayErr := s.loadIdempotentResponse(agentIDValue, "attention_publish", req.IdempotencyKey, requestHash, &replay)
+		replayCtx, cancelReplay := context.WithTimeout(ctx, attentionPublishReadTimeout)
+		found, conflict, replayErr := loadIdempotentResponseFrom(s.db.WithContext(replayCtx), agentIDValue,
+			"attention_publish", req.IdempotencyKey, requestHash, &replay)
+		cancelReplay()
 		if replayErr == nil && found && !conflict {
 			replay["replay"] = true
 			reply(c, http.StatusOK, replay)
@@ -889,4 +928,12 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 	reply(c, http.StatusCreated, result)
 }
 
-var errAttentionRateLimited = errors.New("Attention rate limited")
+var (
+	errAttentionRateLimited = errors.New("Attention rate limited")
+	errAttentionPublishBusy = errors.New("Attention publish busy")
+)
+
+func attentionPublishTemporarilyUnavailable(err error) bool {
+	return errors.Is(err, errAttentionPublishBusy) || errors.Is(err, context.DeadlineExceeded) ||
+		sqlState(err) == "55P03" || sqlState(err) == "57014"
+}

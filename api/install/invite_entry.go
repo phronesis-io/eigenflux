@@ -183,8 +183,8 @@ func attributeReportedAgent(t *Token, md map[string]any) {
 	if t.InviteCode == "" {
 		return
 	}
-	ic, err := invite.GetByCode(db.DB, t.InviteCode)
-	if err != nil || ic == nil {
+	ic := lookupInviteCode(t.InviteCode)
+	if ic == nil {
 		return
 	}
 	if ic.Kind == invite.KindKOL && ic.AgentID == agentID {

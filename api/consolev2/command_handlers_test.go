@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+func TestLegacyAttentionCommandTypeIsNotValid(t *testing.T) {
+	if validCommandType("attention_action") {
+		t.Fatal("legacy Attention command type remained enabled")
+	}
+}
+
 func TestValidateAttentionCommandResult(t *testing.T) {
 	valid := []string{
 		`{"summary":"已完成用户确认的动作。"}`,
@@ -30,6 +36,7 @@ func TestValidateAttentionCommandResult(t *testing.T) {
 		"{\"summary\":\"ok\",\"related_entities\":[{\"type\":\"broadcast\",\"id\":\"123\",\"url\":\"/safe\u0001path\"}]}",
 		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/handoff?ticket=secret"}]}`,
 		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/item/123?session=secret"}]}`,
+		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/item/456"}]}`,
 		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/item/123#nonce=secret"}]}`,
 	}
 	for _, raw := range invalid {

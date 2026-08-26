@@ -167,6 +167,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		ConsoleV2PublicURL:       "https://console.example.test",
 		EnableFeedV2:             true,
 		EnableControlChannelV2:   true,
+		EnableAgentAttentionV1:   true,
 		EnableCommunicationV2:    true,
 	})
 	if err != nil {
@@ -872,6 +873,13 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 	if decisionID == "" || signalID == "" {
 		t.Fatalf("Attention IDs missing from publish response: %#v", publishData)
 	}
+	status, legacyPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
+		CommandType: "attention_action", Payload: json.RawMessage(`{}`), AttentionID: &decisionID,
+		ActionIdempotencyKey: "legacy-action", IdempotencyKey: fmt.Sprintf("legacy-attention-%d", activityID),
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusGone || responseErrorCode(t, legacyPayload) != "LEGACY_ATTENTION_UNSUPPORTED" {
+		t.Fatalf("legacy Attention command was not explicitly rejected: status=%d payload=%#v", status, legacyPayload)
+	}
 
 	status, replayPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items:publish", request,
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
@@ -957,6 +965,14 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 	if status != http.StatusBadRequest || responseErrorCode(t, invalidCompletePayload) != "INVALID_ATTENTION_RESULT" {
 		t.Fatalf("unsafe Attention command result status=%d payload=%#v", status, invalidCompletePayload)
 	}
+	status, invalidCompletePayload, _ = performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
+		RuntimeInstanceID: "attention-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
+		ClaimToken: claimData["claim_token"].(string), Status: "completed",
+		Result: json.RawMessage(`{"summary":"Applied.","related_entities":[{"type":"broadcast","id":"999999999"}]}`),
+	}, ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusBadRequest || responseErrorCode(t, invalidCompletePayload) != "INVALID_ATTENTION_RESULT" {
+		t.Fatalf("unauthorized Attention related entity status=%d payload=%#v", status, invalidCompletePayload)
+	}
 	status, completePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands/"+commandID+"/complete", completeAgentCommandRequest{
 		RuntimeInstanceID: "attention-runtime", ClaimEpoch: int64(claimData["claim_epoch"].(float64)),
 		ClaimToken: claimData["claim_token"].(string), Status: "completed",
@@ -982,6 +998,15 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 	latest := participation["latest_command"].(map[string]interface{})
 	if participation["status"] != "acted" || latest["status"] != "completed" {
 		t.Fatalf("Today did not retain the completed Attention receipt: %#v", participation)
+	}
+	if err := gdb.Exec(`UPDATE agent_attention_items SET expires_at = ?
+		WHERE agent_id = ? AND attention_id = ?`, time.Now().Add(-time.Second).UnixMilli(), agentID, mustParseInt64(t, signalID)).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, expiredPayload, _ := performJSON(t, h, "GET", "/api/v2/console/attention-items/"+signalID+"/source", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusNotFound || responseErrorCode(t, expiredPayload) != "ATTENTION_SOURCE_NOT_FOUND" {
+		t.Fatalf("expired Attention source remained visible: status=%d payload=%#v", status, expiredPayload)
 	}
 
 	t.Cleanup(func() {

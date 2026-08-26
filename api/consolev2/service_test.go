@@ -189,6 +189,22 @@ func TestRegisterV2RoutesDoesNotConflictWithV1(t *testing.T) {
 	svc.Register(h)
 }
 
+func TestAttentionV1RequiresControlChannel(t *testing.T) {
+	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewService(gdb, &fixedIDGenerator{}, &config.Config{
+		ConsoleV2BootstrapSecret: "test-secret",
+		ConsoleV2OTPPepper:       "test-otp-pepper",
+		ConsoleV2PublicURL:       "https://console.example.test",
+		EnableAgentAttentionV1:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "ENABLE_CONTROL_CHANNEL_V2") {
+		t.Fatalf("Attention v1 started without its command dependency: %v", err)
+	}
+}
+
 func TestConsoleV2WebSocketRequestBoundary(t *testing.T) {
 	expected := "https://console.example.test"
 	if !validConsoleWebSocketRequest(expected, "console.example.test", consoleV2WebSocketProtocol, "", expected) {

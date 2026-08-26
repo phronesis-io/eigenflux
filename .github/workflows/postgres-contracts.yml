@@ -1,0 +1,62 @@
+name: PostgreSQL Contracts
+
+on:
+  pull_request:
+    paths:
+      - 'api/consolev2/**'
+      - 'api/install/**'
+      - 'migrations/**'
+      - 'pkg/consolev2retention/**'
+      - 'pkg/agentidentity/**'
+      - 'scripts/common/**'
+      - '.github/workflows/postgres-contracts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'api/consolev2/**'
+      - 'api/install/**'
+      - 'migrations/**'
+      - 'pkg/consolev2retention/**'
+      - 'pkg/agentidentity/**'
+      - 'scripts/common/**'
+      - '.github/workflows/postgres-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-contracts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eigenflux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d eigenflux"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Apply every migration and rollout helper
+        run: bash scripts/common/migrate_up.sh
+      - name: Verify migration source contracts
+        run: go test -count=1 ./migrations
+      - name: Verify PostgreSQL retention and identity semantics
+        run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
+      - name: Verify short-ID install attribution
+        run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
+      - name: Verify Console V2 PostgreSQL flow and races
+        run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|Postgres.*|AttentionContractGolden)'

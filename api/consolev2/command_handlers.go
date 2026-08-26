@@ -33,7 +33,7 @@ type createAgentCommandRequest struct {
 
 func validCommandType(value string) bool {
 	switch value {
-	case "human_instruction", "private_message", "broadcast_reply", "trade_update", "attention_action":
+	case "human_instruction", "private_message", "broadcast_reply", "trade_update":
 		return true
 	default:
 		return false
@@ -43,7 +43,19 @@ func validCommandType(value string) bool {
 func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	var req createAgentCommandRequest
-	if err := decodeBody(c, &req); err != nil || !validCommandType(req.CommandType) || req.IdempotencyKey == "" || len(req.IdempotencyKey) > 128 {
+	if err := decodeBody(c, &req); err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "command_type, payload, and idempotency_key are invalid", nil)
+		return
+	}
+	if req.CommandType == "attention_action" {
+		fail(c, http.StatusGone, "LEGACY_ATTENTION_UNSUPPORTED", "legacy Attention commands are no longer supported; use agent_attention.v1", nil)
+		return
+	}
+	if req.AttentionID != nil || req.ActionIdempotencyKey != "" {
+		fail(c, http.StatusBadRequest, "ATTENTION_COMMAND_FIELDS_UNSUPPORTED", "Attention commands must be created through the agent_attention.v1 response route", nil)
+		return
+	}
+	if !validCommandType(req.CommandType) || req.IdempotencyKey == "" || len(req.IdempotencyKey) > 128 {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "command_type, payload, and idempotency_key are invalid", nil)
 		return
 	}
@@ -64,10 +76,6 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 		}
 		attentionID = &parsed
 	}
-	if req.CommandType == "attention_action" && (attentionID == nil || req.ActionIdempotencyKey == "" || len(req.ActionIdempotencyKey) > 128) {
-		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_ACTION", "attention_id and action_idempotency_key are required", nil)
-		return
-	}
 	requestHash := hashString(req.CommandType + "\x00" + string(req.Payload) + "\x00" + fmt.Sprint(attentionID) + "\x00" + req.ActionIdempotencyKey)
 	now := time.Now().UnixMilli()
 	var commandID, contextRevision int64
@@ -87,53 +95,6 @@ func (s *Service) createAgentCommand(_ context.Context, c *app.RequestContext) {
 			}
 			commandID = prior.CommandID
 			return nil
-		}
-		if req.CommandType == "attention_action" {
-			var attention struct {
-				Status    string `gorm:"column:status"`
-				ExpiresAt *int64 `gorm:"column:expires_at"`
-				Actions   string `gorm:"column:proposed_actions"`
-			}
-			if err := tx.Raw(`SELECT status, expires_at, proposed_actions::text AS proposed_actions
-				FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? FOR UPDATE`,
-				agentIDValue, *attentionID).Scan(&attention).Error; err != nil {
-				return err
-			}
-			if attention.Status != "open" || (attention.ExpiresAt != nil && *attention.ExpiresAt <= now) {
-				return errConflict
-			}
-			var actions []map[string]interface{}
-			if json.Unmarshal([]byte(attention.Actions), &actions) != nil {
-				return errConflict
-			}
-			var canonical map[string]interface{}
-			for _, action := range actions {
-				if key, _ := action["action_idempotency_key"].(string); key == req.ActionIdempotencyKey {
-					canonical = action
-					break
-				}
-			}
-			if canonical == nil || canonical["requires_user_confirmation"] != true {
-				return errConflict
-			}
-			canonicalBytes, marshalErr := json.Marshal(canonical)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			req.Payload = canonicalBytes
-			requestHash = hashString(req.CommandType + "\x00" + string(canonicalBytes) + "\x00" + fmt.Sprint(attentionID) + "\x00" + req.ActionIdempotencyKey)
-			var existing struct {
-				CommandID       int64 `gorm:"column:command_id"`
-				ContextRevision int64 `gorm:"column:required_context_revision"`
-			}
-			if err := tx.Raw(`SELECT command_id, required_context_revision FROM agent_commands
-				WHERE agent_id = ? AND action_idempotency_key = ?`, agentIDValue, req.ActionIdempotencyKey).Scan(&existing).Error; err != nil {
-				return err
-			}
-			if existing.CommandID != 0 {
-				commandID, contextRevision = existing.CommandID, existing.ContextRevision
-				return nil
-			}
 		}
 		if err := tx.Raw(`SELECT active_revision FROM agent_context_heads
 			WHERE agent_id = ? FOR UPDATE`, agentIDValue).Scan(&contextRevision).Error; err != nil {
@@ -403,6 +364,23 @@ func validAttentionResultURL(raw string, trustedPublic bool) bool {
 	return true
 }
 
+func attentionResultURLMatchesEntity(raw, entityID string) bool {
+	if raw == "" {
+		return true
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return false
+	}
+	for _, segment := range strings.Split(strings.Trim(parsed.Path, "/"), "/") {
+		decoded, decodeErr := url.PathUnescape(segment)
+		if decodeErr == nil && decoded == entityID {
+			return true
+		}
+	}
+	return false
+}
+
 func validateAttentionCommandResult(raw json.RawMessage) error {
 	var result attentionCommandResult
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -420,8 +398,85 @@ func validateAttentionCommandResult(raw json.RawMessage) error {
 		if !attentionCommandResultEntityTypes[entity.Type] || !attentionActionKeyPattern.MatchString(entity.ID) ||
 			utf8.RuneCountInString(entity.Label) > 120 ||
 			(entity.Label != "" && strings.TrimSpace(entity.Label) == "") ||
-			!validAttentionResultURL(entity.URL, entity.TrustedPublic) {
+			!validAttentionResultURL(entity.URL, entity.TrustedPublic) ||
+			!attentionResultURLMatchesEntity(entity.URL, entity.ID) {
 			return errors.New("Attention result related entity is invalid")
+		}
+	}
+	return nil
+}
+
+func authorizeAttentionCommandResult(tx *gorm.DB, agentID int64, raw json.RawMessage) error {
+	var result attentionCommandResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return errInvalidAttentionCommandResult
+	}
+	for _, entity := range result.RelatedEntities {
+		var allowed bool
+		var query *gorm.DB
+		if entity.Type == "agent" {
+			query = tx.Raw(`SELECT EXISTS (
+				SELECT 1 FROM agents target
+				WHERE (target.short_id = ? OR target.agent_id::text = ?)
+				  AND (target.agent_id = ?
+				    OR EXISTS (SELECT 1 FROM user_relations relation
+				        WHERE (relation.from_uid = ? AND relation.to_uid = target.agent_id)
+				           OR (relation.to_uid = ? AND relation.from_uid = target.agent_id))
+				    OR EXISTS (SELECT 1 FROM friend_requests request
+				        WHERE (request.from_uid = ? AND request.to_uid = target.agent_id)
+				           OR (request.to_uid = ? AND request.from_uid = target.agent_id))
+				    OR EXISTS (SELECT 1 FROM private_messages message
+				        WHERE (message.sender_id = ? AND message.receiver_id = target.agent_id)
+				           OR (message.receiver_id = ? AND message.sender_id = target.agent_id))
+				    OR EXISTS (SELECT 1 FROM agent_feed_exposures exposure
+				        JOIN raw_items raw ON raw.item_id = exposure.source_id
+				        WHERE exposure.agent_id = ? AND exposure.source_type = 'broadcast'
+				          AND raw.author_agent_id = target.agent_id))
+			)`, entity.ID, entity.ID, agentID, agentID, agentID, agentID, agentID, agentID, agentID, agentID).Scan(&allowed)
+		} else {
+			entityID, err := strconv.ParseInt(entity.ID, 10, 64)
+			if err != nil || entityID <= 0 {
+				return errInvalidAttentionCommandResult
+			}
+			switch entity.Type {
+			case "broadcast":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM agent_feed_exposures
+					WHERE agent_id = ? AND source_type = 'broadcast' AND source_id = ?)`, agentID, entityID).Scan(&allowed)
+			case "broadcast_reply":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM private_messages message
+					JOIN conversations conversation ON conversation.conv_id = message.conv_id
+					WHERE message.msg_id = ? AND conversation.origin_type = 'broadcast'
+					  AND conversation.origin_id > 0
+					  AND conversation.status = 0
+					  AND (message.sender_id = ? OR message.receiver_id = ?))`, entityID, agentID, agentID).Scan(&allowed)
+			case "private_message":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM private_messages
+					WHERE msg_id = ? AND (sender_id = ? OR receiver_id = ?))`, entityID, agentID, agentID).Scan(&allowed)
+			case "friend_request":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM friend_requests
+					WHERE id = ? AND (from_uid = ? OR to_uid = ?))`, entityID, agentID, agentID).Scan(&allowed)
+			case "relation":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM user_relations
+					WHERE id = ? AND (from_uid = ? OR to_uid = ?))`, entityID, agentID, agentID).Scan(&allowed)
+			case "network_goal":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM agent_network_goals
+					WHERE goal_id = ? AND agent_id = ?)`, entityID, agentID).Scan(&allowed)
+			case "intent":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM agent_intent_actions
+					WHERE intent_id = ? AND agent_id = ?)`, entityID, agentID).Scan(&allowed)
+			case "activity":
+				query = tx.Raw(`SELECT EXISTS (SELECT 1 FROM agent_activity_log
+					WHERE log_id = ? AND agent_id = ?)`, entityID, agentID).Scan(&allowed)
+			}
+		}
+		if query == nil || query.Error != nil {
+			if query != nil {
+				return query.Error
+			}
+			return errInvalidAttentionCommandResult
+		}
+		if !allowed {
+			return errInvalidAttentionCommandResult
 		}
 	}
 	return nil
@@ -459,6 +514,9 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			if resultErr := validateAttentionCommandResult(req.Result); resultErr != nil {
 				return fmt.Errorf("%w: %v", errInvalidAttentionCommandResult, resultErr)
 			}
+			if resultErr := authorizeAttentionCommandResult(tx, agentIDValue, req.Result); resultErr != nil {
+				return fmt.Errorf("%w: related entity is not visible to this Agent", errInvalidAttentionCommandResult)
+			}
 		}
 		var updated struct {
 			CommandID   int64  `gorm:"column:command_id"`
@@ -474,8 +532,7 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			  AND claim_owner_runtime_id = ? AND claim_epoch = ? AND claim_token_hash = ?
 			  AND claim_until > clock.now_ms
 			RETURNING command_id, attention_id, command_type,
-				CASE WHEN command_type = 'attention_action' THEN true
-					 WHEN command_type = 'attention_response' THEN COALESCE(payload->>'terminal', 'false') = 'true'
+				CASE WHEN command_type = 'attention_response' THEN COALESCE(payload->>'terminal', 'false') = 'true'
 					 ELSE false END AS terminal`,
 			req.Status, string(req.Result), now, commandID, agentIDValue, req.RuntimeInstanceID,
 			req.ClaimEpoch, hashString(req.ClaimToken)).Scan(&updated).Error; err != nil {
@@ -491,7 +548,7 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 				}
 				return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = ?,
 					updated_at = ?, item_revision = item_revision + 1
-					WHERE agent_id = ? AND attention_id = ? AND status = 'pending'`,
+					WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND status = 'pending'`,
 					itemStatus, responseStatus, now, agentIDValue, *updated.AttentionID).Error
 			}
 			// open_source is repeatable and never owns the item's terminal state.
@@ -499,7 +556,7 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			// must not reopen the item or overwrite that choice's pending status.
 			return tx.Exec(`UPDATE agent_attention_items SET response_status = ?,
 				updated_at = ?, item_revision = item_revision + 1
-				WHERE agent_id = ? AND attention_id = ? AND status = 'open'`,
+				WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND status = 'open'`,
 				responseStatus, now, agentIDValue, *updated.AttentionID).Error
 		}
 		return nil
