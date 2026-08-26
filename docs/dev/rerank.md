@@ -11,7 +11,7 @@ Item discovery uses three layers: recall produces candidate IDs, the typed item 
 `rpc/sort/rerank` provides the policy chain and the policies currently used by `SortItems`:
 
 - `FreshnessPolicy` drops stale items according to type-specific YAML rules.
-- `BoostPolicy` applies operator weights to category/content-class signals and an optional item-ID whitelist multiplier; a whitelist match overrides category boost rules for that item.
+- `BoostPolicy` applies operator weights through `type`, `source_type`, and `content_class` rules plus optional per-item multipliers; a matching `item_id` skips all `boost_rules` for that item.
 - `InjectPolicy` reserves delivery capacity for candidates from configured recall sources.
 - `MatchLimitPolicy` caps candidates matching a configured recall-source predicate.
 
