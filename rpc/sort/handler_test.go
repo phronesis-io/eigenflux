@@ -91,6 +91,42 @@ policies:
 	assert.False(t, staleSourceKept)
 }
 
+func TestApplyPostRankBoost_ItemWhitelistOverridesAttributeBoost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rerank.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+policies:
+  - name: boost
+    item_boosts:
+      - item_id: 2
+        weight: 2
+    boost_rules:
+      - field: type
+        values: [supply]
+        weight: 3
+`), 0o644))
+
+	prev := itemRerankPolicies
+	itemRerankPolicies = loadRerankPolicySet(context.Background(), path, time.Now)
+	t.Cleanup(func() { itemRerankPolicies = prev })
+
+	ranked := []ranker.RankedItem{
+		{ItemID: 1, Score: 0.3},
+		{ItemID: 2, Score: 0.6},
+	}
+	itemMap := map[int64]sortDal.Item{
+		1: {ID: 1, Type: "supply"},
+		2: {ID: 2, Type: "supply"},
+	}
+
+	out := applyPostRankBoost(context.Background(), ranked, itemMap, nil)
+
+	require.Len(t, out, 2)
+	assert.Equal(t, int64(2), out[0].ItemID)
+	assert.InDelta(t, 1.2, out[0].Score, 1e-9)
+	assert.Equal(t, int64(1), out[1].ItemID)
+	assert.InDelta(t, 0.9, out[1].Score, 1e-9)
+}
+
 func TestLoadRerankPolicySet_BadConfigDisablesPolicies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rerank.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`

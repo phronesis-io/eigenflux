@@ -2,6 +2,7 @@ package rerank
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ type PolicyConfig struct {
 	Name        string                    `yaml:"name"`
 	ItemRules   []ItemFreshnessRuleConfig `yaml:"item_rules"`
 	BoostRules  []BoostRuleConfig         `yaml:"boost_rules"`
+	ItemBoosts  []ItemBoostConfig         `yaml:"item_boosts"`
 	InjectRules []InjectRuleConfig        `yaml:"inject_rules"`
 	Source      string                    `yaml:"source"`
 	MaxFraction string                    `yaml:"max_fraction"`
@@ -48,6 +50,11 @@ type BoostRuleConfig struct {
 	Field  string   `yaml:"field"`
 	Values []string `yaml:"values"`
 	Weight float64  `yaml:"weight"`
+}
+
+type ItemBoostConfig struct {
+	ItemID int64   `yaml:"item_id"`
+	Weight float64 `yaml:"weight"`
 }
 
 // InjectRuleConfig declares a force-insertion rule: pull up to Count candidates
@@ -224,6 +231,20 @@ func (pc PolicyConfig) newFreshnessPolicy(now func() time.Time) (*FreshnessPolic
 }
 
 func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
+	itemWeights := make(map[int64]float64, len(pc.ItemBoosts))
+	for _, itemBoost := range pc.ItemBoosts {
+		if itemBoost.ItemID <= 0 {
+			return nil, fmt.Errorf("item boost has non-positive item_id %d", itemBoost.ItemID)
+		}
+		if itemBoost.Weight <= 0 || math.IsNaN(itemBoost.Weight) || math.IsInf(itemBoost.Weight, 0) {
+			return nil, fmt.Errorf("item boost for item_id %d has invalid weight %v", itemBoost.ItemID, itemBoost.Weight)
+		}
+		if _, exists := itemWeights[itemBoost.ItemID]; exists {
+			return nil, fmt.Errorf("item boost has duplicate item_id %d", itemBoost.ItemID)
+		}
+		itemWeights[itemBoost.ItemID] = itemBoost.Weight
+	}
+
 	rules := make([]BoostRule, 0, len(pc.BoostRules))
 	for _, rc := range pc.BoostRules {
 		if rc.Field != "type" && rc.Field != "source_type" && rc.Field != "content_class" {
@@ -241,7 +262,7 @@ func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
 			Weight: rc.Weight,
 		})
 	}
-	return &BoostPolicy{Rules: rules}, nil
+	return &BoostPolicy{Rules: rules, ItemWeights: itemWeights}, nil
 }
 
 func parseConfigDuration(s string) (time.Duration, error) {

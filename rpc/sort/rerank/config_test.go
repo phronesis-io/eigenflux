@@ -1,6 +1,7 @@
 package rerank
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,6 +73,81 @@ policies:
 	assert.Equal(t, "content_class", policy.Rules[1].Field)
 	assert.Equal(t, []string{"ugc"}, policy.Rules[1].Values)
 	assert.Equal(t, 1.2, policy.Rules[1].Weight)
+}
+
+func TestLoadConfigBuildsItemBoosts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rerank.yaml")
+	err := os.WriteFile(path, []byte(`
+policies:
+  - name: boost
+    item_boosts:
+      - item_id: 123456
+        weight: 2.0
+      - item_id: 789012
+        weight: 1.5
+`), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	policies, err := cfg.NewPolicies(time.Now)
+	require.NoError(t, err)
+
+	require.Len(t, policies, 1)
+	policy, ok := policies[0].(*BoostPolicy)
+	require.True(t, ok)
+	assert.Equal(t, map[int64]float64{123456: 2.0, 789012: 1.5}, policy.ItemWeights)
+}
+
+func TestLoadConfigRejectsInvalidItemBoosts(t *testing.T) {
+	tests := []struct {
+		name   string
+		boosts []ItemBoostConfig
+	}{
+		{
+			name:   "zero item ID",
+			boosts: []ItemBoostConfig{{ItemID: 0, Weight: 1.2}},
+		},
+		{
+			name:   "negative item ID",
+			boosts: []ItemBoostConfig{{ItemID: -1, Weight: 1.2}},
+		},
+		{
+			name:   "zero weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: 0}},
+		},
+		{
+			name:   "negative weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: -1}},
+		},
+		{
+			name:   "NaN weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.NaN()}},
+		},
+		{
+			name:   "positive infinity weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.Inf(1)}},
+		},
+		{
+			name:   "negative infinity weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.Inf(-1)}},
+		},
+		{
+			name: "duplicate item ID",
+			boosts: []ItemBoostConfig{
+				{ItemID: 1, Weight: 1.2},
+				{ItemID: 1, Weight: 1.3},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Policies: []PolicyConfig{{Name: "boost", ItemBoosts: tc.boosts}}}
+			_, err := cfg.NewPolicies(time.Now)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLoadConfigParsesInjectRules(t *testing.T) {
