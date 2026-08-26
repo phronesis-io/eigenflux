@@ -31,7 +31,10 @@ func TestPostgresShortIDInviteAttribution(t *testing.T) {
 		created_at bigint NOT NULL, acquisition_channel text NOT NULL DEFAULT '',
 		invited_by_code text NOT NULL DEFAULT '', inviter_agent_id bigint NOT NULL DEFAULT 0,
 		invited_at bigint NOT NULL DEFAULT 0
-	) ON COMMIT PRESERVE ROWS; CREATE TEMP TABLE invite_codes (
+	) ON COMMIT PRESERVE ROWS`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`CREATE TEMP TABLE invite_codes (
 		code text PRIMARY KEY, kind text NOT NULL, agent_id bigint NOT NULL,
 		name text NOT NULL DEFAULT '', note text NOT NULL DEFAULT '', created_at bigint NOT NULL,
 		revoked_at bigint NULL
