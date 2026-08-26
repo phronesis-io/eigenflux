@@ -2,6 +2,11 @@
 -- +goose StatementBegin
 DO $$
 BEGIN
+    -- Serialize the complete repair with the membership trigger. The lock is
+    -- acquired before inspecting either table so an in-flight nextval/INSERT
+    -- cannot commit after setval and leave a hidden gap or future collision.
+    LOCK TABLE agent_network_memberships IN ACCESS EXCLUSIVE MODE;
+
     -- Migration 72's defensive ON CONFLICT paths evaluated the sequence
     -- default before discarding existing rows. Only rebuild when the stored
     -- public numbers differ from the authoritative valid-member join order.
@@ -23,30 +28,26 @@ BEGIN
            OR membership.member_no <> ranked.member_no
         LIMIT 1
     ) THEN
-        LOCK TABLE agent_network_memberships IN ACCESS EXCLUSIVE MODE;
+        DELETE FROM agent_network_memberships;
 
+        INSERT INTO agent_network_memberships (agent_id, member_no, joined_at)
         WITH ranked AS (
             SELECT agent.agent_id,
+                   agent.created_at AS joined_at,
                    ROW_NUMBER() OVER (
                        ORDER BY agent.profile_completed_at, agent.created_at, agent.agent_id
                    ) AS member_no
             FROM agents agent
             WHERE COALESCE(agent.profile_completed_at, 0) > 0
         )
-        UPDATE agent_network_memberships AS membership
-        SET member_no = -ranked.member_no
+        SELECT agent_id, member_no, joined_at
         FROM ranked
-        WHERE membership.agent_id = ranked.agent_id;
-
-        UPDATE agent_network_memberships
-        SET member_no = -member_no
-        WHERE member_no < 0;
+        ORDER BY member_no;
 
     END IF;
 
     -- Sequence defaults may have advanced even when every persisted public
-    -- number is already correct, so repair the allocator without taking the
-    -- table lock in that common case.
+    -- number is already correct, so repair the allocator under the same lock.
     PERFORM setval(
         'agent_network_member_no_seq',
         GREATEST(COALESCE((SELECT MAX(member_no) FROM agent_network_memberships), 0), 1),

@@ -348,7 +348,6 @@ func (s *Service) Register(h *server.Hertz) {
 		h.POST("/api/v2/notifications/ack", s.agentAuth("notifications:ack"), s.ackPendingNotifications)
 	}
 	if s.enableControl {
-		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.POST("/api/v2/agent-commands", s.consoleAuth(true), s.requireCompleted, s.createAgentCommand)
 		h.GET("/api/v2/agent-commands/pending", s.agentAuth("commands:claim"), s.listPendingCommands)
 		h.POST("/api/v2/agent-commands/:command_id/claim", s.agentAuth("commands:claim"), s.claimAgentCommand)

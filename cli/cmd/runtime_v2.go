@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/controlcontext"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -68,6 +71,12 @@ var runtimeV2HeartbeatCmd = &cobra.Command{
 }
 
 var runtimeV2CommandCmd = &cobra.Command{Use: "command", Short: "Claim and complete owner control commands"}
+
+const runtimeCommandCompleteMaxAttempts = 3
+
+type runtimeCommandPoster interface {
+	Post(path string, body interface{}) (*client.APIResponse, error)
+}
 
 var runtimeV2CommandPendingCmd = &cobra.Command{
 	Use:   "pending",
@@ -131,11 +140,12 @@ var runtimeV2CommandCompleteCmd = &cobra.Command{
 		claimEpoch, _ := cmd.Flags().GetInt64("claim-epoch")
 		status, _ := cmd.Flags().GetString("status")
 		resultText, _ := cmd.Flags().GetString("result")
+		commandType, _ := cmd.Flags().GetString("command-type")
 		if _, err := strconv.ParseInt(commandID, 10, 64); err != nil || claimToken == "" || claimEpoch <= 0 ||
 			(status != "completed" && status != "failed") {
 			return fmt.Errorf("command ID, claim token, positive claim epoch, and completed|failed status are required")
 		}
-		result, err := parseRuntimeCommandResult(resultText)
+		result, err := parseRuntimeCommandResultForType(resultText, commandType)
 		if err != nil {
 			return err
 		}
@@ -147,16 +157,41 @@ var runtimeV2CommandCompleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		response, err := clientV2.Post("/agent-commands/"+commandID+"/complete", map[string]interface{}{
+		request := map[string]interface{}{
 			"runtime_instance_id": runtimeID, "claim_epoch": claimEpoch, "claim_token": claimToken,
 			"status": status, "result": result,
-		})
+		}
+		response, err := postRuntimeCommandComplete(clientV2, "/agent-commands/"+commandID+"/complete", request, time.Sleep)
 		if err != nil {
 			return err
 		}
 		output.PrintData(response.Data, resolveFormat())
 		return nil
 	},
+}
+
+func postRuntimeCommandComplete(poster runtimeCommandPoster, path string, request map[string]interface{}, sleep func(time.Duration)) (*client.APIResponse, error) {
+	var lastErr error
+	for attempt := 1; attempt <= runtimeCommandCompleteMaxAttempts; attempt++ {
+		response, err := poster.Post(path, request)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if !retryableRuntimeCommandCompleteError(err) || attempt == runtimeCommandCompleteMaxAttempts {
+			break
+		}
+		sleep(time.Duration(attempt) * 200 * time.Millisecond)
+	}
+	return nil, lastErr
+}
+
+func retryableRuntimeCommandCompleteError(err error) bool {
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode >= 500
+	}
+	return true
 }
 
 func parseRuntimeCommandResult(resultText string) (map[string]interface{}, error) {
@@ -177,6 +212,7 @@ func init() {
 	runtimeV2CommandCompleteCmd.Flags().Int64("claim-epoch", 0, "claim fencing epoch returned by claim")
 	runtimeV2CommandCompleteCmd.Flags().String("status", "completed", "completion status: completed or failed")
 	runtimeV2CommandCompleteCmd.Flags().String("result", "{}", "JSON object result")
+	runtimeV2CommandCompleteCmd.Flags().String("command-type", "", "typed result contract; attention_response enables agent_attention.v1 validation")
 	runtimeV2CommandCmd.AddCommand(runtimeV2CommandPendingCmd, runtimeV2CommandClaimCmd, runtimeV2CommandCompleteCmd)
 	runtimeV2Cmd.AddCommand(runtimeV2HeartbeatCmd, runtimeV2CommandCmd)
 	rootCmd.AddCommand(runtimeV2Cmd)
