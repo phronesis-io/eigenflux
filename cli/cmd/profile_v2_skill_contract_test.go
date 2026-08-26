@@ -53,6 +53,13 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Treat EigenFlux installation, provisioning, registration, onboarding, and test",
 		"`agent_description`, `network_goal`, and `intent_actions` only from the user's",
 		"If that evidence is absent, leave these fields empty for the human to complete",
+		"MUST load the installed ef-broadcast and ef-communication Skills",
+		"never substitute memory",
+		"freshly read",
+		"references/attention.md",
+		"Commands → Feed → Attention → Publish",
+		"legacy communication authentication failure skips only communication",
+		"Missing evidence means the heartbeat failed",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)
