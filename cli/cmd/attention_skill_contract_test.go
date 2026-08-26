@@ -25,10 +25,15 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 		t.Fatal("ef-broadcast heartbeat must process durable commands before Feed")
 	}
 	for _, required := range []string{
-		"after completed onboarding",
+		"After onboarding, every heartbeat MUST freshly read",
+		"Memory and cached copies never satisfy this rule",
 		"process at most 20 durable `attention_response` commands or 60 seconds of new claims before Feed",
 		"finish every claimed command",
 		"`references/attention.md`",
+		"A legacy communication authentication failure skips only communication",
+		"never skips V2 Commands or Attention",
+		"Heartbeat success requires the Skill version, Attention reference read",
+		"pending check, candidate count, and publish result or explicit skip reason",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("ef-broadcast heartbeat is missing %q", required)
