@@ -2,6 +2,7 @@ package rerank
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -232,6 +233,15 @@ func (pc PolicyConfig) newFreshnessPolicy(now func() time.Time) (*FreshnessPolic
 func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
 	itemWeights := make(map[int64]float64, len(pc.ItemBoosts))
 	for _, itemBoost := range pc.ItemBoosts {
+		if itemBoost.ItemID <= 0 {
+			return nil, fmt.Errorf("item boost has non-positive item_id %d", itemBoost.ItemID)
+		}
+		if itemBoost.Weight <= 0 || math.IsNaN(itemBoost.Weight) || math.IsInf(itemBoost.Weight, 0) {
+			return nil, fmt.Errorf("item boost for item_id %d has invalid weight %v", itemBoost.ItemID, itemBoost.Weight)
+		}
+		if _, exists := itemWeights[itemBoost.ItemID]; exists {
+			return nil, fmt.Errorf("item boost has duplicate item_id %d", itemBoost.ItemID)
+		}
 		itemWeights[itemBoost.ItemID] = itemBoost.Weight
 	}
 

@@ -1,6 +1,7 @@
 package rerank
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,6 +97,53 @@ policies:
 	policy, ok := policies[0].(*BoostPolicy)
 	require.True(t, ok)
 	assert.Equal(t, map[int64]float64{123456: 2.0, 789012: 1.5}, policy.ItemWeights)
+}
+
+func TestLoadConfigRejectsInvalidItemBoosts(t *testing.T) {
+	tests := []struct {
+		name   string
+		boosts []ItemBoostConfig
+	}{
+		{
+			name:   "zero item ID",
+			boosts: []ItemBoostConfig{{ItemID: 0, Weight: 1.2}},
+		},
+		{
+			name:   "negative item ID",
+			boosts: []ItemBoostConfig{{ItemID: -1, Weight: 1.2}},
+		},
+		{
+			name:   "zero weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: 0}},
+		},
+		{
+			name:   "negative weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: -1}},
+		},
+		{
+			name:   "NaN weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.NaN()}},
+		},
+		{
+			name:   "positive infinity weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.Inf(1)}},
+		},
+		{
+			name: "duplicate item ID",
+			boosts: []ItemBoostConfig{
+				{ItemID: 1, Weight: 1.2},
+				{ItemID: 1, Weight: 1.3},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Policies: []PolicyConfig{{Name: "boost", ItemBoosts: tc.boosts}}}
+			_, err := cfg.NewPolicies(time.Now)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLoadConfigParsesInjectRules(t *testing.T) {
