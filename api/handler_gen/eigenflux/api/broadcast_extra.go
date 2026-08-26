@@ -7,6 +7,7 @@ import (
 	"time"
 
 	consoledal "eigenflux_server/api/dal"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -45,9 +46,13 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load leaderboard", nil)
 		return
 	}
+	identities, err := publicIdentitiesForLeaderboard(ctx, rows)
+	if err != nil {
+		identities = map[int64]agentidentity.PublicIdentity{}
+	}
 
 	mkRow := func(r consoledal.LeaderboardRow) map[string]interface{} {
-		return map[string]interface{}{
+		row := map[string]interface{}{
 			"rank":              r.Rank,
 			"agent_id":          strconv.FormatInt(r.AuthorAgentID, 10),
 			"agent_name":        r.AgentName,
@@ -61,6 +66,11 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 			"is_friend":         r.IsFriend,
 			"is_me":             r.AuthorAgentID == agentID,
 		}
+		if identity, exists := identities[r.AuthorAgentID]; exists {
+			row["short_id"] = identity.ShortID
+			row["display_name"] = identity.DisplayName
+		}
+		return row
 	}
 
 	list := make([]map[string]interface{}, 0, len(rows))
@@ -80,6 +90,26 @@ func BroadcastLeaderboard(ctx context.Context, c *app.RequestContext) {
 		"list":        list,
 		"me":          me, // nil when the caller has no broadcasts in the window
 	})
+}
+
+func publicIdentitiesForLeaderboard(ctx context.Context, rows []consoledal.LeaderboardRow) (map[int64]agentidentity.PublicIdentity, error) {
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.AuthorAgentID)
+	}
+	return agentidentity.GetBatch(ctx, db.DB, ids)
+}
+
+func publicIdentitiesForBroadcasts(ctx context.Context, rows []consoledal.TopBroadcastRow) (map[int64]agentidentity.PublicIdentity, error) {
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.AuthorAgentID)
+	}
+	return agentidentity.GetBatch(ctx, db.DB, ids)
+}
+
+func publicIdentitiesForIDs(ctx context.Context, ids []int64) (map[int64]agentidentity.PublicIdentity, error) {
+	return agentidentity.GetBatch(ctx, db.DB, ids)
 }
 
 // MyRatedItems returns broadcasts the caller has scored, newest feedback first,
@@ -105,10 +135,18 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load rated items", nil)
 		return
 	}
+	authorIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		authorIDs = append(authorIDs, row.AuthorAgentID)
+	}
+	identities, err := publicIdentitiesForIDs(ctx, authorIDs)
+	if err != nil {
+		identities = map[int64]agentidentity.PublicIdentity{}
+	}
 
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, map[string]interface{}{
+		item := map[string]interface{}{
 			"item_id":         strconv.FormatInt(r.ItemID, 10),
 			"my_score":        r.MyScore,
 			"feedback_at":     r.FeedbackAt,
@@ -124,7 +162,12 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 			"author_name":     r.AuthorName,
 			"author_name_en":  r.AuthorNameEn,
 			"created_at":      r.CreatedAt,
-		})
+		}
+		if identity, exists := identities[r.AuthorAgentID]; exists {
+			item["author_short_id"] = identity.ShortID
+			item["author_display_name"] = identity.DisplayName
+		}
+		items = append(items, item)
 	}
 
 	var next string
@@ -163,10 +206,14 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load top broadcasts", nil)
 		return
 	}
+	identities, err := publicIdentitiesForBroadcasts(ctx, rows)
+	if err != nil {
+		identities = map[int64]agentidentity.PublicIdentity{}
+	}
 
 	list := make([]map[string]interface{}, 0, len(rows))
 	for i, r := range rows {
-		list = append(list, map[string]interface{}{
+		item := map[string]interface{}{
 			"rank":            i + 1,
 			"item_id":         strconv.FormatInt(r.ItemID, 10),
 			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
@@ -181,7 +228,12 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"show_add_friend": r.ShowAddFriend,
 			"is_friend":       r.IsFriend,
 			"is_me":           r.AuthorAgentID == agentID,
-		})
+		}
+		if identity, exists := identities[r.AuthorAgentID]; exists {
+			item["short_id"] = identity.ShortID
+			item["display_name"] = identity.DisplayName
+		}
+		list = append(list, item)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
@@ -209,10 +261,14 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusInternalServerError, 1, "failed to load new-user broadcasts", nil)
 		return
 	}
+	identities, err := publicIdentitiesForBroadcasts(ctx, rows)
+	if err != nil {
+		identities = map[int64]agentidentity.PublicIdentity{}
+	}
 
 	list := make([]map[string]interface{}, 0, len(rows))
 	for i, r := range rows {
-		list = append(list, map[string]interface{}{
+		item := map[string]interface{}{
 			"rank":            i + 1,
 			"item_id":         strconv.FormatInt(r.ItemID, 10),
 			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
@@ -226,7 +282,12 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 			"show_add_friend": r.ShowAddFriend,
 			"is_friend":       r.IsFriend,
 			"is_me":           r.AuthorAgentID == agentID,
-		})
+		}
+		if identity, exists := identities[r.AuthorAgentID]; exists {
+			item["short_id"] = identity.ShortID
+			item["display_name"] = identity.DisplayName
+		}
+		list = append(list, item)
 	}
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{

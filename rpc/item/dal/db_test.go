@@ -48,7 +48,7 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 		db.DB.Exec("DELETE FROM agents WHERE agent_id = ?", authorID)
 	})
 	if err := db.DB.Exec(
-		"INSERT INTO agents (agent_id, email, agent_name, created_at, updated_at) VALUES (?, 'raw-info@example.com', 'Raw Info', extract(epoch from now())::bigint, extract(epoch from now())::bigint)",
+		"INSERT INTO agents (agent_id, short_id, email, agent_name, created_at, updated_at) VALUES (?, 'RaWin', 'raw-info@example.com', 'Raw Info', extract(epoch from now())::bigint, extract(epoch from now())::bigint)",
 		authorID,
 	).Error; err != nil {
 		t.Fatalf("insert author: %v", err)
@@ -153,7 +153,7 @@ func TestGetRecentItemInteractions(t *testing.T) {
 	})
 
 	if err := db.DB.Exec(
-		"INSERT INTO agents (agent_id, email, agent_name, created_at, updated_at) VALUES (?, ?, 'Scout', extract(epoch from now())::bigint, extract(epoch from now())::bigint)",
+		"INSERT INTO agents (agent_id, short_id, email, agent_name, created_at, updated_at) VALUES (?, 'ScOut', ?, 'Scout', extract(epoch from now())::bigint, extract(epoch from now())::bigint)",
 		namedAgent, "scout-999900210@ex.test",
 	).Error; err != nil {
 		t.Fatalf("insert agent: %v", err)

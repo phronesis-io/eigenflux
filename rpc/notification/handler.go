@@ -95,11 +95,14 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 				continue
 			}
 			all = append(all, &notificationrpc.PendingNotification{
-				NotificationId: requestID,
-				SourceType:     dal.SourceTypeFriendRequest,
-				Type:           n.Type,
-				Content:        n.Content,
-				CreatedAt:      n.CreatedAt,
+				NotificationId:  requestID,
+				SourceType:      dal.SourceTypeFriendRequest,
+				Type:            n.Type,
+				Content:         n.Content,
+				CreatedAt:       n.CreatedAt,
+				PeerShortId:     optionalString(n.PeerShortID),
+				PeerDisplayName: optionalString(n.PeerDisplayName),
+				FriendUid:       optionalInt64(n.FriendUID),
 			})
 		}
 	}
@@ -120,6 +123,20 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		Notifications: all,
 		BaseResp:      &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func optionalInt64(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	return &value
 }
 
 func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *notificationrpc.AckNotificationsReq) (*notificationrpc.AckNotificationsResp, error) {

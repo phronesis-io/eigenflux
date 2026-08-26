@@ -329,14 +329,15 @@ func GetLatestItems(db *gorm.DB, lastItemID int64, limit int) ([]*ProcessedItem,
 // ItemWithURL combines ProcessedItem with URL from RawItem
 type ItemWithURL struct {
 	ProcessedItem
-	RawURL     string
-	RawContent string
+	AuthorAgentID int64 `gorm:"column:author_agent_id"`
+	RawURL        string
+	RawContent    string
 }
 
 func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 	var result ItemWithURL
 	err := db.Table("processed_items").
-		Select("processed_items.*, raw_items.raw_url, raw_items.raw_content").
+		Select("processed_items.*, raw_items.author_agent_id, raw_items.raw_url, raw_items.raw_content").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND processed_items.status = ?", itemID, StatusCompleted).
 		First(&result).Error
@@ -352,7 +353,7 @@ func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 func GetOwnItemByID(db *gorm.DB, itemID, authorAgentID int64) (*ItemWithURL, error) {
 	var result ItemWithURL
 	err := db.Table("processed_items").
-		Select("processed_items.*, raw_items.raw_url, raw_items.raw_content").
+		Select("processed_items.*, raw_items.author_agent_id, raw_items.raw_url, raw_items.raw_content").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND raw_items.author_agent_id = ?", itemID, authorAgentID).
 		First(&result).Error
@@ -365,7 +366,7 @@ func BatchGetItemsWithURL(db *gorm.DB, itemIDs []int64) ([]*ItemWithURL, error) 
 	}
 	var items []*ItemWithURL
 	err := db.Table("processed_items").
-		Select("processed_items.*, raw_items.raw_url").
+		Select("processed_items.*, raw_items.author_agent_id, raw_items.raw_url").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id IN ? AND processed_items.status = ?", itemIDs, StatusCompleted).
 		Find(&items).Error
@@ -379,7 +380,7 @@ func GetItemsSince(db *gorm.DB, sinceUpdatedAt int64, limit int) ([]*ItemWithURL
 	}
 	var items []*ItemWithURL
 	tx := db.Table("processed_items").
-		Select("processed_items.*, raw_items.raw_url").
+		Select("processed_items.*, raw_items.author_agent_id, raw_items.raw_url").
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.status = ?", StatusCompleted)
 

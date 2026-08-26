@@ -1,15 +1,43 @@
 package install
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
+	"github.com/redis/go-redis/v9"
 )
+
+const inviteLookupRateLimit = 120
+
+var inviteLookupRateScript = redis.NewScript(`
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]) end
+return count
+`)
+
+func allowInviteLookup(ctx context.Context, rdb *redis.Client, ip string) (bool, error) {
+	if rdb == nil {
+		return false, errors.New("redis client is nil")
+	}
+	digest := sha256.Sum256([]byte(strings.TrimSpace(ip)))
+	key := "install:invite-lookup:" + hex.EncodeToString(digest[:16])
+	count, err := inviteLookupRateScript.Run(ctx, rdb, []string{key}, time.Minute.Milliseconds()).Int64()
+	if err != nil {
+		return false, err
+	}
+	return count <= inviteLookupRateLimit, nil
+}
 
 // This file bridges stable invite codes (pkg/invite, EFI-xxxxxx) into the
 // one-shot install-token funnel: an invite entry mints a token carrying
@@ -35,6 +63,14 @@ func isPreviewBot(userAgent string) bool {
 // nil for anything malformed or unknown (the caller degrades to unattributed).
 func lookupInviteCode(code string) *invite.Code {
 	code = strings.TrimSpace(code)
+	if agentidentity.ValidShortID(code) {
+		agentID, err := agentidentity.Lookup(context.Background(), db.DB, code)
+		if err != nil {
+			logger.Default().Warn("install", "ev", "short_id_lookup_error", "short_id", code, "err", err.Error())
+			return nil
+		}
+		return &invite.Code{Code: code, Kind: invite.KindKOL, AgentID: agentID}
+	}
 	if code == "" || !invite.ValidFormat(code) {
 		return nil
 	}
@@ -45,6 +81,8 @@ func lookupInviteCode(code string) *invite.Code {
 	}
 	if ic == nil {
 		event("install_invite_unknown", code)
+	} else if ic.Kind == invite.KindKOL {
+		metrics.LegacyPersonalInviteResolutionTotal.Inc()
 	}
 	return ic
 }
@@ -145,8 +183,8 @@ func attributeReportedAgent(t *Token, md map[string]any) {
 	if t.InviteCode == "" {
 		return
 	}
-	ic, err := invite.GetByCode(db.DB, t.InviteCode)
-	if err != nil || ic == nil {
+	ic := lookupInviteCode(t.InviteCode)
+	if ic == nil {
 		return
 	}
 	if ic.Kind == invite.KindKOL && ic.AgentID == agentID {

@@ -1,0 +1,97 @@
+{
+  "schema_version": "agent_attention.v1",
+  "publish_cases": [
+    {
+      "name": "valid_participation",
+      "valid": true,
+      "payload": {
+        "schema_version": "agent_attention.v1",
+        "idempotency_key": "upload_golden_0001",
+        "items": [
+          {
+            "client_item_id": "item_golden_0000001",
+            "surface": "participation",
+            "category": "action_recommendation",
+            "language": "zh-CN",
+            "title": "需要你的决定",
+            "body": "Agent 已完成判断，需要你选择后续动作。",
+            "recommendation": "建议先观察。",
+            "source_ref": { "type": "broadcast", "id": "123" },
+            "actions": [
+              { "action_key": "accept", "kind": "preset", "flag": "observe_first", "appearance": "primary" }
+            ],
+            "generated_at": 1700000000000,
+            "expires_at": 1700086400000
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid_cross_surface_flag",
+      "valid": false,
+      "payload": {
+        "schema_version": "agent_attention.v1",
+        "idempotency_key": "upload_golden_0002",
+        "items": [
+          {
+            "client_item_id": "item_golden_0000002",
+            "surface": "participation",
+            "category": "action_recommendation",
+            "language": "en",
+            "title": "Decision needed",
+            "body": "The Agent completed its judgment.",
+            "recommendation": "Review the source.",
+            "source_ref": { "type": "broadcast", "id": "124" },
+            "actions": [
+              { "action_key": "source", "kind": "preset", "flag": "open_source", "appearance": "secondary" }
+            ],
+            "generated_at": 1700000000000,
+            "expires_at": 1700086400000
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid_unknown_field",
+      "valid": false,
+      "payload": {
+        "schema_version": "agent_attention.v1",
+        "idempotency_key": "upload_golden_0003",
+        "unknown": true,
+        "items": []
+      }
+    }
+  ],
+  "completion_cases": [
+    {
+      "name": "valid_attention_result",
+      "valid": true,
+      "result": {
+        "summary": "已完成处理。",
+        "related_entities": [
+          { "type": "broadcast", "id": "123", "label": "相关广播", "url": "/dashboard/broadcasts/123" }
+        ]
+      }
+    },
+    {
+      "name": "invalid_missing_summary",
+      "valid": false,
+      "result": { "related_entities": [] }
+    },
+    {
+      "name": "invalid_unknown_result_field",
+      "valid": false,
+      "result": { "summary": "Done.", "extra": true }
+    },
+    {
+      "name": "invalid_external_result_url",
+      "valid": false,
+      "result": {
+        "summary": "Done.",
+        "related_entities": [
+          { "type": "broadcast", "id": "123", "url": "https://example.com/broadcast/123" }
+        ]
+      }
+    }
+  ]
+}

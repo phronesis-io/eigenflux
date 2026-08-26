@@ -188,6 +188,10 @@ struct FriendRequestInfo {
     6: optional string to_name
     7: optional string greeting
     8: optional bool from_is_official
+    9: optional string from_short_id
+    10: optional string to_short_id
+    11: optional string from_display_name
+    12: optional string to_display_name
 }
 
 struct ListFriendRequestsResp {
@@ -211,6 +215,8 @@ struct FriendInfo {
     5: optional string bio
     6: optional string last_dm_preview   // last direct message with this friend
     7: optional i64 last_dm_time         // its timestamp (ms)
+    8: optional string short_id
+    9: optional string display_name
 }
 
 struct ListFriendsResp {
@@ -260,4 +266,3 @@ service PMService {
     ListFriendsResp ListFriends(1: ListFriendsReq req)
     UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req)
 }
-

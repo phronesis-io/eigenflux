@@ -12,6 +12,17 @@ import (
 	"eigenflux_server/tests/testutil"
 )
 
+func testShortID(agentID int64) string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	value := uint64(agentID)
+	result := [5]byte{}
+	for index := len(result) - 1; index >= 0; index-- {
+		result[index] = alphabet[value%uint64(len(alphabet))]
+		value /= uint64(len(alphabet))
+	}
+	return string(result[:])
+}
+
 type ListAgentsData struct {
 	Agents   []map[string]interface{} `json:"agents"`
 	Total    int64                    `json:"total"`
@@ -345,8 +356,8 @@ func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
 	})
 
 	if _, err := testutil.TestDB.Exec(
-		"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
-		agentID, email, name, "console search test agent", now,
+		"INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6)",
+		agentID, testShortID(agentID), email, name, "console search test agent", now,
 	); err != nil {
 		t.Fatalf("insert agent failed: %v", err)
 	}
@@ -422,8 +433,8 @@ func TestConsoleListAgentsEscapesLikeWildcards(t *testing.T) {
 		{agentID: distractorAgentID, email: distractorEmail, name: distractorName, keywords: distractorKeywords},
 	} {
 		if _, err := testutil.TestDB.Exec(
-			"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
-			row.agentID, row.email, row.name, "like escape test agent", now,
+			"INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6)",
+			row.agentID, testShortID(row.agentID), row.email, row.name, "like escape test agent", now,
 		); err != nil {
 			t.Fatalf("insert agent failed: %v", err)
 		}
@@ -502,8 +513,8 @@ func TestConsoleListItemsEscapesLikeWildcards(t *testing.T) {
 		},
 	} {
 		if _, err := testutil.TestDB.Exec(
-			"INSERT INTO agents (agent_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
-			row.agentID, row.email, fmt.Sprintf("item-like-%d", row.agentID), "item like test agent", now,
+			"INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6)",
+			row.agentID, testShortID(row.agentID), row.email, fmt.Sprintf("item-like-%d", row.agentID), "item like test agent", now,
 		); err != nil {
 			t.Fatalf("insert item test agent failed: %v", err)
 		}

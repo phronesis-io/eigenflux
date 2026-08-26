@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.eigenflux.ai/contracts/agent_attention.v1.schema.json",
+  "title": "EigenFlux Agent Attention V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "idempotency_key", "items"],
+  "properties": {
+    "schema_version": { "const": "agent_attention.v1" },
+    "idempotency_key": { "$ref": "#/$defs/stable_id" },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "entity_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_item_id",
+        "surface",
+        "category",
+        "language",
+        "title",
+        "body",
+        "actions",
+        "generated_at",
+        "expires_at"
+      ],
+      "properties": {
+        "client_item_id": { "$ref": "#/$defs/stable_id" },
+        "surface": { "enum": ["participation", "focus"] },
+        "category": {
+          "enum": [
+            "action_recommendation",
+            "goal_calibration",
+            "intent_update",
+            "other_decision",
+            "important_signal",
+            "opportunity",
+            "relationship_created",
+            "relationship_feedback",
+            "watch_update",
+            "other_attention"
+          ]
+        },
+        "language": { "enum": ["zh-CN", "en"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "recommendation": { "type": "string", "maxLength": 1000 },
+        "source_ref": { "$ref": "#/$defs/source_ref" },
+        "context_ref": { "$ref": "#/$defs/context_ref" },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/action" }
+        },
+        "generated_at": { "type": "integer", "minimum": 1000000000000 },
+        "expires_at": { "type": "integer", "minimum": 1000000000001 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "surface": { "const": "participation" } }, "required": ["surface"] },
+          "then": {
+            "properties": {
+              "category": {
+                "enum": ["action_recommendation", "goal_calibration", "intent_update", "other_decision"]
+              }
+            },
+            "required": ["recommendation"]
+          }
+        },
+        {
+          "if": { "properties": { "surface": { "const": "focus" } }, "required": ["surface"] },
+          "then": {
+            "properties": {
+              "category": {
+                "enum": ["important_signal", "opportunity", "relationship_created", "relationship_feedback", "watch_update", "other_attention"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["broadcast", "broadcast_reply", "friend_request", "relation", "private_message", "context", "activity"]
+        },
+        "id": { "$ref": "#/$defs/entity_id" },
+        "parent_id": {
+          "anyOf": [
+            { "$ref": "#/$defs/entity_id" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "context_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_revision"],
+      "properties": {
+        "operation": { "enum": ["add", "update"] },
+        "context_revision": { "type": "integer", "minimum": 1 },
+        "network_goal_revision": { "type": "integer", "minimum": 1 },
+        "intent_id": {
+          "anyOf": [
+            { "$ref": "#/$defs/entity_id" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_key", "kind", "flag", "appearance"],
+      "properties": {
+        "action_key": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" },
+        "kind": { "enum": ["preset", "custom"] },
+        "flag": {
+          "type": "string",
+          "minLength": 1,
+          "x-eigenflux-max-utf8-bytes": 20,
+          "x-eigenflux-forbid-control-newline-html": true
+        },
+        "appearance": { "enum": ["primary", "secondary"] }
+      }
+    },
+    "attention_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "related_entities": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/result_entity" }
+        }
+      }
+    },
+    "result_entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["agent", "broadcast", "broadcast_reply", "friend_request", "relation", "private_message", "network_goal", "intent", "activity"]
+        },
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" },
+        "url": { "type": "string", "maxLength": 512, "x-eigenflux-same-origin-relative-route": true },
+        "label": { "type": "string", "maxLength": 120 },
+        "trusted_public": { "const": false }
+      }
+    }
+  },
+  "x-eigenflux-contract": {
+    "persisted_protocol_version": "agent_attention.v1",
+    "publish_body_max_bytes": 32768,
+    "custom_flag_max_utf8_bytes": 20,
+    "max_lifetime_days": 90,
+    "canonical_result_routes": {
+      "agent": "/agent/invite?agent={id}",
+      "broadcast": "/dashboard/broadcasts/{id}",
+      "broadcast_reply": "/dashboard/today",
+      "friend_request": "/dashboard/relations",
+      "relation": "/dashboard/relations",
+      "private_message": "/dashboard/messages",
+      "network_goal": "/dashboard/network-goal",
+      "intent": "/dashboard/intent-actions",
+      "activity": "/dashboard/today"
+    },
+    "participation_categories": [
+      "action_recommendation",
+      "goal_calibration",
+      "intent_update",
+      "other_decision"
+    ],
+    "focus_categories": [
+      "important_signal",
+      "opportunity",
+      "relationship_created",
+      "relationship_feedback",
+      "watch_update",
+      "other_attention"
+    ],
+    "source_types": [
+      "broadcast",
+      "broadcast_reply",
+      "friend_request",
+      "relation",
+      "private_message",
+      "context",
+      "activity"
+    ],
+    "result_entity_types": [
+      "agent",
+      "broadcast",
+      "broadcast_reply",
+      "friend_request",
+      "relation",
+      "private_message",
+      "network_goal",
+      "intent",
+      "activity"
+    ],
+    "participation_preset_flags": [
+      "approve_first_contact",
+      "observe_first",
+      "apply_goal_update",
+      "keep_goal",
+      "apply_intent_update",
+      "keep_intent",
+      "follow_up",
+      "not_interested"
+    ],
+    "focus_preset_flags": [
+      "open_source",
+      "ask_agent_contact",
+      "add_watch",
+      "ask_agent_summarize",
+      "draft_broadcast",
+      "follow_up",
+      "not_interested"
+    ]
+  }
+}

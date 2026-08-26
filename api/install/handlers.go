@@ -12,9 +12,12 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/invite"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/mq"
 )
 
 // Package-level deps, set once by Register (same pattern as api/agti).
@@ -270,7 +273,22 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 	// into a fresh one-shot token (this fetch IS the entry — fetched_at is
 	// stamped at mint) and serve the join doc under the new token, so the
 	// existing install/report funnel applies unchanged downstream.
-	if invite.ValidFormat(ref) {
+	if invite.ValidFormat(ref) || agentidentity.ValidShortID(ref) {
+		allowed, rateErr := allowInviteLookup(context.Background(), mq.RDB, clientIP(c))
+		if rateErr != nil {
+			logger.Default().Error("install", "ev", "invite_lookup_rate_limiter_error", "err", rateErr.Error())
+			c.Data(http.StatusServiceUnavailable, "text/markdown; charset=utf-8",
+				[]byte("# Temporarily unavailable\n\nPlease retry shortly.\n"))
+			return
+		}
+		if !allowed {
+			if agentidentity.ValidShortID(ref) {
+				metrics.AgentShortIDLookupRateLimitedTotal.Inc()
+			}
+			c.Data(http.StatusTooManyRequests, "text/markdown; charset=utf-8",
+				[]byte("# Rate limited\n\nToo many requests, try again in a minute.\n"))
+			return
+		}
 		ic := lookupInviteCode(ref)
 		if ic == nil {
 			c.Data(http.StatusNotFound, "text/markdown; charset=utf-8",

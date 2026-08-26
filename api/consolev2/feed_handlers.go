@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -17,6 +16,7 @@ import (
 
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/pkg/activity"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/feedcontract"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -25,7 +25,6 @@ const (
 	feedMaxItems       = 20
 	feedPayloadBudget  = 192 << 10
 	feedResponseBudget = 256 << 10
-	attentionTTL       = 90 * 24 * time.Hour
 )
 
 type pullFeedRequest struct {
@@ -129,9 +128,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 			if err := persistFeedExposures(tx, agentIDValue, payloads, onboarding.ContextRevision, now); err != nil {
 				return err
 			}
-			if err := persistAttentionItems(tx, agentIDValue, payloads, now); err != nil {
-				return err
-			}
 		}
 		return nil
 	}); err != nil {
@@ -184,15 +180,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	}
 	activity.PublishFeedPull(ctx, agentIDValue, len(feedResp.Items))
 	reply(c, http.StatusOK, response)
-}
-
-type attentionSeed struct {
-	SourceType      string        `json:"source_type"`
-	SourceID        int64         `json:"source_id"`
-	Title           string        `json:"title"`
-	Summary         string        `json:"summary"`
-	ProposedActions interface{}   `json:"proposed_actions"`
-	MatchedIntentID []interface{} `json:"matched_intent_ids"`
+	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }
 
 type feedExposureSeed struct {
@@ -244,70 +232,6 @@ func persistFeedExposures(tx *gorm.DB, agentID int64, items []frozenFeedItem, co
 		agentID, contextRevision, now, now, string(encoded)).Error
 }
 
-// persistAttentionItems performs one bulk upsert plus one bulk relation insert
-// for the whole Feed page. Its query count is constant (two) for 1–20 items.
-func persistAttentionItems(tx *gorm.DB, agentID int64, items []frozenFeedItem, now int64) error {
-	seeds := make([]attentionSeed, 0, len(items))
-	for _, item := range items {
-		match, ok := item.IntentMatch.(map[string]interface{})
-		if !ok || match["status"] != "matched" {
-			continue
-		}
-		matched, ok := match["matched_intent_ids"].([]string)
-		if !ok || len(matched) == 0 {
-			continue
-		}
-		preview, _ := item.Payload["preview"].(map[string]interface{})
-		text, _ := preview["text"].(string)
-		title, _ := truncateRunes(text, 120)
-		summary, _ := truncateRunes(text, 500)
-		if title == "" {
-			title = "值得关注的网络动态"
-		}
-		ids := make([]interface{}, 0, len(matched))
-		for _, id := range matched {
-			ids = append(ids, id)
-		}
-		actions := item.Payload["recommended_actions"]
-		if actions == nil {
-			actions = []interface{}{}
-		}
-		seeds = append(seeds, attentionSeed{
-			SourceType: item.SourceType, SourceID: item.SourceID, Title: title, Summary: summary,
-			ProposedActions: actions, MatchedIntentID: ids,
-		})
-	}
-	if len(seeds) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(seeds)
-	if err != nil {
-		return err
-	}
-	if err := tx.Exec(`INSERT INTO agent_attention_items
-		(agent_id, title, summary, source_type, source_id, proposed_actions, status, created_at, expires_at)
-		SELECT ?, seed.title, seed.summary, seed.source_type, seed.source_id,
-			seed.proposed_actions, 'open', ?, ?
-		FROM jsonb_to_recordset(?::jsonb) AS seed(
-			source_type text, source_id bigint, title text, summary text,
-			proposed_actions jsonb, matched_intent_ids jsonb)
-		ON CONFLICT (agent_id, source_type, source_id) WHERE status = 'open' DO NOTHING`,
-		agentID, now, now+int64(attentionTTL/time.Millisecond), string(encoded)).Error; err != nil {
-		return err
-	}
-	return tx.Exec(`INSERT INTO agent_attention_intents (agent_id, attention_id, intent_id)
-		SELECT ?, item.attention_id, intent.intent_id
-		FROM jsonb_to_recordset(?::jsonb) AS seed(
-			source_type text, source_id bigint, title text, summary text,
-			proposed_actions jsonb, matched_intent_ids jsonb)
-		JOIN agent_attention_items item ON item.agent_id = ?
-		 AND item.source_type = seed.source_type AND item.source_id = seed.source_id AND item.status = 'open'
-		CROSS JOIN LATERAL jsonb_array_elements_text(seed.matched_intent_ids) matched(intent_id)
-		JOIN agent_intent_actions intent ON intent.agent_id = ?
-		 AND intent.intent_id = matched.intent_id::bigint
-		ON CONFLICT DO NOTHING`, agentID, string(encoded), agentID, agentID).Error
-}
-
 type frozenFeedItem struct {
 	Ordinal     int                    `json:"ordinal"`
 	SourceType  string                 `json:"source_type"`
@@ -319,6 +243,7 @@ type frozenFeedItem struct {
 type identityAssertion struct {
 	SubjectType       string `json:"subject_type"`
 	SubjectID         string `json:"subject_id"`
+	ShortID           string `json:"short_id,omitempty"`
 	DisplayName       string `json:"display_name"`
 	VerificationLevel string `json:"verification_level"`
 }
@@ -330,11 +255,12 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 	}
 	var rows []struct {
 		AgentID       int64  `gorm:"column:agent_id"`
+		ShortID       string `gorm:"column:short_id"`
 		AgentName     string `gorm:"column:agent_name"`
 		IsOfficial    bool   `gorm:"column:is_official"`
 		EmailVerified bool   `gorm:"column:email_verified"`
 	}
-	if err := s.db.Raw(`SELECT a.agent_id, a.agent_name, a.is_official,
+	if err := s.db.Raw(`SELECT a.agent_id, a.short_id, a.agent_name, a.is_official,
 		EXISTS (SELECT 1 FROM agent_email_bindings b WHERE b.agent_id = a.agent_id
 		 AND b.status = 'active' AND b.verification_state = 'verified') AS email_verified
 		FROM agents a WHERE a.agent_id = ANY(?)`, pq.Array(agentIDs)).Scan(&rows).Error; err != nil {
@@ -350,7 +276,7 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 		}
 		result[row.AgentID] = identityAssertion{
 			SubjectType: "agent", SubjectID: fmt.Sprintf("%d", row.AgentID),
-			DisplayName: row.AgentName, VerificationLevel: level,
+			ShortID: row.ShortID, DisplayName: agentidentity.DisplayName(row.AgentName, row.ShortID), VerificationLevel: level,
 		}
 	}
 	return result, nil
@@ -460,6 +386,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 			if identity, exists := identities[*item.AuthorAgentId]; exists {
 				payload["author_identity"] = map[string]interface{}{
 					"agent_id": identity.SubjectID, "agent_name": identity.DisplayName,
+					"short_id":           identity.ShortID,
 					"verification_level": identity.VerificationLevel,
 				}
 				payload["entity_refs"] = []interface{}{map[string]interface{}{
