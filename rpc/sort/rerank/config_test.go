@@ -129,6 +129,10 @@ func TestLoadConfigRejectsInvalidItemBoosts(t *testing.T) {
 			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.Inf(1)}},
 		},
 		{
+			name:   "negative infinity weight",
+			boosts: []ItemBoostConfig{{ItemID: 1, Weight: math.Inf(-1)}},
+		},
+		{
 			name: "duplicate item ID",
 			boosts: []ItemBoostConfig{
 				{ItemID: 1, Weight: 1.2},
