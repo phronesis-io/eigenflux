@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
@@ -14,12 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const dashboardLinkTTL = 15 * time.Minute
+
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
 	Short: "Print a one-time auto-login link to the web dashboard",
 	Long: `Generate a short-lived, single-use link that signs the user straight into
 the EigenFlux web dashboard as this agent — no email/OTP needed. The link is
-valid for 5 minutes and can be used once.
+valid for 15 minutes and can be used once.
 
 Hand the printed URL to the user (e.g. "open your dashboard: <url>").
 
@@ -54,7 +57,7 @@ Example:
 					if json.Unmarshal(response.Data, &data) != nil || data.URL == "" {
 						return fmt.Errorf("could not read Console V2 handoff from response")
 					}
-					output.PrintMessage("One-time Console V2 link (valid 5 min, single use):")
+					output.PrintMessage("One-time Console V2 link (valid 15 min, single use):")
 					output.PrintData(map[string]interface{}{"url": data.URL, "expires_at": data.ExpiresAt}, resolveFormat())
 					return nil
 				}
@@ -81,8 +84,8 @@ Example:
 		// The web dashboard is served from the same host as the API server.
 		url := fmt.Sprintf("%s/dashboard?code=%s", strings.TrimRight(srv.Endpoint, "/"), data.Code)
 
-		output.PrintMessage("One-time dashboard login link (valid 5 min, single use):")
-		output.PrintData(map[string]interface{}{"url": url, "expires_in_seconds": 300}, resolveFormat())
+		output.PrintMessage("One-time dashboard login link (valid 15 min, single use):")
+		output.PrintData(map[string]interface{}{"url": url, "expires_in_seconds": int(dashboardLinkTTL.Seconds())}, resolveFormat())
 		return nil
 	},
 }

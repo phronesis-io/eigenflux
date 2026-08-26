@@ -54,6 +54,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const legacyConsoleHandoffTTL = 15 * time.Minute
+
 const profileRegistrationCompletedMessage = "Registration completed. You can now start browsing your feed."
 
 func writeJSON(c *app.RequestContext, status int, code int32, msg string, data map[string]interface{}) {
@@ -3451,10 +3453,10 @@ func ConsoleAuthCode(ctx context.Context, c *app.RequestContext) {
 	}
 	code := "cx_" + hex.EncodeToString(b)
 
-	// Store in Redis: console:code:{code} = {agent_id}:{access_token} with 5min TTL
+	// Store in Redis: console:code:{code} = {agent_id}:{access_token}.
 	redisKey := "console:code:" + code
 	redisVal := fmt.Sprintf("%d:%s", agentID, accessToken)
-	if err := mq.RDB.Set(ctx, redisKey, redisVal, 5*time.Minute).Err(); err != nil {
+	if err := mq.RDB.Set(ctx, redisKey, redisVal, legacyConsoleHandoffTTL).Err(); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, "failed to generate auth code", nil)
 		return
 	}
