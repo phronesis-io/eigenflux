@@ -18,6 +18,7 @@ type PolicyConfig struct {
 	Name        string                    `yaml:"name"`
 	ItemRules   []ItemFreshnessRuleConfig `yaml:"item_rules"`
 	BoostRules  []BoostRuleConfig         `yaml:"boost_rules"`
+	ItemBoosts  []ItemBoostConfig         `yaml:"item_boosts"`
 	InjectRules []InjectRuleConfig        `yaml:"inject_rules"`
 	Source      string                    `yaml:"source"`
 	MaxFraction string                    `yaml:"max_fraction"`
@@ -48,6 +49,11 @@ type BoostRuleConfig struct {
 	Field  string   `yaml:"field"`
 	Values []string `yaml:"values"`
 	Weight float64  `yaml:"weight"`
+}
+
+type ItemBoostConfig struct {
+	ItemID int64   `yaml:"item_id"`
+	Weight float64 `yaml:"weight"`
 }
 
 // InjectRuleConfig declares a force-insertion rule: pull up to Count candidates
@@ -224,6 +230,11 @@ func (pc PolicyConfig) newFreshnessPolicy(now func() time.Time) (*FreshnessPolic
 }
 
 func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
+	itemWeights := make(map[int64]float64, len(pc.ItemBoosts))
+	for _, itemBoost := range pc.ItemBoosts {
+		itemWeights[itemBoost.ItemID] = itemBoost.Weight
+	}
+
 	rules := make([]BoostRule, 0, len(pc.BoostRules))
 	for _, rc := range pc.BoostRules {
 		if rc.Field != "type" && rc.Field != "source_type" && rc.Field != "content_class" {
@@ -241,7 +252,7 @@ func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
 			Weight: rc.Weight,
 		})
 	}
-	return &BoostPolicy{Rules: rules}, nil
+	return &BoostPolicy{Rules: rules, ItemWeights: itemWeights}, nil
 }
 
 func parseConfigDuration(s string) (time.Duration, error) {

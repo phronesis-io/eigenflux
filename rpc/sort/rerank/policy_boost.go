@@ -22,7 +22,8 @@ type BoostRule struct {
 // The returned slice is re-sorted by descending score so callers can read the
 // new display order directly.
 type BoostPolicy struct {
-	Rules []BoostRule
+	Rules       []BoostRule
+	ItemWeights map[int64]float64
 }
 
 func (p *BoostPolicy) Name() string { return "boost" }

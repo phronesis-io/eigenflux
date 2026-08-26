@@ -74,6 +74,30 @@ policies:
 	assert.Equal(t, 1.2, policy.Rules[1].Weight)
 }
 
+func TestLoadConfigBuildsItemBoosts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rerank.yaml")
+	err := os.WriteFile(path, []byte(`
+policies:
+  - name: boost
+    item_boosts:
+      - item_id: 123456
+        weight: 2.0
+      - item_id: 789012
+        weight: 1.5
+`), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	policies, err := cfg.NewPolicies(time.Now)
+	require.NoError(t, err)
+
+	require.Len(t, policies, 1)
+	policy, ok := policies[0].(*BoostPolicy)
+	require.True(t, ok)
+	assert.Equal(t, map[int64]float64{123456: 2.0, 789012: 1.5}, policy.ItemWeights)
+}
+
 func TestLoadConfigParsesInjectRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rerank.yaml")
 	err := os.WriteFile(path, []byte(`
