@@ -107,7 +107,10 @@ func TestPostgresExpiredCommandReopensUnexpiredAttention(t *testing.T) {
 		attention_id bigint PRIMARY KEY, agent_id bigint NOT NULL, producer text NOT NULL,
 		status text NOT NULL, response_status text NOT NULL, selected_action_key text NULL,
 		expires_at bigint NULL, updated_at bigint NOT NULL, item_revision bigint NOT NULL
-	) ON COMMIT PRESERVE ROWS; CREATE TEMP TABLE agent_commands (
+	) ON COMMIT PRESERVE ROWS`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `CREATE TEMP TABLE agent_commands (
 		command_id bigint PRIMARY KEY, agent_id bigint NOT NULL, attention_id bigint NULL,
 		command_type text NOT NULL, status text NOT NULL
 	) ON COMMIT PRESERVE ROWS`); err != nil {
@@ -117,10 +120,12 @@ func TestPostgresExpiredCommandReopensUnexpiredAttention(t *testing.T) {
 	if _, err := conn.ExecContext(context.Background(), `INSERT INTO agent_attention_items
 		(attention_id, agent_id, producer, status, response_status, selected_action_key, expires_at, updated_at, item_revision)
 		VALUES (10, 20, 'agent', 'pending', 'pending', 'contact', $1, $2, 3),
-		       (11, 20, 'agent', 'pending', 'pending', 'contact', $3, $2, 7);
-		INSERT INTO agent_commands(command_id, agent_id, attention_id, command_type, status)
+		       (11, 20, 'agent', 'pending', 'pending', 'contact', $3, $2, 7)`, now+DayMS, now-31*DayMS, now-1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `INSERT INTO agent_commands(command_id, agent_id, attention_id, command_type, status)
 		VALUES (100, 20, 10, 'attention_response', 'expired'),
-		       (101, 20, 11, 'attention_response', 'expired')`, now+DayMS, now-31*DayMS, now-1); err != nil {
+		       (101, 20, 11, 'attention_response', 'expired')`); err != nil {
 		t.Fatal(err)
 	}
 	var recoverySQL string
@@ -174,7 +179,10 @@ func TestPostgresAttentionRedactionCompletesAcrossSmallBatches(t *testing.T) {
 		attention_id bigint PRIMARY KEY, producer text NOT NULL, generated_at bigint NOT NULL,
 		redacted_at bigint NULL, title text NOT NULL, summary text NOT NULL,
 		body text NOT NULL, recommendation text NOT NULL, updated_at bigint NOT NULL
-	) ON COMMIT PRESERVE ROWS; CREATE TEMP TABLE agent_commands (
+	) ON COMMIT PRESERVE ROWS`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `CREATE TEMP TABLE agent_commands (
 		command_id bigint PRIMARY KEY, attention_id bigint NULL, command_type text NOT NULL,
 		status text NOT NULL, payload jsonb NOT NULL
 	) ON COMMIT PRESERVE ROWS`); err != nil {
@@ -183,10 +191,12 @@ func TestPostgresAttentionRedactionCompletesAcrossSmallBatches(t *testing.T) {
 	old := time.Now().UnixMilli() - 8*DayMS
 	if _, err := conn.ExecContext(context.Background(), `INSERT INTO agent_attention_items
 		(attention_id,producer,generated_at,title,summary,body,recommendation,updated_at)
-		VALUES (1,'agent',$1,'title','summary','body','recommendation',$1);
-		INSERT INTO agent_commands(command_id,attention_id,command_type,status,payload) VALUES
+		VALUES (1,'agent',$1,'title','summary','body','recommendation',$1)`, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `INSERT INTO agent_commands(command_id,attention_id,command_type,status,payload) VALUES
 		(10,1,'attention_response','completed','{"attention_snapshot":{"title":"a","body":"b","recommendation":"c"}}'),
-		(11,1,'attention_response','failed','{"attention_snapshot":{"title":"d","body":"e","recommendation":"f"}}')`, old); err != nil {
+		(11,1,'attention_response','failed','{"attention_snapshot":{"title":"d","body":"e","recommendation":"f"}}')`); err != nil {
 		t.Fatal(err)
 	}
 	jobs := map[string]string{}
@@ -236,7 +246,10 @@ func TestPostgresAttentionExpirySkipsConcurrentResponse(t *testing.T) {
 		attention_id bigint PRIMARY KEY, agent_id bigint NOT NULL, producer text NOT NULL,
 		status text NOT NULL, expires_at bigint NULL, response_status text NOT NULL,
 		updated_at bigint NOT NULL, item_revision bigint NOT NULL
-	); CREATE TABLE ` + schema + `.agent_commands (
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec("CREATE TABLE " + schema + `.agent_commands (
 		command_id bigint PRIMARY KEY, agent_id bigint NOT NULL, attention_id bigint NULL,
 		status text NOT NULL
 	)`).Error; err != nil {
@@ -292,8 +305,11 @@ func TestPostgresAttentionExpirySkipsConcurrentResponse(t *testing.T) {
 		t.Fatal("retention blocked behind the concurrent responder instead of SKIP LOCKED")
 	}
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO agent_commands
-		(command_id,agent_id,attention_id,status) VALUES (10,2,1,'pending');
-		UPDATE agent_attention_items SET status='pending' WHERE attention_id=1`); err != nil {
+		(command_id,agent_id,attention_id,status) VALUES (10,2,1,'pending')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `UPDATE agent_attention_items
+		SET status='pending' WHERE attention_id=1`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

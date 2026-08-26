@@ -38,7 +38,7 @@ func Jobs() []Job {
 			WHERE (command.status IN ('pending','notified')
 			       OR (command.status = 'claimed'
 			           AND (command.claim_until IS NULL OR command.claim_until <= constants.clock_ms)))
-			  AND command.created_at < constants.clock_ms - 30*24*60*60*1000
+			  AND command.created_at < constants.clock_ms - 30::bigint*24*60*60*1000
 			ORDER BY command.created_at, command.command_id LIMIT $1
 			FOR UPDATE OF command SKIP LOCKED
 		)
