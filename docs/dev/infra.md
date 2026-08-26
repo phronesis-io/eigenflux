@@ -96,4 +96,12 @@ All services expose Prometheus metrics on a dedicated port (service port + 1000)
 
 Dashboards (API Gateway, RPC Services, Pipeline Consumers, and others) are provisioned by the private `phronesis-io/eigenflux-observability` repository and served by its Grafana at `http://localhost:3123` locally. Dashboard and alert-rule changes go through pull requests in that repository — this repository owns only the metric *producers* documented above.
 
+Business dashboards must not receive direct `SELECT` access to user-level
+delivery, feedback, profile, or content tables. Database-backed panels query
+purpose-built `grafana_*` security-barrier views that expose fixed anonymous
+aggregates. The production Grafana role receives `SELECT` on those views only;
+adding a dashboard query is not a reason to broaden its table grants. Migration
+`000075_pgc_audience_aggregate_views.sql` defines the PGC audience, demand,
+feedback, surface, and profile-completeness contract.
+
 When the app server and monitor server are separate hosts, ensure the app server's firewall allows inbound on the metrics ports listed above from the monitor server, and set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics. Cross-host bindings and deployment are documented in the observability repository.
