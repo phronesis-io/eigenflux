@@ -5,7 +5,6 @@ policies:
         max_age: 12h
         action: drop
   - name: boost
-    item_boosts: []              # entries: {item_id: <positive int64>, weight: <positive multiplier>}
     boost_rules:
       - field: type
         values: [supply, demand]

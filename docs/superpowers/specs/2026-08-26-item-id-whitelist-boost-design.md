@@ -35,7 +35,7 @@ Each entry has two required fields:
 
 Duplicate `item_id` entries are invalid. Rejecting duplicates avoids implicit last-write-wins or accidental multiplicative behavior.
 
-The repository configuration will declare `item_boosts: []`. Production item IDs and weights remain operator-owned and are not invented by this change.
+The repository configuration omits `item_boosts`. Operators add the optional list only when production item IDs and weights are required.
 
 ## Runtime Behavior
 
