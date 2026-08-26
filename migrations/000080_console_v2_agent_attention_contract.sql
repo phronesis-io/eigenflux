@@ -10,7 +10,7 @@ BEGIN
         WHERE producer <> 'agent' OR protocol_version <> 'agent_attention.v1'
         LIMIT 1
     ) THEN
-        RAISE EXCEPTION 'legacy Attention rows remain; 000078 must finish before contract';
+        RAISE EXCEPTION 'legacy Attention rows remain; 000079 must finish before contract';
     END IF;
     IF EXISTS (
         SELECT 1 FROM agent_attention_items

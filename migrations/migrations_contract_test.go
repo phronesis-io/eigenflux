@@ -16,7 +16,7 @@ func migration(t *testing.T, name string) string {
 }
 
 func TestShortIDMigrationNeverDropsLiveTriggerDuringUp(t *testing.T) {
-	sql := migration(t, "000075_agent_short_id_expand.sql")
+	sql := migration(t, "000076_agent_short_id_expand.sql")
 	up, _, ok := strings.Cut(sql, "-- +goose Down")
 	if !ok {
 		t.Fatal("migration has no Down boundary")
@@ -32,7 +32,7 @@ func TestShortIDMigrationNeverDropsLiveTriggerDuringUp(t *testing.T) {
 }
 
 func TestShortIDMigrationDownFailsClosed(t *testing.T) {
-	sql := migration(t, "000075_agent_short_id_expand.sql")
+	sql := migration(t, "000076_agent_short_id_expand.sql")
 	_, down, ok := strings.Cut(sql, "-- +goose Down")
 	if !ok || !strings.Contains(down, "short IDs and invite revocation history are permanent") {
 		t.Fatal("short-ID Down must fail closed before destructive DDL")
@@ -58,7 +58,7 @@ func TestShortIDBackfillUsesOneSetBasedStatementPerBatch(t *testing.T) {
 }
 
 func TestNetworkMemberRepairLocksBeforeInspectionAndRebuildsSet(t *testing.T) {
-	sql := migration(t, "000077_repair_agent_network_member_numbers.sql")
+	sql := migration(t, "000078_repair_agent_network_member_numbers.sql")
 	lock := strings.Index(sql, "LOCK TABLE agent_network_memberships IN ACCESS EXCLUSIVE MODE")
 	inspection := strings.Index(sql, "IF EXISTS")
 	if lock < 0 || inspection < 0 || lock > inspection {
@@ -72,7 +72,7 @@ func TestNetworkMemberRepairLocksBeforeInspectionAndRebuildsSet(t *testing.T) {
 }
 
 func TestAttentionExpandRejectsLegacyWithoutTriggerGap(t *testing.T) {
-	sql := migration(t, "000076_console_v2_agent_attention_protocol.sql")
+	sql := migration(t, "000077_console_v2_agent_attention_protocol.sql")
 	up, _, ok := strings.Cut(sql, "-- +goose Down")
 	if !ok {
 		t.Fatal("Attention migration has no Down boundary")
@@ -93,7 +93,7 @@ func TestAttentionExpandRejectsLegacyWithoutTriggerGap(t *testing.T) {
 }
 
 func TestAttentionContractPersistsItemAndCommandProtocol(t *testing.T) {
-	sql := migration(t, "000079_console_v2_agent_attention_contract.sql")
+	sql := migration(t, "000080_console_v2_agent_attention_contract.sql")
 	for _, required := range []string{
 		"protocol_version = 'agent_attention.v1'",
 		"payload->>'protocol_version' = 'agent_attention.v1'",
