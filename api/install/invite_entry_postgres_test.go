@@ -43,8 +43,8 @@ func TestPostgresShortIDInviteAttribution(t *testing.T) {
 	}
 	now := time.Now().UnixMilli()
 	if err := gdb.Exec(`INSERT INTO agents(agent_id, short_id, email, created_at)
-		VALUES (100, 'AbCdE', 'inviter@test.com', $1),
-		       (200, 'FgHiJ', 'invitee@test.com', $2)`, now-1000, now+1).Error; err != nil {
+		VALUES (100, 'AbCdE', 'inviter@test.com', ?),
+		       (200, 'FgHiJ', 'invitee@test.com', ?)`, now-1000, now+1).Error; err != nil {
 		t.Fatal(err)
 	}
 	previous := db.DB
