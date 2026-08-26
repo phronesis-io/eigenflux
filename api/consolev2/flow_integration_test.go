@@ -445,7 +445,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
-	testAgentAttentionProtocol(t, gdb, h, idgen, agentIDInt, originalAccessToken, cookieHeader, csrf)
+	testAgentAttentionProtocol(t, gdb, h, idgen, agentIDInt, accessToken, cookieHeader, csrf)
 
 	status, boundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
