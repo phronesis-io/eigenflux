@@ -54,7 +54,7 @@ const CDNDefault = "https://cdn.eigenflux.ai"
 // ProdAllowlist is the fixed set of production skills shipped on R2.
 // ef-localdev (a dev-only skill living in a separate repo) is intentionally
 // excluded and is never distributed.
-var ProdAllowlist = []string{"ef-broadcast", "ef-communication", "ef-profile"}
+var ProdAllowlist = []string{"ef-broadcast", "ef-commission", "ef-communication", "ef-profile"}
 
 // Manifest is the authoritative description of a skills bundle. The content
 // `revision` (plus per-skill sha256) is authoritative; cli_version is

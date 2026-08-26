@@ -26,6 +26,7 @@ import (
 	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
+	"eigenflux_server/api/commissiondiscovery"
 	"eigenflux_server/api/consolev2"
 	_ "eigenflux_server/api/docs"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
@@ -156,6 +157,23 @@ func main() {
 		log.Fatalf("failed to create sort client: %v", err)
 	}
 	log.Println("Sort RPC client initialized")
+	var commissionDiscoveryService *commissiondiscovery.Service
+	var commissionDiscoveryIDGen *idgen.ManagedGenerator
+	if cfg.EnableCommissionIndex {
+		commissionDiscoveryIDGen, err = idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+			Endpoints:      splitEtcdEndpoints(cfg.EtcdAddr),
+			WorkerPrefix:   cfg.IDWorkerPrefix,
+			ServiceName:    "api-commission-discovery-impression-id",
+			InstanceID:     cfg.IDInstanceID,
+			LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+			EpochMS:        cfg.IDSnowflakeEpoch,
+		})
+		if err != nil {
+			log.Fatalf("failed to init Commission discovery impression id generator: %v", err)
+		}
+		defer func() { _ = commissionDiscoveryIDGen.Close(context.Background()) }()
+		commissionDiscoveryService = commissiondiscovery.New(sortClient, commissionDiscoveryIDGen, mq.Publish)
+	}
 
 	// Wire RPC clients for generated handlers
 	clients.ProfileClient = profileClient
@@ -225,6 +243,12 @@ func main() {
 
 	// Agent Card: read projections + field-level versioned profile writes.
 	agentcardapi.Register(h)
+
+	// Commission discovery is an authenticated Facade over SortService. Source
+	// writes, orders, wallet operations, and file transfers stay in Commission.
+	if commissionDiscoveryService != nil {
+		commissiondiscovery.Register(h, commissionDiscoveryService)
+	}
 
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
 	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
