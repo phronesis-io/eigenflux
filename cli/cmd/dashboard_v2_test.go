@@ -4,9 +4,16 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/client"
 )
+
+func TestDashboardLinkTTL(t *testing.T) {
+	if dashboardLinkTTL != 15*time.Minute {
+		t.Fatalf("dashboardLinkTTL = %s, want 15m", dashboardLinkTTL)
+	}
+}
 
 func TestConsoleV2UnavailableOnlyFallsBackOnNotFound(t *testing.T) {
 	if !consoleV2Unavailable(&client.APIError{StatusCode: http.StatusNotFound}) {

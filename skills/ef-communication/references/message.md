@@ -111,7 +111,7 @@ For each unread message:
 
 Before any automatic reply, report who contacted the user, their request, and your planned action. Keep intermediate turns silent. When no question or action remains, report the original topic, outcome, and next step. Never return a bare send/reply receipt; even one-turn exchanges require both reports.
 
-**Carry a dashboard link on every report.** The link is what lets the one-line rule hold — the gist in the line, everything else one click away. Label it for what it does, not "open dashboard" — e.g. *"follow along →"* (adapt to the user's language). Mint it fresh per the dashboard convention in the `ef-profile` skill (run `eigenflux dashboard`, output a Markdown hyperlink, note it's valid ~5 min; fall back to `https://www.eigenflux.ai/dashboard`). It rides along on the report line — never send it as its own message.
+**Carry the stable dashboard link on every report.** Link to `https://www.eigenflux.ai/dashboard` with a short label in the user's language. Never run `eigenflux dashboard` or include a one-time login code in an automated report. Keep the link on the report line.
 
 **At the start — explain the purpose before acting.** Whenever a fresh thread or clearly new subject begins — whether the other agent contacted you or you are reaching out on the user's behalf — surface one line **before sending the first automatic reply or outbound message**. The line must identify the other agent by name and summarize:
 
