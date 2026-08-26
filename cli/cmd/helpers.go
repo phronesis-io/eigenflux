@@ -44,15 +44,27 @@ func newClientForOrigin(serverName string, requireAuth, commission bool) *client
 		output.Die(output.ExitUsageError, "%v", err)
 	}
 	token := ""
+	usingV2 := false
 	if requireAuth {
-		creds, err := auth.LoadCredentials(srv.Name)
-		if err != nil {
-			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+		if commission {
+			if credentials, credentialErr := auth.LoadV2Credentials(srv.Name); credentialErr == nil && supportsCommissionV2(credentials.Scopes) {
+				if refreshed, refreshErr := ensureV2Credentials(srv.Name, srv.Endpoint); refreshErr == nil {
+					credentials = refreshed
+				}
+				token = credentials.AccessToken
+				usingV2 = true
+			}
 		}
-		if creds.IsExpired() {
-			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+		if token == "" {
+			creds, credentialErr := auth.LoadCredentials(srv.Name)
+			if credentialErr != nil {
+				output.Die(output.ExitAuthRequired, "no usable Agent identity for server %q — run 'eigenflux agent provision' or use the explicit legacy login route", srv.Name)
+			}
+			if creds.IsExpired() {
+				output.Die(output.ExitAuthRequired, "legacy token expired for server %q — refresh the Agent identity or use the explicit legacy login route", srv.Name)
+			}
+			token = creds.AccessToken
 		}
-		token = creds.AccessToken
 	}
 	baseURL := strings.TrimRight(srv.Endpoint, "/")
 	if commission {
@@ -63,13 +75,22 @@ func newClientForOrigin(serverName string, requireAuth, commission bool) *client
 	}
 	baseURL += "/api/v1"
 	c := client.New(baseURL, token, version, clientMeta)
-	if requireAuth {
+	if requireAuth && !usingV2 {
 		serverName := srv.Name
 		c.OnSuccess = sync.OnceFunc(func() {
 			auth.RefreshExpiry(serverName)
 		})
 	}
 	return c
+}
+
+func supportsCommissionV2(scopes []string) bool {
+	for _, scope := range scopes {
+		if strings.HasPrefix(strings.TrimSpace(scope), "commission:") {
+			return true
+		}
+	}
+	return false
 }
 
 func activeServerName() string {
@@ -90,6 +111,9 @@ func activeServerName() string {
 // name so the token never collides across agents on different servers.
 func activeAgentScope() string {
 	srv := activeServerName()
+	if credentials, err := auth.LoadV2Credentials(srv); err == nil && credentials.AgentID != "" {
+		return srv + "\x00" + credentials.AgentID
+	}
 	if creds, err := auth.LoadCredentials(srv); err == nil && creds.AgentID != "" {
 		return srv + "\x00" + creds.AgentID
 	}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
@@ -88,6 +89,37 @@ func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 	}
 	if len(orderKeys) != 2 || orderKeys[0] == "" || orderKeys[0] != orderKeys[1] {
 		t.Fatalf("idempotency keys = %#v", orderKeys)
+	}
+}
+
+func TestCommissionClientPrefersAgentV2Credentials(t *testing.T) {
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UpdateServerWithCommission(active.Name, "http://gateway.example", "", "http://commission.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveCredentials(active.Name, &auth.Credentials{AgentID: "41", AccessToken: "legacy-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveV2Credentials(active.Name, &auth.V2Credentials{
+		AgentID: "42", PrincipalID: "7", AccessToken: "v2-token", RefreshToken: "v2-refresh",
+		ExpiresAt: time.Now().Add(time.Hour).UnixMilli(), Scopes: []string{"commission:access"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := newCommissionClient()
+	if client.Token != "v2-token" {
+		t.Fatalf("Commission token = %q", client.Token)
+	}
+	if scope := activeAgentScope(); scope != active.Name+"\x0042" {
+		t.Fatalf("active Agent scope = %q", scope)
 	}
 }
 
