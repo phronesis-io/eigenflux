@@ -29,9 +29,9 @@ const (
 	maxByte = 62 * 4
 )
 
-// Code maps to invite_codes: one stable, reusable attribution code. kind=kol
-// rows are auto-created per agent (registration + lazy ensure + backfill);
-// kind=channel rows are created by ops via scripts/invite_channel.
+// Code maps to invite_codes: one stable, reusable attribution code. Existing
+// kind=kol rows remain resolvable for attribution, but new personal sharing uses
+// agents.short_id. kind=channel rows are created by ops via scripts/invite_channel.
 type Code struct {
 	Code      string `gorm:"column:code;primaryKey"`
 	Kind      string `gorm:"column:kind;not null"`

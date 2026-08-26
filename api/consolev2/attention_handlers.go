@@ -18,29 +18,30 @@ type attentionCursor struct {
 }
 
 type attentionView struct {
-	AttentionID    int64  `gorm:"column:attention_id"`
-	Producer       string `gorm:"column:producer"`
-	Surface        string `gorm:"column:surface"`
-	Category       string `gorm:"column:category"`
-	ClientItemID   string `gorm:"column:client_item_id"`
-	Language       string `gorm:"column:language"`
-	Title          string `gorm:"column:title"`
-	Body           string `gorm:"column:body"`
-	Recommendation string `gorm:"column:recommendation"`
-	SourceType     string `gorm:"column:source_type"`
-	SourceID       int64  `gorm:"column:source_id"`
-	SourceRef      string `gorm:"column:source_ref"`
-	ContextRef     string `gorm:"column:context_ref"`
-	Actions        string `gorm:"column:actions_snapshot"`
-	Status         string `gorm:"column:status"`
-	ItemRevision   int64  `gorm:"column:item_revision"`
-	SelectedAction string `gorm:"column:selected_action_key"`
-	ResponseStatus string `gorm:"column:response_status"`
-	CreatedAt      int64  `gorm:"column:created_at"`
-	GeneratedAt    int64  `gorm:"column:generated_at"`
-	UpdatedAt      int64  `gorm:"column:updated_at"`
-	RespondedAt    *int64 `gorm:"column:responded_at"`
-	ExpiresAt      *int64 `gorm:"column:expires_at"`
+	AttentionID     int64  `gorm:"column:attention_id"`
+	Producer        string `gorm:"column:producer"`
+	ProtocolVersion string `gorm:"column:protocol_version"`
+	Surface         string `gorm:"column:surface"`
+	Category        string `gorm:"column:category"`
+	ClientItemID    string `gorm:"column:client_item_id"`
+	Language        string `gorm:"column:language"`
+	Title           string `gorm:"column:title"`
+	Body            string `gorm:"column:body"`
+	Recommendation  string `gorm:"column:recommendation"`
+	SourceType      string `gorm:"column:source_type"`
+	SourceID        int64  `gorm:"column:source_id"`
+	SourceRef       string `gorm:"column:source_ref"`
+	ContextRef      string `gorm:"column:context_ref"`
+	Actions         string `gorm:"column:actions_snapshot"`
+	Status          string `gorm:"column:status"`
+	ItemRevision    int64  `gorm:"column:item_revision"`
+	SelectedAction  string `gorm:"column:selected_action_key"`
+	ResponseStatus  string `gorm:"column:response_status"`
+	CreatedAt       int64  `gorm:"column:created_at"`
+	GeneratedAt     int64  `gorm:"column:generated_at"`
+	UpdatedAt       int64  `gorm:"column:updated_at"`
+	RespondedAt     *int64 `gorm:"column:responded_at"`
+	ExpiresAt       *int64 `gorm:"column:expires_at"`
 }
 
 func encodeAttentionCursor(cursor attentionCursor) string {
@@ -81,7 +82,8 @@ func attentionResponse(row attentionView) map[string]interface{} {
 	}
 	return map[string]interface{}{
 		"attention_id": fmt.Sprintf("%d", row.AttentionID), "title": row.Title,
-		"producer": row.Producer, "surface": row.Surface, "category": row.Category,
+		"schema_version": row.ProtocolVersion, "producer": row.Producer,
+		"surface": row.Surface, "category": row.Category,
 		"client_item_id": row.ClientItemID, "language": row.Language,
 		"body": row.Body, "recommendation": row.Recommendation,
 		"source_ref": sourceRef, "context_ref": contextRef,
@@ -93,7 +95,7 @@ func attentionResponse(row attentionView) map[string]interface{} {
 	}
 }
 
-const attentionSelect = `SELECT item.attention_id, item.producer, item.surface, item.category,
+const attentionSelect = `SELECT item.attention_id, item.producer, item.protocol_version, item.surface, item.category,
 	item.client_item_id, item.language, item.title, item.body, item.recommendation,
 	item.source_type, item.source_id, item.source_ref::text AS source_ref,
 	item.context_ref::text AS context_ref,
@@ -127,7 +129,8 @@ func (s *Service) listAttentionItems(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var rows []attentionView
-	query := attentionSelect + ` WHERE item.agent_id = ? AND item.producer = 'agent' AND item.status = ?`
+	query := attentionSelect + ` WHERE item.agent_id = ? AND item.producer = 'agent'
+		AND item.protocol_version = 'agent_attention.v1' AND item.status = ?`
 	args := []interface{}{agentIDValue, status}
 	if status == "open" || status == "selected" || status == "pending" {
 		query += ` AND item.expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`
@@ -163,7 +166,7 @@ func (s *Service) getAttentionItem(_ context.Context, c *app.RequestContext) {
 	}
 	var rows []attentionView
 	query := attentionSelect + ` WHERE item.agent_id = ? AND item.attention_id = ?
-		AND item.producer = 'agent'
+		AND item.producer = 'agent' AND item.protocol_version = 'agent_attention.v1'
 		AND (item.status NOT IN ('open','selected','pending')
 		  OR item.expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint)`
 	if err := s.db.Raw(query, agentIDValue, attentionID).Scan(&rows).Error; err != nil {
@@ -185,7 +188,8 @@ func (s *Service) dismissAttentionItem(_ context.Context, c *app.RequestContext)
 		return
 	}
 	result := s.db.Exec(`UPDATE agent_attention_items SET status = 'dismissed'
-		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND status = 'open'
+		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+		  AND protocol_version = 'agent_attention.v1' AND status = 'open'
 		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentIDValue, attentionID)
 	if result.Error != nil {
 		fail(c, http.StatusInternalServerError, "ATTENTION_UPDATE_FAILED", "could not dismiss attention item", nil)

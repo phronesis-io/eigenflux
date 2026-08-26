@@ -4,7 +4,7 @@
 //
 //	go run ./scripts/invite_channel --name redskills --note "official slot"  # create (idempotent by name)
 //	go run ./scripts/invite_channel --list                                   # all channel codes + funnel counts
-//	go run ./scripts/invite_channel --find kol@example.com                   # an agent's KOL code (creates if missing)
+//	go run ./scripts/invite_channel --find kol@example.com                   # legacy KOL code or current short ID
 //
 // Codes are always system-generated (EFI-xxxxxx); custom vanity codes are
 // deliberately unsupported. Creating the same --name twice returns the existing
@@ -40,7 +40,7 @@ func main() {
 	name := flag.String("name", "", "channel name to create/get a code for (e.g. redskills)")
 	note := flag.String("note", "", "free-form note stored with a newly created channel code")
 	list := flag.Bool("list", false, "list all channel codes with funnel counts")
-	find := flag.String("find", "", "agent email — print (creating if missing) that agent's KOL code")
+	find := flag.String("find", "", "agent email — print its legacy KOL code or current short ID")
 	flag.Parse()
 
 	cfg := config.Load()

@@ -3,6 +3,7 @@ package consolev2
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 )
 
 const (
+	attentionProtocolVersion    = "agent_attention.v1"
 	attentionPublishBodyLimit   = 32 << 10
 	attentionPublishBatchMax    = 10
 	attentionHourlyTotal        = 20
@@ -260,7 +262,7 @@ func containsForbiddenCustomText(value string) bool {
 }
 
 func validateAttentionPublish(req *attentionPublishRequest, now int64) error {
-	if req.SchemaVersion != "agent_attention.v1" || !validAttentionID(req.IdempotencyKey) ||
+	if req.SchemaVersion != attentionProtocolVersion || !validAttentionID(req.IdempotencyKey) ||
 		len(req.Items) < 1 || len(req.Items) > attentionPublishBatchMax {
 		return errors.New("schema_version, idempotency_key, or items are invalid")
 	}
@@ -477,7 +479,8 @@ func loadAttentionRateRows(tx *gorm.DB, agentID, cutoff int64) ([]attentionRateR
 	var rows []attentionRateRow
 	err := tx.Raw(`SELECT client_item_id, surface, created_at
 		FROM agent_attention_items
-		WHERE agent_id = ? AND producer = 'agent' AND created_at >= ?
+		WHERE agent_id = ? AND producer = 'agent'
+		  AND protocol_version = 'agent_attention.v1' AND created_at >= ?
 		ORDER BY created_at, attention_id`, agentID, cutoff).Scan(&rows).Error
 	return rows, err
 }
@@ -682,6 +685,87 @@ type attentionInsertSeed struct {
 	ExpiresAt      int64                     `json:"expires_at"`
 }
 
+type attentionExistingItem struct {
+	ClientItemID string `gorm:"column:client_item_id"`
+	PayloadHash  string `gorm:"column:payload_hash"`
+}
+
+func attentionClientIDs(items []attentionPublishItem) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ClientItemID)
+	}
+	return ids
+}
+
+func newAttentionPublishItems(items []attentionPublishItem, existing []attentionExistingItem) ([]attentionPublishItem, error) {
+	existingHashes := make(map[string]string, len(existing))
+	for _, row := range existing {
+		existingHashes[row.ClientItemID] = row.PayloadHash
+	}
+	newItems := make([]attentionPublishItem, 0, len(items))
+	for _, item := range items {
+		if oldHash, exists := existingHashes[item.ClientItemID]; exists {
+			if oldHash != item.payloadHash {
+				return nil, errConflict
+			}
+			continue
+		}
+		newItems = append(newItems, item)
+	}
+	return newItems, nil
+}
+
+func attentionRateCounts(rows []attentionRateRow) (total, participation, focus int64) {
+	total = int64(len(rows))
+	for _, row := range rows {
+		if row.Surface == "participation" {
+			participation++
+		} else {
+			focus++
+		}
+	}
+	return total, participation, focus
+}
+
+func attentionSurfaceCounts(items []attentionPublishItem) (participation, focus int64) {
+	for _, item := range items {
+		if item.Surface == "participation" {
+			participation++
+		} else {
+			focus++
+		}
+	}
+	return participation, focus
+}
+
+func attentionItemDifference(reserved, inserted []attentionPublishItem) []attentionPublishItem {
+	insertedIDs := make(map[string]struct{}, len(inserted))
+	for _, item := range inserted {
+		insertedIDs[item.ClientItemID] = struct{}{}
+	}
+	difference := make([]attentionPublishItem, 0, len(reserved))
+	for _, item := range reserved {
+		if _, exists := insertedIDs[item.ClientItemID]; !exists {
+			difference = append(difference, item)
+		}
+	}
+	return difference
+}
+
+func containsAllAttentionItems(candidates, actual []attentionPublishItem) bool {
+	candidateIDs := make(map[string]struct{}, len(candidates))
+	for _, item := range candidates {
+		candidateIDs[item.ClientItemID] = struct{}{}
+	}
+	for _, item := range actual {
+		if _, exists := candidateIDs[item.ClientItemID]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	req, raw, err := decodeAttentionPublishBody(c)
@@ -715,18 +799,110 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		reply(c, http.StatusOK, replayPayload)
 		return
 	}
-	reservationToken, tokenErr := randomToken("", 12)
-	if tokenErr != nil {
-		fail(c, http.StatusInternalServerError, "ATTENTION_PUBLISH_FAILED", "could not reserve Attention quota", nil)
+	// Phase 1 is an advisory snapshot only: Redis reservations are made from a
+	// consistent committed view, then the write transaction rechecks every fact.
+	clientIDs := attentionClientIDs(req.Items)
+	cutoff := now - attentionRateWindow.Milliseconds()
+	preflightCtx, cancelPreflight := context.WithTimeout(ctx, attentionPublishReadTimeout)
+	preflightDB := s.db.WithContext(preflightCtx)
+	var preflightExisting []attentionExistingItem
+	var rateRows []attentionRateRow
+	preflightErr := preflightDB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(`SELECT client_item_id, payload_hash FROM agent_attention_items
+			WHERE agent_id = ? AND producer = 'agent'
+			  AND protocol_version = 'agent_attention.v1' AND client_item_id = ANY(?)`,
+			agentIDValue, pq.Array(clientIDs)).Scan(&preflightExisting).Error; err != nil {
+			return err
+		}
+		var err error
+		rateRows, err = loadAttentionRateRows(tx, agentIDValue, cutoff)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	candidateItems := []attentionPublishItem(nil)
+	if preflightErr == nil {
+		candidateItems, preflightErr = newAttentionPublishItems(req.Items, preflightExisting)
+	}
+	cancelPreflight()
+	if preflightErr != nil {
+		if errors.Is(preflightErr, errConflict) {
+			fail(c, http.StatusConflict, "ATTENTION_CONFLICT", "Attention content, context, or intent capacity changed", nil)
+			return
+		}
+		if attentionPublishTemporarilyUnavailable(preflightErr) {
+			c.Header("Retry-After", "1")
+			fail(c, http.StatusServiceUnavailable, "ATTENTION_PUBLISH_BUSY", "Attention upload is temporarily busy", nil)
+			return
+		}
+		fail(c, http.StatusInternalServerError, "ATTENTION_PUBLISH_FAILED", "could not prepare Attention upload", nil)
 		return
 	}
 	result := map[string]interface{}{}
 	rateRetryAfter := int64(0)
-	rateRemaining := attentionRateRemaining{
-		Total: attentionHourlyTotal, Participation: attentionHourlyParticipate, Focus: attentionHourlyFocus,
+	total, participation, focus := attentionRateCounts(rateRows)
+	rateRemaining := remainingAttentionQuota(total, participation, focus)
+	candidateParticipation, candidateFocus := attentionSurfaceCounts(candidateItems)
+	if total+int64(len(candidateItems)) > attentionHourlyTotal ||
+		participation+candidateParticipation > attentionHourlyParticipate ||
+		focus+candidateFocus > attentionHourlyFocus {
+		rateRetryAfter = attentionRateWindow.Milliseconds()
+		retryAfterSeconds := (rateRetryAfter + 999) / 1000
+		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+		fail(c, http.StatusTooManyRequests, "ATTENTION_RATE_LIMITED", "Attention upload limit was reached", map[string]interface{}{
+			"remaining": rateRemaining, "retry_after_seconds": retryAfterSeconds, "retry_after_ms": rateRetryAfter,
+		})
+		return
 	}
-	rateUnavailable := false
+	reservationToken := ""
 	var reservedItems []attentionPublishItem
+	if len(candidateItems) > 0 {
+		var tokenErr error
+		reservationToken, tokenErr = randomToken("", 12)
+		if tokenErr != nil {
+			fail(c, http.StatusInternalServerError, "ATTENTION_PUBLISH_FAILED", "could not reserve Attention quota", nil)
+			return
+		}
+		expectedRemaining := remainingAttentionQuota(
+			total+int64(len(candidateItems)), participation+candidateParticipation, focus+candidateFocus)
+		var limitErr error
+		reservationMayExist := false
+		rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, candidateItems, reservationToken)
+		if limitErr == nil {
+			reservationMayExist = true
+		}
+		if errors.Is(limitErr, errConflict) || (limitErr == nil && rateRemaining != expectedRemaining) {
+			if reconcileErr := s.reconcileAttentionRateWindow(ctx, agentIDValue, rateRows); reconcileErr != nil {
+				if reservationMayExist {
+					_ = s.releaseAttentionPublish(context.Background(), agentIDValue, candidateItems, reservationToken)
+				}
+				fail(c, http.StatusServiceUnavailable, "ATTENTION_RATE_LIMIT_UNAVAILABLE", "Attention upload is temporarily unavailable", nil)
+				return
+			}
+			reservationMayExist = false
+			rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, candidateItems, reservationToken)
+			if limitErr == nil {
+				reservationMayExist = true
+			}
+		}
+		if limitErr != nil {
+			if reservationMayExist {
+				_ = s.releaseAttentionPublish(context.Background(), agentIDValue, candidateItems, reservationToken)
+			}
+			if errors.Is(limitErr, errConflict) {
+				retryAfterSeconds := (rateRetryAfter + 999) / 1000
+				c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+				fail(c, http.StatusTooManyRequests, "ATTENTION_RATE_LIMITED", "Attention upload limit was reached", map[string]interface{}{
+					"remaining": rateRemaining, "retry_after_seconds": retryAfterSeconds, "retry_after_ms": rateRetryAfter,
+				})
+				return
+			}
+			fail(c, http.StatusServiceUnavailable, "ATTENTION_RATE_LIMIT_UNAVAILABLE", "Attention upload is temporarily unavailable", nil)
+			return
+		}
+		reservedItems = candidateItems
+	}
+	var insertedItems []attentionPublishItem
+	// Phase 2 is the short authoritative write boundary. It intentionally has
+	// no Redis calls while holding the per-Agent PostgreSQL advisory lock.
 	operationCtx, cancelOperation := context.WithTimeout(ctx, attentionPublishDBTimeout)
 	defer cancelOperation()
 	err = s.db.WithContext(operationCtx).Transaction(func(tx *gorm.DB) error {
@@ -743,31 +919,18 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		if !lockAcquired {
 			return errAttentionPublishBusy
 		}
-		clientIDs := make([]string, 0, len(req.Items))
-		for _, item := range req.Items {
-			clientIDs = append(clientIDs, item.ClientItemID)
-		}
-		var existing []struct {
-			ClientItemID string `gorm:"column:client_item_id"`
-			PayloadHash  string `gorm:"column:payload_hash"`
-		}
+		var existing []attentionExistingItem
 		if err := tx.Raw(`SELECT client_item_id, payload_hash FROM agent_attention_items
-			WHERE agent_id = ? AND producer = 'agent' AND client_item_id = ANY(?)`, agentIDValue, pq.Array(clientIDs)).Scan(&existing).Error; err != nil {
+			WHERE agent_id = ? AND producer = 'agent'
+			  AND protocol_version = 'agent_attention.v1' AND client_item_id = ANY(?)`, agentIDValue, pq.Array(clientIDs)).Scan(&existing).Error; err != nil {
 			return err
 		}
-		existingHashes := make(map[string]string, len(existing))
-		for _, row := range existing {
-			existingHashes[row.ClientItemID] = row.PayloadHash
+		newItems, filterErr := newAttentionPublishItems(req.Items, existing)
+		if filterErr != nil {
+			return filterErr
 		}
-		newItems := make([]attentionPublishItem, 0, len(req.Items))
-		for _, item := range req.Items {
-			if oldHash, exists := existingHashes[item.ClientItemID]; exists {
-				if oldHash != item.payloadHash {
-					return errConflict
-				}
-				continue
-			}
-			newItems = append(newItems, item)
+		if !containsAllAttentionItems(candidateItems, newItems) {
+			return errAttentionPublishBusy
 		}
 		if len(newItems) > 0 {
 			var quotas struct {
@@ -778,60 +941,28 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 			if err := tx.Raw(`SELECT COUNT(*) AS total,
 				COUNT(*) FILTER (WHERE surface = 'participation') AS participation,
 				COUNT(*) FILTER (WHERE surface = 'focus') AS focus
-				FROM agent_attention_items WHERE agent_id = ? AND producer = 'agent' AND created_at >= ?`,
+				FROM agent_attention_items WHERE agent_id = ? AND producer = 'agent'
+				  AND protocol_version = 'agent_attention.v1' AND created_at >= ?`,
 				agentIDValue, now-attentionRateWindow.Milliseconds()).Scan(&quotas).Error; err != nil {
 				return err
 			}
+			newParticipation, newFocus := attentionSurfaceCounts(newItems)
 			rateRemaining = remainingAttentionQuota(quotas.Total, quotas.Participation, quotas.Focus)
-			newParticipation := 0
-			for _, item := range newItems {
-				if item.Surface == "participation" {
-					newParticipation++
-				}
-			}
 			if quotas.Total+int64(len(newItems)) > attentionHourlyTotal ||
-				quotas.Participation+int64(newParticipation) > attentionHourlyParticipate ||
-				quotas.Focus+int64(len(newItems)-newParticipation) > attentionHourlyFocus {
+				quotas.Participation+newParticipation > attentionHourlyParticipate ||
+				quotas.Focus+newFocus > attentionHourlyFocus {
 				rateRetryAfter = attentionRateWindow.Milliseconds()
 				return errAttentionRateLimited
 			}
+			rateRemaining = remainingAttentionQuota(
+				quotas.Total+int64(len(newItems)), quotas.Participation+newParticipation, quotas.Focus+newFocus)
 			if err := authorizeAttentionSources(tx, agentIDValue, newItems); err != nil {
 				return err
 			}
 			if err := validateAttentionContextRefs(tx, agentIDValue, newItems); err != nil {
 				return err
 			}
-			expectedRemaining := remainingAttentionQuota(
-				quotas.Total+int64(len(newItems)),
-				quotas.Participation+int64(newParticipation),
-				quotas.Focus+int64(len(newItems)-newParticipation),
-			)
-			var limitErr error
-			rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, newItems, reservationToken)
-			if limitErr == nil {
-				reservedItems = newItems
-			}
-			if errors.Is(limitErr, errConflict) || (limitErr == nil && rateRemaining != expectedRemaining) {
-				rateRows, rowsErr := loadAttentionRateRows(tx, agentIDValue, now-attentionRateWindow.Milliseconds())
-				if rowsErr != nil {
-					return rowsErr
-				}
-				if reconcileErr := s.reconcileAttentionRateWindow(ctx, agentIDValue, rateRows); reconcileErr != nil {
-					rateUnavailable = true
-					return reconcileErr
-				}
-				rateRetryAfter, rateRemaining, limitErr = s.allowAttentionPublish(ctx, agentIDValue, newItems, reservationToken)
-				if limitErr == nil {
-					reservedItems = newItems
-				}
-			}
-			if limitErr != nil {
-				if errors.Is(limitErr, errConflict) {
-					return errAttentionRateLimited
-				}
-				rateUnavailable = true
-				return limitErr
-			}
+			insertedItems = append(insertedItems[:0], newItems...)
 			seeds := make([]attentionInsertSeed, 0, len(newItems))
 			for _, item := range newItems {
 				sourceType, sourceRef := "agent", interface{}(map[string]interface{}{})
@@ -848,11 +979,11 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 				return marshalErr
 			}
 			if err := tx.Exec(`INSERT INTO agent_attention_items
-				(agent_id, producer, surface, category, client_item_id, payload_hash, language,
+				(agent_id, producer, protocol_version, surface, category, client_item_id, payload_hash, language,
 				 title, body, recommendation, source_type, source_id, source_ref, context_ref,
 				 actions_snapshot, status, item_revision, response_status,
 				 generated_at, created_at, updated_at, expires_at)
-				SELECT ?, 'agent', seed.surface, seed.category, seed.client_item_id, seed.payload_hash,
+				SELECT ?, 'agent', 'agent_attention.v1', seed.surface, seed.category, seed.client_item_id, seed.payload_hash,
 				 seed.language, seed.title, seed.body, seed.recommendation, seed.source_type,
 				 seed.source_id, seed.source_ref, seed.context_ref, seed.actions,
 				 'open', 1, 'none', seed.generated_at, ?, ?, seed.expires_at
@@ -866,7 +997,8 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		}
 		var rows []attentionPublishRow
 		if err := tx.Raw(`SELECT attention_id, client_item_id FROM agent_attention_items
-			WHERE agent_id = ? AND producer = 'agent' AND client_item_id = ANY(?) ORDER BY attention_id`, agentIDValue, pq.Array(clientIDs)).Scan(&rows).Error; err != nil {
+			WHERE agent_id = ? AND producer = 'agent'
+			  AND protocol_version = 'agent_attention.v1' AND client_item_id = ANY(?) ORDER BY attention_id`, agentIDValue, pq.Array(clientIDs)).Scan(&rows).Error; err != nil {
 			return err
 		}
 		items := make([]map[string]interface{}, 0, len(rows))
@@ -883,8 +1015,22 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		}
 		return nil
 	})
-	if err != nil && len(reservedItems) > 0 {
-		_ = s.releaseAttentionPublish(context.Background(), agentIDValue, reservedItems, reservationToken)
+	// Phase 3 compensates a rollback, or canonicalizes Redis from committed DB
+	// rows after success so duplicate candidates never consume quota.
+	if len(reservedItems) > 0 {
+		itemsToRelease := reservedItems
+		if err == nil {
+			itemsToRelease = attentionItemDifference(reservedItems, insertedItems)
+			finalizeCtx, cancelFinalize := context.WithTimeout(context.Background(), attentionPublishReadTimeout)
+			committedRows, loadErr := loadAttentionRateRows(s.db.WithContext(finalizeCtx), agentIDValue, cutoff)
+			if loadErr == nil && s.reconcileAttentionRateWindow(finalizeCtx, agentIDValue, committedRows) == nil {
+				itemsToRelease = nil
+			}
+			cancelFinalize()
+		}
+		if len(itemsToRelease) > 0 {
+			_ = s.releaseAttentionPublish(context.Background(), agentIDValue, itemsToRelease, reservationToken)
+		}
 	}
 	if errors.Is(err, errAttentionRateLimited) {
 		retryAfterSeconds := (rateRetryAfter + 999) / 1000
@@ -892,10 +1038,6 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusTooManyRequests, "ATTENTION_RATE_LIMITED", "Attention upload limit was reached", map[string]interface{}{
 			"remaining": rateRemaining, "retry_after_seconds": retryAfterSeconds, "retry_after_ms": rateRetryAfter,
 		})
-		return
-	}
-	if rateUnavailable {
-		fail(c, http.StatusServiceUnavailable, "ATTENTION_RATE_LIMIT_UNAVAILABLE", "Attention upload is temporarily unavailable", nil)
 		return
 	}
 	if attentionPublishTemporarilyUnavailable(err) {

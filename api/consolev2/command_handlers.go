@@ -230,6 +230,13 @@ type claimAgentCommandRequest struct {
 	AppliedContextRevision int64  `json:"applied_context_revision"`
 }
 
+func validAttentionCommandProtocol(payload string) bool {
+	var envelope struct {
+		ProtocolVersion string `json:"protocol_version"`
+	}
+	return json.Unmarshal([]byte(payload), &envelope) == nil && envelope.ProtocolVersion == attentionProtocolVersion
+}
+
 func (s *Service) claimAgentCommand(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	commandID, err := strconv.ParseInt(c.Param("command_id"), 10, 64)
@@ -247,6 +254,9 @@ func (s *Service) claimAgentCommand(_ context.Context, c *app.RequestContext) {
 			attempt_count, created_at FROM agent_commands
 			WHERE command_id = ? AND agent_id = ? FOR UPDATE`, commandID, agentIDValue).Scan(&row).Error; err != nil {
 			return err
+		}
+		if row.CommandType == "attention_response" && !validAttentionCommandProtocol(row.Payload) {
+			return errUnsupportedAttentionProtocol
 		}
 		var runtime struct {
 			AppliedRevision *int64 `gorm:"column:context_revision_applied"`
@@ -299,6 +309,10 @@ func (s *Service) claimAgentCommand(_ context.Context, c *app.RequestContext) {
 	}
 	if errors.Is(err, errConflict) {
 		fail(c, http.StatusConflict, "COMMAND_CLAIMED", "command is unavailable or already claimed", nil)
+		return
+	}
+	if errors.Is(err, errUnsupportedAttentionProtocol) {
+		fail(c, http.StatusConflict, "UNSUPPORTED_ATTENTION_PROTOCOL", "Attention command protocol is unsupported", nil)
 		return
 	}
 	if err != nil {
@@ -364,21 +378,32 @@ func validAttentionResultURL(raw string, trustedPublic bool) bool {
 	return true
 }
 
-func attentionResultURLMatchesEntity(raw, entityID string) bool {
+func canonicalAttentionResultURL(entityType, entityID string) string {
+	switch entityType {
+	case "agent":
+		return "/agent/invite?agent=" + url.QueryEscape(entityID)
+	case "broadcast":
+		return "/dashboard/broadcasts/" + url.PathEscape(entityID)
+	case "broadcast_reply", "activity":
+		return "/dashboard/today"
+	case "friend_request", "relation":
+		return "/dashboard/relations"
+	case "private_message":
+		return "/dashboard/messages"
+	case "network_goal":
+		return "/dashboard/network-goal"
+	case "intent":
+		return "/dashboard/intent-actions"
+	default:
+		return ""
+	}
+}
+
+func attentionResultURLMatchesEntity(raw, entityType, entityID string) bool {
 	if raw == "" {
 		return true
 	}
-	parsed, err := url.ParseRequestURI(raw)
-	if err != nil {
-		return false
-	}
-	for _, segment := range strings.Split(strings.Trim(parsed.Path, "/"), "/") {
-		decoded, decodeErr := url.PathUnescape(segment)
-		if decodeErr == nil && decoded == entityID {
-			return true
-		}
-	}
-	return false
+	return raw == canonicalAttentionResultURL(entityType, entityID)
 }
 
 func validateAttentionCommandResult(raw json.RawMessage) error {
@@ -399,11 +424,25 @@ func validateAttentionCommandResult(raw json.RawMessage) error {
 			utf8.RuneCountInString(entity.Label) > 120 ||
 			(entity.Label != "" && strings.TrimSpace(entity.Label) == "") ||
 			!validAttentionResultURL(entity.URL, entity.TrustedPublic) ||
-			!attentionResultURLMatchesEntity(entity.URL, entity.ID) {
+			!attentionResultURLMatchesEntity(entity.URL, entity.Type, entity.ID) {
 			return errors.New("Attention result related entity is invalid")
 		}
 	}
 	return nil
+}
+
+func canonicalizeAttentionCommandResult(raw json.RawMessage) (json.RawMessage, error) {
+	var result attentionCommandResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	for index := range result.RelatedEntities {
+		entity := &result.RelatedEntities[index]
+		entity.URL = canonicalAttentionResultURL(entity.Type, entity.ID)
+		entity.Label = ""
+		entity.TrustedPublic = false
+	}
+	return json.Marshal(result)
 }
 
 func authorizeAttentionCommandResult(tx *gorm.DB, agentID int64, raw json.RawMessage) error {
@@ -482,7 +521,10 @@ func authorizeAttentionCommandResult(tx *gorm.DB, agentID int64, raw json.RawMes
 	return nil
 }
 
-var errInvalidAttentionCommandResult = errors.New("invalid Attention command result")
+var (
+	errInvalidAttentionCommandResult = errors.New("invalid Attention command result")
+	errUnsupportedAttentionProtocol  = errors.New("unsupported Attention protocol")
+)
 
 func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
@@ -511,12 +553,25 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			return err
 		}
 		if lockedCommandType == "attention_response" {
+			var protocolVersion string
+			if err := tx.Raw(`SELECT payload->>'protocol_version' FROM agent_commands
+				WHERE command_id = ? AND agent_id = ?`, commandID, agentIDValue).Scan(&protocolVersion).Error; err != nil {
+				return err
+			}
+			if protocolVersion != attentionProtocolVersion {
+				return errUnsupportedAttentionProtocol
+			}
 			if resultErr := validateAttentionCommandResult(req.Result); resultErr != nil {
 				return fmt.Errorf("%w: %v", errInvalidAttentionCommandResult, resultErr)
 			}
 			if resultErr := authorizeAttentionCommandResult(tx, agentIDValue, req.Result); resultErr != nil {
 				return fmt.Errorf("%w: related entity is not visible to this Agent", errInvalidAttentionCommandResult)
 			}
+			canonicalResult, canonicalErr := canonicalizeAttentionCommandResult(req.Result)
+			if canonicalErr != nil {
+				return fmt.Errorf("%w: could not canonicalize related entities", errInvalidAttentionCommandResult)
+			}
+			req.Result = canonicalResult
 		}
 		var updated struct {
 			CommandID   int64  `gorm:"column:command_id"`
@@ -548,7 +603,8 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 				}
 				return tx.Exec(`UPDATE agent_attention_items SET status = ?, response_status = ?,
 					updated_at = ?, item_revision = item_revision + 1
-					WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND status = 'pending'`,
+					WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+					  AND protocol_version = 'agent_attention.v1' AND status = 'pending'`,
 					itemStatus, responseStatus, now, agentIDValue, *updated.AttentionID).Error
 			}
 			// open_source is repeatable and never owns the item's terminal state.
@@ -556,13 +612,18 @@ func (s *Service) completeAgentCommand(_ context.Context, c *app.RequestContext)
 			// must not reopen the item or overwrite that choice's pending status.
 			return tx.Exec(`UPDATE agent_attention_items SET response_status = ?,
 				updated_at = ?, item_revision = item_revision + 1
-				WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND status = 'open'`,
+				WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+				  AND protocol_version = 'agent_attention.v1' AND status = 'open'`,
 				responseStatus, now, agentIDValue, *updated.AttentionID).Error
 		}
 		return nil
 	})
 	if errors.Is(updateErr, errInvalidAttentionCommandResult) {
 		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_RESULT", "Attention command result is invalid", nil)
+		return
+	}
+	if errors.Is(updateErr, errUnsupportedAttentionProtocol) {
+		fail(c, http.StatusConflict, "UNSUPPORTED_ATTENTION_PROTOCOL", "Attention command protocol is unsupported", nil)
 		return
 	}
 	if updateErr != nil {

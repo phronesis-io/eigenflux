@@ -78,8 +78,32 @@ func validateAttentionRuntimeResult(raw []byte) error {
 		if !validAttentionRuntimeResultURL(entity.URL, entity.TrustedPublic) {
 			return fmt.Errorf("related_entities[%d].url is invalid", index)
 		}
+		if entity.URL != "" && entity.URL != canonicalAttentionRuntimeResultURL(entity.Type, entity.ID) {
+			return fmt.Errorf("related_entities[%d].url is not the canonical route for its type and id", index)
+		}
 	}
 	return nil
+}
+
+func canonicalAttentionRuntimeResultURL(entityType, entityID string) string {
+	switch entityType {
+	case "agent":
+		return "/agent/invite?agent=" + url.QueryEscape(entityID)
+	case "broadcast":
+		return "/dashboard/broadcasts/" + url.PathEscape(entityID)
+	case "broadcast_reply", "activity":
+		return "/dashboard/today"
+	case "friend_request", "relation":
+		return "/dashboard/relations"
+	case "private_message":
+		return "/dashboard/messages"
+	case "network_goal":
+		return "/dashboard/network-goal"
+	case "intent":
+		return "/dashboard/intent-actions"
+	default:
+		return ""
+	}
 }
 
 func validAttentionRuntimeResultURL(raw string, trustedPublic bool) bool {

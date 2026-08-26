@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,36 @@ func TestValidateAttentionPublishRejectsPartialOrUnsafeActions(t *testing.T) {
 				t.Fatal("invalid Attention batch was accepted")
 			}
 		})
+	}
+}
+
+func TestAttentionPublishReservationTracksOnlyActualInserts(t *testing.T) {
+	items := []attentionPublishItem{
+		{ClientItemID: "already-committed", payloadHash: "same", Surface: "focus"},
+		{ClientItemID: "new-participation", payloadHash: "new-1", Surface: "participation"},
+		{ClientItemID: "new-focus", payloadHash: "new-2", Surface: "focus"},
+	}
+	candidates, err := newAttentionPublishItems(items, []attentionExistingItem{{ClientItemID: "already-committed", PayloadHash: "same"}})
+	if err != nil || len(candidates) != 2 {
+		t.Fatalf("preflight candidates=%#v err=%v", candidates, err)
+	}
+	inserted := []attentionPublishItem{candidates[1]}
+	toRelease := attentionItemDifference(candidates, inserted)
+	if len(toRelease) != 1 || toRelease[0].ClientItemID != "new-participation" {
+		t.Fatalf("post-commit compensation released the wrong items: %#v", toRelease)
+	}
+	if !containsAllAttentionItems(candidates, inserted) {
+		t.Fatal("an actually inserted candidate was treated as unreserved")
+	}
+	if containsAllAttentionItems(candidates, []attentionPublishItem{{ClientItemID: "deleted-after-preflight"}}) {
+		t.Fatal("write transaction accepted an item without a Redis reservation")
+	}
+}
+
+func TestAttentionPublishPreflightRejectsClientItemHashConflict(t *testing.T) {
+	items := []attentionPublishItem{{ClientItemID: "same-id", payloadHash: "new-hash"}}
+	if _, err := newAttentionPublishItems(items, []attentionExistingItem{{ClientItemID: "same-id", PayloadHash: "old-hash"}}); !errors.Is(err, errConflict) {
+		t.Fatalf("payload hash conflict was accepted: %v", err)
 	}
 }
 

@@ -26,7 +26,7 @@ func (p *scriptedRuntimePoster) Post(_ string, body interface{}) (*client.APIRes
 }
 
 func TestAttentionRuntimeResultTypedValidationDoesNotChangeGenericCommands(t *testing.T) {
-	valid := `{"summary":"已完成处理","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/broadcast/123"}]}`
+	valid := `{"summary":"已完成处理","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/broadcasts/123"}]}`
 	if _, err := parseRuntimeCommandResultForType(valid, attentionResponseCommandType); err != nil {
 		t.Fatalf("valid typed result rejected: %v", err)
 	}
@@ -34,6 +34,7 @@ func TestAttentionRuntimeResultTypedValidationDoesNotChangeGenericCommands(t *te
 		`{}`,
 		`{"summary":"ok","extra":true}`,
 		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"https://example.com/123"}]}`,
+		`{"summary":"ok","related_entities":[{"type":"broadcast","id":"123","url":"/dashboard/item/123"}]}`,
 	}
 	for _, raw := range invalid {
 		if _, err := parseRuntimeCommandResultForType(raw, attentionResponseCommandType); err == nil {

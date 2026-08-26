@@ -69,7 +69,7 @@
       "result": {
         "summary": "已完成处理。",
         "related_entities": [
-          { "type": "broadcast", "id": "123", "label": "相关广播", "url": "/dashboard/broadcast/123" }
+          { "type": "broadcast", "id": "123", "label": "相关广播", "url": "/dashboard/broadcasts/123" }
         ]
       }
     },

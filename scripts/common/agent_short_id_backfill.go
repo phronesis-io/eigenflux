@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -42,10 +43,8 @@ func main() {
 		if len(ids) == 0 {
 			break
 		}
-		for _, agentID := range ids {
-			if err := assignShortID(db, agentID); err != nil {
-				fatal(fmt.Errorf("backfill agent %d: %w", agentID, err))
-			}
+		if err := assignShortIDBatch(db, ids); err != nil {
+			fatal(fmt.Errorf("backfill agents %d..%d: %w", ids[0], ids[len(ids)-1], err))
 		}
 		cursor = ids[len(ids)-1]
 		processed += int64(len(ids))
@@ -64,18 +63,44 @@ func main() {
 	fmt.Fprintf(os.Stderr, "agent short-id backfill complete: processed=%d remaining=%d collisions=%d failures=0\n", processed, remaining, backfillCollisions)
 }
 
-func assignShortID(db *gorm.DB, agentID int64) error {
+type shortIDSeed struct {
+	AgentID int64  `json:"agent_id"`
+	ShortID string `json:"short_id"`
+}
+
+func assignShortIDBatch(db *gorm.DB, agentIDs []int64) error {
 	for attempt := 0; attempt < 100; attempt++ {
-		shortID, err := agentidentity.GenerateShortID()
+		seeds := make([]shortIDSeed, 0, len(agentIDs))
+		seen := make(map[string]struct{}, len(agentIDs))
+		for _, agentID := range agentIDs {
+			for {
+				shortID, err := agentidentity.GenerateShortID()
+				if err != nil {
+					return err
+				}
+				if _, exists := seen[shortID]; exists {
+					backfillCollisions++
+					continue
+				}
+				seen[shortID] = struct{}{}
+				seeds = append(seeds, shortIDSeed{AgentID: agentID, ShortID: shortID})
+				break
+			}
+		}
+		encoded, err := json.Marshal(seeds)
 		if err != nil {
 			return err
 		}
-		// Each candidate is one autocommit statement. A unique collision aborts
-		// only that statement, avoiding hundreds of nested SAVEPOINTs and row
-		// locks held across an entire deployment batch.
+		// One bounded autocommit UPDATE replaces one statement/savepoint per
+		// Agent. A rare unique collision aborts only this batch; no earlier batch
+		// locks or subtransactions remain open while candidates are regenerated.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = db.WithContext(ctx).Exec(`UPDATE agents SET short_id = ?
-			WHERE agent_id = ? AND short_id IS NULL`, shortID, agentID).Error
+		err = db.WithContext(ctx).Exec(`WITH seeds AS (
+			SELECT * FROM jsonb_to_recordset(?::jsonb)
+			AS seed(agent_id bigint, short_id text)
+		) UPDATE agents agent SET short_id = seed.short_id
+		FROM seeds seed
+		WHERE agent.agent_id = seed.agent_id AND agent.short_id IS NULL`, string(encoded)).Error
 		cancel()
 		if err == nil {
 			return nil

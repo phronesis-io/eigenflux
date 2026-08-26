@@ -8,6 +8,7 @@ SET statement_timeout = '5min';
 
 ALTER TABLE agent_attention_items
     ADD COLUMN IF NOT EXISTS producer VARCHAR(16) NOT NULL DEFAULT 'legacy',
+    ADD COLUMN IF NOT EXISTS protocol_version VARCHAR(32) NOT NULL DEFAULT 'legacy_attention.v0',
     ADD COLUMN IF NOT EXISTS surface VARCHAR(24) NOT NULL DEFAULT 'focus',
     ADD COLUMN IF NOT EXISTS category VARCHAR(32) NOT NULL DEFAULT 'other_attention',
     ADD COLUMN IF NOT EXISTS client_item_id VARCHAR(128) NULL,
@@ -39,7 +40,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NEW.producer IS DISTINCT FROM 'agent' THEN
+    IF NEW.producer IS DISTINCT FROM 'agent'
+       OR NEW.protocol_version IS DISTINCT FROM 'agent_attention.v1' THEN
         RAISE EXCEPTION USING
             ERRCODE = 'P0001',
             MESSAGE = 'LEGACY_ATTENTION_WRITE_REJECTED',
@@ -50,10 +52,22 @@ END
 $$;
 -- +goose StatementEnd
 
-DROP TRIGGER IF EXISTS trg_reject_legacy_attention_write ON agent_attention_items;
-CREATE TRIGGER trg_reject_legacy_attention_write
-    BEFORE INSERT OR UPDATE ON agent_attention_items
-    FOR EACH ROW EXECUTE FUNCTION reject_legacy_attention_write();
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgrelid = 'agent_attention_items'::regclass
+          AND tgname = 'trg_reject_legacy_attention_write'
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER trg_reject_legacy_attention_write
+            BEFORE INSERT OR UPDATE ON agent_attention_items
+            FOR EACH ROW EXECUTE FUNCTION reject_legacy_attention_write();
+    END IF;
+END $$;
+-- +goose StatementEnd
 
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_agent_attention_client_item
     ON agent_attention_items(agent_id, client_item_id)
@@ -87,6 +101,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversations_attention_source_repli
     ON conversations(origin_type, origin_id, status, conv_id)
     INCLUDE (participant_a, participant_b)
     WHERE origin_id > 0;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversations_attention_reply_participant_a
+    ON conversations(origin_id, participant_a, conv_id)
+    WHERE origin_type = 'broadcast' AND status = 0 AND origin_id > 0;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversations_attention_reply_participant_b
+    ON conversations(origin_id, participant_b, conv_id)
+    WHERE origin_type = 'broadcast' AND status = 0 AND origin_id > 0;
 
 -- +goose Down
 -- +goose StatementBegin

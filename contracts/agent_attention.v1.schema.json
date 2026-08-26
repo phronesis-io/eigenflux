@@ -172,9 +172,21 @@
     }
   },
   "x-eigenflux-contract": {
+    "persisted_protocol_version": "agent_attention.v1",
     "publish_body_max_bytes": 32768,
     "custom_flag_max_utf8_bytes": 20,
     "max_lifetime_days": 90,
+    "canonical_result_routes": {
+      "agent": "/agent/invite?agent={id}",
+      "broadcast": "/dashboard/broadcasts/{id}",
+      "broadcast_reply": "/dashboard/today",
+      "friend_request": "/dashboard/relations",
+      "relation": "/dashboard/relations",
+      "private_message": "/dashboard/messages",
+      "network_goal": "/dashboard/network-goal",
+      "intent": "/dashboard/intent-actions",
+      "activity": "/dashboard/today"
+    },
     "participation_categories": [
       "action_recommendation",
       "goal_calibration",

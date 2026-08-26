@@ -55,7 +55,8 @@ func loadAttentionResponseReplay(tx *gorm.DB, agentID, attentionID, expectedRevi
 	}
 	result := tx.Raw(`SELECT actions_snapshot::text AS actions_snapshot,
 		source_ref::text AS source_ref, status, item_revision FROM agent_attention_items
-		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'`, agentID, attentionID).Scan(&row)
+		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+		  AND protocol_version = 'agent_attention.v1'`, agentID, attentionID).Scan(&row)
 	if result.Error != nil {
 		return 0, "", "", false, result.Error
 	}
@@ -136,6 +137,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 			actions_snapshot::text AS actions_snapshot, context_ref::text AS context_ref,
 			payload_hash, item_revision, expires_at, source_ref::text AS source_ref
 			FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+			  AND protocol_version = 'agent_attention.v1'
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint FOR UPDATE`,
 			agentIDValue, attentionID).Scan(&item).Error; err != nil {
 			return err
@@ -157,6 +159,9 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		}
 		if selected == nil {
 			return errConflict
+		}
+		if selected.Flag == "open_source" {
+			return errAttentionSourceDirect
 		}
 		selectedFlag = selected.Flag
 		terminal := attentionActionTerminal(*selected)
@@ -202,7 +207,8 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 			return errConflict
 		}
 		payload := map[string]interface{}{
-			"command_type": "attention_response", "attention_id": fmt.Sprintf("%d", attentionID),
+			"protocol_version": attentionProtocolVersion,
+			"command_type":     "attention_response", "attention_id": fmt.Sprintf("%d", attentionID),
 			"selected_action":         map[string]interface{}{"action_key": selected.ActionKey, "kind": selected.Kind, "flag": selected.Flag, "display_text": displayText},
 			"attention_snapshot_hash": "sha256:" + item.PayloadHash, "context_revision": contextRevision,
 			"attention_snapshot": map[string]interface{}{
@@ -236,6 +242,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		if err := tx.Raw(`UPDATE agent_attention_items SET status = ?, selected_action_key = ?,
 			response_status = 'pending', responded_at = ?, updated_at = ?, item_revision = item_revision + 1
 			WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+			  AND protocol_version = 'agent_attention.v1'
 			  AND status = 'open' AND item_revision = ?
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint
 			RETURNING item_revision`, itemStatus, selected.ActionKey, now, now, agentIDValue, attentionID,
@@ -256,6 +263,10 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 	}
 	if errors.Is(err, errAttentionContextStale) {
 		fail(c, http.StatusConflict, "ATTENTION_CONTEXT_STALE", "Attention context changed; refresh before responding", nil)
+		return
+	}
+	if errors.Is(err, errAttentionSourceDirect) {
+		fail(c, http.StatusBadRequest, "ATTENTION_SOURCE_DIRECT_ONLY", "open_source must use the authenticated source endpoint", nil)
 		return
 	}
 	if errors.Is(err, errConflict) || isUniqueViolation(err) {
@@ -292,6 +303,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 var (
 	errIntentCapacity        = errors.New("intent capacity reached")
 	errAttentionContextStale = errors.New("Attention context is stale")
+	errAttentionSourceDirect = errors.New("Attention source must be opened directly")
 )
 
 func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
@@ -304,6 +316,7 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 	var stored string
 	storedResult := s.db.Raw(`SELECT source_ref::text FROM agent_attention_items
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+		  AND protocol_version = 'agent_attention.v1'
 		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentIDValue, attentionID).Scan(&stored)
 	if storedResult.Error != nil {
 		fail(c, http.StatusInternalServerError, "ATTENTION_SOURCE_READ_FAILED", "could not read Attention source", nil)
@@ -386,15 +399,21 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 				Content        string `gorm:"column:content"`
 				CreatedAt      int64  `gorm:"column:created_at"`
 			}
-			repliesResult := s.db.Raw(`SELECT message.msg_id, message.conv_id, message.sender_id,
-				message.receiver_id, message.content, message.created_at
+			repliesResult := s.db.Raw(`WITH source_conversations AS (
+				SELECT conversation.conv_id
 				FROM conversations conversation
-				JOIN private_messages message ON message.conv_id = conversation.conv_id
 				WHERE conversation.origin_type = 'broadcast' AND conversation.origin_id = ?
-				  AND conversation.origin_id > 0
-				  AND conversation.status = 0
-				  AND (conversation.participant_a = ? OR conversation.participant_b = ?)
-				ORDER BY message.msg_id DESC LIMIT ?`, sourceID, agentIDValue, agentIDValue, replyLimit+1).Scan(&replyRows)
+				  AND conversation.status = 0 AND conversation.participant_a = ?
+				UNION
+				SELECT conversation.conv_id
+				FROM conversations conversation
+				WHERE conversation.origin_type = 'broadcast' AND conversation.origin_id = ?
+				  AND conversation.status = 0 AND conversation.participant_b = ?
+			) SELECT message.msg_id, message.conv_id, message.sender_id,
+				message.receiver_id, message.content, message.created_at
+				FROM source_conversations source
+				JOIN private_messages message ON message.conv_id = source.conv_id
+				ORDER BY message.msg_id DESC LIMIT ?`, sourceID, agentIDValue, sourceID, agentIDValue, replyLimit+1).Scan(&replyRows)
 			if repliesResult.Error != nil {
 				err = repliesResult.Error
 				break

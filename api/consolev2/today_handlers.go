@@ -232,6 +232,7 @@ func (s *Service) loadTodayAttentions(agentID, since int64, participationCursor,
 	if err := s.db.Raw(`SELECT COUNT(*) FILTER (WHERE surface = 'focus') AS focus_count,
 		COUNT(*) FILTER (WHERE surface = 'participation') AS participation_count
 		FROM agent_attention_items WHERE agent_id = ? AND producer = 'agent'
+		  AND protocol_version = 'agent_attention.v1'
 		  AND status IN ('open','selected','pending','acted') AND created_at >= ?
 		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentID, since).Scan(&counts).Error; err != nil {
 		return todayAttentionPage{}, todayAttentionPage{}, 0, 0, err
@@ -240,6 +241,7 @@ func (s *Service) loadTodayAttentions(agentID, since int64, participationCursor,
 	load := func(participation bool, limit int, cursor attentionCursor) (todayAttentionPage, error) {
 		var rows []attentionView
 		query := attentionSelect + ` WHERE item.agent_id = ? AND item.producer = 'agent'
+			AND item.protocol_version = 'agent_attention.v1'
 			AND item.created_at >= ? AND item.status IN ('open','selected','pending','acted')
 			AND item.expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`
 		args := []interface{}{agentID, since}
@@ -286,6 +288,7 @@ func (s *Service) loadTodayCommandReceipts(agentID int64, attentionIDs []int64) 
 		created_at, completed_at, COALESCE(result, '{}'::jsonb)::text AS result
 		FROM agent_commands
 		WHERE agent_id = ? AND attention_id = ANY(?) AND command_type = 'attention_response'
+		  AND payload->>'protocol_version' = 'agent_attention.v1'
 		ORDER BY attention_id, created_at DESC, command_id DESC`, agentID, pq.Array(attentionIDs)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -469,57 +472,63 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		peerIDs = append(peerIDs, encounters[index].PeerAgentID)
 	}
 	attentionSince := now.Add(-24 * time.Hour).UnixMilli()
-	participationPage, focusPage, focusCount, participationCount, err := s.loadTodayAttentions(
-		agentIDValue, attentionSince, participationCursor, focusCursor)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Attention items", nil)
-		return
-	}
-	participation := participationPage.Rows
-	focus := focusPage.Rows
-	attentionIDs := make([]int64, 0, len(participation)+len(focus))
-	for _, item := range participation {
-		attentionIDs = append(attentionIDs, item.AttentionID)
-	}
-	for _, item := range focus {
-		attentionIDs = append(attentionIDs, item.AttentionID)
-	}
-	receipts, err := s.loadTodayCommandReceipts(agentIDValue, attentionIDs)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load participation receipts", nil)
-		return
-	}
-	participationItems := make([]map[string]interface{}, 0, len(participation))
-	for _, item := range participation {
-		view := attentionResponse(item)
-		if receipt, exists := receipts[item.AttentionID]; exists {
-			view["latest_command"] = receipt
+	var participationPage, focusPage todayAttentionPage
+	var focusCount, participationCount int64
+	participationItems := make([]map[string]interface{}, 0)
+	focusItems := make([]map[string]interface{}, 0)
+	if s.enableAttentionV1 {
+		participationPage, focusPage, focusCount, participationCount, err = s.loadTodayAttentions(
+			agentIDValue, attentionSince, participationCursor, focusCursor)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Attention items", nil)
+			return
 		}
-		participationItems = append(participationItems, view)
-	}
-	focusItems := make([]map[string]interface{}, 0, len(focus))
-	for _, item := range focus {
-		view := attentionResponse(item)
-		if receipt, exists := receipts[item.AttentionID]; exists {
-			view["latest_command"] = receipt
+		participation := participationPage.Rows
+		focus := focusPage.Rows
+		attentionIDs := make([]int64, 0, len(participation)+len(focus))
+		for _, item := range participation {
+			attentionIDs = append(attentionIDs, item.AttentionID)
 		}
-		focusItems = append(focusItems, view)
-	}
-	sourceAgents, err := s.loadTodayAttentionSources(agentIDValue, participation, focus)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Attention sources", nil)
-		return
-	}
-	for index, item := range participation {
-		if sourceID := sourceAgents[fmt.Sprintf("%s:%d", item.SourceType, item.SourceID)]; sourceID > 0 {
-			participationItems[index]["source_agent_id"] = strconv.FormatInt(sourceID, 10)
-			peerIDs = append(peerIDs, sourceID)
+		for _, item := range focus {
+			attentionIDs = append(attentionIDs, item.AttentionID)
 		}
-	}
-	for index, item := range focus {
-		if sourceID := sourceAgents[fmt.Sprintf("%s:%d", item.SourceType, item.SourceID)]; sourceID > 0 {
-			focusItems[index]["source_agent_id"] = strconv.FormatInt(sourceID, 10)
-			peerIDs = append(peerIDs, sourceID)
+		receipts, receiptErr := s.loadTodayCommandReceipts(agentIDValue, attentionIDs)
+		if receiptErr != nil {
+			fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load participation receipts", nil)
+			return
+		}
+		participationItems = make([]map[string]interface{}, 0, len(participation))
+		for _, item := range participation {
+			view := attentionResponse(item)
+			if receipt, exists := receipts[item.AttentionID]; exists {
+				view["latest_command"] = receipt
+			}
+			participationItems = append(participationItems, view)
+		}
+		focusItems = make([]map[string]interface{}, 0, len(focus))
+		for _, item := range focus {
+			view := attentionResponse(item)
+			if receipt, exists := receipts[item.AttentionID]; exists {
+				view["latest_command"] = receipt
+			}
+			focusItems = append(focusItems, view)
+		}
+		sourceAgents, sourceErr := s.loadTodayAttentionSources(agentIDValue, participation, focus)
+		if sourceErr != nil {
+			fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Attention sources", nil)
+			return
+		}
+		for index, item := range participation {
+			if sourceID := sourceAgents[fmt.Sprintf("%s:%d", item.SourceType, item.SourceID)]; sourceID > 0 {
+				participationItems[index]["source_agent_id"] = strconv.FormatInt(sourceID, 10)
+				peerIDs = append(peerIDs, sourceID)
+			}
+		}
+		for index, item := range focus {
+			if sourceID := sourceAgents[fmt.Sprintf("%s:%d", item.SourceType, item.SourceID)]; sourceID > 0 {
+				focusItems[index]["source_agent_id"] = strconv.FormatInt(sourceID, 10)
+				peerIDs = append(peerIDs, sourceID)
+			}
 		}
 	}
 	peerIDs = uniqueInt64s(peerIDs)
