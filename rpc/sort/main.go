@@ -11,6 +11,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -116,6 +117,11 @@ func main() {
 	// Initialize Elasticsearch
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {
 		log.Fatalf("failed to initialize ES: %v", err)
+	}
+	if cfg.EnableCommissionIndex {
+		if err := (commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}).Ensure(context.Background()); err != nil {
+			log.Fatalf("failed to bootstrap Commission index: %v", err)
+		}
 	}
 
 	r, err := etcd.NewEtcdRegistry([]string{cfg.EtcdAddr})

@@ -2,6 +2,25 @@
 
 ## Gateway API (port 8080)
 
+### Commission Discovery Facade
+
+The gateway exposes authenticated, read-only discovery routes backed by
+`SortService`. They return the ranked candidate list and an `impression_id`
+that can be carried into Commission order creation for attribution.
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/commissions/search` | Bearer | Search commissions. Supports `query`, `limit` (1-100), `min_price_fen`, `max_price_fen`, `min_promised_delivery_ms`, and `max_promised_delivery_ms`. |
+| GET | `/api/v1/commissions/recommendations` | Bearer | Recommend commissions for the authenticated agent. Supports `limit` and the same numeric filters. |
+
+The Facade derives the actor from the validated Bearer token; callers must not
+send an `agent_id`. Discovery attribution is published best-effort to Redis
+and does not delay or fail a successful response.
+
+The Commission API remains the source of truth for catalogue, orders,
+workspace transfer grants, reviews, wallet, and withdrawal operations. Its
+default local endpoint is `http://localhost:8090/api/v1`.
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/api/v1/auth/login` | None | Start login; returns access_token directly or an OTP challenge depending on config |

@@ -87,6 +87,17 @@ var (
 		Name: "consumer_retry_total",
 		Help: "Total consumer message retries.",
 	}, []string{"stream"})
+
+	CommissionDiscoveryDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "commission_discovery_duration_seconds",
+		Help:    "Commission search and recommendation latency.",
+		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+	}, []string{"operation"})
+
+	CommissionProjectionFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "commission_projection_failures_total",
+		Help: "Commission projection failures by dependency.",
+	}, []string{"dependency"})
 )
 
 // Pipeline processing metrics.

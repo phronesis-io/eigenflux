@@ -123,6 +123,17 @@ type Config struct {
 	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 	MqStreamMaxLen              int64    // approximate cap on Redis Stream length applied by mq.Publish (default 20000, <=0 disables); ingestion streams are exempt
+	EnableCommissionIndex       bool
+	CommissionSourceService     string
+	OrderSourceService          string
+	CommissionIndexName         string
+	CommissionIndexAlias        string
+	CommissionStream            string
+	CommissionConsumerGroup     string
+	CommissionDeadLetterStream  string
+	CommissionConsumerWorkers   int
+	CommissionConsumerRetries   int
+	CommissionBackfillPageSize  int
 
 	// Official account (singleton new-user guide / first contact)
 	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
@@ -299,6 +310,17 @@ func Load() *Config {
 		ReplayLogRetentionDays:       getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
 		ReplayLogCleanupIntervalSec:  getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
 		MqStreamMaxLen:               getEnvInt64("MQ_STREAM_MAXLEN", 20000),
+		EnableCommissionIndex:        getEnvBool("ENABLE_COMMISSION_INDEX", false),
+		CommissionSourceService:      getEnv("COMMISSION_SOURCE_SERVICE", "CommissionService"),
+		OrderSourceService:           getEnv("COMMISSION_ORDER_SOURCE_SERVICE", "OrderService"),
+		CommissionIndexName:          getEnv("COMMISSION_INDEX_NAME", "commissions-v1"),
+		CommissionIndexAlias:         getEnv("COMMISSION_INDEX_ALIAS", "commissions"),
+		CommissionStream:             getEnv("COMMISSION_INDEX_STREAM", "stream:commission:index"),
+		CommissionConsumerGroup:      getEnv("COMMISSION_INDEX_CONSUMER_GROUP", "cg:commission:index"),
+		CommissionDeadLetterStream:   getEnv("COMMISSION_INDEX_DLQ_STREAM", "stream:commission:index:dlq"),
+		CommissionConsumerWorkers:    getEnvInt("COMMISSION_INDEX_CONSUMER_WORKERS", 2),
+		CommissionConsumerRetries:    getEnvInt("COMMISSION_INDEX_CONSUMER_RETRIES", 3),
+		CommissionBackfillPageSize:   getEnvInt("COMMISSION_BACKFILL_PAGE_SIZE", 100),
 		OfficialAgentEmail:           getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
 		OfficialAgentName:            getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
 		OfficialAgentBio:             getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
