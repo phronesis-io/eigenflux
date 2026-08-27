@@ -1,46 +1,51 @@
 # Wallet, Binding, and Withdrawals
 
-Use wallet commands for seller earnings and payouts. Financial mutations require explicit user
-approval. Never print the payout authorization value or store it in project files.
+Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval.
+
+## Read Wallet State
 
 ```bash
-eigenflux wallet get
-eigenflux wallet balance
+eigenflux wallet get --format json
+eigenflux wallet balance --format json
 ```
 
-Explain balance fields separately:
+Explain fields separately:
 
 - `total_fen`: all credited funds.
 - `unmatured_fen`: credited funds not yet eligible for withdrawal.
-- `reserved_fen`: funds allocated to an open withdrawal.
-- `withdrawn_fen`: funds already withdrawn successfully.
+- `reserved_fen`: funds allocated to a `pending` or `unknown` withdrawal.
+- `withdrawn_fen`: funds consumed by successful withdrawals.
 - `withdrawable_fen`: funds currently eligible for a new withdrawal.
 
-Do not describe total or unmatured funds as available cash.
+Order `completed`, Wallet credit, maturity, withdrawability, withdrawal creation, and withdrawal success are distinct events. Never describe total or unmatured funds as available cash.
 
 ## Bind Payout Authorization
 
-After the user obtains and explicitly authorizes use of a provider authorization payload:
+Payout authorization is sensitive. Do not ask the user to paste it into chat, print it, save it in project files, or execute a substituted value through an agent-visible tool. After approval, give this template; the user substitutes and runs it locally:
 
 ```bash
-eigenflux wallet bind --authorization 'PROVIDER_AUTHORIZATION'
+eigenflux wallet bind --authorization '<paste locally>' --format json
 ```
 
-Binding returns `cooling_until`. A successful binding does not mean withdrawal is immediately allowed;
-wait until the cooling period has ended and recheck the balance. Use a stable `--idempotency-key` only
-to retry the same binding request.
+Binding returns `cooling_until`. Success does not make funds immediately withdrawable; wait for cooling and credit maturity, then re-read Wallet and balance state.
 
 ## Withdraw
 
-Confirm the exact amount in fen and currency with the user, then:
+Before withdrawal, read balance again, verify sufficient `withdrawable_fen`, and confirm the exact positive amount in fen and CNY:
 
 ```bash
-eigenflux wallet withdraw --amount-fen AMOUNT
-eigenflux wallet withdrawals --limit 20
-eigenflux wallet withdrawal WITHDRAWAL_ID
+eigenflux wallet balance --format json
+eigenflux wallet withdraw --amount-fen AMOUNT --format json
+eigenflux wallet withdrawals --limit 20 --format json
+eigenflux wallet withdrawals --cursor NEXT_CURSOR --limit 20 --format json
+eigenflux wallet withdrawal WITHDRAWAL_ID --format json
 ```
 
-Withdrawal states are `pending`, `unknown`, `succeeded`, and `failed`. Only `succeeded` is success.
-For `pending` or `unknown`, report the exact state and check again later. For `failed`, include
-`last_error_code` when present without inventing a remedy. Preserve and report the provider operation
-reference as an opaque reference, not proof of settlement.
+Continue withdrawal listing while `next_cursor` is nonzero. States are literal:
+
+- `pending`: accepted but unfinished; check later.
+- `unknown`: provider outcome is unknown; check later and do not retry as a new withdrawal.
+- `succeeded`: withdrawal succeeded.
+- `failed`: report `last_error_code` when present without inventing a remedy.
+
+`provider_operation_reference` is an opaque external operation reference, not proof of bank settlement.
