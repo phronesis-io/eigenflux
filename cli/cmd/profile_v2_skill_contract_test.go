@@ -22,7 +22,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"This `0.4.0-dev.8` Skill requires CLI `0.0.34`",
+		"This `0.4.0-dev.9` Skill requires CLI `0.0.34`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 	} {
@@ -60,6 +60,9 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Commands → Feed → Attention → Publish",
 		"legacy communication authentication failure skips only communication",
 		"Missing evidence means the heartbeat failed",
+		"Set both the current Codex task title and its attached",
+		"automation name to exactly `EigenFlux 网络收件箱`, then read both back",
+		"succeeds only when both names match exactly",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)
