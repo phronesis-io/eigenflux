@@ -104,3 +104,20 @@ func TestAttentionContractPersistsItemAndCommandProtocol(t *testing.T) {
 		}
 	}
 }
+
+func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
+	sql := migration(t, "000082_console_v2_today_model_briefs.sql")
+	for _, required := range []string{
+		"PRIMARY KEY (agent_id, language)",
+		"language IN ('zh-CN', 'en')",
+		"char_length(narrative) <= 280",
+		"ON DELETE CASCADE",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("Today model brief storage contract missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "CREATE INDEX") {
+		t.Fatal("bounded primary-key lookups do not need an additional index")
+	}
+}
