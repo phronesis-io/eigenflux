@@ -422,6 +422,14 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load Agent Card", nil)
 		return
 	}
+	briefLanguage, err := selectTodayBriefLanguage(
+		c.Query("brief_language"),
+		todayWorkingLanguages(card.ProfileData, card.PublicCard),
+	)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_BRIEF_LANGUAGE", "Today brief language is invalid", nil)
+		return
+	}
 	completedFields, totalFields, completionPercent, err := calculateCurrentCardCompletion(card.AgentName, card.AgentDescription, card.ProfileData)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not calculate Agent Card completion", nil)
@@ -588,6 +596,25 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	if goal.GoalID > 0 {
 		goalData = map[string]interface{}{"goal_id": strconv.FormatInt(goal.GoalID, 10), "goal_text": goal.GoalText}
 	}
+	briefFacts := todayBriefFacts{
+		Day:                todayDay,
+		AgentName:          card.AgentName,
+		ParticipationCount: participationCount,
+		FocusCount:         focusCount,
+		EncounterCount:     encounterCount,
+		ActivityCount:      observation.ActivityCount,
+		CurrentNetworkGoal: goal.GoalText,
+	}
+	if len(participationPage.Rows) > 0 {
+		briefFacts.TopParticipation = participationPage.Rows[0].Title
+	}
+	if len(focusPage.Rows) > 0 {
+		briefFacts.TopFocus = focusPage.Rows[0].Title
+	}
+	modelBrief := map[string]interface{}{"state": "unavailable", "language": briefLanguage}
+	if participationCursor.AttentionID == 0 && focusCursor.AttentionID == 0 {
+		modelBrief = s.prepareTodayBrief(agentIDValue, briefFacts, briefLanguage, now)
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"schema_version": "console_today.v2",
 		"generated_at":   now.UnixMilli(),
@@ -600,6 +627,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		"brief": map[string]interface{}{
 			"focus_count": focusCount, "participation_count": participationCount,
 			"encounter_count": encounterCount, "activity_count": observation.ActivityCount,
+			"narrative": modelBrief,
 		},
 		"observation": map[string]interface{}{
 			"state":                   todayObservationState(hasBriefResult, firstScanCompleted, observation.Connected, observation.RuntimeKnown),
