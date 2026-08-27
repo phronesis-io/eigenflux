@@ -51,7 +51,7 @@ Before any Commission flow:
 
 All consequential mutations use one protocol:
 
-1. Read the latest relevant state immediately before mutation: the selected public Commission before Order creation, the owned Commission before publish/offline, the Order before lifecycle changes, and Wallet/balance state before binding or withdrawal. For a versioned mutation, use the version from this read.
+1. Read the latest relevant state immediately before mutation: authoritative Commission terms before Order creation, the owned Commission before publish/offline, the Order before lifecycle changes, and Wallet/balance state before binding or withdrawal. CLI discovery exposes ranking evidence, not a public contract read; never infer seller or terms. For a versioned mutation, use the version from this read.
 2. Show the actor role, current state/version when applicable, frozen scope, money where relevant, command effect, and irreversible or externally visible consequences.
 3. Obtain explicit user approval for:
    - Commission publish and offline;
@@ -60,10 +60,11 @@ All consequential mutations use one protocol:
    - Wallet binding and withdrawal.
 4. Execute the approved command once.
 5. Idempotency discipline:
-   - when `--idempotency-key` is omitted, the CLI generates a deterministic key from the agent scope, operation, and request body;
-   - retry the identical command and payload unchanged after an uncertain response;
+   - for a single API mutation, an omitted `--idempotency-key` is deterministically derived from the agent scope, operation, and request body;
+   - retry that identical command and payload unchanged after an uncertain response;
    - if an explicit key is needed, choose it before attempt one and reuse it only for that identical request;
-   - never introduce or replace a key only after an uncertain response, and never reuse a key for changed content.
+   - never introduce or replace a key only after an uncertain single mutation, and never reuse a key for changed content;
+   - `order upload` is a multi-step begin/transfer/confirm flow and uses the separate state-check and approved-new-attempt recovery below.
 6. Read the resource again and report the exact observed state. Pending, validation, refund, settlement, cooling, maturity, blocked, failed, and unknown states are not success.
 7. A 401 routes to `ef-profile` re-login. A version conflict requires a fresh read, renewed assessment, and renewed approval when the effective action changed.
 
@@ -78,8 +79,9 @@ Document:
 - full-replacement `commission update` with all input fields and latest `draft_version`;
 - publish/offline approval and version behavior;
 - authoritative service constraints: CNY only, at least 100 fen, promised delivery from one hour through 30 days, maximum 20 tags of 64 characters, and title maximum 200 characters;
-- discovery filters and candidate evaluation;
-- optional attribution: preserve and pass `impression_id` when present, but do not block Order creation when absent;
+- discovery filters and the actual ID/score/features evidence returned by search/recommend;
+- the discovery boundary: never infer seller or contract terms, and stop before `order create` unless authoritative seller, scope, price/currency, delivery promise, and input/output terms are available from a user-approved source;
+- optional attribution: preserve and pass `impression_id` when present, but do not block an otherwise fully informed and approved Order when absent;
 - review/statistics pagination and evidence use.
 
 ## Order Reference
@@ -94,6 +96,8 @@ eigenflux order list --role seller --state awaiting_seller --limit 20 --format j
 ```
 
 Follow `next_cursor` until empty when the target is not on the first page.
+
+Before Order creation, show authoritative contract terms; discovery output alone is insufficient. Immediately compare the returned frozen contract with every approved term before upload or `submit-materials`. Drift requires a stop and explicit approval to cancel or continue.
 
 ### State table
 
@@ -110,14 +114,15 @@ Document exact domain states and safe interpretation:
 | `refund_pending` | Refund workflow is pending | wait and report exact state |
 | `refunded` | Order payment was refunded | terminal Order state, not successful delivery |
 | `cancelled` | Order was cancelled/rejected/expired before completion | terminal |
-| `completed` | Buyer-confirmed Order completion | terminal Order state; Wallet funds may still be unmatured |
+| `completed` | Buyer-confirmed or confirmation-timeout completion | terminal; inspect event history to identify the path; Wallet funds may still be unmatured |
 
 Every mutation uses the latest Order `version`; fetch again after every successful mutation.
 
 ### Workspace and review
 
 - Buyer uploads only approved request material in `preparing_materials`; seller uploads delivery only in `in_progress`.
-- A failed or expired transfer grant is recovered by rerunning the complete upload/download command; never reuse the old presigned URL or send the EigenFlux bearer token to object storage.
+- Download recovery reruns the complete command to obtain a new grant; never reuse an old presigned URL or send the EigenFlux bearer token to object storage.
+- Upload recovery probes the logical path by downloading to a new local check path and comparing actual bytes. If expected content is already admitted, do not repeat. A missing path or mismatch means the deterministic begin key may be bound to an expired pending object and the CLI has no resume/confirm command; after explicit approval, start a new attempt with a fresh key selected before that attempt, then download to another new check path and verify the bytes.
 - Download output reports local and logical paths. Inspect the downloaded bytes against the frozen delivery contract before `complete`.
 - `--force` replacement needs approval.
 - Reviews are buyer-only, completed-order-only, score 1–5, within 30 days, and text is at most 2,000 Unicode code points.
@@ -142,14 +147,16 @@ Use reference-skill TDD with scripted agent scenarios.
 
 Run without loading the skill and record whether the agent:
 
-1. blocks an Order because a discovery result has no `impression_id`;
-2. adds a new explicit key only after an uncertain mutation response;
-3. guesses a hosted Commission endpoint;
-4. reports `validating`, `refund_pending`, `completed`, or unmatured Wallet credit as final financial success;
-5. asks the user to paste payout authorization into chat or emits the sensitive command itself;
-6. fails to resume an existing seller or buyer Order through `order list`;
-7. parses TTY table output rather than requesting JSON;
-8. runs accept/cancel/reject/deliver/complete without approval.
+1. treats an otherwise informed Order as blocked only because a discovery result has no `impression_id`;
+2. invents seller or contract terms from an ID-only discovery result;
+3. adds a new explicit key only after an uncertain single API mutation response;
+4. claims an identical upload retry can recover an expired pending upload grant;
+5. guesses a hosted Commission endpoint;
+6. reports `validating`, `refund_pending`, `completed`, or unmatured Wallet credit as final financial success;
+7. asks the user to paste payout authorization into chat or emits the sensitive command itself;
+8. fails to resume an existing seller or buyer Order through filtered `order list` pagination;
+9. parses TTY table output rather than requesting JSON;
+10. runs accept/cancel/reject/deliver/complete without approval.
 
 ### GREEN criteria
 
@@ -157,10 +164,10 @@ With the revised skill loaded, the agent must:
 
 - follow the preflight and endpoint routing contract;
 - use JSON and actual CLI commands/flags;
-- preserve optional attribution correctly;
-- retry mutations with unchanged key semantics;
-- recover work using list/pagination;
-- use exact state meanings and approval gates;
+- preserve optional attribution without treating discovery evidence as public contract terms;
+- retry single API mutations with unchanged key semantics and handle upload recovery separately;
+- recover work using filtered list pagination;
+- distinguish buyer-confirmed from timeout-driven completion and apply every approval gate;
 - keep payout authorization out of chat and agent-visible execution.
 
 ## Verification
