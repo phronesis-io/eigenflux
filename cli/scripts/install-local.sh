@@ -11,6 +11,12 @@ CLI_DIR="$(cd "$SCRIPT_DIR/.."; pwd)"
 PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 
 source "$CLI_DIR/.cli.config"
+[[ -f "$CLI_DIR/.cli.env" ]] && source "$CLI_DIR/.cli.env"
+
+if [[ -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" ]]; then
+  echo "EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY is required to build a CLI that can verify Skills releases" >&2
+  exit 1
+fi
 
 CLI_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
 
@@ -33,7 +39,7 @@ build_and_install_cli() {
     GO_CMD=(go)
   fi
 
-  "${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT}" -o "$PROJECT_ROOT/build/eigenflux" .
+  "${GO_CMD[@]}" build -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT} -X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" -o "$PROJECT_ROOT/build/eigenflux" .
 
   mkdir -p "$INSTALL_DIR"
   rm -f "$INSTALL_DIR/eigenflux"

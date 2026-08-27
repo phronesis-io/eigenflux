@@ -12,6 +12,12 @@ PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/cli"
 
 source "$CLI_DIR/.cli.config"
+[[ -f "$CLI_DIR/.cli.env" ]] && source "$CLI_DIR/.cli.env"
+
+if [[ -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" || -z "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE:-}" ]]; then
+  echo "EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY and EIGENFLUX_SKILLS_SIGNING_KEY_FILE are required" >&2
+  exit 1
+fi
 
 CLI_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
 
@@ -36,6 +42,13 @@ else
   GO_CMD=(go)
 fi
 
+DERIVED_SKILLS_PUBLIC_KEY=$(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen \
+  --print-public-key --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE")
+if [[ "$DERIVED_SKILLS_PUBLIC_KEY" != "$EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY" ]]; then
+  echo "Skills signing key does not match EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY" >&2
+  exit 1
+fi
+
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -54,7 +67,7 @@ for platform in "${PLATFORMS[@]}"; do
 
   echo -ne "${CYAN}Compiling ${os}/${arch} ...${NC} "
   if GOOS="$os" GOARCH="$arch" "${GO_CMD[@]}" build \
-    -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT}" \
+    -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT} -X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
     -o "$BUILD_DIR/$bin_name" . 2>&1; then
     echo -e "${GREEN}OK${NC}"
   else
@@ -71,11 +84,10 @@ echo "$CLI_VERSION" > "$BUILD_DIR/version.txt"
 #    release, not a plugin republish). ───────────────────────────────────────
 SKILLS_SRC="$PROJECT_ROOT/skills"
 SKILLS_STAGE="$BUILD_DIR/skills-stage"
-# Single source of truth: derive the allowlist from the Go constant ProdAllowlist
-# so build.sh can never drift from manifestgen/the client.
+# Discover every distributable official ef-* Skill from the source tree.
 SKILLS_ALLOWLIST=()
 while IFS= read -r _name; do [[ -n "$_name" ]] && SKILLS_ALLOWLIST+=("$_name"); done \
-  < <("${GO_CMD[@]}" run ./cmd/manifestgen --print-allowlist)
+  < <("${GO_CMD[@]}" run ./cmd/manifestgen --print-allowlist --skills-dir "$SKILLS_SRC")
 
 build_skills_bundle() {
   # Deterministic archives require GNU tar's long flags; macOS bsdtar lacks them.
@@ -113,6 +125,8 @@ build_skills_bundle() {
   "${GO_CMD[@]}" run ./cmd/manifestgen \
     --skills-dir "$SKILLS_STAGE" --cli-version "$CLI_VERSION" \
     --min-cli-version "${SKILLS_MIN_CLI_VERSION:-}" \
+    --sequence "${SKILLS_SEQUENCE}" \
+    --signing-key-file "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE}" \
     --tarball "$BUILD_DIR/skills.tar.gz" --out "$BUILD_DIR/manifest.json"
   rm -rf "$SKILLS_STAGE"
   echo -e "${GREEN}Skills bundle → skills.tar.gz / .sha256 / manifest.json${NC}"

@@ -61,8 +61,11 @@ type AgentSettings struct {
 	// runtime — plugin or CLI-direct — and shown on the dashboard runtime card.
 	// An axis independent of client_host: a plugin's client_host carries the
 	// host+version ("openclaw/1.2.3"), while cli_version is the CLI's own build.
-	CLIVersion       string `gorm:"column:cli_version"`
-	OfficialPMOptout bool   `gorm:"column:official_pm_optout;default:false"`
+	CLIVersion               string `gorm:"column:cli_version"`
+	HeartbeatContractVersion string `gorm:"column:heartbeat_contract_version"`
+	SkillRevision            string `gorm:"column:skill_revision"`
+	HeartbeatReportedAt      int64  `gorm:"column:heartbeat_reported_at"`
+	OfficialPMOptout         bool   `gorm:"column:official_pm_optout;default:false"`
 	// Lang is the user's dashboard display language ("zh"/"en"), console-owned.
 	// Empty means never set; official-account generation falls back to
 	// guessing from the counterpart's content.
@@ -151,6 +154,22 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 		vals["show_add_friend"] = *showAddFriend
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
+}
+
+// UpdateHeartbeatCompatibility records evidence produced by a successful
+// heartbeat plan. Console V2 uses it as a capability gate; request metadata
+// supplies the CLI version so the body cannot claim a different binary.
+func UpdateHeartbeatCompatibility(db *gorm.DB, agentID int64, cliVersion, contractVersion, skillRevision string) error {
+	if _, err := GetSettings(db, agentID); err != nil {
+		return err
+	}
+	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
+		"cli_version":                cliVersion,
+		"heartbeat_contract_version": contractVersion,
+		"skill_revision":             skillRevision,
+		"heartbeat_reported_at":      time.Now().UnixMilli(),
+		"updated_at":                 time.Now().UnixMilli(),
+	}).Error
 }
 
 // UpdateDerivedRuntimeIfNotSuperseded persists request-derived runtime metadata

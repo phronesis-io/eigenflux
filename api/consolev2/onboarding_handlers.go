@@ -99,18 +99,22 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var identity struct {
-		AgentName      string `gorm:"column:agent_name"`
-		ShortID        string `gorm:"column:short_id"`
-		Bio            string `gorm:"column:bio"`
-		CreatedAt      int64  `gorm:"column:created_at"`
-		IsOfficial     bool   `gorm:"column:is_official"`
-		BoundEmail     string `gorm:"column:bound_email"`
-		EmailVerified  bool   `gorm:"column:email_verified"`
-		RuntimeName    string `gorm:"column:runtime_name"`
-		RuntimeVersion string `gorm:"column:runtime_version"`
-		RuntimeMode    string `gorm:"column:runtime_mode"`
-		ClientHost     string `gorm:"column:client_host"`
-		DeviceName     string `gorm:"column:device_name"`
+		AgentName           string `gorm:"column:agent_name"`
+		ShortID             string `gorm:"column:short_id"`
+		Bio                 string `gorm:"column:bio"`
+		CreatedAt           int64  `gorm:"column:created_at"`
+		IsOfficial          bool   `gorm:"column:is_official"`
+		BoundEmail          string `gorm:"column:bound_email"`
+		EmailVerified       bool   `gorm:"column:email_verified"`
+		RuntimeName         string `gorm:"column:runtime_name"`
+		RuntimeVersion      string `gorm:"column:runtime_version"`
+		RuntimeMode         string `gorm:"column:runtime_mode"`
+		ClientHost          string `gorm:"column:client_host"`
+		DeviceName          string `gorm:"column:device_name"`
+		CLIVersion          string `gorm:"column:cli_version"`
+		HeartbeatContract   string `gorm:"column:heartbeat_contract_version"`
+		SkillRevision       string `gorm:"column:skill_revision"`
+		HeartbeatReportedAt int64  `gorm:"column:heartbeat_reported_at"`
 	}
 	if err := s.db.Raw(`SELECT a.agent_name, a.short_id, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
@@ -119,7 +123,11 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		COALESCE(settings.runtime_version, '') AS runtime_version,
 		COALESCE(settings.mode, '') AS runtime_mode,
 		COALESCE(settings.client_host, '') AS client_host,
-		COALESCE(settings.device_name, '') AS device_name
+		COALESCE(settings.device_name, '') AS device_name,
+		COALESCE(settings.cli_version, '') AS cli_version,
+		COALESCE(settings.heartbeat_contract_version, '') AS heartbeat_contract_version,
+		COALESCE(settings.skill_revision, '') AS skill_revision,
+		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at
 		FROM agents a
 		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
 			AND b.status = 'active' AND b.verification_state = 'verified'
@@ -153,8 +161,63 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"runtime_version":    runtimeVersion,
 		"runtime_mode":       identity.RuntimeMode,
 		"device_name":        identity.DeviceName,
+		"compatibility":      consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt),
 		"onboarding":         state,
 	})
+}
+
+const minimumConsoleV2CLI = "0.0.34"
+
+func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string, reportedAt int64) map[string]interface{} {
+	status := "ready"
+	reason := ""
+	available := true
+	switch {
+	case strings.TrimSpace(cliVersion) == "":
+		status, reason, available = "unknown", "report_missing", false
+	case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
+		status, reason, available = "upgrade_required", "cli_outdated", false
+	case heartbeatContract != heartbeatContractV1:
+		status, reason, available = "upgrade_required", "heartbeat_outdated", false
+	case strings.TrimSpace(skillRevision) == "":
+		status, reason, available = "upgrade_required", "skills_unknown", false
+	}
+	return map[string]interface{}{
+		"available":                           available,
+		"status":                              status,
+		"reason":                              reason,
+		"cli_version":                         cliVersion,
+		"minimum_cli_version":                 minimumConsoleV2CLI,
+		"heartbeat_contract_version":          heartbeatContract,
+		"required_heartbeat_contract_version": heartbeatContractV1,
+		"skill_revision":                      skillRevision,
+		"reported_at":                         reportedAt,
+	}
+}
+
+func compareConsoleCLIVersion(left, right string) int {
+	parse := func(value string) [3]int {
+		var result [3]int
+		value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+		if cut := strings.IndexAny(value, "-+"); cut >= 0 {
+			value = value[:cut]
+		}
+		parts := strings.Split(value, ".")
+		for index := 0; index < len(parts) && index < len(result); index++ {
+			result[index], _ = strconv.Atoi(parts[index])
+		}
+		return result
+	}
+	a, b := parse(left), parse(right)
+	for index := range a {
+		if a[index] < b[index] {
+			return -1
+		}
+		if a[index] > b[index] {
+			return 1
+		}
+	}
+	return 0
 }
 
 func consoleSessionRuntime(name, version, clientHost string) (runtime, runtimeName, runtimeVersion string) {

@@ -41,12 +41,20 @@ func InstallFromBundle(opts SyncOptions) (*SyncResult, error) {
 // lock. stale=true marks the result provisional (offline-first-install fallback
 // from Sync), so the next online sync replaces it.
 func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale bool) (*SyncResult, error) {
+	allowlist := opts.allowlist()
+	if len(allowlist) == 0 {
+		var err error
+		allowlist, err = DiscoverProductionSkills(opts.BundleDir)
+		if err != nil {
+			return nil, softFail(opts, err)
+		}
+	}
 	newDir := real + newSuffix
 	os.RemoveAll(newDir)
 	if err := os.MkdirAll(newDir, dirPerm); err != nil {
 		return nil, softFail(opts, err)
 	}
-	for _, name := range opts.allowlist() {
+	for _, name := range allowlist {
 		src := filepath.Join(opts.BundleDir, name)
 		if !fileExists(filepath.Join(src, "SKILL.md")) {
 			os.RemoveAll(newDir)
@@ -57,7 +65,7 @@ func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale b
 			return nil, softFail(opts, err)
 		}
 	}
-	m, err := GenerateManifest(newDir, opts.CLIVersion, "", opts.allowlist(), 0)
+	m, err := GenerateManifest(newDir, opts.CLIVersion, "", allowlist, 0)
 	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)

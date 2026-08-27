@@ -26,6 +26,9 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
   echo -e "${RED}R2 credentials missing in .cli.env${NC}"; exit 1
 fi
+if [[ -z "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE:-}" || -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" ]]; then
+  echo -e "${RED}Skills signing key file and verify public key are required${NC}"; exit 1
+fi
 if ! command -v gtar >/dev/null 2>&1; then
   echo -e "${RED}gtar (GNU tar) required: brew install gnu-tar${NC}"; exit 1
 fi
@@ -33,14 +36,20 @@ fi
 if command -v mise >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/mise.toml" ]]; then
   GO_CMD=(mise exec -- go); else GO_CMD=(go); fi
 
+DERIVED_SKILLS_PUBLIC_KEY=$(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen \
+  --print-public-key --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE")
+[[ "$DERIVED_SKILLS_PUBLIC_KEY" == "$EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY" ]] || {
+  echo -e "${RED}Skills signing key does not match verify public key${NC}"; exit 1;
+}
+
 SKILLS_SRC="$PROJECT_ROOT/skills"
 SKILLS_STAGE="$BUILD_DIR/skills-stage"
 mkdir -p "$BUILD_DIR"
 
-# Allowlist from the single Go source of truth.
+# Discover every distributable official ef-* Skill from the source tree.
 SKILLS_ALLOWLIST=()
 while IFS= read -r _n; do [[ -n "$_n" ]] && SKILLS_ALLOWLIST+=("$_n"); done \
-  < <(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen --print-allowlist)
+  < <(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen --print-allowlist --skills-dir "$SKILLS_SRC")
 
 echo -e "${CYAN}Staging ${#SKILLS_ALLOWLIST[@]} skills...${NC}"
 rm -rf "$SKILLS_STAGE"; mkdir -p "$SKILLS_STAGE"
@@ -58,6 +67,8 @@ find "$SKILLS_STAGE" \( -name '.DS_Store' -o -name '._*' \) -delete
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen \
     --skills-dir "$SKILLS_STAGE" --cli-version "$CLI_VERSION" \
     --min-cli-version "${SKILLS_MIN_CLI_VERSION:-}" \
+    --sequence "${SKILLS_SEQUENCE}" \
+    --signing-key-file "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE}" \
     --tarball "$BUILD_DIR/skills.tar.gz" --out "$BUILD_DIR/manifest.json" )
 rm -rf "$SKILLS_STAGE"
 

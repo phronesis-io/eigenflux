@@ -51,15 +51,18 @@ const (
 // CDNDefault is the public CDN base; overridable via EIGENFLUX_CDN_URL.
 const CDNDefault = "https://cdn.eigenflux.ai"
 
-// ProdAllowlist is the fixed set of production skills shipped on R2.
-// ef-localdev (a dev-only skill living in a separate repo) is intentionally
-// excluded and is never distributed.
-var ProdAllowlist = []string{"ef-broadcast", "ef-communication", "ef-profile"}
-
 // Manifest is the authoritative description of a skills bundle. The content
 // `revision` (plus per-skill sha256) is authoritative; cli_version is
 // informational and display_version is cosmetic — both may be empty.
 type Manifest struct {
+	// Sequence is a monotonically increasing release number. Clients reject a
+	// lower sequence and reject different content at the same sequence, so a
+	// stale CDN object can never roll Skills back.
+	Sequence uint64 `json:"sequence"`
+	// KeyID identifies the trusted Ed25519 signing key. Signature covers every
+	// manifest field except Signature itself.
+	KeyID     string `json:"key_id"`
+	Signature string `json:"signature"`
 	// Revision is the content fingerprint of the bundle (hash over the sorted
 	// per-skill sha256s). It is the freshness key — skills update when this
 	// changes, INDEPENDENT of the CLI binary version. This is what makes a skill
@@ -104,16 +107,11 @@ type SyncOptions struct {
 	FromBundle   bool         // offline-first-install: fall back to BundleDir
 	BundleDir    string       // local skills dir for InstallFromBundle / fallback
 	ForceManaged bool         // replace edited managed skills; local development installs only
-	Allowlist    []string     // production skill names; defaults to ProdAllowlist
+	Allowlist    []string     // explicit local/test allowlist; remote sync trusts the verified manifest
 	HTTPClient   *http.Client // injectable for tests
 }
 
-func (o SyncOptions) allowlist() []string {
-	if len(o.Allowlist) > 0 {
-		return o.Allowlist
-	}
-	return ProdAllowlist
-}
+func (o SyncOptions) allowlist() []string { return o.Allowlist }
 
 func (o SyncOptions) cdnBase() string {
 	if o.CDNBase != "" {
@@ -124,10 +122,11 @@ func (o SyncOptions) cdnBase() string {
 
 // SyncResult is the structured outcome of a Sync run.
 type SyncResult struct {
-	SkillsDir  string   `json:"skills_dir"`
-	Source     string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
-	CLIVersion string   `json:"cli_version"`
-	Removed    []string `json:"removed,omitempty"`
+	SkillsDir        string   `json:"skills_dir"`
+	Source           string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
+	CLIVersion       string   `json:"cli_version"`
+	VerifiedManifest bool     `json:"verified_manifest"`
+	Removed          []string `json:"removed,omitempty"`
 	// Preserved lists skills kept verbatim instead of updated — third-party
 	// folders and skills the user hand-edited. Surfaced so a user stuck on a
 	// local fork (which would otherwise never receive updates) can see why.

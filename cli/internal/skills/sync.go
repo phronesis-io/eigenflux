@@ -51,6 +51,14 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 		}
 		return nil, softFail(opts, ferr)
 	}
+	if local != nil && local.Sequence > 0 {
+		switch {
+		case remote.Sequence < local.Sequence:
+			return keepLocal(real, local, "signed manifest rollback rejected"), nil
+		case remote.Sequence == local.Sequence && remote.Revision != local.Revision:
+			return keepLocal(real, local, "signed manifest sequence reused for different content"), nil
+		}
+	}
 
 	// Step 2: compatibility floor. A CLI older than the bundle requires must not
 	// adopt it (the skills may reference newer CLI commands). Keep local + nudge.
@@ -63,8 +71,17 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 	}
 
 	// Step 3: already current → skip the tarball download entirely.
-	if local != nil && local.Revision != "" && local.Revision == remote.Revision && !staleMarkerPresent(real) {
-		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion}, nil
+	if local != nil && local.Revision != "" && local.Revision == remote.Revision && !staleMarkerPresent(real) && verifyInstalledSkills(real, local) == nil {
+		// A release may advance the signed sequence without changing content.
+		// Persist the higher signature so future rollback checks use the newest
+		// accepted sequence without downloading the identical tarball.
+		if remote.Sequence > local.Sequence {
+			remote.ManagedBy = ManagedByValue
+			if err := WriteManifestAtomic(real, remote); err != nil {
+				return keepLocal(real, local, "manifest metadata update failed"), nil
+			}
+		}
+		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, VerifiedManifest: true}, nil
 	}
 
 	// Step 4: revision changed → pull + verify + atomic swap.
@@ -84,7 +101,7 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 
 	newDir := real + newSuffix
 	os.RemoveAll(newDir)
-	if err := extractTarGz(tarGz, newDir, opts.allowlist()); err != nil {
+	if err := extractTarGz(tarGz, newDir, manifestSkillNames(remote)); err != nil {
 		os.RemoveAll(newDir)
 		if local != nil {
 			return keepLocal(real, local, "bad tar"), nil
@@ -93,6 +110,14 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 	}
 
 	return applyStaged(opts, real, parent, newDir, local, remote, source, false)
+}
+
+func manifestSkillNames(m *Manifest) []string {
+	names := make([]string, 0, len(m.Skills))
+	for _, skill := range m.Skills {
+		names = append(names, skill.Name)
+	}
+	return names
 }
 
 // applyStaged finishes a sync once newDir is populated: verify, preserve
@@ -139,6 +164,7 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 	result := &SyncResult{
 		SkillsDir: real, Source: source, CLIVersion: remote.CLIVersion,
 		Removed: removed, Stale: stale, Atomic: true,
+		VerifiedManifest: !stale && remote.Sequence > 0 && remote.Signature != "",
 	}
 
 	realExists := dirExists(real)
@@ -239,6 +265,26 @@ func verifyManifest(newDir string, remote *Manifest) error {
 		}
 		if _, ok := want[e.Name()]; !ok {
 			return fmt.Errorf("unexpected dir %q not in manifest", e.Name())
+		}
+	}
+	return nil
+}
+
+// verifyInstalledSkills re-hashes only manifest-owned directories. The active
+// target may also contain third-party Skills, which are preserved intentionally
+// but are never trusted as part of the official release.
+func verifyInstalledSkills(dir string, manifest *Manifest) error {
+	for name, sha := range manifest.names() {
+		skillDir := filepath.Join(dir, name)
+		if !dirExists(skillDir) {
+			return fmt.Errorf("missing installed skill %q", name)
+		}
+		sum, err := dirSHA256(skillDir)
+		if err != nil {
+			return err
+		}
+		if sum != sha {
+			return fmt.Errorf("installed skill %q was modified", name)
 		}
 	}
 	return nil

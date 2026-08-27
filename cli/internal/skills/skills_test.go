@@ -4,15 +4,36 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+var testManifestSequence atomic.Uint64
+
+func testSigningKey() ed25519.PrivateKey {
+	seed := sha256.Sum256([]byte("eigenflux-skills-manifest-test-key"))
+	return ed25519.NewKeyFromSeed(seed[:])
+}
+
+func signTestManifest(t *testing.T, m *Manifest, sequence uint64) {
+	t.Helper()
+	privateKey := testSigningKey()
+	VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey))
+	m.Sequence = sequence
+	if err := SignManifest(m, privateKey); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // stageSkills writes skills (name -> file -> content) under a temp dir and
 // returns the dir.
@@ -80,6 +101,7 @@ func serveBundle(t *testing.T, version string, src string, names []string) (*htt
 	tarGz := tarGzDir(t, src, names)
 	sum := sha256.Sum256(tarGz)
 	m.TarSHA256 = hex.EncodeToString(sum[:])
+	signTestManifest(t, m, testManifestSequence.Add(1))
 	manBytes, _ := json.Marshal(m)
 
 	mux := http.NewServeMux()
@@ -232,6 +254,7 @@ func TestSyncMinCLIVersionGuard(t *testing.T) {
 	tarGz := tarGzDir(t, src, names)
 	sum := sha256.Sum256(tarGz)
 	m.TarSHA256 = hex.EncodeToString(sum[:])
+	signTestManifest(t, m, testManifestSequence.Add(1))
 	manBytes, _ := json.Marshal(m)
 	mux := http.NewServeMux()
 	for _, p := range []string{"/skills/latest", "/cli/latest"} {
@@ -250,6 +273,68 @@ func TestSyncMinCLIVersionGuard(t *testing.T) {
 	if dirExists(filepath.Join(dst, "ef-broadcast")) {
 		t.Fatal("must not install skills requiring a newer CLI")
 	}
+}
+
+func TestSignedManifestRejectsTampering(t *testing.T) {
+	src := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "trusted"}})
+	m, err := GenerateManifest(src, "0.0.34", "0.0.34", []string{"ef-broadcast"}, 1700000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.TarSHA256 = strings.Repeat("a", 64)
+	signTestManifest(t, m, 900)
+	if err := verifyManifestSignature(m); err != nil {
+		t.Fatalf("valid signature rejected: %v", err)
+	}
+	m.MinCLIVersion = "99.0.0"
+	if err := verifyManifestSignature(m); err == nil {
+		t.Fatal("tampered signed manifest was accepted")
+	}
+}
+
+func TestSyncRejectsSignedManifestRollback(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "skills")
+	names := []string{"ef-broadcast"}
+	highSrc := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "new"}})
+	highServer, _ := serveBundleAtSequence(t, "0.0.34", highSrc, names, 1000)
+	if _, err := Sync(syncOpts(dst, "0.0.34", highServer.URL, names)); err != nil {
+		t.Fatal(err)
+	}
+	lowSrc := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "old"}})
+	lowServer, _ := serveBundleAtSequence(t, "0.0.34", lowSrc, names, 999)
+	res, err := Sync(syncOpts(dst, "0.0.34", lowServer.URL, names))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Source != "local" {
+		t.Fatalf("rollback should keep local, got %s", res.Source)
+	}
+	got, _ := os.ReadFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"))
+	if string(got) != "new" {
+		t.Fatalf("rollback changed installed Skill: %q", got)
+	}
+}
+
+func serveBundleAtSequence(t *testing.T, version, src string, names []string, sequence uint64) (*httptest.Server, *Manifest) {
+	t.Helper()
+	m, err := GenerateManifest(src, version, "", names, 1700000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tarGz := tarGzDir(t, src, names)
+	sum := sha256.Sum256(tarGz)
+	m.TarSHA256 = hex.EncodeToString(sum[:])
+	signTestManifest(t, m, sequence)
+	manBytes, _ := json.Marshal(m)
+	mux := http.NewServeMux()
+	for _, prefix := range []string{"/skills/latest", "/cli/latest"} {
+		p := prefix
+		mux.HandleFunc(p+"/"+RemoteManifest, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(manBytes) })
+		mux.HandleFunc(p+"/"+TarName, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(tarGz) })
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, m
 }
 
 func TestSyncIfStaleSkipsNetwork(t *testing.T) {

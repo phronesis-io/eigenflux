@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
@@ -148,22 +149,65 @@ var skillsInstallCmd = &cobra.Command{
 	},
 }
 
+var skillsTargetCmd = &cobra.Command{
+	Use:   "target",
+	Short: "Register or inspect this Agent Home's real skills-load directory",
+}
+
+var skillsTargetSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Register the real skills-load directory for this Agent Home",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		path, _ := cmd.Flags().GetString("path")
+		host, _ := cmd.Flags().GetString("host")
+		target, err := skills.RegisterTarget(config.HomeDir(), path, host)
+		if err != nil {
+			return err
+		}
+		output.PrintData(target, resolveFormat())
+		return nil
+	},
+}
+
+var skillsTargetShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show the registered target and final resolved skills directory",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		registered, err := skills.ReadTargetRegistration(config.HomeDir())
+		if err != nil {
+			return err
+		}
+		resolved, err := skills.ResolveSkillsDir("", "")
+		if err != nil {
+			return err
+		}
+		output.PrintData(map[string]interface{}{"registered": registered, "resolved_path": resolved}, resolveFormat())
+		return nil
+	},
+}
+
 func init() {
 	skillsSyncCmd.Flags().String("into", "", "explicit skills dir (overrides host detection)")
-	skillsSyncCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
+	skillsSyncCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")
 	skillsSyncCmd.Flags().Bool("if-stale", false, "background mode: never fail on network errors; unchanged revision skips the download")
 	skillsSyncCmd.Flags().Bool("quiet", false, "never fail (exit 0); for startup hooks")
 
 	skillsListCmd.Flags().String("into", "", "explicit skills dir")
-	skillsListCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
+	skillsListCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")
 
 	skillsPathCmd.Flags().String("into", "", "explicit skills dir")
-	skillsPathCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
+	skillsPathCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")
 
 	skillsInstallCmd.Flags().String("into", "", "explicit skills dir")
-	skillsInstallCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
+	skillsInstallCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")
 	skillsInstallCmd.Flags().String("from-bundle", "", "local skills directory to install from")
+	skillsTargetSetCmd.Flags().String("path", "", "absolute directory loaded by the current Agent host")
+	skillsTargetSetCmd.Flags().String("host", "", "host owning this target, for diagnostics")
+	_ = skillsTargetSetCmd.MarkFlagRequired("path")
 
-	skillsCmd.AddCommand(skillsSyncCmd, skillsListCmd, skillsPathCmd, skillsInstallCmd)
+	skillsTargetCmd.AddCommand(skillsTargetSetCmd, skillsTargetShowCmd)
+	skillsCmd.AddCommand(skillsSyncCmd, skillsListCmd, skillsPathCmd, skillsInstallCmd, skillsTargetCmd)
 	rootCmd.AddCommand(skillsCmd)
 }
