@@ -3,6 +3,7 @@ package consumer
 import (
 	"time"
 
+	itemDal "eigenflux_server/rpc/item/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
 )
 
@@ -16,6 +17,27 @@ const (
 	simThresholdAlert = 0.85
 	alertTimeWindow   = 6 * time.Hour
 )
+
+// exactDuplicateDecision is the outcome of an exact content-hash collision.
+type exactDuplicateDecision struct {
+	Discard     bool
+	DuplicateOf *int64
+}
+
+// resolveExactDuplicateSkip decides what to do when an item's content hash
+// already exists in the dedup cache. A hash collision is grounds for discard
+// ONLY when a displayable prior broadcast from the SAME author exists (prior !=
+// nil). A cross-author collision, a prior that has not finished processing, or a
+// lookup error (all of which surface here as prior == nil) must NOT drop the
+// item — it continues through normal processing so genuine content is never
+// silently lost to an unverifiable "duplicate" verdict.
+func resolveExactDuplicateSkip(prior *itemDal.DuplicateBroadcastReference) exactDuplicateDecision {
+	if prior == nil {
+		return exactDuplicateDecision{Discard: false}
+	}
+	dupID := prior.ItemID
+	return exactDuplicateDecision{Discard: true, DuplicateOf: &dupID}
+}
 
 // assignDefaultGroupID picks a group_id from the similarity search results
 // using info-mode rules (first match wins). This is the safe default applied

@@ -4,10 +4,34 @@ import (
 	"testing"
 	"time"
 
+	itemDal "eigenflux_server/rpc/item/dal"
 	sortDal "eigenflux_server/rpc/sort/dal"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// --- resolveExactDuplicateSkip tests ---
+//
+// Regression for the LLM 前处理误伤报告: an exact content-hash collision must
+// only drop an item when a displayable same-author original exists. Cross-author
+// collisions, not-yet-completed priors, and lookup errors all arrive as prior ==
+// nil and must let the item continue rather than be discarded as an unverifiable
+// duplicate.
+
+func TestResolveExactDuplicateSkip_NoPrior_Continues(t *testing.T) {
+	decision := resolveExactDuplicateSkip(nil)
+	assert.False(t, decision.Discard, "hash match without a resolvable same-author original must not discard")
+	assert.Nil(t, decision.DuplicateOf)
+}
+
+func TestResolveExactDuplicateSkip_WithPrior_DiscardsAsDuplicate(t *testing.T) {
+	prior := &itemDal.DuplicateBroadcastReference{ItemID: 4242}
+	decision := resolveExactDuplicateSkip(prior)
+	assert.True(t, decision.Discard, "a displayable same-author original makes this a real duplicate")
+	if assert.NotNil(t, decision.DuplicateOf) {
+		assert.Equal(t, int64(4242), *decision.DuplicateOf)
+	}
+}
 
 // --- assignDefaultGroupID tests ---
 

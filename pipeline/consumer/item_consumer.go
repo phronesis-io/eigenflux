@@ -138,22 +138,19 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
 	if hashExists, matchedGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
-		logger.Default().Info("ItemConsumer exact duplicate (hash match), discarding", "itemID", itemID)
-		skipReason := itemDal.DistributionSkipContentEvaluation
-		var duplicateOfItemID *int64
 		prior, priorErr := itemDal.FindPriorBroadcastInGroup(db.DB, raw.AuthorAgentID, matchedGroupID, itemID)
 		if priorErr != nil {
-			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate", "itemID", itemID, "groupID", matchedGroupID, "err", priorErr)
-		} else if prior != nil {
-			skipReason = itemDal.DistributionSkipDuplicate
-			duplicateID := prior.ItemID
-			duplicateOfItemID = &duplicateID
+			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "groupID", matchedGroupID, "err", priorErr)
 		}
-		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, skipReason, duplicateOfItemID); err != nil {
-			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
-			return HandleRetry
+		if decision := resolveExactDuplicateSkip(prior); decision.Discard {
+			logger.Default().Info("ItemConsumer exact duplicate of prior same-author broadcast, discarding", "itemID", itemID, "duplicateOf", *decision.DuplicateOf)
+			if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipDuplicate, decision.DuplicateOf); err != nil {
+				logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+				return HandleRetry
+			}
+			return HandleSuccess
 		}
-		return HandleSuccess
+		logger.Default().Info("ItemConsumer hash match without a resolvable same-author original, continuing", "itemID", itemID, "groupID", matchedGroupID)
 	} else if err != nil {
 		logger.Default().Warn("ItemConsumer Redis hash check failed, continuing", "itemID", itemID, "err", err)
 	}
