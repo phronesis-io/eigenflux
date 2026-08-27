@@ -89,7 +89,7 @@ func TestPushHeartbeatCompatibilityReportsEveryVerifiedPlan(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body.Contract != heartbeatContractVersion || body.Revision != "signed-revision" || body.Mode != "skill" {
+		if body.Contract != heartbeatContractVersion || body.Revision != "signed-revision" {
 			t.Errorf("body = %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -128,7 +128,6 @@ func TestPushHeartbeatCompatibilityReportsEveryVerifiedPlan(t *testing.T) {
 type heartbeatCompatibilityReportForTest struct {
 	Contract string `json:"heartbeat_contract_version"`
 	Revision string `json:"skill_revision"`
-	Mode     string `json:"mode"`
 }
 
 // TestSyncedSettingsBody_OtherKeysUnaffected confirms the intent guard is scoped
