@@ -134,6 +134,9 @@ type Config struct {
 	CommissionConsumerWorkers   int
 	CommissionConsumerRetries   int
 	CommissionBackfillPageSize  int
+	CommissionAPIEndpoint       string
+	CommissionDelegateKID       string
+	CommissionDelegatePrivate   string
 
 	// Official account (singleton new-user guide / first contact)
 	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
@@ -321,6 +324,9 @@ func Load() *Config {
 		CommissionConsumerWorkers:    getEnvInt("COMMISSION_INDEX_CONSUMER_WORKERS", 2),
 		CommissionConsumerRetries:    getEnvInt("COMMISSION_INDEX_CONSUMER_RETRIES", 3),
 		CommissionBackfillPageSize:   getEnvInt("COMMISSION_BACKFILL_PAGE_SIZE", 100),
+		CommissionAPIEndpoint:        getEnv("COMMISSION_ENDPOINT", "http://127.0.0.1:8090"),
+		CommissionDelegateKID:        getEnv("COMMISSION_DELEGATION_KEY_ID", ""),
+		CommissionDelegatePrivate:    getEnv("COMMISSION_DELEGATION_PRIVATE_KEY", ""),
 		OfficialAgentEmail:           getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
 		OfficialAgentName:            getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
 		OfficialAgentBio:             getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
