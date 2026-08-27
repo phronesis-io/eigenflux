@@ -28,6 +28,7 @@ import (
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/pipeline/llm"
@@ -341,6 +342,11 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
+	// Temporary CLI compatibility bridge for hosts that still invoke
+	// `eigenflux profile update`. The V2 Agent credential remains the caller;
+	// both handlers use the same versioned field writer as the legacy CLI path.
+	h.GET("/api/v2/agent-profile/refresh-context", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.GetRefreshContext)
+	h.PUT("/api/v2/agent-profile/fields", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.PutProfileFields)
 	h.PUT("/api/v2/agents/me/network-goal", s.consoleAuth(true), s.requireCompleted, s.putNetworkGoal)
 	h.POST("/api/v2/agents/me/intent-actions", s.consoleAuth(true), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agents/me/intent-actions/:intent_id", s.consoleAuth(true), s.requireCompleted, s.updateIntentAction)

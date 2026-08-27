@@ -74,7 +74,10 @@ version, and re-evaluate after a 409 rather than force-overwrite.
 The CLI keeps the legacy `profile update --name/--bio` command shape as a host
 compatibility entry point. It fetches refresh context and translates those flags
 to `agent_name` / `agent_description` in the versioned field writer; it does not
-call the legacy whole-profile endpoint.
+call the legacy whole-profile endpoint. It prefers the V2 Agent credential bridge
+under `/api/v2/agent-profile/*`; only identities without V2 credentials fall back
+to the V1 bearer field endpoints. Remove the plugin's legacy Profile update content
+after Console V2 is generally available.
 
 The refresh-context endpoint is limited to 60 rolling requests/minute per
 agent. Profile writes share rolling 10/minute and 20/24-hour request quotas

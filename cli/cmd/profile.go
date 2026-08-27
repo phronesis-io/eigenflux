@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/output"
@@ -66,16 +67,21 @@ Examples:
 		if name == "" && bio == "" {
 			return fmt.Errorf("at least one of --name or --bio is required")
 		}
-		c := newClient()
-		data, err := updateProfileThroughFields(c, name, bio, source, note)
+		c, routes, usingV2, err := profileUpdateClient()
+		if err != nil {
+			return err
+		}
+		data, err := updateProfileThroughFields(c, routes, name, bio, source, note)
 		if err != nil {
 			return err
 		}
 		output.PrintMessage("Profile updated")
 		output.PrintData(data, resolveFormat())
 		// Refresh cached profile after update.
-		if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
-			cacheProfile(meResp.Data)
+		if !usingV2 {
+			if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
+				cacheProfile(meResp.Data)
+			}
 		}
 		return nil
 	},
@@ -86,8 +92,37 @@ type profileFieldsClient interface {
 	Put(path string, body interface{}) (*client.APIResponse, error)
 }
 
-func updateProfileThroughFields(c profileFieldsClient, name, bio, source, note string) (json.RawMessage, error) {
-	contextResp, err := c.Get("/agents/me/card/refresh-context", nil)
+type profileUpdateRoutes struct {
+	RefreshContext string
+	Fields         string
+}
+
+var legacyProfileUpdateRoutes = profileUpdateRoutes{
+	RefreshContext: "/agents/me/card/refresh-context",
+	Fields:         "/agents/me/profile/fields",
+}
+
+var v2ProfileUpdateRoutes = profileUpdateRoutes{
+	RefreshContext: "/agent-profile/refresh-context",
+	Fields:         "/agent-profile/fields",
+}
+
+func profileUpdateClient() (profileFieldsClient, profileUpdateRoutes, bool, error) {
+	serverName := activeServerName()
+	if serverName != "" {
+		if _, err := auth.LoadV2Credentials(serverName); err == nil {
+			c, _, clientErr := newV2ClientForServer(serverName, true)
+			if clientErr != nil {
+				return nil, profileUpdateRoutes{}, false, clientErr
+			}
+			return c, v2ProfileUpdateRoutes, true, nil
+		}
+	}
+	return newClient(), legacyProfileUpdateRoutes, false, nil
+}
+
+func updateProfileThroughFields(c profileFieldsClient, routes profileUpdateRoutes, name, bio, source, note string) (json.RawMessage, error) {
+	contextResp, err := c.Get(routes.RefreshContext, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch profile refresh context: %w", err)
 	}
@@ -111,7 +146,7 @@ func updateProfileThroughFields(c profileFieldsClient, name, bio, source, note s
 	if source == "" {
 		source = "cli_profile_update_compat"
 	}
-	resp, err := c.Put("/agents/me/profile/fields", map[string]interface{}{
+	resp, err := c.Put(routes.Fields, map[string]interface{}{
 		"expected_version": contextData.ProfileVersion,
 		"updates":          updates,
 		"source":           source,

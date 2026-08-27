@@ -32,7 +32,7 @@ func (stub *profileFieldsClientStub) Put(path string, body interface{}) (*client
 
 func TestProfileUpdateCompatibilityUsesVersionedFieldWriter(t *testing.T) {
 	stub := &profileFieldsClientStub{}
-	data, err := updateProfileThroughFields(stub, "Atlas", "Research assistant", "plugin_memory", "facts changed")
+	data, err := updateProfileThroughFields(stub, legacyProfileUpdateRoutes, "Atlas", "Research assistant", "plugin_memory", "facts changed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestProfileUpdateCompatibilityUsesVersionedFieldWriter(t *testing.T) {
 
 func TestProfileUpdateCompatibilityUsesStableDefaultSource(t *testing.T) {
 	stub := &profileFieldsClientStub{}
-	if _, err := updateProfileThroughFields(stub, "Atlas", "", "", ""); err != nil {
+	if _, err := updateProfileThroughFields(stub, legacyProfileUpdateRoutes, "Atlas", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if stub.putBody["source"] != "cli_profile_update_compat" {
@@ -66,12 +66,25 @@ func TestProfileUpdateCompatibilityUsesStableDefaultSource(t *testing.T) {
 
 func TestProfileUpdateCompatibilityExplainsVersionConflict(t *testing.T) {
 	stub := &profileFieldsClientStub{putErr: &client.APIError{StatusCode: 409, Msg: "conflict"}}
-	_, err := updateProfileThroughFields(stub, "Atlas", "", "", "")
+	_, err := updateProfileThroughFields(stub, legacyProfileUpdateRoutes, "Atlas", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "retry the same profile update") {
 		t.Fatalf("unexpected conflict error: %v", err)
 	}
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
 		t.Fatal("compatibility error should be actionable instead of exposing the raw API error")
+	}
+}
+
+func TestProfileUpdateV2RoutesUseAgentCredentialNamespace(t *testing.T) {
+	stub := &profileFieldsClientStub{}
+	if _, err := updateProfileThroughFields(stub, v2ProfileUpdateRoutes, "Atlas", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.getPaths) != 1 || stub.getPaths[0] != "/agent-profile/refresh-context" {
+		t.Fatalf("unexpected V2 refresh path: %#v", stub.getPaths)
+	}
+	if len(stub.putPaths) != 1 || stub.putPaths[0] != "/agent-profile/fields" {
+		t.Fatalf("unexpected V2 field path: %#v", stub.putPaths)
 	}
 }
