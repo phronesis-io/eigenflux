@@ -12,6 +12,9 @@ policies:
       - field: content_class
         values: [ugc]
         weight: 1.2
+    item_boosts:
+      - item_id: 348761111136305152
+        weight: 2.0
   - name: inject
     inject_rules:
       - source: new_ugc_recall   # match against recallsource.Names label
