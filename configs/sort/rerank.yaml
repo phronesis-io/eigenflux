@@ -13,7 +13,7 @@ policies:
         values: [ugc]
         weight: 1.2
     item_boosts:
-      - item_id: 348761111136305152
+      - item_id: 350893866519363584
         weight: 2.0
   - name: inject
     inject_rules:
