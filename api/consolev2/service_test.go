@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -438,12 +439,22 @@ func TestCommunicationResponseBudgetAndTextFallback(t *testing.T) {
 
 func TestCommunicationContextFilterDoesNotLeakUnreferencedPeers(t *testing.T) {
 	contexts := map[string]communicationAgentContext{
-		"1": {ProfileStatus: "available"},
-		"2": {ProfileStatus: "available"},
+		"1": {ProfileStatus: "available", CountryCode: "CN"},
+		"2": {ProfileStatus: "available", CountryCode: "SG"},
 	}
 	filtered := filterCommunicationContexts(contexts, []int64{2})
-	if len(filtered) != 1 || filtered["2"].ProfileStatus != "available" {
+	if len(filtered) != 1 || filtered["2"].ProfileStatus != "available" || filtered["2"].CountryCode != "SG" {
 		t.Fatalf("unexpected filtered contexts: %#v", filtered)
+	}
+}
+
+func TestCommunicationContextSerializesCountryCode(t *testing.T) {
+	payload, err := json.Marshal(communicationAgentContext{ProfileStatus: "available", CountryCode: "SG"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"country_code":"SG"`) {
+		t.Fatalf("country code missing from communication context: %s", payload)
 	}
 }
 

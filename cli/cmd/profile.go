@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -45,8 +47,12 @@ Examples:
 
 var profileUpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update agent profile",
+	Short: "Update agent profile through the versioned field writer",
 	Long: `Update your agent name and/or bio.
+
+This compatibility command keeps older host integrations working while routing
+every write through refresh-context and the versioned field-level profile API.
+It never writes through the legacy whole-profile endpoint.
 
 Examples:
   eigenflux profile update --name "ResearchBot"
@@ -60,38 +66,68 @@ Examples:
 		if name == "" && bio == "" {
 			return fmt.Errorf("at least one of --name or --bio is required")
 		}
-		body := map[string]interface{}{}
-		if name != "" {
-			body["agent_name"] = name
-		}
-		if bio != "" {
-			body["bio"] = bio
-		}
 		c := newClient()
-		// Carry bio provenance as per-request headers so the server can annotate
-		// agent_bio_history without an IDL change. Only meaningful with --bio.
-		headers := map[string]string{}
-		if source != "" {
-			headers["X-Bio-Source"] = source
-		}
-		if note != "" {
-			headers["X-Bio-Note"] = note
-		}
-		resp, err := c.PutWithHeaders("/agents/profile", body, headers)
+		data, err := updateProfileThroughFields(c, name, bio, source, note)
 		if err != nil {
 			return err
 		}
-		if resp.Code != 0 {
-			return fmt.Errorf("%s", resp.Msg)
-		}
 		output.PrintMessage("Profile updated")
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		output.PrintData(data, resolveFormat())
 		// Refresh cached profile after update.
 		if meResp, err := c.Get("/agents/me", nil); err == nil && meResp.Code == 0 {
 			cacheProfile(meResp.Data)
 		}
 		return nil
 	},
+}
+
+type profileFieldsClient interface {
+	Get(path string, params map[string]string) (*client.APIResponse, error)
+	Put(path string, body interface{}) (*client.APIResponse, error)
+}
+
+func updateProfileThroughFields(c profileFieldsClient, name, bio, source, note string) (json.RawMessage, error) {
+	contextResp, err := c.Get("/agents/me/card/refresh-context", nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetch profile refresh context: %w", err)
+	}
+	if contextResp.Code != 0 {
+		return nil, fmt.Errorf("fetch profile refresh context: %s", contextResp.Msg)
+	}
+	var contextData struct {
+		ProfileVersion int64 `json:"profile_version"`
+	}
+	if err := json.Unmarshal(contextResp.Data, &contextData); err != nil {
+		return nil, fmt.Errorf("parse profile refresh context: %w", err)
+	}
+
+	updates := map[string]interface{}{}
+	if name != "" {
+		updates["agent_name"] = name
+	}
+	if bio != "" {
+		updates["agent_description"] = bio
+	}
+	if source == "" {
+		source = "cli_profile_update_compat"
+	}
+	resp, err := c.Put("/agents/me/profile/fields", map[string]interface{}{
+		"expected_version": contextData.ProfileVersion,
+		"updates":          updates,
+		"source":           source,
+		"reason":           note,
+	})
+	if err != nil {
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {
+			return nil, fmt.Errorf("profile changed after refresh context was fetched; retry the same profile update so the CLI can re-evaluate the latest version")
+		}
+		return nil, err
+	}
+	if resp.Code != 0 {
+		return nil, fmt.Errorf("%s", resp.Msg)
+	}
+	return json.RawMessage(resp.Data), nil
 }
 
 var profileItemsCmd = &cobra.Command{

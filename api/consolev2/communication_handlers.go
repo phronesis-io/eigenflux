@@ -35,6 +35,7 @@ type communicationCardSummary struct {
 type communicationAgentContext struct {
 	IdentityAssertion identityAssertion        `json:"identity_assertion"`
 	CardSummary       communicationCardSummary `json:"card_summary"`
+	CountryCode       string                   `json:"country_code,omitempty"`
 	PublicCardVersion int64                    `json:"public_card_version"`
 	CardGeneratedAt   int64                    `json:"card_generated_at,omitempty"`
 	ViewerRelation    string                   `json:"viewer_relation"`
@@ -271,6 +272,7 @@ func (s *Service) loadCommunicationContexts(viewerID int64, peerIDs []int64, rel
 			continue
 		}
 		if card, ok := cards[peerID]; ok {
+			contextValue.CountryCode = todayCountryCode(card.CountryCode)
 			summary, decodeErr := communicationSummary(card.PublicCard)
 			if decodeErr != nil {
 				contextValue.ProfileStatus = "unavailable"

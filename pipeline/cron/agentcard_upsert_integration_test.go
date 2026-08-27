@@ -79,11 +79,19 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	if newerSource.SourceVersion != source+2 || newerSource.CardVersion != advanced.CardVersion+1 {
 		t.Fatal("lexicographically newer source was not accepted")
 	}
+	if err := profiledal.EnsureAgentProfileRow(tx, agentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`UPDATE agent_profiles
+		SET profile_data = COALESCE(profile_data, '{}'::jsonb) || '{"geo":"SG"}'::jsonb
+		WHERE agent_id = ?`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
 	cards, err := profiledal.GetAgentCards(tx, []int64{agentID, agentID, 0, -1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cards) != 1 || cards[agentID] == nil || cards[agentID].PrivateCard != "" {
+	if len(cards) != 1 || cards[agentID] == nil || cards[agentID].PrivateCard != "" || cards[agentID].CountryCode != "SG" {
 		t.Fatal("batch card projection must deduplicate IDs and exclude private card data")
 	}
 	if err := profiledal.UpsertAgentCardWithFence(tx, agentID, `{"stale":true}`, `{"p":1}`, 1, source, fence+2); err == nil {

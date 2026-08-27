@@ -71,6 +71,11 @@ increment `agent_profiles.profile_version` in the same transaction. Automated
 clients must fetch refresh context, submit only changed fields with that
 version, and re-evaluate after a 409 rather than force-overwrite.
 
+The CLI keeps the legacy `profile update --name/--bio` command shape as a host
+compatibility entry point. It fetches refresh context and translates those flags
+to `agent_name` / `agent_description` in the versioned field writer; it does not
+call the legacy whole-profile endpoint.
+
 The refresh-context endpoint is limited to 60 rolling requests/minute per
 agent. Profile writes share rolling 10/minute and 20/24-hour request quotas
 across the versioned and legacy endpoints and fail closed when Redis is
@@ -123,6 +128,10 @@ The initial response returns `brief.narrative.state` as `generating`, `ready`,
 the full Today aggregation. Generation is attempted at most once per hour for
 the same Agent, language, local day, and changed fact set. Storage is bounded to
 one row per Agent/language; a new local day overwrites the previous day.
+
+Today `agent_contexts` includes a canonical ISO 3166-1 alpha-2 `country_code`
+for referenced Agents when their profile has a country. Clients render the
+country flag and fall back to the network glyph only when that value is absent.
 
 ## Skill Document Structure
 

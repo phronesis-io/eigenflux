@@ -285,6 +285,7 @@ type AgentCard struct {
 	AgentID               int64  `gorm:"column:agent_id;primaryKey"`
 	PublicCard            string `gorm:"column:public_card"`
 	PrivateCard           string `gorm:"column:private_card"`
+	CountryCode           string `gorm:"column:country_code"`
 	SchemaVersion         int32  `gorm:"column:schema_version"`
 	SourceVersion         int64  `gorm:"column:source_version"`
 	RebuildFence          int64  `gorm:"column:rebuild_fence"`
@@ -339,10 +340,13 @@ func GetAgentCards(db *gorm.DB, agentIDs []int64) (map[int64]*AgentCard, error) 
 	}
 
 	var cards []*AgentCard
-	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
-			schema_version, public_card_version, public_card_generated_at
-		FROM agent_cards
-		WHERE agent_id IN ?`, deduplicated).Scan(&cards).Error
+	err := db.Raw(`SELECT card.agent_id, card.public_card::text as public_card,
+			COALESCE(NULLIF(BTRIM(profile.profile_data->>'geo'), ''),
+				NULLIF(BTRIM(profile.country), '')) AS country_code,
+			card.schema_version, card.public_card_version, card.public_card_generated_at
+		FROM agent_cards card
+		LEFT JOIN agent_profiles profile ON profile.agent_id = card.agent_id
+		WHERE card.agent_id IN ?`, deduplicated).Scan(&cards).Error
 	if err != nil {
 		return nil, err
 	}
