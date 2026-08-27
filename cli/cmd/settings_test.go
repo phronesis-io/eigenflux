@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
@@ -69,6 +70,64 @@ func TestSyncedSettingsBody_FeedPollIntentGuard(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPushHeartbeatCompatibilityReportsEveryVerifiedPlan(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/api/v2/agent-settings/heartbeat-compatibility" || r.Method != http.MethodPut {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer efv2a_test" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("X-CLI-Ver") != version {
+			t.Errorf("X-CLI-Ver = %q, want %q", r.Header.Get("X-CLI-Ver"), version)
+		}
+		var body heartbeatCompatibilityReportForTest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.Contract != heartbeatContractVersion || body.Revision != "signed-revision" {
+			t.Errorf("body = %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{}}`))
+	}))
+	defer server.Close()
+
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UpdateServer(active.Name, server.URL, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveV2Credentials(active.Name, &auth.V2Credentials{
+		AgentID: "42", PrincipalID: "24", AccessToken: "efv2a_test", RefreshToken: "efv2r_test",
+		ExpiresAt: time.Now().Add(time.Hour).UnixMilli(), Scopes: []string{"commands:claim"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, "signed-revision"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests != 2 {
+		t.Fatalf("compatibility reports = %d, want 2", requests)
+	}
+}
+
+type heartbeatCompatibilityReportForTest struct {
+	Contract string `json:"heartbeat_contract_version"`
+	Revision string `json:"skill_revision"`
 }
 
 // TestSyncedSettingsBody_OtherKeysUnaffected confirms the intent guard is scoped

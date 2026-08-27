@@ -30,6 +30,7 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
+	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	mailservice "eigenflux_server/pkg/email"
@@ -101,6 +102,8 @@ type Service struct {
 	telemetryRates           map[string]telemetryRateState
 	telemetryNextSweep       time.Time
 	trustedProxyNets         []*net.IPNet
+	todayBriefGenerator      todayBriefGenerator
+	todayBriefSlots          chan struct{}
 }
 
 func (s *Service) tryAcquireProcessStream() bool {
@@ -180,6 +183,12 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		controlConnections:       make(map[int64]int),
 		telemetryRates:           make(map[string]telemetryRateState),
 		trustedProxyNets:         trustedProxyNets,
+		todayBriefSlots:          make(chan struct{}, 4),
+	}
+	if strings.TrimSpace(cfg.LLMApiKey) != "" {
+		service.todayBriefGenerator = &llmTodayBriefGenerator{
+			client: llm.NewClient(cfg, nil).WithReasoningOff(),
+		}
 	}
 	if strings.TrimSpace(cfg.ResendApiKey) != "" {
 		service.emailSender = mailservice.NewResendSender(cfg.ResendApiKey, cfg.ResendFromEmail)
@@ -321,6 +330,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me/principals", s.consoleAuth(false), s.listPrincipals)
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
+	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
@@ -340,6 +350,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/activity", s.consoleAuth(false), s.requireCompleted, s.listActivity)
 	h.GET("/api/v2/console/activity/stream", s.consoleAuth(false), s.requireCompleted, s.streamActivity)
 	h.GET("/api/v2/console/today", s.consoleAuth(false), s.requireCompleted, s.getToday)
+	h.GET("/api/v2/console/today/brief", s.consoleAuth(false), s.requireCompleted, s.getTodayBrief)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)

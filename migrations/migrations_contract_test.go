@@ -104,3 +104,40 @@ func TestAttentionContractPersistsItemAndCommandProtocol(t *testing.T) {
 		}
 	}
 }
+
+func TestHeartbeatCompatibilityMigrationIsAdditive(t *testing.T) {
+	sql := migration(t, "000083_console_v2_heartbeat_compatibility.sql")
+	up, _, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("heartbeat compatibility migration has no Down boundary")
+	}
+	for _, required := range []string{
+		"ADD COLUMN IF NOT EXISTS heartbeat_contract_version",
+		"ADD COLUMN IF NOT EXISTS skill_revision",
+		"ADD COLUMN IF NOT EXISTS heartbeat_reported_at",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("heartbeat compatibility migration missing %q", required)
+		}
+	}
+	if strings.Contains(up, "DROP ") || strings.Contains(up, "UPDATE ") {
+		t.Fatal("heartbeat compatibility Up must remain additive and avoid table rewrites")
+	}
+}
+
+func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
+	sql := migration(t, "000082_console_v2_today_model_briefs.sql")
+	for _, required := range []string{
+		"PRIMARY KEY (agent_id, language)",
+		"language IN ('zh-CN', 'en')",
+		"char_length(narrative) <= 280",
+		"ON DELETE CASCADE",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("Today model brief storage contract missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "CREATE INDEX") {
+		t.Fatal("bounded primary-key lookups do not need an additional index")
+	}
+}

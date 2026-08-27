@@ -14,6 +14,10 @@ func InstallFromBundle(opts SyncOptions) (*SyncResult, error) {
 	if opts.BundleDir == "" {
 		return nil, fmt.Errorf("skills install: --from-bundle <dir> required")
 	}
+	// An explicit local bundle is the developer-selected source of truth. Unlike
+	// public Sync, it must replace an older locally modified copy of a managed
+	// ef-* skill so branch testing cannot silently keep stale instructions.
+	opts.ForceManaged = true
 	real, parent, err := prepareDir(opts)
 	if err != nil {
 		return nil, softFail(opts, err)
@@ -37,12 +41,20 @@ func InstallFromBundle(opts SyncOptions) (*SyncResult, error) {
 // lock. stale=true marks the result provisional (offline-first-install fallback
 // from Sync), so the next online sync replaces it.
 func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale bool) (*SyncResult, error) {
+	allowlist := opts.allowlist()
+	if len(allowlist) == 0 {
+		var err error
+		allowlist, err = DiscoverProductionSkills(opts.BundleDir)
+		if err != nil {
+			return nil, softFail(opts, err)
+		}
+	}
 	newDir := real + newSuffix
 	os.RemoveAll(newDir)
 	if err := os.MkdirAll(newDir, dirPerm); err != nil {
 		return nil, softFail(opts, err)
 	}
-	for _, name := range opts.allowlist() {
+	for _, name := range allowlist {
 		src := filepath.Join(opts.BundleDir, name)
 		if !fileExists(filepath.Join(src, "SKILL.md")) {
 			os.RemoveAll(newDir)
@@ -53,7 +65,7 @@ func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale b
 			return nil, softFail(opts, err)
 		}
 	}
-	m, err := GenerateManifest(newDir, opts.CLIVersion, "", opts.allowlist(), 0)
+	m, err := GenerateManifest(newDir, opts.CLIVersion, "", allowlist, 0)
 	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)

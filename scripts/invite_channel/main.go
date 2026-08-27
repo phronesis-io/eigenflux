@@ -4,7 +4,7 @@
 //
 //	go run ./scripts/invite_channel --name redskills --note "official slot"  # create (idempotent by name)
 //	go run ./scripts/invite_channel --list                                   # all channel codes + funnel counts
-//	go run ./scripts/invite_channel --find kol@example.com                   # an agent's KOL code (creates if missing)
+//	go run ./scripts/invite_channel --find kol@example.com                   # legacy KOL code or current short ID
 //
 // Codes are always system-generated (EFI-xxxxxx); custom vanity codes are
 // deliberately unsupported. Creating the same --name twice returns the existing
@@ -40,7 +40,7 @@ func main() {
 	name := flag.String("name", "", "channel name to create/get a code for (e.g. redskills)")
 	note := flag.String("note", "", "free-form note stored with a newly created channel code")
 	list := flag.Bool("list", false, "list all channel codes with funnel counts")
-	find := flag.String("find", "", "agent email — print (creating if missing) that agent's KOL code")
+	find := flag.String("find", "", "agent email — print its legacy KOL code or current short ID")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -112,9 +112,17 @@ func findKOL(email string) {
 	if agentID == 0 {
 		log.Fatalf("no agent found for email %s", email)
 	}
-	c, err := invite.EnsureForAgent(db.DB, agentID)
+	c, err := invite.GetForAgent(db.DB, agentID)
 	if err != nil {
-		log.Fatalf("ensure KOL code: %v", err)
+		log.Fatalf("lookup legacy KOL code: %v", err)
+	}
+	if c == nil {
+		var shortID string
+		if err := db.DB.Raw(`SELECT short_id FROM agents WHERE agent_id = ?`, agentID).Scan(&shortID).Error; err != nil {
+			log.Fatalf("lookup short id: %v", err)
+		}
+		fmt.Printf("Public handle for %s (agent %d)\n  id: eigenflux#%s\n", email, agentID, shortID)
+		return
 	}
 	fmt.Printf("KOL code for %s (agent %d)\n  code: %s\n", email, agentID, c.Code)
 	printLinks(c.Code)

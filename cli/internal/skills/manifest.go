@@ -1,7 +1,9 @@
 package skills
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,10 +11,43 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+// VerifyPublicKeyBase64 is injected into release binaries with -ldflags. It is
+// a trust root, not runtime configuration: callers cannot replace it through an
+// environment variable after the binary has been built.
+var VerifyPublicKeyBase64 string
+
+var productionSkillName = regexp.MustCompile(`^ef-[a-z0-9][a-z0-9-]{0,62}$`)
+
+// DiscoverProductionSkills returns every distributable official Skill in a
+// source tree. The bundle therefore expands automatically when another ef-*
+// Skill is added; non-EigenFlux and development-only directories are ignored.
+func DiscoverProductionSkills(srcDir string) ([]string, error) {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || !productionSkillName.MatchString(name) || name == "ef-localdev" {
+			continue
+		}
+		if fileExists(filepath.Join(srcDir, name, "SKILL.md")) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no distributable ef-* skills in %s", srcDir)
+	}
+	return names, nil
+}
 
 // isIgnoredBase reports whether a path component must be excluded from both the
 // archive and the hash so build-side and client-side agree byte-for-byte.
@@ -129,7 +164,11 @@ func TarballSHA256(path string) (string, error) {
 // SKILL.md frontmatter and never gates anything.
 func GenerateManifest(srcDir, cliVersion, minCLIVersion string, allowlist []string, generatedAt int64) (*Manifest, error) {
 	if len(allowlist) == 0 {
-		allowlist = ProdAllowlist
+		var err error
+		allowlist, err = DiscoverProductionSkills(srcDir)
+		if err != nil {
+			return nil, err
+		}
 	}
 	m := &Manifest{
 		CLIVersion:    cliVersion,
@@ -155,6 +194,81 @@ func GenerateManifest(srcDir, cliVersion, minCLIVersion string, allowlist []stri
 	sort.Slice(m.Skills, func(i, j int) bool { return m.Skills[i].Name < m.Skills[j].Name })
 	m.Revision = computeRevision(m.Skills)
 	return m, nil
+}
+
+// SignManifest signs the canonical manifest payload with Ed25519. The caller
+// must assign a new monotonic Sequence before signing.
+func SignManifest(m *Manifest, privateKey ed25519.PrivateKey) error {
+	if m == nil {
+		return fmt.Errorf("nil manifest")
+	}
+	if m.Sequence == 0 {
+		return fmt.Errorf("manifest sequence must be positive")
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return fmt.Errorf("invalid Ed25519 private key length")
+	}
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	m.KeyID = manifestKeyID(publicKey)
+	m.Signature = ""
+	payload, err := manifestSigningPayload(m)
+	if err != nil {
+		return err
+	}
+	m.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
+	return nil
+}
+
+func verifyManifestSignature(m *Manifest) error {
+	encoded := strings.TrimSpace(VerifyPublicKeyBase64)
+	if encoded == "" {
+		return fmt.Errorf("skills manifest verifier is not configured in this CLI build")
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("skills manifest verifier is invalid")
+	}
+	if m.KeyID != manifestKeyID(ed25519.PublicKey(publicKey)) {
+		return fmt.Errorf("skills manifest signing key is not trusted")
+	}
+	signature, err := base64.StdEncoding.DecodeString(m.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return fmt.Errorf("skills manifest signature is invalid")
+	}
+	payload, err := manifestSigningPayload(m)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(ed25519.PublicKey(publicKey), payload, signature) {
+		return fmt.Errorf("skills manifest signature verification failed")
+	}
+	return nil
+}
+
+func manifestKeyID(publicKey ed25519.PublicKey) string {
+	sum := sha256.Sum256(publicKey)
+	return hex.EncodeToString(sum[:8])
+}
+
+func manifestSigningPayload(m *Manifest) ([]byte, error) {
+	// Use a struct rather than a map so encoding order stays deterministic.
+	type signedManifest struct {
+		Sequence      uint64       `json:"sequence"`
+		KeyID         string       `json:"key_id"`
+		Revision      string       `json:"revision"`
+		MinCLIVersion string       `json:"min_cli_version,omitempty"`
+		CLIVersion    string       `json:"cli_version,omitempty"`
+		ManagedBy     string       `json:"managed_by"`
+		GeneratedAt   int64        `json:"generated_at,omitempty"`
+		TarSHA256     string       `json:"tar_sha256,omitempty"`
+		Skills        []SkillEntry `json:"skills"`
+	}
+	return json.Marshal(signedManifest{
+		Sequence: m.Sequence, KeyID: m.KeyID, Revision: m.Revision,
+		MinCLIVersion: m.MinCLIVersion, CLIVersion: m.CLIVersion,
+		ManagedBy: m.ManagedBy, GeneratedAt: m.GeneratedAt,
+		TarSHA256: m.TarSHA256, Skills: m.Skills,
+	})
 }
 
 // computeRevision is the content fingerprint over the sorted per-skill sha256s.

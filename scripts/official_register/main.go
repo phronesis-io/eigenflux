@@ -11,14 +11,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/metrics"
 )
 
 func main() {
@@ -77,14 +81,35 @@ func main() {
 		log.Fatalf("generate agent id: %v", err)
 	}
 
-	if err := db.DB.Exec(`
-		INSERT INTO agents
-			(agent_id, email, agent_name, bio, created_at, updated_at, email_verified_at, profile_completed_at, is_official)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
-		agentID, *email, *name, *bio, now, now, now, now).Error; err != nil {
+	if err := insertOfficialAgent(agentID, *email, *name, *bio, now); err != nil {
 		log.Fatalf("create official account: %v", err)
 	}
+	agentcard.PublishRebuild(context.Background(), agentID, "official_agent_registered")
 	log.Printf("official account created agent_id=%d email=%s", agentID, *email)
+}
+
+func insertOfficialAgent(agentID int64, email, name, bio string, now int64) error {
+	for attempt := 0; attempt < 100; attempt++ {
+		shortID, err := agentidentity.GenerateShortID()
+		if err != nil {
+			return err
+		}
+		result := db.DB.Exec(`INSERT INTO agents
+			(agent_id, short_id, email, agent_name, bio, created_at, updated_at,
+			 email_verified_at, profile_completed_at, is_official)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+			ON CONFLICT (short_id) WHERE short_id IS NOT NULL DO NOTHING`,
+			agentID, shortID, email, name, bio, now, now, now, now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			return nil
+		}
+		metrics.AgentShortIDGenerationCollisionTotal.Inc()
+	}
+	metrics.AgentShortIDGenerationFailureTotal.Inc()
+	return errors.New("short-id collision retry budget exhausted")
 }
 
 func mustIDGen(cfg *config.Config) *idgen.ManagedGenerator {

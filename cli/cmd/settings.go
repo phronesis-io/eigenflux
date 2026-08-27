@@ -236,6 +236,35 @@ func pushReported(cfg *config.Config, mode, model, runtimeName, runtimeVersion s
 	return nil
 }
 
+func pushHeartbeatCompatibility(_ *config.Config, contractVersion, skillRevision string) error {
+	if contractVersion != heartbeatContractVersion || strings.TrimSpace(skillRevision) == "" {
+		return fmt.Errorf("invalid heartbeat compatibility report")
+	}
+	serverName := activeServerName()
+	if serverName == "" {
+		return fmt.Errorf("no active server")
+	}
+	c, _, err := newV2ClientForServer(serverName, true)
+	if err != nil {
+		return err
+	}
+	body := map[string]interface{}{
+		"heartbeat_contract_version": contractVersion,
+		"skill_revision":             skillRevision,
+	}
+	resp, err := c.Put("/agent-settings/heartbeat-compatibility", body)
+	if err != nil {
+		return err
+	}
+	if resp.Code != 0 {
+		return fmt.Errorf("%s", resp.Msg)
+	}
+	// Report every completed plan. This is deliberately not cached locally: the
+	// server-side record is the Console gate's evidence and must self-heal after
+	// a database restore or a revoked/re-provisioned credential.
+	return nil
+}
+
 func reportedSettingsSnapshot(agentID, mode, feedPreference, model, runtimeHost string) string {
 	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost}, "\x1f")
 }

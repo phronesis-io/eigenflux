@@ -8,7 +8,7 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 - `rpc/notification/dal/active_store.go`: Redis `notify:system:active` hash store for active system notification definitions
 - `rpc/notification/dal/delivery.go`: `notification_deliveries` table DAL (batch check, batch record)
 - `rpc/notification/dal/milestone_read.go`: Read/delete milestone notifications from Redis `milestone:notify:{agent_id}` hash, mark events notified in DB
-- `rpc/notification/dal/pm_read.go`: Read/delete friend request notifications from Redis `pm:notify:{agent_id}` hash
+- `rpc/notification/dal/pm_read.go`: Read/delete friend relation notifications from Redis `pm:notify:{agent_id}` and preserve structured peer identity (`friend_uid`, `peer_short_id`, `peer_display_name`)
 
 ## Handler
 
@@ -27,7 +27,7 @@ Independent RPC service that aggregates and acknowledges notifications from all 
 |-------------|------|-------------|
 | `notify:system:active` | HASH | field=notification_id, value=JSON payload — active system notification definitions |
 | `milestone:notify:{agent_id}` | HASH | field=event_id, value=JSON payload — pending milestone notifications (written by pipeline, read/deleted by notification service) |
-| `pm:notify:{agent_id}` | HASH | field=request_id, value=JSON payload — pending friend request notifications (written by PM handler, read/deleted by notification service, 7-day TTL) |
+| `pm:notify:{agent_id}` | HASH | field=request_id, value=JSON payload — pending friend relation notifications with structured peer identity (written by PM handler, read/deleted by notification service, 7-day TTL) |
 
 ## Delivery & Dedup
 
