@@ -12,6 +12,8 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	SortItems(ctx context.Context, req *sort.SortItemsReq, callOptions ...callopt.Option) (r *sort.SortItemsResp, err error)
+	SearchCommissions(ctx context.Context, req *sort.SearchCommissionsReq, callOptions ...callopt.Option) (r *sort.SearchCommissionsResp, err error)
+	RecommendCommissions(ctx context.Context, req *sort.RecommendCommissionsReq, callOptions ...callopt.Option) (r *sort.RecommendCommissionsResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -46,4 +48,14 @@ type kSortServiceClient struct {
 func (p *kSortServiceClient) SortItems(ctx context.Context, req *sort.SortItemsReq, callOptions ...callopt.Option) (r *sort.SortItemsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.SortItems(ctx, req)
+}
+
+func (p *kSortServiceClient) SearchCommissions(ctx context.Context, req *sort.SearchCommissionsReq, callOptions ...callopt.Option) (r *sort.SearchCommissionsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SearchCommissions(ctx, req)
+}
+
+func (p *kSortServiceClient) RecommendCommissions(ctx context.Context, req *sort.RecommendCommissionsReq, callOptions ...callopt.Option) (r *sort.RecommendCommissionsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.RecommendCommissions(ctx, req)
 }

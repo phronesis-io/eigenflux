@@ -9,10 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
+	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pipeline/consumer"
+	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pipeline/official"
+	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -65,6 +70,25 @@ func main() {
 		log.Fatalf("failed to create pm client: %v", err)
 	}
 	log.Println("PM RPC client initialized")
+
+	var commissionIndexConsumer *consumer.CommissionIndexConsumer
+	if cfg.EnableCommissionIndex {
+		commissionClient, err := commissionservice.NewClient(cfg.CommissionSourceService, rpcx.ClientOptions(resolver)...)
+		if err != nil {
+			log.Fatalf("failed to create Commission source client: %v", err)
+		}
+		orderClient, err := orderservice.NewClient(cfg.OrderSourceService, rpcx.ClientOptions(resolver)...)
+		if err != nil {
+			log.Fatalf("failed to create Commission order source client: %v", err)
+		}
+		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		if err := store.Ensure(context.Background()); err != nil {
+			log.Fatalf("failed to bootstrap Commission index: %v", err)
+		}
+		embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
+		commissionIndexConsumer = consumer.NewCommissionIndexConsumer(cfg, commissionsource.Adapter{Commission: commissionClient, Order: orderClient}, store, embedder)
+		log.Println("Commission index consumer initialized")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -197,6 +221,9 @@ func main() {
 	if officialChatConsumer != nil {
 		go officialChatConsumer.Start(ctx)
 	}
+	if commissionIndexConsumer != nil {
+		go commissionIndexConsumer.Start(ctx)
+	}
 
 	lagGroups := []metrics.StreamGroup{
 		{Stream: "stream:profile:update", Group: "cg:profile:update"},
@@ -212,6 +239,9 @@ func main() {
 	}
 	if cfg.EnableOfficialFirstBroadcast {
 		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: "stream:item:publish", Group: "cg:official:firstbroadcast"})
+	}
+	if commissionIndexConsumer != nil {
+		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: cfg.CommissionStream, Group: cfg.CommissionConsumerGroup})
 	}
 	go metrics.StartLagPoller(ctx, mq.RDB, lagGroups, 10*time.Second)
 

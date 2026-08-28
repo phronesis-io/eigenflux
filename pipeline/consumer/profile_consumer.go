@@ -34,16 +34,24 @@ type ProfileConsumer struct {
 	profileCache    *cache.ProfileCache
 	embeddingCache  *cache.EmbeddingCache
 	runner          *StreamConsumer
+	testMode        bool
+}
+
+func deterministicProfileMode(cfg *config.Config) bool {
+	mode, err := cfg.CommissionIntegrationMode()
+	return err == nil && mode.Enabled
 }
 
 func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ProfileConsumer {
 	llmClient := llm.NewClient(cfg, prompts)
+	integrationProfile := deterministicProfileMode(cfg)
 	c := &ProfileConsumer{
 		llmClient:       llmClient,
 		nameLLMClient:   llmClient.WithModel(cfg.LLMTranslateModel).WithReasoningOff(),
 		embeddingClient: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
 		profileCache:    cache.NewProfileCache(mq.RDB, time.Duration(cfg.ProfileCacheTTL)*time.Second),
 		embeddingCache:  cache.NewEmbeddingCache(mq.RDB, 24*time.Hour),
+		testMode:        integrationProfile,
 	}
 	c.runner = &StreamConsumer{
 		Name:                    "ProfileConsumer",
@@ -66,6 +74,24 @@ func buildCachedProfile(agentID int64, keywords []string, country string) *cache
 		Geo:        "",
 		GeoCountry: country,
 	}
+}
+
+func deterministicTestProfileFeatures(bio string) ([]string, string) {
+	words := strings.Fields(strings.ToLower(bio))
+	keywords := make([]string, 0, len(words))
+	seen := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		word = strings.Trim(word, ".,;:!?()[]{}\"'")
+		if len(word) < 3 {
+			continue
+		}
+		if _, ok := seen[word]; ok {
+			continue
+		}
+		seen[word] = struct{}{}
+		keywords = append(keywords, word)
+	}
+	return keywords, ""
 }
 
 func (c *ProfileConsumer) Start(ctx context.Context) { c.runner.Run(ctx) }
@@ -96,7 +122,7 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 		return HandleFailure
 	}
 
-	if agent.AgentNameEn == "" && agent.AgentName != "" {
+	if !c.testMode && agent.AgentNameEn == "" && agent.AgentName != "" {
 		var englishName string
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			englishName, err = c.nameLLMClient.TranslateAgentNameToEnglish(ctx, agent.AgentName)
@@ -123,22 +149,25 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 		return HandleSuccess
 	}
 
-	// Call LLM to extract keywords with retries
 	var keywords []string
 	var country string
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		keywords, country, err = c.llmClient.ExtractKeywords(ctx, agent.Bio)
-		if err == nil {
-			break
+	if c.testMode {
+		keywords, country = deterministicTestProfileFeatures(agent.Bio)
+	} else {
+		// Call LLM to extract keywords with retries
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			keywords, country, err = c.llmClient.ExtractKeywords(ctx, agent.Bio)
+			if err == nil {
+				break
+			}
+			logger.Default().Warn("ProfileConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
+			time.Sleep(time.Duration(attempt) * time.Second)
 		}
-		logger.Default().Warn("ProfileConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
-		time.Sleep(time.Duration(attempt) * time.Second)
-	}
-
-	if err != nil {
-		logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
-		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
-		return HandleFailure
+		if err != nil {
+			logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
+			dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
+			return HandleFailure
+		}
 	}
 
 	// Update keywords, country and status to done (3)

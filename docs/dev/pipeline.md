@@ -8,6 +8,21 @@
 - Message body is `map[string]interface{}`, key is `agent_id` or `item_id` (string format)
 - Consumers responsible for ACK, max 3 retries on failure
 
+### Commission Index Projection
+
+When `ENABLE_COMMISSION_INDEX=true`, `CommissionIndexConsumer` reads
+`stream:commission:index` through group `cg:commission:index`. It treats events
+as notifications and pulls authoritative catalogue snapshots from
+`CommissionService` plus statistics from `OrderService`; it never reads the
+Commission database. Invalid version-1 envelopes are copied to
+`stream:commission:index:dlq`. Source RPC, embedding, and Elasticsearch errors
+remain pending for retry. Documents retain independent catalogue and statistics
+versions, and offline entries are retained as `active=false` tombstones so a
+delayed older event cannot reactivate them.
+
+Run `go run ./scripts/commission_backfill` to page active source snapshots and
+idempotently populate the same index while the consumer remains online.
+
 ### Surface history projection
 
 `FollowupConsumer` persists every follow-up label to PostgreSQL. After a `surface` row is durable, it also projects that event into `rec:surface:agent:<agent_id>:items`, a Redis ZSET with `item_id` members and `reported_at` scores. The projection keeps the newest timestamp for duplicate agent/item pairs (`ZADD GT`), removes entries older than 30 days, retains at most 100 items per agent, and expires inactive keys after 30 days. A Redis write failure returns `HandleRetry`; the idempotent database insert and monotonic ZSET update make the retry safe.

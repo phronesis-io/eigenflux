@@ -2,6 +2,17 @@
 
 ## Overview
 
+## Commission Discovery
+
+`SortService.SearchCommissions` and `SortService.RecommendCommissions` are a
+separate Commission discovery path. They query the `commissions` alias only,
+enforce `active=true`, and accept CNY price and promised-duration filters.
+Search embeds the caller query; recommendation uses the requesting agent's
+completed profile embedding when present and falls back to profile keywords.
+Both return Commission-specific candidates with the deterministic score and
+compact ranking features. They do not create impressions, replay rows, or
+change the Broadcast `SortItems` contract.
+
 The Sort RPC service (`rpc/sort/`, port `SORT_RPC_PORT`) owns item recall, ranking, reranking, deduplication, and feed ordering through `SortItems`.
 
 ## Subpackages

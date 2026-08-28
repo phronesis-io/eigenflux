@@ -11,10 +11,16 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -26,6 +32,8 @@ import (
 	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
+	"eigenflux_server/api/commissiondiscovery"
+	"eigenflux_server/api/commissionintegration"
 	"eigenflux_server/api/consolev2"
 	_ "eigenflux_server/api/docs"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
@@ -34,14 +42,21 @@ import (
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/api/tradebff"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
+	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/item/itemservice"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
+	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
+	"eigenflux_server/pipeline/embedding"
+	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/embeddingmeta"
+	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
@@ -54,6 +69,17 @@ import (
 
 func main() {
 	cfg := config.Load()
+	integrationMode, err := cfg.CommissionIntegrationMode()
+	if err != nil {
+		log.Fatal("invalid Commission integration configuration")
+	}
+	integrationListener, err := reserveIntegrationListener(integrationMode, net.Listen)
+	if err != nil {
+		log.Fatalf("reserve Commission integration listener: %v", err)
+	}
+	if integrationListener != nil {
+		defer integrationListener.Close()
+	}
 	middleware.SetBlockedAgentEmails(cfg.BlockedAgentEmails)
 	logFlush := logger.Init("api-gateway", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
@@ -157,6 +183,53 @@ func main() {
 		log.Fatalf("failed to create sort client: %v", err)
 	}
 	log.Println("Sort RPC client initialized")
+	var commissionDiscoveryService *commissiondiscovery.Service
+	var commissionDiscoveryIDGen *idgen.ManagedGenerator
+	if cfg.EnableCommissionIndex {
+		commissionDiscoveryIDGen, err = idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+			Endpoints:      splitEtcdEndpoints(cfg.EtcdAddr),
+			WorkerPrefix:   cfg.IDWorkerPrefix,
+			ServiceName:    "api-commission-discovery-impression-id",
+			InstanceID:     cfg.IDInstanceID,
+			LeaseTTLSecond: cfg.IDWorkerLeaseTTL,
+			EpochMS:        cfg.IDSnowflakeEpoch,
+		})
+		if err != nil {
+			log.Fatalf("failed to init Commission discovery impression id generator: %v", err)
+		}
+		defer func() { _ = commissionDiscoveryIDGen.Close(context.Background()) }()
+		commissionDiscoveryService = commissiondiscovery.New(sortClient, commissionDiscoveryIDGen, mq.Publish)
+	}
+
+	var integrationServer *server.Hertz
+	if integrationMode.Enabled {
+		if err := es.InitClient(); err != nil {
+			log.Fatalf("initialize Elasticsearch for Commission diagnostics: %v", err)
+		}
+		commissionSourceClient, err := commissionservice.NewClient(cfg.CommissionSourceService, rpcx.ClientOptions(r)...)
+		if err != nil {
+			log.Fatalf("create Commission source client for diagnostics: %v", err)
+		}
+		orderSourceClient, err := orderservice.NewClient(cfg.OrderSourceService, rpcx.ClientOptions(r)...)
+		if err != nil {
+			log.Fatalf("create Order source client for diagnostics: %v", err)
+		}
+		projection, err := commissionintegration.NewRedisProjectionState(mq.RDB, cfg.CommissionStream, cfg.CommissionConsumerGroup, cfg.CommissionDeadLetterStream)
+		if err != nil {
+			log.Fatal("initialize Commission projection diagnostics")
+		}
+		source := commissionsource.Adapter{Commission: commissionSourceClient, Order: orderSourceClient}
+		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		embeddingClient := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
+		diagnostics, err := commissionintegration.NewService(projection, source, store, commissionintegration.NewEmbeddingProbe(embeddingmeta.NormalizeProvider(cfg.EmbeddingProvider), cfg.EmbeddingDimensions, embeddingClient))
+		if err != nil {
+			log.Fatal("initialize Commission diagnostics service")
+		}
+		integrationServer, err = commissionintegration.NewServer(integrationMode, diagnostics, integrationListener)
+		if err != nil {
+			log.Fatal("initialize Commission diagnostics server")
+		}
+	}
 
 	// Wire RPC clients for generated handlers
 	clients.ProfileClient = profileClient
@@ -227,6 +300,12 @@ func main() {
 	// Agent Card: read projections + field-level versioned profile writes.
 	agentcardapi.Register(h)
 
+	// Commission discovery is an authenticated Facade over SortService. Source
+	// writes, orders, wallet operations, and file transfers stay in Commission.
+	if commissionDiscoveryService != nil {
+		commissiondiscovery.Register(h, commissionDiscoveryService)
+	}
+
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
 	h.GET("/api/v1/broadcasts/leaderboard", middleware.AuthMiddleware(), apihandler.BroadcastLeaderboard)
 	h.GET("/api/v1/broadcasts/rated", middleware.AuthMiddleware(), apihandler.MyRatedItems)
@@ -279,7 +358,16 @@ func main() {
 
 	log.Printf("API gateway starting on %s", listenAddr)
 	log.Printf("API base URL: %s", skilldoc.BuildAPIBaseURL(publicBaseURL))
-	h.Spin()
+	if integrationServer == nil {
+		h.Spin()
+		return
+	}
+	log.Printf("Commission integration diagnostics starting on %s", integrationMode.ControlAddr)
+	signalContext, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	if err := runSupervised(signalContext, h, integrationServer); err != nil {
+		log.Fatalf("API server failed: %v", err)
+	}
 }
 
 func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, cfg *config.Config) {
@@ -357,4 +445,65 @@ func splitEtcdEndpoints(raw string) []string {
 		}
 	}
 	return out
+}
+
+func reserveIntegrationListener(mode config.CommissionIntegration, listen func(string, string) (net.Listener, error)) (net.Listener, error) {
+	if !mode.Enabled {
+		return nil, nil
+	}
+	if listen == nil {
+		return nil, errors.New("integration listener is unavailable")
+	}
+	listener, err := listen("tcp", mode.ControlAddr)
+	if err != nil {
+		return nil, fmt.Errorf("bind integration listener: %w", err)
+	}
+	return listener, nil
+}
+
+type managedHTTPServer interface {
+	Run() error
+	Shutdown(context.Context) error
+	Close() error
+}
+
+func runSupervised(ctx context.Context, public, private managedHTTPServer) error {
+	if public == nil || private == nil {
+		return errors.New("managed HTTP server is unavailable")
+	}
+	serverErrors := make(chan error, 2)
+	start := func(name string, managed managedHTTPServer) {
+		go func() {
+			if err := managed.Run(); err != nil {
+				serverErrors <- fmt.Errorf("%s server: %w", name, err)
+				return
+			}
+			serverErrors <- fmt.Errorf("%s server stopped unexpectedly", name)
+		}()
+	}
+	start("public", public)
+	start("integration diagnostics", private)
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case runErr = <-serverErrors:
+	}
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	shutdownErrors := make(chan error, 2)
+	for _, running := range []managedHTTPServer{public, private} {
+		go func(managed managedHTTPServer) {
+			shutdownErr := managed.Shutdown(shutdownContext)
+			if shutdownErr != nil {
+				shutdownErr = errors.Join(shutdownErr, managed.Close())
+			}
+			shutdownErrors <- shutdownErr
+		}(running)
+	}
+	var shutdownErr error
+	for range 2 {
+		shutdownErr = errors.Join(shutdownErr, <-shutdownErrors)
+	}
+	return errors.Join(runErr, shutdownErr)
 }
