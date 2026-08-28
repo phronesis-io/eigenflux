@@ -32,6 +32,7 @@ import (
 	"eigenflux_server/api/install"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
+	"eigenflux_server/api/tradebff"
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/item/itemservice"
@@ -269,7 +270,7 @@ func main() {
 
 	if consoleV2Service != nil {
 		consoleV2Service.Register(h)
-		registerConsoleV2BusinessBFF(h, consoleV2Service)
+		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
 		log.Print("Console V2 routes registered")
 	}
 
@@ -281,7 +282,16 @@ func main() {
 	h.Spin()
 }
 
-func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service) {
+func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, cfg *config.Config) {
+	trade, err := tradebff.New(tradebff.Config{
+		Endpoint:             cfg.CommissionAPIEndpoint,
+		DelegationKeyID:      cfg.CommissionDelegateKID,
+		DelegationPrivateKey: cfg.CommissionDelegatePrivate,
+	})
+	if err != nil {
+		log.Printf("Commission BFF disabled: %v", err)
+		trade = tradebff.NewUnavailable("")
+	}
 	read := func(path string, handler app.HandlerFunc) {
 		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handler)...)
 	}
@@ -325,6 +335,17 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service) {
 	write(http.MethodPost, "pm/send", apihandler.SendPM)
 	write(http.MethodPost, "pm/read", apihandler.MarkConvRead)
 	read("items/:item_id", apihandler.GetItem)
+
+	read("trade/overview", trade.TradeOverview)
+	read("trade/commissions", trade.TradeCommissions)
+	read("trade/orders", trade.TradeOrders)
+	read("trade/orders/:order_id", trade.TradeOrder)
+	read("earnings/summary", trade.EarningsSummary)
+	read("earnings/records", trade.EarningsRecords)
+	read("payout-method", trade.PayoutMethod)
+	write(http.MethodPost, "payout-method/authorization", trade.MutatePayoutMethod)
+	write(http.MethodPost, "withdrawals", trade.CreateWithdrawal)
+	read("withdrawals/:withdrawal_id", trade.Withdrawal)
 }
 
 func splitEtcdEndpoints(raw string) []string {
