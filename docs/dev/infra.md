@@ -102,6 +102,9 @@ purpose-built `grafana_*` security-barrier views that expose fixed anonymous
 aggregates. The production Grafana role receives `SELECT` on those views only;
 adding a dashboard query is not a reason to broaden its table grants. Migration
 `000075_pgc_audience_aggregate_views.sql` defines the PGC audience, demand,
-feedback, surface, and profile-completeness contract.
+feedback, surface, and profile-completeness contract. Migration
+`000082_pgc_strong_feedback_trend.sql` adds the event-time daily score=2 trend;
+it exposes only 90 aggregate rows and never grants Grafana access to an
+individual feedback event.
 
 When the app server and monitor server are separate hosts, ensure the app server's firewall allows inbound on the metrics ports listed above from the monitor server, and set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics. Cross-host bindings and deployment are documented in the observability repository.
