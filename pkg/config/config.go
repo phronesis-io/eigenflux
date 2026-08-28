@@ -120,7 +120,7 @@ type Config struct {
 	LokiURL                     string   // Loki push API URL (default http://localhost:3122)
 	LogLevel                    string   // Structured log level: debug | info | warn | error
 	EnableReplayLog             bool     // Enable replay log publishing in FeedService (default: true)
-	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
+	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron; <=0 disables cleanup and keeps all rows (default 0)
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 	MqStreamMaxLen              int64    // approximate cap on Redis Stream length applied by mq.Publish (default 20000, <=0 disables); ingestion streams are exempt
 	CommissionAPIEndpoint       string
@@ -299,7 +299,7 @@ func Load() *Config {
 		LokiURL:                      getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                     getEnv("LOG_LEVEL", "debug"),
 		EnableReplayLog:              getEnvBool("ENABLE_REPLAY_LOG", true),
-		ReplayLogRetentionDays:       getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
+		ReplayLogRetentionDays:       getEnvInt("REPLAY_LOG_RETENTION_DAYS", 0),
 		ReplayLogCleanupIntervalSec:  getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
 		MqStreamMaxLen:               getEnvInt64("MQ_STREAM_MAXLEN", 20000),
 		CommissionAPIEndpoint:        getEnv("COMMISSION_ENDPOINT", "http://127.0.0.1:8090"),
