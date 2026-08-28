@@ -20,6 +20,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"SearchCommissions": kitex.NewMethodInfo(
+		searchCommissionsHandler,
+		newSortServiceSearchCommissionsArgs,
+		newSortServiceSearchCommissionsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"RecommendCommissions": kitex.NewMethodInfo(
+		recommendCommissionsHandler,
+		newSortServiceRecommendCommissionsArgs,
+		newSortServiceRecommendCommissionsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -104,6 +118,42 @@ func newSortServiceSortItemsResult() interface{} {
 	return sort.NewSortServiceSortItemsResult()
 }
 
+func searchCommissionsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*sort.SortServiceSearchCommissionsArgs)
+	realResult := result.(*sort.SortServiceSearchCommissionsResult)
+	success, err := handler.(sort.SortService).SearchCommissions(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSortServiceSearchCommissionsArgs() interface{} {
+	return sort.NewSortServiceSearchCommissionsArgs()
+}
+
+func newSortServiceSearchCommissionsResult() interface{} {
+	return sort.NewSortServiceSearchCommissionsResult()
+}
+
+func recommendCommissionsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*sort.SortServiceRecommendCommissionsArgs)
+	realResult := result.(*sort.SortServiceRecommendCommissionsResult)
+	success, err := handler.(sort.SortService).RecommendCommissions(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSortServiceRecommendCommissionsArgs() interface{} {
+	return sort.NewSortServiceRecommendCommissionsArgs()
+}
+
+func newSortServiceRecommendCommissionsResult() interface{} {
+	return sort.NewSortServiceRecommendCommissionsResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -119,6 +169,26 @@ func (p *kClient) SortItems(ctx context.Context, req *sort.SortItemsReq) (r *sor
 	_args.Req = req
 	var _result sort.SortServiceSortItemsResult
 	if err = p.c.Call(ctx, "SortItems", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SearchCommissions(ctx context.Context, req *sort.SearchCommissionsReq) (r *sort.SearchCommissionsResp, err error) {
+	var _args sort.SortServiceSearchCommissionsArgs
+	_args.Req = req
+	var _result sort.SortServiceSearchCommissionsResult
+	if err = p.c.Call(ctx, "SearchCommissions", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) RecommendCommissions(ctx context.Context, req *sort.RecommendCommissionsReq) (r *sort.RecommendCommissionsResp, err error) {
+	var _args sort.SortServiceRecommendCommissionsArgs
+	_args.Req = req
+	var _result sort.SortServiceRecommendCommissionsResult
+	if err = p.c.Call(ctx, "RecommendCommissions", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

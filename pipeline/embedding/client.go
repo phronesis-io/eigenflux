@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"eigenflux_server/pkg/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,8 @@ const (
 	ProviderOpenAI Provider = "openai"
 	ProviderOllama Provider = "ollama"
 )
+
+const maxEmbeddingResponseBytes int64 = 1 << 20
 
 type Client struct {
 	provider             Provider
@@ -143,13 +146,13 @@ func (c *Client) getOpenAIEmbedding(ctx context.Context, text string) ([]float32
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxEmbeddingResponseBytes+1))
+		return nil, fmt.Errorf("API error %d", resp.StatusCode)
 	}
 
 	var embResp EmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := decodeBoundedEmbeddingResponse(resp.Body, &embResp); err != nil {
+		return nil, err
 	}
 
 	if len(embResp.Data) == 0 {
@@ -184,13 +187,13 @@ func (c *Client) getOllamaEmbedding(ctx context.Context, text string) ([]float32
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxEmbeddingResponseBytes+1))
+		return nil, fmt.Errorf("API error %d", resp.StatusCode)
 	}
 
 	var embResp OllamaEmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := decodeBoundedEmbeddingResponse(resp.Body, &embResp); err != nil {
+		return nil, err
 	}
 
 	if len(embResp.Embedding) == 0 {
@@ -198,4 +201,17 @@ func (c *Client) getOllamaEmbedding(ctx context.Context, text string) ([]float32
 	}
 
 	return embResp.Embedding, nil
+}
+
+func decodeBoundedEmbeddingResponse(body io.Reader, destination any) error {
+	limited := &io.LimitedReader{R: body, N: maxEmbeddingResponseBytes + 1}
+	decoder := json.NewDecoder(limited)
+	if err := decoder.Decode(destination); err != nil || limited.N == 0 {
+		return fmt.Errorf("decode response")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("decode response")
+	}
+	return nil
 }

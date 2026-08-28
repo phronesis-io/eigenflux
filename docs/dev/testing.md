@@ -19,6 +19,25 @@ Test code organized by functional modules in `tests/` subdirectories, shared uti
 | `tests/cli/` | CLI integration tests (eigenflux binary against running server: auth, profile, feed, publish, msg, relation, server, stats, version, install.sh) | `go test -v ./tests/cli/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Commission Deployed Boundary
+
+The cross-service Commission suite is owned by the sibling
+`eigenflux-commission` repository. It runs the real CLI against already-running
+isolated EigenFlux and Commission stacks and validates Redis-stream projection,
+Commission/Order source reads, Elasticsearch versions, and read-only
+diagnostics. It does not start or stop services and does not write Redis or
+Elasticsearch directly.
+
+Run it from the Commission checkout only after both stacks report ready:
+
+```bash
+go test -tags=deployed ./tests/deployed -count=1 -v -timeout=10m
+```
+
+The runner requires explicit endpoints, binaries, private control tokens, and
+test OTP settings. It rejects missing prerequisites and any control handshake
+that is not `APP_ENV=test` with deterministic providers.
+
 ## Running Tests
 
 ```bash

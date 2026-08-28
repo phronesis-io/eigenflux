@@ -259,3 +259,159 @@ func TestLoadEmbeddingBackfillOverrides(t *testing.T) {
 		t.Fatalf("EmbeddingBackfillPauseMs=%d, want 50", cfg.EmbeddingBackfillPauseMs)
 	}
 }
+
+func TestLoadCommissionIntegrationFields(t *testing.T) {
+	t.Setenv("COMMISSION_INTEGRATION_MODE", "true")
+	t.Setenv("INTEGRATION_CONTROL_ADDR", "127.0.0.1:18081")
+	t.Setenv("INTEGRATION_CONTROL_TOKEN", "0123456789abcdef0123456789abcdef")
+
+	cfg := Load()
+	if cfg.CommissionIntegrationFlag != "true" {
+		t.Fatalf("CommissionIntegrationFlag=%q, want true", cfg.CommissionIntegrationFlag)
+	}
+	if cfg.IntegrationControlAddr != "127.0.0.1:18081" {
+		t.Fatalf("IntegrationControlAddr=%q", cfg.IntegrationControlAddr)
+	}
+	if cfg.IntegrationControlToken != "0123456789abcdef0123456789abcdef" {
+		t.Fatal("IntegrationControlToken was not loaded")
+	}
+}
+
+func TestCommissionIntegrationModeDefaultsDisabled(t *testing.T) {
+	mode, err := (&Config{}).CommissionIntegrationMode()
+	if err != nil {
+		t.Fatalf("CommissionIntegrationMode() error=%v", err)
+	}
+	if mode.Enabled {
+		t.Fatal("integration mode enabled by default")
+	}
+	if err := mode.Authorize("Bearer anything", "run-1234"); err != ErrCommissionIntegrationDisabled {
+		t.Fatalf("Authorize disabled error=%v", err)
+	}
+}
+
+func TestCommissionIntegrationModeExplicitFalseStaysDisabled(t *testing.T) {
+	mode, err := (&Config{
+		AppEnv: "prod", CommissionIntegrationFlag: "false",
+		IntegrationControlAddr: "0.0.0.0:1", IntegrationControlToken: "short",
+	}).CommissionIntegrationMode()
+	if err != nil || mode.Enabled {
+		t.Fatalf("explicit false mode=%#v error=%v", mode, err)
+	}
+}
+
+func TestCommissionIntegrationModeRejectsMalformedCommissionIndexFlag(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("COMMISSION_INTEGRATION_MODE", "true")
+	t.Setenv("ENABLE_COMMISSION_INDEX", "not-a-boolean")
+	t.Setenv("INTEGRATION_CONTROL_ADDR", "127.0.0.1:18081")
+	t.Setenv("INTEGRATION_CONTROL_TOKEN", "0123456789abcdef0123456789abcdef")
+
+	mode, err := Load().CommissionIntegrationMode()
+	if err != ErrInvalidCommissionIntegrationConfiguration || mode.Enabled {
+		t.Fatalf("malformed index flag mode=%#v error=%v", mode, err)
+	}
+}
+
+func TestCommissionIntegrationModeAcceptsTestPrivateListeners(t *testing.T) {
+	for _, address := range []string{
+		"127.0.0.1:18081",
+		"10.20.30.40:18081",
+		"172.16.4.5:18081",
+		"192.168.4.5:18081",
+		"[::1]:18081",
+		"[fd12:3456::7]:18081",
+	} {
+		t.Run(address, func(t *testing.T) {
+			cfg := &Config{
+				AppEnv:                    " TEST ",
+				EnableCommissionIndex:     true,
+				CommissionIntegrationFlag: "true",
+				IntegrationControlAddr:    address,
+				IntegrationControlToken:   "  0123456789abcdef0123456789abcdef  ",
+			}
+			mode, err := cfg.CommissionIntegrationMode()
+			if err != nil {
+				t.Fatalf("CommissionIntegrationMode() error=%v", err)
+			}
+			if !mode.Enabled || mode.ControlAddr != address {
+				t.Fatalf("mode=%#v", mode)
+			}
+			if err := mode.Authorize("Bearer 0123456789abcdef0123456789abcdef", "run-1234"); err != nil {
+				t.Fatalf("Authorize() error=%v", err)
+			}
+		})
+	}
+}
+
+func TestCommissionIntegrationModeRejectsUnsafeConfiguration(t *testing.T) {
+	valid := Config{
+		AppEnv:                    "test",
+		EnableCommissionIndex:     true,
+		CommissionIntegrationFlag: "true",
+		IntegrationControlAddr:    "127.0.0.1:18081",
+		IntegrationControlToken:   "0123456789abcdef0123456789abcdef",
+	}
+	tests := map[string]func(*Config){
+		"malformed flag":   func(c *Config) { c.CommissionIntegrationFlag = "enabled" },
+		"production":       func(c *Config) { c.AppEnv = "prod" },
+		"index disabled":   func(c *Config) { c.EnableCommissionIndex = false },
+		"short token":      func(c *Config) { c.IntegrationControlToken = "0123456789abcdef" },
+		"empty address":    func(c *Config) { c.IntegrationControlAddr = "" },
+		"localhost":        func(c *Config) { c.IntegrationControlAddr = "localhost:18081" },
+		"wildcard IPv4":    func(c *Config) { c.IntegrationControlAddr = "0.0.0.0:18081" },
+		"unspecified IPv6": func(c *Config) { c.IntegrationControlAddr = "[::]:18081" },
+		"public IPv4":      func(c *Config) { c.IntegrationControlAddr = "8.8.8.8:18081" },
+		"public IPv6":      func(c *Config) { c.IntegrationControlAddr = "[2001:4860:4860::8888]:18081" },
+		"link local IPv4":  func(c *Config) { c.IntegrationControlAddr = "169.254.1.2:18081" },
+		"link local IPv6":  func(c *Config) { c.IntegrationControlAddr = "[fe80::1]:18081" },
+		"multicast":        func(c *Config) { c.IntegrationControlAddr = "224.0.0.1:18081" },
+		"zero port":        func(c *Config) { c.IntegrationControlAddr = "127.0.0.1:0" },
+		"missing port":     func(c *Config) { c.IntegrationControlAddr = "127.0.0.1" },
+		"invalid address":  func(c *Config) { c.IntegrationControlAddr = "not-an-address" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := valid
+			mutate(&cfg)
+			mode, err := cfg.CommissionIntegrationMode()
+			if err != ErrInvalidCommissionIntegrationConfiguration {
+				t.Fatalf("error=%v, want generic invalid configuration", err)
+			}
+			if mode.Enabled {
+				t.Fatalf("unsafe mode enabled: %#v", mode)
+			}
+		})
+	}
+}
+
+func TestCommissionIntegrationAuthorizationFailsClosed(t *testing.T) {
+	cfg := &Config{
+		AppEnv: "test", EnableCommissionIndex: true,
+		CommissionIntegrationFlag: "true", IntegrationControlAddr: "127.0.0.1:18081",
+		IntegrationControlToken: "0123456789abcdef0123456789abcdef",
+	}
+	mode, err := cfg.CommissionIntegrationMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, authorization, runID string
+		want                       error
+	}{
+		{"missing bearer", "", "run-1234", ErrCommissionIntegrationUnauthorized},
+		{"wrong bearer", "Bearer 0123456789abcdef0123456789abcdeg", "run-1234", ErrCommissionIntegrationUnauthorized},
+		{"agent token", "Bearer at_0123456789abcdef0123456789abcdef", "run-1234", ErrCommissionIntegrationUnauthorized},
+		{"bad run ID", "Bearer 0123456789abcdef0123456789abcdef", "INVALID", ErrInvalidCommissionIntegrationRunID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mode.Authorize(tc.authorization, tc.runID)
+			if got != tc.want {
+				t.Fatalf("Authorize() error=%v, want %v", got, tc.want)
+			}
+			if got != nil && ((tc.authorization != "" && got.Error() == tc.authorization) || (tc.runID != "" && got.Error() == tc.runID)) {
+				t.Fatal("authorization error echoed request input")
+			}
+		})
+	}
+}

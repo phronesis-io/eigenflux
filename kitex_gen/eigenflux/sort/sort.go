@@ -221,8 +221,384 @@ var fieldIDToName_SortItemsResp = map[int16]string{
 	255: "base_resp",
 }
 
+type CommissionSearchFilters struct {
+	MinPriceFen           *int64 `thrift:"min_price_fen,1,optional" frugal:"1,optional,i64" json:"min_price_fen,omitempty"`
+	MaxPriceFen           *int64 `thrift:"max_price_fen,2,optional" frugal:"2,optional,i64" json:"max_price_fen,omitempty"`
+	MinPromisedDeliveryMs *int64 `thrift:"min_promised_delivery_ms,3,optional" frugal:"3,optional,i64" json:"min_promised_delivery_ms,omitempty"`
+	MaxPromisedDeliveryMs *int64 `thrift:"max_promised_delivery_ms,4,optional" frugal:"4,optional,i64" json:"max_promised_delivery_ms,omitempty"`
+}
+
+func NewCommissionSearchFilters() *CommissionSearchFilters {
+	return &CommissionSearchFilters{}
+}
+
+func (p *CommissionSearchFilters) InitDefault() {
+}
+
+var CommissionSearchFilters_MinPriceFen_DEFAULT int64
+
+func (p *CommissionSearchFilters) GetMinPriceFen() (v int64) {
+	if !p.IsSetMinPriceFen() {
+		return CommissionSearchFilters_MinPriceFen_DEFAULT
+	}
+	return *p.MinPriceFen
+}
+
+var CommissionSearchFilters_MaxPriceFen_DEFAULT int64
+
+func (p *CommissionSearchFilters) GetMaxPriceFen() (v int64) {
+	if !p.IsSetMaxPriceFen() {
+		return CommissionSearchFilters_MaxPriceFen_DEFAULT
+	}
+	return *p.MaxPriceFen
+}
+
+var CommissionSearchFilters_MinPromisedDeliveryMs_DEFAULT int64
+
+func (p *CommissionSearchFilters) GetMinPromisedDeliveryMs() (v int64) {
+	if !p.IsSetMinPromisedDeliveryMs() {
+		return CommissionSearchFilters_MinPromisedDeliveryMs_DEFAULT
+	}
+	return *p.MinPromisedDeliveryMs
+}
+
+var CommissionSearchFilters_MaxPromisedDeliveryMs_DEFAULT int64
+
+func (p *CommissionSearchFilters) GetMaxPromisedDeliveryMs() (v int64) {
+	if !p.IsSetMaxPromisedDeliveryMs() {
+		return CommissionSearchFilters_MaxPromisedDeliveryMs_DEFAULT
+	}
+	return *p.MaxPromisedDeliveryMs
+}
+func (p *CommissionSearchFilters) SetMinPriceFen(val *int64) {
+	p.MinPriceFen = val
+}
+func (p *CommissionSearchFilters) SetMaxPriceFen(val *int64) {
+	p.MaxPriceFen = val
+}
+func (p *CommissionSearchFilters) SetMinPromisedDeliveryMs(val *int64) {
+	p.MinPromisedDeliveryMs = val
+}
+func (p *CommissionSearchFilters) SetMaxPromisedDeliveryMs(val *int64) {
+	p.MaxPromisedDeliveryMs = val
+}
+
+func (p *CommissionSearchFilters) IsSetMinPriceFen() bool {
+	return p.MinPriceFen != nil
+}
+
+func (p *CommissionSearchFilters) IsSetMaxPriceFen() bool {
+	return p.MaxPriceFen != nil
+}
+
+func (p *CommissionSearchFilters) IsSetMinPromisedDeliveryMs() bool {
+	return p.MinPromisedDeliveryMs != nil
+}
+
+func (p *CommissionSearchFilters) IsSetMaxPromisedDeliveryMs() bool {
+	return p.MaxPromisedDeliveryMs != nil
+}
+
+func (p *CommissionSearchFilters) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CommissionSearchFilters(%+v)", *p)
+}
+
+var fieldIDToName_CommissionSearchFilters = map[int16]string{
+	1: "min_price_fen",
+	2: "max_price_fen",
+	3: "min_promised_delivery_ms",
+	4: "max_promised_delivery_ms",
+}
+
+type CommissionCandidate struct {
+	CommissionId int64   `thrift:"commission_id,1,required" frugal:"1,required,i64" json:"commission_id"`
+	Score        float64 `thrift:"score,2,required" frugal:"2,required,double" json:"score"`
+	Features     *string `thrift:"features,3,optional" frugal:"3,optional,string" json:"features,omitempty"`
+}
+
+func NewCommissionCandidate() *CommissionCandidate {
+	return &CommissionCandidate{}
+}
+
+func (p *CommissionCandidate) InitDefault() {
+}
+
+func (p *CommissionCandidate) GetCommissionId() (v int64) {
+	return p.CommissionId
+}
+
+func (p *CommissionCandidate) GetScore() (v float64) {
+	return p.Score
+}
+
+var CommissionCandidate_Features_DEFAULT string
+
+func (p *CommissionCandidate) GetFeatures() (v string) {
+	if !p.IsSetFeatures() {
+		return CommissionCandidate_Features_DEFAULT
+	}
+	return *p.Features
+}
+func (p *CommissionCandidate) SetCommissionId(val int64) {
+	p.CommissionId = val
+}
+func (p *CommissionCandidate) SetScore(val float64) {
+	p.Score = val
+}
+func (p *CommissionCandidate) SetFeatures(val *string) {
+	p.Features = val
+}
+
+func (p *CommissionCandidate) IsSetFeatures() bool {
+	return p.Features != nil
+}
+
+func (p *CommissionCandidate) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CommissionCandidate(%+v)", *p)
+}
+
+var fieldIDToName_CommissionCandidate = map[int16]string{
+	1: "commission_id",
+	2: "score",
+	3: "features",
+}
+
+type SearchCommissionsReq struct {
+	Query   string                   `thrift:"query,1,required" frugal:"1,required,string" json:"query"`
+	Filters *CommissionSearchFilters `thrift:"filters,2,optional" frugal:"2,optional,CommissionSearchFilters" json:"filters,omitempty"`
+	Limit   *int32                   `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+}
+
+func NewSearchCommissionsReq() *SearchCommissionsReq {
+	return &SearchCommissionsReq{}
+}
+
+func (p *SearchCommissionsReq) InitDefault() {
+}
+
+func (p *SearchCommissionsReq) GetQuery() (v string) {
+	return p.Query
+}
+
+var SearchCommissionsReq_Filters_DEFAULT *CommissionSearchFilters
+
+func (p *SearchCommissionsReq) GetFilters() (v *CommissionSearchFilters) {
+	if !p.IsSetFilters() {
+		return SearchCommissionsReq_Filters_DEFAULT
+	}
+	return p.Filters
+}
+
+var SearchCommissionsReq_Limit_DEFAULT int32
+
+func (p *SearchCommissionsReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return SearchCommissionsReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *SearchCommissionsReq) SetQuery(val string) {
+	p.Query = val
+}
+func (p *SearchCommissionsReq) SetFilters(val *CommissionSearchFilters) {
+	p.Filters = val
+}
+func (p *SearchCommissionsReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *SearchCommissionsReq) IsSetFilters() bool {
+	return p.Filters != nil
+}
+
+func (p *SearchCommissionsReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *SearchCommissionsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchCommissionsReq(%+v)", *p)
+}
+
+var fieldIDToName_SearchCommissionsReq = map[int16]string{
+	1: "query",
+	2: "filters",
+	3: "limit",
+}
+
+type SearchCommissionsResp struct {
+	Candidates []*CommissionCandidate `thrift:"candidates,1,required" frugal:"1,required,list<CommissionCandidate>" json:"candidates"`
+	BaseResp   *base.BaseResp         `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewSearchCommissionsResp() *SearchCommissionsResp {
+	return &SearchCommissionsResp{}
+}
+
+func (p *SearchCommissionsResp) InitDefault() {
+}
+
+func (p *SearchCommissionsResp) GetCandidates() (v []*CommissionCandidate) {
+	return p.Candidates
+}
+
+var SearchCommissionsResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *SearchCommissionsResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return SearchCommissionsResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *SearchCommissionsResp) SetCandidates(val []*CommissionCandidate) {
+	p.Candidates = val
+}
+func (p *SearchCommissionsResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *SearchCommissionsResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *SearchCommissionsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SearchCommissionsResp(%+v)", *p)
+}
+
+var fieldIDToName_SearchCommissionsResp = map[int16]string{
+	1:   "candidates",
+	255: "base_resp",
+}
+
+type RecommendCommissionsReq struct {
+	AgentId int64                    `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Filters *CommissionSearchFilters `thrift:"filters,2,optional" frugal:"2,optional,CommissionSearchFilters" json:"filters,omitempty"`
+	Limit   *int32                   `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+}
+
+func NewRecommendCommissionsReq() *RecommendCommissionsReq {
+	return &RecommendCommissionsReq{}
+}
+
+func (p *RecommendCommissionsReq) InitDefault() {
+}
+
+func (p *RecommendCommissionsReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+var RecommendCommissionsReq_Filters_DEFAULT *CommissionSearchFilters
+
+func (p *RecommendCommissionsReq) GetFilters() (v *CommissionSearchFilters) {
+	if !p.IsSetFilters() {
+		return RecommendCommissionsReq_Filters_DEFAULT
+	}
+	return p.Filters
+}
+
+var RecommendCommissionsReq_Limit_DEFAULT int32
+
+func (p *RecommendCommissionsReq) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return RecommendCommissionsReq_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *RecommendCommissionsReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *RecommendCommissionsReq) SetFilters(val *CommissionSearchFilters) {
+	p.Filters = val
+}
+func (p *RecommendCommissionsReq) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *RecommendCommissionsReq) IsSetFilters() bool {
+	return p.Filters != nil
+}
+
+func (p *RecommendCommissionsReq) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *RecommendCommissionsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RecommendCommissionsReq(%+v)", *p)
+}
+
+var fieldIDToName_RecommendCommissionsReq = map[int16]string{
+	1: "agent_id",
+	2: "filters",
+	3: "limit",
+}
+
+type RecommendCommissionsResp struct {
+	Candidates []*CommissionCandidate `thrift:"candidates,1,required" frugal:"1,required,list<CommissionCandidate>" json:"candidates"`
+	BaseResp   *base.BaseResp         `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewRecommendCommissionsResp() *RecommendCommissionsResp {
+	return &RecommendCommissionsResp{}
+}
+
+func (p *RecommendCommissionsResp) InitDefault() {
+}
+
+func (p *RecommendCommissionsResp) GetCandidates() (v []*CommissionCandidate) {
+	return p.Candidates
+}
+
+var RecommendCommissionsResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *RecommendCommissionsResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return RecommendCommissionsResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *RecommendCommissionsResp) SetCandidates(val []*CommissionCandidate) {
+	p.Candidates = val
+}
+func (p *RecommendCommissionsResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *RecommendCommissionsResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *RecommendCommissionsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RecommendCommissionsResp(%+v)", *p)
+}
+
+var fieldIDToName_RecommendCommissionsResp = map[int16]string{
+	1:   "candidates",
+	255: "base_resp",
+}
+
 type SortService interface {
 	SortItems(ctx context.Context, req *SortItemsReq) (r *SortItemsResp, err error)
+
+	SearchCommissions(ctx context.Context, req *SearchCommissionsReq) (r *SearchCommissionsResp, err error)
+
+	RecommendCommissions(ctx context.Context, req *RecommendCommissionsReq) (r *RecommendCommissionsResp, err error)
 }
 
 type SortServiceSortItemsArgs struct {
@@ -298,5 +674,157 @@ func (p *SortServiceSortItemsResult) String() string {
 }
 
 var fieldIDToName_SortServiceSortItemsResult = map[int16]string{
+	0: "success",
+}
+
+type SortServiceSearchCommissionsArgs struct {
+	Req *SearchCommissionsReq `thrift:"req,1" frugal:"1,default,SearchCommissionsReq" json:"req"`
+}
+
+func NewSortServiceSearchCommissionsArgs() *SortServiceSearchCommissionsArgs {
+	return &SortServiceSearchCommissionsArgs{}
+}
+
+func (p *SortServiceSearchCommissionsArgs) InitDefault() {
+}
+
+var SortServiceSearchCommissionsArgs_Req_DEFAULT *SearchCommissionsReq
+
+func (p *SortServiceSearchCommissionsArgs) GetReq() (v *SearchCommissionsReq) {
+	if !p.IsSetReq() {
+		return SortServiceSearchCommissionsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SortServiceSearchCommissionsArgs) SetReq(val *SearchCommissionsReq) {
+	p.Req = val
+}
+
+func (p *SortServiceSearchCommissionsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SortServiceSearchCommissionsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceSearchCommissionsArgs(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceSearchCommissionsArgs = map[int16]string{
+	1: "req",
+}
+
+type SortServiceSearchCommissionsResult struct {
+	Success *SearchCommissionsResp `thrift:"success,0,optional" frugal:"0,optional,SearchCommissionsResp" json:"success,omitempty"`
+}
+
+func NewSortServiceSearchCommissionsResult() *SortServiceSearchCommissionsResult {
+	return &SortServiceSearchCommissionsResult{}
+}
+
+func (p *SortServiceSearchCommissionsResult) InitDefault() {
+}
+
+var SortServiceSearchCommissionsResult_Success_DEFAULT *SearchCommissionsResp
+
+func (p *SortServiceSearchCommissionsResult) GetSuccess() (v *SearchCommissionsResp) {
+	if !p.IsSetSuccess() {
+		return SortServiceSearchCommissionsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SortServiceSearchCommissionsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*SearchCommissionsResp)
+}
+
+func (p *SortServiceSearchCommissionsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SortServiceSearchCommissionsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceSearchCommissionsResult(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceSearchCommissionsResult = map[int16]string{
+	0: "success",
+}
+
+type SortServiceRecommendCommissionsArgs struct {
+	Req *RecommendCommissionsReq `thrift:"req,1" frugal:"1,default,RecommendCommissionsReq" json:"req"`
+}
+
+func NewSortServiceRecommendCommissionsArgs() *SortServiceRecommendCommissionsArgs {
+	return &SortServiceRecommendCommissionsArgs{}
+}
+
+func (p *SortServiceRecommendCommissionsArgs) InitDefault() {
+}
+
+var SortServiceRecommendCommissionsArgs_Req_DEFAULT *RecommendCommissionsReq
+
+func (p *SortServiceRecommendCommissionsArgs) GetReq() (v *RecommendCommissionsReq) {
+	if !p.IsSetReq() {
+		return SortServiceRecommendCommissionsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SortServiceRecommendCommissionsArgs) SetReq(val *RecommendCommissionsReq) {
+	p.Req = val
+}
+
+func (p *SortServiceRecommendCommissionsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SortServiceRecommendCommissionsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceRecommendCommissionsArgs(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceRecommendCommissionsArgs = map[int16]string{
+	1: "req",
+}
+
+type SortServiceRecommendCommissionsResult struct {
+	Success *RecommendCommissionsResp `thrift:"success,0,optional" frugal:"0,optional,RecommendCommissionsResp" json:"success,omitempty"`
+}
+
+func NewSortServiceRecommendCommissionsResult() *SortServiceRecommendCommissionsResult {
+	return &SortServiceRecommendCommissionsResult{}
+}
+
+func (p *SortServiceRecommendCommissionsResult) InitDefault() {
+}
+
+var SortServiceRecommendCommissionsResult_Success_DEFAULT *RecommendCommissionsResp
+
+func (p *SortServiceRecommendCommissionsResult) GetSuccess() (v *RecommendCommissionsResp) {
+	if !p.IsSetSuccess() {
+		return SortServiceRecommendCommissionsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SortServiceRecommendCommissionsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*RecommendCommissionsResp)
+}
+
+func (p *SortServiceRecommendCommissionsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SortServiceRecommendCommissionsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceRecommendCommissionsResult(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceRecommendCommissionsResult = map[int16]string{
 	0: "success",
 }
