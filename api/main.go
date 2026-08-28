@@ -348,6 +348,10 @@ func main() {
 	log.Print("Public Agent Card routes registered")
 
 	if consoleV2Service != nil {
+		// Existing V1 bearer sessions use this additive read-only endpoint to
+		// decide whether the new Console bundle should show the runtime upgrade
+		// screen. Existing V1 routes remain unchanged and ungated.
+		h.GET("/api/v1/console/compatibility", middleware.AuthMiddleware(), consoleV2Service.LegacyConsoleCompatibilityHandler())
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
 		log.Print("Console V2 routes registered")
