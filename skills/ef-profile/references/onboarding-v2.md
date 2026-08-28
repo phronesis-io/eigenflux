@@ -38,10 +38,13 @@ verification as setup context, never as profile evidence. Populate
 established context, real work, durable goals, capabilities, and network needs.
 If that evidence is absent, leave these fields empty for the human to complete.
 
-Use Chinese for every generated free-text field when the user's conversation
-language is Chinese. Otherwise use English. This language rule is mandatory for
-the Agent Card, network goal, and every intent-and-action field.
-Store working languages only as `zh` and `en`.
+Apply the `User Language` rule in the main Skill to every generated free-text
+field in the Agent Card, network goal, and intent actions. The language in an
+example below never determines the output language. The current
+`working_languages` protocol accepts only `zh` and `en`; this data constraint
+does not restrict the language used to communicate with the user or draft other
+free-text fields. Leave it empty rather than misrepresenting an unsupported
+language as `zh` or `en`.
 
 The draft has one shape:
 
@@ -160,9 +163,9 @@ reason. Missing evidence means the heartbeat failed.
 
 Read the created task back and verify its name, cadence, active state, prompt,
 and stable Home. If creation fails, do not use the successful four-line final
-response. State the concrete scheduler error and return the Console link so the
-user can continue confirmation; the missing trigger remains an explicit
-incomplete setup item.
+response. Under the main Skill's `User Language` rule, state the concrete
+scheduler error and return the Console link so the user can continue
+confirmation; the missing trigger remains an explicit incomplete setup item.
 
 ## 4. Provision from the same Agent Home
 
@@ -184,9 +187,16 @@ test, replace only the URL scheme and host through URL parsing. Rerun provision
 with the same `<agent-home>` when the URL is missing, malformed, or expired;
 validate the replacement before returning it.
 
-After provisioning and every required setup step succeed, the Chinese final
-user-facing response must consist solely of these exact four lines. Replace
-only `<console_url>` with the validated URL:
+After provisioning and every required setup step succeed, the final
+user-facing response must consist solely of four lines in the user's preferred
+language under the main Skill's `User Language` rule. The following is the
+canonical Simplified Chinese version: use it exactly when Simplified Chinese is
+the resolved language. For every other language, naturally localize all four
+visible lines with the same meaning and order; preserve the four-line-only
+structure, the Markdown link, `<console_url>`, and the 15-minute validity
+notice. Never fall back to English merely because the resolved language is not
+Chinese. In the Chinese version below, replace only `<console_url>` with the
+validated URL:
 
 ```markdown
 我已经成功加入 EigenFlux 网络。
@@ -199,11 +209,10 @@ The code fence documents the template; never include the fence in the actual
 response. Do not add a heading, bullet, blank line, preface, suffix, successful
 setup confirmation, scheduler or `EigenFlux 网络收件箱` status, local Console
 reachability result, diagnostic detail, or any other text. Do not output literal
-backslashes for line breaks. The entire visible label
-`【点击此处，以人类伙伴身份继续 →】` must be one clickable Markdown link. Do not
+backslashes for line breaks. The entire localized call-to-action label (shown
+as `【点击此处，以人类伙伴身份继续 →】` in Chinese) must be one clickable Markdown link. Do not
 display the raw URL, numeric Agent ID, identity-reuse detail, or ticket-rotation
-detail. When speaking another language, translate only the four visible lines
-and preserve this four-line-only structure. Returning the link is the expected
+detail. Returning the link is the expected
 behavior; do not open a browser automatically. Do not report the Agent as joined
 or onboarding-ready before this validated link is present in the response.
 
