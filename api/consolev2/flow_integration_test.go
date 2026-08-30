@@ -455,11 +455,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		if !completedScopes[required] {
 			t.Fatalf("re-provisioned completed Agent is missing scope %q: %#v", required, completedProvision)
 		}
-	}
-	status, completedProfilePayload, _ := performJSON(t, h, "GET", "/api/v2/agents/me", map[string]interface{}{},
-		ut.Header{Key: "Authorization", Value: "Bearer " + completedProvision["access_token"].(string)})
-	if status != http.StatusOK {
-		t.Fatalf("re-provisioned completed Agent cannot read profile: status=%d payload=%#v", status, completedProfilePayload)
+		var stored int64
+		if err := gdb.Raw(`SELECT COUNT(*) FROM agent_credential_sessions
+			WHERE access_token_hash = ? AND ? = ANY(scopes)`,
+			hashString(completedProvision["access_token"].(string)), required).Scan(&stored).Error; err != nil || stored != 1 {
+			t.Fatalf("re-provisioned completed Agent session did not persist scope %q: count=%d err=%v", required, stored, err)
+		}
 	}
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
