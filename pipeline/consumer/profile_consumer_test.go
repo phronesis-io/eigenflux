@@ -1,6 +1,11 @@
 package consumer
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+
+	"eigenflux_server/pkg/config"
+)
 
 func TestBuildCachedProfile(t *testing.T) {
 	profile := buildCachedProfile(42, []string{"ai-agents", "crypto"}, "Singapore")
@@ -18,5 +23,38 @@ func TestBuildCachedProfile(t *testing.T) {
 	}
 	if profile.GeoCountry != "Singapore" {
 		t.Fatalf("GeoCountry=%q, want Singapore", profile.GeoCountry)
+	}
+}
+
+func TestDeterministicTestProfileFeatures(t *testing.T) {
+	keywords, country := deterministicTestProfileFeatures("Buyer research interest commission-run-123")
+	if country != "" {
+		t.Fatalf("country=%q, want empty", country)
+	}
+	want := []string{"buyer", "research", "interest", "commission-run-123"}
+	if !reflect.DeepEqual(keywords, want) {
+		t.Fatalf("keywords=%v, want %v", keywords, want)
+	}
+}
+
+func TestDeterministicProfileModeRequiresCompleteIntegrationProfile(t *testing.T) {
+	base := config.Config{
+		AppEnv:                    "test",
+		EnableCommissionIndex:     true,
+		CommissionIntegrationFlag: "true",
+		IntegrationControlAddr:    "127.0.0.1:19081",
+		IntegrationControlToken:   "0123456789abcdef0123456789abcdef",
+	}
+	if !deterministicProfileMode(&base) {
+		t.Fatal("complete integration profile did not enable deterministic profile features")
+	}
+	base.CommissionIntegrationFlag = ""
+	if deterministicProfileMode(&base) {
+		t.Fatal("APP_ENV=test enabled deterministic profile features without integration mode")
+	}
+	base.CommissionIntegrationFlag = "true"
+	base.IntegrationControlToken = "short"
+	if deterministicProfileMode(&base) {
+		t.Fatal("invalid integration profile enabled deterministic profile features")
 	}
 }

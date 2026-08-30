@@ -19,7 +19,7 @@ const (
 	todayEncounterLimit     = 8
 	todayParticipationLimit = 5
 	todayFocusLimit         = 8
-	todayRuntimeFreshness   = 30 * time.Minute
+	consoleRuntimeFreshness = 130 * time.Minute
 )
 
 type todayEncounter struct {
@@ -82,20 +82,24 @@ func todayEmptyModuleState(hasData, firstScanCompleted, connected, runtimeKnown 
 	if hasData {
 		return "data"
 	}
-	if runtimeKnown && !connected {
-		return "offline"
-	}
 	if firstScanCompleted {
 		return "complete_empty"
 	}
-	if connected {
-		return "starting"
-	}
-	return "waiting"
+	return "starting"
 }
 
 func todayObservationState(hasResult, firstScanCompleted, connected, runtimeKnown bool) string {
 	return todayEmptyModuleState(hasResult, firstScanCompleted, connected, runtimeKnown)
+}
+
+func consoleRuntimeState(lastHeartbeatAt, now int64) string {
+	if lastHeartbeatAt <= 0 {
+		return "not_started"
+	}
+	if lastHeartbeatAt >= now-consoleRuntimeFreshness.Milliseconds() {
+		return "active"
+	}
+	return "offline"
 }
 
 func uniqueInt64s(values []int64) []int64 {
@@ -552,29 +556,28 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	}
 
 	var observation todayObservationFacts
-	if err := s.db.Raw(`WITH clock AS (
-			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
-		), runtime AS (
+	if err := s.db.Raw(`WITH runtime AS (
 			SELECT COUNT(*)::bigint AS runtime_count,
 				COALESCE(MAX(last_heartbeat_at), 0)::bigint AS last_heartbeat_at
 			FROM agent_runtime_leases WHERE agent_id = ?
 		), activity AS (
-			SELECT COUNT(*)::bigint AS activity_count,
-				COUNT(*)::bigint AS heat_activity_count,
+			SELECT COUNT(*) FILTER (WHERE created_at >= ?)::bigint AS activity_count,
+				COUNT(*) FILTER (WHERE created_at >= ?)::bigint AS heat_activity_count,
 				COALESCE(MIN(created_at) FILTER (WHERE event_type = 'feed_pull'), 0)::bigint AS first_scan_completed_at,
 				COALESCE(MAX(created_at) FILTER (WHERE event_type = 'feed_pull'), 0)::bigint AS last_scan_at
-			FROM agent_activity_log WHERE agent_id = ? AND created_at >= ?
+			FROM agent_activity_log WHERE agent_id = ?
 		)
 		SELECT runtime.runtime_count > 0 AS runtime_known,
-			runtime.last_heartbeat_at >= clock.now_ms - ? AS connected,
+			FALSE AS connected,
 			runtime.last_heartbeat_at, activity.first_scan_completed_at,
 			activity.last_scan_at, activity.activity_count, activity.heat_activity_count
-		FROM clock CROSS JOIN runtime CROSS JOIN activity`, agentIDValue, agentIDValue, todayStart,
-		int64(todayRuntimeFreshness/time.Millisecond)).Scan(&observation).Error; err != nil {
+		FROM runtime CROSS JOIN activity`, agentIDValue, todayStart, todayStart, agentIDValue).Scan(&observation).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_READ_FAILED", "could not load today's observation state", nil)
 		return
 	}
 	firstScanCompleted := observation.FirstScanCompletedAt > 0
+	runtimeState := consoleRuntimeState(observation.LastHeartbeatAt, now.UnixMilli())
+	observation.Connected = runtimeState == "active"
 	hasBriefResult := encounterCount > 0 || participationCount > 0 || focusCount > 0
 	moduleStates := map[string]string{
 		"heat":          todayEmptyModuleState(observation.HeatActivityCount > 0, firstScanCompleted, observation.Connected, observation.RuntimeKnown),
@@ -586,10 +589,8 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	firstScanState := "not_started"
 	if firstScanCompleted {
 		firstScanState = "completed"
-	} else if observation.Connected {
+	} else if runtimeState == "active" {
 		firstScanState = "running"
-	} else if observation.RuntimeKnown {
-		firstScanState = "offline"
 	}
 
 	goalData := interface{}(nil)
@@ -624,6 +625,17 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 		"card_completion": map[string]interface{}{
 			"completed_fields": completedFields, "total_fields": totalFields, "percent": completionPercent,
 		},
+		"connection": map[string]interface{}{
+			"state": "connected",
+		},
+		"runtime_state":     runtimeState,
+		"last_heartbeat_at": observation.LastHeartbeatAt,
+		"fresh_until": func() int64 {
+			if observation.LastHeartbeatAt <= 0 {
+				return 0
+			}
+			return observation.LastHeartbeatAt + consoleRuntimeFreshness.Milliseconds()
+		}(),
 		"brief": map[string]interface{}{
 			"focus_count": focusCount, "participation_count": participationCount,
 			"encounter_count": encounterCount, "activity_count": observation.ActivityCount,

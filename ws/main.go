@@ -11,9 +11,9 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pkg/config"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
@@ -71,6 +71,7 @@ func main() {
 	listenAddr := cfg.ListenAddr(cfg.WSPort)
 	h := server.Default(server.WithHostPorts(listenAddr))
 	h.GET("/ws/pm", wsHandler.Serve)
+	h.GET("/api/v2/agent/events/ws", wsHandler.ServeAgentV2)
 
 	logger.Default().Info("WS service started", "addr", listenAddr)
 	h.Spin()

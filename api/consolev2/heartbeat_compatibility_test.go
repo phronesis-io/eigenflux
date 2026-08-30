@@ -1,10 +1,20 @@
 package consolev2
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+)
 
 func TestConsoleV2CompatibilityGate(t *testing.T) {
 	tests := []struct {
 		name, cli, contract, revision, status, reason string
+		onboardingCompleted                           bool
 		available                                     bool
 	}{
 		{name: "missing report", status: "unknown", reason: "report_missing"},
@@ -12,11 +22,11 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 		{name: "old heartbeat", cli: "0.0.34", contract: "legacy", revision: "r1", status: "upgrade_required", reason: "heartbeat_outdated"},
 		{name: "missing skills", cli: "0.0.34", contract: heartbeatContractV1, status: "upgrade_required", reason: "skills_unknown"},
 		{name: "minimum ready", cli: "0.0.34", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
-		{name: "newer ready", cli: "1.2.3", contract: heartbeatContractV1, revision: "r2", status: "ready", available: true},
+		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123)
+			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123, test.onboardingCompleted)
 			if got["available"] != test.available || got["status"] != test.status || got["reason"] != test.reason {
 				t.Fatalf("compatibility = %#v", got)
 			}
@@ -37,5 +47,80 @@ func TestCompareConsoleCLIVersion(t *testing.T) {
 		if got := compareConsoleCLIVersion(test.left, test.right); got != test.want {
 			t.Fatalf("compare(%q,%q)=%d want %d", test.left, test.right, got, test.want)
 		}
+	}
+}
+
+func TestLegacyConsoleCompatibilityHandlerBypassesCompletedOnboarding(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE agent_settings (
+			agent_id INTEGER PRIMARY KEY, cli_version TEXT,
+			heartbeat_contract_version TEXT, skill_revision TEXT,
+			heartbeat_reported_at INTEGER
+		)`,
+		`CREATE TABLE agent_onboarding_v2 (agent_id INTEGER PRIMARY KEY, state TEXT)`,
+		`INSERT INTO agent_settings
+			(agent_id, cli_version, heartbeat_contract_version, skill_revision, heartbeat_reported_at)
+			VALUES (42, '', '', '', 0)`,
+		`INSERT INTO agent_onboarding_v2 (agent_id, state) VALUES (42, 'completed')`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service := &Service{db: db}
+	request := app.NewContext(0)
+	request.Set("agent_id", int64(42))
+	service.LegacyConsoleCompatibilityHandler()(context.Background(), request)
+
+	if request.Response.StatusCode() != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", request.Response.StatusCode(), request.Response.Body())
+	}
+	var envelope struct {
+		Code int `json:"code"`
+		Data struct {
+			Compatibility map[string]interface{} `json:"compatibility"`
+			Onboarding    struct {
+				State string `json:"state"`
+			} `json:"onboarding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(request.Response.Body(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Code != 0 || envelope.Data.Onboarding.State != "completed" || envelope.Data.Compatibility["available"] != true {
+		t.Fatalf("unexpected compatibility envelope: %#v", envelope)
+	}
+}
+
+func TestLegacyConsoleCompatibilityHandlerStillGatesIncompleteOnboarding(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE agent_settings (
+			agent_id INTEGER PRIMARY KEY, cli_version TEXT,
+			heartbeat_contract_version TEXT, skill_revision TEXT,
+			heartbeat_reported_at INTEGER
+		)`,
+		`CREATE TABLE agent_onboarding_v2 (agent_id INTEGER PRIMARY KEY, state TEXT)`,
+		`INSERT INTO agent_onboarding_v2 (agent_id, state) VALUES (43, 'in_progress')`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	compatibility, onboardingState, err := (&Service{db: db}).loadConsoleV2Compatibility(43)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onboardingState != "in_progress" || compatibility["available"] != false || compatibility["reason"] != "report_missing" {
+		t.Fatalf("unexpected incomplete compatibility: state=%q compatibility=%#v", onboardingState, compatibility)
 	}
 }

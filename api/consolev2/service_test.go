@@ -37,6 +37,33 @@ func TestConsoleHandoffTTL(t *testing.T) {
 	}
 }
 
+func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
+	want := []string{
+		"feed:feedback",
+		"communication:read", "communication:write",
+		"relations:read", "relations:write",
+		"broadcast:write", "profile:read", "profile:write",
+		"settings:read", "settings:write",
+	}
+	got := principalScopesForOnboarding("completed")
+	available := make(map[string]bool, len(got))
+	for _, scope := range got {
+		available[scope] = true
+	}
+	for _, scope := range want {
+		if !available[scope] {
+			t.Fatalf("completed principal is missing scope %q: %#v", scope, got)
+		}
+	}
+
+	incomplete := principalScopesForOnboarding("draft")
+	for _, scope := range incomplete {
+		if scope == "communication:write" || scope == "broadcast:write" || scope == "settings:write" {
+			t.Fatalf("incomplete principal unexpectedly received scope %q", scope)
+		}
+	}
+}
+
 func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

@@ -1,10 +1,16 @@
 package config
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -120,9 +126,12 @@ type Config struct {
 	LokiURL                     string   // Loki push API URL (default http://localhost:3122)
 	LogLevel                    string   // Structured log level: debug | info | warn | error
 	EnableReplayLog             bool     // Enable replay log publishing in FeedService (default: true)
-	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron (default 30)
+	ReplayLogRetentionDays      int      // replay_logs rows older than this are purged by cron; <=0 disables cleanup and keeps all rows (default 0)
 	ReplayLogCleanupIntervalSec int      // replay_logs cleanup cron interval (default 86400 = daily)
 	MqStreamMaxLen              int64    // approximate cap on Redis Stream length applied by mq.Publish (default 20000, <=0 disables); ingestion streams are exempt
+	CommissionAPIEndpoint       string
+	CommissionDelegateKID       string
+	CommissionDelegatePrivate   string
 	EnableCommissionIndex       bool
 	CommissionSourceService     string
 	OrderSourceService          string
@@ -134,9 +143,9 @@ type Config struct {
 	CommissionConsumerWorkers   int
 	CommissionConsumerRetries   int
 	CommissionBackfillPageSize  int
-	CommissionAPIEndpoint       string
-	CommissionDelegateKID       string
-	CommissionDelegatePrivate   string
+	CommissionIntegrationFlag   string
+	IntegrationControlAddr      string
+	IntegrationControlToken     string
 
 	// Official account (singleton new-user guide / first contact)
 	OfficialAgentEmail           string   // email identifying the official account; resolved to agent_id at runtime
@@ -310,9 +319,12 @@ func Load() *Config {
 		LokiURL:                      getEnv("LOKI_URL", "http://localhost:3122"),
 		LogLevel:                     getEnv("LOG_LEVEL", "debug"),
 		EnableReplayLog:              getEnvBool("ENABLE_REPLAY_LOG", true),
-		ReplayLogRetentionDays:       getEnvInt("REPLAY_LOG_RETENTION_DAYS", 30),
+		ReplayLogRetentionDays:       getEnvInt("REPLAY_LOG_RETENTION_DAYS", 0),
 		ReplayLogCleanupIntervalSec:  getEnvInt("REPLAY_LOG_CLEANUP_INTERVAL_SEC", 86400),
 		MqStreamMaxLen:               getEnvInt64("MQ_STREAM_MAXLEN", 20000),
+		CommissionAPIEndpoint:        getEnv("COMMISSION_ENDPOINT", "http://127.0.0.1:8090"),
+		CommissionDelegateKID:        getEnv("COMMISSION_DELEGATION_KEY_ID", ""),
+		CommissionDelegatePrivate:    getEnv("COMMISSION_DELEGATION_PRIVATE_KEY", ""),
 		EnableCommissionIndex:        getEnvBool("ENABLE_COMMISSION_INDEX", false),
 		CommissionSourceService:      getEnv("COMMISSION_SOURCE_SERVICE", "CommissionService"),
 		OrderSourceService:           getEnv("COMMISSION_ORDER_SOURCE_SERVICE", "OrderService"),
@@ -324,9 +336,9 @@ func Load() *Config {
 		CommissionConsumerWorkers:    getEnvInt("COMMISSION_INDEX_CONSUMER_WORKERS", 2),
 		CommissionConsumerRetries:    getEnvInt("COMMISSION_INDEX_CONSUMER_RETRIES", 3),
 		CommissionBackfillPageSize:   getEnvInt("COMMISSION_BACKFILL_PAGE_SIZE", 100),
-		CommissionAPIEndpoint:        getEnv("COMMISSION_ENDPOINT", "http://127.0.0.1:8090"),
-		CommissionDelegateKID:        getEnv("COMMISSION_DELEGATION_KEY_ID", ""),
-		CommissionDelegatePrivate:    getEnv("COMMISSION_DELEGATION_PRIVATE_KEY", ""),
+		CommissionIntegrationFlag:    getEnv("COMMISSION_INTEGRATION_MODE", ""),
+		IntegrationControlAddr:       getEnv("INTEGRATION_CONTROL_ADDR", ""),
+		IntegrationControlToken:      getEnv("INTEGRATION_CONTROL_TOKEN", ""),
 		OfficialAgentEmail:           getEnv("OFFICIAL_AGENT_EMAIL", "eigenfluxofficial@gmail.com"),
 		OfficialAgentName:            getEnv("OFFICIAL_AGENT_NAME", "eigenflux 官方助手"),
 		OfficialAgentBio:             getEnv("OFFICIAL_AGENT_BIO", "你好，我是 Vic 老师，有什么可以帮助你的？"),
@@ -433,6 +445,95 @@ func (c *Config) IsTest() bool {
 func (c *Config) IsDev() bool {
 	env := strings.ToLower(strings.TrimSpace(c.AppEnv))
 	return env == "dev" || env == "development" || env == ""
+}
+
+var (
+	ErrCommissionIntegrationDisabled             = errors.New("commission integration mode disabled")
+	ErrInvalidCommissionIntegrationConfiguration = errors.New("invalid commission integration configuration")
+	ErrCommissionIntegrationUnauthorized         = errors.New("commission integration authorization failed")
+	ErrInvalidCommissionIntegrationRunID         = errors.New("invalid commission integration run ID")
+)
+
+var commissionIntegrationRunIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{7,63}$`)
+
+type CommissionIntegration struct {
+	Enabled     bool
+	ControlAddr string
+	tokenDigest [sha256.Size]byte
+}
+
+func (c *Config) CommissionIntegrationMode() (CommissionIntegration, error) {
+	if c == nil {
+		return CommissionIntegration{}, nil
+	}
+	rawFlag := strings.TrimSpace(c.CommissionIntegrationFlag)
+	if rawFlag == "" {
+		return CommissionIntegration{}, nil
+	}
+	enabled, err := strconv.ParseBool(rawFlag)
+	if err != nil {
+		return CommissionIntegration{}, ErrInvalidCommissionIntegrationConfiguration
+	}
+	if !enabled {
+		return CommissionIntegration{}, nil
+	}
+	token := strings.TrimSpace(c.IntegrationControlToken)
+	address, ok := privateNumericListener(c.IntegrationControlAddr)
+	if !c.IsTest() || !c.EnableCommissionIndex || len([]byte(token)) < 32 || !ok {
+		return CommissionIntegration{}, ErrInvalidCommissionIntegrationConfiguration
+	}
+	return CommissionIntegration{
+		Enabled:     true,
+		ControlAddr: address,
+		tokenDigest: sha256.Sum256([]byte(token)),
+	}, nil
+}
+
+func (m CommissionIntegration) Authorize(authorization, runID string) error {
+	if !m.Enabled {
+		return ErrCommissionIntegrationDisabled
+	}
+	scheme, token, found := strings.Cut(authorization, " ")
+	digest := sha256.Sum256([]byte(token))
+	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" ||
+		subtle.ConstantTimeCompare(digest[:], m.tokenDigest[:]) != 1 {
+		return ErrCommissionIntegrationUnauthorized
+	}
+	if !commissionIntegrationRunIDPattern.MatchString(runID) {
+		return ErrInvalidCommissionIntegrationRunID
+	}
+	return nil
+}
+
+var (
+	privateIPv4Ten         = netip.MustParsePrefix("10.0.0.0/8")
+	privateIPv4OneSevenTwo = netip.MustParsePrefix("172.16.0.0/12")
+	privateIPv4OneNineTwo  = netip.MustParsePrefix("192.168.0.0/16")
+	privateIPv6ULA         = netip.MustParsePrefix("fc00::/7")
+)
+
+func privateNumericListener(raw string) (string, bool) {
+	address := strings.TrimSpace(raw)
+	host, portText, err := net.SplitHostPort(address)
+	if err != nil || host == "" {
+		return "", false
+	}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil || port == 0 {
+		return "", false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil || ip.Zone() != "" {
+		return "", false
+	}
+	ip = ip.Unmap()
+	allowed := ip.IsLoopback() || privateIPv4Ten.Contains(ip) ||
+		privateIPv4OneSevenTwo.Contains(ip) || privateIPv4OneNineTwo.Contains(ip) ||
+		privateIPv6ULA.Contains(ip)
+	if !allowed || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+		return "", false
+	}
+	return net.JoinHostPort(ip.String(), strconv.FormatUint(port, 10)), true
 }
 
 // ShouldDisableDedup returns true if deduplication should be disabled

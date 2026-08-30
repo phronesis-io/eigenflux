@@ -7,6 +7,23 @@ import (
 	"time"
 )
 
+const (
+	PublishedTopic  = "commission.published.v1"
+	OfflineTopic    = "commission.offline.v1"
+	StatisticsTopic = "commission.statistics.changed.v1"
+)
+
+func ExpectedAggregateType(topic string) (string, bool) {
+	switch topic {
+	case PublishedTopic, OfflineTopic:
+		return "commission", true
+	case StatisticsTopic:
+		return "commission_statistics", true
+	default:
+		return "", false
+	}
+}
+
 type CatalogueSnapshot struct {
 	CommissionID          int64
 	SellerAgentID         int64

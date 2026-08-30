@@ -1,6 +1,6 @@
 // Package consolev2 implements the isolated Console V2 authentication and
-// onboarding control plane. It intentionally does not share V1 bearer tokens,
-// cookies, DTOs, or route handlers.
+// onboarding control plane. V2 keeps its bearer tokens and cookies isolated;
+// authenticated aliases may reuse stable business handlers behind V2 auth.
 package consolev2
 
 import (
@@ -29,6 +29,8 @@ import (
 	"gorm.io/gorm"
 
 	agentcardapi "eigenflux_server/api/agentcard"
+	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
+	"eigenflux_server/api/middleware"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/pipeline/llm"
@@ -342,11 +344,6 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
-	// Temporary CLI compatibility bridge for hosts that still invoke
-	// `eigenflux profile update`. The V2 Agent credential remains the caller;
-	// both handlers use the same versioned field writer as the legacy CLI path.
-	h.GET("/api/v2/agent-profile/refresh-context", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.GetRefreshContext)
-	h.PUT("/api/v2/agent-profile/fields", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.PutProfileFields)
 	h.PUT("/api/v2/agents/me/network-goal", s.consoleAuth(true), s.requireCompleted, s.putNetworkGoal)
 	h.POST("/api/v2/agents/me/intent-actions", s.consoleAuth(true), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agents/me/intent-actions/:intent_id", s.consoleAuth(true), s.requireCompleted, s.updateIntentAction)
@@ -356,11 +353,14 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/activity", s.consoleAuth(false), s.requireCompleted, s.listActivity)
 	h.GET("/api/v2/console/activity/stream", s.consoleAuth(false), s.requireCompleted, s.streamActivity)
 	h.GET("/api/v2/console/today", s.consoleAuth(false), s.requireCompleted, s.getToday)
+	h.GET("/api/v2/console/today/status", s.consoleAuth(false), s.requireCompleted, s.getTodayStatus)
 	h.GET("/api/v2/console/today/brief", s.consoleAuth(false), s.requireCompleted, s.getTodayBrief)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)
 		h.GET("/api/v2/feed/items/:source_type/:source_id", s.agentAuth("feed:read"), s.getFeedSourceItem)
+		h.POST("/api/v2/feed/feedback", s.agentAuth("feed:feedback"), s.requireCompleted, apihandler.BatchFeedback)
+		h.POST("/api/v2/feed/events:batch", s.agentAuth("feed:feedback"), s.requireCompleted, apihandler.PushFeedEvents)
 		h.GET("/api/v2/notifications/pending", s.agentAuth("feed:read"), s.listPendingNotifications)
 		h.POST("/api/v2/notifications/ack", s.agentAuth("notifications:ack"), s.ackPendingNotifications)
 	}
@@ -380,6 +380,19 @@ func (s *Service) Register(h *server.Hertz) {
 		h.POST("/api/v2/console/attention-items/:attention_id/respond", s.consoleAuth(true), s.requireCompleted, s.respondAttentionItem)
 		h.POST("/api/v2/console/attention-items/:attention_id/dismiss", s.consoleAuth(true), s.requireCompleted, s.dismissAttentionItem)
 	}
+	h.POST("/api/v2/pm/messages", s.agentAuth("communication:write"), s.requireCompleted, apihandler.SendPM)
+	h.GET("/api/v2/pm/messages", s.agentAuth("communication:read"), s.requireCompleted, apihandler.FetchPM)
+	h.GET("/api/v2/pm/conversations", s.agentAuth("communication:read"), s.requireCompleted, apihandler.ListConversations)
+	h.GET("/api/v2/pm/conversations/history", s.agentAuth("communication:read"), s.requireCompleted, apihandler.GetConvHistory)
+	h.POST("/api/v2/pm/conversations/close", s.agentAuth("communication:write"), s.requireCompleted, apihandler.CloseConv)
+	h.GET("/api/v2/relations/friend-requests", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriendRequests)
+	h.POST("/api/v2/relations/friend-requests", s.agentAuth("relations:write"), s.requireCompleted, apihandler.SendFriendRequest)
+	h.POST("/api/v2/relations/friend-requests/handle", s.agentAuth("relations:write"), s.requireCompleted, apihandler.HandleFriendRequest)
+	h.GET("/api/v2/relations/friends", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriends)
+	h.POST("/api/v2/relations/friends/unfriend", s.agentAuth("relations:write"), s.requireCompleted, apihandler.Unfriend)
+	h.POST("/api/v2/relations/friends/block", s.agentAuth("relations:write"), s.requireCompleted, apihandler.BlockUser)
+	h.POST("/api/v2/relations/friends/unblock", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UnblockUser)
+	h.POST("/api/v2/relations/friends/remark", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UpdateFriendRemark)
 	if s.enableCommunication {
 		h.GET("/api/v2/console/pm/conversations", s.consoleAuth(false), s.requireCompleted, s.listCommunicationConversations)
 		h.GET("/api/v2/console/pm/conversations/:conv_id/messages", s.consoleAuth(false), s.requireCompleted, s.listCommunicationMessages)
@@ -387,6 +400,40 @@ func (s *Service) Register(h *server.Hertz) {
 		h.GET("/api/v2/console/relations/friends", s.consoleAuth(false), s.requireCompleted, s.listCommunicationFriends)
 		h.GET("/api/v2/console/events/ws", s.consoleAuth(false), s.requireCompleted, s.streamCommunicationEvents)
 	}
+
+	h.POST("/api/v2/broadcasts", s.agentAuth("broadcast:write"), s.requireCompleted, apihandler.Publish)
+	h.DELETE("/api/v2/broadcasts/:item_id", s.agentAuth("broadcast:write"), s.requireCompleted, apihandler.DeleteMyItem)
+	h.GET("/api/v2/agents/me/broadcasts", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMyItems)
+	h.GET("/api/v2/agent-profile", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMe)
+	h.GET("/api/v2/agent-profile/card", s.agentAuth("profile:read"), s.requireCompleted, agentcardapi.GetMyCard)
+	h.PUT("/api/v2/agent-profile/fields", s.agentAuth("profile:write"), s.requireCompleted, agentcardapi.PutProfileFields)
+	h.GET("/api/v2/agent-settings", s.agentAuth("settings:read"), s.requireCompleted, apihandler.GetMySettings)
+	h.PUT("/api/v2/agent-settings", middleware.ClientInfoMiddleware(), s.agentAuth("settings:write"), s.requireCompleted, apihandler.PutMySettings)
+
+	// V2 aliases preserve the stable CLI request/response bodies while the CLI
+	// transitions to the canonical routes above. They use Agent V2 auth only.
+	h.GET("/api/v2/items/:item_id", s.agentAuth("feed:read"), s.requireCompleted, apihandler.GetItem)
+	h.POST("/api/v2/items/feedback", s.agentAuth("feed:feedback"), s.requireCompleted, apihandler.BatchFeedback)
+	h.POST("/api/v2/items/events", s.agentAuth("feed:feedback"), s.requireCompleted, apihandler.PushFeedEvents)
+	h.POST("/api/v2/items/publish", s.agentAuth("broadcast:write"), s.requireCompleted, apihandler.Publish)
+	h.GET("/api/v2/pm/fetch", s.agentAuth("communication:read"), s.requireCompleted, apihandler.FetchPM)
+	h.POST("/api/v2/pm/send", s.agentAuth("communication:write"), s.requireCompleted, apihandler.SendPM)
+	h.GET("/api/v2/pm/history", s.agentAuth("communication:read"), s.requireCompleted, apihandler.GetConvHistory)
+	h.POST("/api/v2/pm/close", s.agentAuth("communication:write"), s.requireCompleted, apihandler.CloseConv)
+	h.GET("/api/v2/relations/applications", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriendRequests)
+	h.POST("/api/v2/relations/apply", s.agentAuth("relations:write"), s.requireCompleted, apihandler.SendFriendRequest)
+	h.POST("/api/v2/relations/handle", s.agentAuth("relations:write"), s.requireCompleted, apihandler.HandleFriendRequest)
+	h.POST("/api/v2/relations/unfriend", s.agentAuth("relations:write"), s.requireCompleted, apihandler.Unfriend)
+	h.POST("/api/v2/relations/block", s.agentAuth("relations:write"), s.requireCompleted, apihandler.BlockUser)
+	h.POST("/api/v2/relations/unblock", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UnblockUser)
+	h.POST("/api/v2/relations/remark", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UpdateFriendRemark)
+	h.GET("/api/v2/agents/me", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMe)
+	h.GET("/api/v2/agents/me/card", s.agentAuth("profile:read"), s.requireCompleted, agentcardapi.GetMyCard)
+	h.GET("/api/v2/agents/me/card/refresh-context", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.GetRefreshContext)
+	h.GET("/api/v2/agents/items", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMyItems)
+	h.DELETE("/api/v2/agents/items/:item_id", s.agentAuth("broadcast:write"), s.requireCompleted, apihandler.DeleteMyItem)
+	h.GET("/api/v2/agents/me/settings", s.agentAuth("settings:read"), s.requireCompleted, apihandler.GetMySettings)
+	h.PUT("/api/v2/agents/me/settings", middleware.ClientInfoMiddleware(), s.agentAuth("settings:write"), s.requireCompleted, apihandler.PutMySettings)
 }
 
 type apiError struct {

@@ -51,6 +51,25 @@ func TestCommissionConsumerProjectsActiveSnapshot(t *testing.T) {
 		t.Fatalf("unexpected projection: %#v, %v", store.document, result)
 	}
 }
+
+func TestCommissionConsumerProjectsStatisticsEnvelope(t *testing.T) {
+	store := &commissionTestStore{}
+	c := &CommissionIndexConsumer{
+		source: commissionTestSource{
+			catalogue:  commissionindex.CatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 2, Title: "Write"},
+			statistics: commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 7},
+		},
+		store: store, embedder: commissionTestEmbedder{},
+	}
+	result := c.Handle(context.Background(), "2-0", map[string]any{
+		"event_id": "2", "schema_version": "1", "topic": commissionStatsTopic,
+		"aggregate_type": "commission_statistics", "aggregate_id": "4", "aggregate_version": "7",
+		"occurred_at": "2", "payload_json": "{}",
+	})
+	if result != HandleSuccess || !store.document.Active || store.document.StatisticsVersion != 7 {
+		t.Fatalf("statistics envelope was not projected: %#v result=%v", store.document, result)
+	}
+}
 func TestCommissionConsumerRejectsInvalidEnvelope(t *testing.T) {
 	event := map[string]any{"event_id": "1", "schema_version": "2"}
 	if _, err := parseCommissionEvent(event); err == nil {

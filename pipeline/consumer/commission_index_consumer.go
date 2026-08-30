@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	commissionPublishedTopic = "commission.published.v1"
-	commissionOfflineTopic   = "commission.offline.v1"
-	commissionStatsTopic     = "commission.statistics.changed.v1"
+	commissionPublishedTopic = commissionindex.PublishedTopic
+	commissionOfflineTopic   = commissionindex.OfflineTopic
+	commissionStatsTopic     = commissionindex.StatisticsTopic
 )
 
 type CommissionEmbedder interface {
@@ -107,11 +107,12 @@ func parseCommissionEvent(values map[string]any) (commissionEvent, error) {
 		return commissionEvent{}, fmt.Errorf("unsupported schema version %q", schema)
 	}
 	topic, _ := read("topic")
-	if topic != commissionPublishedTopic && topic != commissionOfflineTopic && topic != commissionStatsTopic {
+	expectedAggregateType, supported := commissionindex.ExpectedAggregateType(topic)
+	if !supported {
 		return commissionEvent{}, fmt.Errorf("unsupported topic %q", topic)
 	}
 	aggregateType, _ := read("aggregate_type")
-	if aggregateType != "commission" {
+	if aggregateType != expectedAggregateType {
 		return commissionEvent{}, fmt.Errorf("unexpected aggregate type %q", aggregateType)
 	}
 	idText, _ := read("aggregate_id")

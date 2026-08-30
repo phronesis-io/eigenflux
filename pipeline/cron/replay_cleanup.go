@@ -19,17 +19,21 @@ const (
 
 // StartReplayCleanup runs a daily cron that purges replay_logs rows older than
 // the configured retention. replay_logs is an append-only, high-volume table
-// (hundreds of thousands of rows per day) with no other purge path; left
-// unbounded it grows without limit. Deletes run in batches under a Redis lock
-// so only one instance purges at a time.
+// (hundreds of thousands of rows per day) with no other purge path. A
+// non-positive retention disables cleanup entirely so all rows are kept.
+// Deletes run in batches under a Redis lock so only one instance purges at a
+// time.
 func StartReplayCleanup(ctx context.Context, cfg *config.Config, rdb *redis.Client) {
+	retentionDays := cfg.ReplayLogRetentionDays
+	if retentionDays <= 0 {
+		logger.Default().Info("replay cleanup disabled; retaining all replay_logs rows",
+			"retention_days", retentionDays)
+		return
+	}
+
 	interval := time.Duration(cfg.ReplayLogCleanupIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 24 * time.Hour
-	}
-	retentionDays := cfg.ReplayLogRetentionDays
-	if retentionDays <= 0 {
-		retentionDays = 30
 	}
 
 	ticker := time.NewTicker(interval)

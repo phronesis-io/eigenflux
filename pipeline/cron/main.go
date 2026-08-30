@@ -97,6 +97,8 @@ func main() {
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
 	go StartActivityCleanup(ctx, mq.RDB)
 	go StartConsoleV2Cleanup(ctx, mq.RDB)
+	go StartPGCFeedbackSnapshot(ctx, mq.RDB)
+	go StartPGCDemandSnapshot(ctx, mq.RDB)
 	profileCleanupDone := make(chan struct{})
 	go func() {
 		defer close(profileCleanupDone)

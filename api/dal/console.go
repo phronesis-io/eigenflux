@@ -156,19 +156,19 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
 }
 
-// UpdateHeartbeatCompatibility records evidence produced by a successful
-// heartbeat plan. Console V2 uses it as a capability gate; request metadata
-// supplies the CLI version so the body cannot claim a different binary.
+// UpdateHeartbeatCompatibility records evidence from a successful Heartbeat
+// plan. The CLI version comes from authenticated request metadata.
 func UpdateHeartbeatCompatibility(db *gorm.DB, agentID int64, cliVersion, contractVersion, skillRevision string) error {
 	if _, err := GetSettings(db, agentID); err != nil {
 		return err
 	}
+	now := time.Now().UnixMilli()
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
 		"cli_version":                cliVersion,
 		"heartbeat_contract_version": contractVersion,
 		"skill_revision":             skillRevision,
-		"heartbeat_reported_at":      time.Now().UnixMilli(),
-		"updated_at":                 time.Now().UnixMilli(),
+		"heartbeat_reported_at":      now,
+		"updated_at":                 now,
 	}).Error
 }
 

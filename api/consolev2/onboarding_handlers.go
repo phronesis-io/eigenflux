@@ -146,6 +146,10 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
 		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
 	)
+	identityState := "not_connected"
+	if state.State == "completed" {
+		identityState = "connected"
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":           fmt.Sprintf("%d", id),
 		"short_id":           identity.ShortID,
@@ -161,63 +165,11 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"runtime_version":    runtimeVersion,
 		"runtime_mode":       identity.RuntimeMode,
 		"device_name":        identity.DeviceName,
-		"compatibility":      consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt),
+		"identity_state":     identityState,
+		"connection":         map[string]interface{}{"state": identityState},
+		"compatibility":      consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt, state.State == "completed"),
 		"onboarding":         state,
 	})
-}
-
-const minimumConsoleV2CLI = "0.0.34"
-
-func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string, reportedAt int64) map[string]interface{} {
-	status := "ready"
-	reason := ""
-	available := true
-	switch {
-	case strings.TrimSpace(cliVersion) == "":
-		status, reason, available = "unknown", "report_missing", false
-	case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
-		status, reason, available = "upgrade_required", "cli_outdated", false
-	case heartbeatContract != heartbeatContractV1:
-		status, reason, available = "upgrade_required", "heartbeat_outdated", false
-	case strings.TrimSpace(skillRevision) == "":
-		status, reason, available = "upgrade_required", "skills_unknown", false
-	}
-	return map[string]interface{}{
-		"available":                           available,
-		"status":                              status,
-		"reason":                              reason,
-		"cli_version":                         cliVersion,
-		"minimum_cli_version":                 minimumConsoleV2CLI,
-		"heartbeat_contract_version":          heartbeatContract,
-		"required_heartbeat_contract_version": heartbeatContractV1,
-		"skill_revision":                      skillRevision,
-		"reported_at":                         reportedAt,
-	}
-}
-
-func compareConsoleCLIVersion(left, right string) int {
-	parse := func(value string) [3]int {
-		var result [3]int
-		value = strings.TrimPrefix(strings.TrimSpace(value), "v")
-		if cut := strings.IndexAny(value, "-+"); cut >= 0 {
-			value = value[:cut]
-		}
-		parts := strings.Split(value, ".")
-		for index := 0; index < len(parts) && index < len(result); index++ {
-			result[index], _ = strconv.Atoi(parts[index])
-		}
-		return result
-	}
-	a, b := parse(left), parse(right)
-	for index := range a {
-		if a[index] < b[index] {
-			return -1
-		}
-		if a[index] > b[index] {
-			return 1
-		}
-	}
-	return 0
 }
 
 func consoleSessionRuntime(name, version, clientHost string) (runtime, runtimeName, runtimeVersion string) {
@@ -677,11 +629,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			}
 			if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?
 				WHERE principal_id IN (SELECT principal_id FROM agent_principals WHERE agent_id = ?)
-				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array([]string{
-				"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim",
-				"communication:read", "communication:write", "broadcast:write", "trade:write",
-				"attention:write", "console:handoff:create",
-			}), id, now).Error; err != nil {
+				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array(principalScopesForOnboarding("completed")), id, now).Error; err != nil {
 				return err
 			}
 			if err := tx.Exec(`UPDATE agents SET profile_completed_at = COALESCE(profile_completed_at, ?),
@@ -715,6 +663,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		response = map[string]interface{}{
 			"state": newState, "current_step": nextStep, "revision": newRevision,
 			"active_context_revision": contextRevision,
+		}
+		if newState == "completed" {
+			response["identity_state"] = "connected"
+			response["connection"] = map[string]interface{}{"state": "connected"}
 		}
 		snapshot, _ := json.Marshal(response)
 		return tx.Exec(`INSERT INTO agent_idempotency_requests

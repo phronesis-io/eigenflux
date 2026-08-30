@@ -41,7 +41,12 @@ func main() {
 	}
 	source := commissionsource.Adapter{Commission: commissionClient, Order: orderClient}
 	embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
-	if err := backfill(context.Background(), source, store, embedder, cfg.CommissionBackfillPageSize); err != nil {
+	target := store
+	target.Alias = ""
+	if err := backfill(context.Background(), source, target, embedder, cfg.CommissionBackfillPageSize); err != nil {
+		log.Fatal(err)
+	}
+	if err := store.PromoteAlias(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 }

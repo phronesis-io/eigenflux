@@ -106,7 +106,7 @@ func TestAttentionContractPersistsItemAndCommandProtocol(t *testing.T) {
 }
 
 func TestHeartbeatCompatibilityMigrationIsAdditive(t *testing.T) {
-	sql := migration(t, "000083_console_v2_heartbeat_compatibility.sql")
+	sql := migration(t, "000085_console_v2_heartbeat_compatibility.sql")
 	up, _, ok := strings.Cut(sql, "-- +goose Down")
 	if !ok {
 		t.Fatal("heartbeat compatibility migration has no Down boundary")
@@ -126,7 +126,7 @@ func TestHeartbeatCompatibilityMigrationIsAdditive(t *testing.T) {
 }
 
 func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
-	sql := migration(t, "000082_console_v2_today_model_briefs.sql")
+	sql := migration(t, "000086_console_v2_today_model_briefs.sql")
 	for _, required := range []string{
 		"PRIMARY KEY (agent_id, language)",
 		"language IN ('zh-CN', 'en')",
@@ -139,5 +139,34 @@ func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
 	}
 	if strings.Contains(sql, "CREATE INDEX") {
 		t.Fatal("bounded primary-key lookups do not need an additional index")
+	}
+}
+
+func TestConsoleV2ConnectionAuthUnificationMigration(t *testing.T) {
+	sql := migration(t, "000087_console_v2_connection_auth_unification.sql")
+	for _, required := range []string{
+		"language = 'zh-CN' AND char_length(narrative) <= 60",
+		"language = 'en' AND char_length(narrative) <= 120",
+		"'feed:feedback'", "'relations:read'", "'relations:write'",
+		"'profile:read'", "'settings:read'", "'settings:write'",
+		"onboarding.state = 'completed'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("connection/auth migration missing %q", required)
+		}
+	}
+}
+
+func TestCompletedAgentV2SessionScopeRepairMigration(t *testing.T) {
+	sql := migration(t, "000088_repair_completed_agent_v2_session_scopes.sql")
+	for _, required := range []string{
+		"session.audience = 'agent_v2'", "session.revoked_at IS NULL",
+		"session.expires_at >", "onboarding.state = 'completed'",
+		"principal.status = 'active'", "'feed:feedback'", "'communication:read'",
+		"'profile:read'", "'settings:write'", "'attention:write'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("completed Agent V2 scope repair missing %q", required)
+		}
 	}
 }
