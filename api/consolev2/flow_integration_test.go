@@ -442,6 +442,25 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		Scan(&profileCompletedAt).Error; err != nil || profileCompletedAt == nil {
 		t.Fatalf("V2 onboarding did not mark the profile complete: completed_at=%v err=%v", profileCompletedAt, err)
 	}
+	completedProvision := provision("integration-completed-" + time.Now().Format("150405.000000000"))
+	if completedProvision["agent_id"] != agentID || completedProvision["created"] != false ||
+		completedProvision["onboarding_state"] != "completed" || int16(completedProvision["next_step"].(float64)) != 5 {
+		t.Fatalf("re-provisioned completed Agent lost onboarding state: %#v", completedProvision)
+	}
+	completedScopes := map[string]bool{}
+	for _, raw := range completedProvision["scopes"].([]interface{}) {
+		completedScopes[raw.(string)] = true
+	}
+	for _, required := range []string{"feed:feedback", "communication:read", "profile:read", "settings:write", "attention:write"} {
+		if !completedScopes[required] {
+			t.Fatalf("re-provisioned completed Agent is missing scope %q: %#v", required, completedProvision)
+		}
+	}
+	status, completedProfilePayload, _ := performJSON(t, h, "GET", "/api/v2/agents/me", map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + completedProvision["access_token"].(string)})
+	if status != http.StatusOK {
+		t.Fatalf("re-provisioned completed Agent cannot read profile: status=%d payload=%#v", status, completedProfilePayload)
+	}
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
