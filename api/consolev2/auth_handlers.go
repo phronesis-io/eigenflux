@@ -679,7 +679,7 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 			FROM agent_credential_sessions cs
 			JOIN agent_principals p ON p.principal_id = cs.principal_id
 			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
-			WHERE cs.refresh_token_hash = ? FOR UPDATE`, hashString(req.RefreshToken)).Scan(&old).Error; err != nil {
+			WHERE cs.refresh_token_hash = ? FOR UPDATE OF cs, p`, hashString(req.RefreshToken)).Scan(&old).Error; err != nil {
 			return err
 		}
 		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) ||
