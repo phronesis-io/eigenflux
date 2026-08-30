@@ -18,6 +18,9 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
 		"Commands → Feed → Attention → Communication → Publish → Settings report",
+		"Continue safe later stages after recoverable feedback or communication errors",
+		"Attention upload is silent",
+		"return NO_REPLY",
 		"scheduler stores only the launcher",
 	} {
 		if !strings.Contains(text, required) {

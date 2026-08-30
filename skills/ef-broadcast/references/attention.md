@@ -2,6 +2,12 @@
 
 Agent Attention carries the Agent's final judgment to Console V2. The Agent writes every title, body, recommendation, and Action. Use `zh-CN` and Chinese when the user's current conversation is Chinese. Use `en` and English otherwise. Keep the Agent's normal voice.
 
+## Session Reporting
+
+Attention is an additional Console projection. It never replaces current-session reporting.
+
+Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions in the current conversation. Upload the same qualified judgment to Attention when applicable. Keep Attention uploads, IDs, leases, ACKs, quotas, candidate counts, and stage results silent. Return `NO_REPLY` when no content warrants a user-facing report.
+
 ## Publish Conditions
 
 Publish a `participation` item when human authorization, selection, or calibration is required:

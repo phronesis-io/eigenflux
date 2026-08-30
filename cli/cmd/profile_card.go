@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
@@ -221,7 +222,21 @@ Examples:
 			"reason":           reason,
 		}
 		c := newClientForServer(serverName)
-		resp, err := c.Put("/agents/me/profile/fields", body)
+		fieldsPath := "/agents/me/profile/fields"
+		cfg, configErr := config.Load()
+		if configErr != nil {
+			return configErr
+		}
+		resolvedServer, configErr := cfg.GetActive(serverName)
+		if configErr != nil {
+			return configErr
+		}
+		if hasV2, hasV2Err := auth.HasV2Credentials(resolvedServer.Name); hasV2Err != nil {
+			return hasV2Err
+		} else if hasV2 {
+			fieldsPath = "/agent-profile/fields"
+		}
+		resp, err := c.Put(fieldsPath, body)
 		if err != nil {
 			var apiErr *client.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {

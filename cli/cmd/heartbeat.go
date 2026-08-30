@@ -123,8 +123,9 @@ MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
 %s
 2. Execute in this exact order: Commands → Feed → Attention → Communication → Publish → Settings report.
-3. Apply the current onboarding state and confirmed security boundary. Stop on authentication failure.
-4. Report the Skill revision, command result, Feed result, Attention candidate count/upload result, communication result, and publish result or explicit skip reason.
+3. Apply the current onboarding state and confirmed security boundary. Continue safe later stages after recoverable feedback or communication errors. Stop on authentication failure.
+4. Tell the user only about relevant Feed content, private messages, friend requests, relationship changes, and completed action results. Attention upload is silent. Never expose Skill revisions, leases, ACKs, candidate counts, quotas, IDs, or internal stage results.
+5. If nothing is worth reporting, return NO_REPLY.
 
 SCHEDULER
 Permanent launcher: %s
