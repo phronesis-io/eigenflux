@@ -11,6 +11,7 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		CLIVersion:               "0.0.34", SkillRevision: "rev-123", SkillsTarget: "/tmp/skills",
 		Skills:             []string{"ef-broadcast", "ef-communication", "ef-future"},
 		RuleSources:        []string{"/tmp/skills/ef-broadcast/SKILL.md", "/tmp/skills/ef-broadcast/references/attention.md"},
+		CLIPrefix:          "eigenflux --homedir /tmp/home",
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 	}
@@ -18,6 +19,8 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
 		"Commands → Feed → Attention → Communication → Publish → Settings report",
+		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
+		"Never run a bare eigenflux command",
 		"Continue safe later stages after recoverable feedback or communication errors",
 		"Attention upload is silent",
 		"return NO_REPLY",
