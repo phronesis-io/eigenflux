@@ -1,8 +1,26 @@
 package consolev2
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 )
+
+type todayBriefRetryGenerator struct {
+	generated  string
+	compressed string
+	compresses int
+}
+
+func (g *todayBriefRetryGenerator) Generate(context.Context, todayBriefFacts, string) (string, error) {
+	return g.generated, nil
+}
+
+func (g *todayBriefRetryGenerator) Compress(_ context.Context, _ string, _ string, _ int) (string, error) {
+	g.compresses++
+	return g.compressed, nil
+}
 
 func TestTodayWorkingLanguagesPreferAgentCardOrder(t *testing.T) {
 	languages := todayWorkingLanguages(
@@ -70,6 +88,41 @@ func TestNormalizeTodayBriefTextProducesOneBoundedSentence(t *testing.T) {
 	}
 	if _, err := normalizeTodayBriefText(string(tooLong)); err == nil {
 		t.Fatal("overlong Today brief was accepted")
+	}
+}
+
+func TestTodayBriefLanguageLimitsCountUnicodeRunes(t *testing.T) {
+	zhBoundary := strings.Repeat("界", todayBriefChineseMaxRunes)
+	if _, err := normalizeTodayBriefTextForLanguage(zhBoundary, todayBriefChinese); err != nil {
+		t.Fatalf("Chinese boundary rejected: %v", err)
+	}
+	if _, err := normalizeTodayBriefTextForLanguage(zhBoundary+"界", todayBriefChinese); !errors.Is(err, errTodayBriefTooLong) {
+		t.Fatalf("Chinese overflow err=%v", err)
+	}
+	enBoundary := strings.Repeat("a", todayBriefEnglishMaxRunes)
+	if _, err := normalizeTodayBriefTextForLanguage(enBoundary, todayBriefEnglish); err != nil {
+		t.Fatalf("English boundary rejected: %v", err)
+	}
+	if _, err := normalizeTodayBriefTextForLanguage(enBoundary+"b", todayBriefEnglish); !errors.Is(err, errTodayBriefTooLong) {
+		t.Fatalf("English overflow err=%v", err)
+	}
+}
+
+func TestTodayBriefRetriesOverLimitGenerationOnce(t *testing.T) {
+	generator := &todayBriefRetryGenerator{
+		generated:  strings.Repeat("长", todayBriefChineseMaxRunes+1),
+		compressed: "今日暂无需要介入的新事项。",
+	}
+	got, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese)
+	if err != nil || got != generator.compressed {
+		t.Fatalf("brief=%q err=%v", got, err)
+	}
+	if generator.compresses != 1 {
+		t.Fatalf("compress attempts=%d", generator.compresses)
+	}
+	generator.compressed = strings.Repeat("仍", todayBriefChineseMaxRunes+1)
+	if _, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese); !errors.Is(err, errTodayBriefTooLong) {
+		t.Fatalf("second over-limit result err=%v", err)
 	}
 }
 

@@ -141,3 +141,18 @@ func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
 		t.Fatal("bounded primary-key lookups do not need an additional index")
 	}
 }
+
+func TestConsoleV2ConnectionAuthUnificationMigration(t *testing.T) {
+	sql := migration(t, "000087_console_v2_connection_auth_unification.sql")
+	for _, required := range []string{
+		"language = 'zh-CN' AND char_length(narrative) <= 60",
+		"language = 'en' AND char_length(narrative) <= 120",
+		"'feed:feedback'", "'relations:read'", "'relations:write'",
+		"'profile:read'", "'settings:read'", "'settings:write'",
+		"onboarding.state = 'completed'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("connection/auth migration missing %q", required)
+		}
+	}
+}

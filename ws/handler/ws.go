@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -52,6 +53,19 @@ func (h *Handler) Serve(ctx context.Context, c *app.RequestContext) {
 		c.AbortWithMsg("missing token", 401)
 		return
 	}
+	h.serveToken(ctx, c, token)
+}
+
+func (h *Handler) ServeAgentV2(ctx context.Context, c *app.RequestContext) {
+	header := string(c.GetHeader("Authorization"))
+	if !strings.HasPrefix(header, "Bearer efv2a_") {
+		c.AbortWithMsg("missing or invalid Agent V2 bearer token", 401)
+		return
+	}
+	h.serveToken(ctx, c, strings.TrimPrefix(header, "Bearer "))
+}
+
+func (h *Handler) serveToken(ctx context.Context, c *app.RequestContext, token string) {
 
 	// Validate token via Auth RPC.
 	resp, err := h.AuthClient.ValidateSession(ctx, &auth.ValidateSessionReq{
@@ -81,10 +95,10 @@ func (h *Handler) Serve(ctx context.Context, c *app.RequestContext) {
 		defer cancel()
 
 		conn := &hub.Connection{
-			AgentID: agentID,
-			Conn:    ws,
-			PMCursor:  cursor,
-			Done:    make(chan struct{}),
+			AgentID:  agentID,
+			Conn:     ws,
+			PMCursor: cursor,
+			Done:     make(chan struct{}),
 		}
 
 		// Register in hub (evicts old connection if any).
