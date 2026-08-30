@@ -120,11 +120,11 @@ func TestTodayObservationStateUsesDurableMilestones(t *testing.T) {
 		hasData, scanDone, connected, runtimeSeen bool
 		want                                      string
 	}{
-		{name: "waiting before first runtime", want: "waiting"},
-		{name: "offline after a known runtime stops", runtimeSeen: true, want: "offline"},
+		{name: "starting before first runtime", want: "starting"},
+		{name: "runtime offline does not replace module state", runtimeSeen: true, want: "starting"},
 		{name: "starting while first scan runs", connected: true, runtimeSeen: true, want: "starting"},
 		{name: "confirmed empty only after scan completion", scanDone: true, connected: true, runtimeSeen: true, want: "complete_empty"},
-		{name: "offline remains visible after a completed scan", scanDone: true, runtimeSeen: true, want: "offline"},
+		{name: "completed scan remains empty while runtime is offline", scanDone: true, runtimeSeen: true, want: "complete_empty"},
 		{name: "module data wins over background state", hasData: true, scanDone: true, want: "data"},
 	}
 	for _, test := range tests {
@@ -133,5 +133,19 @@ func TestTodayObservationStateUsesDurableMilestones(t *testing.T) {
 				t.Fatalf("state=%q want=%q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestConsoleRuntimeStateUsesInclusive130MinuteWindow(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC).UnixMilli()
+	if got := consoleRuntimeState(0, now); got != "not_started" {
+		t.Fatalf("missing heartbeat state=%q", got)
+	}
+	boundary := now - consoleRuntimeFreshness.Milliseconds()
+	if got := consoleRuntimeState(boundary, now); got != "active" {
+		t.Fatalf("boundary state=%q", got)
+	}
+	if got := consoleRuntimeState(boundary-1, now); got != "offline" {
+		t.Fatalf("expired state=%q", got)
 	}
 }

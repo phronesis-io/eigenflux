@@ -146,6 +146,10 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
 		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
 	)
+	identityState := "not_connected"
+	if state.State == "completed" {
+		identityState = "connected"
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":           fmt.Sprintf("%d", id),
 		"short_id":           identity.ShortID,
@@ -161,6 +165,8 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"runtime_version":    runtimeVersion,
 		"runtime_mode":       identity.RuntimeMode,
 		"device_name":        identity.DeviceName,
+		"identity_state":     identityState,
+		"connection":         map[string]interface{}{"state": identityState},
 		"compatibility":      consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt, state.State == "completed"),
 		"onboarding":         state,
 	})
@@ -623,11 +629,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			}
 			if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?
 				WHERE principal_id IN (SELECT principal_id FROM agent_principals WHERE agent_id = ?)
-				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array([]string{
-				"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim",
-				"communication:read", "communication:write", "broadcast:write", "trade:write",
-				"attention:write", "console:handoff:create",
-			}), id, now).Error; err != nil {
+				  AND revoked_at IS NULL AND expires_at > ?`, pq.Array(principalScopesForOnboarding("completed")), id, now).Error; err != nil {
 				return err
 			}
 			if err := tx.Exec(`UPDATE agents SET profile_completed_at = COALESCE(profile_completed_at, ?),
@@ -661,6 +663,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		response = map[string]interface{}{
 			"state": newState, "current_step": nextStep, "revision": newRevision,
 			"active_context_revision": contextRevision,
+		}
+		if newState == "completed" {
+			response["identity_state"] = "connected"
+			response["connection"] = map[string]interface{}{"state": "connected"}
 		}
 		snapshot, _ := json.Marshal(response)
 		return tx.Exec(`INSERT INTO agent_idempotency_requests
