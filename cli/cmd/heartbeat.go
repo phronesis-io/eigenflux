@@ -25,6 +25,7 @@ type heartbeatPlan struct {
 	Skills                   []string `json:"skills"`
 	RuleSources              []string `json:"rule_sources"`
 	ExecutionOrder           []string `json:"execution_order"`
+	CLIPrefix                string   `json:"cli_prefix"`
 	SchedulerLauncher        string   `json:"scheduler_launcher"`
 	SchedulerMigration       string   `json:"scheduler_migration"`
 	SkillsFresh              bool     `json:"skills_fresh"`
@@ -80,11 +81,13 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 
 		home, _ := config.HomeDirInfo()
-		launcher := fmt.Sprintf("eigenflux --homedir %s heartbeat plan --format agent", shellQuote(home))
+		cliPrefix := fmt.Sprintf("eigenflux --homedir %s", shellQuote(home))
+		launcher := cliPrefix + " heartbeat plan --format agent"
 		plan := heartbeatPlan{
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: []string{"commands", "feed", "attention", "communication", "publish", "settings_report"},
+			CLIPrefix:         cliPrefix,
 			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForHost(clientMeta.Host, launcher),
 			SkillsFresh: res.VerifiedManifest,
 		}
@@ -118,20 +121,23 @@ CLI: %s
 Skill revision: %s
 Skills target: %s
 Installed official Skills: %s
+CLI prefix for every EigenFlux command in this cycle: %s
 
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
 %s
-2. Execute in this exact order: Commands → Feed → Attention → Communication → Publish → Settings report.
-3. Apply the current onboarding state and confirmed security boundary. Stop on authentication failure.
-4. Report the Skill revision, command result, Feed result, Attention candidate count/upload result, communication result, and publish result or explicit skip reason.
+2. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
+3. Execute in this exact order: Commands → Feed → Attention → Communication → Publish → Settings report.
+4. Apply the current onboarding state and confirmed security boundary. Continue safe later stages after recoverable feedback or communication errors. Stop on authentication failure.
+5. Tell the user only about relevant Feed content, private messages, friend requests, relationship changes, and completed action results. Attention upload is silent. Never expose Skill revisions, leases, ACKs, candidate counts, quotas, IDs, or internal stage results.
+6. If nothing is worth reporting, return NO_REPLY.
 
 SCHEDULER
 Permanent launcher: %s
 Migration: %s
 The scheduler stores only the launcher. It must not copy business rules into its own prompt.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), "- "+strings.Join(plan.RuleSources, "\n- "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, "- "+strings.Join(plan.RuleSources, "\n- "),
 		plan.SchedulerLauncher, plan.SchedulerMigration)
 }
 

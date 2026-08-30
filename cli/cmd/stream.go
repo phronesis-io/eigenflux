@@ -57,14 +57,28 @@ Examples:
 		if err != nil {
 			return err
 		}
-		creds, err := auth.LoadCredentials(srv.Name)
+		hasV2, err := auth.HasV2Credentials(srv.Name)
 		if err != nil {
-			// Exit 4 (auth) so adapters reading the exit code prompt re-login,
-			// consistent with feed poll / the rest of the CLI.
-			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			return fmt.Errorf("inspect Agent V2 credentials: %w", err)
 		}
-		if creds.IsExpired() {
-			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+		accessToken := ""
+		streamPath := "/ws/pm"
+		if hasV2 {
+			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
+			if credentialErr != nil {
+				return credentialErr
+			}
+			accessToken = credentials.AccessToken
+			streamPath = "/api/v2/agent/events/ws"
+		} else {
+			credentials, credentialErr := auth.LoadCredentials(srv.Name)
+			if credentialErr != nil {
+				output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			}
+			if credentials.IsExpired() {
+				output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+			}
+			accessToken = credentials.AccessToken
 		}
 
 		wsBase := srv.WSBaseURL()
@@ -97,12 +111,14 @@ Examples:
 			curCursor := lastCursor
 			mu.Unlock()
 
-			u, err := url.Parse(wsBase + "/ws/pm")
+			u, err := url.Parse(wsBase + streamPath)
 			if err != nil {
 				return fmt.Errorf("invalid stream URL: %w", err)
 			}
 			q := u.Query()
-			q.Set("token", creds.AccessToken)
+			if !hasV2 {
+				q.Set("token", accessToken)
+			}
 			if curCursor != "" {
 				q.Set("cursor", curCursor)
 			}
@@ -111,6 +127,9 @@ Examples:
 			output.PrintMessage("Connecting to %s ...", wsBase)
 
 			dialHeaders := http.Header{}
+			if hasV2 {
+				dialHeaders.Set("Authorization", "Bearer "+accessToken)
+			}
 			if version != "" {
 				dialHeaders.Set("X-CLI-Ver", version)
 			}

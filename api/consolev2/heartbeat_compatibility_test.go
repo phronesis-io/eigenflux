@@ -22,6 +22,7 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 		{name: "old heartbeat", cli: "0.0.34", contract: "legacy", revision: "r1", status: "upgrade_required", reason: "heartbeat_outdated"},
 		{name: "missing skills", cli: "0.0.34", contract: heartbeatContractV1, status: "upgrade_required", reason: "skills_unknown"},
 		{name: "minimum ready", cli: "0.0.34", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
+		{name: "newer ready", cli: "1.2.3", contract: heartbeatContractV1, revision: "r2", status: "ready", available: true},
 		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},
 	}
 	for _, test := range tests {
@@ -47,6 +48,52 @@ func TestCompareConsoleCLIVersion(t *testing.T) {
 		if got := compareConsoleCLIVersion(test.left, test.right); got != test.want {
 			t.Fatalf("compare(%q,%q)=%d want %d", test.left, test.right, got, test.want)
 		}
+	}
+}
+
+func TestLegacyConsoleCompatibilityHandlerUsesV1Envelope(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE agent_settings (
+			agent_id INTEGER PRIMARY KEY, cli_version TEXT,
+			heartbeat_contract_version TEXT, skill_revision TEXT,
+			heartbeat_reported_at INTEGER
+		)`,
+		`CREATE TABLE agent_onboarding_v2 (agent_id INTEGER PRIMARY KEY, state TEXT)`,
+		`INSERT INTO agent_settings
+			(agent_id, cli_version, heartbeat_contract_version, skill_revision, heartbeat_reported_at)
+			VALUES (42, '0.0.34-test', 'eigenflux_heartbeat.v1', 'skills-r1', 123)`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service := &Service{db: db}
+	request := app.NewContext(0)
+	request.Set("agent_id", int64(42))
+	service.LegacyConsoleCompatibilityHandler()(context.Background(), request)
+
+	if request.Response.StatusCode() != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", request.Response.StatusCode(), request.Response.Body())
+	}
+	var envelope struct {
+		Code int `json:"code"`
+		Data struct {
+			Compatibility map[string]interface{} `json:"compatibility"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(request.Response.Body(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Code != 0 || envelope.Data.Compatibility["available"] != true {
+		t.Fatalf("unexpected compatibility envelope: %#v", envelope)
+	}
+	if envelope.Data.Compatibility["cli_version"] != "0.0.34-test" {
+		t.Fatalf("CLI version was not preserved: %#v", envelope.Data.Compatibility)
 	}
 }
 

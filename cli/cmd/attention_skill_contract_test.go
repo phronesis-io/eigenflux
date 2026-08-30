@@ -30,10 +30,10 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 		"process at most 20 durable `attention_response` commands or 60 seconds of new claims before Feed",
 		"finish every claimed command",
 		"`references/attention.md`",
-		"A legacy communication authentication failure skips only communication",
-		"never skips V2 Commands or Attention",
-		"Heartbeat success requires the Skill version, Attention reference read",
-		"pending check, candidate count, and publish result or explicit skip reason",
+		"Record recoverable feedback or communication errors and continue every later",
+		"Stop the cycle only when Agent V2 authentication fails",
+		"Keep Skill revision, lease, ACK, candidate count, quota, Attention upload, and",
+		"stage results internal. Never show them to the user",
 		"Attention upload is not an external action",
 		"Never gate a qualified item on",
 		"`external_side_effects` or intent `action_policy`",
@@ -54,6 +54,10 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 	}
 	reference := string(referenceBody)
 	for _, required := range []string{
+		"Attention is an additional Console projection",
+		"never replaces current-session reporting",
+		"Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions",
+		"Return `NO_REPLY` when no content warrants a user-facing report",
 		"before Feed on every heartbeat",
 		"eigenflux context pull --format json",
 		"eigenflux runtime heartbeat --format json",

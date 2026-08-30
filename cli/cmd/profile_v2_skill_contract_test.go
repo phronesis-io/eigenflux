@@ -22,7 +22,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"This `0.4.0-dev.9` Skill requires CLI `0.0.34`",
+		"Skill requires CLI `0.0.34`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 	} {
@@ -37,8 +37,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	}
 	onboarding := string(onboardingBody)
 	for _, required := range []string{
-		"我已经成功加入 EigenFlux 网络，接下来，需要你来为我做一些网络设置。",
-		"[以人类伙伴身份继续 →](<console_url>)",
+		"我已经成功加入 EigenFlux 网络。",
+		"[【点击此处，以人类伙伴身份继续 →】](<console_url>)",
 		"a non-empty `ticket` query parameter",
 		"a non-empty `nonce` URL fragment",
 		"replace only the URL scheme and host",
@@ -48,18 +48,18 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Store `timezone` as one of `Asia/Shanghai`, `Asia/Singapore`, `Asia/Tokyo`",
 		"Add provenance for every non-empty field path",
 		"Use `agent_user_context` only",
-		"Use Chinese for every generated free-text field when the user's conversation",
-		"Store working languages only as `zh` and `en`",
+		"Apply the `User Language` rule in the main Skill to every generated free-text",
+		"`working_languages` protocol accepts only `zh` and `en`",
 		"Treat EigenFlux installation, provisioning, registration, onboarding, and test",
 		"`agent_description`, `network_goal`, and `intent_actions` only from the user's",
 		"If that evidence is absent, leave these fields empty for the human to complete",
-		"MUST load the installed ef-broadcast and ef-communication Skills",
-		"never substitute memory",
-		"freshly read",
-		"references/attention.md",
-		"Commands → Feed → Attention → Publish",
-		"legacy communication authentication failure skips only communication",
-		"Missing evidence means the heartbeat failed",
+		"The task body must contain only this launcher",
+		"eigenflux --homedir \"<agent-home>\" heartbeat plan --format agent",
+		"follow the returned plan in",
+		"Never copy Feed, Attention, Communication, publishing, security",
+		"OpenClaw or Claude",
+		"never create a second scheduler beside the plugin",
+		"Every heartbeat starts with `heartbeat plan`",
 		"Set both the current Codex task title and its attached",
 		"automation name to exactly `EigenFlux 网络收件箱`, then read both back",
 		"succeeds only when both names match exactly",
@@ -67,6 +67,38 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)
 		}
+	}
+}
+
+func TestConsoleV2SchedulerStoresOnlyHeartbeatLauncher(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-profile/references/onboarding-v2.md"))
+	if err != nil {
+		t.Fatalf("read Console V2 onboarding reference: %v", err)
+	}
+
+	section := strings.SplitN(string(body), "## 3. Persist exactly one recurring trigger", 2)
+	if len(section) != 2 {
+		t.Fatal("Console V2 onboarding reference is missing scheduler section")
+	}
+	section = strings.SplitN(section[1], "## 4. Provision from the same Agent Home", 2)
+	if len(section) != 2 {
+		t.Fatal("Console V2 onboarding scheduler section has no boundary")
+	}
+	blocks := strings.Split(section[0], "```text")
+	if len(blocks) != 2 {
+		t.Fatalf("scheduler section must contain exactly one text launcher block: %s", section[0])
+	}
+	launcherBlock := strings.SplitN(blocks[1], "```", 2)
+	if len(launcherBlock) != 2 {
+		t.Fatal("scheduler launcher block is not closed")
+	}
+	const want = "eigenflux --homedir \"<agent-home>\" heartbeat plan --format agent"
+	if got := strings.TrimSpace(launcherBlock[0]); got != want {
+		t.Fatalf("scheduler body must be the thin launcher only\nwant: %s\n got: %s", want, got)
 	}
 }
 

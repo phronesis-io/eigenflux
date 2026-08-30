@@ -248,7 +248,7 @@ Examples:
 		// Best-effort server-side logout.
 		creds, _ := auth.LoadCredentials(srv.Name)
 		if creds != nil && creds.AccessToken != "" {
-			c := newClient()
+			c := newLegacyClientForServer(srv.Name)
 			c.Post("/auth/logout", nil)
 		}
 
