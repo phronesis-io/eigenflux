@@ -442,6 +442,26 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		Scan(&profileCompletedAt).Error; err != nil || profileCompletedAt == nil {
 		t.Fatalf("V2 onboarding did not mark the profile complete: completed_at=%v err=%v", profileCompletedAt, err)
 	}
+	completedProvision := provision("integration-completed-" + time.Now().Format("150405.000000000"))
+	if completedProvision["agent_id"] != agentID || completedProvision["created"] != false ||
+		completedProvision["onboarding_state"] != "completed" || int16(completedProvision["next_step"].(float64)) != 5 {
+		t.Fatalf("re-provisioned completed Agent lost onboarding state: %#v", completedProvision)
+	}
+	completedScopes := map[string]bool{}
+	for _, raw := range completedProvision["scopes"].([]interface{}) {
+		completedScopes[raw.(string)] = true
+	}
+	for _, required := range []string{"feed:feedback", "communication:read", "profile:read", "settings:write", "attention:write"} {
+		if !completedScopes[required] {
+			t.Fatalf("re-provisioned completed Agent is missing scope %q: %#v", required, completedProvision)
+		}
+		var stored int64
+		if err := gdb.Raw(`SELECT COUNT(*) FROM agent_credential_sessions
+			WHERE access_token_hash = ? AND ? = ANY(scopes)`,
+			hashString(completedProvision["access_token"].(string)), required).Scan(&stored).Error; err != nil || stored != 1 {
+			t.Fatalf("re-provisioned completed Agent session did not persist scope %q: count=%d err=%v", required, stored, err)
+		}
+	}
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)

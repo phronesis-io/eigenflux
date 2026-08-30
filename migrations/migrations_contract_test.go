@@ -156,3 +156,17 @@ func TestConsoleV2ConnectionAuthUnificationMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletedAgentV2SessionScopeRepairMigration(t *testing.T) {
+	sql := migration(t, "000088_repair_completed_agent_v2_session_scopes.sql")
+	for _, required := range []string{
+		"session.audience = 'agent_v2'", "session.revoked_at IS NULL",
+		"session.expires_at >", "onboarding.state = 'completed'",
+		"principal.status = 'active'", "'feed:feedback'", "'communication:read'",
+		"'profile:read'", "'settings:write'", "'attention:write'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("completed Agent V2 scope repair missing %q", required)
+		}
+	}
+}

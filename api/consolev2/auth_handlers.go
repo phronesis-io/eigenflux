@@ -319,7 +319,9 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "ID_GENERATION_FAILED", "could not allocate Agent identity", nil)
 		return
 	}
-	initialScopes := []string{"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim", "console:handoff:create"}
+	onboardingState := "in_progress"
+	nextStep := int16(2)
+	initialScopes := principalScopesForOnboarding(onboardingState)
 	keyFingerprint := fingerprint(publicKey)
 	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
 	var agentID, principalID, expiresAt int64
@@ -341,10 +343,14 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			RotationRequestHash string         `gorm:"column:rotation_request_hash"`
 			Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
 			PrincipalStatus     string         `gorm:"column:principal_status"`
+			OnboardingState     string         `gorm:"column:onboarding_state"`
+			CurrentStep         int16          `gorm:"column:current_step"`
 		}
 		if err := tx.Raw(`SELECT p.agent_id, cs.principal_id, cs.expires_at, cs.absolute_expires_at,
-			cs.revoked_at, cs.rotation_request_hash, cs.scopes, p.status AS principal_status
+			cs.revoked_at, cs.rotation_request_hash, cs.scopes, p.status AS principal_status,
+			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
 			FROM agent_principals p JOIN agent_credential_sessions cs ON cs.principal_id = p.principal_id
+			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?
 			  AND cs.rotation_request_id = ? FOR UPDATE OF cs`, keyFingerprint,
 			"provision:"+req.IdempotencyKey).Scan(&receipt).Error; err != nil {
@@ -359,7 +365,12 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				return errUnauthorized
 			}
 			agentID, principalID, expiresAt = receipt.AgentID, receipt.PrincipalID, receipt.ExpiresAt
-			initialScopes = []string(receipt.Scopes)
+			onboardingState, nextStep = receipt.OnboardingState, receipt.CurrentStep
+			initialScopes = principalScopesForOnboarding(onboardingState)
+			if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ? WHERE principal_id = ? AND rotation_request_id = ?`,
+				pq.Array(initialScopes), principalID, "provision:"+req.IdempotencyKey).Error; err != nil {
+				return err
+			}
 			return nil
 		}
 		var grant struct {
@@ -385,12 +396,16 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		}
 
 		var existing struct {
-			PrincipalID int64  `gorm:"column:principal_id"`
-			AgentID     int64  `gorm:"column:agent_id"`
-			Status      string `gorm:"column:status"`
+			PrincipalID     int64  `gorm:"column:principal_id"`
+			AgentID         int64  `gorm:"column:agent_id"`
+			Status          string `gorm:"column:status"`
+			OnboardingState string `gorm:"column:onboarding_state"`
+			CurrentStep     int16  `gorm:"column:current_step"`
 		}
-		if err := tx.Raw(`SELECT principal_id, agent_id, status FROM agent_principals
-			WHERE key_type = 'ed25519-v1' AND key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
+		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status,
+			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
+			FROM agent_principals p LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
+			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
 			return err
 		}
 		if existing.PrincipalID != 0 {
@@ -398,6 +413,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				return errUnauthorized
 			}
 			agentID, principalID = existing.AgentID, existing.PrincipalID
+			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
+			initialScopes = principalScopesForOnboarding(onboardingState)
 		} else {
 			agentID = newAgentID
 			aliasToken, tokenErr := randomToken("", 18)
@@ -502,8 +519,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		"access_token":     accessToken,
 		"refresh_token":    refreshToken,
 		"expires_at":       expiresAt,
-		"onboarding_state": "in_progress",
-		"next_step":        2,
+		"onboarding_state": onboardingState,
+		"next_step":        nextStep,
 		"scopes":           initialScopes,
 	})
 }
