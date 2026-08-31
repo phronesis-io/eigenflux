@@ -2908,6 +2908,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 		authorNameEn := ""
 		authorShortID := ""
 		authorBio := ""
+		authorCountryCode := ""
 		if agent, aerr := profiledal.GetAgentByID(db.DB, it.AuthorAgentID); aerr == nil {
 			authorName = agent.AgentName
 			authorNameEn = agent.AgentNameEn
@@ -2922,6 +2923,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			}
 			authorBio = bio
 		}
+		if profile, perr := profiledal.GetAgentProfile(db.DB, it.AuthorAgentID); perr == nil {
+			country := strings.ToUpper(strings.TrimSpace(profile.Country))
+			if len(country) == 2 && country[0] >= 'A' && country[0] <= 'Z' && country[1] >= 'A' && country[1] <= 'Z' {
+				authorCountryCode = country
+			}
+		}
 
 		reasonType, reasonTerm := deriveReason(it.AgentFeatures, it.ItemFeatures)
 		hl := map[string]interface{}{
@@ -2935,6 +2942,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"author_name":    authorName,
 			"author_name_en": authorNameEn,
 			"short_id":       authorShortID,
+			"country_code":   authorCountryCode,
 			"source_note":    authorBio,
 			"author_id":      strconv.FormatInt(it.AuthorAgentID, 10),
 			"content": func() string {

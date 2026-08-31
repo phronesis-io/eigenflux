@@ -230,6 +230,7 @@ func TestConsoleHighlightsReturnsItems(t *testing.T) {
 		hl := h.(map[string]interface{})
 		requireKey(t, hl, "item_id")
 		requireKey(t, hl, "impression_id")
+		requireKey(t, hl, "country_code")
 		if i >= 2 {
 			break
 		}
