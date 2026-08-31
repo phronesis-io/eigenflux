@@ -108,6 +108,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		BoundEmail            string `gorm:"column:bound_email"`
 		EmailVerified         bool   `gorm:"column:email_verified"`
 		LegacyIdentityTrusted bool   `gorm:"column:legacy_identity_trusted"`
+		EmailKind             string `gorm:"column:email_kind"`
 		RuntimeName           string `gorm:"column:runtime_name"`
 		RuntimeVersion        string `gorm:"column:runtime_version"`
 		RuntimeMode           string `gorm:"column:runtime_mode"`
@@ -126,6 +127,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	}
 	query := fmt.Sprintf(`SELECT a.agent_name, a.agent_name_en, a.short_id, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
+		a.email_kind AS email_kind,
 		(b.binding_id IS NOT NULL AND b.verification_state = 'verified') AS email_verified,
 		(b.binding_id IS NOT NULL AND b.verification_state = 'legacy_unverified') AS legacy_identity_trusted,
 		COALESCE(settings.runtime_name, '') AS runtime_name,
@@ -153,7 +155,12 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	if identity.IsOfficial {
 		verificationLevel = "official"
 	}
-	emailBound := identity.EmailVerified || identity.LegacyIdentityTrusted
+	// A key-provisioned Agent has a stable cryptographic identity but no
+	// human email account. Handoff proves possession of that identity, so the
+	// Console must not force an optional email binding during onboarding.
+	keyIdentityTrusted := legacyHandoff && identity.EmailKind == "internal_alias"
+	legacyIdentityTrusted := identity.LegacyIdentityTrusted || keyIdentityTrusted
+	emailBound := identity.EmailVerified || legacyIdentityTrusted
 	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
 		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
 	)
@@ -171,7 +178,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"created_at":              identity.CreatedAt,
 		"email":                   identity.BoundEmail,
 		"email_bound":             emailBound,
-		"legacy_identity_trusted": identity.LegacyIdentityTrusted,
+		"legacy_identity_trusted": legacyIdentityTrusted,
 		"verification_level":      verificationLevel,
 		"runtime":                 runtime,
 		"runtime_name":            runtimeName,
@@ -593,7 +600,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if err := tx.Raw(`SELECT EXISTS (
 			SELECT 1 FROM agent_email_bindings
 			WHERE agent_id = ? AND status = 'active' AND verification_state IN (`+bindingStates+`)
-		)`, id).Scan(&emailBound).Error; err != nil {
+		) OR (? AND EXISTS (
+			SELECT 1 FROM agents
+			WHERE agent_id = ? AND email_kind = 'internal_alias'
+		))`, id, legacyHandoff, id).Scan(&emailBound).Error; err != nil {
 			return err
 		}
 		if !emailBound {

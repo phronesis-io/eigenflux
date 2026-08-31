@@ -387,11 +387,18 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	cookieHeader := consoleCookie + "; " + csrfCookie
 
+	status, unboundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK || responseData(t, unboundSessionPayload)["email_bound"] != true ||
+		responseData(t, unboundSessionPayload)["legacy_identity_trusted"] != true {
+		t.Fatalf("internal-alias handoff session was not trusted: status=%d payload=%#v", status, unboundSessionPayload)
+	}
+
 	status, unboundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 		Step: 2, ExpectedOnboardingRevision: 1, IdempotencyKey: "confirm-unbound-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusConflict || responseErrorCode(t, unboundConfirmPayload) != "EMAIL_BINDING_REQUIRED" {
-		t.Fatalf("unbound onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
+	if status != http.StatusOK {
+		t.Fatalf("internal-alias onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
 	}
 
 	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
@@ -416,8 +423,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
 	}
 
-	revision := int64(1)
-	for step := int16(2); step <= 5; step++ {
+	revision := int64(2)
+	for step := int16(3); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 			Step: step, ExpectedOnboardingRevision: revision, IdempotencyKey: "confirm-" + agentID + fmt.Sprint(step),
 		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
