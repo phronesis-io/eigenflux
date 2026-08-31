@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the Card JSON schema revision served to clients.
-const SchemaVersion int32 = 4
+const SchemaVersion int32 = 5
 
 // FieldStorage says which fact table owns an editable field. The Card itself
 // is never a fact source.
