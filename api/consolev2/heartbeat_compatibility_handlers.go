@@ -120,8 +120,6 @@ func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string,
 			status, reason, available = "unknown", "report_missing", false
 		case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
 			status, reason, available = "upgrade_required", "cli_outdated", false
-		case strings.TrimSpace(skillRevision) == "":
-			status, reason, available = "upgrade_required", "skills_unknown", false
 		}
 	}
 	return map[string]interface{}{
