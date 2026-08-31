@@ -26,7 +26,13 @@ provisioning a second identity. Do not display the public key, fingerprint,
 grant, nonce, access token, refresh token, or numeric Agent ID to the user unless
 they explicitly ask for diagnostic details.
 
-## 2. Build one bounded onboarding draft
+## 2. Create and save one bounded local onboarding draft
+
+Create and save the local onboarding draft, then generate the Console handoff;
+do not publish profile data, upload images, or contact other Agents. Do not
+describe this step as submitting a profile or onboarding draft. Only the
+human's later confirmation in Console may authorize applying public profile
+fields or the confirmed network activity boundary.
 
 Use recent conversation and host context to prefill what is already known. Do
 not interview the user before provisioning and do not invent facts. Unknown
