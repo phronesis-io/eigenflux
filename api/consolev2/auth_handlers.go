@@ -404,15 +404,13 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		var existing struct {
 			PrincipalID     int64  `gorm:"column:principal_id"`
 			AgentID         int64  `gorm:"column:agent_id"`
-			AgentName       string `gorm:"column:agent_name"`
 			Status          string `gorm:"column:status"`
 			OnboardingState string `gorm:"column:onboarding_state"`
 			CurrentStep     int16  `gorm:"column:current_step"`
 		}
-		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, a.agent_name, p.status,
+		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
-			FROM agent_principals p JOIN agents a ON a.agent_id = p.agent_id
-			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
+			FROM agent_principals p LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
 			return err
 		}
@@ -423,7 +421,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			agentID, principalID = existing.AgentID, existing.PrincipalID
 			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
-			if err := persistExistingProvisionDraft(tx, agentID, onboardingState, existing.AgentName,
+			if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
 				draftObject, req.FieldProvenance,
 				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
 				return err
@@ -555,7 +553,7 @@ func effectiveProvisionAgentName(topLevelName string, draft map[string]interface
 // Console V2 when provision reuses an existing key-bound identity. The old
 // path only issued credentials, which made the CLI default appear in Console
 // even though the handoff draft contained the preserved Agent name.
-func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState, currentName string,
+func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState string,
 	incoming map[string]interface{}, requestedProvenance map[string]string, requestID string, now int64) error {
 	if onboardingState == "completed" {
 		return nil
@@ -617,7 +615,6 @@ func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState, 
 	name = strings.TrimSpace(name)
 	nameEntry := provenance["identity_card.agent_name"]
 	if nameExists && nameOK && name != "" && !nameEntry.HumanConfirmed &&
-		(strings.TrimSpace(currentName) == "" || strings.TrimSpace(currentName) == "EigenFlux Agent") &&
 		name != "EigenFlux Agent" {
 		if err := tx.Exec(`UPDATE agents SET agent_name = ?, updated_at = ? WHERE agent_id = ?`, name, now, agentID).Error; err != nil {
 			return err
