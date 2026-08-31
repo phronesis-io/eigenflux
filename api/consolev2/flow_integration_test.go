@@ -227,6 +227,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		req.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req,
 			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"},
+			ut.Header{Key: "X-CLI-Ver", Value: "0.0.34"},
 			ut.Header{Key: "X-Client-Device-Name", Value: "Provision-MacBook"})
 		if status != 200 {
 			t.Fatalf("provision status=%d payload=%#v", status, payload)
@@ -243,6 +244,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	var provisionedCLIVersion string
+	if err := gdb.Raw(`SELECT cli_version FROM agent_settings WHERE agent_id = ?`, agentIDInt).Scan(&provisionedCLIVersion).Error; err != nil || provisionedCLIVersion != "0.0.34" {
+		t.Fatalf("provisioned CLI version=%q err=%v", provisionedCLIVersion, err)
 	}
 	provisionReplay := provision(firstEntitlement)
 	if provisionReplay["agent_id"] != agentID || provisionReplay["access_token"] != originalAccessToken ||
@@ -362,6 +367,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	status, handoffPayload, _ := performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce},
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken},
 		ut.Header{Key: "X-Client-Host", Value: "codex"},
+		ut.Header{Key: "X-CLI-Ver", Value: "0.0.35"},
 		ut.Header{Key: "X-Client-Device-Name", Value: "Lynn-MacBook-Pro"})
 	if status != 201 {
 		t.Fatalf("handoff status=%d payload=%#v", status, handoffPayload)
@@ -436,6 +442,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	if session["device_name"] != "Lynn-MacBook-Pro" {
 		t.Fatalf("console session did not expose the handoff computer name: %#v", session)
+	}
+	compatibility := session["compatibility"].(map[string]interface{})
+	if compatibility["cli_version"] != "0.0.35" {
+		t.Fatalf("console session did not expose the handoff CLI version: %#v", compatibility)
 	}
 	var profileCompletedAt *int64
 	if err := gdb.Raw(`SELECT profile_completed_at FROM agents WHERE agent_id = ?`, agentIDInt).

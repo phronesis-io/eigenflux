@@ -503,7 +503,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
 		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
 		return
 	}
@@ -835,7 +836,8 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
 		return
 	}
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
 		fail(c, http.StatusInternalServerError, "HANDOFF_CLIENT_REPORT_FAILED", "could not record Console client identity", nil)
 		return
 	}
