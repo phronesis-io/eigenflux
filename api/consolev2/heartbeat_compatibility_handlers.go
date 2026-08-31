@@ -34,6 +34,16 @@ type heartbeatCompatibilityState struct {
 	OnboardingState   string `gorm:"column:onboarding_state"`
 }
 
+const loadConsoleV2CompatibilityQuery = `SELECT
+		COALESCE(settings.cli_version, '') AS cli_version,
+		COALESCE(settings.heartbeat_contract_version, '') AS heartbeat_contract_version,
+		COALESCE(settings.skill_revision, '') AS skill_revision,
+		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at,
+		COALESCE(onboarding.state, 'not_started') AS onboarding_state
+		FROM (SELECT CAST(? AS BIGINT) AS agent_id) current_agent
+		LEFT JOIN agent_settings settings ON settings.agent_id = current_agent.agent_id
+		LEFT JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = current_agent.agent_id`
+
 func (s *Service) reportHeartbeatCompatibility(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	var req heartbeatCompatibilityReport
@@ -58,15 +68,7 @@ func (s *Service) reportHeartbeatCompatibility(ctx context.Context, c *app.Reque
 
 func (s *Service) loadConsoleV2Compatibility(agentIDValue int64) (map[string]interface{}, string, error) {
 	var state heartbeatCompatibilityState
-	err := s.db.Raw(`SELECT
-		COALESCE(settings.cli_version, '') AS cli_version,
-		COALESCE(settings.heartbeat_contract_version, '') AS heartbeat_contract_version,
-		COALESCE(settings.skill_revision, '') AS skill_revision,
-		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at,
-		COALESCE(onboarding.state, 'not_started') AS onboarding_state
-		FROM (SELECT ? AS agent_id) current_agent
-		LEFT JOIN agent_settings settings ON settings.agent_id = current_agent.agent_id
-		LEFT JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = current_agent.agent_id`, agentIDValue).Scan(&state).Error
+	err := s.db.Raw(loadConsoleV2CompatibilityQuery, agentIDValue).Scan(&state).Error
 	if err != nil {
 		return nil, "", err
 	}
