@@ -187,6 +187,11 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 const agentCardPageSnapshotSQL = `SELECT agent.agent_name,
 		agent.short_id,
 		agent.bio,
+		agent.is_official,
+		EXISTS (SELECT 1 FROM agent_email_bindings binding
+			WHERE binding.agent_id = agent.agent_id
+			  AND binding.status = 'active'
+			  AND binding.verification_state = 'verified') AS email_verified,
 		COALESCE(profile.profile_version, 0) AS profile_version,
 		COALESCE(profile.profile_data, '{}'::jsonb)::text AS profile_data,
 		COALESCE(goal.goal_text, '') AS network_goal,
@@ -211,6 +216,8 @@ type agentCardPageSnapshot struct {
 	AgentName      string `gorm:"column:agent_name"`
 	ShortID        string `gorm:"column:short_id"`
 	Bio            string `gorm:"column:bio"`
+	IsOfficial     bool   `gorm:"column:is_official"`
+	EmailVerified  bool   `gorm:"column:email_verified"`
 	ProfileVersion int64  `gorm:"column:profile_version"`
 	ProfileData    string `gorm:"column:profile_data"`
 	NetworkGoal    string `gorm:"column:network_goal"`
@@ -250,6 +257,7 @@ func GetMyCardPage(ctx context.Context, c *app.RequestContext) {
 	currentValues := currentAgentCardValues(snapshot.AgentName, snapshot.Bio, profileData)
 	publicCard := overlayCurrentLastActive(ctx, card.PublicCard, agentID)
 	publicCard = overlayPublicIdentity(publicCard, snapshot.MemberNo, snapshot.ShortID, snapshot.AgentName)
+	publicCard = overlayPublicVerification(publicCard, agentcard.VerificationLevel(snapshot.IsOfficial, snapshot.EmailVerified))
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"card": map[string]interface{}{
@@ -420,7 +428,7 @@ func serveSharedPublicCard(ctx context.Context, c *app.RequestContext, targetID 
 		return
 	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"card":                overlayPublicMetadata(ctx, card.PublicCard, targetID),
+		"card":                overlayV2PublicMetadata(ctx, card.PublicCard, targetID),
 		"public_identity":     identity,
 		"share_path":          "/agent/" + identity.ShortID,
 		"public_card_version": card.PublicCardVersion,
@@ -461,6 +469,24 @@ func overlayPublicMetadata(ctx context.Context, raw string, agentID int64) json.
 	return overlayPublicIdentity(card, metadata.MemberNo, metadata.ShortID, metadata.AgentName)
 }
 
+// overlayV2PublicMetadata adds the V2-only server-owned verification level
+// without changing the established V1 Agent Card projection or handlers.
+func overlayV2PublicMetadata(ctx context.Context, raw string, agentID int64) json.RawMessage {
+	card := overlayPublicMetadata(ctx, raw, agentID)
+	var verification struct {
+		IsOfficial    bool `gorm:"column:is_official"`
+		EmailVerified bool `gorm:"column:email_verified"`
+	}
+	if err := db.DB.Raw(`SELECT a.is_official,
+		EXISTS (SELECT 1 FROM agent_email_bindings b WHERE b.agent_id = a.agent_id
+			AND b.status = 'active' AND b.verification_state = 'verified') AS email_verified
+		FROM agents a WHERE a.agent_id = ?`, agentID).Scan(&verification).Error; err != nil {
+		logger.Ctx(ctx).Warn("V2 verification level unavailable", "agentID", agentID, "err", err)
+		return card
+	}
+	return overlayPublicVerification(card, agentcard.VerificationLevel(verification.IsOfficial, verification.EmailVerified))
+}
+
 func overlayPublicIdentity(card json.RawMessage, memberNo int64, shortID, agentName string) json.RawMessage {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(card, &payload); err != nil {
@@ -473,6 +499,19 @@ func overlayPublicIdentity(card json.RawMessage, memberNo int64, shortID, agentN
 		payload["short_id"] = shortID
 		payload["display_name"] = agentidentity.DisplayName(agentName, shortID)
 	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return card
+	}
+	return json.RawMessage(encoded)
+}
+
+func overlayPublicVerification(card json.RawMessage, verificationLevel string) json.RawMessage {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(card, &payload); err != nil {
+		return card
+	}
+	payload["verification_level"] = verificationLevel
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return card
