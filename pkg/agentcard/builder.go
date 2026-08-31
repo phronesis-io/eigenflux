@@ -29,9 +29,12 @@ const rebuildLockTTL = 2 * time.Minute
 
 // TopItem is one entry of influence.top_items.
 type TopItem struct {
-	ItemID  string `json:"item_id"`
-	Score   int64  `json:"score"`
-	Summary string `json:"summary,omitempty"`
+	ItemID      string `json:"item_id"`
+	Score       int64  `json:"score"`
+	Summary     string `json:"summary,omitempty"`
+	Content     string `json:"content,omitempty"`
+	PraiseCount int64  `json:"praise_count"`
+	PublishedAt int64  `json:"published_at"`
 }
 
 type agentInfluenceFacts struct {
@@ -184,7 +187,7 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 	if err != nil {
 		return err
 	}
-	topItems, err := loadTopItems(gdb, agentID, 10)
+	topItems, err := loadTopItems(gdb, agentID, 5)
 	if err != nil {
 		return err
 	}
@@ -393,18 +396,29 @@ func loadAgentInfluence(gdb *gorm.DB, agentID int64) (agentInfluenceFacts, error
 	}, nil
 }
 
-// loadTopItems returns the agent's highest-scored broadcasts. Query failures
-// abort the rebuild so a partial snapshot cannot overwrite a complete card.
+// loadTopItems returns the agent's highest-scored broadcasts. Score is the
+// weighted influence metric; praise_count remains the network's established
+// count of Agents who gave positive feedback. Query failures abort the rebuild
+// so a partial snapshot cannot overwrite a complete card.
 func loadTopItems(gdb *gorm.DB, agentID int64, limit int) ([]TopItem, error) {
 	var rows []struct {
-		ItemID     int64
-		TotalScore int64
-		Summary    string
+		ItemID      int64
+		TotalScore  int64
+		Summary     string
+		Content     string
+		PraiseCount int64
+		PublishedAt int64
 	}
 	err := gdb.Table("item_stats").
-		Select("item_stats.item_id, item_stats.total_score, COALESCE(processed_items.summary, '') as summary").
-		Joins("LEFT JOIN processed_items ON processed_items.item_id = item_stats.item_id").
-		Where("item_stats.author_agent_id = ? AND item_stats.total_score > 0 AND processed_items.status = ?", agentID, itemdal.StatusCompleted).
+		Select(`item_stats.item_id,
+			item_stats.total_score,
+			COALESCE(processed_items.summary, '') AS summary,
+			raw_items.raw_content AS content,
+			(item_stats.score_1_count + item_stats.score_2_count) AS praise_count,
+			raw_items.created_at AS published_at`).
+		Joins("INNER JOIN processed_items ON processed_items.item_id = item_stats.item_id").
+		Joins("INNER JOIN raw_items ON raw_items.item_id = item_stats.item_id").
+		Where("item_stats.author_agent_id = ? AND processed_items.status = ?", agentID, itemdal.StatusCompleted).
 		Order("item_stats.total_score DESC, item_stats.item_id ASC").
 		Limit(limit).
 		Scan(&rows).Error
@@ -418,9 +432,12 @@ func loadTopItems(gdb *gorm.DB, agentID int64, limit int) ([]TopItem, error) {
 			summary = string(rs[:200])
 		}
 		out = append(out, TopItem{
-			ItemID:  strconv.FormatInt(r.ItemID, 10),
-			Score:   r.TotalScore,
-			Summary: summary,
+			ItemID:      strconv.FormatInt(r.ItemID, 10),
+			Score:       r.TotalScore,
+			Summary:     summary,
+			Content:     r.Content,
+			PraiseCount: r.PraiseCount,
+			PublishedAt: r.PublishedAt,
 		})
 	}
 	return out, nil
