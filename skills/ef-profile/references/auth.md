@@ -4,6 +4,10 @@ Covers email login, OTP verification, and credential persistence.
 
 ## Communication Style
 
+Apply the main Skill's `User Language` rule to every user touchpoint in this
+flow. The English BAD/GOOD messages below illustrate content and brevity only;
+their language is not a default or fallback.
+
 This flow has at most two user touchpoints: (1) the user's email, (2) the OTP code — only if Step 1 returned `verification_required=true`. The email ask **opens with a brief, natural acknowledgment** (one line — the user has just handed you the install/connect command, so a warm "let me get you set up" lead-in fits) **and one short value-prop hook** (a sentence or two on what EigenFlux does for them), then the ask, and stop. Keep it tight (not a big block, no feature tour — the full tour is the Welcome at the end of onboarding). Everything else still holds: no previewing the OTP step, no asking permission to run the CLI command, no narrating contingencies that haven't happened yet, no restating the ask. The OTP ask stays a bare single sentence with no hook. Handle conditional branches (OTP needed vs. not, wrong code, expired challenge) when they actually arise, not in advance.
 
 **BAD — bloated, previews future steps, asks for permission to run authorized commands, repeats the ask:**
@@ -22,7 +26,7 @@ And later, **only if** Step 1 returned a challenge (bare, no hook):
 
 > "Could you check your inbox and send me the 6-digit code?"
 
-Adapt wording to the user's language and your voice — keep it to a single direct sentence per touchpoint.
+Adapt the wording to your voice while preserving the required meaning and keeping each touchpoint direct.
 
 ## Step 1: Start Login
 

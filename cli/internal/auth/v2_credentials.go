@@ -22,6 +22,20 @@ func v2CredentialsPath(serverName string) string {
 	return filepath.Join(config.HomeDir(), "servers", serverName, "agent-v2-credentials.json")
 }
 
+func HasV2Credentials(serverName string) (bool, error) {
+	info, err := os.Lstat(v2CredentialsPath(serverName))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("Agent V2 credentials path must be a regular file")
+	}
+	return true, nil
+}
+
 func LoadV2Credentials(serverName string) (*V2Credentials, error) {
 	data, err := os.ReadFile(v2CredentialsPath(serverName))
 	if err != nil {

@@ -51,6 +51,14 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 		}
 		return nil, softFail(opts, ferr)
 	}
+	if local != nil && local.Sequence > 0 {
+		switch {
+		case remote.Sequence < local.Sequence:
+			return keepLocal(real, local, "signed manifest rollback rejected"), nil
+		case remote.Sequence == local.Sequence && remote.Revision != local.Revision:
+			return keepLocal(real, local, "signed manifest sequence reused for different content"), nil
+		}
+	}
 
 	// Step 2: compatibility floor. A CLI older than the bundle requires must not
 	// adopt it (the skills may reference newer CLI commands). Keep local + nudge.
@@ -63,8 +71,17 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 	}
 
 	// Step 3: already current → skip the tarball download entirely.
-	if local != nil && local.Revision != "" && local.Revision == remote.Revision && !staleMarkerPresent(real) {
-		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion}, nil
+	if local != nil && local.Revision != "" && local.Revision == remote.Revision && !staleMarkerPresent(real) && verifyInstalledSkills(real, local) == nil {
+		// A release may advance the signed sequence without changing content.
+		// Persist the higher signature so future rollback checks use the newest
+		// accepted sequence without downloading the identical tarball.
+		if remote.Sequence > local.Sequence {
+			remote.ManagedBy = ManagedByValue
+			if err := WriteManifestAtomic(real, remote); err != nil {
+				return keepLocal(real, local, "manifest metadata update failed"), nil
+			}
+		}
+		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, VerifiedManifest: true}, nil
 	}
 
 	// Step 4: revision changed → pull + verify + atomic swap.
@@ -84,7 +101,7 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 
 	newDir := real + newSuffix
 	os.RemoveAll(newDir)
-	if err := extractTarGz(tarGz, newDir, opts.allowlist()); err != nil {
+	if err := extractTarGz(tarGz, newDir, manifestSkillNames(remote)); err != nil {
 		os.RemoveAll(newDir)
 		if local != nil {
 			return keepLocal(real, local, "bad tar"), nil
@@ -93,6 +110,14 @@ func Sync(opts SyncOptions) (*SyncResult, error) {
 	}
 
 	return applyStaged(opts, real, parent, newDir, local, remote, source, false)
+}
+
+func manifestSkillNames(m *Manifest) []string {
+	names := make([]string, 0, len(m.Skills))
+	for _, skill := range m.Skills {
+		names = append(names, skill.Name)
+	}
+	return names
 }
 
 // applyStaged finishes a sync once newDir is populated: verify, preserve
@@ -106,7 +131,7 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 		return nil, softFail(opts, err)
 	}
 
-	preserved, err := preserveUnmanaged(real, newDir, local, remote)
+	preserved, err := preserveUnmanaged(real, newDir, local, remote, opts.ForceManaged)
 	if err != nil {
 		os.RemoveAll(newDir)
 		return nil, softFail(opts, err)
@@ -139,6 +164,7 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 	result := &SyncResult{
 		SkillsDir: real, Source: source, CLIVersion: remote.CLIVersion,
 		Removed: removed, Stale: stale, Atomic: true,
+		VerifiedManifest: !stale && remote.Sequence > 0 && remote.Signature != "",
 	}
 
 	realExists := dirExists(real)
@@ -244,6 +270,26 @@ func verifyManifest(newDir string, remote *Manifest) error {
 	return nil
 }
 
+// verifyInstalledSkills re-hashes only manifest-owned directories. The active
+// target may also contain third-party Skills, which are preserved intentionally
+// but are never trusted as part of the official release.
+func verifyInstalledSkills(dir string, manifest *Manifest) error {
+	for name, sha := range manifest.names() {
+		skillDir := filepath.Join(dir, name)
+		if !dirExists(skillDir) {
+			return fmt.Errorf("missing installed skill %q", name)
+		}
+		sum, err := dirSHA256(skillDir)
+		if err != nil {
+			return err
+		}
+		if sum != sha {
+			return fmt.Errorf("installed skill %q was modified", name)
+		}
+	}
+	return nil
+}
+
 // reconcileZombies returns the names of skills we previously managed that are no
 // longer in the new manifest (for reporting). The managed_by lock means a dir we
 // did not install is never considered — actual removal happens because the new
@@ -271,7 +317,7 @@ func reconcileZombies(local, remote *Manifest) []string {
 // skipped because the user hand-edited them (so callers can surface that the
 // skill is stuck on a local fork). Third-party folders are preserved verbatim
 // but not reported, since no update was ever due for them.
-func preserveUnmanaged(real, newDir string, local, remote *Manifest) (skippedUpdate []string, err error) {
+func preserveUnmanaged(real, newDir string, local, remote *Manifest, forceManaged bool) (skippedUpdate []string, err error) {
 	inRemote := remote.names()
 	recorded := map[string]string{}
 	if local != nil && local.ManagedBy == ManagedByValue {
@@ -309,7 +355,7 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest) (skippedUpd
 		// and report that we skipped the update for it.
 		if want, isManaged := recorded[name]; isManaged {
 			cur, err := dirSHA256(src)
-			if err == nil && cur != want {
+			if err == nil && cur != want && !forceManaged {
 				if err := replaceCopy(src, dst); err != nil {
 					return nil, err
 				}

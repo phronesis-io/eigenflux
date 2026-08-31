@@ -62,6 +62,12 @@ Examples:
 		if serverName == "" {
 			return fmt.Errorf("no active server")
 		}
+		// V1 and V2 share the same best-effort fallback refresh. The primary
+		// Heartbeat V2 path uses `heartbeat plan` on every cycle; this daily hook
+		// keeps older schedulers from missing Skills merely because V2 returns
+		// before the legacy Feed branch.
+		cfg, _ := config.Load()
+		maybeSyncSkills(cfg)
 		if _, v2Err := auth.LoadV2Credentials(serverName); v2Err == nil {
 			if cursor == "" && (action == "" || action == "refresh") {
 				v2PollErr := pollFeedV2(cmd, serverName, limit)
@@ -93,11 +99,8 @@ Examples:
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.
 		// Best-effort: a sync failure must never break the poll itself.
-		if cfg, err := config.Load(); err == nil {
+		if cfg != nil {
 			_ = SyncSettings(cfg)
-			// Same heartbeat, same best-effort contract: keep skills fresh for
-			// bare-CLI / heartbeat users (throttled to once/day, offline-safe).
-			maybeSyncSkills(cfg)
 		}
 		if agentID != "" {
 			maybePromptProfileRefreshFor(serverName, agentID)

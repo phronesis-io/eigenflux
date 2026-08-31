@@ -35,6 +35,35 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 	if err != nil {
 		output.Die(output.ExitUsageError, "%v", err)
 	}
+	if requireAuth {
+		hasV2, v2Err := auth.HasV2Credentials(srv.Name)
+		if v2Err != nil {
+			output.Die(output.ExitAuthRequired, "inspect Agent V2 credentials for server %q: %v", srv.Name, v2Err)
+		}
+		if hasV2 {
+			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
+			if credentialErr != nil {
+				output.Die(output.ExitAuthRequired, "Agent V2 authentication failed for server %q: %v", srv.Name, credentialErr)
+			}
+			return client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMeta)
+		}
+	}
+	return newLegacyClientForResolvedServer(srv, requireAuth)
+}
+
+func newLegacyClientForServer(serverName string) *client.Client {
+	cfg, err := config.Load()
+	if err != nil {
+		output.Die(output.ExitUsageError, "load config: %v", err)
+	}
+	srv, err := cfg.GetActive(serverName)
+	if err != nil {
+		output.Die(output.ExitUsageError, "%v", err)
+	}
+	return newLegacyClientForResolvedServer(srv, true)
+}
+
+func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *client.Client {
 	token := ""
 	if requireAuth {
 		creds, err := auth.LoadCredentials(srv.Name)
@@ -75,6 +104,9 @@ func activeServerName() string {
 // name so the token never collides across agents on different servers.
 func activeAgentScope() string {
 	srv := activeServerName()
+	if creds, err := auth.LoadV2Credentials(srv); err == nil && creds.AgentID != "" {
+		return creds.AgentID
+	}
 	if creds, err := auth.LoadCredentials(srv); err == nil && creds.AgentID != "" {
 		return creds.AgentID
 	}

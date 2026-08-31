@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cli.eigenflux.ai/internal/config"
 )
 
 // ResolveSkillsDir resolves the host's real skill-load directory.
@@ -16,13 +18,20 @@ import (
 // it force-appends a ".eigenflux" suffix (config.ensureEigenfluxSuffix), which
 // is correct for the data home but wrong for a skills dir.
 //
-// Precedence: --into > EIGENFLUX_SKILLS_DIR > --host > autodetect > ~/.agents/skills.
+// Precedence: --into > EIGENFLUX_SKILLS_DIR > registered target > --host >
+// autodetect > ~/.agents/skills. The registration is scoped to the resolved
+// EigenFlux Home and never inferred by scanning directories.
 func ResolveSkillsDir(into, host string) (string, error) {
 	if into != "" {
 		return into, nil
 	}
 	if d := os.Getenv("EIGENFLUX_SKILLS_DIR"); d != "" {
 		return d, nil
+	}
+	if target, err := ReadTargetRegistration(config.HomeDir()); err != nil {
+		return "", err
+	} else if target != nil {
+		return target.Path, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -31,13 +40,14 @@ func ResolveSkillsDir(into, host string) (string, error) {
 	if host == "" {
 		host = autodetectHost()
 	}
+	host = strings.ToLower(strings.TrimSpace(strings.SplitN(host, "/", 2)[0]))
 	switch host {
 	case "claude-code":
 		return filepath.Join(home, ".claude", "skills"), nil
-	case "openclaw", "codex", "terminal", "":
+	case "openclaw", "codex", "workbuddy", "hermes", "terminal", "":
 		return filepath.Join(home, ".agents", "skills"), nil
 	default:
-		return "", fmt.Errorf("unknown host %q (want openclaw|claude-code|codex|terminal)", host)
+		return "", fmt.Errorf("unknown host %q (register it with skills target set)", host)
 	}
 }
 
@@ -57,7 +67,7 @@ func autodetectHost() string {
 	switch prefix {
 	case "claude-code":
 		return "claude-code"
-	case "openclaw", "codex":
+	case "openclaw", "codex", "workbuddy", "hermes":
 		return prefix
 	default:
 		return "terminal"

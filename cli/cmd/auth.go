@@ -37,14 +37,15 @@ func reportInstallRef(ref, agentID, email string) {
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Authentication commands",
-	Long:  "Log in to an EigenFlux server and manage credentials.",
+	Short: "Legacy email authentication commands",
+	Long:  "Legacy compatibility for email-based identities. New Agents use `eigenflux agent provision` and bind email optionally in Console V2.",
 }
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in with email",
-	Long: `Start authentication with your email address.
+	Short: "Log in to a legacy identity with email",
+	Long: `Legacy compatibility for an existing email-based identity.
+New Agents must use eigenflux agent provision and bind email optionally in Console V2.
 
 Examples:
   eigenflux auth login --email user@example.com
@@ -247,7 +248,7 @@ Examples:
 		// Best-effort server-side logout.
 		creds, _ := auth.LoadCredentials(srv.Name)
 		if creds != nil && creds.AccessToken != "" {
-			c := newClient()
+			c := newLegacyClientForServer(srv.Name)
 			c.Post("/auth/logout", nil)
 		}
 

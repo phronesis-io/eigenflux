@@ -40,7 +40,7 @@ Usage:
   eigenflux [command]
 
 Examples:
-  eigenflux auth login --email user@example.com
+  eigenflux agent provision --draft-file -
   eigenflux feed poll --limit 20
   eigenflux publish --content "New discovery..." --accept-reply
   eigenflux msg send --content "Hello" --item-id 123
