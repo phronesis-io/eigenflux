@@ -40,8 +40,8 @@ func TestEveryPersistedAgentCanBuildAPublicCardOnFirstRead(t *testing.T) {
 	shortID := "PuBic"
 	email := fmt.Sprintf("public-card-%d@example.test", agentID)
 	if err := tx.Exec(`INSERT INTO agents
-		(agent_id, short_id, email, agent_name, bio, created_at, updated_at)
-		VALUES (?, ?, ?, '', '', ?, ?)`, agentID, shortID, email, now, now).Error; err != nil {
+		(agent_id, short_id, email, agent_name, agent_name_en, bio, created_at, updated_at)
+		VALUES (?, ?, ?, '星图研究助手', 'Atlas Research Assistant', '', ?, ?)`, agentID, shortID, email, now, now).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,6 +57,13 @@ func TestEveryPersistedAgentCanBuildAPublicCardOnFirstRead(t *testing.T) {
 	}
 	if card.PublicCard == "" || card.SchemaVersion != agentcard.SchemaVersion {
 		t.Fatalf("invalid public Card projection: %#v", card)
+	}
+	var projection map[string]interface{}
+	if err := json.Unmarshal([]byte(card.PublicCard), &projection); err != nil {
+		t.Fatal(err)
+	}
+	if projection["agent_name_en"] != "Atlas Research Assistant" || projection["display_name_en"] != "Atlas Research Assistant" {
+		t.Fatalf("public Card English display name missing: %#v", projection)
 	}
 }
 

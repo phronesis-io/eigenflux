@@ -100,6 +100,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	}
 	var identity struct {
 		AgentName           string `gorm:"column:agent_name"`
+		AgentNameEn         string `gorm:"column:agent_name_en"`
 		ShortID             string `gorm:"column:short_id"`
 		Bio                 string `gorm:"column:bio"`
 		CreatedAt           int64  `gorm:"column:created_at"`
@@ -116,7 +117,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		SkillRevision       string `gorm:"column:skill_revision"`
 		HeartbeatReportedAt int64  `gorm:"column:heartbeat_reported_at"`
 	}
-	if err := s.db.Raw(`SELECT a.agent_name, a.short_id, a.bio, a.created_at, a.is_official,
+	if err := s.db.Raw(`SELECT a.agent_name, a.agent_name_en, a.short_id, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
 		(b.binding_id IS NOT NULL) AS email_verified,
 		COALESCE(settings.runtime_name, '') AS runtime_name,
@@ -155,6 +156,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"short_id":           identity.ShortID,
 		"eigenflux_id":       "eigenflux#" + identity.ShortID,
 		"agent_name":         identity.AgentName,
+		"agent_name_en":      identity.AgentNameEn,
 		"bio":                identity.Bio,
 		"created_at":         identity.CreatedAt,
 		"email":              identity.BoundEmail,

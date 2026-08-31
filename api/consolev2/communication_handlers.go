@@ -246,7 +246,7 @@ func (s *Service) loadCommunicationContexts(viewerID int64, peerIDs []int64, rel
 		}
 		if blocked[peerID] {
 			result[key] = communicationAgentContext{
-				IdentityAssertion: identityAssertion{SubjectType: "agent", SubjectID: key, DisplayName: "不可用 Agent", VerificationLevel: "unverified"},
+				IdentityAssertion: identityAssertion{SubjectType: "agent", SubjectID: key, DisplayName: "不可用 Agent", DisplayNameEn: "Unavailable Agent", VerificationLevel: "unverified"},
 				CardSummary:       communicationCardSummary{WorkingLanguages: []string{}, Seeking: []string{}, Offering: []string{}},
 				ViewerRelation:    relation, ProfileStatus: "unavailable",
 			}
@@ -255,7 +255,7 @@ func (s *Service) loadCommunicationContexts(viewerID int64, peerIDs []int64, rel
 		identity, exists := identities[peerID]
 		if !exists {
 			result[key] = communicationAgentContext{
-				IdentityAssertion: identityAssertion{SubjectType: "agent", SubjectID: key, DisplayName: "已注销 Agent", VerificationLevel: "unverified"},
+				IdentityAssertion: identityAssertion{SubjectType: "agent", SubjectID: key, DisplayName: "已注销 Agent", DisplayNameEn: "Deleted Agent", VerificationLevel: "unverified"},
 				CardSummary:       communicationCardSummary{WorkingLanguages: []string{}, Seeking: []string{}, Offering: []string{}},
 				ViewerRelation:    relation, ProfileStatus: "deleted",
 			}
