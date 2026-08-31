@@ -53,7 +53,7 @@ while [ $# -gt 0 ]; do
       printf '  EIGENFLUX_SETUP_HOSTS       "all", or a comma-separated host list, to also set up\n'
       printf '                              hosts other than the one running the installer\n'
       printf '  EIGENFLUX_SKIP_AGENT_SETUP  Skip all host setup (CLI + skills still install)\n'
-      printf '  EIGENFLUX_BOOTSTRAP_GRANT / EIGENFLUX_BOOTSTRAP_NONCE\n'
+      printf '  EIGENFLUX_BOOTSTRAP_GRANT / EIGENFLUX_BOOTSTRAP_NONCE (optional controlled channel)\n'
       printf '                              Short-lived values injected by an approved install channel\n'
       printf '  EIGENFLUX_ONBOARDING_DRAFT_FILE\n'
       printf '                              Agent-prefilled JSON draft; with the values above, provision now\n'
@@ -402,14 +402,13 @@ migrate_config() {
   "$INSTALL_DIR/eigenflux" $MIGRATE_ARGS migrate 2>/dev/null || true
 }
 
-# ── Step 4: Consume an approved V2 installation grant ─────────
+# ── Step 4: Provision an Agent-prefilled V2 identity ──────────
 #
-# The public installer never mints grants and never contains the broker secret.
-# An approved channel may inject a short-lived key-bound grant/nonce together
-# with the Agent-prefilled draft it just produced. Consume them immediately so
-# the same local Ed25519 key always resolves to the same Agent, then print the
-# one-time Console URL returned by the CLI. Plain installs remain unchanged and
-# let the ef-profile skill drive this step interactively.
+# The CLI obtains a short-lived, key-bound registration challenge automatically
+# when a controlled channel did not inject one. The server applies IP, subnet,
+# public-key, and global limits before issuing it. A controlled channel may still
+# provide a grant/nonce pair. Plain installs without an Agent-prefilled draft
+# remain unchanged and let the ef-profile skill drive this step.
 
 provision_agent_v2() {
   grant="${EIGENFLUX_BOOTSTRAP_GRANT:-}"
@@ -419,8 +418,12 @@ provision_agent_v2() {
   if [ -z "$grant" ] && [ -z "$nonce" ] && [ -z "$draft_file" ]; then
     return 0
   fi
-  if [ -z "$grant" ] || [ -z "$nonce" ] || [ -z "$draft_file" ]; then
-    err "Controlled Agent V2 provisioning requires grant, nonce, and EIGENFLUX_ONBOARDING_DRAFT_FILE together."
+  if [ -z "$draft_file" ]; then
+    err "Agent V2 provisioning requires EIGENFLUX_ONBOARDING_DRAFT_FILE."
+    return 1
+  fi
+  if { [ -n "$grant" ] && [ -z "$nonce" ]; } || { [ -z "$grant" ] && [ -n "$nonce" ]; }; then
+    err "EIGENFLUX_BOOTSTRAP_GRANT and EIGENFLUX_BOOTSTRAP_NONCE must be provided together."
     return 1
   fi
   if [ ! -f "$draft_file" ] || [ ! -r "$draft_file" ]; then
@@ -437,11 +440,11 @@ provision_agent_v2() {
   fi
 
   info ""
-  info "Provisioning the Agent identity prepared by the approved install channel..."
+  info "Provisioning the Agent identity prepared by the install flow..."
   if [ -n "${EIGENFLUX_AGENT_NAME:-}" ]; then
-    "$ef_bin" agent provision --draft-file "$draft_file" --agent-name "$EIGENFLUX_AGENT_NAME"
+    EIGENFLUX_HOST="${EIGENFLUX_HOST:-$INVOKING_HOST}" "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file" --agent-name "$EIGENFLUX_AGENT_NAME"
   else
-    "$ef_bin" agent provision --draft-file "$draft_file"
+    EIGENFLUX_HOST="${EIGENFLUX_HOST:-$INVOKING_HOST}" "$ef_bin" --homedir "$EF_HOME" agent provision --draft-file "$draft_file"
   fi
   unset EIGENFLUX_BOOTSTRAP_GRANT EIGENFLUX_BOOTSTRAP_NONCE
   grant=""
@@ -1129,5 +1132,5 @@ ok ""
 if [ -t 1 ]; then
   ok "Done! Send this to your agents \"Read ef-profile skill to help me join eigenflux\""
 else
-  ok "Done! Check ef-profile skill to start login"
+  ok "Done! Check ef-profile skill to start Console V2 onboarding"
 fi

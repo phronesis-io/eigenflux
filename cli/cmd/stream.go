@@ -57,14 +57,28 @@ Examples:
 		if err != nil {
 			return err
 		}
-		creds, err := auth.LoadCredentials(srv.Name)
+		hasV2, err := auth.HasV2Credentials(srv.Name)
 		if err != nil {
-			// Exit 4 (auth) so adapters reading the exit code prompt re-login,
-			// consistent with feed poll / the rest of the CLI.
-			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			return fmt.Errorf("inspect Agent V2 credentials: %w", err)
 		}
-		if creds.IsExpired() {
-			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+		accessToken := ""
+		streamPath := "/ws/pm"
+		if hasV2 {
+			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
+			if credentialErr != nil {
+				return credentialErr
+			}
+			accessToken = credentials.AccessToken
+			streamPath = "/api/v2/agent/events/ws"
+		} else {
+			credentials, credentialErr := auth.LoadCredentials(srv.Name)
+			if credentialErr != nil {
+				output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			}
+			if credentials.IsExpired() {
+				output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+			}
+			accessToken = credentials.AccessToken
 		}
 
 		wsBase := srv.WSBaseURL()
@@ -97,12 +111,14 @@ Examples:
 			curCursor := lastCursor
 			mu.Unlock()
 
-			u, err := url.Parse(wsBase + "/ws/pm")
+			u, err := url.Parse(wsBase + streamPath)
 			if err != nil {
 				return fmt.Errorf("invalid stream URL: %w", err)
 			}
 			q := u.Query()
-			q.Set("token", creds.AccessToken)
+			if !hasV2 {
+				q.Set("token", accessToken)
+			}
 			if curCursor != "" {
 				q.Set("cursor", curCursor)
 			}
@@ -111,6 +127,9 @@ Examples:
 			output.PrintMessage("Connecting to %s ...", wsBase)
 
 			dialHeaders := http.Header{}
+			if hasV2 {
+				dialHeaders.Set("Authorization", "Bearer "+accessToken)
+			}
 			if version != "" {
 				dialHeaders.Set("X-CLI-Ver", version)
 			}
@@ -205,12 +224,19 @@ Examples:
 							fmt.Fprintln(os.Stdout, string(msg))
 							continue
 						}
-						if push.Type == "friend_accepted" {
+						if push.Type == "friend_accepted" || push.Type == "friend_rejected" {
 							var fa struct {
-								FriendUID string `json:"friend_uid"`
+								FriendUID       string `json:"friend_uid"`
+								PeerShortID     string `json:"peer_short_id"`
+								PeerDisplayName string `json:"peer_display_name"`
 							}
 							if json.Unmarshal(push.Data, &fa) == nil {
-								fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", safeInline(fa.FriendUID))
+								peer := publicPeerLabel(fa.PeerDisplayName, fa.PeerShortID, fa.FriendUID)
+								if push.Type == "friend_accepted" {
+									fmt.Fprintf(os.Stdout, "✓ Friend request accepted — you are now friends with %s\n", safeInline(peer))
+								} else {
+									fmt.Fprintf(os.Stdout, "Friend request declined by %s\n", safeInline(peer))
+								}
 							} else {
 								fmt.Fprintln(os.Stdout, string(msg))
 							}
@@ -220,12 +246,14 @@ Examples:
 							Messages       []streamMsg `json:"messages"`
 							History        []streamMsg `json:"history_messages"`
 							FriendRequests []struct {
-								RequestID      string `json:"request_id"`
-								FromUID        string `json:"from_uid"`
-								FromName       string `json:"from_name"`
-								Greeting       string `json:"greeting"`
-								CreatedAt      int64  `json:"created_at"`
-								FromIsOfficial bool   `json:"from_is_official"`
+								RequestID       string `json:"request_id"`
+								FromUID         string `json:"from_uid"`
+								FromName        string `json:"from_name"`
+								FromShortID     string `json:"from_short_id"`
+								FromDisplayName string `json:"from_display_name"`
+								Greeting        string `json:"greeting"`
+								CreatedAt       int64  `json:"created_at"`
+								FromIsOfficial  bool   `json:"from_is_official"`
 							} `json:"friend_requests"`
 							FriendRequestsHasMore bool `json:"friend_requests_has_more"`
 						}
@@ -252,9 +280,9 @@ Examples:
 								fmt.Fprintf(os.Stdout, "--- pending friend requests (%s) ---\n", label)
 								for _, fr := range data.FriendRequests {
 									ts := time.UnixMilli(fr.CreatedAt).Format("15:04:05")
-									who := fr.FromName
-									if who == "" {
-										who = fr.FromUID
+									who := publicPeerLabel(fr.FromDisplayName, fr.FromShortID, fr.FromUID)
+									if fr.FromDisplayName == "" && fr.FromShortID == "" && fr.FromName != "" {
+										who = fr.FromName
 									}
 									if fr.Greeting != "" {
 										fmt.Fprintf(os.Stdout, "[%s] ✉ %s (req_id=%s): %s\n", ts, safeInline(who), fr.RequestID, safeInline(fr.Greeting))
@@ -313,6 +341,24 @@ Examples:
 			}
 		}
 	},
+}
+
+// publicPeerLabel keeps the public, human-readable identity together at CLI
+// boundaries. Numeric IDs are retained only as a rollout fallback for old
+// servers that do not yet provide the optional identity fields.
+func publicPeerLabel(displayName, shortID, legacyUID string) string {
+	displayName = strings.TrimSpace(displayName)
+	shortID = strings.TrimSpace(shortID)
+	switch {
+	case displayName != "" && shortID != "":
+		return displayName + " (eigenflux#" + shortID + ")"
+	case displayName != "":
+		return displayName
+	case shortID != "":
+		return "Agent #" + shortID + " (eigenflux#" + shortID + ")"
+	default:
+		return legacyUID
+	}
 }
 
 func init() {

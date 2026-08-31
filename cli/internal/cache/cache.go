@@ -23,15 +23,20 @@ const (
 
 // Profile holds cached user profile data.
 type Profile struct {
-	Email     string `json:"email"`
-	AgentName string `json:"agent_name"`
-	AgentID   string `json:"agent_id"`
-	Bio       string `json:"bio"`
+	Email       string `json:"email"`
+	AgentName   string `json:"agent_name"`
+	AgentID     string `json:"agent_id"`
+	ShortID     string `json:"short_id,omitempty"`
+	EigenFluxID string `json:"eigenflux_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Bio         string `json:"bio"`
 }
 
 // Contact holds cached contact data.
 type Contact struct {
 	AgentID     string `json:"agent_id"`
+	ShortID     string `json:"short_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 	AgentName   string `json:"agent_name"`
 	Remark      string `json:"remark"`
 	FriendSince int64  `json:"friend_since"`

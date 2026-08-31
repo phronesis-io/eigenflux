@@ -19,6 +19,7 @@ type Meta struct {
 	TZ         string // e.g. "Asia/Shanghai"
 	Lang       string // e.g. "zh-CN"
 	Host       string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
+	DeviceName string // user-visible computer name, e.g. "Lynn-MacBook-Pro"
 	Model      string // e.g. "claude-opus-4-8" (the model the host agent runs as)
 	Channel    string // e.g. "feishu", "cli", "telegram"
 	ClientID   string // e.g. "a1b2c3d4"
@@ -39,6 +40,9 @@ func (m Meta) SetHeaders(h http.Header) {
 	if m.Host != "" {
 		h.Set("X-Client-Host", m.Host)
 	}
+	if m.DeviceName != "" {
+		h.Set("X-Client-Device-Name", m.DeviceName)
+	}
 	if m.Model != "" {
 		h.Set("X-Client-Model", m.Model)
 	}
@@ -56,23 +60,51 @@ func (m Meta) SetHeaders(h http.Header) {
 // ResolveMeta collects environment metadata from the current runtime.
 func ResolveMeta() Meta {
 	return Meta{
-		OS:       runtime.GOOS + "/" + runtime.GOARCH,
-		TZ:       resolveTimezone(),
-		Lang:     resolveLanguage(),
-		Host:     resolveRuntimeHost(),
-		Model:    os.Getenv("EIGENFLUX_MODEL"),
-		Channel:  resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
-		ClientID: loadOrCreateClientID(),
+		OS:         runtime.GOOS + "/" + runtime.GOARCH,
+		TZ:         resolveTimezone(),
+		Lang:       resolveLanguage(),
+		Host:       resolveRuntimeHost(),
+		DeviceName: resolveDeviceName(),
+		Model:      os.Getenv("EIGENFLUX_MODEL"),
+		Channel:    resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
+		ClientID:   loadOrCreateClientID(),
 	}
 }
 
+func resolveDeviceName() string {
+	name := strings.TrimSpace(os.Getenv("EIGENFLUX_DEVICE_NAME"))
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".local")
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	runes := []rune(strings.TrimSpace(name))
+	if len(runes) > 128 {
+		runes = runes[:128]
+	}
+	return string(runes)
+}
+
 // resolveRuntimeHost keeps EIGENFLUX_HOST as the explicit override, then uses
-// deterministic WorkBuddy process metadata when the host exposes it. Other
-// products are never guessed: their agent can pass a known identity through
-// settings push or set EIGENFLUX_HOST in the tool environment.
+// deterministic host process metadata when the host exposes it. Codex exports
+// process-scoped markers to every command it starts; WorkBuddy exposes its own
+// product metadata. Other products are never guessed: their agent can pass a
+// known identity through settings push or set EIGENFLUX_HOST in the tool
+// environment.
 func resolveRuntimeHost() string {
 	if host := strings.TrimSpace(os.Getenv("EIGENFLUX_HOST")); host != "" {
 		return host
+	}
+	if host, ok := workBuddyHomeRuntime(); ok {
+		return host
+	}
+	if codexRuntime() {
+		return "codex"
 	}
 	version, ok := workBuddyRuntime()
 	if !ok {
@@ -82,6 +114,31 @@ func resolveRuntimeHost() string {
 		return "workbuddy/" + normalized
 	}
 	return "workbuddy"
+}
+
+func workBuddyHomeRuntime() (string, bool) {
+	for dir := filepath.Clean(config.HomeDir()); ; dir = filepath.Dir(dir) {
+		base := strings.ToLower(filepath.Base(dir))
+		if base == ".workbuddy" || base == "workbuddy" {
+			if version, ok := normalizeRuntimePart(os.Getenv("WORKBUDDY_APP_VERSION")); ok {
+				return "workbuddy/" + version, true
+			}
+			return "workbuddy", true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+	}
+}
+
+func codexRuntime() bool {
+	for _, key := range []string{"CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SHELL"} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("CODEX_INTERNAL_ORIGINATOR_OVERRIDE")), "Codex Desktop")
 }
 
 func workBuddyRuntime() (string, bool) {

@@ -33,12 +33,22 @@ func ListLocal(into, host string) (dir string, skills []LocalSkill, managed bool
 	managed = m.ManagedBy == ManagedByValue
 	for _, s := range m.Skills {
 		match := false
-		if sum, e := dirSHA256(filepath.Join(dir, s.Name)); e == nil {
+		skillDir := filepath.Join(dir, s.Name)
+		if sum, e := dirSHA256(skillDir); e == nil {
 			match = sum == s.SHA256
+		}
+		displayVersion := s.DisplayVersion
+		if !match {
+			// The manifest version describes the last synced artifact. A deliberate
+			// local development overlay can carry a newer Skill version, so report
+			// the version the host will actually load while retaining SHAMatch=false.
+			if localVersion := readDisplayVersion(filepath.Join(skillDir, "SKILL.md")); localVersion != "" {
+				displayVersion = localVersion
+			}
 		}
 		skills = append(skills, LocalSkill{
 			Name:           s.Name,
-			DisplayVersion: s.DisplayVersion,
+			DisplayVersion: displayVersion,
 			SHA256:         s.SHA256,
 			SHAMatch:       match,
 		})
