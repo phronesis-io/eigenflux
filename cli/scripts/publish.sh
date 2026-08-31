@@ -52,19 +52,23 @@ done
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/$CLI_VERSION/version.txt" $S3_ARGS --quiet
 
-# Upload skills bundle to the CLI-independent canonical path `skills/latest/`
-# (clients compare the manifest `revision`, not the CLI version, so a skill edit
-# ships from here without a CLI release). Also mirror to `cli/latest/` for
-# back-compat with the initial layout.
-for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
-  if [[ ! -f "$BUILD_DIR/$f" ]]; then
-    echo -e "${RED}missing $f — run build.sh first${NC}"
-    exit 1
-  fi
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
-  echo -e "${CYAN}skills: ${GREEN}$f → skills/latest + cli/latest${NC}"
-done
+# Skills are published by the Linux-only Release Skills workflow. Keeping that
+# path single-writer prevents different gzip implementations from producing
+# different tarball bytes for the same content revision. The explicit escape
+# hatch is reserved for controlled recovery when Actions is unavailable.
+if [[ "${EIGENFLUX_PUBLISH_SKILLS_WITH_CLI:-false}" == "true" ]]; then
+  for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
+    if [[ ! -f "$BUILD_DIR/$f" ]]; then
+      echo -e "${RED}missing $f — run build.sh first${NC}"
+      exit 1
+    fi
+    aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
+    aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
+    echo -e "${CYAN}skills: ${GREEN}$f → skills/latest + cli/latest${NC}"
+  done
+else
+  echo -e "${CYAN}skills: ${GREEN}skipped (published by Release Skills workflow)${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}Published to ${R2_PUBLIC_URL}/cli/${CLI_VERSION}/${NC}"
