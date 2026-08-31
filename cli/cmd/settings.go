@@ -191,11 +191,11 @@ func pushReported(cfg *config.Config, mode, model, runtimeName, runtimeVersion s
 
 	// Canonical snapshot of the agent-reported fields. \x1f (unit separator)
 	// cannot appear in these values, so it is a safe delimiter.
-	creds, err := auth.LoadCredentials(serverName)
-	if err != nil || creds.AgentID == "" {
+	agentID := settingsAgentID(serverName)
+	if agentID == "" {
 		return fmt.Errorf("no authenticated account for server %q", serverName)
 	}
-	snapshot := reportedSettingsSnapshot(creds.AgentID, mode, feedPref, model, runtimeHost)
+	snapshot := reportedSettingsSnapshot(agentID, mode, feedPref, model, runtimeHost)
 	lastSnapshot, _, _ := cfg.GetServerOnlyKV(serverName, settingsReportedKey)
 	if !force && snapshot == lastSnapshot {
 		output.PrintMessage("settings unchanged; nothing to report")
@@ -234,6 +234,16 @@ func pushReported(cfg *config.Config, mode, model, runtimeName, runtimeVersion s
 	}
 	output.PrintMessage("settings reported")
 	return nil
+}
+
+func settingsAgentID(serverName string) string {
+	if credentials, err := auth.LoadV2Credentials(serverName); err == nil && credentials.AgentID != "" {
+		return credentials.AgentID
+	}
+	if credentials, err := auth.LoadCredentials(serverName); err == nil && credentials.AgentID != "" {
+		return credentials.AgentID
+	}
+	return ""
 }
 
 func pushHeartbeatCompatibility(_ *config.Config, contractVersion, skillRevision string) error {

@@ -103,7 +103,7 @@ var legacyProfileUpdateRoutes = profileUpdateRoutes{
 }
 
 var v2ProfileUpdateRoutes = profileUpdateRoutes{
-	RefreshContext: "/agent-profile/refresh-context",
+	RefreshContext: "/agents/me/card/refresh-context",
 	Fields:         "/agent-profile/fields",
 }
 

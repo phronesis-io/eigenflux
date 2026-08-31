@@ -81,7 +81,7 @@ func TestProfileUpdateV2RoutesUseAgentCredentialNamespace(t *testing.T) {
 	if _, err := updateProfileThroughFields(stub, v2ProfileUpdateRoutes, "Atlas", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(stub.getPaths) != 1 || stub.getPaths[0] != "/agent-profile/refresh-context" {
+	if len(stub.getPaths) != 1 || stub.getPaths[0] != "/agents/me/card/refresh-context" {
 		t.Fatalf("unexpected V2 refresh path: %#v", stub.getPaths)
 	}
 	if len(stub.putPaths) != 1 || stub.putPaths[0] != "/agent-profile/fields" {
