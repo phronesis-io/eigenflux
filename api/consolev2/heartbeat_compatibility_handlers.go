@@ -20,6 +20,7 @@ const (
 )
 
 var skillRevisionPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+var heartbeatContractPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 type heartbeatCompatibilityReport struct {
 	ContractVersion string `json:"heartbeat_contract_version"`
@@ -49,7 +50,7 @@ func (s *Service) reportHeartbeatCompatibility(ctx context.Context, c *app.Reque
 	var req heartbeatCompatibilityReport
 	clientInfo := reqinfo.ClientFromContext(ctx)
 	if decodeBody(c, &req) != nil || strings.TrimSpace(clientInfo.CLIVer) == "" ||
-		req.ContractVersion != heartbeatContractV1 || !skillRevisionPattern.MatchString(req.SkillRevision) {
+		!heartbeatContractPattern.MatchString(req.ContractVersion) || !skillRevisionPattern.MatchString(req.SkillRevision) {
 		fail(c, http.StatusBadRequest, "INVALID_HEARTBEAT_REPORT", "heartbeat compatibility report is invalid", nil)
 		return
 	}
@@ -119,8 +120,6 @@ func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string,
 			status, reason, available = "unknown", "report_missing", false
 		case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
 			status, reason, available = "upgrade_required", "cli_outdated", false
-		case heartbeatContract != heartbeatContractV1:
-			status, reason, available = "upgrade_required", "heartbeat_outdated", false
 		case strings.TrimSpace(skillRevision) == "":
 			status, reason, available = "upgrade_required", "skills_unknown", false
 		}
