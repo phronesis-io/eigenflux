@@ -299,6 +299,12 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	req.Draft = normalizedDraft
+	// The draft is the source of truth for the Agent Card prefill. The CLI keeps
+	// a legacy top-level agent_name flag for compatibility and defaults it to
+	// "EigenFlux Agent"; allowing that default to win would discard a name
+	// supplied in the V2 draft. Existing key-bound identities never enter the
+	// creation path below, so their persisted name remains unchanged.
+	req.AgentName = effectiveProvisionAgentName(req.AgentName, draftObject)
 	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent, req.FieldProvenance, wallNow))
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not derive onboarding field sources", nil)
@@ -524,6 +530,18 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		"next_step":        nextStep,
 		"scopes":           initialScopes,
 	})
+}
+
+func effectiveProvisionAgentName(topLevelName string, draft map[string]interface{}) string {
+	if value, exists := draftPathValue(draft, "identity_card.agent_name"); exists {
+		if draftName, ok := value.(string); ok && strings.TrimSpace(draftName) != "" {
+			return draftName
+		}
+	}
+	if strings.TrimSpace(topLevelName) != "" {
+		return topLevelName
+	}
+	return "EigenFlux Agent"
 }
 
 func insertProvisionedAgent(tx *gorm.DB, agentID int64, alias, agentName string, now int64) error {
