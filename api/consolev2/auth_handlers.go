@@ -404,13 +404,15 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		var existing struct {
 			PrincipalID     int64  `gorm:"column:principal_id"`
 			AgentID         int64  `gorm:"column:agent_id"`
+			AgentName       string `gorm:"column:agent_name"`
 			Status          string `gorm:"column:status"`
 			OnboardingState string `gorm:"column:onboarding_state"`
 			CurrentStep     int16  `gorm:"column:current_step"`
 		}
-		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status,
+		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, a.agent_name, p.status,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
-			FROM agent_principals p LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
+			FROM agent_principals p JOIN agents a ON a.agent_id = p.agent_id
+			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
 			return err
 		}
@@ -421,6 +423,11 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			agentID, principalID = existing.AgentID, existing.PrincipalID
 			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
+			if err := persistExistingProvisionDraft(tx, agentID, onboardingState, existing.AgentName,
+				draftObject, req.FieldProvenance,
+				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
+				return err
+			}
 		} else {
 			agentID = newAgentID
 			aliasToken, tokenErr := randomToken("", 18)
@@ -542,6 +549,81 @@ func effectiveProvisionAgentName(topLevelName string, draft map[string]interface
 		return topLevelName
 	}
 	return "EigenFlux Agent"
+}
+
+// persistExistingProvisionDraft carries the stable Agent Home prefill into
+// Console V2 when provision reuses an existing key-bound identity. The old
+// path only issued credentials, which made the CLI default appear in Console
+// even though the handoff draft contained the preserved Agent name.
+func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState, currentName string,
+	incoming map[string]interface{}, requestedProvenance map[string]string, requestID string, now int64) error {
+	if onboardingState == "completed" {
+		return nil
+	}
+	var state struct {
+		Revision int64 `gorm:"column:revision"`
+	}
+	if err := tx.Raw(`SELECT revision FROM agent_onboarding_v2 WHERE agent_id = ? FOR UPDATE`, agentID).Scan(&state).Error; err != nil {
+		return err
+	}
+	if state.Revision <= 0 {
+		return nil
+	}
+	var stored struct {
+		Revision        int64  `gorm:"column:revision"`
+		DraftData       string `gorm:"column:draft_data"`
+		FieldProvenance string `gorm:"column:field_provenance"`
+	}
+	if err := tx.Raw(`SELECT revision, draft_data::text AS draft_data,
+			field_provenance::text AS field_provenance
+		FROM agent_onboarding_drafts WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, agentID).Scan(&stored).Error; err != nil {
+		return err
+	}
+	previousRaw := json.RawMessage(stored.DraftData)
+	if len(previousRaw) == 0 {
+		previousRaw = json.RawMessage(`{}`)
+	}
+	_, previous, err := normalizeOnboardingDraftJSON(previousRaw)
+	if err != nil {
+		return err
+	}
+	merged, provenance, _ := mergeOnboardingDraft(previous, incoming,
+		decodeProvenance(json.RawMessage(stored.FieldProvenance)), provenanceAgent,
+		requestedProvenance, now)
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	provenanceJSON, err := json.Marshal(provenance)
+	if err != nil {
+		return err
+	}
+	newRevision := state.Revision + 1
+	if err := tx.Exec(`INSERT INTO agent_onboarding_drafts
+		(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
+		VALUES (?, ?, ?::jsonb, ?::jsonb, 'agent_prefill', ?, ?)`, agentID, newRevision,
+		string(mergedJSON), string(provenanceJSON), requestID, now).Error; err != nil {
+		return err
+	}
+	if res := tx.Exec(`UPDATE agent_onboarding_v2 SET revision = ?, updated_at = ?
+		WHERE agent_id = ? AND revision = ?`, newRevision, now, agentID, state.Revision); res.Error != nil || res.RowsAffected != 1 {
+		if res.Error != nil {
+			return res.Error
+		}
+		return errConflict
+	}
+	nameValue, nameExists := draftPathValue(merged, "identity_card.agent_name")
+	name, nameOK := nameValue.(string)
+	name = strings.TrimSpace(name)
+	nameEntry := provenance["identity_card.agent_name"]
+	if nameExists && nameOK && name != "" && !nameEntry.HumanConfirmed &&
+		(strings.TrimSpace(currentName) == "" || strings.TrimSpace(currentName) == "EigenFlux Agent") &&
+		name != "EigenFlux Agent" {
+		if err := tx.Exec(`UPDATE agents SET agent_name = ?, updated_at = ? WHERE agent_id = ?`, name, now, agentID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertProvisionedAgent(tx *gorm.DB, agentID int64, alias, agentName string, now int64) error {
