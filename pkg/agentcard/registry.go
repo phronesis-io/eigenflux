@@ -82,6 +82,17 @@ var ProtectedPaths = []string{
 	"updated_at",
 }
 
+// VerificationLevel returns the public, server-owned trust assertion for an Agent.
+func VerificationLevel(isOfficial, emailVerified bool) string {
+	if isOfficial {
+		return "official"
+	}
+	if emailVerified {
+		return "email_verified"
+	}
+	return "unverified"
+}
+
 var publicSensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`),
 	regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`),
