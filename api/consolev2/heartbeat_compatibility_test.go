@@ -4,12 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestLoadConsoleV2CompatibilityQueryTypesAgentIDAsBigInt(t *testing.T) {
+	if !strings.Contains(loadConsoleV2CompatibilityQuery, "CAST(? AS BIGINT)") {
+		t.Fatalf("compatibility query must cast the bound Agent ID to BIGINT: %s", loadConsoleV2CompatibilityQuery)
+	}
+	if strings.Contains(loadConsoleV2CompatibilityQuery, "SELECT ? AS agent_id") {
+		t.Fatal("compatibility query must not leave the Agent ID bind parameter untyped")
+	}
+}
 
 func TestConsoleV2CompatibilityGate(t *testing.T) {
 	tests := []struct {
