@@ -25,6 +25,8 @@ Use the user's preferred language for every user-visible natural-language messag
 
 ## Mandatory Join Route
 
+Skill requires CLI `0.0.34` for Console V2. Do not run the public installer or `eigenflux skills sync` during this route.
+
 Run `eigenflux agent provision --help` before choosing an authentication flow.
 
 When that command succeeds:
