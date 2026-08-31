@@ -99,27 +99,35 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var identity struct {
-		AgentName           string `gorm:"column:agent_name"`
-		AgentNameEn         string `gorm:"column:agent_name_en"`
-		ShortID             string `gorm:"column:short_id"`
-		Bio                 string `gorm:"column:bio"`
-		CreatedAt           int64  `gorm:"column:created_at"`
-		IsOfficial          bool   `gorm:"column:is_official"`
-		BoundEmail          string `gorm:"column:bound_email"`
-		EmailVerified       bool   `gorm:"column:email_verified"`
-		RuntimeName         string `gorm:"column:runtime_name"`
-		RuntimeVersion      string `gorm:"column:runtime_version"`
-		RuntimeMode         string `gorm:"column:runtime_mode"`
-		ClientHost          string `gorm:"column:client_host"`
-		DeviceName          string `gorm:"column:device_name"`
-		CLIVersion          string `gorm:"column:cli_version"`
-		HeartbeatContract   string `gorm:"column:heartbeat_contract_version"`
-		SkillRevision       string `gorm:"column:skill_revision"`
-		HeartbeatReportedAt int64  `gorm:"column:heartbeat_reported_at"`
+		AgentName             string `gorm:"column:agent_name"`
+		AgentNameEn           string `gorm:"column:agent_name_en"`
+		ShortID               string `gorm:"column:short_id"`
+		Bio                   string `gorm:"column:bio"`
+		CreatedAt             int64  `gorm:"column:created_at"`
+		IsOfficial            bool   `gorm:"column:is_official"`
+		BoundEmail            string `gorm:"column:bound_email"`
+		EmailVerified         bool   `gorm:"column:email_verified"`
+		LegacyIdentityTrusted bool   `gorm:"column:legacy_identity_trusted"`
+		RuntimeName           string `gorm:"column:runtime_name"`
+		RuntimeVersion        string `gorm:"column:runtime_version"`
+		RuntimeMode           string `gorm:"column:runtime_mode"`
+		ClientHost            string `gorm:"column:client_host"`
+		DeviceName            string `gorm:"column:device_name"`
+		CLIVersion            string `gorm:"column:cli_version"`
+		HeartbeatContract     string `gorm:"column:heartbeat_contract_version"`
+		SkillRevision         string `gorm:"column:skill_revision"`
+		HeartbeatReportedAt   int64  `gorm:"column:heartbeat_reported_at"`
 	}
-	if err := s.db.Raw(`SELECT a.agent_name, a.agent_name_en, a.short_id, a.bio, a.created_at, a.is_official,
+	authMethod, _ := c.Get("console_auth_method")
+	legacyHandoff := authMethod == "handoff"
+	legacyBindingClause := "b.status = 'active' AND b.verification_state = 'verified'"
+	if legacyHandoff {
+		legacyBindingClause = "b.status = 'active' AND b.verification_state IN ('verified', 'legacy_unverified')"
+	}
+	query := fmt.Sprintf(`SELECT a.agent_name, a.agent_name_en, a.short_id, a.bio, a.created_at, a.is_official,
 		COALESCE(b.normalized_email, '') AS bound_email,
-		(b.binding_id IS NOT NULL) AS email_verified,
+		(b.binding_id IS NOT NULL AND b.verification_state = 'verified') AS email_verified,
+		(b.binding_id IS NOT NULL AND b.verification_state = 'legacy_unverified') AS legacy_identity_trusted,
 		COALESCE(settings.runtime_name, '') AS runtime_name,
 		COALESCE(settings.runtime_version, '') AS runtime_version,
 		COALESCE(settings.mode, '') AS runtime_mode,
@@ -131,9 +139,10 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at
 		FROM agents a
 		LEFT JOIN agent_email_bindings b ON b.agent_id = a.agent_id
-			AND b.status = 'active' AND b.verification_state = 'verified'
+			AND %s
 		LEFT JOIN agent_settings settings ON settings.agent_id = a.agent_id
-		WHERE a.agent_id = ?`, id).Scan(&identity).Error; err != nil {
+		WHERE a.agent_id = ?`, legacyBindingClause)
+	if err := s.db.Raw(query, id).Scan(&identity).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "SESSION_READ_FAILED", "could not read Agent identity", nil)
 		return
 	}
@@ -144,6 +153,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	if identity.IsOfficial {
 		verificationLevel = "official"
 	}
+	emailBound := identity.EmailVerified || identity.LegacyIdentityTrusted
 	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
 		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
 	)
@@ -152,25 +162,26 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		identityState = "connected"
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"agent_id":           fmt.Sprintf("%d", id),
-		"short_id":           identity.ShortID,
-		"eigenflux_id":       "eigenflux#" + identity.ShortID,
-		"agent_name":         identity.AgentName,
-		"agent_name_en":      identity.AgentNameEn,
-		"bio":                identity.Bio,
-		"created_at":         identity.CreatedAt,
-		"email":              identity.BoundEmail,
-		"email_bound":        identity.EmailVerified,
-		"verification_level": verificationLevel,
-		"runtime":            runtime,
-		"runtime_name":       runtimeName,
-		"runtime_version":    runtimeVersion,
-		"runtime_mode":       identity.RuntimeMode,
-		"device_name":        identity.DeviceName,
-		"identity_state":     identityState,
-		"connection":         map[string]interface{}{"state": identityState},
-		"compatibility":      consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt, state.State == "completed"),
-		"onboarding":         state,
+		"agent_id":                fmt.Sprintf("%d", id),
+		"short_id":                identity.ShortID,
+		"eigenflux_id":            "eigenflux#" + identity.ShortID,
+		"agent_name":              identity.AgentName,
+		"agent_name_en":           identity.AgentNameEn,
+		"bio":                     identity.Bio,
+		"created_at":              identity.CreatedAt,
+		"email":                   identity.BoundEmail,
+		"email_bound":             emailBound,
+		"legacy_identity_trusted": identity.LegacyIdentityTrusted,
+		"verification_level":      verificationLevel,
+		"runtime":                 runtime,
+		"runtime_name":            runtimeName,
+		"runtime_version":         runtimeVersion,
+		"runtime_mode":            identity.RuntimeMode,
+		"device_name":             identity.DeviceName,
+		"identity_state":          identityState,
+		"connection":              map[string]interface{}{"state": identityState},
+		"compatibility":           consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt, state.State == "completed"),
+		"onboarding":              state,
 	})
 }
 
@@ -573,9 +584,15 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			return errConflict
 		}
 		var emailBound bool
+		authMethod, _ := c.Get("console_auth_method")
+		legacyHandoff := authMethod == "handoff"
+		bindingStates := "'verified'"
+		if legacyHandoff {
+			bindingStates = "'verified', 'legacy_unverified'"
+		}
 		if err := tx.Raw(`SELECT EXISTS (
 			SELECT 1 FROM agent_email_bindings
-			WHERE agent_id = ? AND status = 'active' AND verification_state = 'verified'
+			WHERE agent_id = ? AND status = 'active' AND verification_state IN (`+bindingStates+`)
 		)`, id).Scan(&emailBound).Error; err != nil {
 			return err
 		}
