@@ -170,3 +170,24 @@ func TestCompletedAgentV2SessionScopeRepairMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestGrafanaConsoleDAUViewIsAggregatedAndPrivacyBounded(t *testing.T) {
+	sql := migration(t, "000090_grafana_console_dau_daily.sql")
+	for _, required := range []string{
+		"CREATE VIEW grafana_console_dau_daily",
+		"count(DISTINCT usage.agent_id) AS human_dau",
+		"usage.visible_duration_ms > 0",
+		"AT TIME ZONE 'Asia/Shanghai'",
+		"REVOKE ALL ON grafana_console_dau_daily FROM PUBLIC",
+		"GRANT SELECT ON grafana_console_dau_daily TO grafana_ro_v2",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("Grafana Console DAU view contract missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"session_id", "time_bucket AS", "agent_id AS"} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("Grafana Console DAU view exposes private row-level field %q", forbidden)
+		}
+	}
+}
