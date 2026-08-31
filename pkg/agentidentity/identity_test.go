@@ -2,8 +2,12 @@ package agentidentity
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestGenerateShortIDUsesCaseSensitiveAlphabetAndRejectsBiasedBytes(t *testing.T) {
@@ -48,6 +52,39 @@ func TestDisplayName(t *testing.T) {
 	}
 	if got := DisplayName("", ""); got != "Agent" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGetAndGetBatchExposeOptionalEnglishDisplayName(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE agents (
+		agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT, agent_name_en TEXT
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO agents (agent_id, short_id, agent_name, agent_name_en)
+		VALUES (1, 'AbCdE', '星图研究助手', ' Atlas Research Assistant '),
+		       (2, 'FgHiJ', '中文名', '')`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	one, err := Get(context.Background(), db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.DisplayName != "星图研究助手" || one.DisplayNameEn != "Atlas Research Assistant" {
+		t.Fatalf("unexpected localized identity: %+v", one)
+	}
+
+	batch, err := GetBatch(context.Background(), db, []int64{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch[1].DisplayNameEn != "Atlas Research Assistant" || batch[2].DisplayNameEn != "" {
+		t.Fatalf("unexpected localized identity batch: %+v", batch)
 	}
 }
 
