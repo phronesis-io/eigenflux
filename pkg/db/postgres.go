@@ -2,6 +2,7 @@ package db
 
 import (
 	"os"
+	"strings"
 
 	"eigenflux_server/pkg/logger"
 
@@ -12,8 +13,27 @@ import (
 
 var DB *gorm.DB
 
+// Init opens the shared connection with the GORM log level taken from
+// DB_LOG_LEVEL (silent | error | warn | info). The default is Warn: at Info
+// GORM prints every statement (three journal lines per query), which on
+// 2026-09-01 made the production journal rotate 8 MiB every ~35 s and keep
+// only ~35 minutes of history for every unit on the host.
 func Init(dsn string) {
-	InitWithLogLevel(dsn, gormlogger.Info)
+	InitWithLogLevel(dsn, LogLevelFromEnv())
+}
+
+// LogLevelFromEnv maps DB_LOG_LEVEL to a GORM log level; unset/unknown = Warn.
+func LogLevelFromEnv() gormlogger.LogLevel {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DB_LOG_LEVEL"))) {
+	case "silent":
+		return gormlogger.Silent
+	case "error":
+		return gormlogger.Error
+	case "info", "debug":
+		return gormlogger.Info
+	default:
+		return gormlogger.Warn
+	}
 }
 
 func InitWithLogLevel(dsn string, level gormlogger.LogLevel) {
