@@ -38,15 +38,19 @@ func TestGormLoggerIgnoresRecordNotFoundAndHasNoColours(t *testing.T) {
 	lg := db.NewGormLoggerTo(&buf, gormlogger.Warn)
 	sql := func() (string, int64) { return "SELECT * FROM sessions WHERE token_hash = $1", 0 }
 
-	// A missing row is an ordinary answer (invalid bearer token) — never logged,
-	// so a stream of bad tokens cannot flood the journal even at Warn.
-	lg.Trace(context.Background(), time.Now(), sql, gorm.ErrRecordNotFound)
+	// Deterministic "fast" begin: elapsed is negative, so the slow-query branch
+	// (>200 ms) can never fire regardless of scheduler hiccups under -race.
+	fast := func() time.Time { return time.Now().Add(time.Hour) }
+
+	// A missing row is an ordinary answer (invalid bearer token) — not logged
+	// as an error, so a stream of bad tokens cannot flood the journal at Warn.
+	lg.Trace(context.Background(), fast(), sql, gorm.ErrRecordNotFound)
 	if buf.Len() != 0 {
-		t.Fatalf("ErrRecordNotFound must not be logged at Warn, got %q", buf.String())
+		t.Fatalf("ErrRecordNotFound must not be logged as an error at Warn, got %q", buf.String())
 	}
 
 	// A real error is still logged, without ANSI colour escapes (sink is journald).
-	lg.Trace(context.Background(), time.Now(), sql, errors.New("connection reset"))
+	lg.Trace(context.Background(), fast(), sql, errors.New("connection reset"))
 	out := buf.String()
 	if !strings.Contains(out, "connection reset") {
 		t.Fatalf("real error must be logged at Warn, got %q", out)
@@ -57,7 +61,7 @@ func TestGormLoggerIgnoresRecordNotFoundAndHasNoColours(t *testing.T) {
 
 	// A normal fast statement is silent at Warn (this is the whole point).
 	buf.Reset()
-	lg.Trace(context.Background(), time.Now(), sql, nil)
+	lg.Trace(context.Background(), fast(), sql, nil)
 	if buf.Len() != 0 {
 		t.Fatalf("ordinary statement must be silent at Warn, got %q", buf.String())
 	}

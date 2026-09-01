@@ -41,9 +41,10 @@ func LogLevelFromEnv() gormlogger.LogLevel {
 
 // NewGormLogger builds the statement logger used by every core service:
 // slow threshold 200 ms (GORM default), no ANSI colours (the sink is journald,
-// not a terminal), and ErrRecordNotFound is NOT logged — a "row missing" is an
-// ordinary answer for lookups such as session-by-token, and logging it would
-// let any stream of invalid bearer tokens flood the journal even at Warn.
+// not a terminal), and ErrRecordNotFound is not logged as an error — a "row
+// missing" is an ordinary answer for lookups such as session-by-token, and
+// logging it would let any stream of invalid bearer tokens flood the journal
+// at Warn. (At Info the statement itself is still traced like any other.)
 func NewGormLogger(level gormlogger.LogLevel) gormlogger.Interface {
 	return NewGormLoggerTo(os.Stdout, level)
 }

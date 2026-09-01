@@ -159,22 +159,28 @@ Must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `R
 
 ## Temporary SQL trace on one instance
 
-All production instances read the shared `/etc/eigenflux/runtime.env`, and a
-deploy restarts every service, so do **not** put `DB_LOG_LEVEL=info` there. Use
-a per-instance systemd override instead — it survives deploys until reverted,
-and `Environment=` in a drop-in is only shadowed if `runtime.env` also sets the
-same key (it does not set `DB_LOG_LEVEL`):
+Every production instance reads the shared `/etc/eigenflux/runtime.env`
+(installed from the repo `.env`), and `EnvironmentFile=` always wins over
+`Environment=`, so neither the shared file nor a plain `Environment=` drop-in
+is the right tool. Add a second `EnvironmentFile=` in a drop-in that sorts
+**after** the deployer's own `deployer.conf` — later files win — and remove
+only that file when done:
 
 ```bash
-sudo systemctl edit eigenflux-app@pm        # opens override.conf
-# paste:
-# [Service]
-# Environment=DB_LOG_LEVEL=info
-sudo systemctl restart eigenflux-app@pm
-journalctl -u eigenflux-app@pm -f            # full SQL trace for this instance only
+# turn on (pm instance as the example)
+printf 'DB_LOG_LEVEL=info\n' | sudo tee /etc/eigenflux/db-trace-pm.env >/dev/null
+sudo install -d /etc/systemd/system/eigenflux-app@pm.service.d
+printf '[Service]\nEnvironmentFile=-/etc/eigenflux/db-trace-pm.env\n' \
+  | sudo tee /etc/systemd/system/eigenflux-app@pm.service.d/zz-db-trace.conf >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
+systemctl show eigenflux-app@pm -p Environment | tr ' ' '\n' | grep DB_LOG_LEVEL   # expect info
+journalctl -u eigenflux-app@pm -f                                              # full SQL trace, this instance only
 
-# when done — remove the override, back to warn
-sudo systemctl revert eigenflux-app@pm
-sudo systemctl restart eigenflux-app@pm
+# turn off — delete only our two files (do NOT use `systemctl revert`: it
+# removes every drop-in of the instance, including the deployer's)
+sudo rm -f /etc/systemd/system/eigenflux-app@pm.service.d/zz-db-trace.conf /etc/eigenflux/db-trace-pm.env
+sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
 ```
 
+The override survives deploys (the deployer rewrites `deployer.conf` only), so
+remember to turn it off.
