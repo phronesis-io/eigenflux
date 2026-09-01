@@ -38,6 +38,10 @@ var onboardingListFields = []string{
 	"interests_negative",
 }
 
+var onboardingSingleItemTextFields = map[string]struct{}{
+	"seeking": {}, "offering": {}, "agent_status": {}, "human_status": {}, "interests_negative": {},
+}
+
 func normalizeOnboardingCountry(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -135,8 +139,26 @@ func normalizeOnboardingDraftLists(draft map[string]interface{}) error {
 					items = append(items, text)
 				}
 			}
-			identity[field] = items
+			if _, singleItem := onboardingSingleItemTextFields[field]; singleItem {
+				joined := strings.Join(items, " · ")
+				if joined == "" {
+					identity[field] = []string{}
+				} else {
+					identity[field] = []string{joined}
+				}
+			} else {
+				identity[field] = items
+			}
 		case string:
+			if _, singleItem := onboardingSingleItemTextFields[field]; singleItem {
+				text := strings.TrimSpace(value)
+				if text == "" {
+					identity[field] = []string{}
+				} else {
+					identity[field] = []string{text}
+				}
+				continue
+			}
 			items := strings.FieldsFunc(value, func(r rune) bool {
 				switch r {
 				case '·', ',', '，', ';', '；', '\n', '\r':

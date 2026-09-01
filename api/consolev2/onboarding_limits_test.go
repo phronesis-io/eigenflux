@@ -7,11 +7,14 @@ func TestOnboardingLimitsExposeBackendValidationContract(t *testing.T) {
 	if got := limits.IdentityCard["agent_description"]; got.MaxChars != 1000 {
 		t.Fatalf("unexpected agent_description limits: %#v", got)
 	}
-	if got := limits.IdentityCard["seeking"]; got.MaxChars != 300 || got.MaxItemChars != 300 || got.MaxItems != 20 {
+	if got := limits.IdentityCard["seeking"]; got.MaxChars != 300 || got.MaxItemChars != 300 || got.MaxItems != 1 {
 		t.Fatalf("unexpected seeking limits: %#v", got)
 	}
-	if got := limits.IdentityCard["offering"]; got.MaxChars != 1000 || got.MaxItemChars != 100 || got.MaxItems != 20 {
+	if got := limits.IdentityCard["offering"]; got.MaxChars != 1000 || got.MaxItemChars != 1000 || got.MaxItems != 1 {
 		t.Fatalf("unexpected offering limits: %#v", got)
+	}
+	if got := limits.IdentityCard["interests_negative"]; got.MaxChars != 500 || got.MaxItemChars != 500 || got.MaxItems != 1 {
+		t.Fatalf("unexpected interests_negative limits: %#v", got)
 	}
 	if got := limits.IdentityCard["agent_status"]; got.MaxChars != 1000 || got.MaxItemChars != 1000 || got.MaxItems != 20 {
 		t.Fatalf("unexpected agent_status limits: %#v", got)
