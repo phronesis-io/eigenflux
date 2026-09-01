@@ -175,12 +175,26 @@ func GetMyCard(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
 		return
 	}
+	var influence struct {
+		TotalItems int64 `gorm:"column:total_items"`
+	}
+	if err := db.DB.Table("agent_influence_rollups").
+		Select("COALESCE(SUM(broadcast_count), 0) AS total_items").
+		Where("agent_id = ?", agentID).
+		Scan(&influence).Error; err != nil {
+		logger.Ctx(ctx).Error("GetMyCard influence read failed", "agentID", agentID, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
+		return
+	}
 	publicCard := overlayPublicMetadata(ctx, card.PublicCard, agentID)
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"public":       publicCard,
 		"private":      json.RawMessage(card.PrivateCard),
 		"card_version": card.CardVersion,
 		"generated_at": card.GeneratedAt,
+		"influence": map[string]int64{
+			"total_items": influence.TotalItems,
+		},
 	})
 }
 

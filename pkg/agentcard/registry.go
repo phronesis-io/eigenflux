@@ -48,16 +48,16 @@ var EditableFields = []FieldSpec{
 	{Name: "agent_description", Public: true, Storage: StorageAgents, Kind: "string", MaxLen: 4000},
 	{Name: "human_description", Public: true, Storage: StorageProfileData, Kind: "string", MaxLen: 2000},
 	{Name: "working_languages", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 32, MaxItems: 10},
-	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 300, MaxItems: 20},
-	{Name: "offering", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 20},
+	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 300, MaxItems: 1},
+	{Name: "offering", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 1},
 
 	{Name: "geo", Public: false, Storage: StorageProfileData, Kind: "string", MaxLen: 100},
 	{Name: "timezone", Public: false, Storage: StorageProfileData, Kind: "string", MaxLen: 64},
 	{Name: "current_focus", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
 	{Name: "demands", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
-	{Name: "agent_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
-	{Name: "human_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
-	{Name: "interests_negative", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 30},
+	{Name: "agent_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 20},
+	{Name: "human_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 20},
+	{Name: "interests_negative", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 500, MaxItems: 1},
 }
 
 // ProtectedPaths are Card paths no client may write, whatever the request
