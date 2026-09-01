@@ -88,3 +88,16 @@ func TestValidateValue(t *testing.T) {
 		t.Error("system field influence must not be editable")
 	}
 }
+
+func TestValidateValueAllowsOneThousandCharacterRecentStatusItem(t *testing.T) {
+	spec, ok := LookupField("agent_status")
+	if !ok {
+		t.Fatal("agent_status field is missing")
+	}
+	if _, err := ValidateValue(spec, json.RawMessage(`["`+strings.Repeat("状", 1000)+`"]`)); err != nil {
+		t.Fatalf("exact agent_status item limit rejected: %v", err)
+	}
+	if _, err := ValidateValue(spec, json.RawMessage(`["`+strings.Repeat("状", 1001)+`"]`)); err == nil {
+		t.Fatal("agent_status item limit+1 was accepted")
+	}
+}

@@ -55,8 +55,8 @@ var EditableFields = []FieldSpec{
 	{Name: "timezone", Public: false, Storage: StorageProfileData, Kind: "string", MaxLen: 64},
 	{Name: "current_focus", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
 	{Name: "demands", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
-	{Name: "agent_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
-	{Name: "human_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 200, MaxItems: 20},
+	{Name: "agent_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 20},
+	{Name: "human_status", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 20},
 	{Name: "interests_negative", Public: false, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 30},
 }
 
