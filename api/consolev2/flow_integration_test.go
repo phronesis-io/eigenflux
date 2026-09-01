@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
@@ -185,6 +186,15 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	svc.SetNotificationClient(fakeNotifications)
 	h := server.New(server.WithHostPorts("127.0.0.1:0"))
 	svc.Register(h)
+	h.POST("/api/v1/test/legacy-agent-upgrade/:agent_id", func(ctx context.Context, c *app.RequestContext) {
+		id, parseErr := strconv.ParseInt(c.Param("agent_id"), 10, 64)
+		if parseErr != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, map[string]interface{}{"code": 400})
+			return
+		}
+		c.Set("agent_id", id)
+		svc.LegacyAgentUpgradeChallengeHandler()(ctx, c)
+	})
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -299,6 +309,19 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		if item["intent_match"] != nil || len(item["recommended_actions"].([]interface{})) != 0 {
 			t.Fatalf("baseline item leaked intent data: %#v", item)
 		}
+	}
+	prefillRequest := validAttentionPrefillBatch(time.Now().UnixMilli())
+	prefillRequest.Items[0].SourceRef.ID = fmt.Sprintf("%d", fakeFeed.ugcItemID())
+	status, prefillPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/prefill", prefillRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusCreated || responseData(t, prefillPayload)["attention_phase"] != "prefill" ||
+		responseData(t, prefillPayload)["accepted"] != float64(1) {
+		t.Fatalf("Attention Prefill status=%d payload=%#v", status, prefillPayload)
+	}
+	status, activeBeforeOnboardingPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items:publish", prefillRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusUnauthorized || responseErrorCode(t, activeBeforeOnboardingPayload) != "AGENT_AUTH_INVALID" {
+		t.Fatalf("Active Attention was not blocked before onboarding: status=%d payload=%#v", status, activeBeforeOnboardingPayload)
 	}
 	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
 		RefreshToken: refreshToken, RotationRequestID: "refresh-" + hashString(refreshToken),
@@ -481,6 +504,37 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			t.Fatalf("re-provisioned completed Agent session did not persist scope %q: count=%d err=%v", required, stored, err)
 		}
 	}
+	if completedScopes["attention:prefill"] {
+		t.Fatalf("completed Agent retained setup-only Attention Prefill scope: %#v", completedProvision)
+	}
+	status, completedPrefillPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/prefill", prefillRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + completedProvision["access_token"].(string)})
+	if status != http.StatusUnauthorized || responseErrorCode(t, completedPrefillPayload) != "AGENT_AUTH_INVALID" {
+		t.Fatalf("completed Agent could still upload Attention Prefill: status=%d payload=%#v", status, completedPrefillPayload)
+	}
+	status, prefillListPayload, _ := performJSON(t, h, "GET", "/api/v2/console/attention-items", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK {
+		t.Fatalf("Attention Prefill list status=%d payload=%#v", status, prefillListPayload)
+	}
+	prefillItems := responseData(t, prefillListPayload)["attention_items"].([]interface{})
+	if len(prefillItems) != 1 || prefillItems[0].(map[string]interface{})["attention_phase"] != "prefill" {
+		t.Fatalf("stored Attention Prefill was not projected after onboarding: %#v", prefillItems)
+	}
+	prefillItem := prefillItems[0].(map[string]interface{})
+	prefillID := prefillItem["attention_id"].(string)
+	status, prefillResponsePayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+prefillID+"/respond", respondAttentionRequest{
+		ActionKey: "skip", ExpectedItemRevision: int64(prefillItem["item_revision"].(float64)),
+		IdempotencyKey: "prefill-response-" + agentID,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusConflict || responseErrorCode(t, prefillResponsePayload) != "ATTENTION_RESPONSE_CONFLICT" {
+		t.Fatalf("read-only Attention Prefill accepted a response: status=%d payload=%#v", status, prefillResponsePayload)
+	}
+	status, prefillDismissPayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+prefillID+"/dismiss", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusConflict || responseErrorCode(t, prefillDismissPayload) != "ATTENTION_NOT_OPEN" {
+		t.Fatalf("read-only Attention Prefill was dismissed: status=%d payload=%#v", status, prefillDismissPayload)
+	}
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
@@ -639,8 +693,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("attention list status=%d payload=%#v", status, attentionPayload)
 	}
 	attentionItems := responseData(t, attentionPayload)["attention_items"].([]interface{})
-	if len(attentionItems) != 0 {
-		t.Fatalf("the server must not author Attention items from Feed matches: %#v", attentionItems)
+	if len(attentionItems) != 1 || attentionItems[0].(map[string]interface{})["attention_phase"] != "prefill" ||
+		attentionItems[0].(map[string]interface{})["producer"] != "agent" {
+		t.Fatalf("Feed matches must not author additional Attention items: %#v", attentionItems)
 	}
 	status, commandPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
 		CommandType: "human_instruction", Payload: json.RawMessage(`{"instruction":"review the new signal"}`),
@@ -820,6 +875,86 @@ func testLegacyEmailRecovery(t *testing.T, gdb *gorm.DB, h *server.Hertz, idgen 
 		WHERE agent_id = ? AND key_type = 'email-recovery-v1'`, legacyAgentID).Scan(&recoveryPrincipals).Error; err != nil || recoveryPrincipals != 1 {
 		t.Fatalf("legacy recovery principal count=%d err=%v", recoveryPrincipals, err)
 	}
+
+	upgradePublicKey, upgradePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgradePublicKeyEncoded := base64.RawURLEncoding.EncodeToString(upgradePublicKey)
+	status, upgradeChallengePayload, _ := performJSON(t, h, "POST", fmt.Sprintf("/api/v1/test/legacy-agent-upgrade/%d", legacyAgentID), publicRegistrationChallengeRequest{
+		PublicKey: upgradePublicKeyEncoded, IdempotencyKey: fmt.Sprintf("legacy-upgrade-%d", legacyAgentID),
+	})
+	if status != http.StatusCreated || responseData(t, upgradeChallengePayload)["agent_id"] != fmt.Sprintf("%d", legacyAgentID) ||
+		responseData(t, upgradeChallengePayload)["identity_preserved"] != true {
+		t.Fatalf("legacy in-place challenge status=%d payload=%#v", status, upgradeChallengePayload)
+	}
+	challengeData := responseData(t, upgradeChallengePayload)
+	upgradeDraft := json.RawMessage(`{"identity_card":{"agent_name":"Unconfirmed Replacement"},"security_boundary":{"recurring_publish":false,"auto_reply_pm":false,"auto_comment":false,"show_add_friend":true},"network_goal":"","intent_actions":[]}`)
+	upgradeReq := provisionRequest{
+		BootstrapGrant: challengeData["bootstrap_grant"].(string),
+		IdempotencyKey: "legacy-provision-" + fmt.Sprintf("%d", legacyAgentID),
+		Nonce:          challengeData["nonce"].(string), PublicKey: upgradePublicKeyEncoded,
+		IssuedAt: time.Now().UnixMilli(), AgentName: "Unconfirmed Replacement",
+		ExpectedAgentID: fmt.Sprintf("%d", legacyAgentID), Draft: upgradeDraft,
+	}
+	upgradeTranscript, err := provisionTranscript(upgradeReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgradeReq.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(upgradePrivateKey, upgradeTranscript))
+	status, upgradePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", upgradeReq)
+	if status != http.StatusOK || responseData(t, upgradePayload)["agent_id"] != fmt.Sprintf("%d", legacyAgentID) ||
+		responseData(t, upgradePayload)["created"] != false {
+		t.Fatalf("legacy in-place provision status=%d payload=%#v", status, upgradePayload)
+	}
+	var preservedName string
+	if err := gdb.Raw(`SELECT agent_name FROM agents WHERE agent_id = ?`, legacyAgentID).Scan(&preservedName).Error; err != nil || preservedName != "Legacy Recovery Agent" {
+		t.Fatalf("legacy Agent profile changed before confirmation: name=%q err=%v", preservedName, err)
+	}
+	var boundKeyCount int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_principals
+		WHERE agent_id = ? AND key_type = 'ed25519-v1' AND key_fingerprint = ?`, legacyAgentID, svcFingerprint(upgradePublicKey)).Scan(&boundKeyCount).Error; err != nil || boundKeyCount != 1 {
+		t.Fatalf("legacy Agent key binding count=%d err=%v", boundKeyCount, err)
+	}
+
+	unboundPublicKey, unboundPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unboundPublicKeyEncoded := base64.RawURLEncoding.EncodeToString(unboundPublicKey)
+	status, unboundGrantPayload, _ := performJSON(t, h, "POST", "/api/v2/bootstrap-grants", map[string]interface{}{
+		"entitlement_id":  "unbound-legacy-guard-" + fmt.Sprintf("%d", legacyAgentID),
+		"idempotency_key": "unbound-grant-" + fmt.Sprintf("%d", legacyAgentID),
+		"channel":         "integration", "policy": "limited", "public_key": unboundPublicKeyEncoded,
+	}, ut.Header{Key: "X-Bootstrap-Broker-Secret", Value: "integration-broker-secret"})
+	if status != http.StatusCreated {
+		t.Fatalf("unbound guard grant status=%d payload=%#v", status, unboundGrantPayload)
+	}
+	unboundGrant := responseData(t, unboundGrantPayload)
+	unboundReq := provisionRequest{
+		BootstrapGrant: unboundGrant["bootstrap_grant"].(string),
+		IdempotencyKey: "unbound-provision-" + fmt.Sprintf("%d", legacyAgentID),
+		Nonce:          unboundGrant["nonce"].(string), PublicKey: unboundPublicKeyEncoded,
+		IssuedAt: time.Now().UnixMilli(), AgentName: "Must Not Exist",
+		ExpectedAgentID: fmt.Sprintf("%d", legacyAgentID), Draft: upgradeDraft,
+	}
+	unboundTranscript, err := provisionTranscript(unboundReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unboundReq.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(unboundPrivateKey, unboundTranscript))
+	status, unboundPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", unboundReq)
+	if status != http.StatusUnauthorized || responseErrorCode(t, unboundPayload) != "BOOTSTRAP_PROOF_REJECTED" {
+		t.Fatalf("unbound grant bypassed expected Agent guard: status=%d payload=%#v", status, unboundPayload)
+	}
+	var unboundPrincipalCount int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_principals WHERE key_fingerprint = ?`, svcFingerprint(unboundPublicKey)).Scan(&unboundPrincipalCount).Error; err != nil || unboundPrincipalCount != 0 {
+		t.Fatalf("unbound expected-Agent provision created a principal: count=%d err=%v", unboundPrincipalCount, err)
+	}
+}
+
+func svcFingerprint(publicKey ed25519.PublicKey) string {
+	return fingerprint(publicKey)
 }
 
 func testTelemetryAggregation(t *testing.T, gdb *gorm.DB, h *server.Hertz, agentID int64, cookieHeader, csrf string) {

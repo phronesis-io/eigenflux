@@ -21,6 +21,7 @@ import (
 const (
 	attentionSchemaVersion   = "agent_attention.v1"
 	attentionPublishEndpoint = "/agent-attention-items:publish"
+	attentionPrefillEndpoint = "/agent-attention-items/prefill"
 	attentionBodyLimit       = 32 << 10
 	attentionItemLimit       = 10
 	attentionActionLimit     = 5
@@ -68,6 +69,14 @@ var attentionPresetFlags = map[string]map[string]struct{}{
 		"follow_up":           {},
 		"not_interested":      {},
 	},
+}
+
+var attentionPrefillCategories = map[string]struct{}{
+	"important_signal": {}, "opportunity": {}, "watch_update": {}, "other_attention": {},
+}
+
+var attentionPrefillFlags = map[string]struct{}{
+	"open_source": {}, "ask_agent_summarize": {}, "not_interested": {},
 }
 
 var attentionSourceTypes = map[string]struct{}{
@@ -131,34 +140,54 @@ var attentionPublishCmd = &cobra.Command{
 	Short: "Validate and publish one Agent Attention batch from standard input",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		fromStdin, _ := cmd.Flags().GetBool("stdin")
-		if !fromStdin {
-			return fmt.Errorf("--stdin is required")
-		}
-		request, err := readAttentionPublishRequest(cmd.InOrStdin())
-		if err != nil {
-			return err
-		}
+		return runAttentionUpload(cmd, attentionPublishEndpoint, false)
+	},
+}
 
-		clientV2, server, err := newV2ClientForServer(serverFlag, true)
-		if err != nil {
+var attentionPrefillCmd = &cobra.Command{
+	Use:   "prefill --stdin",
+	Short: "Validate and upload one read-only onboarding Attention Prefill batch",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return runAttentionUpload(cmd, attentionPrefillEndpoint, true)
+	},
+}
+
+func runAttentionUpload(cmd *cobra.Command, endpoint string, prefill bool) error {
+	fromStdin, _ := cmd.Flags().GetBool("stdin")
+	if !fromStdin {
+		return fmt.Errorf("--stdin is required")
+	}
+	request, err := readAttentionPublishRequest(cmd.InOrStdin())
+	if err != nil {
+		return err
+	}
+	if prefill {
+		if err := validateAttentionPrefillRequest(request); err != nil {
 			return err
 		}
-		credentials, err := auth.LoadV2Credentials(server.Name)
-		if err != nil {
-			return err
+	}
+
+	clientV2, server, err := newV2ClientForServer(serverFlag, true)
+	if err != nil {
+		return err
+	}
+	if !prefill {
+		credentials, credentialsErr := auth.LoadV2Credentials(server.Name)
+		if credentialsErr != nil {
+			return credentialsErr
 		}
 		if err := rejectFullLocalIntentAdds(server.Name, credentials.AgentID, request); err != nil {
 			return err
 		}
+	}
 
-		response, err := clientV2.Post(attentionPublishEndpoint, request)
-		if err != nil {
-			return formatAttentionPublishError(err, resolveFormat())
-		}
-		output.PrintData(response.Data, resolveFormat())
-		return nil
-	},
+	response, err := clientV2.Post(endpoint, request)
+	if err != nil {
+		return formatAttentionPublishError(err, resolveFormat())
+	}
+	output.PrintData(response.Data, resolveFormat())
+	return nil
 }
 
 func readAttentionPublishRequest(reader io.Reader) (attentionPublishRequest, error) {
@@ -223,6 +252,32 @@ func validateAttentionPublishRequestAt(request attentionPublishRequest, now int6
 		seenItems[item.ClientItemID] = struct{}{}
 		if err := validateAttentionItemAt(item, now); err != nil {
 			return fmt.Errorf("items[%d]: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func validateAttentionPrefillRequest(request attentionPublishRequest) error {
+	for index, item := range request.Items {
+		if item.Surface != "focus" {
+			return fmt.Errorf("items[%d]: Attention Prefill only accepts focus items", index)
+		}
+		if _, ok := attentionPrefillCategories[item.Category]; !ok {
+			return fmt.Errorf("items[%d]: category %q is not allowed in Attention Prefill", index, item.Category)
+		}
+		if item.SourceRef == nil || item.SourceRef.Type != "broadcast" {
+			return fmt.Errorf("items[%d]: source_ref must identify an exposed baseline Feed broadcast", index)
+		}
+		if item.ContextRef != nil {
+			return fmt.Errorf("items[%d]: context_ref is not allowed in Attention Prefill", index)
+		}
+		for actionIndex, action := range item.Actions {
+			if action.Kind != "preset" {
+				return fmt.Errorf("items[%d].actions[%d]: custom actions are not allowed in Attention Prefill", index, actionIndex)
+			}
+			if _, ok := attentionPrefillFlags[action.Flag]; !ok {
+				return fmt.Errorf("items[%d].actions[%d]: flag %q is not allowed in Attention Prefill", index, actionIndex, action.Flag)
+			}
 		}
 	}
 	return nil
@@ -445,6 +500,7 @@ func rejectFullLocalIntentAdds(serverName, ownerAgentID string, request attentio
 
 func init() {
 	attentionPublishCmd.Flags().Bool("stdin", false, "read one agent_attention.v1 JSON batch from standard input")
-	attentionCmd.AddCommand(attentionPublishCmd)
+	attentionPrefillCmd.Flags().Bool("stdin", false, "read one agent_attention.v1 JSON batch from standard input")
+	attentionCmd.AddCommand(attentionPrefillCmd, attentionPublishCmd)
 	rootCmd.AddCommand(attentionCmd)
 }

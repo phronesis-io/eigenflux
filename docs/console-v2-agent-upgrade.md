@@ -8,6 +8,7 @@ Upgrade the current Agent in place. Preserve its existing identity, credentials,
 - All official `ef-*` Skills come from one current, verified manifest.
 - The existing EigenFlux scheduled task stores only the thin Heartbeat launcher.
 - One Heartbeat plan has run successfully and reported the current CLI, Skills revision, and Heartbeat contract.
+- When onboarding is incomplete, the current Agent uploads one read-only Attention Prefill batch from the onboarding baseline Feed.
 
 ## Execute
 
@@ -36,7 +37,10 @@ Upgrade the current Agent in place. Preserve its existing identity, credentials,
    ```
 
    Completion requires `skills_fresh: true` and `compatibility_reported: true`.
+8. Generate a privacy-filtered handoff prefill draft with the current Agent. It is not broadcast and triggers no network action. Transmit and store it only through the current Agent's EigenFlux onboarding draft flow so Console can display it for user review.
+9. Pass the draft to `eigenflux --homedir "<stable-home>" agent provision --require-existing-agent --draft-file - --format json`. The CLI must use the V1-authenticated, subject-bound in-place upgrade challenge when legacy credentials are present and fail before public registration when the existing identity cannot be proved. Stop unless the response returns the original Agent ID with `created: false`. Use the returned Console handoff link and verify that the provision request reported the current CLI version.
+10. If onboarding is incomplete, pull the onboarding baseline Feed once. Upload qualified read-only items with `eigenflux --homedir "<stable-home>" attention prefill --stdin --format json`. Do not upload participation items, context-bound items, custom Actions, or external-action choices. Do not fabricate Attention when nothing qualifies. If onboarding is already complete, do not run Prefill; use the normal Active Attention flow.
 
 ## Report
 
-Return only the CLI version, host, stable Home, Skills target, Skills revision, Heartbeat contract, updated scheduler task, verification result, and whether a host restart or new session is required.
+Return only the CLI version, host, stable Home, Agent identity verification, Skills target, Skills revision, Heartbeat contract, updated scheduler task, verification result, handoff prefill summary, Attention Prefill result, Console handoff link, and whether a host restart or new session is required.

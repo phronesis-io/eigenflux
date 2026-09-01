@@ -198,3 +198,48 @@ func TestHistoricalAgentRecoveryMigrationPreservesIdentityHistory(t *testing.T) 
 		t.Fatal("formal accounts must be able to switch away and later switch back")
 	}
 }
+
+func TestAttentionPrefillMigrationAddsExplicitPhaseAndRepairsOnlyIncompleteSessions(t *testing.T) {
+	sql := migration(t, "000091_console_v2_attention_prefill.sql")
+	up, _, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("Attention Prefill migration has no Down boundary")
+	}
+	for _, required := range []string{
+		"attention_phase VARCHAR(16)",
+		"attention_phase IN ('prefill', 'active')",
+		"chk_agent_attention_phase",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Attention Prefill migration missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"UPDATE agent_credential_sessions",
+		"attention:prefill",
+		"onboarding.state <> 'completed'",
+		"session.revoked_at IS NULL",
+		"session.expires_at >",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Attention Prefill session repair missing %q", required)
+		}
+	}
+	if strings.Contains(up, "onboarding.state = 'completed'") {
+		t.Fatal("Attention Prefill session repair must not grant setup scope to completed Agents")
+	}
+}
+
+func TestLegacyUpgradeGrantMigrationBindsProvisionToExistingAgent(t *testing.T) {
+	sql := migration(t, "000092_console_v2_legacy_agent_upgrade_grants.sql")
+	for _, required := range []string{
+		"subject_agent_id BIGINT",
+		"REFERENCES agents(agent_id)",
+		"idx_agent_bootstrap_grants_subject",
+		"subject-bound grants preserve existing identities",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("legacy Agent upgrade grant migration missing %q", required)
+		}
+	}
+}

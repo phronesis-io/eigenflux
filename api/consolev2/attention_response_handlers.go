@@ -56,7 +56,7 @@ func loadAttentionResponseReplay(tx *gorm.DB, agentID, attentionID, expectedRevi
 	result := tx.Raw(`SELECT actions_snapshot::text AS actions_snapshot,
 		source_ref::text AS source_ref, status, item_revision FROM agent_attention_items
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-		  AND protocol_version = 'agent_attention.v1'`, agentID, attentionID).Scan(&row)
+		  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'`, agentID, attentionID).Scan(&row)
 	if result.Error != nil {
 		return 0, "", "", false, result.Error
 	}
@@ -137,7 +137,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 			actions_snapshot::text AS actions_snapshot, context_ref::text AS context_ref,
 			payload_hash, item_revision, expires_at, source_ref::text AS source_ref
 			FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-			  AND protocol_version = 'agent_attention.v1'
+			  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint FOR UPDATE`,
 			agentIDValue, attentionID).Scan(&item).Error; err != nil {
 			return err
@@ -242,7 +242,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		if err := tx.Raw(`UPDATE agent_attention_items SET status = ?, selected_action_key = ?,
 			response_status = 'pending', responded_at = ?, updated_at = ?, item_revision = item_revision + 1
 			WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-			  AND protocol_version = 'agent_attention.v1'
+			  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'
 			  AND status = 'open' AND item_revision = ?
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint
 			RETURNING item_revision`, itemStatus, selected.ActionKey, now, now, agentIDValue, attentionID,

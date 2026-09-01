@@ -24,6 +24,8 @@ import (
 
 const (
 	attentionProtocolVersion    = "agent_attention.v1"
+	attentionPhasePrefill       = "prefill"
+	attentionPhaseActive        = "active"
 	attentionPublishBodyLimit   = 32 << 10
 	attentionPublishBatchMax    = 10
 	attentionHourlyTotal        = 20
@@ -220,6 +222,15 @@ var focusActionFlags = map[string]bool{
 	"follow_up": true, "not_interested": true,
 }
 
+var attentionPrefillCategories = map[string]bool{
+	"important_signal": true, "opportunity": true,
+	"watch_update": true, "other_attention": true,
+}
+
+var attentionPrefillActionFlags = map[string]bool{
+	"open_source": true, "ask_agent_summarize": true, "not_interested": true,
+}
+
 var attentionSourceTypes = map[string]bool{
 	"broadcast": true, "broadcast_reply": true, "friend_request": true,
 	"relation": true, "private_message": true, "context": true, "activity": true,
@@ -394,6 +405,27 @@ func validateAttentionPublish(req *attentionPublishRequest, now int64) error {
 	return nil
 }
 
+func validateAttentionPrefill(req *attentionPublishRequest) error {
+	for index, item := range req.Items {
+		if item.Surface != "focus" || !attentionPrefillCategories[item.Category] {
+			return fmt.Errorf("items[%d] is not allowed in Attention Prefill", index)
+		}
+		if item.SourceRef == nil || item.SourceRef.Type != "broadcast" {
+			return fmt.Errorf("items[%d].source_ref must identify an exposed baseline Feed broadcast", index)
+		}
+		if item.ContextRef.ContextRevision != nil || item.ContextRef.NetworkGoalRevision != nil ||
+			item.ContextRef.IntentID != nil || item.ContextRef.Operation != "" {
+			return fmt.Errorf("items[%d].context_ref is not allowed in Attention Prefill", index)
+		}
+		for actionIndex, action := range item.Actions {
+			if action.Kind != "preset" || !attentionPrefillActionFlags[action.Flag] {
+				return fmt.Errorf("items[%d].actions[%d] is not allowed in Attention Prefill", index, actionIndex)
+			}
+		}
+	}
+	return nil
+}
+
 func attentionRateKeys(agentID int64) []string {
 	prefix := fmt.Sprintf("console:v2:attention:{%d}:", agentID)
 	return []string{prefix + "total", prefix + "participation", prefix + "focus"}
@@ -507,7 +539,7 @@ func parseOptionalPositiveID(raw *string) (int64, bool) {
 	return value, err == nil && value > 0
 }
 
-func authorizeAttentionSources(tx *gorm.DB, agentID int64, items []attentionPublishItem) error {
+func authorizeAttentionSources(tx *gorm.DB, agentID int64, items []attentionPublishItem, phase string) error {
 	grouped := make(map[string][]int64)
 	parents := make(map[int64]int64)
 	for _, item := range items {
@@ -531,8 +563,12 @@ func authorizeAttentionSources(tx *gorm.DB, agentID int64, items []attentionPubl
 		var query *gorm.DB
 		switch sourceType {
 		case "broadcast":
-			query = tx.Raw(`SELECT COUNT(DISTINCT source_id) FROM agent_feed_exposures
-				WHERE agent_id = ? AND source_type = 'broadcast' AND source_id = ANY(?)`, agentID, pq.Array(ids)).Scan(&count)
+			sourceQuery := `SELECT COUNT(DISTINCT source_id) FROM agent_feed_exposures
+				WHERE agent_id = ? AND source_type = 'broadcast' AND source_id = ANY(?)`
+			if phase == attentionPhasePrefill {
+				sourceQuery += ` AND context_revision IS NULL`
+			}
+			query = tx.Raw(sourceQuery, agentID, pq.Array(ids)).Scan(&count)
 		case "broadcast_reply":
 			pairs := make([]map[string]int64, 0, len(ids))
 			for _, id := range ids {
@@ -766,22 +802,40 @@ func containsAllAttentionItems(candidates, actual []attentionPublishItem) bool {
 	return true
 }
 
+func (s *Service) prefillAttentionItems(ctx context.Context, c *app.RequestContext) {
+	s.publishAttentionItemsForPhase(ctx, c, attentionPhasePrefill)
+}
+
 func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestContext) {
+	s.publishAttentionItemsForPhase(ctx, c, attentionPhaseActive)
+}
+
+func (s *Service) publishAttentionItemsForPhase(ctx context.Context, c *app.RequestContext, phase string) {
 	agentIDValue, _ := agentID(c)
 	req, raw, err := decodeAttentionPublishBody(c)
 	now := time.Now().UnixMilli()
 	if err == nil {
 		err = validateAttentionPublish(&req, now)
 	}
+	if err == nil && phase == attentionPhasePrefill {
+		err = validateAttentionPrefill(&req)
+	}
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_BATCH", err.Error(), nil)
 		return
 	}
+	for index := range req.Items {
+		req.Items[index].payloadHash = hashString(phase + "\x00" + req.Items[index].payloadHash)
+	}
 	requestHash := hashString(string(raw))
 	var replayPayload map[string]interface{}
 	readCtx, cancelRead := context.WithTimeout(ctx, attentionPublishReadTimeout)
+	operation := "attention_publish"
+	if phase == attentionPhasePrefill {
+		operation = "attention_prefill"
+	}
 	found, conflict, readErr := loadIdempotentResponseFrom(s.db.WithContext(readCtx), agentIDValue,
-		"attention_publish", req.IdempotencyKey, requestHash, &replayPayload)
+		operation, req.IdempotencyKey, requestHash, &replayPayload)
 	cancelRead()
 	if readErr != nil {
 		if attentionPublishTemporarilyUnavailable(readErr) {
@@ -956,7 +1010,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 			}
 			rateRemaining = remainingAttentionQuota(
 				quotas.Total+int64(len(newItems)), quotas.Participation+newParticipation, quotas.Focus+newFocus)
-			if err := authorizeAttentionSources(tx, agentIDValue, newItems); err != nil {
+			if err := authorizeAttentionSources(tx, agentIDValue, newItems, phase); err != nil {
 				return err
 			}
 			if err := validateAttentionContextRefs(tx, agentIDValue, newItems); err != nil {
@@ -979,11 +1033,11 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 				return marshalErr
 			}
 			if err := tx.Exec(`INSERT INTO agent_attention_items
-				(agent_id, producer, protocol_version, surface, category, client_item_id, payload_hash, language,
+				(agent_id, producer, protocol_version, attention_phase, surface, category, client_item_id, payload_hash, language,
 				 title, body, recommendation, source_type, source_id, source_ref, context_ref,
 				 actions_snapshot, status, item_revision, response_status,
 				 generated_at, created_at, updated_at, expires_at)
-				SELECT ?, 'agent', 'agent_attention.v1', seed.surface, seed.category, seed.client_item_id, seed.payload_hash,
+				SELECT ?, 'agent', 'agent_attention.v1', ?, seed.surface, seed.category, seed.client_item_id, seed.payload_hash,
 				 seed.language, seed.title, seed.body, seed.recommendation, seed.source_type,
 				 seed.source_id, seed.source_ref, seed.context_ref, seed.actions,
 				 'open', 1, 'none', seed.generated_at, ?, ?, seed.expires_at
@@ -991,7 +1045,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 				 client_item_id text, payload_hash text, surface text, category text, language text,
 				 title text, body text, recommendation text, source_type text, source_id bigint,
 				 source_ref jsonb, context_ref jsonb, actions jsonb, generated_at bigint, expires_at bigint)`,
-				agentIDValue, now, now, string(encoded)).Error; err != nil {
+				agentIDValue, phase, now, now, string(encoded)).Error; err != nil {
 				return err
 			}
 		}
@@ -1005,11 +1059,11 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		for _, row := range rows {
 			items = append(items, map[string]interface{}{"client_item_id": row.ClientItemID, "attention_id": fmt.Sprintf("%d", row.AttentionID)})
 		}
-		result = map[string]interface{}{"schema_version": "agent_attention.v1", "accepted": len(newItems), "items": items, "replay": len(newItems) == 0}
+		result = map[string]interface{}{"schema_version": "agent_attention.v1", "attention_phase": phase, "accepted": len(newItems), "items": items, "replay": len(newItems) == 0}
 		snapshot, _ := json.Marshal(result)
 		if err := tx.Exec(`INSERT INTO agent_idempotency_requests
 			(agent_id, operation, idempotency_key, request_hash, response_snapshot, expires_at, created_at)
-			VALUES (?, 'attention_publish', ?, ?, ?::jsonb, ?, ?)`, agentIDValue, req.IdempotencyKey,
+			VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)`, agentIDValue, operation, req.IdempotencyKey,
 			requestHash, string(snapshot), now+int64(24*time.Hour/time.Millisecond), now).Error; err != nil {
 			return err
 		}
@@ -1053,7 +1107,7 @@ func (s *Service) publishAttentionItems(ctx context.Context, c *app.RequestConte
 		var replay map[string]interface{}
 		replayCtx, cancelReplay := context.WithTimeout(ctx, attentionPublishReadTimeout)
 		found, conflict, replayErr := loadIdempotentResponseFrom(s.db.WithContext(replayCtx), agentIDValue,
-			"attention_publish", req.IdempotencyKey, requestHash, &replay)
+			operation, req.IdempotencyKey, requestHash, &replay)
 		cancelReplay()
 		if replayErr == nil && found && !conflict {
 			replay["replay"] = true

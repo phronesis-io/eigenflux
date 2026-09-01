@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -33,6 +34,7 @@ type issueGrantRequest struct {
 	Channel        string `json:"channel"`
 	Policy         string `json:"policy"`
 	PublicKey      string `json:"public_key"`
+	SubjectAgentID *int64 `json:"-"`
 }
 
 type bootstrapGrantResult struct {
@@ -112,20 +114,22 @@ func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed2
 		}
 		expiresAt = now + int64(grantTTL/time.Millisecond)
 		var existing struct {
-			Fingerprint string `gorm:"column:key_fingerprint"`
-			RequestID   string `gorm:"column:request_id"`
-			Channel     string `gorm:"column:channel"`
-			Policy      string `gorm:"column:policy"`
-			Status      string `gorm:"column:status"`
-			ExpiresAt   int64  `gorm:"column:expires_at"`
+			Fingerprint  string `gorm:"column:key_fingerprint"`
+			RequestID    string `gorm:"column:request_id"`
+			Channel      string `gorm:"column:channel"`
+			Policy       string `gorm:"column:policy"`
+			Status       string `gorm:"column:status"`
+			ExpiresAt    int64  `gorm:"column:expires_at"`
+			SubjectAgent *int64 `gorm:"column:subject_agent_id"`
 		}
-		if err := tx.Raw(`SELECT key_fingerprint, request_id, channel, policy, status, expires_at
+		if err := tx.Raw(`SELECT key_fingerprint, request_id, channel, policy, status, expires_at, subject_agent_id
 			FROM agent_bootstrap_grants WHERE entitlement_hash = ? FOR UPDATE`, entitlementHash).Scan(&existing).Error; err != nil {
 			return err
 		}
 		if existing.Fingerprint != "" {
 			if existing.Fingerprint != keyFingerprint || existing.RequestID != requestID ||
-				existing.Channel != req.Channel || existing.Policy != req.Policy || existing.Status == "revoked" {
+				existing.Channel != req.Channel || existing.Policy != req.Policy || existing.Status == "revoked" ||
+				!sameOptionalAgentID(existing.SubjectAgent, req.SubjectAgentID) {
 				return errConflict
 			}
 			if existing.Status == "issued" {
@@ -143,10 +147,10 @@ func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed2
 		}
 		result := tx.Exec(`INSERT INTO agent_bootstrap_grants
 			(jti_hash, key_fingerprint, audience, channel, policy, entitlement_hash,
-			 request_id, status, expires_at, created_at)
-			VALUES (?, ?, 'agent_provision', ?, ?, ?, ?, 'issued', ?, ?)`,
+			 request_id, status, expires_at, created_at, subject_agent_id)
+			VALUES (?, ?, 'agent_provision', ?, ?, ?, ?, 'issued', ?, ?, ?)`,
 			hashString(grant), keyFingerprint, req.Channel, req.Policy,
-			entitlementHash, requestID, expiresAt, now)
+			entitlementHash, requestID, expiresAt, now, req.SubjectAgentID)
 		if result.Error != nil {
 			if isUniqueViolation(result.Error) {
 				return errConflict
@@ -168,6 +172,13 @@ func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed2
 	}, nil
 }
 
+func sameOptionalAgentID(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
 func subtleHeaderMismatch(got, want string) bool {
 	if len(got) != len(want) {
 		return true
@@ -186,6 +197,7 @@ type provisionRequest struct {
 	PublicKey       string            `json:"public_key"`
 	IssuedAt        int64             `json:"issued_at"`
 	AgentName       string            `json:"agent_name"`
+	ExpectedAgentID string            `json:"expected_agent_id,omitempty"`
 	Signature       string            `json:"signature"`
 	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
 	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
@@ -198,6 +210,7 @@ type provisionProofPayload struct {
 	PublicKey       string            `json:"public_key"`
 	IssuedAt        int64             `json:"issued_at"`
 	AgentName       string            `json:"agent_name"`
+	ExpectedAgentID string            `json:"expected_agent_id,omitempty"`
 	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
 	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
@@ -210,6 +223,7 @@ func provisionTranscript(req provisionRequest) ([]byte, error) {
 		PublicKey:       req.PublicKey,
 		IssuedAt:        req.IssuedAt,
 		AgentName:       req.AgentName,
+		ExpectedAgentID: req.ExpectedAgentID,
 		Draft:           req.Draft,
 		FieldProvenance: req.FieldProvenance,
 	}
@@ -223,7 +237,7 @@ func provisionTranscript(req provisionRequest) ([]byte, error) {
 func provisionReceiptHash(req provisionRequest) (string, error) {
 	payload := provisionProofPayload{
 		BootstrapGrant: req.BootstrapGrant, IdempotencyKey: req.IdempotencyKey,
-		Nonce: req.Nonce, PublicKey: req.PublicKey, AgentName: req.AgentName, Draft: req.Draft,
+		Nonce: req.Nonce, PublicKey: req.PublicKey, AgentName: req.AgentName, ExpectedAgentID: req.ExpectedAgentID, Draft: req.Draft,
 		FieldProvenance: req.FieldProvenance,
 	}
 	canonical, err := json.Marshal(payload)
@@ -255,6 +269,14 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		len(req.IdempotencyKey) < 16 || len(req.IdempotencyKey) > 128 {
 		fail(c, http.StatusBadRequest, "INVALID_PROOF", "bootstrap grant, idempotency key, nonce, public key, and signature are required", nil)
 		return
+	}
+	expectedAgentID := int64(0)
+	if req.ExpectedAgentID != "" {
+		expectedAgentID, err = strconv.ParseInt(req.ExpectedAgentID, 10, 64)
+		if err != nil || expectedAgentID <= 0 {
+			fail(c, http.StatusBadRequest, "INVALID_PROOF", "expected_agent_id must be a positive Agent ID", nil)
+			return
+		}
 	}
 	wallNow := time.Now().UnixMilli()
 	if req.IssuedAt < wallNow-int64(proofClockSkew/time.Millisecond) || req.IssuedAt > wallNow+int64(proofClockSkew/time.Millisecond) {
@@ -370,6 +392,9 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				(receipt.PrincipalStatus != "limited" && receipt.PrincipalStatus != "active") {
 				return errUnauthorized
 			}
+			if expectedAgentID != 0 && receipt.AgentID != expectedAgentID {
+				return errUnauthorized
+			}
 			agentID, principalID, expiresAt = receipt.AgentID, receipt.PrincipalID, receipt.ExpiresAt
 			onboardingState, nextStep = receipt.OnboardingState, receipt.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
@@ -380,11 +405,12 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			return nil
 		}
 		var grant struct {
-			Fingerprint string `gorm:"column:key_fingerprint"`
-			Status      string `gorm:"column:status"`
-			ExpiresAt   int64  `gorm:"column:expires_at"`
+			Fingerprint  string `gorm:"column:key_fingerprint"`
+			Status       string `gorm:"column:status"`
+			ExpiresAt    int64  `gorm:"column:expires_at"`
+			SubjectAgent *int64 `gorm:"column:subject_agent_id"`
 		}
-		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at
+		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at, subject_agent_id
 			FROM agent_bootstrap_grants WHERE jti_hash = ? FOR UPDATE`, hashString(req.BootstrapGrant)).Scan(&grant).Error; err != nil {
 			return err
 		}
@@ -418,6 +444,10 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			if existing.Status == "revoked" || existing.Status == "suspended" {
 				return errUnauthorized
 			}
+			if (grant.SubjectAgent != nil && existing.AgentID != *grant.SubjectAgent) ||
+				(expectedAgentID != 0 && existing.AgentID != expectedAgentID) {
+				return errUnauthorized
+			}
 			agentID, principalID = existing.AgentID, existing.PrincipalID
 			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
@@ -426,7 +456,47 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
 				return err
 			}
+		} else if grant.SubjectAgent != nil {
+			if expectedAgentID != 0 && *grant.SubjectAgent != expectedAgentID {
+				return errUnauthorized
+			}
+			agentID = *grant.SubjectAgent
+			if err := ensureLegacyConsoleV2State(tx, agentID, now); err != nil {
+				return err
+			}
+			var subject struct {
+				State       string `gorm:"column:state"`
+				CurrentStep int16  `gorm:"column:current_step"`
+			}
+			if err := tx.Raw(`SELECT onboarding.state, onboarding.current_step
+				FROM agents agent JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = agent.agent_id
+				WHERE agent.agent_id = ? FOR UPDATE OF onboarding`, agentID).Scan(&subject).Error; err != nil {
+				return err
+			}
+			if subject.State == "" {
+				return errUnauthorized
+			}
+			onboardingState, nextStep = subject.State, subject.CurrentStep
+			principalStatus := "limited"
+			if onboardingState == "completed" {
+				principalStatus = "active"
+			}
+			initialScopes = principalScopesForOnboarding(onboardingState)
+			if err := tx.Raw(`INSERT INTO agent_principals
+				(agent_id, key_type, key_fingerprint, public_key, status, created_at, last_seen_at)
+				VALUES (?, 'ed25519-v1', ?, ?, ?, ?, ?) RETURNING principal_id`,
+				agentID, keyFingerprint, []byte(publicKey), principalStatus, now, now).Scan(&principalID).Error; err != nil {
+				return err
+			}
+			if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
+				draftObject, req.FieldProvenance,
+				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
+				return err
+			}
 		} else {
+			if expectedAgentID != 0 {
+				return errUnauthorized
+			}
 			agentID = newAgentID
 			aliasToken, tokenErr := randomToken("", 18)
 			if tokenErr != nil {
@@ -471,8 +541,9 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 
 		grantUpdate := tx.Exec(`UPDATE agent_bootstrap_grants
 			SET status = 'consumed', consumed_at = ?, consumed_by_agent_id = ?
-			WHERE jti_hash = ? AND status = 'issued' AND consumed_at IS NULL AND expires_at >= ?`,
-			now, agentID, hashString(req.BootstrapGrant), now)
+			WHERE jti_hash = ? AND status = 'issued' AND consumed_at IS NULL AND expires_at >= ?
+			  AND (subject_agent_id IS NULL OR subject_agent_id = ?)`,
+			now, agentID, hashString(req.BootstrapGrant), now, agentID)
 		if grantUpdate.Error != nil || grantUpdate.RowsAffected != 1 {
 			return errUnauthorized
 		}
@@ -614,7 +685,8 @@ func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState s
 	name, nameOK := nameValue.(string)
 	name = strings.TrimSpace(name)
 	nameEntry := provenance["identity_card.agent_name"]
-	if nameExists && nameOK && name != "" && !nameEntry.HumanConfirmed &&
+	if onboardingState != "migration_pending" &&
+		nameExists && nameOK && name != "" && !nameEntry.HumanConfirmed &&
 		name != "EigenFlux Agent" {
 		if err := tx.Exec(`UPDATE agents SET agent_name = ?, updated_at = ? WHERE agent_id = ?`, name, now, agentID).Error; err != nil {
 			return err

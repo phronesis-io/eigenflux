@@ -380,6 +380,7 @@ func (s *Service) Register(h *server.Hertz) {
 		h.GET("/api/v2/runtime/control/stream", s.agentAuth("commands:claim"), s.streamRuntimeControl)
 	}
 	if s.enableAttentionV1 {
+		h.POST("/api/v2/agent-attention-items/prefill", s.agentAuth("attention:prefill"), s.requireIncomplete, s.prefillAttentionItems)
 		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.GET("/api/v2/console/attention-items", s.consoleAuth(false), s.requireCompleted, s.listAttentionItems)
 		h.GET("/api/v2/console/attention-items/:attention_id", s.consoleAuth(false), s.requireCompleted, s.getAttentionItem)
@@ -545,6 +546,10 @@ type agentPrincipal struct {
 }
 
 func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
+	return s.agentAuthAny(requiredScope)
+}
+
+func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		header := string(c.GetHeader("Authorization"))
 		if !strings.HasPrefix(header, "Bearer efv2a_") {
@@ -564,7 +569,14 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 				  AND p.revoked_at IS NULL AND p.status IN ('limited','active')
 				  AND a.identity_state = 'active'`, hashString(token), now).
 			Scan(&principal).Error
-		if err != nil || principal.AgentID == 0 || !containsScope(principal.Scopes, requiredScope) {
+		hasRequiredScope := false
+		for _, requiredScope := range requiredScopes {
+			if containsScope(principal.Scopes, requiredScope) {
+				hasRequiredScope = true
+				break
+			}
+		}
+		if err != nil || principal.AgentID == 0 || !hasRequiredScope {
 			fail(c, http.StatusUnauthorized, "AGENT_AUTH_INVALID", "Agent V2 token is expired or lacks the required scope", nil)
 			c.Abort()
 			return
@@ -686,6 +698,30 @@ func (s *Service) requireCompleted(ctx context.Context, c *app.RequestContext) {
 	}
 	if err := s.db.Raw(`SELECT state, current_step FROM agent_onboarding_v2 WHERE agent_id = ?`, id).Scan(&state).Error; err != nil || state.State != "completed" {
 		fail(c, http.StatusConflict, "ONBOARDING_REQUIRED", "complete onboarding before using this Console V2 capability", map[string]interface{}{"next_step": state.CurrentStep})
+		c.Abort()
+		return
+	}
+	c.Next(ctx)
+}
+
+func (s *Service) requireIncomplete(ctx context.Context, c *app.RequestContext) {
+	id, ok := agentID(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "Agent V2 authentication is required", nil)
+		c.Abort()
+		return
+	}
+	var state struct {
+		State       string `gorm:"column:state"`
+		CurrentStep int16  `gorm:"column:current_step"`
+	}
+	if err := s.db.Raw(`SELECT state, current_step FROM agent_onboarding_v2 WHERE agent_id = ?`, id).Scan(&state).Error; err != nil || state.State == "" {
+		fail(c, http.StatusUnauthorized, "AGENT_AUTH_INVALID", "Agent V2 identity is unavailable", nil)
+		c.Abort()
+		return
+	}
+	if state.State == "completed" {
+		fail(c, http.StatusConflict, "ATTENTION_PREFILL_CLOSED", "Attention Prefill closes when onboarding completes", map[string]interface{}{"current_step": state.CurrentStep})
 		c.Abort()
 		return
 	}

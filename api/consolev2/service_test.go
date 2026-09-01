@@ -39,6 +39,7 @@ func TestConsoleHandoffTTL(t *testing.T) {
 
 func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
 	want := []string{
+		"attention:write",
 		"feed:feedback",
 		"communication:read", "communication:write",
 		"relations:read", "relations:write",
@@ -57,10 +58,18 @@ func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
 	}
 
 	incomplete := principalScopesForOnboarding("draft")
+	incompleteAvailable := make(map[string]bool, len(incomplete))
 	for _, scope := range incomplete {
+		incompleteAvailable[scope] = true
 		if scope == "communication:write" || scope == "broadcast:write" || scope == "settings:write" {
 			t.Fatalf("incomplete principal unexpectedly received scope %q", scope)
 		}
+	}
+	if !incompleteAvailable["attention:prefill"] || incompleteAvailable["attention:write"] {
+		t.Fatalf("incomplete principal Attention scopes are invalid: %#v", incomplete)
+	}
+	if available["attention:prefill"] {
+		t.Fatal("completed principal retained the setup-only attention:prefill scope")
 	}
 }
 
@@ -70,13 +79,14 @@ func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := provisionRequest{
-		BootstrapGrant: "efbg_test",
-		IdempotencyKey: "provision-test-request",
-		Nonce:          "efn_test",
-		PublicKey:      base64.RawURLEncoding.EncodeToString(publicKey),
-		IssuedAt:       1234,
-		AgentName:      "Agent One",
-		Draft:          []byte(`{"network_goal":"test"}`),
+		BootstrapGrant:  "efbg_test",
+		IdempotencyKey:  "provision-test-request",
+		Nonce:           "efn_test",
+		PublicKey:       base64.RawURLEncoding.EncodeToString(publicKey),
+		IssuedAt:        1234,
+		AgentName:       "Agent One",
+		ExpectedAgentID: "42",
+		Draft:           []byte(`{"network_goal":"test"}`),
 	}
 	transcript, err := provisionTranscript(req)
 	if err != nil {
@@ -93,6 +103,15 @@ func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	}
 	if ed25519.Verify(publicKey, mutated, signature) {
 		t.Fatal("signature remained valid after a covered field was mutated")
+	}
+	req.AgentName = "Agent One"
+	req.ExpectedAgentID = "43"
+	mutated, err = provisionTranscript(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ed25519.Verify(publicKey, mutated, signature) {
+		t.Fatal("signature remained valid after expected_agent_id was mutated")
 	}
 }
 
@@ -239,6 +258,8 @@ func TestRegisterV2RoutesDoesNotConflictWithV1(t *testing.T) {
 		ConsoleV2BootstrapSecret: "test-secret",
 		ConsoleV2OTPPepper:       "test-otp-pepper",
 		ConsoleV2PublicURL:       "https://console.example.test",
+		EnableControlChannelV2:   true,
+		EnableAgentAttentionV1:   true,
 	})
 	if err != nil {
 		t.Fatal(err)
