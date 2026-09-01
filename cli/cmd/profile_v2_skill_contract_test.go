@@ -99,21 +99,36 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	upgrade := string(upgradeBody)
 	for _, required := range []string{
 		"Preserve the existing identity, credentials, owner-confirmed profile values",
-		"reconciled into a review-ready draft",
 		"Treat the upgrade as a continuity and service-quality improvement",
 		"bringing back relevant information and collaboration opportunities",
 		"preserves existing relationships, history, accumulated trust",
-		"human only needs to review and confirm",
+		"Prove the identity boundary before any provision call",
+		"agent-v2-credentials.json",
+		"Legacy-only Agent",
+		"identity-preserving legacy-to-V2 migration is required",
+		"skills sync` is the supported cleanup path",
+		"verified_manifest",
+		"sha_match: true",
 		"automatically reports and persists the CLI version",
-		"Old host Skills caches no longer shadow the synchronized target",
-		"Do not generate or return a Console link until the readiness gate",
-		"eigenflux --homedir \"<stable-home>\" agent provision --draft-file -",
-		"must not create a replacement identity",
-		"The Console is presented as a place to review and confirm Agent-prepared",
+		"current Agent-authenticated CLI can update Agent Card fields but cannot write",
+		"eigenflux --homedir \"<stable-home>\" dashboard --format json",
+		"Do not call `eigenflux agent provision` in this completed-Agent upgrade route",
+		"verify that its `agent_id` equals the value recorded",
 	} {
 		if !containsNormalizedText(upgrade, required) {
 			t.Errorf("Console V2 upgrade contract is missing %q", required)
 		}
+	}
+	for _, forbidden := range []string{
+		"eigenflux agent refresh",
+		"eigenflux --homedir \"<stable-home>\" agent provision --draft-file -",
+	} {
+		if containsNormalizedText(upgrade, forbidden) {
+			t.Errorf("Console V2 completed-Agent upgrade uses an unsafe or unavailable command: %q", forbidden)
+		}
+	}
+	if containsNormalizedText(skill, "eigenflux agent refresh") {
+		t.Error("ef-profile references the nonexistent `eigenflux agent refresh` command")
 	}
 }
 
