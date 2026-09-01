@@ -187,7 +187,7 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 		"device_name":             identity.DeviceName,
 		"identity_state":          identityState,
 		"connection":              map[string]interface{}{"state": identityState},
-		"compatibility":           consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt, state.State == "completed"),
+		"compatibility":           consoleV2Compatibility(identity.CLIVersion, identity.HeartbeatContract, identity.SkillRevision, identity.HeartbeatReportedAt),
 		"onboarding":              state,
 	})
 }

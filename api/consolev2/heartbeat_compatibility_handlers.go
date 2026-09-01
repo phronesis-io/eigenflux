@@ -78,7 +78,6 @@ func (s *Service) loadConsoleV2Compatibility(agentIDValue int64) (map[string]int
 		state.HeartbeatContract,
 		state.SkillRevision,
 		state.ReportedAt,
-		state.OnboardingState == "completed",
 	), state.OnboardingState, nil
 }
 
@@ -110,17 +109,15 @@ func (s *Service) LegacyConsoleCompatibilityHandler() app.HandlerFunc {
 	}
 }
 
-func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string, reportedAt int64, onboardingCompleted bool) map[string]interface{} {
+func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string, reportedAt int64) map[string]interface{} {
 	status := "ready"
 	reason := ""
 	available := true
-	if !onboardingCompleted {
-		switch {
-		case strings.TrimSpace(cliVersion) == "":
-			status, reason, available = "unknown", "report_missing", false
-		case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
-			status, reason, available = "upgrade_required", "cli_outdated", false
-		}
+	switch {
+	case strings.TrimSpace(cliVersion) == "":
+		status, reason, available = "unknown", "report_missing", false
+	case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
+		status, reason, available = "upgrade_required", "cli_outdated", false
 	}
 	return map[string]interface{}{
 		"available":                           available,

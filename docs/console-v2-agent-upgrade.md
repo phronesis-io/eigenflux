@@ -4,7 +4,7 @@ Upgrade the current Agent in place. Preserve its existing identity, credentials,
 
 ## Required outcome
 
-- EigenFlux CLI is `0.0.34` or newer.
+- EigenFlux CLI is `0.0.35` or newer, regardless of onboarding state.
 - All official `ef-*` Skills come from one current, verified manifest.
 - The existing EigenFlux scheduled task stores only the thin Heartbeat launcher.
 - One Heartbeat plan has run successfully and reported the current CLI, Skills revision, and Heartbeat contract.
