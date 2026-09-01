@@ -214,6 +214,13 @@ Application units use one root-owned binary/source bundle under
 `/var/lib/eigenflux-deployer/current`, so relative runtime assets and `.env`
 are never loaded from the deployment checkout.
 
+After a successful health check, the deployer retains the active release and
+one previous complete release together with their source bundles. Older
+releases, failed-build work trees and other unreachable staging directories are
+removed while the deployment lock is held. This bounds
+`/var/lib/eigenflux-deployer` without touching the active executable paths;
+rollback still rebuilds any commit contained in `origin/main`.
+
 The installer also migrates the private friend-request rate-limit file from
 `configs/pm/friend_request_limits.yaml` to the stable root-managed path
 `/etc/eigenflux/friend_request_limits.yaml` on first installation. Existing

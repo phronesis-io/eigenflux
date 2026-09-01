@@ -107,6 +107,92 @@ deploy_main_activate_build() {
   fi
 }
 
+deploy_main_release_complete() {
+  local release_dir=$1
+  local binary
+  [[ -d "${release_dir}/bin" && -L "${release_dir}/source" ]] || return 1
+  for binary in profile item sort feed pm auth notification api ws pipeline cron; do
+    [[ -x "${release_dir}/bin/${binary}" ]] || return 1
+  done
+}
+
+deploy_main_prune_artifacts() {
+  local state_dir=$1
+  local retain_count=${2:-2}
+  local current_release current_source candidate source_dir path
+  local -a keep_releases keep_sources
+  local removed_releases=0
+  local removed_work=0
+
+  [[ "${retain_count}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Deployment artifact retention must be a positive integer." >&2
+    return 1
+  }
+
+  state_dir="$(cd "${state_dir}" && pwd -P)" || return 1
+
+  current_release="$(readlink -f "${state_dir}/current")" || return 1
+  case "${current_release}" in
+    "${state_dir}/releases/"*) ;;
+    *)
+      echo "Refusing artifact prune: current release is outside ${state_dir}/releases." >&2
+      return 1
+      ;;
+  esac
+  deploy_main_release_complete "${current_release}" || {
+    echo "Refusing artifact prune: current release is incomplete." >&2
+    return 1
+  }
+
+  keep_releases=("${current_release}")
+  while IFS= read -r candidate; do
+    [[ "${candidate}" == "${current_release}" ]] && continue
+    deploy_main_release_complete "${candidate}" || continue
+    keep_releases+=("${candidate}")
+    [[ ${#keep_releases[@]} -ge ${retain_count} ]] && break
+  done < <(LC_ALL=C ls -1dt "${state_dir}"/releases/* 2>/dev/null || true)
+
+  keep_sources=()
+  for candidate in "${keep_releases[@]}"; do
+    source_dir="$(readlink -f "${candidate}/source")" || return 1
+    case "${source_dir}" in
+      "${state_dir}/work/"*) ;;
+      *)
+        echo "Refusing artifact prune: release source is outside ${state_dir}/work." >&2
+        return 1
+        ;;
+    esac
+    [[ -d "${source_dir}" ]] || {
+      echo "Refusing artifact prune: release source is missing: ${source_dir}" >&2
+      return 1
+    }
+    keep_sources+=("${source_dir}")
+  done
+  current_source="${keep_sources[0]}"
+
+  for path in "${state_dir}"/releases/*; do
+    [[ -d "${path}" ]] || continue
+    for candidate in "${keep_releases[@]}"; do
+      [[ "${path}" == "${candidate}" ]] && continue 2
+    done
+    rm -rf "${path}" || return 1
+    removed_releases=$((removed_releases + 1))
+  done
+
+  for path in "${state_dir}"/work/*; do
+    [[ -d "${path}" ]] || continue
+    for source_dir in "${keep_sources[@]}"; do
+      [[ "${path}" == "${source_dir}" ]] && continue 2
+    done
+    rm -rf "${path}" || return 1
+    removed_work=$((removed_work + 1))
+  done
+
+  [[ "$(readlink -f "${state_dir}/current")" == "${current_release}" ]]
+  [[ "$(readlink -f "${state_dir}/current/source")" == "${current_source}" ]]
+  echo "Deployment artifact retention: kept ${#keep_releases[@]} release(s); removed ${removed_releases} release(s) and ${removed_work} work tree(s)."
+}
+
 deploy_main_prepare_source() {
   local project_root=$1
   local state_dir=$2
@@ -203,7 +289,10 @@ deploy_main_run() {
   local source_dir release_dir
   source_dir="$(deploy_main_prepare_source "${project_root}" "${state_dir}" "${target}" \
     "${runtime_env}" "${deploy_user}" "${deploy_home}")" || return 1
-  bash "${source_dir}/scripts/common/build.sh" || return 1
+  if ! bash "${source_dir}/scripts/common/build.sh"; then
+    rm -rf "${source_dir}"
+    return 1
+  fi
   release_dir="$(deploy_main_stage_build "${source_dir}" "${state_dir}" "${target}" "${source_dir}")" || return 1
 
   if [[ "${mode}" == "latest" ]]; then
@@ -219,6 +308,7 @@ deploy_main_run() {
 
   deploy_main_assert_clean "${project_root}" "after deployment" "${deploy_user}" "${deploy_home}" || return 1
   printf '%s\n' "${target}" > "${state_dir}/deployed-sha"
+  deploy_main_prune_artifacts "${state_dir}" 2 || return 1
 
   echo "EigenFlux deployment completed: ${target}"
 }
