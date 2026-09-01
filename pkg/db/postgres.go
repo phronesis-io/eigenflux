@@ -1,8 +1,11 @@
 package db
 
 import (
+	"io"
+	"log"
 	"os"
 	"strings"
+	"time"
 
 	"eigenflux_server/pkg/logger"
 
@@ -36,10 +39,32 @@ func LogLevelFromEnv() gormlogger.LogLevel {
 	}
 }
 
+// NewGormLogger builds the statement logger used by every core service:
+// slow threshold 200 ms (GORM default), no ANSI colours (the sink is journald,
+// not a terminal), and ErrRecordNotFound is NOT logged — a "row missing" is an
+// ordinary answer for lookups such as session-by-token, and logging it would
+// let any stream of invalid bearer tokens flood the journal even at Warn.
+func NewGormLogger(level gormlogger.LogLevel) gormlogger.Interface {
+	return NewGormLoggerTo(os.Stdout, level)
+}
+
+// NewGormLoggerTo is NewGormLogger with an explicit sink (tests).
+func NewGormLoggerTo(w io.Writer, level gormlogger.LogLevel) gormlogger.Interface {
+	return gormlogger.New(
+		log.New(w, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  level,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
+}
+
 func InitWithLogLevel(dsn string, level gormlogger.LogLevel) {
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(level),
+		Logger: NewGormLogger(level),
 	})
 	if err != nil {
 		logger.Default().Error("failed to connect to postgres", "err", err)

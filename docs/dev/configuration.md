@@ -34,7 +34,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 |----------|---------|-------------|
 | `APP_ENV` | `dev` | Runtime environment: `dev` / `test` / `staging` / `prod` |
 | `LOG_LEVEL` | `debug` | Structured log level: `debug` / `info` / `warn` / `error` |
-| `DB_LOG_LEVEL` | `warn` | GORM SQL log level: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `info` prints every statement — set it on one service temporarily to recover the SQL trace |
+| `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is never logged; `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |
 | `PROJECT_NAME` | `myhub` | Lowercase project slug. Docker Compose project name and `/skill.md` local storage namespace |
 | `PROJECT_TITLE` | `MyHub` | Human-readable project title rendered into `/skill.md` |
 | `PUBLIC_BASE_URL` | (auto) | Public root URL for `/skill.md` frontmatter; auto-generates local fallback if empty |
@@ -156,3 +156,25 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 ## Parallel Multi-Project Development
 
 Must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`) for each repository.
+
+## Temporary SQL trace on one instance
+
+All production instances read the shared `/etc/eigenflux/runtime.env`, and a
+deploy restarts every service, so do **not** put `DB_LOG_LEVEL=info` there. Use
+a per-instance systemd override instead — it survives deploys until reverted,
+and `Environment=` in a drop-in is only shadowed if `runtime.env` also sets the
+same key (it does not set `DB_LOG_LEVEL`):
+
+```bash
+sudo systemctl edit eigenflux-app@pm        # opens override.conf
+# paste:
+# [Service]
+# Environment=DB_LOG_LEVEL=info
+sudo systemctl restart eigenflux-app@pm
+journalctl -u eigenflux-app@pm -f            # full SQL trace for this instance only
+
+# when done — remove the override, back to warn
+sudo systemctl revert eigenflux-app@pm
+sudo systemctl restart eigenflux-app@pm
+```
+
