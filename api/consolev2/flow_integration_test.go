@@ -425,7 +425,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
 	}
 
-	revision := int64(2)
+	revision := int64(3)
 	for step := int16(3); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 			Step: step, ExpectedOnboardingRevision: revision, IdempotencyKey: "confirm-" + agentID + fmt.Sprint(step),
