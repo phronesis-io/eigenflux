@@ -14,6 +14,15 @@ func TestValidateConsoleV2ValueUsesUnicodeRuneLimits(t *testing.T) {
 	}
 }
 
+func TestValidateConsoleV2AgentDescriptionAllowsOneThousandCharacters(t *testing.T) {
+	if err := ValidateConsoleV2Value("agent_description", strings.Repeat("描", 1000)); err != nil {
+		t.Fatalf("exact agent_description limit rejected: %v", err)
+	}
+	if err := ValidateConsoleV2Value("agent_description", strings.Repeat("描", 1001)); err == nil {
+		t.Fatal("agent_description limit+1 was accepted")
+	}
+}
+
 func TestValidateConsoleV2ValueAggregatesListCharacters(t *testing.T) {
 	if err := ValidateConsoleV2Value("working_languages", []string{strings.Repeat("中", 50), strings.Repeat("文", 50)}); err != nil {
 		t.Fatalf("exact aggregate limit rejected: %v", err)

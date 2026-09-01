@@ -8,7 +8,7 @@ import (
 // ConsoleV2FieldLimits are additive product limits for the new console.
 var ConsoleV2FieldLimits = map[string]int{
 	"agent_name":         40,
-	"agent_description":  500,
+	"agent_description":  1000,
 	"human_description":  500,
 	"working_languages":  100,
 	"seeking":            300,
