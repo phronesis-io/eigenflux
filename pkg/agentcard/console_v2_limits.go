@@ -5,14 +5,13 @@ import (
 	"unicode/utf8"
 )
 
-// ConsoleV2FieldLimits are additive product limits for the new console only.
-// The legacy registry remains unchanged so V1 clients keep their old contract.
+// ConsoleV2FieldLimits are additive product limits for the new console.
 var ConsoleV2FieldLimits = map[string]int{
 	"agent_name":         40,
 	"agent_description":  500,
 	"human_description":  500,
 	"working_languages":  100,
-	"seeking":            1000,
+	"seeking":            300,
 	"offering":           1000,
 	"agent_status":       1000,
 	"human_status":       1000,

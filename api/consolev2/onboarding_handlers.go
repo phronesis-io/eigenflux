@@ -387,7 +387,7 @@ func (s *Service) getOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "DRAFT_READ_FAILED", "could not read onboarding draft", nil)
 		return
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"onboarding": state, "draft": draft})
+	reply(c, http.StatusOK, map[string]interface{}{"onboarding": state, "draft": draft, "limits": onboardingLimits()})
 }
 
 type confirmStepRequest struct {
@@ -438,11 +438,11 @@ func validateDraftPayload(payload draftPayload) error {
 	if utf8.RuneCountInString(payload.IdentityCard.AgentName) > 100 || utf8.RuneCountInString(payload.IdentityCard.Bio) > 2000 {
 		return errors.New("identity card exceeds its length limit")
 	}
-	if utf8.RuneCountInString(payload.NetworkGoal) > 2000 {
-		return errors.New("network goal exceeds 2000 characters")
+	if utf8.RuneCountInString(payload.NetworkGoal) > onboardingNetworkGoalMaxChars {
+		return fmt.Errorf("network goal exceeds %d characters", onboardingNetworkGoalMaxChars)
 	}
-	if len(payload.IntentActions) > 10 {
-		return errors.New("at most 10 intent actions are allowed")
+	if len(payload.IntentActions) > onboardingIntentMaxItems {
+		return fmt.Errorf("at most %d intent actions are allowed", onboardingIntentMaxItems)
 	}
 	for _, intent := range payload.IntentActions {
 		if err := validateIntent(IntentWriteFields{
@@ -513,12 +513,12 @@ func validateDraftStep(payload draftPayload, step int16) error {
 		if strings.TrimSpace(payload.NetworkGoal) == "" {
 			return fmt.Errorf("%w: network_goal is required", errInvalidOnboardingDraft)
 		}
-		if utf8.RuneCountInString(payload.NetworkGoal) > 2000 {
-			return fmt.Errorf("%w: network goal exceeds 2000 characters", errInvalidOnboardingDraft)
+		if utf8.RuneCountInString(payload.NetworkGoal) > onboardingNetworkGoalMaxChars {
+			return fmt.Errorf("%w: network goal exceeds %d characters", errInvalidOnboardingDraft, onboardingNetworkGoalMaxChars)
 		}
 	case 4:
-		if len(payload.IntentActions) > 10 {
-			return fmt.Errorf("%w: at most 10 intent actions are allowed", errInvalidOnboardingDraft)
+		if len(payload.IntentActions) > onboardingIntentMaxItems {
+			return fmt.Errorf("%w: at most %d intent actions are allowed", errInvalidOnboardingDraft, onboardingIntentMaxItems)
 		}
 		for _, intent := range payload.IntentActions {
 			if err := validateIntent(IntentWriteFields{

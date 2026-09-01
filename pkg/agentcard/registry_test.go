@@ -61,11 +61,11 @@ func TestValidateValue(t *testing.T) {
 	if _, err := ValidateValue(listSpec, json.RawMessage(`["AI infra","agent collaboration"]`)); err != nil {
 		t.Errorf("valid list rejected: %v", err)
 	}
-	if _, err := ValidateValue(listSpec, json.RawMessage(`["`+strings.Repeat("x", 1000)+`"]`)); err != nil {
-		t.Errorf("1000-character seeking item rejected: %v", err)
+	if _, err := ValidateValue(listSpec, json.RawMessage(`["`+strings.Repeat("x", 300)+`"]`)); err != nil {
+		t.Errorf("300-character seeking item rejected: %v", err)
 	}
-	if _, err := ValidateValue(listSpec, json.RawMessage(`["`+strings.Repeat("x", 1001)+`"]`)); err == nil {
-		t.Error("1001-character seeking item accepted")
+	if _, err := ValidateValue(listSpec, json.RawMessage(`["`+strings.Repeat("x", 301)+`"]`)); err == nil {
+		t.Error("301-character seeking item accepted")
 	}
 	if _, err := ValidateValue(listSpec, json.RawMessage(`"not a list"`)); err == nil {
 		t.Error("string accepted for a list field")

@@ -48,7 +48,7 @@ var EditableFields = []FieldSpec{
 	{Name: "agent_description", Public: true, Storage: StorageAgents, Kind: "string", MaxLen: 4000},
 	{Name: "human_description", Public: true, Storage: StorageProfileData, Kind: "string", MaxLen: 2000},
 	{Name: "working_languages", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 32, MaxItems: 10},
-	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 1000, MaxItems: 20},
+	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 300, MaxItems: 20},
 	{Name: "offering", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 20},
 
 	{Name: "geo", Public: false, Storage: StorageProfileData, Kind: "string", MaxLen: 100},
