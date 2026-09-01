@@ -34,7 +34,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 |----------|---------|-------------|
 | `APP_ENV` | `dev` | Runtime environment: `dev` / `test` / `staging` / `prod` |
 | `LOG_LEVEL` | `debug` | Structured log level: `debug` / `info` / `warn` / `error` |
-| `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is never logged; `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |
+| `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is not logged as an error (at `info` its statement is still traced, and a >200 ms lookup is still reported as slow); `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |
 | `PROJECT_NAME` | `myhub` | Lowercase project slug. Docker Compose project name and `/skill.md` local storage namespace |
 | `PROJECT_TITLE` | `MyHub` | Human-readable project title rendered into `/skill.md` |
 | `PUBLIC_BASE_URL` | (auto) | Public root URL for `/skill.md` frontmatter; auto-generates local fallback if empty |
@@ -173,7 +173,10 @@ sudo install -d /etc/systemd/system/eigenflux-app@pm.service.d
 printf '[Service]\nEnvironmentFile=-/etc/eigenflux/db-trace-pm.env\n' \
   | sudo tee /etc/systemd/system/eigenflux-app@pm.service.d/zz-db-trace.conf >/dev/null
 sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
-systemctl show eigenflux-app@pm -p Environment | tr ' ' '\n' | grep DB_LOG_LEVEL   # expect info
+# verify — `systemctl show -p Environment` does NOT expand EnvironmentFile, so read
+# the live process environment, or look for the startup line the service logs:
+sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value eigenflux-app@pm)/environ | grep DB_LOG_LEVEL   # expect info
+journalctl -u eigenflux-app@pm -n 200 | grep 'gorm log level'                                                  # expect level=info
 journalctl -u eigenflux-app@pm -f                                              # full SQL trace, this instance only
 
 # turn off — delete only our two files (do NOT use `systemctl revert`: it
@@ -184,3 +187,8 @@ sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
 
 The override survives deploys (the deployer rewrites `deployer.conf` only), so
 remember to turn it off.
+
+This is the one sanctioned exception to "configuration changes are followed by
+a deployment" in `scripts/cloud/DEPLOYMENT_POLICY.md`: it changes no code and
+no shared environment value, is scoped to one instance, and must be removed in
+the same session — see the policy's *Temporary diagnostic overrides* clause.

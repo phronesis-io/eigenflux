@@ -64,6 +64,9 @@ func NewGormLoggerTo(w io.Writer, level gormlogger.LogLevel) gormlogger.Interfac
 
 func InitWithLogLevel(dsn string, level gormlogger.LogLevel) {
 	var err error
+	// One line at startup so an operator can confirm which level the running
+	// instance actually resolved (systemctl show does not expand EnvironmentFile).
+	logger.Default().Info("gorm log level", "level", logLevelName(level))
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: NewGormLogger(level),
 	})
@@ -78,4 +81,19 @@ func InitWithLogLevel(dsn string, level gormlogger.LogLevel) {
 	}
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetMaxIdleConns(10)
+}
+
+func logLevelName(level gormlogger.LogLevel) string {
+	switch level {
+	case gormlogger.Silent:
+		return "silent"
+	case gormlogger.Error:
+		return "error"
+	case gormlogger.Warn:
+		return "warn"
+	case gormlogger.Info:
+		return "info"
+	default:
+		return "unknown"
+	}
 }
