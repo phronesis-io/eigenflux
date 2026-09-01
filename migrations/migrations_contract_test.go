@@ -170,3 +170,31 @@ func TestCompletedAgentV2SessionScopeRepairMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoricalAgentRecoveryMigrationPreservesIdentityHistory(t *testing.T) {
+	sql := migration(t, "000090_console_v2_account_recovery.sql")
+	for _, required := range []string{
+		"identity_state IN ('active', 'recovered_temporary')",
+		"WHERE identity_state = 'active'",
+		"client_capabilities TEXT[]",
+		"revoked_at BIGINT",
+		"WHERE consumed_at IS NULL AND revoked_at IS NULL",
+		"access_refresh_required BOOLEAN",
+		"source_agent_id <> target_agent_id",
+		"source_disposition IN ('abandon', 'preserve')",
+		"WHERE status = 'completed'",
+		"idx_agent_account_recovery_source_completed",
+		"agent_account_recovery_audit",
+		"account recovery history is permanent",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("historical Agent recovery migration missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "otp_hmac") || strings.Contains(sql, "public_key") {
+		t.Fatal("account recovery audit schema must not persist OTP or key material")
+	}
+	if strings.Contains(sql, "CREATE UNIQUE INDEX uq_agent_account_recovery_source_terminal") {
+		t.Fatal("formal accounts must be able to switch away and later switch back")
+	}
+}

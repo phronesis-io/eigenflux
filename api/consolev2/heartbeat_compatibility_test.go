@@ -29,9 +29,9 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 	}{
 		{name: "missing report", status: "unknown", reason: "report_missing"},
 		{name: "old cli", cli: "0.0.33", contract: heartbeatContractV1, revision: "r1", status: "upgrade_required", reason: "cli_outdated"},
-		{name: "old heartbeat is accepted", cli: "0.0.34", contract: "legacy", revision: "r1", status: "ready", available: true},
-		{name: "missing skills is accepted", cli: "0.0.34", contract: heartbeatContractV1, status: "ready", available: true},
-		{name: "minimum ready", cli: "0.0.34", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
+		{name: "old heartbeat is accepted", cli: "0.0.35", contract: "legacy", revision: "r1", status: "ready", available: true},
+		{name: "missing skills is accepted", cli: "0.0.35", contract: heartbeatContractV1, status: "ready", available: true},
+		{name: "minimum ready", cli: "0.0.35", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
 		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},
 	}
 	for _, test := range tests {
@@ -52,11 +52,31 @@ func TestCompareConsoleCLIVersion(t *testing.T) {
 		left, right string
 		want        int
 	}{
-		{"0.0.33", "0.0.34", -1}, {"v0.0.34", "0.0.34", 0}, {"0.0.35-dev.1", "0.0.34", 1},
+		{"0.0.34", "0.0.35", -1}, {"v0.0.35", "0.0.35", 0}, {"0.0.36-dev.1", "0.0.35", 1},
 	} {
 		if got := compareConsoleCLIVersion(test.left, test.right); got != test.want {
 			t.Fatalf("compare(%q,%q)=%d want %d", test.left, test.right, got, test.want)
 		}
+	}
+}
+
+func TestRecoveryRefreshRequiresCLI0035(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		refreshRequired bool
+		cliVersion      string
+		want            bool
+	}{
+		{name: "ordinary refresh remains compatible", cliVersion: "0.0.34", want: true},
+		{name: "recovery blocks 0.0.34", refreshRequired: true, cliVersion: "0.0.34"},
+		{name: "recovery blocks missing version", refreshRequired: true},
+		{name: "recovery allows 0.0.35", refreshRequired: true, cliVersion: "0.0.35", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := recoveryRefreshCLIAllowed(test.refreshRequired, test.cliVersion); got != test.want {
+				t.Fatalf("allowed = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 

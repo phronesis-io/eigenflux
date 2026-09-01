@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/controlcontext"
+	"cli.eigenflux.ai/internal/profilestate"
 )
 
 func newBrowserNonce() (string, error) {
@@ -40,25 +43,39 @@ func newV2ClientForServer(serverName string, requireAuth bool) (*client.Client, 
 		}
 		token = credentials.AccessToken
 	}
-	return client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", token, version, clientMeta), server, nil
+	result := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", token, version, clientMeta)
+	if requireAuth {
+		result.OnUnauthorized = func() (string, error) {
+			refreshed, refreshErr := refreshV2Credentials(server.Name, server.Endpoint, true)
+			if refreshErr != nil {
+				return "", refreshErr
+			}
+			return refreshed.AccessToken, nil
+		}
+	}
+	return result, server, nil
 }
 
 func ensureV2Credentials(serverName, endpoint string) (*auth.V2Credentials, error) {
+	return refreshV2Credentials(serverName, endpoint, false)
+}
+
+func refreshV2Credentials(serverName, endpoint string, force bool) (*auth.V2Credentials, error) {
 	var credentials *auth.V2Credentials
 	err := auth.WithV2CredentialsLock(serverName, 35*time.Second, func() error {
 		var refreshErr error
-		credentials, refreshErr = ensureV2CredentialsUnlocked(serverName, endpoint)
+		credentials, refreshErr = ensureV2CredentialsUnlocked(serverName, endpoint, force)
 		return refreshErr
 	})
 	return credentials, err
 }
 
-func ensureV2CredentialsUnlocked(serverName, endpoint string) (*auth.V2Credentials, error) {
+func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool) (*auth.V2Credentials, error) {
 	credentials, err := auth.LoadV2Credentials(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("Agent V2 is not provisioned for server %q — run 'eigenflux agent init' and then 'eigenflux agent provision': %w", serverName, err)
 	}
-	if credentials.ExpiresAt > time.Now().Add(30*time.Second).UnixMilli() {
+	if !force && credentials.ExpiresAt > time.Now().Add(30*time.Second).UnixMilli() {
 		return credentials, nil
 	}
 	publicKey, privateKey, _, err := auth.LoadOrCreateIdentity(serverName)
@@ -96,22 +113,36 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string) (*auth.V2Credentia
 		return nil, err
 	}
 	var refreshed struct {
+		AgentID      string   `json:"agent_id"`
 		PrincipalID  string   `json:"principal_id"`
 		AccessToken  string   `json:"access_token"`
 		RefreshToken string   `json:"refresh_token"`
 		ExpiresAt    int64    `json:"expires_at"`
 		Scopes       []string `json:"scopes"`
 	}
-	if json.Unmarshal(refreshResponse.Data, &refreshed) != nil || refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
+	if json.Unmarshal(refreshResponse.Data, &refreshed) != nil || refreshed.AgentID == "" || refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
 		return nil, fmt.Errorf("invalid Agent V2 refresh response")
 	}
+	oldAgentID := credentials.AgentID
 	credentials.AccessToken = refreshed.AccessToken
 	credentials.RefreshToken = refreshed.RefreshToken
+	credentials.AgentID = refreshed.AgentID
 	credentials.PrincipalID = refreshed.PrincipalID
 	credentials.ExpiresAt = refreshed.ExpiresAt
 	credentials.Scopes = refreshed.Scopes
 	if err := auth.SaveV2Credentials(serverName, credentials); err != nil {
 		return nil, err
+	}
+	if oldAgentID != "" && oldAgentID != refreshed.AgentID {
+		if err := cache.DeleteIdentityScopedData(serverName); err != nil {
+			return nil, fmt.Errorf("clear previous Agent local data: %w", err)
+		}
+		if err := controlcontext.Delete(serverName); err != nil {
+			return nil, fmt.Errorf("clear previous Agent control context: %w", err)
+		}
+		if err := profilestate.Delete(config.HomeDir(), serverName, oldAgentID); err != nil {
+			return nil, fmt.Errorf("clear previous Agent profile state: %w", err)
+		}
 	}
 	return credentials, nil
 }

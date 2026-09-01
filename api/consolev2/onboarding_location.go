@@ -20,6 +20,21 @@ var onboardingCountryAliases = map[string]string{
 	"ZZ": "ZZ", "OTHER": "ZZ", "其他": "ZZ",
 }
 
+// Historical profiles predate the ISO-only onboarding contract and may contain
+// display names emitted by older Console clients.
+var historicalOnboardingCountryAliases = map[string]string{
+	"GERMANY": "DE", "DEUTSCHLAND": "DE", "德国": "DE",
+	"FRANCE": "FR", "CANADA": "CA", "AUSTRALIA": "AU", "INDIA": "IN",
+	"BRAZIL": "BR", "SOUTH KOREA": "KR", "KOREA": "KR",
+	"SWITZERLAND": "CH", "NETHERLANDS": "NL", "SWEDEN": "SE",
+	"NORWAY": "NO", "DENMARK": "DK", "FINLAND": "FI", "SPAIN": "ES",
+	"ITALY": "IT", "PORTUGAL": "PT", "BELGIUM": "BE", "AUSTRIA": "AT",
+	"POLAND": "PL", "RUSSIA": "RU", "TURKEY": "TR",
+	"SAUDI ARABIA": "SA", "UNITED ARAB EMIRATES": "AE", "UAE": "AE",
+	"SOUTH AFRICA": "ZA", "NEW ZEALAND": "NZ", "THAILAND": "TH",
+	"VIETNAM": "VN", "INDONESIA": "ID", "MALAYSIA": "MY", "PHILIPPINES": "PH",
+}
+
 var onboardingTimezoneAliases = map[string]string{
 	"ASIA/SHANGHAI":       "Asia/Shanghai",
 	"ASIA/SINGAPORE":      "Asia/Singapore",
@@ -33,6 +48,8 @@ var onboardingListFields = []string{
 	"working_languages",
 	"seeking",
 	"offering",
+	"current_focus",
+	"demands",
 	"agent_status",
 	"human_status",
 	"interests_negative",
@@ -169,4 +186,60 @@ func normalizeOnboardingDraftJSON(raw json.RawMessage) (json.RawMessage, map[str
 	}
 	encoded, err := json.Marshal(draft)
 	return encoded, draft, err
+}
+
+// normalizeHistoricalOnboardingDraftJSON keeps ordinary onboarding validation
+// strict while tolerating optional location values written by older clients.
+// Recognized legacy values are normalized; unrecognized values are cleared so
+// they cannot prevent identity recovery.
+func normalizeHistoricalOnboardingDraftJSON(raw json.RawMessage) (json.RawMessage, map[string]interface{}, error) {
+	draft, err := decodeJSONObject(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	normalizeHistoricalOnboardingDraftLocations(draft)
+	if err := normalizeOnboardingDraftLists(draft); err != nil {
+		return nil, nil, err
+	}
+	encoded, err := json.Marshal(draft)
+	return encoded, draft, err
+}
+
+func normalizeHistoricalOnboardingDraftLocations(draft map[string]interface{}) {
+	identity, ok := draft["identity_card"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	country := ""
+	if raw, exists := identity["geo"]; exists {
+		if text, ok := raw.(string); ok {
+			if normalized, valid := normalizeHistoricalOnboardingCountry(text); valid {
+				country = normalized
+				identity["geo"] = normalized
+			} else {
+				identity["geo"] = ""
+			}
+		} else {
+			identity["geo"] = ""
+		}
+	}
+	if raw, exists := identity["timezone"]; exists {
+		if text, ok := raw.(string); ok {
+			if normalized, err := normalizeOnboardingTimezone(text, country); err == nil {
+				identity["timezone"] = normalized
+			} else {
+				identity["timezone"] = ""
+			}
+		} else {
+			identity["timezone"] = ""
+		}
+	}
+}
+
+func normalizeHistoricalOnboardingCountry(raw string) (string, bool) {
+	if normalized, err := normalizeOnboardingCountry(raw); err == nil {
+		return normalized, true
+	}
+	value, ok := historicalOnboardingCountryAliases[strings.ToUpper(strings.TrimSpace(raw))]
+	return value, ok
 }

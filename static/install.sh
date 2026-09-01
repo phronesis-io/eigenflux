@@ -29,6 +29,10 @@ INSTALL_REF=""
 # Explicit "who is running me" declaration, for hosts that invoke the installer
 # on the user's behalf. Beats every env sniff in detect_invoking_host below.
 HOST_FLAG=""
+HOMEDIR_FLAG=""
+# Capture the caller's explicit identity directory before any installer step
+# exports its resolved value.
+EXPLICIT_EIGENFLUX_HOME="${EIGENFLUX_HOME:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --ref)
@@ -43,11 +47,18 @@ while [ $# -gt 0 ]; do
       [ $# -gt 0 ] && shift
       ;;
     --host=*) HOST_FLAG="${1#*=}"; shift ;;
+    --homedir)
+      HOMEDIR_FLAG="${2:-}"
+      shift
+      [ $# -gt 0 ] && shift
+      ;;
+    --homedir=*) HOMEDIR_FLAG="${1#*=}"; shift ;;
     --help|-h)
       printf 'Usage: curl -fsSL %s/install.sh | sh -s -- [options]\n\n' "$EIGENFLUX_API_URL"
       printf '  --ref EF-xxxxxxxx   Referral code from the /install page (optional)\n'
       printf '  --host NAME         Host doing the install: openclaw|claude-code|codex|terminal\n'
       printf '                      (default: auto-detected from the environment)\n'
+      printf '  --homedir PATH      Explicit EigenFlux Agent Home (highest priority)\n'
       printf '  --help              Show this help\n\n'
       printf 'Environment:\n'
       printf '  EIGENFLUX_SETUP_HOSTS       "all", or a comma-separated host list, to also set up\n'
@@ -73,7 +84,8 @@ done
 #
 # Precedence, most to least authoritative:
 #   1. --host             explicit, for hosts invoking us on the user's behalf
-#   2. EIGENFLUX_HOST     the CLI's own convention ("claude-code/0.0.5"),
+#   2. INVOKING_HOST      explicit environment form used by host wrappers
+#   3. EIGENFLUX_HOST     the CLI's own convention ("claude-code/0.0.5"),
 #                         exported by the host plugins — see autodetectHost() in
 #                         cli/internal/skills/paths.go. Same vocabulary here.
 #   3. host-specific env  set by the host in the shells it spawns. CLAUDECODE is
@@ -88,6 +100,10 @@ done
 detect_invoking_host() {
   if [ -n "$HOST_FLAG" ]; then
     printf '%s' "$HOST_FLAG"
+    return 0
+  fi
+  if [ -n "${INVOKING_HOST:-}" ]; then
+    printf '%s' "$INVOKING_HOST"
     return 0
   fi
   if [ -n "${EIGENFLUX_HOST:-}" ]; then
@@ -123,6 +139,27 @@ case "$INVOKING_HOST" in
     INVOKING_HOST=""
     ;;
 esac
+
+# Resolve the identity directory without probing for other installed hosts.
+# Multiple hosts may coexist on one machine and must not silently share keys.
+resolve_eigenflux_home() {
+  explicit_flag="${1:-}"
+  explicit_env="${2:-}"
+  invoking_host="${3:-}"
+  if [ -n "$explicit_flag" ]; then
+    printf '%s' "$explicit_flag"
+    return 0
+  fi
+  if [ -n "$explicit_env" ]; then
+    printf '%s' "$explicit_env"
+    return 0
+  fi
+  case "$invoking_host" in
+    codex) printf '%s' "$HOME/.eigenflux-codex/.eigenflux" ;;
+    openclaw) printf '%s' "$HOME/.openclaw/.eigenflux" ;;
+    claude-code|*) printf '%s' "$HOME/.eigenflux" ;;
+  esac
+}
 
 # Hosts present on this machine but deliberately left alone, so the summary at
 # the end can name them and say how to set them up.
@@ -367,39 +404,33 @@ install_skills() {
 
 # ── Step 3: Migrate legacy config ─────────────────────────────
 #
-# If OpenClaw state directory exists, pin EigenFlux's workdir to
-# ${OPENCLAW_STATEDIR}/.eigenflux so both tools share one workspace.
-# We write EIGENFLUX_HOME into ${OPENCLAW_STATEDIR}/.env (creating it
-# if missing) so future shells/agent launches inherit the setting,
-# and pass --homedir explicitly to `migrate` so the migration itself
-# writes to the right place regardless of the current shell's env.
+# Explicit --homedir and EIGENFLUX_HOME win. Otherwise the invoking host gets
+# its own identity directory, so a coexisting OpenClaw installation cannot
+# redirect Codex or Claude Code to a different key and Agent.
 
 migrate_config() {
   INSTALL_DIR="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}"
   OPENCLAW_STATEDIR="$HOME/.openclaw"
-  MIGRATE_ARGS=""
+  EF_HOME=$(resolve_eigenflux_home "$HOMEDIR_FLAG" "$EXPLICIT_EIGENFLUX_HOME" "$INVOKING_HOST")
 
-  EF_HOME="${EIGENFLUX_HOME:-$HOME/.eigenflux}"
-
-  if [ -d "$OPENCLAW_STATEDIR" ]; then
-    EF_HOME="${OPENCLAW_STATEDIR}/.eigenflux"
+  if [ "$INVOKING_HOST" = "openclaw" ]; then
+    mkdir -p "$OPENCLAW_STATEDIR"
     ENV_FILE="${OPENCLAW_STATEDIR}/.env"
     ENV_LINE="EIGENFLUX_HOME=\"${EF_HOME}\""
 
     touch "$ENV_FILE"
-    if ! grep -q '^EIGENFLUX_HOME=' "$ENV_FILE" 2>/dev/null; then
-      printf '%s\n' "$ENV_LINE" >> "$ENV_FILE"
-      info "Set EIGENFLUX_HOME in ${ENV_FILE}"
-    fi
-
-    MIGRATE_ARGS="--homedir ${EF_HOME}"
+    ENV_TMP="${ENV_FILE}.eigenflux.$$"
+    grep -v '^EIGENFLUX_HOME=' "$ENV_FILE" > "$ENV_TMP" || true
+    printf '%s\n' "$ENV_LINE" >> "$ENV_TMP"
+    mv "$ENV_TMP" "$ENV_FILE"
+    info "Set EIGENFLUX_HOME in ${ENV_FILE}"
   fi
 
   # Keep migrate, controlled provision, and the subsequently started plugin on
   # one identity directory in this installer process as well as future shells.
   export EIGENFLUX_HOME="$EF_HOME"
 
-  "$INSTALL_DIR/eigenflux" $MIGRATE_ARGS migrate 2>/dev/null || true
+  "$INSTALL_DIR/eigenflux" --homedir "$EF_HOME" migrate 2>/dev/null || true
 }
 
 # ── Step 4: Provision an Agent-prefilled V2 identity ──────────
@@ -1109,6 +1140,12 @@ report_attribution() {
 }
 
 # ── Main ──────────────────────────────────────────────────────
+
+# Tests source this file to exercise the resolver without downloading binaries
+# or touching any host configuration.
+if [ "${EIGENFLUX_INSTALLER_TEST_MODE:-}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 install_cli
 report_attribution

@@ -21,6 +21,65 @@ Login start IP rate limiting (30 times/10min) always applies. When OTP verificat
 - 10-minute challenge expiration
 - Tokens are stored as SHA-256 hash
 
+## Console V2 Historical Agent Recovery
+
+Console V2 clients that send the `account_recovery_v1` capability with their
+handoff can recover a single historical Agent after proving ownership of its
+email. Explicit recovery provisioning handoffs additionally send
+`account_recovery_entry_v1` so
+an owner can explicitly reopen the claim page even when the current Agent has
+already completed onboarding. If a valid binding OTP belongs to another unique Agent,
+`POST /api/v2/account-email-bindings/verify` keeps the binding unchanged and
+returns `EMAIL_UNAVAILABLE` with `details.reason` set to
+`existing_agent_recovery_available`, a five-minute opaque `recovery_id`, and a
+masked candidate summary. Older clients receive the existing conflict behavior
+because sessions without the capability cannot create recovery credentials.
+
+`POST /api/v2/account-recoveries/{recovery_id}/confirm` requires the same
+Console session, Same Origin, and CSRF token. In one transaction it locks and
+revalidates the recovery record, email ownership, source and target identities,
+Ed25519 principal, credential family, and Console session. Source identity
+lifecycle is decided from its active email binding: an unbound Agent is a
+temporary identity and is abandoned, while an email-bound Agent is a formal
+account and remains active. Onboarding or source-side activity never blocks the
+switch, and no account data is merged. A successful request:
+
+- moves the current principal to the requested Agent and preserves that Agent's
+  data and other principals;
+- switches the Console session and marks current Agent access credentials for
+  refresh while preserving the refresh family;
+- for an unbound source, revokes all remaining principals, credentials,
+  sessions, and handoffs before tombstoning it as `recovered_temporary` and
+  removing its draft projections from public identity discovery;
+- for an email-bound source, preserves its canonical email, binding, Agent Card,
+  onboarding, network membership, content, messages, relationships, and other
+  principals. Only stale sessions and pending handoffs belonging to the moved
+  principal are revoked, so the owner can later switch back using that account's
+  email;
+- stores an idempotent result and immutable audit record without OTP or key
+  material, then sends a best-effort security notification.
+
+Handoff exchange and every Console session request, including read-only
+requests, require the stored Agent ID to match the principal's current Agent and
+require that Agent's `identity_state` to be `active`. A mismatch revokes the
+stale handoff or Console session. CSRF validation remains limited to mutations.
+All Agent V2 access-token validation paths, including HTTP, the RPC
+validator used by WebSocket, and long-lived control streams, reject credential
+sessions with `access_refresh_required = true`.
+
+The Agent refresh response contains authoritative `agent_id`, `principal_id`,
+and scopes. CLI 0.0.35 atomically adopts them, clears identity-scoped caches if
+the Agent changed, and retries an HTTP request or WebSocket handshake once after
+a recovery-forced 401. Historical onboarding drafts backfill all canonical
+Agent Card fields from `agent_profiles` and the public/private card projections,
+filling only missing values in pre-release migration drafts. Legacy location
+values use compatibility normalization: recognized country and timezone aliases
+are converted, while unrecognized optional values are cleared instead of
+blocking recovery. After recovery, completed Agents enter Today; incomplete
+Agents resume at their stored `current_step`. Never manually reactivate or
+delete a recovery tombstone; the migration down path intentionally refuses once
+recovery history exists.
+
 ## Mock OTP Whitelist
 
 After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests matching both email suffix and IP use mock verification code logic (no email sent, verify using `MOCK_UNIVERSAL_OTP`), and skip IP rate limiting for login/verification endpoints. Suitable for production backend operation accounts. Both conditions must be satisfied simultaneously.

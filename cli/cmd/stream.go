@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,6 +29,55 @@ const (
 	reconnectMax = 120 * time.Second
 	reconnectMul = 2.0
 )
+
+var errStreamUnauthorized = errors.New("stream authentication rejected")
+
+type streamDialer interface {
+	Dial(string, http.Header) (*websocket.Conn, *http.Response, error)
+}
+
+func dialStreamWithCredentialRefresh(dialer streamDialer, rawURL string, headers http.Header, currentAgentID string, refresh func() (*auth.V2Credentials, error)) (*websocket.Conn, *auth.V2Credentials, bool, error) {
+	conn, response, err := dialer.Dial(rawURL, headers)
+	if err == nil {
+		return conn, nil, false, nil
+	}
+	unauthorized := response != nil && response.StatusCode == http.StatusUnauthorized
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if !unauthorized {
+		return nil, nil, false, err
+	}
+	if refresh == nil {
+		return nil, nil, false, fmt.Errorf("%w: %v", errStreamUnauthorized, err)
+	}
+	credentials, refreshErr := refresh()
+	if refreshErr != nil {
+		return nil, nil, true, refreshErr
+	}
+	if credentials == nil || credentials.AccessToken == "" || credentials.AgentID == "" {
+		return nil, nil, true, fmt.Errorf("credential refresh returned an incomplete identity")
+	}
+	retryHeaders := headers.Clone()
+	retryHeaders.Set("Authorization", "Bearer "+credentials.AccessToken)
+	retryURL := rawURL
+	if currentAgentID != "" && credentials.AgentID != currentAgentID {
+		if parsed, parseErr := url.Parse(rawURL); parseErr == nil {
+			query := parsed.Query()
+			query.Del("cursor")
+			parsed.RawQuery = query.Encode()
+			retryURL = parsed.String()
+		}
+	}
+	conn, response, err = dialer.Dial(retryURL, retryHeaders)
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if err != nil && response != nil && response.StatusCode == http.StatusUnauthorized {
+		return nil, credentials, true, fmt.Errorf("%w after credential refresh: %v", errStreamUnauthorized, err)
+	}
+	return conn, credentials, true, err
+}
 
 var streamCmd = &cobra.Command{
 	Use:   "stream",
@@ -62,6 +112,7 @@ Examples:
 			return fmt.Errorf("inspect Agent V2 credentials: %w", err)
 		}
 		accessToken := ""
+		activeAgentID := ""
 		streamPath := "/ws/pm"
 		if hasV2 {
 			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
@@ -69,6 +120,7 @@ Examples:
 				return credentialErr
 			}
 			accessToken = credentials.AccessToken
+			activeAgentID = credentials.AgentID
 			streamPath = "/api/v2/agent/events/ws"
 		} else {
 			credentials, credentialErr := auth.LoadCredentials(srv.Name)
@@ -105,6 +157,7 @@ Examples:
 		lastCursor := cursor
 
 		backoff := reconnectMin
+		allowCredentialRefresh := hasV2
 
 		for {
 			mu.Lock()
@@ -134,8 +187,33 @@ Examples:
 				dialHeaders.Set("X-CLI-Ver", version)
 			}
 			clientMeta.SetHeaders(dialHeaders)
-			conn, _, dialErr := websocket.DefaultDialer.Dial(u.String(), dialHeaders)
+			var refresh func() (*auth.V2Credentials, error)
+			if allowCredentialRefresh {
+				refresh = func() (*auth.V2Credentials, error) {
+					return refreshV2Credentials(srv.Name, srv.Endpoint, true)
+				}
+			}
+			conn, refreshedCredentials, refreshAttempted, dialErr := dialStreamWithCredentialRefresh(websocket.DefaultDialer, u.String(), dialHeaders, activeAgentID, refresh)
+			if refreshAttempted {
+				allowCredentialRefresh = false
+			}
+			if refreshedCredentials != nil {
+				if activeAgentID != "" && activeAgentID != refreshedCredentials.AgentID {
+					mu.Lock()
+					lastCursor = ""
+					mu.Unlock()
+				}
+				accessToken = refreshedCredentials.AccessToken
+				activeAgentID = refreshedCredentials.AgentID
+				myAgentID = refreshedCredentials.AgentID
+			}
 			if dialErr != nil {
+				if refreshAttempted {
+					return fmt.Errorf("Agent V2 stream credential refresh failed: %w", dialErr)
+				}
+				if errors.Is(dialErr, errStreamUnauthorized) {
+					return fmt.Errorf("Agent V2 stream credentials were rejected after one refresh: %w", dialErr)
+				}
 				if once {
 					return fmt.Errorf("connect failed: %w", dialErr)
 				}

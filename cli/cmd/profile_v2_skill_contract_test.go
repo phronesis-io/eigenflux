@@ -22,12 +22,33 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent provision --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"Skill requires CLI `0.0.34`",
+		"Skill requires CLI `0.0.35`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
+		"eigenflux agent provision --recover-account",
+		"Do not run `eigenflux dashboard` or ordinary `eigenflux agent provision`",
+		"Do not ask a clarifying question before generating the link",
+		"Do not use the new-join four-line success template",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("ef-profile is missing mandatory Console V2 routing text %q", required)
+		}
+	}
+	frontmatterParts := strings.SplitN(skill, "---", 3)
+	if len(frontmatterParts) != 3 {
+		t.Fatal("ef-profile skill frontmatter is malformed")
+	}
+	for _, trigger := range []string{"regenerate the claim link", "switch account", "重新生成认领链接", "我要切换账号"} {
+		if !strings.Contains(frontmatterParts[1], trigger) {
+			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
+		}
+	}
+	if !strings.Contains(frontmatterParts[1], `version: "0.4.2"`) {
+		t.Error("ef-profile version was not advanced for the recovery trigger contract")
+	}
+	for _, lifecycleRule := range []string{"has no bound email", "temporary identity", "formal account", "switch back later"} {
+		if !strings.Contains(skill, lifecycleRule) {
+			t.Errorf("ef-profile skill is missing account lifecycle rule %q", lifecycleRule)
 		}
 	}
 
@@ -63,6 +84,11 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Set both the current Codex task title and its attached",
 		"automation name to exactly `EigenFlux 网络收件箱`, then read both back",
 		"succeeds only when both names match exactly",
+		"Recovery transfers the current Home's Ed25519 principal",
+		"An Agent ID change is not a reason to call provision again",
+		"Requests to \"regenerate the claim link\" or \"switch account\"",
+		"重新生成认领链接",
+		"我要切换账号",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)

@@ -48,7 +48,9 @@ Example:
 				if err != nil {
 					return err
 				}
-				response, postErr := v2Client.Post("/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce})
+				response, postErr := v2Client.Post("/console/handoffs", map[string]interface{}{
+					"browser_nonce": browserNonce, "client_capabilities": []string{"account_recovery_v1"},
+				})
 				if postErr == nil {
 					var data struct {
 						URL       string `json:"handoff_url"`

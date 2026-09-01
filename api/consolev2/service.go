@@ -61,6 +61,7 @@ var (
 	errConflict           = errors.New("conflict")
 	errUnauthorized       = errors.New("unauthorized")
 	errOnboardingRequired = errors.New("onboarding required")
+	errCLIUpgradeRequired = errors.New("CLI upgrade required")
 )
 
 type IDGenerator interface {
@@ -331,6 +332,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agent-sessions/refresh", s.refreshAgentSession)
 	h.POST("/api/v2/account-email-bindings/challenges", s.consoleAuth(true), s.createEmailBindingChallenge)
 	h.POST("/api/v2/account-email-bindings/verify", s.consoleAuth(true), s.verifyEmailBinding)
+	h.POST("/api/v2/account-recoveries/:recovery_id/confirm", s.consoleAuth(true), s.confirmAccountRecovery)
 	h.POST("/api/v2/auth/email/challenges", s.requireSameOrigin(), s.createEmailLoginChallenge)
 	h.POST("/api/v2/auth/email/verify", s.requireSameOrigin(), s.verifyEmailLogin)
 	h.POST("/api/v2/agents/me/principals/challenges", s.consoleAuth(true), s.createPrincipalChallenge)
@@ -520,6 +522,11 @@ func containsScope(scopes pq.StringArray, wanted string) bool {
 	return false
 }
 
+func validActiveIdentityBinding(agentID, principalAgentID int64, identityState, principalStatus string, principalRevokedAt *int64) bool {
+	return agentID > 0 && agentID == principalAgentID && identityState == "active" && principalRevokedAt == nil &&
+		(principalStatus == "limited" || principalStatus == "active")
+}
+
 func (s *Service) setConsoleCookie(c *app.RequestContext, value string, maxAge int) {
 	c.SetCookie(consoleCookieName, value, maxAge, "/", "", protocol.CookieSameSiteLaxMode, s.secureCookie, true)
 	c.Header("Referrer-Policy", "no-referrer")
@@ -549,11 +556,13 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 		var principal agentPrincipal
 		now := time.Now().UnixMilli()
 		err := s.db.Raw(`SELECT cs.session_id, p.agent_id, p.principal_id, p.status, cs.scopes
-			FROM agent_credential_sessions cs
-			JOIN agent_principals p ON p.principal_id = cs.principal_id
-			WHERE cs.access_token_hash = ? AND cs.audience = 'agent_v2'
-			  AND cs.revoked_at IS NULL AND cs.expires_at > ?
-			  AND p.revoked_at IS NULL AND p.status IN ('limited','active')`, hashString(token), now).
+				FROM agent_credential_sessions cs
+				JOIN agent_principals p ON p.principal_id = cs.principal_id
+				JOIN agents a ON a.agent_id = p.agent_id
+				WHERE cs.access_token_hash = ? AND cs.audience = 'agent_v2'
+				  AND cs.revoked_at IS NULL AND cs.expires_at > ? AND cs.access_refresh_required = FALSE
+				  AND p.revoked_at IS NULL AND p.status IN ('limited','active')
+				  AND a.identity_state = 'active'`, hashString(token), now).
 			Scan(&principal).Error
 		if err != nil || principal.AgentID == 0 || !containsScope(principal.Scopes, requiredScope) {
 			fail(c, http.StatusUnauthorized, "AGENT_AUTH_INVALID", "Agent V2 token is expired or lacks the required scope", nil)
@@ -569,17 +578,21 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 }
 
 type consoleSession struct {
-	SessionID      string         `gorm:"column:session_id"`
-	AgentID        int64          `gorm:"column:agent_id"`
-	PrincipalID    int64          `gorm:"column:principal_id"`
-	SecretHash     string         `gorm:"column:session_secret_hash"`
-	CSRFSecretHash string         `gorm:"column:csrf_secret_hash"`
-	Scopes         pq.StringArray `gorm:"column:scopes;type:text[]"`
-	IdleExpiresAt  int64          `gorm:"column:idle_expires_at"`
-	AbsoluteExpiry int64          `gorm:"column:absolute_expires_at"`
-	LastSeenAt     int64          `gorm:"column:last_seen_at"`
-	AuthMethod     string         `gorm:"column:auth_method"`
-	RecentAuthAt   *int64         `gorm:"column:recent_auth_at"`
+	SessionID          string         `gorm:"column:session_id"`
+	AgentID            int64          `gorm:"column:agent_id"`
+	PrincipalID        int64          `gorm:"column:principal_id"`
+	PrincipalAgentID   int64          `gorm:"column:principal_agent_id"`
+	PrincipalStatus    string         `gorm:"column:principal_status"`
+	PrincipalRevokedAt *int64         `gorm:"column:principal_revoked_at"`
+	IdentityState      string         `gorm:"column:identity_state"`
+	SecretHash         string         `gorm:"column:session_secret_hash"`
+	CSRFSecretHash     string         `gorm:"column:csrf_secret_hash"`
+	Scopes             pq.StringArray `gorm:"column:scopes;type:text[]"`
+	IdleExpiresAt      int64          `gorm:"column:idle_expires_at"`
+	AbsoluteExpiry     int64          `gorm:"column:absolute_expires_at"`
+	LastSeenAt         int64          `gorm:"column:last_seen_at"`
+	AuthMethod         string         `gorm:"column:auth_method"`
+	RecentAuthAt       *int64         `gorm:"column:recent_auth_at"`
 }
 
 func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
@@ -598,16 +611,27 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		var session consoleSession
 		now := time.Now().UnixMilli()
 		err := s.db.Raw(`SELECT s.session_id, s.agent_id, s.principal_id,
-				s.session_secret_hash, s.csrf_secret_hash, s.scopes,
+					p.agent_id AS principal_agent_id, p.status AS principal_status,
+					p.revoked_at AS principal_revoked_at,
+					a.identity_state,
+					s.session_secret_hash, s.csrf_secret_hash, s.scopes,
 			s.idle_expires_at, s.absolute_expires_at, s.last_seen_at,
 			s.auth_method, s.recent_auth_at
-			FROM console_v2_sessions s
-			JOIN agent_principals p ON p.principal_id = s.principal_id
-			WHERE s.session_id = ? AND s.status = 'active'
-			  AND s.idle_expires_at > ? AND s.absolute_expires_at > ?
-			  AND p.revoked_at IS NULL AND p.status IN ('limited','active')`, parts[0], now, now).
+				FROM console_v2_sessions s
+				JOIN agent_principals p ON p.principal_id = s.principal_id
+				JOIN agents a ON a.agent_id = s.agent_id
+				WHERE s.session_id = ? AND s.status = 'active'
+				  AND s.idle_expires_at > ? AND s.absolute_expires_at > ?`, parts[0], now, now).
 			Scan(&session).Error
 		if err != nil || session.SessionID == "" || subtle.ConstantTimeCompare([]byte(session.SecretHash), []byte(hashString(parts[1]))) != 1 {
+			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
+			c.Abort()
+			return
+		}
+		if !validActiveIdentityBinding(session.AgentID, session.PrincipalAgentID, session.IdentityState,
+			session.PrincipalStatus, session.PrincipalRevokedAt) {
+			s.db.Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
+				WHERE session_id = ? AND status = 'active'`, now, session.SessionID)
 			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
 			c.Abort()
 			return

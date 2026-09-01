@@ -29,6 +29,25 @@ func TestStateRoundTripAndScopeIsolation(t *testing.T) {
 	}
 }
 
+func TestDeleteRemovesOnlyTheRecoveredTemporaryIdentityState(t *testing.T) {
+	home := t.TempDir()
+	if err := Save(home, "prod", "temporary", State{LastRefreshUnix: 11}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(home, "prod", "historical", State{LastRefreshUnix: 22}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(home, "prod", "temporary"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(home, "prod", "temporary"); got != (State{}) {
+		t.Fatalf("temporary state remains: %+v", got)
+	}
+	if got := Load(home, "prod", "historical").LastRefreshUnix; got != 22 {
+		t.Fatalf("historical state changed: %d", got)
+	}
+}
+
 func TestLockContentionTimesOutAndRecovers(t *testing.T) {
 	path := lockPath(t.TempDir(), "prod", "101")
 	first, err := acquireLock(path)

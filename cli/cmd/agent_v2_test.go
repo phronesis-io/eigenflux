@@ -7,10 +7,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"cli.eigenflux.ai/internal/client"
 )
+
+func TestConsoleHandoffCapabilitiesRequireExplicitRecoveryEntry(t *testing.T) {
+	if got := consoleHandoffCapabilities(false); !reflect.DeepEqual(got, []string{"account_recovery_v1"}) {
+		t.Fatalf("ordinary handoff capabilities = %#v", got)
+	}
+	if got := consoleHandoffCapabilities(true); !reflect.DeepEqual(got, []string{"account_recovery_v1", "account_recovery_entry_v1"}) {
+		t.Fatalf("recovery handoff capabilities = %#v", got)
+	}
+}
 
 type captureV2Poster struct {
 	path string

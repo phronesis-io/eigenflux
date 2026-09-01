@@ -41,6 +41,9 @@ type Client struct {
 	Meta       Meta
 	HTTPClient *http.Client
 	OnSuccess  func()
+	// OnUnauthorized can rotate Agent V2 credentials once and return the new
+	// access token. It is intentionally unset for legacy/email clients.
+	OnUnauthorized func() (string, error)
 }
 
 func New(baseURL, token, cliVersion string, meta Meta) *Client {
@@ -63,75 +66,89 @@ func (c *Client) do(method, path string, body interface{}) (*APIResponse, error)
 // standard Meta headers so a caller can attach call-specific metadata
 // (e.g. X-Bio-Source on `profile update`).
 func (c *Client) doWithHeaders(method, path string, body interface{}, headers map[string]string) (*APIResponse, error) {
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
 		}
-		bodyReader = bytes.NewReader(data)
+		bodyBytes = data
 	}
-	req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
-	if err != nil {
-		return nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	if c.CLIVersion != "" {
-		req.Header.Set("X-CLI-Ver", c.CLIVersion)
-	}
-	c.Meta.SetHeaders(req.Header)
-	for k, v := range headers {
-		if v != "" {
-			req.Header.Set(k, v)
+	for attempt := 0; attempt < 2; attempt++ {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
 		}
-	}
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode >= 400 {
+		req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if c.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.Token)
+		}
+		if c.CLIVersion != "" {
+			req.Header.Set("X-CLI-Ver", c.CLIVersion)
+		}
+		c.Meta.SetHeaders(req.Header)
+		for k, v := range headers {
+			if v != "" {
+				req.Header.Set(k, v)
+			}
+		}
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+		respBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read response: %w", readErr)
+		}
+		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 && c.OnUnauthorized != nil {
+			newToken, refreshErr := c.OnUnauthorized()
+			if refreshErr != nil {
+				return nil, refreshErr
+			}
+			if newToken == "" {
+				return nil, fmt.Errorf("credential refresh returned an empty access token")
+			}
+			c.Token = newToken
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			var apiResp APIResponse
+			_ = json.Unmarshal(respBody, &apiResp)
+			var v2Resp struct {
+				Error struct {
+					Code    string          `json:"code"`
+					Message string          `json:"message"`
+					Details json.RawMessage `json:"details"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(respBody, &v2Resp)
+			message := apiResp.Msg
+			if message == "" {
+				message = v2Resp.Error.Message
+			}
+			return nil, &APIError{
+				StatusCode: resp.StatusCode, Code: apiResp.Code, ErrorCode: v2Resp.Error.Code,
+				Msg: message, Details: v2Resp.Error.Details,
+				RetryAfterSeconds: parseRetryAfterSeconds(resp.Header.Get("Retry-After"), v2Resp.Error.Details),
+			}
+		}
 		var apiResp APIResponse
-		_ = json.Unmarshal(respBody, &apiResp)
-		var v2Resp struct {
-			Error struct {
-				Code    string          `json:"code"`
-				Message string          `json:"message"`
-				Details json.RawMessage `json:"details"`
-			} `json:"error"`
+		if err := json.Unmarshal(respBody, &apiResp); err != nil {
+			return nil, fmt.Errorf("parse response: %w", err)
 		}
-		_ = json.Unmarshal(respBody, &v2Resp)
-		message := apiResp.Msg
-		if message == "" {
-			message = v2Resp.Error.Message
+		if c.OnSuccess != nil {
+			c.OnSuccess()
 		}
-		retryAfterSeconds := parseRetryAfterSeconds(resp.Header.Get("Retry-After"), v2Resp.Error.Details)
-		return nil, &APIError{
-			StatusCode:        resp.StatusCode,
-			Code:              apiResp.Code,
-			ErrorCode:         v2Resp.Error.Code,
-			Msg:               message,
-			Details:           v2Resp.Error.Details,
-			RetryAfterSeconds: retryAfterSeconds,
-		}
+		return &apiResp, nil
 	}
-	var apiResp APIResponse
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	if c.OnSuccess != nil {
-		c.OnSuccess()
-	}
-	return &apiResp, nil
+	return nil, fmt.Errorf("request retry budget exhausted")
 }
 
 func parseRetryAfterSeconds(header string, details json.RawMessage) int64 {

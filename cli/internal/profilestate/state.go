@@ -60,6 +60,16 @@ func Save(homeDir, serverName, agentID string, state State) error {
 	return saveUnlocked(homeDir, serverName, agentID, state)
 }
 
+// Delete removes identity-scoped refresh state after the server authoritatively
+// moves this installation to a different Agent.
+func Delete(homeDir, serverName, agentID string) error {
+	err := os.Remove(FilePath(homeDir, serverName, agentID))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 // Update serializes a read-modify-write cycle for one server/account pair.
 // The callback returns true when the state changed and must be persisted.
 // This keeps concurrent feed polls from emitting the same prompt or losing a

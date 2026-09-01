@@ -258,6 +258,23 @@ func DeleteProfileAndContacts(serverName string) {
 	os.Remove(filepath.Join(dir, "contacts.json"))
 }
 
+// DeleteIdentityScopedData removes every cache and pending local event that
+// belongs to the previously selected Agent while preserving server settings
+// and credential files. It is used only after an authoritative V2 refresh
+// reports a different Agent ID.
+func DeleteIdentityScopedData(serverName string) error {
+	dir := ServerDir(serverName)
+	for _, name := range []string{"profile.json", "contacts.json"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.RemoveAll(ServerDataDir(serverName)); err != nil {
+		return err
+	}
+	return nil
+}
+
 // SaveConvItemMapping merges the given mapping into today's conv_item_map.json under messages.
 func SaveConvItemMapping(serverName string, mapping map[string]string) {
 	if len(mapping) == 0 {

@@ -93,7 +93,7 @@ func Lookup(ctx context.Context, db *gorm.DB, shortID string) (int64, error) {
 	}
 	var agentID int64
 	result := db.WithContext(ctx).Raw(
-		`SELECT agent_id FROM agents WHERE short_id = ? AND short_id IS NOT NULL`, shortID,
+		`SELECT agent_id FROM agents WHERE short_id = ? AND short_id IS NOT NULL AND identity_state = 'active'`, shortID,
 	).Scan(&agentID)
 	if result.Error != nil {
 		metrics.AgentShortIDLookupTotal.WithLabelValues("error").Inc()
@@ -115,7 +115,7 @@ func Get(ctx context.Context, db *gorm.DB, agentID int64) (PublicIdentity, error
 		AgentNameEn string `gorm:"column:agent_name_en"`
 	}
 	result := db.WithContext(ctx).Raw(
-		`SELECT short_id, agent_name, agent_name_en FROM agents WHERE agent_id = ?`, agentID,
+		`SELECT short_id, agent_name, agent_name_en FROM agents WHERE agent_id = ? AND identity_state = 'active'`, agentID,
 	).Scan(&row)
 	if result.Error != nil {
 		return PublicIdentity{}, result.Error
@@ -145,7 +145,7 @@ func GetBatch(ctx context.Context, db *gorm.DB, agentIDs []int64) (map[int64]Pub
 	}
 	if err := db.WithContext(ctx).Table("agents").
 		Select("agent_id, short_id, agent_name, agent_name_en").
-		Where("agent_id IN ?", agentIDs).Scan(&rows).Error; err != nil {
+		Where("agent_id IN ? AND identity_state = 'active'", agentIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
