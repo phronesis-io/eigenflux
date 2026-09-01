@@ -24,7 +24,6 @@ func TestLoadConsoleV2CompatibilityQueryTypesAgentIDAsBigInt(t *testing.T) {
 func TestConsoleV2CompatibilityGate(t *testing.T) {
 	tests := []struct {
 		name, cli, contract, revision, status, reason string
-		onboardingCompleted                           bool
 		available                                     bool
 	}{
 		{name: "missing report", status: "unknown", reason: "report_missing"},
@@ -32,11 +31,10 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 		{name: "old heartbeat is accepted", cli: "0.0.35", contract: "legacy", revision: "r1", status: "ready", available: true},
 		{name: "missing skills is accepted", cli: "0.0.35", contract: heartbeatContractV1, status: "ready", available: true},
 		{name: "minimum ready", cli: "0.0.35", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
-		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123, test.onboardingCompleted)
+			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123)
 			if got["available"] != test.available || got["status"] != test.status || got["reason"] != test.reason {
 				t.Fatalf("compatibility = %#v", got)
 			}
@@ -80,7 +78,7 @@ func TestRecoveryRefreshRequiresCLI0035(t *testing.T) {
 	}
 }
 
-func TestLegacyConsoleCompatibilityHandlerBypassesCompletedOnboarding(t *testing.T) {
+func TestLegacyConsoleCompatibilityHandlerGatesCompletedOnboarding(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +92,7 @@ func TestLegacyConsoleCompatibilityHandlerBypassesCompletedOnboarding(t *testing
 		`CREATE TABLE agent_onboarding_v2 (agent_id INTEGER PRIMARY KEY, state TEXT)`,
 		`INSERT INTO agent_settings
 			(agent_id, cli_version, heartbeat_contract_version, skill_revision, heartbeat_reported_at)
-			VALUES (42, '', '', '', 0)`,
+			VALUES (42, '0.0.34', '', '', 0)`,
 		`INSERT INTO agent_onboarding_v2 (agent_id, state) VALUES (42, 'completed')`,
 	} {
 		if err := db.Exec(statement).Error; err != nil {
@@ -122,7 +120,8 @@ func TestLegacyConsoleCompatibilityHandlerBypassesCompletedOnboarding(t *testing
 	if err := json.Unmarshal(request.Response.Body(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Code != 0 || envelope.Data.Onboarding.State != "completed" || envelope.Data.Compatibility["available"] != true {
+	if envelope.Code != 0 || envelope.Data.Onboarding.State != "completed" ||
+		envelope.Data.Compatibility["available"] != false || envelope.Data.Compatibility["reason"] != "cli_outdated" {
 		t.Fatalf("unexpected compatibility envelope: %#v", envelope)
 	}
 }
