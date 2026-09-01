@@ -28,6 +28,7 @@ func TestPostgresShortIDInviteAttribution(t *testing.T) {
 	sqlDB.SetMaxIdleConns(1)
 	if err := gdb.Exec(`CREATE TEMP TABLE agents (
 		agent_id bigint PRIMARY KEY, short_id varchar(5), email text NOT NULL,
+		identity_state varchar(32) NOT NULL DEFAULT 'active',
 		created_at bigint NOT NULL, acquisition_channel text NOT NULL DEFAULT '',
 		invited_by_code text NOT NULL DEFAULT '', inviter_agent_id bigint NOT NULL DEFAULT 0,
 		invited_at bigint NOT NULL DEFAULT 0
