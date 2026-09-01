@@ -58,8 +58,11 @@ func TestValidateValue(t *testing.T) {
 	}
 
 	listSpec, _ := LookupField("seeking")
-	if _, err := ValidateValue(listSpec, json.RawMessage(`["AI infra","agent collaboration"]`)); err != nil {
+	if _, err := ValidateValue(listSpec, json.RawMessage(`["AI infra and agent collaboration"]`)); err != nil {
 		t.Errorf("valid list rejected: %v", err)
+	}
+	if _, err := ValidateValue(listSpec, json.RawMessage(`["AI infra","agent collaboration"]`)); err == nil {
+		t.Error("multi-item seeking list accepted")
 	}
 	if _, err := ValidateValue(listSpec, json.RawMessage(`["`+strings.Repeat("x", 300)+`"]`)); err != nil {
 		t.Errorf("300-character seeking item rejected: %v", err)
@@ -70,11 +73,6 @@ func TestValidateValue(t *testing.T) {
 	if _, err := ValidateValue(listSpec, json.RawMessage(`"not a list"`)); err == nil {
 		t.Error("string accepted for a list field")
 	}
-	tooMany := `["` + strings.Repeat(`x","`, 25) + `x"]`
-	if _, err := ValidateValue(listSpec, json.RawMessage(tooMany)); err == nil {
-		t.Error("over-count list accepted")
-	}
-
 	for _, spec := range []FieldSpec{strSpec, listSpec} {
 		if _, err := ValidateValue(spec, json.RawMessage(`null`)); err == nil {
 			t.Errorf("%s field accepted null", spec.Kind)
@@ -86,6 +84,34 @@ func TestValidateValue(t *testing.T) {
 
 	if _, known := LookupField("influence"); known {
 		t.Error("system field influence must not be editable")
+	}
+}
+
+func TestSingleItemTextFieldsUseTheirProductCharacterLimits(t *testing.T) {
+	cases := []struct {
+		name  string
+		limit int
+	}{
+		{name: "seeking", limit: 300},
+		{name: "offering", limit: 1000},
+		{name: "interests_negative", limit: 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, ok := LookupField(tc.name)
+			if !ok {
+				t.Fatalf("%s field is missing", tc.name)
+			}
+			if _, err := ValidateValue(spec, json.RawMessage(`["`+strings.Repeat("文", tc.limit)+`"]`)); err != nil {
+				t.Fatalf("exact item limit rejected: %v", err)
+			}
+			if _, err := ValidateValue(spec, json.RawMessage(`["`+strings.Repeat("文", tc.limit+1)+`"]`)); err == nil {
+				t.Fatal("item limit+1 was accepted")
+			}
+			if _, err := ValidateValue(spec, json.RawMessage(`["first","second"]`)); err == nil {
+				t.Fatal("multiple items were accepted")
+			}
+		})
 	}
 }
 

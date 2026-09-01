@@ -49,7 +49,7 @@ func TestNormalizeOnboardingDraftListsSupportsLegacyScalars(t *testing.T) {
 	raw := json.RawMessage(`{
 		"identity_card": {
 			"working_languages": "中文 · English",
-			"seeking": "",
+			"seeking": "寻找 AI infra, Agent collaboration\n以及行业信号",
 			"offering": ["研究", " ", "任务整理"]
 		}
 	}`)
@@ -64,10 +64,10 @@ func TestNormalizeOnboardingDraftListsSupportsLegacyScalars(t *testing.T) {
 	if got, want := payload.IdentityCard.WorkingLanguages, []string{"中文", "English"}; !equalStrings(got, want) {
 		t.Fatalf("working_languages = %#v, want %#v", got, want)
 	}
-	if len(payload.IdentityCard.Seeking) != 0 {
-		t.Fatalf("seeking = %#v, want empty", payload.IdentityCard.Seeking)
+	if got, want := payload.IdentityCard.Seeking, []string{"寻找 AI infra, Agent collaboration\n以及行业信号"}; !equalStrings(got, want) {
+		t.Fatalf("seeking = %#v, want %#v", got, want)
 	}
-	if got, want := payload.IdentityCard.Offering, []string{"研究", "任务整理"}; !equalStrings(got, want) {
+	if got, want := payload.IdentityCard.Offering, []string{"研究 · 任务整理"}; !equalStrings(got, want) {
 		t.Fatalf("offering = %#v, want %#v", got, want)
 	}
 }
