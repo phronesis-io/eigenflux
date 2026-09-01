@@ -36,6 +36,57 @@ func validAttentionPublishRequest() attentionPublishRequest {
 	}
 }
 
+func validAttentionPrefillRequest() attentionPublishRequest {
+	request := validAttentionPublishRequest()
+	request.IdempotencyKey = "prefill-01JY7K9M3Q4P8N2V6X5Z"
+	request.Items[0] = attentionItem{
+		ClientItemID: "prefill-item-01JY7K9M3Q4P8N2V6X5Z", Surface: "focus",
+		Category: "important_signal", Language: "zh-CN", Title: "值得关注的信号",
+		Body:      "Agent 从 onboarding baseline Feed 中完成了只读判断。",
+		SourceRef: &attentionSourceRef{Type: "broadcast", ID: "123"},
+		Actions: []attentionAction{
+			{ActionKey: "open", Kind: "preset", Flag: "open_source", Appearance: "primary"},
+			{ActionKey: "skip", Kind: "preset", Flag: "not_interested", Appearance: "secondary"},
+		},
+		GeneratedAt: 1_787_600_000_000, ExpiresAt: 1_787_686_400_000,
+	}
+	return request
+}
+
+func TestValidateAttentionPrefillRequestAllowsOnlyReadOnlyBaselineFocus(t *testing.T) {
+	request := validAttentionPrefillRequest()
+	if err := validateAttentionPublishRequest(request); err != nil {
+		t.Fatalf("valid Attention batch rejected: %v", err)
+	}
+	if err := validateAttentionPrefillRequest(request); err != nil {
+		t.Fatalf("valid Attention Prefill rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*attentionPublishRequest)
+	}{
+		{"participation", func(request *attentionPublishRequest) { request.Items[0] = validAttentionPublishRequest().Items[0] }},
+		{"non baseline source", func(request *attentionPublishRequest) { request.Items[0].SourceRef.Type = "private_message" }},
+		{"context bound", func(request *attentionPublishRequest) {
+			request.Items[0].ContextRef = &attentionContextRef{ContextRevision: 1}
+		}},
+		{"external action", func(request *attentionPublishRequest) { request.Items[0].Actions[0].Flag = "ask_agent_contact" }},
+		{"custom action", func(request *attentionPublishRequest) {
+			request.Items[0].Actions[0] = attentionAction{ActionKey: "custom", Kind: "custom", Flag: "查看", Appearance: "primary"}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validAttentionPrefillRequest()
+			test.mutate(&request)
+			if err := validateAttentionPrefillRequest(request); err == nil {
+				t.Fatal("unsafe Attention Prefill was accepted")
+			}
+		})
+	}
+}
+
 func TestValidateAttentionPublishRequestAcceptsTypedBatch(t *testing.T) {
 	request := validAttentionPublishRequest()
 	if err := validateAttentionPublishRequest(request); err != nil {
@@ -304,6 +355,12 @@ func TestAttentionPublishCommandContract(t *testing.T) {
 	}
 	if attentionPublishCmd.Flags().Lookup("stdin") == nil {
 		t.Fatal("attention publish must expose --stdin")
+	}
+	if attentionPrefillEndpoint != "/agent-attention-items/prefill" {
+		t.Fatalf("unexpected V2 prefill path: %s", attentionPrefillEndpoint)
+	}
+	if attentionPrefillCmd.Flags().Lookup("stdin") == nil {
+		t.Fatal("attention prefill must expose --stdin")
 	}
 }
 

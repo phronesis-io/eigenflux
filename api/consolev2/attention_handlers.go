@@ -21,6 +21,7 @@ type attentionView struct {
 	AttentionID     int64  `gorm:"column:attention_id"`
 	Producer        string `gorm:"column:producer"`
 	ProtocolVersion string `gorm:"column:protocol_version"`
+	AttentionPhase  string `gorm:"column:attention_phase"`
 	Surface         string `gorm:"column:surface"`
 	Category        string `gorm:"column:category"`
 	ClientItemID    string `gorm:"column:client_item_id"`
@@ -83,7 +84,8 @@ func attentionResponse(row attentionView) map[string]interface{} {
 	return map[string]interface{}{
 		"attention_id": fmt.Sprintf("%d", row.AttentionID), "title": row.Title,
 		"schema_version": row.ProtocolVersion, "producer": row.Producer,
-		"surface": row.Surface, "category": row.Category,
+		"attention_phase": row.AttentionPhase,
+		"surface":         row.Surface, "category": row.Category,
 		"client_item_id": row.ClientItemID, "language": row.Language,
 		"body": row.Body, "recommendation": row.Recommendation,
 		"source_ref": sourceRef, "context_ref": contextRef,
@@ -95,7 +97,7 @@ func attentionResponse(row attentionView) map[string]interface{} {
 	}
 }
 
-const attentionSelect = `SELECT item.attention_id, item.producer, item.protocol_version, item.surface, item.category,
+const attentionSelect = `SELECT item.attention_id, item.producer, item.protocol_version, item.attention_phase, item.surface, item.category,
 	item.client_item_id, item.language, item.title, item.body, item.recommendation,
 	item.source_type, item.source_id, item.source_ref::text AS source_ref,
 	item.context_ref::text AS context_ref,
@@ -189,7 +191,7 @@ func (s *Service) dismissAttentionItem(_ context.Context, c *app.RequestContext)
 	}
 	result := s.db.Exec(`UPDATE agent_attention_items SET status = 'dismissed'
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-		  AND protocol_version = 'agent_attention.v1' AND status = 'open'
+		  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active' AND status = 'open'
 		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentIDValue, attentionID)
 	if result.Error != nil {
 		fail(c, http.StatusInternalServerError, "ATTENTION_UPDATE_FAILED", "could not dismiss attention item", nil)

@@ -28,6 +28,63 @@ func validAttentionBatch(now int64) attentionPublishRequest {
 	}
 }
 
+func validAttentionPrefillBatch(now int64) attentionPublishRequest {
+	return attentionPublishRequest{
+		SchemaVersion: "agent_attention.v1", IdempotencyKey: "prefill-01JY7K9M3Q4P8N2V6X5Z",
+		Items: []attentionPublishItem{{
+			ClientItemID: "prefill-item-01JY7K9M3Q4P8N2V6X5Z", Surface: "focus",
+			Category: "important_signal", Language: "zh-CN", Title: "值得关注的信号",
+			Body:      "Agent 从 onboarding baseline Feed 中完成了只读判断。",
+			SourceRef: &attentionSourceRef{Type: "broadcast", ID: "123"},
+			Actions: []attentionProtocolAction{
+				{ActionKey: "open", Kind: "preset", Flag: "open_source", Appearance: "primary"},
+				{ActionKey: "skip", Kind: "preset", Flag: "not_interested", Appearance: "secondary"},
+			}, GeneratedAt: now, ExpiresAt: now + int64(24*time.Hour/time.Millisecond),
+		}},
+	}
+}
+
+func TestValidateAttentionPrefillAllowsOnlyReadOnlyBaselineFocus(t *testing.T) {
+	now := time.Now().UnixMilli()
+	req := validAttentionPrefillBatch(now)
+	if err := validateAttentionPublish(&req, now); err != nil {
+		t.Fatalf("valid Attention batch rejected: %v", err)
+	}
+	if err := validateAttentionPrefill(&req); err != nil {
+		t.Fatalf("valid Attention Prefill rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*attentionPublishRequest)
+	}{
+		{"participation", func(req *attentionPublishRequest) {
+			req.Items[0].Surface = "participation"
+			req.Items[0].Category = "action_recommendation"
+			req.Items[0].Recommendation = "需要用户决定"
+			req.Items[0].Actions = []attentionProtocolAction{{ActionKey: "decide", Kind: "preset", Flag: "observe_first", Appearance: "primary"}}
+		}},
+		{"non baseline source", func(req *attentionPublishRequest) { req.Items[0].SourceRef.Type = "private_message" }},
+		{"context bound", func(req *attentionPublishRequest) {
+			revision := int64(1)
+			req.Items[0].ContextRef.ContextRevision = &revision
+		}},
+		{"external action", func(req *attentionPublishRequest) { req.Items[0].Actions[0].Flag = "ask_agent_contact" }},
+		{"custom action", func(req *attentionPublishRequest) {
+			req.Items[0].Actions[0] = attentionProtocolAction{ActionKey: "custom", Kind: "custom", Flag: "查看", Appearance: "primary"}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := validAttentionPrefillBatch(now)
+			test.mutate(&req)
+			if err := validateAttentionPrefill(&req); err == nil {
+				t.Fatal("unsafe Attention Prefill was accepted")
+			}
+		})
+	}
+}
+
 func TestValidateAttentionPublishAcceptsShortActionKeysAndUTF8CustomFlag(t *testing.T) {
 	now := time.Now().UnixMilli()
 	req := validAttentionBatch(now)

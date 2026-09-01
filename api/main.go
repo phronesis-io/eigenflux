@@ -352,6 +352,7 @@ func main() {
 		// decide whether the new Console bundle should show the runtime upgrade
 		// screen. Existing V1 routes remain unchanged and ungated.
 		h.GET("/api/v1/console/compatibility", middleware.AuthMiddleware(), consoleV2Service.LegacyConsoleCompatibilityHandler())
+		h.POST("/api/v1/console/agent-upgrade-challenges", middleware.AuthMiddleware(), consoleV2Service.LegacyAgentUpgradeChallengeHandler())
 		consoleV2Service.Register(h)
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
 		log.Print("Console V2 routes registered")

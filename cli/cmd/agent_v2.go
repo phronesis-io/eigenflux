@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -172,6 +173,7 @@ type provisionV2Request struct {
 	PublicKey       string            `json:"public_key"`
 	IssuedAt        int64             `json:"issued_at"`
 	AgentName       string            `json:"agent_name"`
+	ExpectedAgentID string            `json:"expected_agent_id,omitempty"`
 	Signature       string            `json:"signature"`
 	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
 	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
@@ -184,6 +186,7 @@ type provisionV2Proof struct {
 	PublicKey       string            `json:"public_key"`
 	IssuedAt        int64             `json:"issued_at"`
 	AgentName       string            `json:"agent_name"`
+	ExpectedAgentID string            `json:"expected_agent_id,omitempty"`
 	Draft           json.RawMessage   `json:"onboarding_draft,omitempty"`
 	FieldProvenance map[string]string `json:"field_provenance,omitempty"`
 }
@@ -214,12 +217,38 @@ func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.Public
 	return challenge.BootstrapGrant, challenge.Nonce, nil
 }
 
+func requestLegacyAgentUpgradeChallenge(legacy v2Poster, publicKey ed25519.PublicKey) (string, string, string, error) {
+	requestNonce, err := newBrowserNonce()
+	if err != nil {
+		return "", "", "", err
+	}
+	response, err := legacy.Post("/console/agent-upgrade-challenges", map[string]interface{}{
+		"public_key":      base64.RawURLEncoding.EncodeToString(publicKey),
+		"idempotency_key": "legacy-upgrade-" + requestNonce,
+	})
+	if err != nil {
+		return "", "", "", err
+	}
+	var challenge struct {
+		BootstrapGrant    string `json:"bootstrap_grant"`
+		Nonce             string `json:"nonce"`
+		AgentID           string `json:"agent_id"`
+		IdentityPreserved bool   `json:"identity_preserved"`
+	}
+	if json.Unmarshal(response.Data, &challenge) != nil || challenge.BootstrapGrant == "" || challenge.Nonce == "" ||
+		challenge.AgentID == "" || !challenge.IdentityPreserved {
+		return "", "", "", fmt.Errorf("invalid legacy Agent upgrade challenge")
+	}
+	return challenge.BootstrapGrant, challenge.Nonce, challenge.AgentID, nil
+}
+
 func provisionV2Transcript(request provisionV2Request) ([]byte, error) {
 	payload, err := json.Marshal(provisionV2Proof{
 		BootstrapGrant: request.BootstrapGrant, Nonce: request.Nonce,
 		IdempotencyKey: request.IdempotencyKey,
 		PublicKey:      request.PublicKey, IssuedAt: request.IssuedAt,
-		AgentName: request.AgentName, Draft: request.Draft, FieldProvenance: request.FieldProvenance,
+		AgentName: request.AgentName, ExpectedAgentID: request.ExpectedAgentID,
+		Draft: request.Draft, FieldProvenance: request.FieldProvenance,
 	})
 	if err != nil {
 		return nil, err
@@ -262,6 +291,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 		draftFile, _ := cmd.Flags().GetString("draft-file")
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
 		recoverAccount, _ := cmd.Flags().GetBool("recover-account")
+		requireExistingAgent, _ := cmd.Flags().GetBool("require-existing-agent")
 		if strings.TrimSpace(agentName) == "" {
 			agentName = "EigenFlux Agent"
 		}
@@ -278,11 +308,58 @@ var agentV2ProvisionCmd = &cobra.Command{
 			return err
 		}
 		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, clientMeta)
+		expectedAgentID := ""
+		preserveExistingIdentity := false
+		var legacyCredentials *auth.Credentials
+		hasV2, err := auth.HasV2Credentials(server.Name)
+		if err != nil {
+			return err
+		}
+		if hasV2 {
+			existingV2, loadErr := auth.LoadV2Credentials(server.Name)
+			if loadErr != nil {
+				return loadErr
+			}
+			expectedAgentID = existingV2.AgentID
+			preserveExistingIdentity = true
+		} else {
+			legacyCredentials, err = auth.LoadCredentials(server.Name)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if err == nil && legacyCredentials.AccessToken == "" {
+				return fmt.Errorf("legacy Agent credentials for server %q are incomplete", server.Name)
+			}
+			if err == nil {
+				if legacyCredentials.IsExpired() {
+					return fmt.Errorf("legacy Agent credentials expired for server %q; log in again before in-place upgrade", server.Name)
+				}
+				expectedAgentID = legacyCredentials.AgentID
+				preserveExistingIdentity = true
+			}
+		}
+		if requireExistingAgent && !preserveExistingIdentity {
+			return fmt.Errorf("cannot prove an existing Agent identity in the selected stable Agent Home")
+		}
 		if grant == "" {
-			grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
+			if hasV2 {
+				grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
+			} else if legacyCredentials != nil && legacyCredentials.AccessToken != "" {
+				legacy := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", legacyCredentials.AccessToken, version, clientMeta)
+				var challengeAgentID string
+				grant, nonce, challengeAgentID, err = requestLegacyAgentUpgradeChallenge(legacy, publicKey)
+				if err == nil && expectedAgentID != "" && challengeAgentID != expectedAgentID {
+					return fmt.Errorf("legacy Agent identity mismatch: local %s, server %s", expectedAgentID, challengeAgentID)
+				}
+				expectedAgentID = challengeAgentID
+			} else {
+				grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
+			}
 			if err != nil {
 				return err
 			}
+		} else if preserveExistingIdentity && expectedAgentID == "" {
+			return fmt.Errorf("cannot prove the existing Agent ID with an explicit bootstrap grant; use automatic in-place upgrade")
 		}
 		draft := defaultProvisionDraft(agentName)
 		var draftObject map[string]interface{}
@@ -301,7 +378,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 			BootstrapGrant: grant, Nonce: nonce,
 			IdempotencyKey: fmt.Sprintf("provision-%x", sha256.Sum256([]byte(grant))),
 			PublicKey:      base64.RawURLEncoding.EncodeToString(publicKey),
-			IssuedAt:       time.Now().UnixMilli(), AgentName: agentName, Draft: draft,
+			IssuedAt:       time.Now().UnixMilli(), AgentName: agentName, ExpectedAgentID: expectedAgentID, Draft: draft,
 			FieldProvenance: fieldProvenance,
 		}
 		transcript, err := provisionV2Transcript(request)
@@ -325,6 +402,12 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		if json.Unmarshal(response.Data, &provisioned) != nil || provisioned.AgentID == "" || provisioned.AccessToken == "" {
 			return fmt.Errorf("invalid Agent V2 provision response")
+		}
+		if expectedAgentID != "" && provisioned.AgentID != expectedAgentID {
+			return fmt.Errorf("Agent identity mismatch: expected %s, received %s", expectedAgentID, provisioned.AgentID)
+		}
+		if preserveExistingIdentity && provisioned.Created {
+			return fmt.Errorf("in-place Agent upgrade unexpectedly created a new Agent identity")
 		}
 		if err := auth.SaveV2Credentials(server.Name, &auth.V2Credentials{
 			AccessToken: provisioned.AccessToken, RefreshToken: provisioned.RefreshToken,
@@ -374,6 +457,7 @@ func init() {
 	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file ('-' reads stdin)")
 	agentV2ProvisionCmd.Flags().Bool("no-handoff", false, "provision without creating a Console V2 link")
 	agentV2ProvisionCmd.Flags().Bool("recover-account", false, "open the claim page to recover a historical Agent")
+	agentV2ProvisionCmd.Flags().Bool("require-existing-agent", false, "refuse public registration unless this Home already proves an Agent identity")
 	agentV2Cmd.AddCommand(agentV2InitCmd, agentV2ProvisionCmd)
 	rootCmd.AddCommand(agentV2Cmd)
 }

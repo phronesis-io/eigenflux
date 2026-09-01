@@ -8,6 +8,14 @@ Attention is an additional Console projection. It never replaces current-session
 
 Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions in the current conversation. Upload the same qualified judgment to Attention when applicable. Keep Attention uploads, IDs, leases, ACKs, quotas, candidate counts, and stage results silent. Return `NO_REPLY` when no content warrants a user-facing report.
 
+## Attention Phases
+
+Use Attention Prefill once during explicit onboarding or an in-place upgrade after the Console handoff is generated. Pull the onboarding `baseline` Feed, complete the Agent judgment, and run `eigenflux attention prefill --stdin --format json`. Submit only `focus` items in `important_signal`, `opportunity`, `watch_update`, or `other_attention`. Bind every item to its exposed baseline Feed `broadcast` source. Omit `context_ref`. Use only preset `open_source`, `ask_agent_summarize`, and `not_interested` Actions. Do not submit custom Actions. Do not fabricate an item when nothing qualifies.
+
+Attention Prefill is a read-only Console projection. It does not authorize a response, communication, publication, relationship change, trade, or other external action before onboarding completes.
+
+After onboarding completes, use Attention Active through `eigenflux attention publish --stdin --format json`. Apply the latest owner-confirmed control context and the full contract below.
+
 ## Publish Conditions
 
 Publish a `participation` item when human authorization, selection, or calibration is required:

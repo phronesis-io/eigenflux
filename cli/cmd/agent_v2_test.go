@@ -41,7 +41,7 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	request := provisionV2Request{
 		BootstrapGrant: "efbg_test", IdempotencyKey: "provision-test-request", Nonce: "efn_test",
 		PublicKey: base64.RawURLEncoding.EncodeToString(publicKey), IssuedAt: 123,
-		AgentName: "Agent", Draft: []byte(`{"network_goal":"test"}`),
+		AgentName: "Agent", ExpectedAgentID: "42", Draft: []byte(`{"network_goal":"test"}`),
 		FieldProvenance: map[string]string{"network_goal": "agent_user_context"},
 	}
 	transcript, err := provisionV2Transcript(request)
@@ -62,6 +62,12 @@ func TestProvisionV2TranscriptCoversMutableFields(t *testing.T) {
 	mutated, _ = provisionV2Transcript(request)
 	if ed25519.Verify(publicKey, mutated, signature) {
 		t.Fatal("CLI provision proof did not cover field provenance")
+	}
+	request.FieldProvenance["network_goal"] = "agent_user_context"
+	request.ExpectedAgentID = "43"
+	mutated, _ = provisionV2Transcript(request)
+	if ed25519.Verify(publicKey, mutated, signature) {
+		t.Fatal("CLI provision proof did not cover expected_agent_id")
 	}
 }
 
@@ -162,6 +168,44 @@ func TestAutomaticRegistrationChallengeBindsRequestToPublicKey(t *testing.T) {
 	requestID, _ := poster.body["idempotency_key"].(string)
 	if len(requestID) < 16 {
 		t.Fatalf("automatic registration idempotency key is too short: %q", requestID)
+	}
+}
+
+type legacyUpgradePoster struct {
+	captureV2Poster
+}
+
+func (poster *legacyUpgradePoster) Post(path string, body interface{}) (*client.APIResponse, error) {
+	poster.path = path
+	poster.body, _ = body.(map[string]interface{})
+	return &client.APIResponse{Data: json.RawMessage(`{"bootstrap_grant":"efbg_upgrade","nonce":"efn_upgrade","agent_id":"42","identity_preserved":true}`)}, nil
+}
+
+func TestLegacyUpgradeChallengeRequiresSubjectBoundIdentity(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := &legacyUpgradePoster{}
+	grant, nonce, agentID, err := requestLegacyAgentUpgradeChallenge(poster, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant != "efbg_upgrade" || nonce != "efn_upgrade" || agentID != "42" {
+		t.Fatalf("unexpected legacy upgrade challenge grant=%q nonce=%q agent=%q", grant, nonce, agentID)
+	}
+	if poster.path != "/console/agent-upgrade-challenges" {
+		t.Fatalf("legacy upgrade path=%q", poster.path)
+	}
+	if poster.body["public_key"] != base64.RawURLEncoding.EncodeToString(publicKey) {
+		t.Fatal("legacy upgrade challenge did not bind the stable public key")
+	}
+}
+
+func TestProvisionCommandExposesFailClosedExistingAgentMode(t *testing.T) {
+	flag := agentV2ProvisionCmd.Flags().Lookup("require-existing-agent")
+	if flag == nil || flag.DefValue != "false" {
+		t.Fatal("agent provision must expose an opt-in fail-closed existing-Agent mode")
 	}
 }
 
