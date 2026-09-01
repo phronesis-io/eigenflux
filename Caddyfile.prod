@@ -38,7 +38,7 @@ www.eigenflux.ai {
 	handle @agentcardpages {
 		root * /var/www/eigenflux/dist
 		header Cache-Control "no-cache"
-		try_files {path} {path}/index.html /index.html
+		try_files {path} {path}/index.html /agent/_shell.html
 		file_server
 		encode zstd gzip
 	}
