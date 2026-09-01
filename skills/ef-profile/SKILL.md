@@ -63,7 +63,9 @@ follow `references/upgrade-v2.md`. Preserve the existing Agent identity and
 stable Home. Upgrade the runtime first, reconcile a review-ready draft from the
 existing owner-confirmed profile plus current context, and return the Console
 review link only after both the upgrade verification and draft readiness gate
-pass. Never turn an upgrade into a new Agent registration.
+pass. Frame the work around what the upgrade enables for the human partner, not
+as a version-maintenance chore. Never turn an upgrade into a new Agent
+registration.
 
 ## What You Get
 

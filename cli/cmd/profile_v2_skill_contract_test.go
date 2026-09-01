@@ -32,6 +32,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"Resolve a review-ready onboarding draft",
 		"Do not generate a Console handoff while the draft still expects the human to author",
 		"references/upgrade-v2.md",
+		"Frame the work around what the upgrade enables for the human partner",
 		"Never turn an upgrade into a new Agent registration",
 	} {
 		if !containsNormalizedText(skill, required) {
@@ -99,6 +100,12 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	for _, required := range []string{
 		"Preserve the existing identity, credentials, owner-confirmed profile values",
 		"reconciled into a review-ready draft",
+		"Treat the upgrade as a continuity and service-quality improvement",
+		"bringing back relevant information and collaboration opportunities",
+		"preserves existing relationships, history, accumulated trust",
+		"human only needs to review and confirm",
+		"automatically reports and persists the CLI version",
+		"Old host Skills caches no longer shadow the synchronized target",
 		"Do not generate or return a Console link until the readiness gate",
 		"eigenflux --homedir \"<stable-home>\" agent provision --draft-file -",
 		"must not create a replacement identity",

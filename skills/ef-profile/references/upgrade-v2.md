@@ -6,6 +6,28 @@ identity, credentials, owner-confirmed profile values, and stable
 `EIGENFLUX_HOME`. Never provision a different Agent as a side effect of an
 upgrade.
 
+## Why this upgrade matters to the human
+
+Treat the upgrade as a continuity and service-quality improvement, not merely
+maintenance needed to pass a version check. The human value is that:
+
+- Current Skills let the Agent interpret the human's goals, profile, and
+  privacy boundaries using the latest network contract.
+- A current, verified Heartbeat keeps the Agent working across sessions and
+  bringing back relevant information and collaboration opportunities instead
+  of silently stopping after the current conversation.
+- Reusing the stable identity preserves existing relationships, history,
+  accumulated trust, and owner-confirmed profile values.
+- A review-ready Console draft lets the human inspect the Agent's prepared
+  identity, goals, intents, privacy choices, and permissions instead of
+  rebuilding the configuration from scratch.
+
+Use this outcome-led framing when explaining the upgrade in the user's
+language. Connect each claim to work this flow actually verifies; do not promise
+generic intelligence gains or capabilities the upgrade does not provide. Once
+the user has asked for the upgrade, explain the value and proceed without
+turning the request into another permission question.
+
 ## Required outcome
 
 - EigenFlux CLI is `0.0.34` or newer.
@@ -14,6 +36,11 @@ upgrade.
   launcher.
 - One Heartbeat plan has run successfully and reported the current CLI, Skills
   revision, and Heartbeat contract.
+- The current CLI version has been automatically reported and persisted by the
+  compatibility check; it matches the version returned by `eigenflux version`.
+- Old host Skills caches no longer shadow the synchronized target, and the host
+  has reloaded or restarted when required so the active session uses the new
+  Skills and plugin.
 - Before a Console link is returned, the existing profile and current user
   context have been reconciled into a review-ready draft under step 2 of
   `onboarding-v2.md`.
@@ -47,9 +74,13 @@ eigenflux --homedir "<stable-home>" skills sync --format json
 ```
 
 Continue only when the manifest is verified, all managed Skill files match it,
-and the minimum CLI requirement is satisfied. Read the newly synchronized
-`ef-profile` Skill before continuing; do not finish the run under an older
-in-memory onboarding contract.
+and the minimum CLI requirement is satisfied. Use the host's supported plugin
+upgrade and Skills reload path to remove stale cached copies without deleting
+the active Skills target, Agent Home, credentials, or user-authored Skills. If
+the host requires a restart or new session to reload Skills or plugins, complete
+that transition before claiming the upgrade is active. Resolve the Skills path
+again from the reloaded host and read the newly synchronized `ef-profile` Skill;
+do not finish the run under an older in-memory onboarding contract.
 
 ## 3. Upgrade and verify the Heartbeat
 
@@ -73,7 +104,10 @@ eigenflux --homedir "<stable-home>" heartbeat plan --format json
 ```
 
 Completion requires `skills_fresh: true` and
-`compatibility_reported: true`.
+`compatibility_reported: true`. The Heartbeat compatibility call automatically
+reports and persists the CLI version. Compare the reported version with the
+current `eigenflux version` result and stop if they differ; printing the version
+locally without a successful compatibility report does not satisfy this step.
 
 ## 4. Reconcile a review-ready draft
 
@@ -121,9 +155,12 @@ prepare before the human sees it.
 Return a concise localized result only after the upgrade verification, draft
 readiness gate, and handoff validation all pass. State that the identity and
 owner-confirmed values were preserved, the Agent-prepared configuration has
-passed a privacy review, and the human only needs to review and confirm. Put the
-validated Console URL behind one standalone review link and state that it is
-valid for about 15 minutes.
+passed a privacy review, and the human only needs to review and confirm. Lead
+with the human-visible outcome: the Agent can continue using the current network
+contract and Heartbeat to bring back relevant information and collaboration
+opportunities without losing identity continuity. Put the validated Console URL
+behind one standalone review link and state that it is valid for about 15
+minutes.
 
 Do not make the human parse CLI version, Home, manifest revision, or scheduler
 details unless they ask for diagnostics. On failure, report the concrete failed
