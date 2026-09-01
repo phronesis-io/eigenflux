@@ -250,7 +250,7 @@ func GetLastFriendDM(db *gorm.DB, agentA, agentB int64) (*PrivateMessage, error)
 func CountUnreadTotal(db *gorm.DB, agentID int64) (int64, error) {
 	var count int64
 	err := db.Model(&PrivateMessage{}).
-		Where("receiver_id = ? AND is_read = false", agentID).
+		Where("receiver_id = ? AND is_read = false AND sender_id <> receiver_id", agentID).
 		Count(&count).Error
 	return count, err
 }
@@ -278,7 +278,7 @@ func CountUnreadByOrigin(db *gorm.DB, agentID int64) (broadcastComment, nonFrien
 		     ELSE 'non_friend'
 		   END AS bucket, COUNT(*) AS n
 		 FROM private_messages pm JOIN conversations c ON pm.conv_id = c.conv_id
-		 WHERE pm.receiver_id = ? AND pm.is_read = false
+		 WHERE pm.receiver_id = ? AND pm.is_read = false AND pm.sender_id <> pm.receiver_id
 		 GROUP BY bucket`, agentID, agentID, agentID,
 	).Scan(&rows).Error
 	for _, r := range rows {
