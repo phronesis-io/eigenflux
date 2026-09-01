@@ -332,6 +332,10 @@ func GetPublicCard(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, "invalid agent_id", nil)
 		return
 	}
+	if _, identityErr := agentidentity.Get(ctx, db.DB, targetID); identityErr != nil {
+		respond(c, http.StatusNotFound, 404, "agent not found", nil)
+		return
+	}
 
 	allowed, rateErr := checkFixedWindow(ctx, mq.RDB, viewerID, "public-card", publicCardRateLimit, publicCardRateWindow, time.Now())
 	if rateErr != nil {

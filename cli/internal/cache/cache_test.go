@@ -220,6 +220,43 @@ func TestDeleteProfileAndContacts(t *testing.T) {
 	}
 }
 
+func TestDeleteIdentityScopedDataPreservesCredentialsAndClearsAccountData(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+	serverDir := ServerDir("testserver")
+	for _, path := range []string{
+		filepath.Join(serverDir, "profile.json"),
+		filepath.Join(serverDir, "contacts.json"),
+		filepath.Join(serverDir, "data", "broadcasts", "20260901", "feed.json"),
+		filepath.Join(serverDir, "data", "messages", "20260901", "agent-old.json"),
+		filepath.Join(serverDir, "data", "events", "queue.json"),
+		filepath.Join(serverDir, "agent-v2-credentials.json"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := DeleteIdentityScopedData("testserver"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(serverDir, "profile.json"),
+		filepath.Join(serverDir, "contacts.json"),
+		filepath.Join(serverDir, "data"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("old identity data remains at %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(serverDir, "agent-v2-credentials.json")); err != nil {
+		t.Fatalf("authoritative V2 credentials were removed: %v", err)
+	}
+}
+
 func TestSaveMessages_Dedup(t *testing.T) {
 	dir := t.TempDir()
 	dir = setHomeDir(t, dir)

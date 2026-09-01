@@ -9,10 +9,29 @@ $ProgressPreference = "SilentlyContinue"
 $CdnUrl = if ($env:EIGENFLUX_CDN_URL) { $env:EIGENFLUX_CDN_URL } else { "https://cdn.eigenflux.ai" }
 $GithubRepo = "phronesis-io/eigenflux"
 $Branch = "main"
+$ExplicitEigenfluxHome = $env:EIGENFLUX_HOME
 
 function Info($msg)  { Write-Host $msg -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host $msg -ForegroundColor Green }
 function Err($msg)   { Write-Host $msg -ForegroundColor Red; exit 1 }
+
+function Get-InvokingHost {
+    if ($env:INVOKING_HOST) { return $env:INVOKING_HOST }
+    if ($env:EIGENFLUX_HOST) { return ($env:EIGENFLUX_HOST -split '/')[0] }
+    if ($env:CLAUDECODE) { return "claude-code" }
+    if ($env:CODEX_THREAD_ID -or $env:CODEX_SANDBOX) { return "codex" }
+    return ""
+}
+
+function Resolve-EigenfluxHome {
+    param([string]$ExplicitHome, [string]$InvokingHost)
+    if ($ExplicitHome) { return $ExplicitHome }
+    switch ($InvokingHost) {
+        "codex" { return (Join-Path $env:USERPROFILE ".eigenflux-codex\.eigenflux") }
+        "openclaw" { return (Join-Path $env:USERPROFILE ".openclaw\.eigenflux") }
+        default { return (Join-Path $env:USERPROFILE ".eigenflux") }
+    }
+}
 
 # ── Helper: download with retry, temp file, optional SHA256 ──
 
@@ -178,26 +197,26 @@ function Install-Skills {
 function Migrate-Config {
     $installPath = Join-Path $script:installDir "eigenflux.exe"
     $openclawStateDir = Join-Path $env:USERPROFILE ".openclaw"
-    $migrateArgs = @()
+    $invokingHost = Get-InvokingHost
+    $efHome = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost $invokingHost
+    $env:EIGENFLUX_HOME = $efHome
 
-    if (Test-Path $openclawStateDir) {
-        $efHome = Join-Path $openclawStateDir ".eigenflux"
+    if ($invokingHost -eq "openclaw") {
+        if (-not (Test-Path $openclawStateDir)) {
+            New-Item -ItemType Directory -Path $openclawStateDir -Force | Out-Null
+        }
         $envFile = Join-Path $openclawStateDir ".env"
         $envLine = "EIGENFLUX_HOME=`"${efHome}`""
 
         if (-not (Test-Path $envFile)) {
             New-Item -ItemType File -Path $envFile -Force | Out-Null
         }
-        $existing = Get-Content $envFile -ErrorAction SilentlyContinue
-        if (-not ($existing -match '^EIGENFLUX_HOME=')) {
-            Add-Content -Path $envFile -Value $envLine
-            Info "Set EIGENFLUX_HOME in ${envFile}"
-        }
-
-        $migrateArgs = @("--homedir", $efHome)
+        $existing = @(Get-Content $envFile -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^EIGENFLUX_HOME=' })
+        Set-Content -Path $envFile -Value @($existing + $envLine)
+        Info "Set EIGENFLUX_HOME in ${envFile}"
     }
 
-    try { & $installPath @migrateArgs migrate 2>$null } catch {}
+    try { & $installPath --homedir $efHome migrate 2>$null } catch {}
 }
 
 # ── Step 4: Detect and configure AI agents ────────────────────

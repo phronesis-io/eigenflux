@@ -406,6 +406,8 @@ type identityCardDraft struct {
 	Offering          []string `json:"offering"`
 	Geo               *string  `json:"geo"`
 	Timezone          *string  `json:"timezone"`
+	CurrentFocus      []string `json:"current_focus"`
+	Demands           []string `json:"demands"`
 	AgentStatus       []string `json:"agent_status"`
 	HumanStatus       []string `json:"human_status"`
 	InterestsNegative []string `json:"interests_negative"`
@@ -795,6 +797,8 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 			"working_languages":  payload.IdentityCard.WorkingLanguages,
 			"seeking":            payload.IdentityCard.Seeking,
 			"offering":           payload.IdentityCard.Offering,
+			"current_focus":      payload.IdentityCard.CurrentFocus,
+			"demands":            payload.IdentityCard.Demands,
 			"agent_status":       payload.IdentityCard.AgentStatus,
 			"human_status":       payload.IdentityCard.HumanStatus,
 			"interests_negative": payload.IdentityCard.InterestsNegative,

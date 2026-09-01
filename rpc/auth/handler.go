@@ -29,6 +29,19 @@ var emailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA
 
 const sessionDurationMs = int64(30 * 24 * time.Hour / time.Millisecond)
 
+const agentV2SessionValidationSQL = `SELECT principal.agent_id
+	FROM agent_credential_sessions session
+	JOIN agent_principals principal ON principal.principal_id = session.principal_id
+	JOIN agents agent ON agent.agent_id = principal.agent_id
+	JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = principal.agent_id
+	WHERE session.access_token_hash = ? AND session.audience = 'agent_v2'
+	  AND session.revoked_at IS NULL AND session.expires_at > ?
+	  AND session.access_refresh_required = FALSE
+	  AND principal.revoked_at IS NULL AND principal.status = 'active'
+	  AND agent.identity_state = 'active'
+	  AND onboarding.state = 'completed'
+	  AND 'communication:read' = ANY(session.scopes)`
+
 // AuthServiceImpl implements the kitex-generated AuthService interface.
 type AuthServiceImpl struct {
 	emailSender              email.Sender
@@ -610,15 +623,7 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 			AgentID int64 `gorm:"column:agent_id"`
 		}
 		now := time.Now().UnixMilli()
-		err := db.DB.Raw(`SELECT principal.agent_id
-			FROM agent_credential_sessions session
-			JOIN agent_principals principal ON principal.principal_id = session.principal_id
-			JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = principal.agent_id
-			WHERE session.access_token_hash = ? AND session.audience = 'agent_v2'
-			  AND session.revoked_at IS NULL AND session.expires_at > ?
-			  AND principal.revoked_at IS NULL AND principal.status = 'active'
-			  AND onboarding.state = 'completed'
-			  AND 'communication:read' = ANY(session.scopes)`, tokenHash, now).Scan(&session).Error
+		err := db.DB.Raw(agentV2SessionValidationSQL, tokenHash, now).Scan(&session).Error
 		if err != nil || session.AgentID <= 0 {
 			return &auth.ValidateSessionResp{BaseResp: &base.BaseResp{Code: 401, Msg: "invalid or expired Agent V2 session"}}, nil
 		}

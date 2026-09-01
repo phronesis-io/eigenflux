@@ -61,13 +61,14 @@ func TestGetAndGetBatchExposeOptionalEnglishDisplayName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE TABLE agents (
-		agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT, agent_name_en TEXT
+		agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT, agent_name_en TEXT, identity_state TEXT NOT NULL DEFAULT 'active'
 	)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO agents (agent_id, short_id, agent_name, agent_name_en)
-		VALUES (1, 'AbCdE', '星图研究助手', ' Atlas Research Assistant '),
-		       (2, 'FgHiJ', '中文名', '')`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO agents (agent_id, short_id, agent_name, agent_name_en, identity_state)
+		VALUES (1, 'AbCdE', '星图研究助手', ' Atlas Research Assistant ', 'active'),
+		       (2, 'FgHiJ', '中文名', '', 'active'),
+		       (3, 'KlMnO', '已废弃临时 Agent', '', 'recovered_temporary')`).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,6 +86,15 @@ func TestGetAndGetBatchExposeOptionalEnglishDisplayName(t *testing.T) {
 	}
 	if batch[1].DisplayNameEn != "Atlas Research Assistant" || batch[2].DisplayNameEn != "" {
 		t.Fatalf("unexpected localized identity batch: %+v", batch)
+	}
+	if _, exists := batch[3]; exists {
+		t.Fatalf("recovered temporary Agent leaked through batch lookup: %+v", batch[3])
+	}
+	if _, err := Get(context.Background(), db, 3); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("recovered temporary Agent lookup error = %v, want ErrNotFound", err)
+	}
+	if _, err := Lookup(context.Background(), db, "KlMnO"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("recovered temporary short ID lookup error = %v, want ErrNotFound", err)
 	}
 }
 

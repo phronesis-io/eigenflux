@@ -15,6 +15,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/ut"
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -250,6 +251,69 @@ func TestRegisterV2RoutesDoesNotConflictWithV1(t *testing.T) {
 		}
 	}()
 	svc.Register(h)
+}
+
+func TestConsoleAuthRejectsStaleIdentityOnReadOnlyRequest(t *testing.T) {
+	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE agents (agent_id INTEGER PRIMARY KEY, identity_state TEXT NOT NULL)`,
+		`CREATE TABLE agent_principals (
+			principal_id INTEGER PRIMARY KEY, agent_id INTEGER NOT NULL,
+			status TEXT NOT NULL, revoked_at INTEGER
+		)`,
+		`CREATE TABLE console_v2_sessions (
+			session_id TEXT PRIMARY KEY, agent_id INTEGER NOT NULL, principal_id INTEGER NOT NULL,
+			session_secret_hash TEXT NOT NULL, csrf_secret_hash TEXT NOT NULL, scopes TEXT NOT NULL,
+			idle_expires_at INTEGER NOT NULL, absolute_expires_at INTEGER NOT NULL,
+			last_seen_at INTEGER NOT NULL, auth_method TEXT NOT NULL, recent_auth_at INTEGER,
+			status TEXT NOT NULL, revoked_at INTEGER
+		)`,
+	} {
+		if err := gdb.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := gdb.Exec(`INSERT INTO agents (agent_id, identity_state) VALUES (10, 'active')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`INSERT INTO agent_principals (principal_id, agent_id, status)
+		VALUES (30, 20, 'active')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	if err := gdb.Exec(`INSERT INTO console_v2_sessions
+		(session_id, agent_id, principal_id, session_secret_hash, csrf_secret_hash, scopes,
+		 idle_expires_at, absolute_expires_at, last_seen_at, auth_method, status)
+		VALUES (?, 10, 30, ?, ?, '{}', ?, ?, ?, 'email', 'active')`,
+		"stale-read-session", hashString("session-secret"), hashString("csrf-secret"),
+		now+int64(time.Hour/time.Millisecond), now+int64(time.Hour/time.Millisecond), now).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{db: gdb}
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.GET("/read", service.consoleAuth(false), func(_ context.Context, c *app.RequestContext) {
+		reply(c, http.StatusOK, map[string]bool{"allowed": true})
+	})
+	status, payload, _ := performJSON(t, h, http.MethodGet, "/read", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: consoleCookieName + "=stale-read-session.session-secret"})
+	if status != http.StatusUnauthorized || responseErrorCode(t, payload) != "CONSOLE_SESSION_INVALID" {
+		t.Fatalf("stale identity read request was not rejected: status=%d payload=%#v", status, payload)
+	}
+	var stored struct {
+		Status    string
+		RevokedAt *int64 `gorm:"column:revoked_at"`
+	}
+	if err := gdb.Raw(`SELECT status, revoked_at FROM console_v2_sessions WHERE session_id = ?`,
+		"stale-read-session").Scan(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "revoked" || stored.RevokedAt == nil {
+		t.Fatalf("stale read session was not revoked: %#v", stored)
+	}
 }
 
 func TestAttentionV1RequiresControlChannel(t *testing.T) {

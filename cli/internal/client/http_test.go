@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,6 +85,46 @@ func TestClientHandles401(t *testing.T) {
 	}
 	if apiErr.StatusCode != 401 {
 		t.Errorf("StatusCode = %d, want 401", apiErr.StatusCode)
+	}
+}
+
+func TestClientRefreshesOnceAndRetriesOriginalRequest(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != `{"intent":"recover"}` {
+			t.Errorf("request body = %q", body)
+		}
+		if requests == 1 {
+			if got := r.Header.Get("Authorization"); got != "Bearer stale-token" {
+				t.Errorf("first authorization = %q", got)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"code":"AGENT_AUTH_INVALID","message":"refresh required"}}`))
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer recovered-token" {
+			t.Errorf("retry authorization = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"ok":true}}`))
+	}))
+	defer srv.Close()
+
+	refreshes := 0
+	c := New(srv.URL, "stale-token", "0.0.35", Meta{})
+	c.OnUnauthorized = func() (string, error) {
+		refreshes++
+		return "recovered-token", nil
+	}
+	if _, err := c.Post("/retry", map[string]string{"intent": "recover"}); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || refreshes != 1 || c.Token != "recovered-token" {
+		t.Fatalf("requests=%d refreshes=%d token=%q", requests, refreshes, c.Token)
 	}
 }
 

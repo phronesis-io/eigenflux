@@ -670,12 +670,14 @@ func (s *Service) createRefreshChallenge(_ context.Context, c *app.RequestContex
 		RevokedAt         *int64  `gorm:"column:revoked_at"`
 		ReplacedBySession *int64  `gorm:"column:replaced_by_session_id"`
 		SuccessorRequest  *string `gorm:"column:successor_request_id"`
+		IdentityState     string  `gorm:"column:identity_state"`
 	}
 	if err := s.db.Raw(`SELECT cs.family_id, p.key_fingerprint, p.status AS principal_status,
 		cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
-		next.rotation_request_id AS successor_request_id
+		next.rotation_request_id AS successor_request_id, a.identity_state
 		FROM agent_credential_sessions cs
 		JOIN agent_principals p ON p.principal_id = cs.principal_id
+		JOIN agents a ON a.agent_id = p.agent_id
 		LEFT JOIN agent_credential_sessions next ON next.session_id = cs.replaced_by_session_id
 		WHERE cs.refresh_token_hash = ?`, hashString(req.RefreshToken)).Scan(&row).Error; err != nil || row.FamilyID == "" {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
@@ -691,7 +693,8 @@ func (s *Service) createRefreshChallenge(_ context.Context, c *app.RequestContex
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
 		return
 	}
-	if row.AbsoluteExpiresAt <= now || (row.PrincipalStatus != "limited" && row.PrincipalStatus != "active") {
+	if row.AbsoluteExpiresAt <= now || row.IdentityState != "active" ||
+		(row.PrincipalStatus != "limited" && row.PrincipalStatus != "active") {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
 		return
 	}
@@ -770,36 +773,44 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 	newAccessToken := "efv2a_" + keyedHash(s.otpPepper, "refresh-access\x00"+rotationHash)
 	newRefreshToken := "efv2r_" + keyedHash(s.otpPepper, "refresh-token\x00"+rotationHash)
 
-	var principalID, newSessionID, expiresAt int64
+	var agentID, principalID, newSessionID, expiresAt int64
 	var familyID string
 	var scopes pq.StringArray
 	reuseDetected := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var old struct {
-			SessionID           int64          `gorm:"column:session_id"`
-			PrincipalID         int64          `gorm:"column:principal_id"`
-			FamilyID            string         `gorm:"column:family_id"`
-			Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
-			RotationCounter     int64          `gorm:"column:rotation_counter"`
-			AbsoluteExpiresAt   int64          `gorm:"column:absolute_expires_at"`
-			RevokedAt           *int64         `gorm:"column:revoked_at"`
-			ReplacedBySessionID *int64         `gorm:"column:replaced_by_session_id"`
-			KeyFingerprint      string         `gorm:"column:key_fingerprint"`
-			PrincipalStatus     string         `gorm:"column:principal_status"`
-			OnboardingState     string         `gorm:"column:onboarding_state"`
+			SessionID             int64          `gorm:"column:session_id"`
+			AgentID               int64          `gorm:"column:agent_id"`
+			PrincipalID           int64          `gorm:"column:principal_id"`
+			FamilyID              string         `gorm:"column:family_id"`
+			Scopes                pq.StringArray `gorm:"column:scopes;type:text[]"`
+			RotationCounter       int64          `gorm:"column:rotation_counter"`
+			AbsoluteExpiresAt     int64          `gorm:"column:absolute_expires_at"`
+			RevokedAt             *int64         `gorm:"column:revoked_at"`
+			ReplacedBySessionID   *int64         `gorm:"column:replaced_by_session_id"`
+			KeyFingerprint        string         `gorm:"column:key_fingerprint"`
+			PrincipalStatus       string         `gorm:"column:principal_status"`
+			OnboardingState       string         `gorm:"column:onboarding_state"`
+			IdentityState         string         `gorm:"column:identity_state"`
+			AccessRefreshRequired bool           `gorm:"column:access_refresh_required"`
 		}
-		if err := tx.Raw(`SELECT cs.session_id, cs.principal_id, cs.family_id, cs.scopes,
+		if err := tx.Raw(`SELECT cs.session_id, p.agent_id, cs.principal_id, cs.family_id, cs.scopes,
 			cs.rotation_counter, cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
-			p.key_fingerprint, p.status AS principal_status, COALESCE(o.state, '') AS onboarding_state
+			p.key_fingerprint, p.status AS principal_status, COALESCE(o.state, '') AS onboarding_state,
+			a.identity_state, cs.access_refresh_required
 			FROM agent_credential_sessions cs
 			JOIN agent_principals p ON p.principal_id = cs.principal_id
+			JOIN agents a ON a.agent_id = p.agent_id
 			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE cs.refresh_token_hash = ? FOR UPDATE OF cs, p`, hashString(req.RefreshToken)).Scan(&old).Error; err != nil {
 			return err
 		}
-		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) ||
+		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) || old.IdentityState != "active" ||
 			(old.PrincipalStatus != "limited" && old.PrincipalStatus != "active") {
 			return errUnauthorized
+		}
+		if !recoveryRefreshCLIAllowed(old.AccessRefreshRequired, string(c.GetHeader("X-CLI-Ver"))) {
+			return errCLIUpgradeRequired
 		}
 		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
 			return err
@@ -834,9 +845,9 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 				if nonceUse.Error != nil || nonceUse.RowsAffected != 1 {
 					return errUnauthorized
 				}
-				principalID, newSessionID, familyID = successor.PrincipalID, successor.SessionID, successor.FamilyID
+				agentID, principalID, newSessionID, familyID = old.AgentID, successor.PrincipalID, successor.SessionID, successor.FamilyID
 				expiresAt, scopes = successor.ExpiresAt, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))
-				if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ? WHERE session_id = ?`, pq.Array([]string(scopes)), successor.SessionID).Error; err != nil {
+				if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?, access_refresh_required = FALSE WHERE session_id = ?`, pq.Array([]string(scopes)), successor.SessionID).Error; err != nil {
 					return err
 				}
 				return nil
@@ -860,7 +871,7 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 		if expiresAt > old.AbsoluteExpiresAt {
 			expiresAt = old.AbsoluteExpiresAt
 		}
-		principalID, familyID, scopes = old.PrincipalID, old.FamilyID, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))
+		agentID, principalID, familyID, scopes = old.AgentID, old.PrincipalID, old.FamilyID, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))
 		if err := tx.Raw(`INSERT INTO agent_credential_sessions
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
 			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at,
@@ -885,6 +896,12 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 		fail(c, http.StatusUnauthorized, "REFRESH_REUSE_DETECTED", "refresh credential reuse revoked this session family", nil)
 		return
 	}
+	if errors.Is(err, errCLIUpgradeRequired) {
+		fail(c, http.StatusUpgradeRequired, "CLI_UPGRADE_REQUIRED", "upgrade EigenFlux CLI before refreshing a recovered identity", map[string]interface{}{
+			"minimum_cli_version": minimumConsoleV2CLI,
+		})
+		return
+	}
 	if errors.Is(err, errUnauthorized) || errors.Is(err, errConflict) {
 		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
 		return
@@ -894,6 +911,7 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 		return
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
+		"agent_id":      fmt.Sprintf("%d", agentID),
 		"principal_id":  fmt.Sprintf("%d", principalID),
 		"session_id":    fmt.Sprintf("%d", newSessionID),
 		"family_id":     familyID,
@@ -905,7 +923,8 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 }
 
 type createHandoffRequest struct {
-	BrowserNonce string `json:"browser_nonce"`
+	BrowserNonce       string   `json:"browser_nonce"`
+	ClientCapabilities []string `json:"client_capabilities,omitempty"`
 }
 
 func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
@@ -927,6 +946,11 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "browser_nonce is required", nil)
 		return
 	}
+	clientCapabilities, validCapabilities := normalizeCapabilities(req.ClientCapabilities)
+	if !validCapabilities {
+		fail(c, http.StatusBadRequest, "INVALID_CAPABILITIES", "client_capabilities are invalid", nil)
+		return
+	}
 	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
 	deviceName, validDeviceName := normalizeDeviceName(string(c.GetHeader("X-Client-Device-Name")))
 	if !validDeviceName {
@@ -946,10 +970,10 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 	now := time.Now().UnixMilli()
 	browserNonceHash := hashString(req.BrowserNonce)
 	err = s.db.Exec(`INSERT INTO console_v2_handoffs
-		(ticket_hash, agent_id, principal_id, console_scope, browser_nonce_hash, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, hashString(ticket), agentID, principalID,
+		(ticket_hash, agent_id, principal_id, console_scope, browser_nonce_hash, client_capabilities, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, hashString(ticket), agentID, principalID,
 		pq.Array([]string{"console:onboarding", "console:read", "console:write"}), browserNonceHash,
-		now+int64(handoffTTL/time.Millisecond), now).Error
+		pq.Array(clientCapabilities), now+int64(handoffTTL/time.Millisecond), now).Error
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "HANDOFF_FAILED", "could not create handoff", nil)
 		return
@@ -979,18 +1003,30 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var agentIDValue, principalID int64
-	var scopes pq.StringArray
+	var scopes, clientCapabilities pq.StringArray
+	handoffRevoked := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var handoff struct {
-			AgentID          int64          `gorm:"column:agent_id"`
-			PrincipalID      int64          `gorm:"column:principal_id"`
-			Scopes           pq.StringArray `gorm:"column:console_scope;type:text[]"`
-			BrowserNonceHash *string        `gorm:"column:browser_nonce_hash"`
-			ExpiresAt        int64          `gorm:"column:expires_at"`
+			AgentID            int64          `gorm:"column:agent_id"`
+			PrincipalID        int64          `gorm:"column:principal_id"`
+			PrincipalAgentID   int64          `gorm:"column:principal_agent_id"`
+			PrincipalStatus    string         `gorm:"column:principal_status"`
+			PrincipalRevokedAt *int64         `gorm:"column:principal_revoked_at"`
+			IdentityState      string         `gorm:"column:identity_state"`
+			Scopes             pq.StringArray `gorm:"column:console_scope;type:text[]"`
+			Capabilities       pq.StringArray `gorm:"column:client_capabilities;type:text[]"`
+			BrowserNonceHash   *string        `gorm:"column:browser_nonce_hash"`
+			ExpiresAt          int64          `gorm:"column:expires_at"`
 		}
-		if err := tx.Raw(`SELECT agent_id, principal_id, console_scope, browser_nonce_hash, expires_at
-			FROM console_v2_handoffs
-			WHERE ticket_hash = ? AND consumed_at IS NULL FOR UPDATE`, hashString(req.Ticket)).
+		if err := tx.Raw(`SELECT h.agent_id, h.principal_id, p.agent_id AS principal_agent_id,
+			p.status AS principal_status, p.revoked_at AS principal_revoked_at, a.identity_state,
+			h.console_scope, h.client_capabilities,
+				h.browser_nonce_hash, h.expires_at
+				FROM console_v2_handoffs h
+				JOIN agent_principals p ON p.principal_id = h.principal_id
+				JOIN agents a ON a.agent_id = h.agent_id
+				WHERE h.ticket_hash = ? AND h.consumed_at IS NULL AND h.revoked_at IS NULL
+				FOR UPDATE OF h`, hashString(req.Ticket)).
 			Scan(&handoff).Error; err != nil {
 			return err
 		}
@@ -999,24 +1035,35 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		providedNonceHash := hashString(req.BrowserNonce)
-		if handoff.AgentID == 0 || handoff.ExpiresAt < now || handoff.BrowserNonceHash == nil ||
+		if !validActiveIdentityBinding(handoff.AgentID, handoff.PrincipalAgentID, handoff.IdentityState,
+			handoff.PrincipalStatus, handoff.PrincipalRevokedAt) ||
+			handoff.ExpiresAt < now || handoff.BrowserNonceHash == nil ||
 			subtle.ConstantTimeCompare([]byte(providedNonceHash), []byte(*handoff.BrowserNonceHash)) != 1 {
+			if handoff.AgentID != 0 && !validActiveIdentityBinding(handoff.AgentID, handoff.PrincipalAgentID,
+				handoff.IdentityState, handoff.PrincipalStatus, handoff.PrincipalRevokedAt) {
+				if err := tx.Exec(`UPDATE console_v2_handoffs SET revoked_at = COALESCE(revoked_at, ?)
+					WHERE ticket_hash = ?`, now, hashString(req.Ticket)).Error; err != nil {
+					return err
+				}
+				handoffRevoked = true
+				return nil
+			}
 			return errUnauthorized
 		}
 		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = ?
-			WHERE ticket_hash = ? AND consumed_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
+				WHERE ticket_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
 		if consume.Error != nil || consume.RowsAffected != 1 {
 			return errUnauthorized
 		}
-		agentIDValue, principalID, scopes = handoff.AgentID, handoff.PrincipalID, handoff.Scopes
+		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
 		return tx.Exec(`INSERT INTO console_v2_sessions
 				(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
-					 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
-				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
-			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), now,
+					 status, scopes, client_capabilities, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
+				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
+			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), pq.Array([]string(clientCapabilities)), now,
 			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error
 	})
-	if errors.Is(err, errUnauthorized) {
+	if handoffRevoked || errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
 		return
 	}
@@ -1027,7 +1074,8 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
 	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
-		"agent_id":   fmt.Sprintf("%d", agentIDValue),
-		"csrf_token": csrfSecret,
+		"agent_id":            fmt.Sprintf("%d", agentIDValue),
+		"csrf_token":          csrfSecret,
+		"client_capabilities": []string(clientCapabilities),
 	})
 }

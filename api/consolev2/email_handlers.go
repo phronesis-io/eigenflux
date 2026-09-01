@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -464,9 +465,11 @@ func sameOptionalString(left, right *string) bool {
 
 func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 	agentIDValue, ok := agentID(c)
+	principalValue, hasPrincipal := c.Get("principal_id")
+	principalID, principalOK := principalValue.(int64)
 	sessionValue, hasSession := c.Get("console_session_id")
 	sessionID, sessionOK := sessionValue.(string)
-	if !ok || !hasSession || !sessionOK {
+	if !ok || !hasPrincipal || !principalOK || !hasSession || !sessionOK {
 		fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
 		return
 	}
@@ -482,6 +485,7 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 	}
 	now := time.Now().UnixMilli()
 	validOTP := false
+	var recoveryDetails map[string]interface{}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		_, valid, checkErr := s.lockAndCheckEmailChallenge(tx, req, normalizedEmail, "bind", &agentIDValue, &sessionID, now)
 		if checkErr != nil || !valid {
@@ -499,11 +503,6 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			WHERE normalized_email = ? AND status = 'active'`, normalizedEmail).Scan(&bindingOwners).Error; err != nil {
 			return err
 		}
-		for _, owner := range bindingOwners {
-			if owner.AgentID != agentIDValue {
-				return errConflict
-			}
-		}
 		var legacyOwners []struct {
 			AgentID int64 `gorm:"column:agent_id"`
 		}
@@ -511,10 +510,28 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			WHERE lower(btrim(email)) = ? AND email_kind = 'legacy_real' ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
 			return err
 		}
+		otherOwners := map[int64]struct{}{}
+		for _, owner := range bindingOwners {
+			if owner.AgentID != agentIDValue {
+				otherOwners[owner.AgentID] = struct{}{}
+			}
+		}
 		for _, owner := range legacyOwners {
 			if owner.AgentID != agentIDValue {
-				return errConflict
+				otherOwners[owner.AgentID] = struct{}{}
 			}
+		}
+		if len(otherOwners) > 1 {
+			return errConflict
+		}
+		for targetAgentID := range otherOwners {
+			details, recoveryErr := s.prepareAccountRecovery(tx, agentIDValue, targetAgentID,
+				principalID, sessionID, req.ChallengeID, normalizedEmail, now)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+			recoveryDetails = details
+			return nil
 		}
 		var current struct {
 			BindingID       int64  `gorm:"column:binding_id"`
@@ -550,6 +567,10 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 	})
 	if errors.Is(err, errUnauthorized) || (!validOTP && err == nil) {
 		fail(c, http.StatusUnauthorized, "OTP_INVALID", "verification code is invalid or expired", nil)
+		return
+	}
+	if recoveryDetails != nil {
+		fail(c, http.StatusConflict, "EMAIL_UNAVAILABLE", "this email belongs to a recoverable historical Agent", recoveryDetails)
 		return
 	}
 	if errors.Is(err, errConflict) || isUniqueViolation(err) {
@@ -608,23 +629,211 @@ func ensureLegacyConsoleV2State(tx *gorm.DB, id, now int64) error {
 		VALUES (?, 600, false, ?) ON CONFLICT (agent_id) DO NOTHING`, id, now).Error; err != nil {
 		return err
 	}
+	var existingDraft struct {
+		Revision  int64  `gorm:"column:revision"`
+		DraftData string `gorm:"column:draft_data"`
+		RequestID string `gorm:"column:request_id"`
+	}
+	if err := tx.Raw(`SELECT revision, draft_data::text AS draft_data, request_id
+		FROM agent_onboarding_drafts WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, id).Scan(&existingDraft).Error; err != nil {
+		return err
+	}
+	if existingDraft.Revision > 0 && existingDraft.RequestID != "legacy-lazy-v1" {
+		return nil
+	}
+	var snapshot struct {
+		AgentName        string `gorm:"column:agent_name"`
+		Bio              string `gorm:"column:bio"`
+		Country          string `gorm:"column:country"`
+		ProfileData      string `gorm:"column:profile_data"`
+		PublicCard       string `gorm:"column:public_card"`
+		PrivateCard      string `gorm:"column:private_card"`
+		RecurringPublish bool   `gorm:"column:recurring_publish"`
+		AutoReplyPM      bool   `gorm:"column:auto_reply_pm"`
+		AutoComment      bool   `gorm:"column:auto_comment"`
+		ShowAddFriend    bool   `gorm:"column:show_add_friend"`
+	}
+	if err := tx.Raw(`SELECT a.agent_name, COALESCE(a.bio, '') AS bio,
+		COALESCE(p.country, '') AS country, COALESCE(p.profile_data, '{}'::jsonb)::text AS profile_data,
+		COALESCE(c.public_card, '{}'::jsonb)::text AS public_card,
+		COALESCE(c.private_card, '{}'::jsonb)::text AS private_card,
+		COALESCE(s.recurring_publish, true) AS recurring_publish,
+		COALESCE(s.auto_reply_pm, true) AS auto_reply_pm,
+		COALESCE(s.auto_comment, true) AS auto_comment,
+		COALESCE(s.show_add_friend, true) AS show_add_friend
+		FROM agents a
+		LEFT JOIN agent_profiles p ON p.agent_id = a.agent_id
+		LEFT JOIN agent_cards c ON c.agent_id = a.agent_id
+		LEFT JOIN agent_settings s ON s.agent_id = a.agent_id
+		WHERE a.agent_id = ?`, id).Scan(&snapshot).Error; err != nil {
+		return err
+	}
+	profileData, err := decodeHistoricalCardObject(snapshot.ProfileData)
+	if err != nil {
+		return err
+	}
+	publicCard, err := decodeHistoricalCardObject(snapshot.PublicCard)
+	if err != nil {
+		return err
+	}
+	privateCard, err := decodeHistoricalCardObject(snapshot.PrivateCard)
+	if err != nil {
+		return err
+	}
+	draft := map[string]interface{}{
+		"identity_card": historicalIdentityCard(snapshot.AgentName, snapshot.Bio, snapshot.Country, profileData, publicCard, privateCard),
+		"security_boundary": map[string]interface{}{
+			"recurring_publish": snapshot.RecurringPublish,
+			"auto_reply_pm":     snapshot.AutoReplyPM,
+			"auto_comment":      snapshot.AutoComment,
+			"show_add_friend":   snapshot.ShowAddFriend,
+		},
+		"network_goal":   "",
+		"intent_actions": []interface{}{},
+	}
+	draftJSON, draftObject, err := normalizeHistoricalOnboardingDraftJSON(mustJSON(draft))
+	if err != nil {
+		return err
+	}
+	if existingDraft.Revision > 0 {
+		currentDraft, decodeErr := decodeJSONObject(json.RawMessage(existingDraft.DraftData))
+		if decodeErr != nil {
+			return decodeErr
+		}
+		draftObject = mergeHistoricalRecoveryDraft(currentDraft, draftObject)
+		draftJSON, draftObject, err = normalizeHistoricalOnboardingDraftJSON(mustJSON(draftObject))
+		if err != nil {
+			return err
+		}
+	}
+	provenanceJSON, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceSystem, nil, now))
+	if err != nil {
+		return err
+	}
+	if existingDraft.Revision > 0 {
+		return tx.Exec(`UPDATE agent_onboarding_drafts
+			SET draft_data = ?::jsonb, field_provenance = ?::jsonb, request_id = 'legacy-lazy-v2'
+			WHERE agent_id = ? AND revision = ? AND request_id = 'legacy-lazy-v1'`,
+			string(draftJSON), string(provenanceJSON), id, existingDraft.Revision).Error
+	}
 	return tx.Exec(`INSERT INTO agent_onboarding_drafts
 		(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
-		SELECT a.agent_id, 1,
-			jsonb_build_object(
-				'identity_card', jsonb_build_object('agent_name', a.agent_name, 'bio', COALESCE(a.bio, '')),
-				'security_boundary', jsonb_build_object(
-					'recurring_publish', COALESCE(s.recurring_publish, true),
-					'auto_reply_pm', COALESCE(s.auto_reply_pm, true),
-					'auto_comment', COALESCE(s.auto_comment, true),
-					'show_add_friend', COALESCE(s.show_add_friend, true)),
-				'network_goal', '', 'intent_actions', '[]'::jsonb),
-			jsonb_build_object('identity_card', 'legacy_migration',
-				'security_boundary', 'legacy_migration'),
-			'system_derived', 'legacy-lazy-v1', ?
-		FROM agents a LEFT JOIN agent_settings s ON s.agent_id = a.agent_id
-		WHERE a.agent_id = ?
-		ON CONFLICT DO NOTHING`, now, id).Error
+		VALUES (?, 1, ?::jsonb, ?::jsonb, 'system_derived', 'legacy-lazy-v2', ?)
+		ON CONFLICT DO NOTHING`, id, string(draftJSON), string(provenanceJSON), now).Error
+}
+
+func mergeHistoricalRecoveryDraft(current, historical map[string]interface{}) map[string]interface{} {
+	currentIdentity, _ := current["identity_card"].(map[string]interface{})
+	if currentIdentity == nil {
+		currentIdentity = map[string]interface{}{}
+		current["identity_card"] = currentIdentity
+	}
+	historicalIdentity, _ := historical["identity_card"].(map[string]interface{})
+	for field, historicalValue := range historicalIdentity {
+		currentValue, exists := currentIdentity[field]
+		if !meaningfulDraftValue(currentValue, exists) && meaningfulDraftValue(historicalValue, true) {
+			currentIdentity[field] = historicalValue
+		}
+	}
+	return current
+}
+
+func mustJSON(value interface{}) json.RawMessage {
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
+
+func decodeHistoricalCardObject(raw string) (map[string]interface{}, error) {
+	if strings.TrimSpace(raw) == "" {
+		return map[string]interface{}{}, nil
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func historicalIdentityCard(agentName, bio, country string, profileData, publicCard, privateCard map[string]interface{}) map[string]interface{} {
+	identity := map[string]interface{}{}
+	if value := strings.TrimSpace(agentName); value != "" {
+		identity["agent_name"] = value
+	} else if value, ok := historicalString("agent_name", publicCard); ok {
+		identity["agent_name"] = value
+	}
+	if value := strings.TrimSpace(bio); value != "" {
+		identity["bio"] = value
+		identity["agent_description"] = value
+	} else if value, ok := historicalString("agent_description", publicCard); ok {
+		identity["bio"] = value
+		identity["agent_description"] = value
+	}
+	for _, field := range []string{"human_description"} {
+		if value, ok := historicalString(field, profileData, publicCard); ok {
+			identity[field] = value
+		}
+	}
+	for _, field := range []string{"working_languages", "seeking", "offering"} {
+		if value, ok := historicalList(field, profileData, publicCard); ok {
+			identity[field] = value
+		}
+	}
+	if value, ok := historicalString("geo", profileData, privateCard); ok {
+		identity["geo"] = value
+	} else if value := strings.TrimSpace(country); value != "" {
+		identity["geo"] = value
+	}
+	if value, ok := historicalString("timezone", profileData, privateCard); ok {
+		identity["timezone"] = value
+	}
+	for _, field := range []string{"current_focus", "demands", "agent_status", "human_status", "interests_negative"} {
+		if value, ok := historicalList(field, profileData, privateCard); ok {
+			identity[field] = value
+		}
+	}
+	return identity
+}
+
+func historicalString(field string, sources ...map[string]interface{}) (string, bool) {
+	for _, source := range sources {
+		if value, ok := source[field].(string); ok {
+			if value = strings.TrimSpace(value); value != "" {
+				return value, true
+			}
+		}
+	}
+	return "", false
+}
+
+func historicalList(field string, sources ...map[string]interface{}) ([]string, bool) {
+	for _, source := range sources {
+		items := make([]string, 0)
+		switch value := source[field].(type) {
+		case []interface{}:
+			for _, item := range value {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					items = append(items, strings.TrimSpace(text))
+				}
+			}
+		case []string:
+			for _, item := range value {
+				if text := strings.TrimSpace(item); text != "" {
+					items = append(items, text)
+				}
+			}
+		case string:
+			items = strings.FieldsFunc(value, func(r rune) bool {
+				return r == '·' || r == ',' || r == '，' || r == ';' || r == '；' || r == '\n' || r == '\r'
+			})
+			for index := range items {
+				items[index] = strings.TrimSpace(items[index])
+			}
+		}
+		if len(items) > 0 {
+			return items, true
+		}
+	}
+	return nil, false
 }
 
 func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {

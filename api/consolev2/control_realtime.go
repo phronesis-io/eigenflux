@@ -174,8 +174,10 @@ func (s *Service) agentCredentialSessionStillActive(sessionID, agentID int64) bo
 	now := time.Now().UnixMilli()
 	err := s.db.Raw(`SELECT EXISTS(SELECT 1 FROM agent_credential_sessions session
 		JOIN agent_principals principal ON principal.principal_id = session.principal_id
+		JOIN agents agent ON agent.agent_id = principal.agent_id
 		WHERE session.session_id = ? AND principal.agent_id = ? AND session.audience = 'agent_v2'
-		 AND session.revoked_at IS NULL AND session.expires_at > ?
+		 AND session.revoked_at IS NULL AND session.expires_at > ? AND session.access_refresh_required = FALSE
+		 AND agent.identity_state = 'active'
 		 AND principal.revoked_at IS NULL AND principal.status IN ('limited','active'))`,
 		sessionID, agentID, now).Scan(&active).Error
 	return err == nil && active

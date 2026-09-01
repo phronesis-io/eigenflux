@@ -41,6 +41,8 @@ var onboardingDraftFieldPaths = []string{
 	"identity_card.offering",
 	"identity_card.geo",
 	"identity_card.timezone",
+	"identity_card.current_focus",
+	"identity_card.demands",
 	"identity_card.agent_status",
 	"identity_card.human_status",
 	"identity_card.interests_negative",

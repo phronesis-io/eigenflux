@@ -16,7 +16,7 @@ import (
 
 const (
 	heartbeatContractV1 = "eigenflux_heartbeat.v1"
-	minimumConsoleV2CLI = "0.0.34"
+	minimumConsoleV2CLI = "0.0.35"
 )
 
 var skillRevisionPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
@@ -158,4 +158,8 @@ func compareConsoleCLIVersion(left, right string) int {
 		}
 	}
 	return 0
+}
+
+func recoveryRefreshCLIAllowed(accessRefreshRequired bool, cliVersion string) bool {
+	return !accessRefreshRequired || compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) >= 0
 }

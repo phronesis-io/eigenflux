@@ -5,6 +5,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/json"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"time"
@@ -75,6 +76,34 @@ func (s *resendSender) SendLoginVerifyMail(ctx context.Context, to string, otpCo
 		return fmt.Errorf("email: resend API returned status %d", resp.StatusCode)
 	}
 
+	return nil
+}
+
+func (s *resendSender) SendAccountRecoveryMail(ctx context.Context, to, agentName string) error {
+	payload := resendEmailRequest{
+		From:    s.fromEmail,
+		To:      []string{to},
+		Subject: "Your EigenFlux Agent was recovered",
+		HTML:    fmt.Sprintf(`<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#222"><h2>EigenFlux Agent recovered</h2><p>Your current installation was connected to <strong>%s</strong> after email verification.</p><p>If you did not perform this recovery, contact EigenFlux support immediately.</p></body></html>`, html.EscapeString(agentName)),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("email: marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendAPIURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("email: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("email: send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("email: resend API returned status %d", resp.StatusCode)
+	}
 	return nil
 }
 

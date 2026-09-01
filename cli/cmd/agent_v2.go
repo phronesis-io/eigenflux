@@ -261,6 +261,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 		agentName, _ := cmd.Flags().GetString("agent-name")
 		draftFile, _ := cmd.Flags().GetString("draft-file")
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
+		recoverAccount, _ := cmd.Flags().GetBool("recover-account")
 		if strings.TrimSpace(agentName) == "" {
 			agentName = "EigenFlux Agent"
 		}
@@ -345,7 +346,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 			if nonceErr != nil {
 				return nonceErr
 			}
-			handoffResponse, handoffErr := authenticated.Post("/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce})
+			handoffResponse, handoffErr := authenticated.Post("/console/handoffs", map[string]interface{}{
+				"browser_nonce": browserNonce, "client_capabilities": consoleHandoffCapabilities(recoverAccount),
+			})
 			if handoffErr != nil {
 				return handoffErr
 			}
@@ -370,6 +373,15 @@ func init() {
 	agentV2ProvisionCmd.Flags().String("agent-name", "EigenFlux Agent", "Agent name used to prefill onboarding")
 	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file ('-' reads stdin)")
 	agentV2ProvisionCmd.Flags().Bool("no-handoff", false, "provision without creating a Console V2 link")
+	agentV2ProvisionCmd.Flags().Bool("recover-account", false, "open the claim page to recover a historical Agent")
 	agentV2Cmd.AddCommand(agentV2InitCmd, agentV2ProvisionCmd)
 	rootCmd.AddCommand(agentV2Cmd)
+}
+
+func consoleHandoffCapabilities(recoveryEntry bool) []string {
+	capabilities := []string{"account_recovery_v1"}
+	if recoveryEntry {
+		capabilities = append(capabilities, "account_recovery_entry_v1")
+	}
+	return capabilities
 }
