@@ -64,10 +64,18 @@ type networkGoalWriteRequest struct {
 	GoalText string `json:"goal_text"`
 }
 
+const (
+	onboardingNetworkGoalMaxChars       = 2000
+	onboardingIntentMaxItems            = 10
+	onboardingIntentWatchForMaxChars    = 1000
+	onboardingIntentTriggerWhenMaxChars = 1000
+	onboardingIntentInstructionMaxChars = 2000
+)
+
 func (s *Service) putNetworkGoal(_ context.Context, c *app.RequestContext) {
 	id, _ := agentID(c)
 	var req networkGoalWriteRequest
-	if err := decodeBody(c, &req); err != nil || validateContextWrite(req.ContextWriteRequest) != nil || strings.TrimSpace(req.GoalText) == "" || utf8.RuneCountInString(req.GoalText) > 2000 {
+	if err := decodeBody(c, &req); err != nil || validateContextWrite(req.ContextWriteRequest) != nil || strings.TrimSpace(req.GoalText) == "" || utf8.RuneCountInString(req.GoalText) > onboardingNetworkGoalMaxChars {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "valid goal_text, expected_context_revision, and idempotency_key are required", nil)
 		return
 	}
@@ -99,7 +107,9 @@ func validateIntent(fields IntentWriteFields) error {
 	if strings.TrimSpace(fields.WatchFor) == "" {
 		return errors.New("watch_for is required")
 	}
-	if utf8.RuneCountInString(fields.WatchFor) > 1000 || utf8.RuneCountInString(fields.TriggerWhen) > 1000 || utf8.RuneCountInString(fields.ActionInstruction) > 2000 {
+	if utf8.RuneCountInString(fields.WatchFor) > onboardingIntentWatchForMaxChars ||
+		utf8.RuneCountInString(fields.TriggerWhen) > onboardingIntentTriggerWhenMaxChars ||
+		utf8.RuneCountInString(fields.ActionInstruction) > onboardingIntentInstructionMaxChars {
 		return errors.New("intent text exceeds its length limit")
 	}
 	switch fields.ActionPolicy {
