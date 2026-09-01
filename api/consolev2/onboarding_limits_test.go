@@ -4,6 +4,9 @@ import "testing"
 
 func TestOnboardingLimitsExposeBackendValidationContract(t *testing.T) {
 	limits := onboardingLimits()
+	if got := limits.IdentityCard["agent_description"]; got.MaxChars != 1000 {
+		t.Fatalf("unexpected agent_description limits: %#v", got)
+	}
 	if got := limits.IdentityCard["seeking"]; got.MaxChars != 300 || got.MaxItemChars != 300 || got.MaxItems != 20 {
 		t.Fatalf("unexpected seeking limits: %#v", got)
 	}
