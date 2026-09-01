@@ -36,3 +36,17 @@ ends, and the on/off restarts are visible in `journalctl -u eigenflux-app@<i>`.
 Application services execute and resolve relative resources from one
 root-owned release bundle under `/var/lib/eigenflux-deployer/current`; they
 never load runtime files from the writable production checkout.
+
+## Updating this policy
+
+The authoritative copy is `/etc/eigenflux/DEPLOYMENT_POLICY.md`, installed once
+by `scripts/cloud/install_main_deployer.sh`; ordinary deployments do not touch
+`/etc/eigenflux`. After a change to this file is merged and deployed, a root
+operator refreshes the authoritative copy from the deployed release bundle:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /var/lib/eigenflux-deployer/current/source/scripts/cloud/DEPLOYMENT_POLICY.md \
+  /etc/eigenflux/DEPLOYMENT_POLICY.md
+diff /var/lib/eigenflux-deployer/current/source/scripts/cloud/DEPLOYMENT_POLICY.md /etc/eigenflux/DEPLOYMENT_POLICY.md && echo "policy in sync"
+```

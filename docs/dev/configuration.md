@@ -175,8 +175,10 @@ printf '[Service]\nEnvironmentFile=-/etc/eigenflux/db-trace-pm.env\n' \
 sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
 # verify — `systemctl show -p Environment` does NOT expand EnvironmentFile, so read
 # the live process environment, or look for the startup line the service logs:
-sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value eigenflux-app@pm)/environ | grep DB_LOG_LEVEL   # expect info
-journalctl -u eigenflux-app@pm -n 200 | grep 'gorm log level'                                                  # expect level=info
+pid=$(systemctl show -p MainPID --value eigenflux-app@pm)
+sudo cat "/proc/$pid/environ" | tr '\0' '\n' | grep '^DB_LOG_LEVEL=info$'   # prints the line = active
+# (the service also logs one "gorm log level" line at startup, visible only
+#  when the structured LOG_LEVEL is info or debug)
 journalctl -u eigenflux-app@pm -f                                              # full SQL trace, this instance only
 
 # turn off — delete only our two files (do NOT use `systemctl revert`: it
