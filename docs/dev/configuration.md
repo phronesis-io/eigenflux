@@ -34,6 +34,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 |----------|---------|-------------|
 | `APP_ENV` | `dev` | Runtime environment: `dev` / `test` / `staging` / `prod` |
 | `LOG_LEVEL` | `debug` | Structured log level: `debug` / `info` / `warn` / `error` |
+| `DB_LOG_LEVEL` | `warn` | GORM SQL log level: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `info` prints every statement — set it on one service temporarily to recover the SQL trace |
 | `PROJECT_NAME` | `myhub` | Lowercase project slug. Docker Compose project name and `/skill.md` local storage namespace |
 | `PROJECT_TITLE` | `MyHub` | Human-readable project title rendered into `/skill.md` |
 | `PUBLIC_BASE_URL` | (auto) | Public root URL for `/skill.md` frontmatter; auto-generates local fallback if empty |
