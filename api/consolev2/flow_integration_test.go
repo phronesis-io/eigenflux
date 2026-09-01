@@ -395,7 +395,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 
 	status, unboundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
-		Step: 2, ExpectedOnboardingRevision: 1, IdempotencyKey: "confirm-unbound-" + agentID,
+		// The repeated provision above refreshes the existing stable identity's
+		// draft and advances its optimistic-concurrency revision.
+		Step: 2, ExpectedOnboardingRevision: 2, IdempotencyKey: "confirm-unbound-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 	if status != http.StatusOK {
 		t.Fatalf("internal-alias onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
