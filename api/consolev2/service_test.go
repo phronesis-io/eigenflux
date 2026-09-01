@@ -96,6 +96,42 @@ func TestProvisionTranscriptVerifiesAndCoversMutableFields(t *testing.T) {
 	}
 }
 
+func TestEffectiveProvisionAgentNamePrefersDraftName(t *testing.T) {
+	tests := []struct {
+		name     string
+		topLevel string
+		draft    map[string]interface{}
+		expected string
+	}{
+		{
+			name:     "draft name wins over CLI default",
+			topLevel: "EigenFlux Agent",
+			draft: map[string]interface{}{
+				"identity_card": map[string]interface{}{"agent_name": "Codex Agent"},
+			},
+			expected: "Codex Agent",
+		},
+		{
+			name:     "explicit top-level name remains a fallback",
+			topLevel: "Explicit Agent",
+			draft:    map[string]interface{}{"identity_card": map[string]interface{}{}},
+			expected: "Explicit Agent",
+		},
+		{
+			name:     "empty request uses the V2 default",
+			draft:    map[string]interface{}{},
+			expected: "EigenFlux Agent",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveProvisionAgentName(tt.topLevel, tt.draft); got != tt.expected {
+				t.Fatalf("effectiveProvisionAgentName() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestNormalizeDeviceName(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -42,14 +42,19 @@ import (
 const (
 	consoleCookieName = "ef_console_v2"
 	csrfCookieName    = "ef_console_v2_csrf"
-	accessTTL         = 15 * time.Minute
-	refreshTTL        = 30 * 24 * time.Hour
-	handoffTTL        = 15 * time.Minute
-	grantTTL          = 5 * time.Minute
-	proofClockSkew    = 5 * time.Minute
-	maxRequestBytes   = 256 << 10
-	maxAgentStreams   = 3
-	maxProcessStreams = 1000
+	// Browser sessions use a long idle window while retaining a hard upper
+	// bound. Keep these values centralized so handoff and email-OTP login
+	// cannot drift apart.
+	consoleIdleTTL     = 30 * 24 * time.Hour
+	consoleAbsoluteTTL = 180 * 24 * time.Hour
+	accessTTL          = 15 * time.Minute
+	refreshTTL         = 30 * 24 * time.Hour
+	handoffTTL         = 15 * time.Minute
+	grantTTL           = 5 * time.Minute
+	proofClockSkew     = 5 * time.Minute
+	maxRequestBytes    = 256 << 10
+	maxAgentStreams    = 3
+	maxProcessStreams  = 1000
 )
 
 var (
@@ -333,7 +338,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me/principals", s.consoleAuth(false), s.listPrincipals)
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
-	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
+	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", middleware.ClientInfoMiddleware(), s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
@@ -617,7 +622,7 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		}
 		// Sliding activity is throttled to one write per five minutes.
 		if now-session.LastSeenAt >= int64(5*time.Minute/time.Millisecond) {
-			idle := now + int64(30*time.Minute/time.Millisecond)
+			idle := now + int64(consoleIdleTTL/time.Millisecond)
 			if idle > session.AbsoluteExpiry {
 				idle = session.AbsoluteExpiry
 			}

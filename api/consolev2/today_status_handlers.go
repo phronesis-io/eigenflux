@@ -16,21 +16,31 @@ type todayStatusFacts struct {
 
 func (s *Service) getTodayStatus(_ context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
+	now := time.Now().UTC()
+	var privateCard string
+	if err := s.db.Raw(`SELECT COALESCE(
+		(SELECT private_card FROM agent_cards WHERE agent_id = ?),
+		'{}'::jsonb
+	)::text AS private_card`, agentIDValue).Scan(&privateCard).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "TODAY_STATUS_READ_FAILED", "could not load Agent timezone", nil)
+		return
+	}
+	todayStart := todayStartFromPrivateCard(privateCard, now)
 	var facts todayStatusFacts
 	if err := s.db.Raw(`SELECT
 		COALESCE((SELECT MAX(last_heartbeat_at) FROM agent_runtime_leases WHERE agent_id = ?), 0)::bigint AS last_heartbeat_at,
-		COALESCE((SELECT MIN(created_at) FROM agent_activity_log WHERE agent_id = ? AND event_type = 'feed_pull'), 0)::bigint AS first_scan_completed_at,
-		COALESCE((SELECT MAX(created_at) FROM agent_activity_log WHERE agent_id = ? AND event_type = 'feed_pull'), 0)::bigint AS last_scan_at`,
-		agentIDValue, agentIDValue, agentIDValue).Scan(&facts).Error; err != nil {
+		COALESCE((SELECT MIN(created_at) FROM agent_activity_log WHERE agent_id = ? AND event_type = 'feed_pull' AND created_at >= ?), 0)::bigint AS first_scan_completed_at,
+		COALESCE((SELECT MAX(created_at) FROM agent_activity_log WHERE agent_id = ? AND event_type = 'feed_pull' AND created_at >= ?), 0)::bigint AS last_scan_at`,
+		agentIDValue, agentIDValue, todayStart, agentIDValue, todayStart).Scan(&facts).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_STATUS_READ_FAILED", "could not load Today status", nil)
 		return
 	}
-	now := time.Now().UTC().UnixMilli()
-	runtimeState := consoleRuntimeState(facts.LastHeartbeatAt, now)
-	observationState := "starting"
+	nowMillis := now.UnixMilli()
+	runtimeState := consoleRuntimeState(facts.LastHeartbeatAt, nowMillis)
+	firstScanCompleted := facts.FirstScanCompletedAt > 0
+	observationState := todayObservationState(false, firstScanCompleted, runtimeState == "active", runtimeState != "not_started")
 	firstScanState := "not_started"
-	if facts.FirstScanCompletedAt > 0 {
-		observationState = "complete_empty"
+	if firstScanCompleted {
 		firstScanState = "completed"
 	} else if runtimeState == "active" {
 		firstScanState = "running"

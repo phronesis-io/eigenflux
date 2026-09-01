@@ -244,6 +244,7 @@ type identityAssertion struct {
 	SubjectID         string `json:"subject_id"`
 	ShortID           string `json:"short_id,omitempty"`
 	DisplayName       string `json:"display_name"`
+	DisplayNameEn     string `json:"display_name_en,omitempty"`
 	VerificationLevel string `json:"verification_level"`
 }
 
@@ -256,10 +257,11 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 		AgentID       int64  `gorm:"column:agent_id"`
 		ShortID       string `gorm:"column:short_id"`
 		AgentName     string `gorm:"column:agent_name"`
+		AgentNameEn   string `gorm:"column:agent_name_en"`
 		IsOfficial    bool   `gorm:"column:is_official"`
 		EmailVerified bool   `gorm:"column:email_verified"`
 	}
-	if err := s.db.Raw(`SELECT a.agent_id, a.short_id, a.agent_name, a.is_official,
+	if err := s.db.Raw(`SELECT a.agent_id, a.short_id, a.agent_name, a.agent_name_en, a.is_official,
 		EXISTS (SELECT 1 FROM agent_email_bindings b WHERE b.agent_id = a.agent_id
 		 AND b.status = 'active' AND b.verification_state = 'verified') AS email_verified
 		FROM agents a WHERE a.agent_id = ANY(?)`, pq.Array(agentIDs)).Scan(&rows).Error; err != nil {
@@ -275,7 +277,8 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 		}
 		result[row.AgentID] = identityAssertion{
 			SubjectType: "agent", SubjectID: fmt.Sprintf("%d", row.AgentID),
-			ShortID: row.ShortID, DisplayName: agentidentity.DisplayName(row.AgentName, row.ShortID), VerificationLevel: level,
+			ShortID: row.ShortID, DisplayName: agentidentity.DisplayName(row.AgentName, row.ShortID),
+			DisplayNameEn: strings.TrimSpace(row.AgentNameEn), VerificationLevel: level,
 		}
 	}
 	return result, nil

@@ -299,6 +299,12 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	req.Draft = normalizedDraft
+	// The draft is the source of truth for the Agent Card prefill. The CLI keeps
+	// a legacy top-level agent_name flag for compatibility and defaults it to
+	// "EigenFlux Agent"; allowing that default to win would discard a name
+	// supplied in the V2 draft. Existing key-bound identities never enter the
+	// creation path below, so their persisted name remains unchanged.
+	req.AgentName = effectiveProvisionAgentName(req.AgentName, draftObject)
 	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent, req.FieldProvenance, wallNow))
 	if err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not derive onboarding field sources", nil)
@@ -415,6 +421,11 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			agentID, principalID = existing.AgentID, existing.PrincipalID
 			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
+			if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
+				draftObject, req.FieldProvenance,
+				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
+				return err
+			}
 		} else {
 			agentID = newAgentID
 			aliasToken, tokenErr := randomToken("", 18)
@@ -503,7 +514,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
 		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
 		return
 	}
@@ -523,6 +535,92 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		"next_step":        nextStep,
 		"scopes":           initialScopes,
 	})
+}
+
+func effectiveProvisionAgentName(topLevelName string, draft map[string]interface{}) string {
+	if value, exists := draftPathValue(draft, "identity_card.agent_name"); exists {
+		if draftName, ok := value.(string); ok && strings.TrimSpace(draftName) != "" {
+			return draftName
+		}
+	}
+	if strings.TrimSpace(topLevelName) != "" {
+		return topLevelName
+	}
+	return "EigenFlux Agent"
+}
+
+// persistExistingProvisionDraft carries the stable Agent Home prefill into
+// Console V2 when provision reuses an existing key-bound identity. The old
+// path only issued credentials, which made the CLI default appear in Console
+// even though the handoff draft contained the preserved Agent name.
+func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState string,
+	incoming map[string]interface{}, requestedProvenance map[string]string, requestID string, now int64) error {
+	if onboardingState == "completed" {
+		return nil
+	}
+	var state struct {
+		Revision int64 `gorm:"column:revision"`
+	}
+	if err := tx.Raw(`SELECT revision FROM agent_onboarding_v2 WHERE agent_id = ? FOR UPDATE`, agentID).Scan(&state).Error; err != nil {
+		return err
+	}
+	if state.Revision <= 0 {
+		return nil
+	}
+	var stored struct {
+		Revision        int64  `gorm:"column:revision"`
+		DraftData       string `gorm:"column:draft_data"`
+		FieldProvenance string `gorm:"column:field_provenance"`
+	}
+	if err := tx.Raw(`SELECT revision, draft_data::text AS draft_data,
+			field_provenance::text AS field_provenance
+		FROM agent_onboarding_drafts WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, agentID).Scan(&stored).Error; err != nil {
+		return err
+	}
+	previousRaw := json.RawMessage(stored.DraftData)
+	if len(previousRaw) == 0 {
+		previousRaw = json.RawMessage(`{}`)
+	}
+	_, previous, err := normalizeOnboardingDraftJSON(previousRaw)
+	if err != nil {
+		return err
+	}
+	merged, provenance, _ := mergeOnboardingDraft(previous, incoming,
+		decodeProvenance(json.RawMessage(stored.FieldProvenance)), provenanceAgent,
+		requestedProvenance, now)
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	provenanceJSON, err := json.Marshal(provenance)
+	if err != nil {
+		return err
+	}
+	newRevision := state.Revision + 1
+	if err := tx.Exec(`INSERT INTO agent_onboarding_drafts
+		(agent_id, revision, draft_data, field_provenance, actor_type, request_id, created_at)
+		VALUES (?, ?, ?::jsonb, ?::jsonb, 'agent_prefill', ?, ?)`, agentID, newRevision,
+		string(mergedJSON), string(provenanceJSON), requestID, now).Error; err != nil {
+		return err
+	}
+	if res := tx.Exec(`UPDATE agent_onboarding_v2 SET revision = ?, updated_at = ?
+		WHERE agent_id = ? AND revision = ?`, newRevision, now, agentID, state.Revision); res.Error != nil || res.RowsAffected != 1 {
+		if res.Error != nil {
+			return res.Error
+		}
+		return errConflict
+	}
+	nameValue, nameExists := draftPathValue(merged, "identity_card.agent_name")
+	name, nameOK := nameValue.(string)
+	name = strings.TrimSpace(name)
+	nameEntry := provenance["identity_card.agent_name"]
+	if nameExists && nameOK && name != "" && !nameEntry.HumanConfirmed &&
+		name != "EigenFlux Agent" {
+		if err := tx.Exec(`UPDATE agents SET agent_name = ?, updated_at = ? WHERE agent_id = ?`, name, now, agentID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertProvisionedAgent(tx *gorm.DB, agentID int64, alias, agentName string, now int64) error {
@@ -835,7 +933,8 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
 		return
 	}
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName); err != nil {
+	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
 		fail(c, http.StatusInternalServerError, "HANDOFF_CLIENT_REPORT_FAILED", "could not record Console client identity", nil)
 		return
 	}
@@ -915,7 +1014,7 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 					 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
 				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
 			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), now,
-			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now).Error
+			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error
 	})
 	if errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
@@ -925,8 +1024,8 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "HANDOFF_EXCHANGE_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int((12*time.Hour)/time.Second))
-	s.setCSRFCookie(c, csrfSecret, int((12*time.Hour)/time.Second))
+	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":   fmt.Sprintf("%d", agentIDValue),
 		"csrf_token": csrfSecret,

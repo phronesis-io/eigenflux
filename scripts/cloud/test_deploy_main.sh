@@ -129,6 +129,15 @@ run_success
 [[ -z "$(find "${STATE_DIR}" -maxdepth 1 -name '.current.*' -print -quit)" ]]
 echo "PASS: latest origin/main deployed"
 
+mkdir -p "${STATE_DIR}/releases/orphan-release/bin" "${STATE_DIR}/work/orphan-work"
+ln -s "${STATE_DIR}/work/orphan-work" "${STATE_DIR}/releases/orphan-release/source"
+run_success
+[[ "$(find "${STATE_DIR}/releases" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 2 ]]
+[[ "$(find "${STATE_DIR}/work" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 2 ]]
+[[ -x "${STATE_DIR}/current/bin/api" ]]
+[[ -f "${STATE_DIR}/current/source/scripts/cloud/check_services.sh" ]]
+echo "PASS: successful deployment retains only two complete release/source bundles"
+
 printf 'touch %q\n' "${TEST_ROOT}/env-pwned" > "${REPO}/.env"
 run_success
 [[ ! -e "${TEST_ROOT}/env-pwned" ]]
@@ -195,9 +204,11 @@ echo "PASS: concurrent deployment rejected"
 
 touch "${TEST_ROOT}/fail-build"
 : > "${TRACE}"
+work_count_before="$(find "${STATE_DIR}/work" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
 if deploy_main_run "${REPO}" "${LOCK}" "" "" "${REMOTE}" "${STATE_DIR}" "${RUNTIME_ENV}" >/dev/null 2>&1; then
   echo "FAIL: build failure was accepted" >&2
   exit 1
 fi
 [[ "$(cat "${TRACE}")" == "build" ]]
+[[ "$(find "${STATE_DIR}/work" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq "${work_count_before}" ]]
 echo "PASS: build failure stops before migration and restart"

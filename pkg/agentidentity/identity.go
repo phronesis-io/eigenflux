@@ -29,10 +29,12 @@ var (
 // PublicIdentity is the stable identity returned in public and communication
 // responses. Numeric Agent IDs are deliberately not part of this contract.
 type PublicIdentity struct {
-	AgentID     int64  `json:"-"`
-	AgentName   string `json:"-"`
-	ShortID     string `json:"short_id"`
-	DisplayName string `json:"display_name"`
+	AgentID       int64  `json:"-"`
+	AgentName     string `json:"-"`
+	AgentNameEn   string `json:"-"`
+	ShortID       string `json:"short_id"`
+	DisplayName   string `json:"display_name"`
+	DisplayNameEn string `json:"display_name_en,omitempty"`
 }
 
 // ValidShortID reports whether value is exactly five case-sensitive ASCII
@@ -108,11 +110,12 @@ func Lookup(ctx context.Context, db *gorm.DB, shortID string) (int64, error) {
 // Get returns the public identity for one internal Agent ID.
 func Get(ctx context.Context, db *gorm.DB, agentID int64) (PublicIdentity, error) {
 	var row struct {
-		ShortID   string `gorm:"column:short_id"`
-		AgentName string `gorm:"column:agent_name"`
+		ShortID     string `gorm:"column:short_id"`
+		AgentName   string `gorm:"column:agent_name"`
+		AgentNameEn string `gorm:"column:agent_name_en"`
 	}
 	result := db.WithContext(ctx).Raw(
-		`SELECT short_id, agent_name FROM agents WHERE agent_id = ?`, agentID,
+		`SELECT short_id, agent_name, agent_name_en FROM agents WHERE agent_id = ?`, agentID,
 	).Scan(&row)
 	if result.Error != nil {
 		return PublicIdentity{}, result.Error
@@ -122,8 +125,8 @@ func Get(ctx context.Context, db *gorm.DB, agentID int64) (PublicIdentity, error
 		return PublicIdentity{}, ErrNotFound
 	}
 	return PublicIdentity{
-		AgentID: agentID, AgentName: row.AgentName, ShortID: row.ShortID,
-		DisplayName: DisplayName(row.AgentName, row.ShortID),
+		AgentID: agentID, AgentName: row.AgentName, AgentNameEn: row.AgentNameEn, ShortID: row.ShortID,
+		DisplayName: DisplayName(row.AgentName, row.ShortID), DisplayNameEn: strings.TrimSpace(row.AgentNameEn),
 	}, nil
 }
 
@@ -135,20 +138,21 @@ func GetBatch(ctx context.Context, db *gorm.DB, agentIDs []int64) (map[int64]Pub
 		return result, nil
 	}
 	var rows []struct {
-		AgentID   int64  `gorm:"column:agent_id"`
-		ShortID   string `gorm:"column:short_id"`
-		AgentName string `gorm:"column:agent_name"`
+		AgentID     int64  `gorm:"column:agent_id"`
+		ShortID     string `gorm:"column:short_id"`
+		AgentName   string `gorm:"column:agent_name"`
+		AgentNameEn string `gorm:"column:agent_name_en"`
 	}
 	if err := db.WithContext(ctx).Table("agents").
-		Select("agent_id, short_id, agent_name").
+		Select("agent_id, short_id, agent_name, agent_name_en").
 		Where("agent_id IN ?", agentIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
 		if ValidShortID(row.ShortID) {
 			result[row.AgentID] = PublicIdentity{
-				AgentID: row.AgentID, AgentName: row.AgentName, ShortID: row.ShortID,
-				DisplayName: DisplayName(row.AgentName, row.ShortID),
+				AgentID: row.AgentID, AgentName: row.AgentName, AgentNameEn: row.AgentNameEn, ShortID: row.ShortID,
+				DisplayName: DisplayName(row.AgentName, row.ShortID), DisplayNameEn: strings.TrimSpace(row.AgentNameEn),
 			}
 		} else {
 			metrics.AgentShortIDMissingTotal.Inc()

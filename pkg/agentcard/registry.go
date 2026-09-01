@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the Card JSON schema revision served to clients.
-const SchemaVersion int32 = 4
+const SchemaVersion int32 = 5
 
 // FieldStorage says which fact table owns an editable field. The Card itself
 // is never a fact source.
@@ -48,7 +48,7 @@ var EditableFields = []FieldSpec{
 	{Name: "agent_description", Public: true, Storage: StorageAgents, Kind: "string", MaxLen: 4000},
 	{Name: "human_description", Public: true, Storage: StorageProfileData, Kind: "string", MaxLen: 2000},
 	{Name: "working_languages", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 32, MaxItems: 10},
-	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 20},
+	{Name: "seeking", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 300, MaxItems: 20},
 	{Name: "offering", Public: true, Storage: StorageProfileData, Kind: "string_list", MaxLen: 100, MaxItems: 20},
 
 	{Name: "geo", Public: false, Storage: StorageProfileData, Kind: "string", MaxLen: 100},
@@ -80,6 +80,17 @@ var ProtectedPaths = []string{
 	"card_version",
 	"generated_at",
 	"updated_at",
+}
+
+// VerificationLevel returns the public, server-owned trust assertion for an Agent.
+func VerificationLevel(isOfficial, emailVerified bool) string {
+	if isOfficial {
+		return "official"
+	}
+	if emailVerified {
+		return "email_verified"
+	}
+	return "unverified"
 }
 
 var publicSensitivePatterns = []*regexp.Regexp{

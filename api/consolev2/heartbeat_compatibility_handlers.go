@@ -20,6 +20,7 @@ const (
 )
 
 var skillRevisionPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+var heartbeatContractPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 type heartbeatCompatibilityReport struct {
 	ContractVersion string `json:"heartbeat_contract_version"`
@@ -34,12 +35,22 @@ type heartbeatCompatibilityState struct {
 	OnboardingState   string `gorm:"column:onboarding_state"`
 }
 
+const loadConsoleV2CompatibilityQuery = `SELECT
+		COALESCE(settings.cli_version, '') AS cli_version,
+		COALESCE(settings.heartbeat_contract_version, '') AS heartbeat_contract_version,
+		COALESCE(settings.skill_revision, '') AS skill_revision,
+		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at,
+		COALESCE(onboarding.state, 'not_started') AS onboarding_state
+		FROM (SELECT CAST(? AS BIGINT) AS agent_id) current_agent
+		LEFT JOIN agent_settings settings ON settings.agent_id = current_agent.agent_id
+		LEFT JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = current_agent.agent_id`
+
 func (s *Service) reportHeartbeatCompatibility(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	var req heartbeatCompatibilityReport
 	clientInfo := reqinfo.ClientFromContext(ctx)
 	if decodeBody(c, &req) != nil || strings.TrimSpace(clientInfo.CLIVer) == "" ||
-		req.ContractVersion != heartbeatContractV1 || !skillRevisionPattern.MatchString(req.SkillRevision) {
+		!heartbeatContractPattern.MatchString(req.ContractVersion) || !skillRevisionPattern.MatchString(req.SkillRevision) {
 		fail(c, http.StatusBadRequest, "INVALID_HEARTBEAT_REPORT", "heartbeat compatibility report is invalid", nil)
 		return
 	}
@@ -58,15 +69,7 @@ func (s *Service) reportHeartbeatCompatibility(ctx context.Context, c *app.Reque
 
 func (s *Service) loadConsoleV2Compatibility(agentIDValue int64) (map[string]interface{}, string, error) {
 	var state heartbeatCompatibilityState
-	err := s.db.Raw(`SELECT
-		COALESCE(settings.cli_version, '') AS cli_version,
-		COALESCE(settings.heartbeat_contract_version, '') AS heartbeat_contract_version,
-		COALESCE(settings.skill_revision, '') AS skill_revision,
-		COALESCE(settings.heartbeat_reported_at, 0) AS heartbeat_reported_at,
-		COALESCE(onboarding.state, 'not_started') AS onboarding_state
-		FROM (SELECT ? AS agent_id) current_agent
-		LEFT JOIN agent_settings settings ON settings.agent_id = current_agent.agent_id
-		LEFT JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = current_agent.agent_id`, agentIDValue).Scan(&state).Error
+	err := s.db.Raw(loadConsoleV2CompatibilityQuery, agentIDValue).Scan(&state).Error
 	if err != nil {
 		return nil, "", err
 	}
@@ -117,10 +120,6 @@ func consoleV2Compatibility(cliVersion, heartbeatContract, skillRevision string,
 			status, reason, available = "unknown", "report_missing", false
 		case compareConsoleCLIVersion(cliVersion, minimumConsoleV2CLI) < 0:
 			status, reason, available = "upgrade_required", "cli_outdated", false
-		case heartbeatContract != heartbeatContractV1:
-			status, reason, available = "upgrade_required", "heartbeat_outdated", false
-		case strings.TrimSpace(skillRevision) == "":
-			status, reason, available = "upgrade_required", "skills_unknown", false
 		}
 	}
 	return map[string]interface{}{

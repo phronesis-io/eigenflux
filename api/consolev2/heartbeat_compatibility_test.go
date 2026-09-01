@@ -4,12 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestLoadConsoleV2CompatibilityQueryTypesAgentIDAsBigInt(t *testing.T) {
+	if !strings.Contains(loadConsoleV2CompatibilityQuery, "CAST(? AS BIGINT)") {
+		t.Fatalf("compatibility query must cast the bound Agent ID to BIGINT: %s", loadConsoleV2CompatibilityQuery)
+	}
+	if strings.Contains(loadConsoleV2CompatibilityQuery, "SELECT ? AS agent_id") {
+		t.Fatal("compatibility query must not leave the Agent ID bind parameter untyped")
+	}
+}
 
 func TestConsoleV2CompatibilityGate(t *testing.T) {
 	tests := []struct {
@@ -19,8 +29,8 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 	}{
 		{name: "missing report", status: "unknown", reason: "report_missing"},
 		{name: "old cli", cli: "0.0.33", contract: heartbeatContractV1, revision: "r1", status: "upgrade_required", reason: "cli_outdated"},
-		{name: "old heartbeat", cli: "0.0.34", contract: "legacy", revision: "r1", status: "upgrade_required", reason: "heartbeat_outdated"},
-		{name: "missing skills", cli: "0.0.34", contract: heartbeatContractV1, status: "upgrade_required", reason: "skills_unknown"},
+		{name: "old heartbeat is accepted", cli: "0.0.34", contract: "legacy", revision: "r1", status: "ready", available: true},
+		{name: "missing skills is accepted", cli: "0.0.34", contract: heartbeatContractV1, status: "ready", available: true},
 		{name: "minimum ready", cli: "0.0.34", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
 		{name: "newer ready", cli: "1.2.3", contract: heartbeatContractV1, revision: "r2", status: "ready", available: true},
 		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},

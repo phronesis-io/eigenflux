@@ -227,6 +227,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		req.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req,
 			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"},
+			ut.Header{Key: "X-CLI-Ver", Value: "0.0.34"},
 			ut.Header{Key: "X-Client-Device-Name", Value: "Provision-MacBook"})
 		if status != 200 {
 			t.Fatalf("provision status=%d payload=%#v", status, payload)
@@ -243,6 +244,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	var provisionedCLIVersion string
+	if err := gdb.Raw(`SELECT cli_version FROM agent_settings WHERE agent_id = ?`, agentIDInt).Scan(&provisionedCLIVersion).Error; err != nil || provisionedCLIVersion != "0.0.34" {
+		t.Fatalf("provisioned CLI version=%q err=%v", provisionedCLIVersion, err)
 	}
 	provisionReplay := provision(firstEntitlement)
 	if provisionReplay["agent_id"] != agentID || provisionReplay["access_token"] != originalAccessToken ||
@@ -362,6 +367,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	status, handoffPayload, _ := performJSON(t, h, "POST", "/api/v2/console/handoffs", map[string]interface{}{"browser_nonce": browserNonce},
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken},
 		ut.Header{Key: "X-Client-Host", Value: "codex"},
+		ut.Header{Key: "X-CLI-Ver", Value: "0.0.35"},
 		ut.Header{Key: "X-Client-Device-Name", Value: "Lynn-MacBook-Pro"})
 	if status != 201 {
 		t.Fatalf("handoff status=%d payload=%#v", status, handoffPayload)
@@ -381,11 +387,20 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	cookieHeader := consoleCookie + "; " + csrfCookie
 
+	status, unboundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != http.StatusOK || responseData(t, unboundSessionPayload)["email_bound"] != true ||
+		responseData(t, unboundSessionPayload)["legacy_identity_trusted"] != true {
+		t.Fatalf("internal-alias handoff session was not trusted: status=%d payload=%#v", status, unboundSessionPayload)
+	}
+
 	status, unboundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
-		Step: 2, ExpectedOnboardingRevision: 1, IdempotencyKey: "confirm-unbound-" + agentID,
+		// The repeated provision above refreshes the existing stable identity's
+		// draft and advances its optimistic-concurrency revision.
+		Step: 2, ExpectedOnboardingRevision: 2, IdempotencyKey: "confirm-unbound-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusConflict || responseErrorCode(t, unboundConfirmPayload) != "EMAIL_BINDING_REQUIRED" {
-		t.Fatalf("unbound onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
+	if status != http.StatusOK {
+		t.Fatalf("internal-alias onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
 	}
 
 	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
@@ -410,8 +425,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
 	}
 
-	revision := int64(1)
-	for step := int16(2); step <= 5; step++ {
+	revision := int64(3)
+	for step := int16(3); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 			Step: step, ExpectedOnboardingRevision: revision, IdempotencyKey: "confirm-" + agentID + fmt.Sprint(step),
 		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
@@ -436,6 +451,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	if session["device_name"] != "Lynn-MacBook-Pro" {
 		t.Fatalf("console session did not expose the handoff computer name: %#v", session)
+	}
+	compatibility := session["compatibility"].(map[string]interface{})
+	if compatibility["cli_version"] != "0.0.35" {
+		t.Fatalf("console session did not expose the handoff CLI version: %#v", compatibility)
 	}
 	var profileCompletedAt *int64
 	if err := gdb.Raw(`SELECT profile_completed_at FROM agents WHERE agent_id = ?`, agentIDInt).

@@ -85,7 +85,13 @@ func todayEmptyModuleState(hasData, firstScanCompleted, connected, runtimeKnown 
 	if firstScanCompleted {
 		return "complete_empty"
 	}
-	return "starting"
+	if connected {
+		return "starting"
+	}
+	if runtimeKnown {
+		return "offline"
+	}
+	return "waiting"
 }
 
 func todayObservationState(hasResult, firstScanCompleted, connected, runtimeKnown bool) string {

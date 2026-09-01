@@ -8,7 +8,7 @@ description: |
   baseline Feed and finish its durable batch. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.12.0-dev.9"
+  version: "0.12.0"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]

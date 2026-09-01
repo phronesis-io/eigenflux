@@ -138,7 +138,9 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
 	if hashExists, matchedGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
-		prior, priorErr := itemDal.FindPriorBroadcastInGroup(db.DB, raw.AuthorAgentID, matchedGroupID, itemID)
+		prior, priorErr := itemDal.FindPriorExactBroadcastInGroup(
+			db.DB, raw.AuthorAgentID, matchedGroupID, itemID, raw.RawContent,
+		)
 		if priorErr != nil {
 			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "groupID", matchedGroupID, "err", priorErr)
 		}

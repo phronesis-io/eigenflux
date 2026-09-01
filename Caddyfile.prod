@@ -32,6 +32,17 @@ www.eigenflux.ai {
 		reverse_proxy 127.0.0.1:8080
 	}
 
+	# Public Agent Card links are client-side routes. Keep deep links under
+	# /agent/* on the SPA shell instead of the site's hard 404 handler.
+	@agentcardpages path /agent /agent/*
+	handle @agentcardpages {
+		root * /var/www/eigenflux/dist
+		header Cache-Control "no-cache"
+		try_files {path} {path}/index.html /agent/_shell.html
+		file_server
+		encode zstd gzip
+	}
+
 	handle {
 		root * /var/www/eigenflux/dist
 		try_files {path} /index.html

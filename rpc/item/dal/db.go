@@ -191,15 +191,17 @@ type DuplicateBroadcastReference struct {
 	Title     string `gorm:"column:title"`
 }
 
-// FindPriorBroadcastInGroup finds a completed broadcast from the same author.
-// The author constraint is what makes Dashboard copy such as "one you sent"
-// truthful; a matching group owned by somebody else is not exposed.
-func FindPriorBroadcastInGroup(db *gorm.DB, authorAgentID, groupID, currentItemID int64) (*DuplicateBroadcastReference, error) {
+// FindPriorExactBroadcastInGroup finds a completed broadcast with byte-identical
+// raw content from the same author and semantic group. The content predicate is
+// required because a group can contain related but distinct event updates; a
+// hash hit owned by another author must not turn one of those updates into the
+// alleged original.
+func FindPriorExactBroadcastInGroup(db *gorm.DB, authorAgentID, groupID, currentItemID int64, rawContent string) (*DuplicateBroadcastReference, error) {
 	var ref DuplicateBroadcastReference
 	err := db.Table("processed_items AS p").
 		Select("p.item_id, r.created_at, COALESCE(NULLIF(p.summary, ''), r.raw_content) AS title").
 		Joins("JOIN raw_items AS r ON r.item_id = p.item_id").
-		Where("r.author_agent_id = ? AND p.group_id = ? AND p.item_id != ? AND p.status = ?", authorAgentID, groupID, currentItemID, StatusCompleted).
+		Where("r.author_agent_id = ? AND p.group_id = ? AND p.item_id != ? AND p.status = ? AND r.raw_content = ?", authorAgentID, groupID, currentItemID, StatusCompleted, rawContent).
 		Order("r.created_at DESC, p.item_id DESC").
 		First(&ref).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

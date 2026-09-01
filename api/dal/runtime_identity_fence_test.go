@@ -46,3 +46,35 @@ func TestUpdateDerivedRuntimeIfNotSuperseded(t *testing.T) {
 		t.Fatalf("old feed overwrote explicit identity: %+v", current)
 	}
 }
+
+func TestUpdateHandoffClientIdentityReportsCLIVersion(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&AgentSettings{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(&AgentSettings{AgentID: 102, CLIVersion: "0.0.33"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateHandoffClientIdentity(database, 102, "codex", "1.2.3", "Lynn-MacBook-Pro", "0.0.35"); err != nil {
+		t.Fatal(err)
+	}
+	var current AgentSettings
+	if err := database.First(&current, "agent_id = ?", 102).Error; err != nil {
+		t.Fatal(err)
+	}
+	if current.CLIVersion != "0.0.35" || current.RuntimeName != "codex" || current.DeviceName != "Lynn-MacBook-Pro" {
+		t.Fatalf("handoff identity = %#v", current)
+	}
+	if err := UpdateHandoffClientIdentity(database, 102, "codex", "1.2.3", "Lynn-MacBook-Pro", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.First(&current, "agent_id = ?", 102).Error; err != nil {
+		t.Fatal(err)
+	}
+	if current.CLIVersion != "0.0.35" {
+		t.Fatalf("headerless handoff cleared CLI version: %#v", current)
+	}
+}

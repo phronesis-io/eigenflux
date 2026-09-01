@@ -120,8 +120,8 @@ func TestTodayObservationStateUsesDurableMilestones(t *testing.T) {
 		hasData, scanDone, connected, runtimeSeen bool
 		want                                      string
 	}{
-		{name: "starting before first runtime", want: "starting"},
-		{name: "runtime offline does not replace module state", runtimeSeen: true, want: "starting"},
+		{name: "waiting before first runtime", want: "waiting"},
+		{name: "offline after runtime freshness expires", runtimeSeen: true, want: "offline"},
 		{name: "starting while first scan runs", connected: true, runtimeSeen: true, want: "starting"},
 		{name: "confirmed empty only after scan completion", scanDone: true, connected: true, runtimeSeen: true, want: "complete_empty"},
 		{name: "completed scan remains empty while runtime is offline", scanDone: true, runtimeSeen: true, want: "complete_empty"},

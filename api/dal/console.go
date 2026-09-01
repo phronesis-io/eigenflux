@@ -225,14 +225,17 @@ func UpdateRuntimeIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersi
 }
 
 // UpdateHandoffClientIdentity records the computer that generated a Console
-// handoff and, when present, the current Agent product identity in one write.
-func UpdateHandoffClientIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion, deviceName string) error {
+// handoff and, when present, the current Agent product and CLI identity in one write.
+func UpdateHandoffClientIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion, deviceName, cliVersion string) error {
 	vals := map[string]interface{}{}
 	now := time.Now().UnixMilli()
 	if runtimeName != "" {
 		vals["runtime_name"] = runtimeName
 		vals["runtime_version"] = runtimeVersion
 		vals["runtime_reported_at"] = now
+	}
+	if cliVersion != "" {
+		vals["cli_version"] = cliVersion
 	}
 	// The provision/handoff represents the current computer. Clear a stale value
 	// when an older CLI cannot report it instead of displaying another machine.

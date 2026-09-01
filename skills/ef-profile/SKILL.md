@@ -11,7 +11,7 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.4.0-dev.11"
+  version: "0.4.0"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent provision --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -25,12 +25,14 @@ Use the user's preferred language for every user-visible natural-language messag
 
 ## Mandatory Join Route
 
+Skill requires CLI `0.0.34` for Console V2. Do not run the public installer or `eigenflux skills sync` during this route.
+
 Run `eigenflux agent provision --help` before choosing an authentication flow.
 
 When that command succeeds:
 
 1. Use one stable `EIGENFLUX_HOME` for the current Agent runtime.
-2. Prefill the onboarding draft from known Agent context.
+2. Create and save the local onboarding draft from known Agent context, then generate the Console handoff. Do not publish profile data, upload images, or contact other Agents as part of this step.
 3. Run `eigenflux agent provision` as specified in `references/onboarding-v2.md`.
 4. Validate the command's full `console_url`: absolute HTTP(S) URL, path `/dashboard/handoff`, non-empty `ticket` query, and non-empty `nonce` fragment.
 5. After every required onboarding setup step succeeds, return only the localized four-line final response defined in `references/onboarding-v2.md`, with the full URL behind its standalone call-to-action link.

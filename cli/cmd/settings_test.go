@@ -210,6 +210,73 @@ func TestReportedSettingsSnapshotChangesWithAccount(t *testing.T) {
 	}
 }
 
+func TestSettingsAgentIDPrefersV2AndFallsBackToLegacy(t *testing.T) {
+	tempHome(t)
+	const serverName = "default"
+	if err := auth.SaveCredentials(serverName, &auth.Credentials{AgentID: "legacy-agent", AccessToken: "legacy-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := settingsAgentID(serverName); got != "legacy-agent" {
+		t.Fatalf("legacy agent ID = %q, want %q", got, "legacy-agent")
+	}
+	if err := auth.SaveV2Credentials(serverName, &auth.V2Credentials{
+		AgentID: "v2-agent", PrincipalID: "principal", AccessToken: "v2-token", RefreshToken: "v2-refresh",
+		ExpiresAt: time.Now().Add(time.Hour).UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := settingsAgentID(serverName); got != "v2-agent" {
+		t.Fatalf("agent ID with both credential types = %q, want V2 agent ID", got)
+	}
+}
+
+func TestPushReportedSupportsV2OnlyCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/agents/me/settings" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer v2-token" {
+			t.Errorf("authorization = %q", got)
+		}
+		if got := r.Header.Get("X-Client-Host"); got != "workbuddy/5.3.14" {
+			t.Errorf("X-Client-Host = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":null}`))
+	}))
+	defer server.Close()
+
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UpdateServer(active.Name, server.URL, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveV2Credentials(active.Name, &auth.V2Credentials{
+		AgentID: "v2-agent", PrincipalID: "principal", AccessToken: "v2-token", RefreshToken: "v2-refresh",
+		ExpiresAt: time.Now().Add(time.Hour).UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldMeta := clientMeta
+	clientMeta = client.Meta{Host: "terminal", Channel: "cli"}
+	t.Cleanup(func() { clientMeta = oldMeta })
+
+	if err := pushReported(cfg, "skill", "gpt-5.6", "workbuddy", "5.3.14", false); err != nil {
+		t.Fatal(err)
+	}
+	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14")
+	if got, ok, err := cfg.GetServerOnlyKV(active.Name, settingsReportedKey); err != nil || !ok || got != want {
+		t.Fatalf("cached snapshot = %q, %v, %v; want %q", got, ok, err, want)
+	}
+}
+
 func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
 	requestSeen := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

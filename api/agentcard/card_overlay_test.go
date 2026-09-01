@@ -23,3 +23,22 @@ func TestOverlayLastActivePreservesMalformedProjection(t *testing.T) {
 		t.Fatalf("malformed projection changed: %q", got)
 	}
 }
+
+func TestOverlayPublicVerificationReplacesStaleProjection(t *testing.T) {
+	raw := json.RawMessage(`{"agent_id":"7","verification_level":"unverified"}`)
+	got := overlayPublicVerification(raw, "official")
+	var card map[string]interface{}
+	if err := json.Unmarshal(got, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card["verification_level"] != "official" {
+		t.Fatalf("verification_level = %v, want official", card["verification_level"])
+	}
+}
+
+func TestOverlayPublicVerificationPreservesMalformedProjection(t *testing.T) {
+	raw := json.RawMessage(`{broken`)
+	if got := string(overlayPublicVerification(raw, "official")); got != string(raw) {
+		t.Fatalf("malformed projection changed: %q", got)
+	}
+}
