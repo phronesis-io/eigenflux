@@ -24,6 +24,29 @@ pinned GitHub host keys are root-owned under `/etc/eigenflux`. Agents must not
 edit `.env`; configuration changes are an explicit root operation followed by
 a deployment.
 
+Temporary diagnostic overrides are the single exception to "followed by a
+deployment": a root operator may attach a per-instance systemd drop-in that
+appends an `EnvironmentFile=` (the procedure in
+`docs/dev/configuration.md`, *Temporary SQL trace on one instance*) and
+restart only that instance. Such an override must not touch code, the shared
+`runtime.env`, or any other instance; it must be removed — by deleting the two
+files it created, never `systemctl revert` — before the diagnostic session
+ends, and the on/off restarts are visible in `journalctl -u eigenflux-app@<i>`.
+
 Application services execute and resolve relative resources from one
 root-owned release bundle under `/var/lib/eigenflux-deployer/current`; they
 never load runtime files from the writable production checkout.
+
+## Updating this policy
+
+The authoritative copy is `/etc/eigenflux/DEPLOYMENT_POLICY.md`, installed once
+by `scripts/cloud/install_main_deployer.sh`; ordinary deployments do not touch
+`/etc/eigenflux`. After a change to this file is merged and deployed, a root
+operator refreshes the authoritative copy from the deployed release bundle:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  /var/lib/eigenflux-deployer/current/source/scripts/cloud/DEPLOYMENT_POLICY.md \
+  /etc/eigenflux/DEPLOYMENT_POLICY.md
+diff /var/lib/eigenflux-deployer/current/source/scripts/cloud/DEPLOYMENT_POLICY.md /etc/eigenflux/DEPLOYMENT_POLICY.md && echo "policy in sync"
+```

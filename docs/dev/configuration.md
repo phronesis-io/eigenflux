@@ -34,6 +34,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 |----------|---------|-------------|
 | `APP_ENV` | `dev` | Runtime environment: `dev` / `test` / `staging` / `prod` |
 | `LOG_LEVEL` | `debug` | Structured log level: `debug` / `info` / `warn` / `error` |
+| `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is not logged as an error (at `info` its statement is still traced, and a >200 ms lookup is still reported as slow); `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |
 | `PROJECT_NAME` | `myhub` | Lowercase project slug. Docker Compose project name and `/skill.md` local storage namespace |
 | `PROJECT_TITLE` | `MyHub` | Human-readable project title rendered into `/skill.md` |
 | `PUBLIC_BASE_URL` | (auto) | Public root URL for `/skill.md` frontmatter; auto-generates local fallback if empty |
@@ -155,3 +156,41 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 ## Parallel Multi-Project Development
 
 Must set different `PROJECT_NAME` and Docker external ports (`POSTGRES_PORT`, `REDIS_PORT`, `ETCD_PORT`, `ELASTICSEARCH_HTTP_PORT`, `KIBANA_PORT`) for each repository.
+
+## Temporary SQL trace on one instance
+
+Every production instance reads the shared `/etc/eigenflux/runtime.env`
+(installed from the repo `.env`), and `EnvironmentFile=` always wins over
+`Environment=`, so neither the shared file nor a plain `Environment=` drop-in
+is the right tool. Add a second `EnvironmentFile=` in a drop-in that sorts
+**after** the deployer's own `deployer.conf` — later files win — and remove
+only that file when done:
+
+```bash
+# turn on (pm instance as the example)
+printf 'DB_LOG_LEVEL=info\n' | sudo tee /etc/eigenflux/db-trace-pm.env >/dev/null
+sudo install -d /etc/systemd/system/eigenflux-app@pm.service.d
+printf '[Service]\nEnvironmentFile=-/etc/eigenflux/db-trace-pm.env\n' \
+  | sudo tee /etc/systemd/system/eigenflux-app@pm.service.d/zz-db-trace.conf >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
+# verify — `systemctl show -p Environment` does NOT expand EnvironmentFile, so read
+# the live process environment, or look for the startup line the service logs:
+pid=$(systemctl show -p MainPID --value eigenflux-app@pm)
+sudo cat "/proc/$pid/environ" | tr '\0' '\n' | grep '^DB_LOG_LEVEL=info$'   # prints the line = active
+# (the service also logs one "gorm log level" line at startup, visible only
+#  when the structured LOG_LEVEL is info or debug)
+journalctl -u eigenflux-app@pm -f                                              # full SQL trace, this instance only
+
+# turn off — delete only our two files (do NOT use `systemctl revert`: it
+# removes every drop-in of the instance, including the deployer's)
+sudo rm -f /etc/systemd/system/eigenflux-app@pm.service.d/zz-db-trace.conf /etc/eigenflux/db-trace-pm.env
+sudo systemctl daemon-reload && sudo systemctl restart eigenflux-app@pm
+```
+
+The override survives deploys (the deployer rewrites `deployer.conf` only), so
+remember to turn it off.
+
+This is the one sanctioned exception to "configuration changes are followed by
+a deployment" in `scripts/cloud/DEPLOYMENT_POLICY.md`: it changes no code and
+no shared environment value, is scoped to one instance, and must be removed in
+the same session — see the policy's *Temporary diagnostic overrides* clause.
