@@ -36,29 +36,35 @@ func distributionSkipTestDB(t *testing.T) *gorm.DB {
 	return database
 }
 
-func TestFindPriorBroadcastInGroupOnlyReturnsSameAuthor(t *testing.T) {
+func TestFindPriorExactBroadcastInGroupRequiresSameAuthorAndContent(t *testing.T) {
 	database := distributionSkipTestDB(t)
 	require.NoError(t, database.Exec(`
 		INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES
-			(10, 1, 'same author content', 1000),
+			(10, 1, 'exact repeated content', 1000),
 			(11, 2, 'other author content', 2000),
-			(12, 1, 'current duplicate', 3000);
+			(12, 1, 'exact repeated content', 3000),
+			(13, 1, 'related but distinct update', 4000);
 		INSERT INTO processed_items (item_id, status, summary, group_id) VALUES
 			(10, 3, '  Earlier   broadcast  ', 99),
 			(11, 3, 'Other broadcast', 99),
-			(12, 0, '', NULL);
+			(12, 0, '', NULL),
+			(13, 0, '', NULL);
 	`).Error)
 
-	ref, err := dal.FindPriorBroadcastInGroup(database, 1, 99, 12)
+	ref, err := dal.FindPriorExactBroadcastInGroup(database, 1, 99, 12, "exact repeated content")
 	require.NoError(t, err)
 	require.NotNil(t, ref)
 	require.Equal(t, int64(10), ref.ItemID)
 	require.Equal(t, int64(1000), ref.CreatedAt)
 	require.Equal(t, "Earlier broadcast", ref.Title)
 
-	missing, err := dal.FindPriorBroadcastInGroup(database, 3, 99, 12)
+	wrongAuthor, err := dal.FindPriorExactBroadcastInGroup(database, 3, 99, 12, "exact repeated content")
 	require.NoError(t, err)
-	require.Nil(t, missing)
+	require.Nil(t, wrongAuthor)
+
+	relatedOnly, err := dal.FindPriorExactBroadcastInGroup(database, 1, 99, 13, "related but distinct update")
+	require.NoError(t, err)
+	require.Nil(t, relatedOnly, "a merely related same-author item must not become an exact-duplicate reference")
 }
 
 func TestMarkItemDistributionSkippedPersistsDuplicateReference(t *testing.T) {
