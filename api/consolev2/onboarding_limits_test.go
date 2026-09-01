@@ -13,6 +13,9 @@ func TestOnboardingLimitsExposeBackendValidationContract(t *testing.T) {
 	if got := limits.IdentityCard["offering"]; got.MaxChars != 1000 || got.MaxItemChars != 100 || got.MaxItems != 20 {
 		t.Fatalf("unexpected offering limits: %#v", got)
 	}
+	if got := limits.IdentityCard["agent_status"]; got.MaxChars != 1000 || got.MaxItemChars != 1000 || got.MaxItems != 20 {
+		t.Fatalf("unexpected agent_status limits: %#v", got)
+	}
 	if limits.NetworkGoal.MaxChars != 2000 || !limits.NetworkGoal.Required {
 		t.Fatalf("unexpected network goal limits: %#v", limits.NetworkGoal)
 	}
