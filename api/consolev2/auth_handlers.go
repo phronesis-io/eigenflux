@@ -1014,7 +1014,7 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 					 status, scopes, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
 				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
 			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), now,
-			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now).Error
+			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error
 	})
 	if errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
@@ -1024,8 +1024,8 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "HANDOFF_EXCHANGE_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int((12*time.Hour)/time.Second))
-	s.setCSRFCookie(c, csrfSecret, int((12*time.Hour)/time.Second))
+	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":   fmt.Sprintf("%d", agentIDValue),
 		"csrf_token": csrfSecret,

@@ -42,14 +42,19 @@ import (
 const (
 	consoleCookieName = "ef_console_v2"
 	csrfCookieName    = "ef_console_v2_csrf"
-	accessTTL         = 15 * time.Minute
-	refreshTTL        = 30 * 24 * time.Hour
-	handoffTTL        = 15 * time.Minute
-	grantTTL          = 5 * time.Minute
-	proofClockSkew    = 5 * time.Minute
-	maxRequestBytes   = 256 << 10
-	maxAgentStreams   = 3
-	maxProcessStreams = 1000
+	// Browser sessions use a long idle window while retaining a hard upper
+	// bound. Keep these values centralized so handoff and email-OTP login
+	// cannot drift apart.
+	consoleIdleTTL     = 30 * 24 * time.Hour
+	consoleAbsoluteTTL = 180 * 24 * time.Hour
+	accessTTL          = 15 * time.Minute
+	refreshTTL         = 30 * 24 * time.Hour
+	handoffTTL         = 15 * time.Minute
+	grantTTL           = 5 * time.Minute
+	proofClockSkew     = 5 * time.Minute
+	maxRequestBytes    = 256 << 10
+	maxAgentStreams    = 3
+	maxProcessStreams  = 1000
 )
 
 var (
@@ -617,7 +622,7 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		}
 		// Sliding activity is throttled to one write per five minutes.
 		if now-session.LastSeenAt >= int64(5*time.Minute/time.Millisecond) {
-			idle := now + int64(30*time.Minute/time.Millisecond)
+			idle := now + int64(consoleIdleTTL/time.Millisecond)
 			if idle > session.AbsoluteExpiry {
 				idle = session.AbsoluteExpiry
 			}

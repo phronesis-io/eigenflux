@@ -733,7 +733,7 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 			VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 'email_otp', ?)`, sessionID, hashString(sessionSecret),
 			recoveredAgentID, principal.PrincipalID, hashString(csrfSecret),
 			pq.Array([]string{"console:onboarding", "console:read", "console:write"}), now,
-			now+int64(30*time.Minute/time.Millisecond), now+int64(12*time.Hour/time.Millisecond), now, now).Error
+			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now, now).Error
 	})
 	if errors.Is(err, errUnauthorized) || (!validOTP && err == nil) {
 		fail(c, http.StatusUnauthorized, "OTP_INVALID", "verification code is invalid or expired", nil)
@@ -743,8 +743,8 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "EMAIL_LOGIN_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int((12*time.Hour)/time.Second))
-	s.setCSRFCookie(c, csrfSecret, int((12*time.Hour)/time.Second))
+	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id": fmt.Sprintf("%d", recoveredAgentID), "csrf_token": csrfSecret,
 	})
