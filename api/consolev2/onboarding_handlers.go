@@ -603,6 +603,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	requestHash := hashString(fmt.Sprintf("%d:%d", req.Step, req.ExpectedOnboardingRevision))
 	var response map[string]interface{}
 	replayed := false
+	accountSwitchCompleted := false
 	confirmedIntentCount := 0
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -643,7 +644,14 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			WHERE recoveries.console_session_id = ?
 			  AND recoveries.target_agent_id = ?
 			  AND recoveries.status = 'completed'
-		)`, sessionID, id, sessionID, id).Scan(&emailVerifiedForSession).Error; err != nil {
+		) OR EXISTS (
+			SELECT 1 FROM agent_cli_account_switches switches
+			WHERE switches.target_console_session_id = ?
+			  AND switches.target_agent_id = ?
+			  AND switches.status = 'pending_onboarding'
+			  AND switches.ownership_verified_at IS NOT NULL
+			  AND switches.expires_at >= ?
+		)`, sessionID, id, sessionID, id, sessionID, id, now).Scan(&emailVerifiedForSession).Error; err != nil {
 			return err
 		}
 		if !emailVerifiedForSession {
@@ -736,6 +744,14 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if newState == "completed" {
 			response["identity_state"] = "connected"
 			response["connection"] = map[string]interface{}{"state": "connected"}
+			completed, err := s.finalizePendingCLIAccountSwitch(tx, c, id, sessionID, now)
+			if err != nil {
+				return err
+			}
+			accountSwitchCompleted = completed
+			if completed {
+				response["account_switch"] = map[string]interface{}{"status": "completed", "refresh_required": true}
+			}
 		}
 		snapshot, _ := json.Marshal(response)
 		return tx.Exec(`INSERT INTO agent_idempotency_requests
@@ -784,6 +800,9 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	if !replayed && req.Step == 5 && response["state"] == "completed" {
 		publishProfileCompletion(ctx, id)
 		activity.PublishOnboardingCompleted(ctx, id)
+	}
+	if accountSwitchCompleted {
+		s.setCLIAccountSwitchCookie(c, "", -1)
 	}
 	reply(c, http.StatusOK, response)
 }

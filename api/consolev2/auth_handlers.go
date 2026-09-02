@@ -1085,6 +1085,7 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	handoffRevoked := false
 	selectedSlot := 0
 	replacedSessionID := ""
+	accountSwitchToken := ""
 	var accountLimitAccounts []consoleAccountView
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var handoff struct {
@@ -1150,12 +1151,37 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 				return err
 			}
 		}
-		return tx.Exec(`INSERT INTO console_v2_sessions
+		if err := tx.Exec(`INSERT INTO console_v2_sessions
 				(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
 					 status, scopes, client_capabilities, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
 				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
 			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), pq.Array([]string(clientCapabilities)), now,
-			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error
+			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error; err != nil {
+			return err
+		}
+		if !containsScope(clientCapabilities, "account_switch_v1") {
+			return nil
+		}
+		accountSwitchToken, err = randomToken("efas_", 32)
+		if err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO agent_cli_account_switch_audit
+			(switch_id_hash, source_agent_id, target_agent_id, principal_id, result, occurred_at)
+			SELECT switch_id_hash, source_agent_id, target_agent_id, principal_id, 'revoked', ?
+			FROM agent_cli_account_switches
+			WHERE principal_id = ? AND status IN ('pending_target', 'pending_onboarding')`, now, principalID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`UPDATE agent_cli_account_switches SET status = 'revoked'
+			WHERE principal_id = ? AND status IN ('pending_target', 'pending_onboarding')`, principalID).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`INSERT INTO agent_cli_account_switches
+			(switch_id_hash, source_agent_id, principal_id, source_console_session_id,
+			 status, expires_at, created_at)
+			VALUES (?, ?, ?, ?, 'pending_target', ?, ?)`, hashString(accountSwitchToken), agentIDValue,
+			principalID, sessionID, now+int64(cliAccountSwitchTTL/time.Millisecond), now).Error
 	})
 	if handoffRevoked || errors.Is(err, errUnauthorized) {
 		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
@@ -1176,10 +1202,14 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	s.setConsoleCookieAtSlot(c, selectedSlot, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
 	s.setCSRFCookieAtSlot(c, selectedSlot, csrfSecret, int(consoleAbsoluteTTL/time.Second))
 	s.setActiveConsoleSlot(c, selectedSlot, int(consoleAbsoluteTTL/time.Second))
+	if accountSwitchToken != "" {
+		s.setCLIAccountSwitchCookie(c, accountSwitchToken, int(cliAccountSwitchTTL/time.Second))
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":            fmt.Sprintf("%d", agentIDValue),
 		"csrf_token":          csrfSecret,
 		"slot":                selectedSlot,
 		"client_capabilities": []string(clientCapabilities),
+		"account_switch":      accountSwitchToken != "",
 	})
 }

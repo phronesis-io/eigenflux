@@ -102,6 +102,27 @@ OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
 atomically revokes the selected session, consumes the proof, creates the new
 session, and activates its slot. Credentials are never stored in localStorage.
 
+## Agent CLI Account Switching
+
+`eigenflux agent switch-account` creates a handoff with the dedicated
+`account_switch_v1` capability. Handoff exchange creates a 24-hour server-side
+switch record and binds it to the browser with a separate HttpOnly,
+SameSite=Strict cookie. The Agent Home continues to store only one credential
+family; Console account slots are never copied into CLI storage.
+
+The target account must authenticate through a fresh email OTP session within
+five minutes. A completed target atomically receives the source CLI principal,
+and its credential family is marked `access_refresh_required`; the next CLI
+request refreshes and adopts the authoritative target Agent ID. Source account
+data and email bindings remain unchanged.
+
+An incomplete target changes the switch to `pending_onboarding` without moving
+the principal or modifying current CLI credentials. Its OTP-authenticated
+Console session may complete onboarding, and the final onboarding transaction
+then moves the principal and completes the switch. Expired, cancelled, or
+failed pending switches leave the current CLI account unchanged. Historical
+Agent recovery remains a separate flow with separate lifecycle semantics.
+
 ## Mock OTP Whitelist
 
 After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests matching both email suffix and IP use mock verification code logic (no email sent, verify using `MOCK_UNIVERSAL_OTP`), and skip IP rate limiting for login/verification endpoints. Suitable for production backend operation accounts. Both conditions must be satisfied simultaneously.

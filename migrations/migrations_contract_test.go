@@ -243,3 +243,21 @@ func TestLegacyUpgradeGrantMigrationBindsProvisionToExistingAgent(t *testing.T) 
 		}
 	}
 }
+
+func TestCLIAccountSwitchMigrationKeepsPendingSwitchServerSide(t *testing.T) {
+	sql := migration(t, "000093_console_v2_cli_account_switch.sql")
+	for _, required := range []string{
+		"agent_cli_account_switches", "source_agent_id", "target_agent_id",
+		"source_console_session_id", "target_console_session_id",
+		"pending_target", "pending_onboarding", "ownership_verified_at",
+		"idx_agent_cli_account_switches_principal_pending",
+		"agent_cli_account_switch_audit",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("CLI account switch migration missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "otp_hmac") || strings.Contains(sql, "session_secret_hash") {
+		t.Fatal("CLI account switch state must not persist OTP or Console session secrets")
+	}
+}
