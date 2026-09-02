@@ -67,15 +67,22 @@ func expireCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int6
 	if record.Status != "pending_target" && record.Status != "pending_onboarding" {
 		return nil
 	}
-	if err := tx.Exec(`UPDATE agent_cli_account_switches SET status = 'expired'
-		WHERE switch_id_hash = ? AND status IN ('pending_target', 'pending_onboarding')`, record.SwitchIDHash).Error; err != nil {
-		return err
+	res := tx.Exec(`UPDATE agent_cli_account_switches SET status = 'expired'
+		WHERE switch_id_hash = ? AND status IN ('pending_target', 'pending_onboarding')`, record.SwitchIDHash)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return errConflict
 	}
 	return auditCLIAccountSwitch(tx, record, "expired", now)
 }
 
 func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64) error {
-	if record.TargetAgentID == nil || *record.TargetAgentID <= 0 || record.TargetConsoleSession == "" {
+	if record.SwitchIDHash == "" || record.SourceAgentID <= 0 || record.PrincipalID <= 0 ||
+		record.TargetAgentID == nil || *record.TargetAgentID <= 0 || *record.TargetAgentID == record.SourceAgentID ||
+		record.TargetConsoleSession == "" ||
+		record.OwnershipVerifiedAt == nil || *record.OwnershipVerifiedAt <= 0 || *record.OwnershipVerifiedAt > now {
 		return errConflict
 	}
 	var principal struct {
@@ -111,18 +118,34 @@ func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now in
 	if activeCredentials == 0 {
 		return errConflict
 	}
-	if res := tx.Exec(`UPDATE agent_principals SET agent_id = ?, status = 'active', last_seen_at = ?
+	res := tx.Exec(`UPDATE agent_principals SET agent_id = ?, status = 'active', last_seen_at = ?
 		WHERE principal_id = ? AND agent_id = ? AND revoked_at IS NULL`, *record.TargetAgentID, now,
-		record.PrincipalID, record.SourceAgentID); res.Error != nil || res.RowsAffected != 1 {
+		record.PrincipalID, record.SourceAgentID)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
 		return errConflict
 	}
 	if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?, access_refresh_required = TRUE
 		WHERE principal_id = ? AND revoked_at IS NULL`, pq.Array(principalScopesForOnboarding("completed")), record.PrincipalID).Error; err != nil {
 		return err
 	}
-	if res := tx.Exec(`UPDATE agent_cli_account_switches
-		SET status = 'completed', completed_at = ?
-		WHERE switch_id_hash = ? AND status IN ('pending_target', 'pending_onboarding')`, now, record.SwitchIDHash); res.Error != nil || res.RowsAffected != 1 {
+	// Persist the verified target binding and the terminal state in one
+	// statement. A pending_target row deliberately has no target, and the
+	// database CHECK constraint must never observe a fabricated intermediate
+	// pending_onboarding state for an already-completed target account.
+	res = tx.Exec(`UPDATE agent_cli_account_switches
+		SET target_agent_id = ?, target_console_session_id = ?, ownership_verified_at = ?,
+			status = 'completed', completed_at = ?
+		WHERE switch_id_hash = ? AND source_agent_id = ? AND principal_id = ?
+		  AND status IN ('pending_target', 'pending_onboarding')`, *record.TargetAgentID,
+		record.TargetConsoleSession, *record.OwnershipVerifiedAt, now, record.SwitchIDHash,
+		record.SourceAgentID, record.PrincipalID)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
 		return errConflict
 	}
 	record.Status = "completed"
@@ -164,7 +187,7 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 	targetSessionValue, sessionOK := c.Get("console_session_id")
 	targetSessionID, sessionTypeOK := targetSessionValue.(string)
 	now := time.Now().UnixMilli()
-	if !strings.HasPrefix(token, "efas_") || !targetOK || !sessionOK || !sessionTypeOK {
+	if !strings.HasPrefix(token, "efas_") || !targetOK || !sessionOK || !sessionTypeOK || targetSessionID == "" {
 		fail(c, http.StatusBadRequest, "ACCOUNT_SWITCH_INVALID", "CLI account switch is invalid or expired", nil)
 		return
 	}
@@ -173,6 +196,8 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		return
 	}
 	status := ""
+	resultAgentID := targetAgentID
+	expired := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		record, err := loadCLIAccountSwitch(tx, token, true)
 		if err != nil {
@@ -182,9 +207,14 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 			if err := expireCLIAccountSwitch(tx, record, now); err != nil {
 				return err
 			}
-			return errUnauthorized
+			expired = true
+			return nil
 		}
 		if record.Status == "completed" {
+			if record.TargetAgentID == nil || *record.TargetAgentID != targetAgentID {
+				return errConflict
+			}
+			resultAgentID = *record.TargetAgentID
 			status = "completed"
 			return nil
 		}
@@ -203,13 +233,10 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		}
 		if onboardingState == "completed" {
 			target := targetAgentID
+			verifiedAt := now
 			record.TargetAgentID = &target
 			record.TargetConsoleSession = targetSessionID
-			if err := tx.Exec(`UPDATE agent_cli_account_switches
-				SET target_agent_id = ?, target_console_session_id = ?, ownership_verified_at = ?
-				WHERE switch_id_hash = ?`, targetAgentID, targetSessionID, now, record.SwitchIDHash).Error; err != nil {
-				return err
-			}
+			record.OwnershipVerifiedAt = &verifiedAt
 			if err := finalizeCLIAccountSwitch(tx, record, now); err != nil {
 				return err
 			}
@@ -217,10 +244,14 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 			return nil
 		}
 		if record.Status == "pending_target" {
-			if err := tx.Exec(`UPDATE agent_cli_account_switches SET target_agent_id = ?,
+			res := tx.Exec(`UPDATE agent_cli_account_switches SET target_agent_id = ?,
 				target_console_session_id = ?, ownership_verified_at = ?, status = 'pending_onboarding'
-				WHERE switch_id_hash = ? AND status = 'pending_target'`, targetAgentID, targetSessionID, now, record.SwitchIDHash).Error; err != nil {
-				return err
+				WHERE switch_id_hash = ? AND status = 'pending_target'`, targetAgentID, targetSessionID, now, record.SwitchIDHash)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected != 1 {
+				return errConflict
 			}
 			target := targetAgentID
 			record.TargetAgentID = &target
@@ -245,9 +276,13 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		fail(c, http.StatusInternalServerError, "ACCOUNT_SWITCH_FAILED", "could not switch the CLI account", nil)
 		return
 	}
+	if expired {
+		fail(c, http.StatusUnauthorized, "ACCOUNT_SWITCH_INVALID", "CLI account switch is invalid or expired", nil)
+		return
+	}
 	if status == "completed" {
 		s.setCLIAccountSwitchCookie(c, "", -1)
-		reply(c, http.StatusOK, map[string]interface{}{"status": status, "agent_id": fmt.Sprintf("%d", targetAgentID), "refresh_required": true})
+		reply(c, http.StatusOK, map[string]interface{}{"status": status, "agent_id": fmt.Sprintf("%d", resultAgentID), "refresh_required": true})
 		return
 	}
 	reply(c, http.StatusAccepted, map[string]interface{}{
