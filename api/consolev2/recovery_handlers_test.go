@@ -2,23 +2,19 @@ package consolev2
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
 
-func TestMaskedEigenFluxIDNeverExposesTheCompleteShortID(t *testing.T) {
+func TestEigenFluxIDExposesTheCompleteShortID(t *testing.T) {
 	for input, want := range map[string]string{
-		"AbCdE": "eigenflux#Ab***",
-		" Z ":   "eigenflux#*****",
-		"":      "eigenflux#*****",
+		"AbCdE": "eigenflux#AbCdE",
+		" Z ":   "eigenflux#Z",
+		"":      "eigenflux#",
 	} {
-		got := maskedEigenFluxID(input)
+		got := eigenFluxID(input)
 		if got != want {
-			t.Fatalf("maskedEigenFluxID(%q) = %q, want %q", input, got, want)
-		}
-		if strings.Contains(got, strings.TrimSpace(input)) && len(strings.TrimSpace(input)) >= 3 {
-			t.Fatalf("masked ID %q exposes input %q", got, input)
+			t.Fatalf("eigenFluxID(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

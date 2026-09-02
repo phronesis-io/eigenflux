@@ -32,18 +32,14 @@ func recoverySourceDisposition(activeBindingID int64) string {
 }
 
 type recoveryCandidate struct {
-	DisplayName   string `json:"display_name"`
-	MaskedAgentID string `json:"masked_agent_id"`
-	JoinedAt      int64  `json:"joined_at"`
-	LastActiveAt  int64  `json:"last_active_at"`
+	DisplayName  string `json:"display_name"`
+	EigenFluxID  string `json:"eigenflux_id"`
+	JoinedAt     int64  `json:"joined_at"`
+	LastActiveAt int64  `json:"last_active_at"`
 }
 
-func maskedEigenFluxID(shortID string) string {
-	runes := []rune(strings.TrimSpace(shortID))
-	if len(runes) < 2 {
-		return "eigenflux#*****"
-	}
-	return "eigenflux#" + string(runes[:2]) + "***"
+func eigenFluxID(shortID string) string {
+	return "eigenflux#" + strings.TrimSpace(shortID)
 }
 
 func (s *Service) prepareAccountRecovery(tx *gorm.DB, sourceAgentID, targetAgentID, principalID int64, sessionID, challengeID, normalizedEmail string, now int64) (map[string]interface{}, error) {
@@ -116,7 +112,7 @@ func (s *Service) prepareAccountRecovery(tx *gorm.DB, sourceAgentID, targetAgent
 		"recovery_id":        recoveryID,
 		"source_disposition": sourceDisposition,
 		"candidate": recoveryCandidate{
-			DisplayName: agentidentity.DisplayName(candidate.AgentName, candidate.ShortID), MaskedAgentID: maskedEigenFluxID(candidate.ShortID),
+			DisplayName: agentidentity.DisplayName(candidate.AgentName, candidate.ShortID), EigenFluxID: eigenFluxID(candidate.ShortID),
 			JoinedAt: candidate.CreatedAt, LastActiveAt: candidate.LastActiveAt,
 		},
 	}, nil
