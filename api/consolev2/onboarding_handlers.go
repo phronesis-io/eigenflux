@@ -155,12 +155,11 @@ func (s *Service) getConsoleSession(_ context.Context, c *app.RequestContext) {
 	if identity.IsOfficial {
 		verificationLevel = "official"
 	}
-	// A key-provisioned Agent has a stable cryptographic identity but no
-	// human email account. Handoff proves possession of that identity, so the
-	// Console must not force an optional email binding during onboarding.
-	keyIdentityTrusted := legacyHandoff && identity.EmailKind == "internal_alias"
-	legacyIdentityTrusted := identity.LegacyIdentityTrusted || keyIdentityTrusted
-	emailBound := identity.EmailVerified || legacyIdentityTrusted
+	// Agent-key possession authenticates the local runtime, but it does not
+	// prove which human owns the Console account. Only a verified email binding
+	// completes the claim step.
+	legacyIdentityTrusted := identity.LegacyIdentityTrusted
+	emailBound := identity.EmailVerified
 	runtime, runtimeName, runtimeVersion := consoleSessionRuntime(
 		identity.RuntimeName, identity.RuntimeVersion, identity.ClientHost,
 	)
@@ -556,6 +555,12 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
 		return
 	}
+	sessionValue, hasSession := c.Get("console_session_id")
+	sessionID, sessionOK := sessionValue.(string)
+	if !hasSession || !sessionOK || sessionID == "" {
+		fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
+		return
+	}
 	var req confirmStepRequest
 	if err := decodeBody(c, &req); err != nil || req.Step < 2 || req.Step > 5 || req.ExpectedOnboardingRevision <= 0 || req.IdempotencyKey == "" {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "step, expected_onboarding_revision, and idempotency_key are required", nil)
@@ -592,23 +597,22 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if !canConfirmOnboardingStep(state.State, state.CurrentStep, req.Step) || state.Revision != req.ExpectedOnboardingRevision {
 			return errConflict
 		}
-		var emailBound bool
-		authMethod, _ := c.Get("console_auth_method")
-		legacyHandoff := authMethod == "handoff"
-		bindingStates := "'verified'"
-		if legacyHandoff {
-			bindingStates = "'verified', 'legacy_unverified'"
-		}
+		var emailVerifiedForSession bool
 		if err := tx.Raw(`SELECT EXISTS (
-			SELECT 1 FROM agent_email_bindings
-			WHERE agent_id = ? AND status = 'active' AND verification_state IN (`+bindingStates+`)
-		) OR (? AND EXISTS (
-			SELECT 1 FROM agents
-			WHERE agent_id = ? AND email_kind = 'internal_alias'
-		))`, id, legacyHandoff, id).Scan(&emailBound).Error; err != nil {
+			SELECT 1 FROM v2_email_challenges challenges
+			WHERE challenges.console_session_id = ?
+			  AND challenges.subject_agent_id = ?
+			  AND challenges.purpose = 'bind'
+			  AND challenges.status = 'consumed'
+		) OR EXISTS (
+			SELECT 1 FROM agent_account_recoveries recoveries
+			WHERE recoveries.console_session_id = ?
+			  AND recoveries.target_agent_id = ?
+			  AND recoveries.status = 'completed'
+		)`, sessionID, id, sessionID, id).Scan(&emailVerifiedForSession).Error; err != nil {
 			return err
 		}
-		if !emailBound {
+		if !emailVerifiedForSession {
 			return errEmailBindingRequired
 		}
 		var storedDraft struct {
