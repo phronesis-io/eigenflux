@@ -119,8 +119,8 @@ func TestSaveCredentialsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat error: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
-		t.Errorf("file permissions = %o, want 0600", perm)
+	if err := validatePrivateFilePermissions(info); err != nil {
+		t.Errorf("created credentials permissions: %v", err)
 	}
 }
 

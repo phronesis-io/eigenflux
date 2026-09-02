@@ -26,8 +26,8 @@ func TestLoadOrCreateIdentityIsStableAndPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("identity mode=%o want=600", info.Mode().Perm())
+	if err := validatePrivateFilePermissions(info); err != nil {
+		t.Fatalf("created identity permissions: %v", err)
 	}
 	if IdentityFingerprint(publicOne) == "" {
 		t.Fatal("empty identity fingerprint")
