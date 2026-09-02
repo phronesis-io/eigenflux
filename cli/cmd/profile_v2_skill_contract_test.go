@@ -43,8 +43,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.5.0"`) {
-		t.Error("ef-profile version was not advanced for the Attention Prefill contract")
+	if !strings.Contains(frontmatterParts[1], `version: "0.5.1"`) {
+		t.Error("ef-profile version was not advanced for mandatory Step 1 email verification")
 	}
 	for _, lifecycleRule := range []string{"has no bound email", "temporary identity", "formal account", "switch back later"} {
 		if !strings.Contains(skill, lifecycleRule) {
@@ -64,7 +64,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"a non-empty `nonce` URL fragment",
 		"replace only the URL scheme and host",
 		"（链接 15 分钟内有效）",
-		"Email binding is optional",
+		"The Console always opens at Step 1",
+		"Email verification is required before later onboarding steps",
 		"Store `geo` as one of `CN`, `HK`, `SG`, `JP`, `US`, `GB`, or `ZZ`",
 		"Store `timezone` as one of `Asia/Shanghai`, `Asia/Singapore`, `Asia/Tokyo`",
 		"Add provenance for every non-empty field path",
@@ -153,7 +154,7 @@ func TestPublicJoinEntryPointsPreferConsoleV2(t *testing.T) {
 		},
 		"static/templates/skill.tmpl.md": {
 			"Stable Agent provisioning",
-			"email is optional inside Console V2",
+			"every Console handoff starts at Step 1",
 		},
 	}
 

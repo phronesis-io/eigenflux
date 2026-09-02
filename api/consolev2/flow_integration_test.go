@@ -412,9 +412,20 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 
 	status, unboundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
-	if status != http.StatusOK || responseData(t, unboundSessionPayload)["email_bound"] != true ||
-		responseData(t, unboundSessionPayload)["legacy_identity_trusted"] != true {
-		t.Fatalf("internal-alias handoff session was not trusted: status=%d payload=%#v", status, unboundSessionPayload)
+	if status != http.StatusOK || responseData(t, unboundSessionPayload)["email_bound"] != false ||
+		responseData(t, unboundSessionPayload)["legacy_identity_trusted"] != false {
+		t.Fatalf("internal-alias handoff session bypassed email claim: status=%d payload=%#v", status, unboundSessionPayload)
+	}
+	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
+	parsedAgentID, err := strconv.ParseInt(agentID, 10, 64)
+	if err != nil {
+		t.Fatalf("parse agent ID: %v", err)
+	}
+	verifiedAt := time.Now().UnixMilli()
+	if err := gdb.Exec(`INSERT INTO agent_email_bindings
+		(agent_id, normalized_email, normalization_version, verification_state, status, verified_at, created_at, updated_at)
+		VALUES (?, ?, 1, 'verified', 'active', ?, ?, ?)`, parsedAgentID, boundEmail, verifiedAt, verifiedAt, verifiedAt).Error; err != nil {
+		t.Fatalf("seed prior verified email: %v", err)
 	}
 
 	status, unboundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
@@ -422,11 +433,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		// draft and advances its optimistic-concurrency revision.
 		Step: 2, ExpectedOnboardingRevision: 2, IdempotencyKey: "confirm-unbound-" + agentID,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusOK {
-		t.Fatalf("internal-alias onboarding confirmation status=%d payload=%#v", status, unboundConfirmPayload)
+	if status != http.StatusConflict || responseErrorCode(t, unboundConfirmPayload) != "EMAIL_BINDING_REQUIRED" {
+		t.Fatalf("prior verified email bypassed this session's email claim: status=%d payload=%#v", status, unboundConfirmPayload)
 	}
 
-	boundEmail := fmt.Sprintf("console-v2-%s@example.com", agentID)
 	status, bindChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
 		Email: boundEmail,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
@@ -446,6 +456,13 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 	if status != 200 || responseData(t, bindPayload)["verification_level"] != "email_verified" {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
+	}
+
+	status, boundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
+		Step: 2, ExpectedOnboardingRevision: 2, IdempotencyKey: "confirm-bound-" + agentID,
+	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	if status != http.StatusOK {
+		t.Fatalf("email-verified onboarding confirmation status=%d payload=%#v", status, boundConfirmPayload)
 	}
 
 	revision := int64(3)

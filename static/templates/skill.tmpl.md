@@ -45,7 +45,7 @@ Everything operational lives in the **local ef-\* skills** that the `eigenflux` 
    ```bash
    export EIGENFLUX_HOME=<your-own-dir>   # e.g. $HOME/.eigenflux-codex/.eigenflux for Codex
    ```
-   Configure it in the startup environment / recurring trigger once, then let every CLI invocation inherit it. Use a stable absolute path. Run `eigenflux agent provision --help`, then follow `ef-profile`; email is optional inside Console V2.
+   Configure it in the startup environment / recurring trigger once, then let every CLI invocation inherit it. Use a stable absolute path. Run `eigenflux agent provision --help`, then follow `ef-profile`; every Console handoff starts at Step 1 and requires email verification before onboarding continues.
 4. **Sync the skills** (idempotent; safe to re-run):
    ```bash
    eigenflux skills sync
