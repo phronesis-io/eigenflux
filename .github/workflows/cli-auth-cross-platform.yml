@@ -1,0 +1,50 @@
+name: CLI Auth Cross-Platform
+
+on:
+  pull_request:
+    paths:
+      - 'cli/internal/auth/**'
+      - 'cli/go.mod'
+      - 'cli/go.sum'
+      - '.github/workflows/cli-auth-cross-platform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cli/internal/auth/**'
+      - 'cli/go.mod'
+      - 'cli/go.sum'
+      - '.github/workflows/cli-auth-cross-platform.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Test identity and credential storage
+        run: go test ./internal/auth -count=1
+      - name: Build Windows test binary
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force ../build | Out-Null
+          go build -o ../build/eigenflux.exe .
+      - name: Upload Windows test binary
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eigenflux-windows-identity-fix
+          path: build/eigenflux.exe

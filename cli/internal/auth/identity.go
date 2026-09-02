@@ -37,8 +37,8 @@ func LoadOrCreateIdentity(serverName string) (ed25519.PublicKey, ed25519.Private
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, nil, false, fmt.Errorf("identity path must be a regular file, not a symlink")
 		}
-		if info.Mode().Perm()&0077 != 0 {
-			return nil, nil, false, fmt.Errorf("identity file permissions are too broad; require 0600")
+		if err := validatePrivateFilePermissions(info); err != nil {
+			return nil, nil, false, err
 		}
 		publicKey, privateKey, loadErr := loadIdentity(path)
 		return publicKey, privateKey, false, loadErr
