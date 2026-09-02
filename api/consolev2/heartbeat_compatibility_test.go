@@ -24,6 +24,7 @@ func TestLoadConsoleV2CompatibilityQueryTypesAgentIDAsBigInt(t *testing.T) {
 func TestConsoleV2CompatibilityGate(t *testing.T) {
 	tests := []struct {
 		name, cli, contract, revision, status, reason string
+		onboardingCompleted                           bool
 		available                                     bool
 	}{
 		{name: "missing report", status: "unknown", reason: "report_missing"},
@@ -31,10 +32,11 @@ func TestConsoleV2CompatibilityGate(t *testing.T) {
 		{name: "old heartbeat is accepted", cli: "0.0.35", contract: "legacy", revision: "r1", status: "ready", available: true},
 		{name: "missing skills is accepted", cli: "0.0.35", contract: heartbeatContractV1, status: "ready", available: true},
 		{name: "minimum ready", cli: "0.0.35", contract: heartbeatContractV1, revision: "r1", status: "ready", available: true},
+		{name: "completed onboarding bypasses missing report", onboardingCompleted: true, status: "ready", available: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123)
+			got := consoleV2Compatibility(test.cli, test.contract, test.revision, 123, test.onboardingCompleted)
 			if got["available"] != test.available || got["status"] != test.status || got["reason"] != test.reason {
 				t.Fatalf("compatibility = %#v", got)
 			}
@@ -78,7 +80,7 @@ func TestRecoveryRefreshRequiresCLI0035(t *testing.T) {
 	}
 }
 
-func TestLegacyConsoleCompatibilityHandlerGatesCompletedOnboarding(t *testing.T) {
+func TestLegacyConsoleCompatibilityHandlerBypassesCompletedOnboarding(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -120,8 +122,7 @@ func TestLegacyConsoleCompatibilityHandlerGatesCompletedOnboarding(t *testing.T)
 	if err := json.Unmarshal(request.Response.Body(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Code != 0 || envelope.Data.Onboarding.State != "completed" ||
-		envelope.Data.Compatibility["available"] != false || envelope.Data.Compatibility["reason"] != "cli_outdated" {
+	if envelope.Code != 0 || envelope.Data.Onboarding.State != "completed" || envelope.Data.Compatibility["available"] != true {
 		t.Fatalf("unexpected compatibility envelope: %#v", envelope)
 	}
 }
