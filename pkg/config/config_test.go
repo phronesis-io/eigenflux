@@ -145,7 +145,7 @@ func TestConsoleV2FeatureFlagsDefaultOff(t *testing.T) {
 		t.Fatal("Console V2 feature flags must default to disabled")
 	}
 	if cfg.ConsoleV2Registration.WindowSec != 86400 || cfg.ConsoleV2Registration.IPLimit != 500 ||
-		cfg.ConsoleV2Registration.SubnetLimit != 500 || cfg.ConsoleV2Registration.KeyLimit != 5 ||
+		cfg.ConsoleV2Registration.SubnetLimit != 500 || cfg.ConsoleV2Registration.KeyLimit != 10 ||
 		cfg.ConsoleV2Registration.GlobalLimit != 1000 {
 		t.Fatalf("unexpected public registration defaults: %#v", cfg.ConsoleV2Registration)
 	}

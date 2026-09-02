@@ -51,7 +51,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `CONSOLE_V2_REGISTRATION_WINDOW_SEC` | `86400` | Automatic registration fixed-window duration in seconds |
 | `CONSOLE_V2_REGISTRATION_IP_LIMIT` | `500` | Automatic registration challenges per client IP and window (temporary internal-test default; restore to 20 before public rollout) |
 | `CONSOLE_V2_REGISTRATION_SUBNET_LIMIT` | `500` | Automatic registration challenges per IPv4 /24 or IPv6 /64 and window (temporary internal-test default; restore to 100 before public rollout) |
-| `CONSOLE_V2_REGISTRATION_KEY_LIMIT` | `5` | Automatic registration challenges per public key and window; Agent creation remains permanently unique per key |
+| `CONSOLE_V2_REGISTRATION_KEY_LIMIT` | `10` | Automatic registration challenges per public key and window; Agent creation remains permanently unique per key |
 | `CONSOLE_V2_REGISTRATION_GLOBAL_LIMIT` | `1000` | Global automatic registration challenges per window |
 | `RESEND_FROM_EMAIL` | -- | Sender address (required only when OTP enabled) |
 | `MOCK_UNIVERSAL_OTP` | `123456` | Fixed verification code when whitelist matched |

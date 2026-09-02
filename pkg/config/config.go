@@ -37,7 +37,7 @@ func loadConsoleV2RegistrationLimits() RegLimit {
 		WindowSec:   getEnvInt("CONSOLE_V2_REGISTRATION_WINDOW_SEC", 86400),
 		IPLimit:     getEnvInt("CONSOLE_V2_REGISTRATION_IP_LIMIT", 500),
 		SubnetLimit: getEnvInt("CONSOLE_V2_REGISTRATION_SUBNET_LIMIT", 500),
-		KeyLimit:    getEnvInt("CONSOLE_V2_REGISTRATION_KEY_LIMIT", 5),
+		KeyLimit:    getEnvInt("CONSOLE_V2_REGISTRATION_KEY_LIMIT", 10),
 		GlobalLimit: getEnvInt("CONSOLE_V2_REGISTRATION_GLOBAL_LIMIT", 1000),
 	}
 }
