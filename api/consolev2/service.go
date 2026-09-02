@@ -23,7 +23,6 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -40,8 +39,10 @@ import (
 )
 
 const (
-	consoleCookieName = "ef_console_v2"
-	csrfCookieName    = "ef_console_v2_csrf"
+	consoleCookieName           = "ef_console_v2"
+	csrfCookieName              = "ef_console_v2_csrf"
+	activeConsoleSlotCookieName = "ef_console_v2_active"
+	maxConsoleAccountSlots      = 5
 	// Browser sessions use a long idle window while retaining a hard upper
 	// bound. Keep these values centralized so handoff and email-OTP login
 	// cannot drift apart.
@@ -58,10 +59,12 @@ const (
 )
 
 var (
-	errConflict           = errors.New("conflict")
-	errUnauthorized       = errors.New("unauthorized")
-	errOnboardingRequired = errors.New("onboarding required")
-	errCLIUpgradeRequired = errors.New("CLI upgrade required")
+	errConflict              = errors.New("conflict")
+	errUnauthorized          = errors.New("unauthorized")
+	errOnboardingRequired    = errors.New("onboarding required")
+	errCLIUpgradeRequired    = errors.New("CLI upgrade required")
+	errConsoleAccountLimit   = errors.New("console account limit reached")
+	errConsoleSessionInvalid = errors.New("console session invalid")
 )
 
 type IDGenerator interface {
@@ -344,6 +347,9 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
+	h.GET("/api/v2/console/accounts", s.consoleAuth(false), s.listConsoleAccounts)
+	h.POST("/api/v2/console/accounts/:agent_id/activate", s.consoleAuth(true), s.activateConsoleAccount)
+	h.DELETE("/api/v2/console/accounts/:agent_id", s.consoleAuth(true), s.removeConsoleAccount)
 
 	h.PUT("/api/v2/agents/me/onboarding-draft", s.agentAuth("onboarding:write"), s.putOnboardingDraft)
 	h.PUT("/api/v2/console/onboarding-draft", s.consoleAuth(true), s.putOnboardingDraft)
@@ -529,12 +535,11 @@ func validActiveIdentityBinding(agentID, principalAgentID int64, identityState, 
 }
 
 func (s *Service) setConsoleCookie(c *app.RequestContext, value string, maxAge int) {
-	c.SetCookie(consoleCookieName, value, maxAge, "/", "", protocol.CookieSameSiteLaxMode, s.secureCookie, true)
-	c.Header("Referrer-Policy", "no-referrer")
+	s.setConsoleCookieAtSlot(c, 0, value, maxAge)
 }
 
 func (s *Service) setCSRFCookie(c *app.RequestContext, value string, maxAge int) {
-	c.SetCookie(csrfCookieName, value, maxAge, "/", "", protocol.CookieSameSiteStrictMode, s.secureCookie, false)
+	s.setCSRFCookieAtSlot(c, 0, value, maxAge)
 }
 
 type agentPrincipal struct {
@@ -614,37 +619,14 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 			c.Abort()
 			return
 		}
-		parts := strings.SplitN(string(c.Cookie(consoleCookieName)), ".", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
-			c.Abort()
-			return
-		}
-		var session consoleSession
 		now := time.Now().UnixMilli()
-		err := s.db.Raw(`SELECT s.session_id, s.agent_id, s.principal_id,
-					p.agent_id AS principal_agent_id, p.status AS principal_status,
-					p.revoked_at AS principal_revoked_at,
-					a.identity_state,
-					s.session_secret_hash, s.csrf_secret_hash, s.scopes,
-			s.idle_expires_at, s.absolute_expires_at, s.last_seen_at,
-			s.auth_method, s.recent_auth_at
-				FROM console_v2_sessions s
-				JOIN agent_principals p ON p.principal_id = s.principal_id
-				JOIN agents a ON a.agent_id = s.agent_id
-				WHERE s.session_id = ? AND s.status = 'active'
-				  AND s.idle_expires_at > ? AND s.absolute_expires_at > ?`, parts[0], now, now).
-			Scan(&session).Error
-		if err != nil || session.SessionID == "" || subtle.ConstantTimeCompare([]byte(session.SecretHash), []byte(hashString(parts[1]))) != 1 {
-			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
-			c.Abort()
-			return
-		}
-		if !validActiveIdentityBinding(session.AgentID, session.PrincipalAgentID, session.IdentityState,
-			session.PrincipalStatus, session.PrincipalRevokedAt) {
-			s.db.Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
-				WHERE session_id = ? AND status = 'active'`, now, session.SessionID)
-			fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
+		slot, session, err := s.resolveActiveConsoleSession(c, now)
+		if err != nil || session.SessionID == "" {
+			if errors.Is(err, errConsoleSessionInvalid) {
+				fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
+			} else {
+				fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
+			}
 			c.Abort()
 			return
 		}
@@ -668,6 +650,7 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 		c.Set("agent_id", session.AgentID)
 		c.Set("principal_id", session.PrincipalID)
 		c.Set("console_session_id", session.SessionID)
+		c.Set("console_session_slot", slot)
 		c.Set("console_auth_method", session.AuthMethod)
 		if session.RecentAuthAt != nil {
 			c.Set("console_recent_auth_at", *session.RecentAuthAt)

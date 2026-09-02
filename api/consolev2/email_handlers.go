@@ -415,10 +415,12 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 }
 
 type verifyEmailRequest struct {
-	ChallengeID string `json:"challenge_id"`
-	Email       string `json:"email"`
-	OTP         string `json:"otp"`
-	Purpose     string `json:"purpose,omitempty"`
+	ChallengeID    string `json:"challenge_id"`
+	Email          string `json:"email"`
+	OTP            string `json:"otp"`
+	Purpose        string `json:"purpose,omitempty"`
+	AddAccount     bool   `json:"add_account,omitempty"`
+	ReplaceAgentID string `json:"replace_agent_id,omitempty"`
 }
 
 func (s *Service) lockAndCheckEmailChallenge(tx *gorm.DB, req verifyEmailRequest, normalizedEmail, purpose string, subjectAgentID *int64, sessionID *string, now int64) (emailChallengeRow, bool, error) {
@@ -854,12 +856,20 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "challenge_id, email, otp, and purpose are required", nil)
 		return
 	}
+	replacementAgentID, err := parseReplacementAgentID(req.ReplaceAgentID)
+	if err != nil || (!req.AddAccount && replacementAgentID > 0) {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "replace_agent_id requires add_account", nil)
+		return
+	}
 	sessionID, _ := randomToken("efcs_", 18)
 	sessionSecret, _ := randomToken("", 32)
 	csrfSecret, _ := randomToken("efcsrf_", 24)
 	now := time.Now().UnixMilli()
 	validOTP := false
 	var recoveredAgentID int64
+	selectedSlot := 0
+	replacedSessionID := ""
+	var accountLimitAccounts []consoleAccountView
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var challenge emailChallengeRow
 		if err := tx.Raw(`SELECT challenge_id, purpose, normalized_email_hash, subject_agent_id,
@@ -930,10 +940,29 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 				return err
 			}
 		}
+		if req.AddAccount {
+			var slotErr error
+			selectedSlot, replacedSessionID, accountLimitAccounts, slotErr = s.chooseConsoleSessionSlot(
+				tx, c, recoveredAgentID, replacementAgentID, now,
+			)
+			if slotErr != nil {
+				return slotErr
+			}
+		} else if credential, ok := consoleCredential(c, 0); ok {
+			if existing, loadErr := s.loadConsoleSessionCredential(tx, credential); loadErr == nil {
+				replacedSessionID = existing.SessionID
+			}
+		}
 		consume := tx.Exec(`UPDATE v2_email_challenges SET status = 'consumed', consumed_at = ?
 			WHERE challenge_id = ? AND status = 'pending'`, now, req.ChallengeID)
 		if consume.Error != nil || consume.RowsAffected != 1 {
 			return errUnauthorized
+		}
+		if replacedSessionID != "" {
+			if err := tx.Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
+				WHERE session_id = ? AND status = 'active'`, now, replacedSessionID).Error; err != nil {
+				return err
+			}
 		}
 		return tx.Exec(`INSERT INTO console_v2_sessions
 			(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
@@ -948,13 +977,22 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusUnauthorized, "OTP_INVALID", "verification code is invalid or expired", nil)
 		return
 	}
+	if errors.Is(err, errConsoleAccountLimit) {
+		fail(c, http.StatusConflict, "CONSOLE_ACCOUNT_LIMIT_REACHED", "this browser already has five Console accounts", consoleAccountLimitDetails(accountLimitAccounts, recoveredAgentID))
+		return
+	}
+	if errors.Is(err, errConflict) {
+		fail(c, http.StatusConflict, "CONSOLE_ACCOUNT_REPLACEMENT_INVALID", "the selected account cannot be replaced", nil)
+		return
+	}
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "EMAIL_LOGIN_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
-	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setConsoleCookieAtSlot(c, selectedSlot, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookieAtSlot(c, selectedSlot, csrfSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setActiveConsoleSlot(c, selectedSlot, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
-		"agent_id": fmt.Sprintf("%d", recoveredAgentID), "csrf_token": csrfSecret,
+		"agent_id": fmt.Sprintf("%d", recoveredAgentID), "csrf_token": csrfSecret, "slot": selectedSlot,
 	})
 }

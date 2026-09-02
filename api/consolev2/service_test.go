@@ -37,6 +37,33 @@ func TestConsoleHandoffTTL(t *testing.T) {
 	}
 }
 
+func TestConsoleSessionCookieSlotsPreserveLegacySlotZero(t *testing.T) {
+	if maxConsoleAccountSlots != 5 {
+		t.Fatalf("maxConsoleAccountSlots = %d, want 5", maxConsoleAccountSlots)
+	}
+	wantSessions := []string{"ef_console_v2", "ef_console_v2_1", "ef_console_v2_2", "ef_console_v2_3", "ef_console_v2_4"}
+	wantCSRF := []string{"ef_console_v2_csrf", "ef_console_v2_csrf_1", "ef_console_v2_csrf_2", "ef_console_v2_csrf_3", "ef_console_v2_csrf_4"}
+	for slot := 0; slot < maxConsoleAccountSlots; slot++ {
+		if got := consoleSessionCookieName(slot); got != wantSessions[slot] {
+			t.Fatalf("session cookie slot %d = %q, want %q", slot, got, wantSessions[slot])
+		}
+		if got := consoleCSRFCookieName(slot); got != wantCSRF[slot] {
+			t.Fatalf("CSRF cookie slot %d = %q, want %q", slot, got, wantCSRF[slot])
+		}
+	}
+}
+
+func TestParseReplacementAgentID(t *testing.T) {
+	for _, input := range []string{"0", "-1", "not-an-id"} {
+		if _, err := parseReplacementAgentID(input); err == nil {
+			t.Fatalf("parseReplacementAgentID(%q) unexpectedly succeeded", input)
+		}
+	}
+	if got, err := parseReplacementAgentID(" 42 "); err != nil || got != 42 {
+		t.Fatalf("parseReplacementAgentID valid result = %d, %v", got, err)
+	}
+}
+
 func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
 	want := []string{
 		"attention:write",

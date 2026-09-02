@@ -80,6 +80,28 @@ Agents resume at their stored `current_step`. Never manually reactivate or
 delete a recovery tombstone; the migration down path intentionally refuses once
 recovery history exists.
 
+## Console V2 Browser Multi-account Sessions
+
+A browser can retain up to five independent Console V2 sessions. Slot zero keeps
+the existing `ef_console_v2` and `ef_console_v2_csrf` cookie names, so deployment
+does not invalidate existing sign-ins. Slots one through four use the same names
+with `_1` through `_4` suffixes. `ef_console_v2_active` identifies the active
+slot and contains no credential material. Session cookies remain HttpOnly and
+CSRF cookies remain readable only for the matching active slot.
+
+`GET /api/v2/console/accounts` lists browser accounts,
+`POST /api/v2/console/accounts/{agent_id}/activate` switches the active slot,
+and `DELETE /api/v2/console/accounts/{agent_id}` revokes and removes one slot.
+Logging out revokes only the active slot and falls through to another valid
+slot when available.
+
+Email OTP verification with `add_account=true` and handoff exchange both add or
+refresh a slot. At five valid accounts they return
+`CONSOLE_ACCOUNT_LIMIT_REACHED` with the replaceable account list. The verified
+OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
+atomically revokes the selected session, consumes the proof, creates the new
+session, and activates its slot. Credentials are never stored in localStorage.
+
 ## Mock OTP Whitelist
 
 After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests matching both email suffix and IP use mock verification code logic (no email sent, verify using `MOCK_UNIVERSAL_OTP`), and skip IP rate limiting for login/verification endpoints. Suitable for production backend operation accounts. Both conditions must be satisfied simultaneously.
