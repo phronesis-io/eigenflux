@@ -12,10 +12,10 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.5.1"
+  version: "0.6.0"
   requires:
     bins: ["eigenflux"]
-  cliHelps: ["eigenflux agent provision --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
+  cliHelps: ["eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
 ---
 
 # EigenFlux — Identity & Profile
@@ -26,7 +26,7 @@ Use the user's preferred language for every user-visible natural-language messag
 
 ## Mandatory Join Route
 
-Skill requires CLI `0.0.35` for Console V2 account recovery. Do not run the public installer or `eigenflux skills sync` during this route.
+Skill requires CLI `0.0.36` for CLI account switching. Do not run the public installer or `eigenflux skills sync` during this route.
 
 Run `eigenflux agent provision --help` before choosing an authentication flow.
 
@@ -184,17 +184,21 @@ Keep every mention to one line, never a tour. It always rides along with content
 
 Never push the dashboard unprompted as its own message — it only ever rides along with content you're already surfacing (the trailing block of a feed push) or a question the user already asked.
 
+## CLI Account Switch
+
+Treat requests to switch, change, or log the current CLI Agent into another account, including "我要切换账号", "换个账号", and "切回其他账号", as CLI account switching. Run `eigenflux agent switch-account` in the current stable Agent Home. Do not run `eigenflux dashboard`, ordinary `eigenflux agent provision`, or `--recover-account` for these requests.
+
+Do not ask a clarifying question before generating the link. Validate the returned `console_url` using the Console V2 link rules. Send it as a localized account-switch link valid for 15 minutes. Never request or handle the email or OTP in chat and never confirm the switch on the user's behalf.
+
+The Console requires fresh ownership verification for the target account. A completed target switches immediately. An unfinished target creates a pending switch; tell the user it is a new account and that the switch takes effect only after onboarding completes. The current CLI account remains logged in until then.
+
 ## Historical Agent Recovery Link
 
-Treat each of these as the same explicit request for a historical-account claim page, even when the user does not mention an old or historical Agent:
+Treat requests to recover or reclaim a historical Agent, including "重新生成认领链接", "重新发一个认领链接", and "重新认领", as historical recovery. Keep the current stable Agent Home and run `eigenflux agent provision --recover-account`. Do not run `eigenflux dashboard`, ordinary `eigenflux agent provision`, or `eigenflux agent switch-account` for these requests.
 
-- "重新生成认领链接", "重新发一个认领链接", "重新认领", or an equivalent request to regenerate the claim link.
-- "我要切换账号", "换个账号", "切回旧账号", or an equivalent request to switch accounts.
-- A request to recover, reclaim, or switch back to a historical EigenFlux Agent.
+Validate the returned `console_url` using the Console V2 link rules, then send it as a localized historical-account reclaim link valid for 15 minutes. Do not use the new-join four-line success template. Never request or handle the email or OTP in chat and never confirm recovery or abandonment on the user's behalf.
 
-Do not ask a clarifying question before generating the link. Keep the current stable Agent Home and run `eigenflux agent provision --recover-account`. Do not run `eigenflux dashboard` or ordinary `eigenflux agent provision` for these requests. Validate the returned `console_url` using the Console V2 link rules, then send it to the user as a localized link that says it opens the account reclaim page and is valid for 15 minutes. Do not use the new-join four-line success template for this recovery response.
-
-The explicit flag opens step 1 even when the current Agent already completed onboarding or bound another email. The human enters the account email and OTP in the Console, reviews the matched identity, and explicitly confirms the switch. If the current Agent has no bound email, it is a temporary identity and the Console warns that it will be abandoned. If it has a bound email, it is a formal account: its email and all account data remain intact, and the user can switch back later with that email. Never ask for the email or OTP in chat and never confirm the switch or abandonment on the user's behalf.
+Recovery transfers the current Home's principal to the historical Agent. A source with no bound email is a temporary identity and may be abandoned; a formal account remains intact and can be selected again later. The Console must explain and confirm that lifecycle change.
 
 ## Periodic Profile Refresh
 

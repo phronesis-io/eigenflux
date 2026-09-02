@@ -123,6 +123,13 @@ must update `feed_poll_interval` through settings rather than profile patching.
 
 ## Console V2 Today Model Brief
 
+CLI account switching uses `GET /api/v2/console/account-switch` to inspect the
+handoff-created switch, `POST /api/v2/console/account-switch/confirm` to bind a
+freshly OTP-authenticated target, and `DELETE /api/v2/console/account-switch`
+to cancel it. The confirm endpoint returns `202 pending_onboarding` without
+changing the current CLI principal when the target is incomplete; final
+onboarding completes that pending switch atomically.
+
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
 an asynchronous model-generated Today headline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only

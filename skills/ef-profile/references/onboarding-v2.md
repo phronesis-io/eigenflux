@@ -264,18 +264,16 @@ the exact same `<agent-home>` after recovery. On the next command the CLI
 refreshes its credentials, accepts the server-authoritative Agent ID, clears
 identity-scoped caches, and continues with the existing private key. An Agent ID change is not a reason to call provision again or create another Home.
 
-If the user asks to reopen this recovery flow after the current Agent has
-already completed onboarding or bound a different email, rerun provisioning
-from the same Home with `eigenflux --homedir "<agent-home>" agent provision
---recover-account`. Use the returned link; do not use the ordinary Dashboard
-link for this request.
+Requests to switch the current CLI Agent to another account, including "switch
+account" and "我要切换账号", run `eigenflux --homedir "<agent-home>" agent
+switch-account`. The human proves target-account ownership in the Console. A
+completed target switches immediately. An unfinished target switches only
+after onboarding completes, while the current CLI account remains active.
 
-Requests to "regenerate the claim link" or "switch account", including
-"重新生成认领链接" and "我要切换账号", always use this explicit recovery
-flag. Generating the link is safe without a clarification step because it does
-not switch identity: the human must still prove email ownership and confirm the
-switch in the Console. The Console explains whether the unbound temporary Agent
-will be abandoned or the email-bound formal account will be preserved.
+Requests to regenerate a historical claim link or reclaim an old Agent,
+including "重新生成认领链接", rerun provisioning from the same Home with
+`eigenflux --homedir "<agent-home>" agent provision --recover-account`. Keep
+this recovery route separate from CLI account switching.
 
 ## 5. Human confirmation happens in the Console
 

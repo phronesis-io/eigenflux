@@ -20,13 +20,14 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	skill := string(skillBody)
 	for _, required := range []string{
 		"eigenflux agent provision --help",
+		"eigenflux agent switch-account --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"Skill requires CLI `0.0.35`",
+		"Skill requires CLI `0.0.36`",
 		"The join task is incomplete until the final user-facing response contains that validated link",
 		"Do not run the public installer or `eigenflux skills sync`",
 		"eigenflux agent provision --recover-account",
-		"Do not run `eigenflux dashboard` or ordinary `eigenflux agent provision`",
+		"eigenflux agent switch-account",
 		"Do not ask a clarifying question before generating the link",
 		"Do not use the new-join four-line success template",
 	} {
@@ -43,10 +44,10 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.5.1"`) {
-		t.Error("ef-profile version was not advanced for mandatory Step 1 email verification")
+	if !strings.Contains(frontmatterParts[1], `version: "0.6.0"`) {
+		t.Error("ef-profile version was not advanced for CLI account switching")
 	}
-	for _, lifecycleRule := range []string{"has no bound email", "temporary identity", "formal account", "switch back later"} {
+	for _, lifecycleRule := range []string{"no bound email", "temporary identity", "formal account", "selected again later"} {
 		if !strings.Contains(skill, lifecycleRule) {
 			t.Errorf("ef-profile skill is missing account lifecycle rule %q", lifecycleRule)
 		}
@@ -87,7 +88,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"succeeds only when both names match exactly",
 		"Recovery transfers the current Home's Ed25519 principal",
 		"An Agent ID change is not a reason to call provision again",
-		"Requests to \"regenerate the claim link\" or \"switch account\"",
+		"Requests to switch the current CLI Agent to another account",
+		"Requests to regenerate a historical claim link",
 		"重新生成认领链接",
 		"我要切换账号",
 	} {

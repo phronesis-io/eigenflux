@@ -22,6 +22,12 @@ func TestConsoleHandoffCapabilitiesRequireExplicitRecoveryEntry(t *testing.T) {
 	}
 }
 
+func TestCLIAccountSwitchUsesDedicatedCapability(t *testing.T) {
+	if got := cliAccountSwitchCapabilities(); !reflect.DeepEqual(got, []string{"account_switch_v1"}) {
+		t.Fatalf("account switch capabilities = %#v", got)
+	}
+}
+
 type captureV2Poster struct {
 	path string
 	body map[string]interface{}

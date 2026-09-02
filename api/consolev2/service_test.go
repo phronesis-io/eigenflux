@@ -37,6 +37,15 @@ func TestConsoleHandoffTTL(t *testing.T) {
 	}
 }
 
+func TestCLIAccountSwitchOutlivesHandoffWithoutCreatingLocalSlots(t *testing.T) {
+	if cliAccountSwitchTTL <= handoffTTL {
+		t.Fatalf("CLI account switch TTL %s must outlive handoff TTL %s", cliAccountSwitchTTL, handoffTTL)
+	}
+	if cliAccountSwitchCookieName == consoleCookieName || cliAccountSwitchCookieName == activeConsoleSlotCookieName {
+		t.Fatal("CLI account switch binding must be separate from Console account slots")
+	}
+}
+
 func TestConsoleSessionCookieSlotsPreserveLegacySlotZero(t *testing.T) {
 	if maxConsoleAccountSlots != 5 {
 		t.Fatalf("maxConsoleAccountSlots = %d, want 5", maxConsoleAccountSlots)
