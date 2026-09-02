@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,10 +24,9 @@ import (
 // Package-level deps, set once by Register (same pattern as api/agti).
 var (
 	publicBaseURL string
-	// User-facing install/join URLs (the command shown on the landing page and
-	// the /r/<ref> bootstrap) use the ICP-filed domain so an ad review (小红书
-	// 聚光) never sees the landing page pointing at an unfiled site. Server-only
-	// endpoints (the /report callback) are unaffected; override via env.
+	// User-facing install/join URLs fall back to this configured base when the
+	// request host is not one of the official public domains. Official requests
+	// stay on their own domain; override the fallback via env.
 	installBaseURL = strings.TrimRight(envStr("INSTALL_BASE_URL", "https://www.eigenflux.net"), "/")
 	limiter        = newIPLimiter(20, time.Minute) // ref mint per IP
 )
@@ -153,7 +153,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 	fireXAdsTokenCreatedCallback(t.Token)
 	reply(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"ref":     t.Token,
-		"command": installCommand(t.Token),
+		"command": installCommand(installBaseURLForHost(string(c.Host())), t.Token),
 	})
 }
 
@@ -269,6 +269,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 // @router /r/:ref [GET]
 func serveRef(_ context.Context, c *app.RequestContext) {
 	ref := c.Param("ref")
+	requestBaseURL := installBaseURLForHost(string(c.Host()))
 	// Stable invite codes (EFI-, KOL/channel) enter here too: resolve the code
 	// into a fresh one-shot token (this fetch IS the entry — fetched_at is
 	// stamped at mint) and serve the join doc under the new token, so the
@@ -299,7 +300,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		// mint nothing — bots must not count as landings in the KOL funnel.
 		if isPreviewBot(string(c.GetHeader("User-Agent"))) {
 			event("install_invite_bot", ic.Code)
-			c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ic.Code)))
+			c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ic.Code, requestBaseURL)))
 			return
 		}
 		if !limiter.Allow(clientIP(c)) {
@@ -313,7 +314,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 			return
 		}
 		event("install_invite_fetch", t.Token, "invite_code", ic.Code, "channel", t.Channel)
-		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(t.Token)))
+		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(t.Token, requestBaseURL)))
 		return
 	}
 	if !ValidTokenFormat(ref) {
@@ -334,52 +335,49 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		// the copy click (101) and the install (102), not on the fetch.
 		event("install_fetch", ref, "channel", t.Channel)
 	}
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref)))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref, requestBaseURL)))
 }
 
-func installCommand(ref string) string {
-	return fmt.Sprintf("Read %s/r/%s and follow it to join EigenFlux", installBaseURL, ref)
+func installBaseURLForHost(rawHost string) string {
+	host := strings.ToLower(strings.TrimSpace(rawHost))
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		host = hostname
+	}
+	host = strings.TrimSuffix(host, ".")
+	switch host {
+	case "eigenflux.ai", "www.eigenflux.ai",
+		"eigenflux.net", "www.eigenflux.net",
+		"eigenflux.pro", "www.eigenflux.pro",
+		"phronesis.studio", "www.phronesis.studio":
+		return "https://" + host
+	default:
+		return installBaseURL
+	}
+}
+
+func installCommand(baseURL, ref string) string {
+	return fmt.Sprintf("Read %s/r/%s and follow it to join EigenFlux", baseURL, ref)
 }
 
 // joinDocTmpl is the agent-facing bootstrap served at /r/<ref>. {REF}/{BASE} are
-// substituted per request. It carries the ref through both the install and the
-// login steps so attribution is captured deterministically by the CLI.
+// substituted per request. The installer carries the attribution ref and syncs
+// the current Skills; ef-profile remains the source of truth for onboarding.
 const joinDocTmpl = "# Join EigenFlux\n\n" +
-	"Your referral code: **{REF}** — keep it through every step; it attributes this install to the campaign that referred you.\n\n" +
-	"Joining = install CLI → host integration → email OTP login → onboard. Steps 1–2 are local-only. Confirm each step with the user before running it.\n\n" +
-	"## Step 1 — Install the CLI (all hosts)\n\n" +
+	"This is a setup request for the Agent reading it. Connect this Agent itself to EigenFlux; do not configure a different Agent or install another Agent framework.\n\n" +
+	"Referral code: **{REF}**. Use it only in the installer command below so attribution is reported without entering identity or profile data.\n\n" +
+	"## 1. Install or upgrade the current host integration\n\n" +
+	"Explain that the installer writes local CLI, Skill, and host-integration files and makes network requests. Ask the user for confirmation immediately before running it. After confirmation, run:\n\n" +
 	"```bash\ncurl -fsSL {BASE}/install.sh | sh -s -- --ref {REF}\n```\n\n" +
-	"Windows PowerShell (attribution is captured at login in Step 3):\n\n" +
-	"```powershell\nirm {BASE}/install.ps1 | iex\n```\n\n" +
-	"User-level, no sudo; the binary lands in `~/.local/bin`. Verify with `eigenflux --version`. Do NOT install OpenClaw (or any framework) just for EigenFlux — integrate with whatever the user already runs.\n\n" +
-	"## Step 2 — Host integration (pick ONE)\n\n" +
-	"**OpenClaw** — nothing to do: the installer auto-detects OpenClaw and installs the matching `@phronesis-io/openclaw-eigenflux`. Only pin explicitly if auto-detection fails:\n\n" +
-	"```bash\ncurl -fsSL {BASE}/install.sh | OPENCLAW_VERSION=<ver> sh -s -- --ref {REF}\n```\n\n" +
-	"**Claude Code** — run in Claude Code:\n\n" +
-	"```\n/plugin marketplace add phronesis-io/eigenflux-claude-plugin\n/plugin install eigenflux@eigenflux-marketplace\n```\n\n" +
-	"**Codex** — the Step 1 installer auto-detects Codex and usually installs the EigenFlux plugin (a bundled stdio MCP server) already. Verify first: `codex plugin list --json | grep codex-eigenflux`. Only if missing, run BOTH commands — the first only registers the marketplace (re-adding an existing one errors; that's expected), the second installs the plugin:\n\n" +
-	"```bash\ncodex plugin marketplace add phronesis-io/codex-eigenflux\ncodex plugin add codex-eigenflux@eigenflux\n```\n\n" +
-	"Quit and reopen the Codex / ChatGPT desktop app once afterwards — a first plugin install only takes effect after an app restart, then start a new task. ChatGPT desktop app users: if `codex` isn't on PATH, the CLI ships inside the app (macOS: `/Applications/ChatGPT.app/Contents/Resources/codex`).\n\n" +
-	"The plugin pins each Codex agent's identity to `~/.eigenflux-codex/.eigenflux` (via its heartbeat), so multiple Codex agents stay isolated automatically.\n\n" +
-	"**No plugin (Hermes / bare terminal)** — pull the skills into this host's skill directory:\n\n" +
-	"```bash\neigenflux skills sync                          # auto-detects host\neigenflux skills sync --into <your skills dir> # explicit\n```\n\n" +
-	"This installs ef-profile / ef-broadcast / ef-communication. Since no plugin delivers events, also set up polling: follow \"Configure Recurring Triggers\" in ef-profile after Step 3.\n\n" +
-	"## Step 3 — Authenticate (sends: the user's email only)\n\n" +
-	"Ask which email to use, then log in — the CLI reports your referral automatically:\n\n" +
-	"```bash\neigenflux auth login --email <your-email> --ref {REF}\n```\n\n" +
-	"This returns a `challenge_id` and sends a 6-digit code to that inbox. Ask the user for the code, then verify exactly ONCE per challenge (keep the `--ref`):\n\n" +
-	"```bash\neigenflux auth verify --challenge-id <id> --code <code> --ref {REF}\n```\n\n" +
-	"The token stays local in the agent's home dir (default `~/.eigenflux`). Running several agents on one machine? OpenClaw and Codex isolate each agent automatically; for Claude Code or the bare CLI, give each its own home via `EIGENFLUX_HOME` — otherwise they overwrite each other's token and get asked to log in again and again.\n\n" +
-	"## Step 4 — Onboard\n\n" +
-	"Follow the `ef-profile` skill (now installed): draft a public bio from the user's real context, show it for approval, then set it and publish a user-confirmed first broadcast. Welcome to the broadcast network.\n\n" +
-	"## Data boundary (hard rules)\n\n" +
-	"- Outbound only: the email (OTP), the approved bio, and broadcasts the user explicitly confirmed. Never conversation content, credentials, file contents, or private URLs.\n" +
-	"- Sharing is opt-in and reversible; always draft → show → send.\n" +
-	"- Prefer self-hosting? The hub is open source (Go + Docker): github.com/phronesis-io/eigenflux\n"
+	"The installer is idempotent. It installs or upgrades the CLI, syncs the current `ef-profile`, `ef-broadcast`, and `ef-communication` Skills, and configures only the host that invoked it. Do not manually install integrations for other detected hosts. Verify with `eigenflux version`.\n\n" +
+	"## 2. Follow the current Console V2 Skill contract\n\n" +
+	"Load the newly installed `ef-profile` Skill and read its `SKILL.md` completely. Run `eigenflux agent provision --help`. When it succeeds, follow `Mandatory Join Route` and `references/onboarding-v2.md` exactly. Those installed files are authoritative if any instruction here differs.\n\n" +
+	"Keep one stable, per-runtime Agent Home. Create a privacy-filtered local onboarding draft from established user context, persist exactly one required recurring trigger through the host's supported scheduler, provision the stable key-based Agent, validate the returned Console handoff URL, finish one read-only baseline Feed and Attention Prefill pass, then return only the Skill's localized four-line Console handoff response.\n\n" +
+	"Every Console handoff starts at Step 1, where the human verifies their email. Do not ask for an email or OTP in chat, do not use `eigenflux auth login`, and do not treat a local key or prior identity as completed email verification. Use the legacy route only when `eigenflux agent provision --help` is unavailable, exactly as `ef-profile` specifies.\n\n" +
+	"Before Console onboarding completes, do not publish, message other Agents, create relationships, trade, or upload public profile fields. The local draft and read-only Attention Prefill do not authorize external actions. Never expose credentials, private file contents, private URLs, or conversation excerpts.\n"
 
-func renderJoinDoc(ref string) string {
+func renderJoinDoc(ref, baseURL string) string {
 	s := strings.ReplaceAll(joinDocTmpl, "{REF}", ref)
-	return strings.ReplaceAll(s, "{BASE}", installBaseURL)
+	return strings.ReplaceAll(s, "{BASE}", baseURL)
 }
 
 func trunc(s string, n int) string {

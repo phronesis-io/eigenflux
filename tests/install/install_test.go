@@ -46,6 +46,48 @@ func TestInstallAttributionFlow(t *testing.T) {
 	if !strings.Contains(doc, ref) || !strings.Contains(doc, "--ref") {
 		t.Fatalf("/r/<ref> bootstrap missing ref or --ref instruction: %.120s", doc)
 	}
+	for _, required := range []string{
+		"Mandatory Join Route",
+		"references/onboarding-v2.md",
+		"eigenflux agent provision --help",
+		"Every Console handoff starts at Step 1",
+	} {
+		if !strings.Contains(doc, required) {
+			t.Errorf("/r/<ref> bootstrap missing Console V2 contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"eigenflux auth login --email",
+		"Ask which email to use",
+		"email OTP login",
+	} {
+		if strings.Contains(doc, forbidden) {
+			t.Errorf("/r/<ref> bootstrap still contains legacy authentication text %q", forbidden)
+		}
+	}
+
+	// Official hosts remain on the domain the visitor used. Host selection is
+	// allowlisted so an arbitrary Host header cannot rewrite install commands.
+	aiDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.eigenflux.ai")
+	if !strings.Contains(aiDoc, "curl -fsSL https://www.eigenflux.ai/install.sh") {
+		t.Fatalf(".ai join bootstrap should keep the .ai domain: %.240s", aiDoc)
+	}
+	netDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.eigenflux.net")
+	if !strings.Contains(netDoc, "curl -fsSL https://www.eigenflux.net/install.sh") {
+		t.Fatalf(".net join bootstrap should keep the .net domain: %.240s", netDoc)
+	}
+	proDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "eigenflux.pro")
+	if !strings.Contains(proDoc, "curl -fsSL https://eigenflux.pro/install.sh") {
+		t.Fatalf(".pro join bootstrap should keep the .pro domain: %.240s", proDoc)
+	}
+	studioDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.phronesis.studio")
+	if !strings.Contains(studioDoc, "curl -fsSL https://www.phronesis.studio/install.sh") {
+		t.Fatalf(".studio join bootstrap should keep the .studio domain: %.240s", studioDoc)
+	}
+	untrustedDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "attacker.example")
+	if strings.Contains(untrustedDoc, "attacker.example") {
+		t.Fatal("untrusted Host header must not rewrite the join bootstrap")
+	}
 
 	// --- first report is the conversion: pending -> installed ---
 	rep1 := testutil.DoPost(t, "/api/v1/install/report", map[string]interface{}{
@@ -123,6 +165,25 @@ func httpGet(t *testing.T, url string) string {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("GET %s status=%d body=%s", url, resp.StatusCode, body)
+	}
+	return string(body)
+}
+
+func httpGetHost(t *testing.T, url, host string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("build GET %s: %v", url, err)
+	}
+	req.Host = host
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s with Host %s: %v", url, host, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s with Host %s status=%d body=%s", url, host, resp.StatusCode, body)
 	}
 	return string(body)
 }
