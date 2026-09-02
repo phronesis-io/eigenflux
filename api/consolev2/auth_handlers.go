@@ -1057,14 +1057,20 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 }
 
 type exchangeRequest struct {
-	Ticket       string `json:"ticket"`
-	BrowserNonce string `json:"browser_nonce,omitempty"`
+	Ticket         string `json:"ticket"`
+	BrowserNonce   string `json:"browser_nonce,omitempty"`
+	ReplaceAgentID string `json:"replace_agent_id,omitempty"`
 }
 
 func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	var req exchangeRequest
 	if err := decodeBody(c, &req); err != nil || req.Ticket == "" || len(req.BrowserNonce) < 32 || len(req.BrowserNonce) > 256 {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "ticket and browser_nonce are required", nil)
+		return
+	}
+	replacementAgentID, err := parseReplacementAgentID(req.ReplaceAgentID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "replace_agent_id is invalid", nil)
 		return
 	}
 	sessionID, sessionIDErr := randomToken("efcs_", 18)
@@ -1077,7 +1083,10 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	var agentIDValue, principalID int64
 	var scopes, clientCapabilities pq.StringArray
 	handoffRevoked := false
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	selectedSlot := 0
+	replacedSessionID := ""
+	var accountLimitAccounts []consoleAccountView
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var handoff struct {
 			AgentID            int64          `gorm:"column:agent_id"`
 			PrincipalID        int64          `gorm:"column:principal_id"`
@@ -1122,12 +1131,25 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			}
 			return errUnauthorized
 		}
+		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
+		var slotErr error
+		selectedSlot, replacedSessionID, accountLimitAccounts, slotErr = s.chooseConsoleSessionSlot(
+			tx, c, agentIDValue, replacementAgentID, now,
+		)
+		if slotErr != nil {
+			return slotErr
+		}
 		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = ?
 				WHERE ticket_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
 		if consume.Error != nil || consume.RowsAffected != 1 {
 			return errUnauthorized
 		}
-		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
+		if replacedSessionID != "" {
+			if err := tx.Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
+				WHERE session_id = ? AND status = 'active'`, now, replacedSessionID).Error; err != nil {
+				return err
+			}
+		}
 		return tx.Exec(`INSERT INTO console_v2_sessions
 				(session_id, session_secret_hash, agent_id, principal_id, csrf_secret_hash,
 					 status, scopes, client_capabilities, issued_at, idle_expires_at, absolute_expires_at, last_seen_at, auth_method)
@@ -1139,15 +1161,25 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
 		return
 	}
+	if errors.Is(err, errConsoleAccountLimit) {
+		fail(c, http.StatusConflict, "CONSOLE_ACCOUNT_LIMIT_REACHED", "this browser already has five Console accounts", consoleAccountLimitDetails(accountLimitAccounts, agentIDValue))
+		return
+	}
+	if errors.Is(err, errConflict) {
+		fail(c, http.StatusConflict, "CONSOLE_ACCOUNT_REPLACEMENT_INVALID", "the selected account cannot be replaced", nil)
+		return
+	}
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "HANDOFF_EXCHANGE_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
-	s.setCSRFCookie(c, csrfSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setConsoleCookieAtSlot(c, selectedSlot, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookieAtSlot(c, selectedSlot, csrfSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setActiveConsoleSlot(c, selectedSlot, int(consoleAbsoluteTTL/time.Second))
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":            fmt.Sprintf("%d", agentIDValue),
 		"csrf_token":          csrfSecret,
+		"slot":                selectedSlot,
 		"client_capabilities": []string(clientCapabilities),
 	})
 }

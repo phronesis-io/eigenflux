@@ -222,9 +222,43 @@ func (s *Service) deleteConsoleSession(_ context.Context, c *app.RequestContext)
 		fail(c, http.StatusInternalServerError, "LOGOUT_FAILED", "could not revoke Console V2 session", nil)
 		return
 	}
-	s.setConsoleCookie(c, "", -1)
-	s.setCSRFCookie(c, "", -1)
-	reply(c, http.StatusOK, map[string]interface{}{"revoked": true})
+	slot := 0
+	if value, ok := c.Get("console_session_slot"); ok {
+		if selected, valid := value.(int); valid && selected >= 0 && selected < maxConsoleAccountSlots {
+			slot = selected
+		}
+	}
+	s.setConsoleCookieAtSlot(c, slot, "", -1)
+	s.setCSRFCookieAtSlot(c, slot, "", -1)
+	nextSlot := -1
+	nextAgentID := int64(0)
+	for candidateSlot := 0; candidateSlot < maxConsoleAccountSlots; candidateSlot++ {
+		if candidateSlot == slot {
+			continue
+		}
+		credential, present := consoleCredential(c, candidateSlot)
+		if !present {
+			continue
+		}
+		session, loadErr := s.loadConsoleSessionCredential(s.db, credential)
+		if loadErr == nil && validConsoleSessionAt(session, now) {
+			nextSlot, nextAgentID = candidateSlot, session.AgentID
+			break
+		}
+	}
+	if nextSlot >= 0 {
+		s.setActiveConsoleSlot(c, nextSlot, int(consoleAbsoluteTTL/time.Second))
+	} else {
+		s.setActiveConsoleSlot(c, 0, -1)
+	}
+	reply(c, http.StatusOK, map[string]interface{}{
+		"revoked": true, "active_agent_id": func() string {
+			if nextAgentID <= 0 {
+				return ""
+			}
+			return strconv.FormatInt(nextAgentID, 10)
+		}(),
+	})
 }
 
 type putDraftRequest struct {
