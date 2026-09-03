@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	openai "github.com/openai/openai-go/v3"
@@ -165,7 +166,7 @@ func TestExtractKeywords_WithPrefixText(t *testing.T) {
 }
 
 func TestProcessItem_PlainJSON(t *testing.T) {
-	respText := `{"summary": "A guide to concurrency patterns in Go", "broadcast_type": "info", "domains": ["programming"], "keywords": ["go", "concurrency", "goroutines"], "expire_time": "", "geo": "", "source_type": "original", "expected_response": "", "group_id": "", "discard": false, "discard_reason": "", "lang": "en", "quality": 0.85, "timeliness": "evergreen"}`
+	respText := `{"summary": "A guide to concurrency patterns in Go", "broadcast_type": "info", "domains": ["programming"], "keywords": ["go", "concurrency", "goroutines"], "expire_time": "", "geo": "", "source_type": "original", "expected_response": "", "group_id": "", "discard": false, "discard_reason": "", "lang": "en", "quality": 0.85, "timeliness": "evergreen", "homepage_eligible": true, "homepage_rejection_reason": "", "homepage_evaluation_version": "homepage-v1"}`
 	srv := mockServer(t, respText)
 	defer srv.Close()
 
@@ -189,7 +190,7 @@ func TestProcessItem_PlainJSON(t *testing.T) {
 }
 
 func TestProcessItem_WrappedInCodeBlock(t *testing.T) {
-	respText := "```json\n{\"summary\": \"Latest in AI\", \"broadcast_type\": \"info\", \"domains\": [\"ai\"], \"keywords\": [\"ai\", \"ml\"], \"expire_time\": \"\", \"geo\": \"\", \"source_type\": \"original\", \"expected_response\": \"\", \"group_id\": \"\", \"discard\": false, \"discard_reason\": \"\", \"lang\": \"en\", \"quality\": 0.75, \"timeliness\": \"timely\"}\n```"
+	respText := "```json\n{\"summary\": \"Latest in AI\", \"broadcast_type\": \"info\", \"domains\": [\"ai\"], \"keywords\": [\"ai\", \"ml\"], \"expire_time\": \"\", \"geo\": \"\", \"source_type\": \"original\", \"expected_response\": \"\", \"group_id\": \"\", \"discard\": false, \"discard_reason\": \"\", \"lang\": \"en\", \"quality\": 0.75, \"timeliness\": \"timely\", \"homepage_eligible\": false, \"homepage_rejection_reason\": \"low_substance\", \"homepage_evaluation_version\": \"homepage-v1\"}\n```"
 	srv := mockServer(t, respText)
 	defer srv.Close()
 
@@ -203,6 +204,29 @@ func TestProcessItem_WrappedInCodeBlock(t *testing.T) {
 	}
 	if len(result.Keywords) != 2 {
 		t.Fatalf("expected 2 keywords, got %d", len(result.Keywords))
+	}
+}
+
+func TestProcessItemRejectsIncompleteHomepageEvaluation(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		wantErr  string
+	}{
+		{name: "missing eligibility", response: `{"discard": false, "homepage_evaluation_version": "homepage-v1"}`, wantErr: "missing homepage_eligible"},
+		{name: "missing version", response: `{"discard": false, "homepage_eligible": true}`, wantErr: "invalid homepage_evaluation_version"},
+		{name: "missing rejection reason", response: `{"discard": false, "homepage_eligible": false, "homepage_evaluation_version": "homepage-v1"}`, wantErr: "missing homepage_rejection_reason"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := mockServer(t, tt.response)
+			defer srv.Close()
+
+			client := newTestClient(t, srv.URL)
+			if _, err := client.ProcessItem(context.Background(), "AI", "Latest AI news"); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
 	}
 }
 

@@ -95,6 +95,7 @@ func main() {
 	go StartStatsCalibrator(ctx, cfg, mq.RDB)
 	go StartEmbeddingBackfill(ctx, cfg, mq.RDB)
 	go StartSuggestionBackfill(ctx, cfg, mq.RDB, llmClient)
+	go StartHomepageEligibilityBackfill(ctx, mq.RDB, llmClient)
 	go StartActivityCleanup(ctx, mq.RDB)
 	go StartConsoleV2Cleanup(ctx, mq.RDB)
 	go StartPGCFeedbackSnapshot(ctx, mq.RDB)
