@@ -75,7 +75,8 @@ func TestParseReplacementAgentID(t *testing.T) {
 
 func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
 	want := []string{
-		"attention:write",
+		"attention:read", "attention:write",
+		"context:read", "context:write",
 		"feed:feedback",
 		"communication:read", "communication:write",
 		"relations:read", "relations:write",
@@ -97,7 +98,7 @@ func TestCompletedPrincipalScopesCoverAgentV2Surfaces(t *testing.T) {
 	incompleteAvailable := make(map[string]bool, len(incomplete))
 	for _, scope := range incomplete {
 		incompleteAvailable[scope] = true
-		if scope == "communication:write" || scope == "broadcast:write" || scope == "settings:write" {
+		if scope == "communication:write" || scope == "broadcast:write" || scope == "settings:write" || scope == "context:write" {
 			t.Fatalf("incomplete principal unexpectedly received scope %q", scope)
 		}
 	}

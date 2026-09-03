@@ -222,10 +222,10 @@ func principalScopesForOnboarding(state string) []string {
 		return []string{"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim", "attention:prefill", "console:handoff:create"}
 	}
 	return []string{
-		"onboarding:write", "context:read", "feed:read", "notifications:ack", "commands:claim",
+		"onboarding:write", "context:read", "context:write", "feed:read", "notifications:ack", "commands:claim",
 		"feed:feedback", "communication:read", "communication:write",
 		"relations:read", "relations:write", "broadcast:write", "profile:read", "profile:write",
-		"settings:read", "settings:write", "trade:write", "attention:write", "console:handoff:create",
+		"settings:read", "settings:write", "trade:write", "attention:read", "attention:write", "console:handoff:create",
 	}
 }
 

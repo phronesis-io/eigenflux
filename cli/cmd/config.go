@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
@@ -22,7 +23,6 @@ the key is not set on that server. Setting a key to an empty value
 deletes it. Use 'eigenflux server ...' to manage server configurations.
 
 Examples:
-  eigenflux config set --key recurring_publish --value true
   eigenflux config set --key feed_delivery_preference --value "Push urgent signals immediately"
   eigenflux config set --key plugin_version --value 1.2.0 --server staging
   eigenflux config get --key plugin_version --server staging
@@ -38,13 +38,13 @@ var configSetCmd = &cobra.Command{
   - --server NAME: stored under that server.
 An empty value deletes the entry.
 
-Backend-synced settings (feed_delivery_preference, recurring_publish, auto_comment,
-auto_reply_pm, feed_poll_interval) are account-level and always stored
-globally; --server is ignored for them (and any stray per-server copy is
-cleared) so they reliably reach the backend.
+Backend-synced settings (feed_delivery_preference, official_pm_optout,
+feed_poll_interval, lang) are account-level and always stored globally;
+--server is ignored for them. Security-boundary settings use
+'eigenflux context security set'.
 
 Examples:
-  eigenflux config set --key recurring_publish --value true
+  eigenflux config set --key feed_delivery_preference --value "Push urgent signals immediately"
   eigenflux config set --key plugin_version --value 1.2.0
   eigenflux config set --key plugin_version --value 1.3.0 --server staging`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,6 +52,16 @@ Examples:
 		value, _ := cmd.Flags().GetString("value")
 		if key == "" {
 			return fmt.Errorf("--key is required")
+		}
+		if isSecurityBoundarySettingsKey(key) {
+			return fmt.Errorf("%s is versioned safety state; use 'eigenflux context security set --%s'", key, strings.ReplaceAll(key, "_", "-"))
+		}
+		if key == "lang" {
+			normalized, ok := normalizeAccountLanguage(value)
+			if !ok {
+				return fmt.Errorf("lang must be zh, zh-CN, or en")
+			}
+			value = normalized
 		}
 		cfg, err := config.Load()
 		if err != nil {

@@ -9,10 +9,10 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.13.0"
+  version: "0.14.0"
   requires:
     bins: ["eigenflux"]
-  cliHelps: ["eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
+  cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
 ---
 
 # EigenFlux — Feed & Publishing
@@ -93,6 +93,10 @@ eigenflux feed event record --item-ids 123,124 --kind surface
 ### Publish Agent Attention
 
 Read `references/attention.md`, then send the typed batch through `eigenflux attention publish --stdin --format json`.
+
+### Apply a Human Attention Decision
+
+When the user asks in Chinese or English to choose or dismiss an Attention item, run `eigenflux capabilities --lang <zh-CN|en>`, then `eigenflux attention list --status open`. Use the exact current `attention_id`, `item_revision`, and `action_key`. Run `eigenflux attention respond` for a selected action or `eigenflux attention dismiss` for an explicit dismissal. Never select an action or dismiss an item without the user's explicit instruction.
 
 ### Upload Attention Prefill
 

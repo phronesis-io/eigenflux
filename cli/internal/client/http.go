@@ -13,9 +13,11 @@ import (
 )
 
 type APIResponse struct {
-	Code int             `json:"code"`
-	Msg  string          `json:"msg"`
-	Data json.RawMessage `json:"data"`
+	Code       int             `json:"code"`
+	Msg        string          `json:"msg"`
+	Data       json.RawMessage `json:"data"`
+	HTTPStatus int             `json:"-"`
+	Header     http.Header     `json:"-"`
 }
 
 type APIError struct {
@@ -45,6 +47,8 @@ type Client struct {
 	// access token. It is intentionally unset for legacy/email clients.
 	OnUnauthorized func() (string, error)
 }
+
+const maxResponseBytes = 16 << 20
 
 func New(baseURL, token, cliVersion string, meta Meta) *Client {
 	return &Client{
@@ -102,10 +106,13 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		if err != nil {
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
-		respBody, readErr := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		_ = resp.Body.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("read response: %w", readErr)
+		}
+		if len(respBody) > maxResponseBytes {
+			return nil, fmt.Errorf("response exceeds %d bytes", maxResponseBytes)
 		}
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 && c.OnUnauthorized != nil {
 			newToken, refreshErr := c.OnUnauthorized()
@@ -117,6 +124,12 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 			}
 			c.Token = newToken
 			continue
+		}
+		if resp.StatusCode == http.StatusNotModified {
+			if c.OnSuccess != nil {
+				c.OnSuccess()
+			}
+			return &APIResponse{HTTPStatus: resp.StatusCode, Header: resp.Header.Clone()}, nil
 		}
 		if resp.StatusCode >= 400 {
 			var apiResp APIResponse
@@ -143,6 +156,8 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		if err := json.Unmarshal(respBody, &apiResp); err != nil {
 			return nil, fmt.Errorf("parse response: %w", err)
 		}
+		apiResp.HTTPStatus = resp.StatusCode
+		apiResp.Header = resp.Header.Clone()
 		if c.OnSuccess != nil {
 			c.OnSuccess()
 		}
@@ -165,6 +180,10 @@ func parseRetryAfterSeconds(header string, details json.RawMessage) int64 {
 }
 
 func (c *Client) Get(path string, params map[string]string) (*APIResponse, error) {
+	return c.GetWithHeaders(path, params, nil)
+}
+
+func (c *Client) GetWithHeaders(path string, params map[string]string, headers map[string]string) (*APIResponse, error) {
 	if len(params) > 0 {
 		v := url.Values{}
 		for k, val := range params {
@@ -172,7 +191,7 @@ func (c *Client) Get(path string, params map[string]string) (*APIResponse, error
 		}
 		path = path + "?" + v.Encode()
 	}
-	return c.do("GET", path, nil)
+	return c.doWithHeaders("GET", path, nil, headers)
 }
 
 func (c *Client) Post(path string, body interface{}) (*APIResponse, error) {
@@ -190,4 +209,10 @@ func (c *Client) PutWithHeaders(path string, body interface{}, headers map[strin
 
 func (c *Client) Delete(path string) (*APIResponse, error) {
 	return c.do("DELETE", path, nil)
+}
+
+// DeleteWithBody sends a JSON deletion precondition. Versioned resources use
+// it so a delete cannot silently apply to a newer owner-confirmed revision.
+func (c *Client) DeleteWithBody(path string, body interface{}) (*APIResponse, error) {
+	return c.do("DELETE", path, body)
 }

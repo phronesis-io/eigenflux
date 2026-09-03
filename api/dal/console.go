@@ -94,8 +94,8 @@ func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
 		Update("agent_created_at_ms", createdAtMs).Error
 }
 
-// UpdateAgentReported updates only the agent-reported fields (feed_delivery_preference,
-// mode) that are non-nil, leaving console-owned fields untouched. Creates the row if absent.
+// UpdateAgentReported updates only non-nil fields from the authenticated CLI
+// write-through path and creates the settings row when absent.
 //
 // feed_poll_interval and its user_set flag are independent: a client may push a
 // value (e.g. mirroring its local config) without claiming it as a user
@@ -104,7 +104,7 @@ func SetAgentCreatedAt(db *gorm.DB, agentID, createdAtMs int64) error {
 // that echoes its default interval would silently pin the row and disable the
 // onboarding ramp. The CLI pairs the two (value + user_set=true) when it pushes
 // a genuine override.
-func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool, officialPMOptout *bool, autoComment *bool, showAddFriend *bool) error {
+func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode, lang *string, recurringPublish *bool, feedPollInterval *int32, feedPollIntervalUserSet *bool, autoReplyPM *bool, officialPMOptout *bool, autoComment *bool, showAddFriend *bool) error {
 	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
 		return err
 	}
@@ -123,6 +123,12 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 			// does not keep advertising a runtime that is no longer active.
 			vals["client_host"] = ""
 		}
+	}
+	if lang != nil {
+		if *lang != "zh" && *lang != "en" {
+			return fmt.Errorf("lang must be zh or en")
+		}
+		vals["lang"] = *lang
 	}
 	// Console-owned fields may also arrive from the agent's CLI write-through
 	// (last writer wins through this table); only explicitly-present fields
@@ -154,6 +160,13 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode *string, rec
 		vals["show_add_friend"] = *showAddFriend
 	}
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
+}
+
+// UpdateAgentReportedSettings is the restricted Agent settings write path.
+// Security-boundary fields are intentionally absent and can only be changed
+// through the versioned Agent context mutation endpoint.
+func UpdateAgentReportedSettings(db *gorm.DB, agentID int64, feedPref, mode, lang *string, feedPollInterval *int32, feedPollIntervalUserSet *bool, officialPMOptout *bool) error {
+	return UpdateAgentReported(db, agentID, feedPref, mode, lang, nil, feedPollInterval, feedPollIntervalUserSet, nil, officialPMOptout, nil, nil)
 }
 
 // UpdateHeartbeatCompatibility records evidence from a successful Heartbeat

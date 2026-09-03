@@ -360,6 +360,15 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
+	h.GET("/api/v2/agent-capabilities", s.agentAuth("context:read"), s.getAgentCapabilities)
+	// context:write is delegated owner authority. These routes persist
+	// owner-confirmed control state; CLI confirmation flags are conversational
+	// safeguards, not protection against compromise of an Agent credential.
+	h.PUT("/api/v2/agent-context/network-goal", s.agentAuth("context:write"), s.requireCompleted, s.putNetworkGoal)
+	h.POST("/api/v2/agent-context/intent-actions", s.agentAuth("context:write"), s.requireCompleted, s.createIntentAction)
+	h.PUT("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.updateIntentAction)
+	h.DELETE("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.deleteIntentAction)
+	h.PUT("/api/v2/agent-context/security-boundary", s.agentAuth("context:write"), s.requireCompleted, s.putSecurityBoundary)
 	h.PUT("/api/v2/agents/me/network-goal", s.consoleAuth(true), s.requireCompleted, s.putNetworkGoal)
 	h.POST("/api/v2/agents/me/intent-actions", s.consoleAuth(true), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agents/me/intent-actions/:intent_id", s.consoleAuth(true), s.requireCompleted, s.updateIntentAction)
@@ -396,6 +405,10 @@ func (s *Service) Register(h *server.Hertz) {
 		h.GET("/api/v2/console/attention-items/:attention_id/source", s.consoleAuth(false), s.requireCompleted, s.getAttentionSource)
 		h.POST("/api/v2/console/attention-items/:attention_id/respond", s.consoleAuth(true), s.requireCompleted, s.respondAttentionItem)
 		h.POST("/api/v2/console/attention-items/:attention_id/dismiss", s.consoleAuth(true), s.requireCompleted, s.dismissAttentionItem)
+		h.GET("/api/v2/agent-attention-items", s.agentAuth("attention:read"), s.requireCompleted, s.listAttentionItems)
+		h.GET("/api/v2/agent-attention-items/:attention_id", s.agentAuth("attention:read"), s.requireCompleted, s.getAttentionItem)
+		h.POST("/api/v2/agent-attention-items/:attention_id/respond", s.agentAuth("attention:write"), s.requireCompleted, s.respondAttentionItem)
+		h.POST("/api/v2/agent-attention-items/:attention_id/dismiss", s.agentAuth("attention:write"), s.requireCompleted, s.dismissAttentionItem)
 	}
 	h.POST("/api/v2/pm/messages", s.agentAuth("communication:write"), s.requireCompleted, apihandler.SendPM)
 	h.GET("/api/v2/pm/messages", s.agentAuth("communication:read"), s.requireCompleted, apihandler.FetchPM)

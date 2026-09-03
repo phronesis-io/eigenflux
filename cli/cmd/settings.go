@@ -37,10 +37,48 @@ const feedPollIntentKey = "_feed_poll_interval_intent"
 // syncedBoolKeys / syncedIntKeys / syncedStringKeys are the config KV entries
 // mirrored to the backend agent_settings row (PUT /agents/me/settings).
 var (
-	syncedBoolKeys   = []string{"recurring_publish", "auto_reply_pm", "official_pm_optout", "auto_comment"}
+	syncedBoolKeys   = []string{"official_pm_optout"}
 	syncedIntKeys    = []string{"feed_poll_interval"}
-	syncedStringKeys = []string{"feed_delivery_preference"}
+	syncedStringKeys = []string{"feed_delivery_preference", "lang"}
 )
+
+func normalizeAccountLanguage(value string) (string, bool) {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-")) {
+	case "zh", "zh-cn":
+		return "zh", true
+	case "en", "en-us", "en-gb":
+		return "en", true
+	default:
+		return "", false
+	}
+}
+
+func isSecurityBoundarySettingsKey(key string) bool {
+	switch key {
+	case "recurring_publish", "auto_reply_pm", "auto_comment", "show_add_friend":
+		return true
+	default:
+		return false
+	}
+}
+
+func setConfigKVInMemory(cfg *config.Config, key, value string) bool {
+	if cfg.KV == nil {
+		cfg.KV = map[string]string{}
+	}
+	if value == "" {
+		if _, exists := cfg.KV[key]; !exists {
+			return false
+		}
+		delete(cfg.KV, key)
+		return true
+	}
+	if cfg.KV[key] == value {
+		return false
+	}
+	cfg.KV[key] = value
+	return true
+}
 
 // isSyncedSettingsKey reports whether a config KV key is mirrored to the
 // backend agent_settings row.
@@ -83,6 +121,13 @@ func syncedSettingsBody(cfg *config.Config) map[string]interface{} {
 	}
 	for _, k := range syncedStringKeys {
 		if v := cfg.GetKV(k); v != "" {
+			if k == "lang" {
+				normalized, ok := normalizeAccountLanguage(v)
+				if !ok {
+					continue
+				}
+				v = normalized
+			}
 			body[k] = v
 		}
 	}
@@ -109,15 +154,15 @@ func SyncSettings(cfg *config.Config) error {
 				return fmt.Errorf("%s", resp.Msg)
 			}
 		}
-		if err := cfg.SetKV(settingsDirtyKey, ""); err != nil {
-			return err
-		}
+		changed := setConfigKVInMemory(cfg, settingsDirtyKey, "")
 		// The intent has been pushed (or there was none); clear it so a later
 		// push triggered by a different setting doesn't resend a stale value.
-		if err := cfg.SetKV(feedPollIntentKey, ""); err != nil {
-			return err
+		changed = setConfigKVInMemory(cfg, feedPollIntentKey, "") || changed
+		changed = setConfigKVInMemory(cfg, settingsSyncedKey, "1") || changed
+		if changed {
+			return cfg.Save()
 		}
-		return cfg.SetKV(settingsSyncedKey, "1")
+		return nil
 	}
 
 	resp, err := c.Get("/agents/me/settings", nil)
@@ -147,28 +192,27 @@ func SyncSettings(cfg *config.Config) error {
 		// value) or force it every day (zero).
 		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true, kvProfileRefreshPromptedAt: true,
 	}
+	changed := false
 	for k, v := range remote {
 		if skip[k] {
 			continue
 		}
 		switch val := v.(type) {
 		case bool:
-			if err := cfg.SetKV(k, strconv.FormatBool(val)); err != nil {
-				return err
-			}
+			changed = setConfigKVInMemory(cfg, k, strconv.FormatBool(val)) || changed
 		case float64:
-			if err := cfg.SetKV(k, strconv.FormatInt(int64(val), 10)); err != nil {
-				return err
-			}
+			changed = setConfigKVInMemory(cfg, k, strconv.FormatInt(int64(val), 10)) || changed
 		case string:
 			if val != "" {
-				if err := cfg.SetKV(k, val); err != nil {
-					return err
-				}
+				changed = setConfigKVInMemory(cfg, k, val) || changed
 			}
 		}
 	}
-	return cfg.SetKV(settingsSyncedKey, "1")
+	changed = setConfigKVInMemory(cfg, settingsSyncedKey, "1") || changed
+	if changed {
+		return cfg.Save()
+	}
+	return nil
 }
 
 // pushReported sends agent-reported fields to the backend, skipping the
@@ -349,8 +393,11 @@ Examples:
 var settingsSyncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Reconcile local settings with the backend (last writer wins)",
-	Long: `Reconcile the config KV settings (recurring_publish, feed_poll_interval,
-feed_delivery_preference) with the backend agent_settings row.
+	Long: `Reconcile ordinary config KV settings (feed_poll_interval,
+feed_delivery_preference, official_pm_optout, lang) with the backend settings row.
+
+Security-boundary values are pulled for local runtime decisions but can only be
+changed with "eigenflux context security set".
 
 A pending local change is pushed up; otherwise the backend values (e.g.
 console edits) are pulled down to the local config. This also runs

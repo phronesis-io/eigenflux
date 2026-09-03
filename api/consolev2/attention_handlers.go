@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 )
@@ -189,17 +190,56 @@ func (s *Service) dismissAttentionItem(_ context.Context, c *app.RequestContext)
 		fail(c, http.StatusBadRequest, "INVALID_ATTENTION_ID", "attention_id is invalid", nil)
 		return
 	}
-	result := s.db.Exec(`UPDATE agent_attention_items SET status = 'dismissed'
+	var req struct {
+		ExpectedItemRevision int64 `json:"expected_item_revision"`
+	}
+	if body, _ := c.Body(); len(body) > 0 {
+		if json.Unmarshal(body, &req) != nil || req.ExpectedItemRevision < 0 {
+			fail(c, http.StatusBadRequest, "INVALID_ATTENTION_DISMISS", "Attention dismissal is invalid", nil)
+			return
+		}
+	}
+	if attentionDismissRevisionRequired(c) && req.ExpectedItemRevision <= 0 {
+		fail(c, http.StatusBadRequest, "ATTENTION_REVISION_REQUIRED", "expected_item_revision is required for Agent dismissal", nil)
+		return
+	}
+	now := time.Now().UnixMilli()
+	query := `UPDATE agent_attention_items SET status = 'dismissed', updated_at = ?, item_revision = item_revision + 1
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
 		  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active' AND status = 'open'
-		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`, agentIDValue, attentionID)
+		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`
+	args := []interface{}{now, agentIDValue, attentionID}
+	if req.ExpectedItemRevision > 0 {
+		query += ` AND item_revision = ?`
+		args = append(args, req.ExpectedItemRevision)
+	}
+	var itemRevision int64
+	result := s.db.Raw(query+` RETURNING item_revision`, args...).Scan(&itemRevision)
 	if result.Error != nil {
 		fail(c, http.StatusInternalServerError, "ATTENTION_UPDATE_FAILED", "could not dismiss attention item", nil)
 		return
 	}
 	if result.RowsAffected != 1 {
+		if req.ExpectedItemRevision > 0 {
+			var current struct {
+				Status       string `gorm:"column:status"`
+				ItemRevision int64  `gorm:"column:item_revision"`
+			}
+			if err := s.db.Raw(`SELECT status, item_revision FROM agent_attention_items
+				WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
+				  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'`,
+				agentIDValue, attentionID).Scan(&current).Error; err == nil && current.Status == "dismissed" && current.ItemRevision == req.ExpectedItemRevision+1 {
+				reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "item_revision": current.ItemRevision, "status": "dismissed", "idempotent_replay": true})
+				return
+			}
+		}
 		fail(c, http.StatusConflict, "ATTENTION_NOT_OPEN", "attention item is missing or no longer open", nil)
 		return
 	}
-	reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "status": "dismissed"})
+	reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "item_revision": itemRevision, "status": "dismissed", "idempotent_replay": false})
+}
+
+func attentionDismissRevisionRequired(c *app.RequestContext) bool {
+	_, agentRequest := c.Get("agent_credential_session_id")
+	return agentRequest
 }

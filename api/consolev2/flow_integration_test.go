@@ -510,7 +510,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	for _, raw := range completedProvision["scopes"].([]interface{}) {
 		completedScopes[raw.(string)] = true
 	}
-	for _, required := range []string{"feed:feedback", "communication:read", "profile:read", "settings:write", "attention:write"} {
+	for _, required := range []string{"feed:feedback", "communication:read", "profile:read", "settings:write", "context:read", "context:write", "attention:read", "attention:write"} {
 		if !completedScopes[required] {
 			t.Fatalf("re-provisioned completed Agent is missing scope %q: %#v", required, completedProvision)
 		}
@@ -555,6 +555,26 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
+	status, agentContextPayload, _ := performJSON(t, h, "GET", "/api/v2/agent-context", map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK {
+		t.Fatalf("Agent context read status=%d payload=%#v", status, agentContextPayload)
+	}
+	agentContextRevision := int64(responseData(t, agentContextPayload)["context_revision"].(float64))
+	goalRequest := networkGoalWriteRequest{
+		ContextWriteRequest: ContextWriteRequest{ExpectedContextRevision: agentContextRevision, IdempotencyKey: "agent-goal-" + agentID},
+		GoalText:            "Find owner-requested infrastructure signals",
+	}
+	status, agentGoalPayload, _ := performJSON(t, h, "PUT", "/api/v2/agent-context/network-goal", goalRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, agentGoalPayload)["context_revision"].(float64) <= float64(agentContextRevision) {
+		t.Fatalf("Agent context mutation status=%d payload=%#v", status, agentGoalPayload)
+	}
+	status, agentGoalReplayPayload, _ := performJSON(t, h, "PUT", "/api/v2/agent-context/network-goal", goalRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, agentGoalReplayPayload)["idempotent_replay"] != true {
+		t.Fatalf("Agent context mutation replay status=%d payload=%#v", status, agentGoalReplayPayload)
+	}
 	testAgentAttentionProtocol(t, gdb, h, idgen, agentIDInt, accessToken, cookieHeader, csrf)
 
 	status, boundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
@@ -1071,6 +1091,16 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 	if decisionID == "" || signalID == "" {
 		t.Fatalf("Attention IDs missing from publish response: %#v", publishData)
 	}
+	status, agentListPayload, _ := performJSON(t, h, "GET", "/api/v2/agent-attention-items?status=open", map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || len(responseData(t, agentListPayload)["attention_items"].([]interface{})) < 2 {
+		t.Fatalf("Agent Attention list status=%d payload=%#v", status, agentListPayload)
+	}
+	status, agentGetPayload, _ := performJSON(t, h, "GET", "/api/v2/agent-attention-items/"+decisionID, map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, agentGetPayload)["attention_id"] != decisionID {
+		t.Fatalf("Agent Attention get status=%d payload=%#v", status, agentGetPayload)
+	}
 	status, legacyPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-commands", createAgentCommandRequest{
 		CommandType: "attention_action", Payload: json.RawMessage(`{}`), AttentionID: &decisionID,
 		ActionIdempotencyKey: "legacy-action", IdempotencyKey: fmt.Sprintf("legacy-attention-%d", activityID),
@@ -1090,13 +1120,29 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 	if status != http.StatusOK || responseData(t, sourcePayload)["detail"].(map[string]interface{})["log_id"] != strconv.FormatInt(activityID, 10) {
 		t.Fatalf("Attention source status=%d payload=%#v", status, sourcePayload)
 	}
+	status, missingRevisionPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/"+signalID+"/dismiss", map[string]interface{}{},
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusBadRequest || responseErrorCode(t, missingRevisionPayload) != "ATTENTION_REVISION_REQUIRED" {
+		t.Fatalf("Agent Attention dismiss accepted no revision: status=%d payload=%#v", status, missingRevisionPayload)
+	}
+	dismissRequest := map[string]interface{}{"expected_item_revision": 1}
+	status, dismissPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/"+signalID+"/dismiss", dismissRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, dismissPayload)["item_revision"] != float64(2) {
+		t.Fatalf("Agent Attention dismiss status=%d payload=%#v", status, dismissPayload)
+	}
+	status, dismissReplayPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/"+signalID+"/dismiss", dismissRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
+	if status != http.StatusOK || responseData(t, dismissReplayPayload)["idempotent_replay"] != true {
+		t.Fatalf("Agent Attention dismiss replay status=%d payload=%#v", status, dismissReplayPayload)
+	}
 
 	response := respondAttentionRequest{
 		ActionKey: "a1", ExpectedItemRevision: 1,
 		IdempotencyKey: fmt.Sprintf("attention-response-%d", activityID),
 	}
-	status, responsePayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+decisionID+"/respond", response,
-		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	status, responsePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/"+decisionID+"/respond", response,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != http.StatusAccepted {
 		t.Fatalf("Attention response status=%d payload=%#v", status, responsePayload)
 	}
@@ -1105,8 +1151,8 @@ func testAgentAttentionProtocol(t *testing.T, gdb *gorm.DB, h *server.Hertz, idg
 		t.Fatalf("Attention response did not freeze the selected action: %#v", responseDataValue)
 	}
 	commandID := responseDataValue["command_id"].(string)
-	status, responseReplayPayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+decisionID+"/respond", response,
-		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+	status, responseReplayPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/"+decisionID+"/respond", response,
+		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != http.StatusOK || responseData(t, responseReplayPayload)["selected_flag"] != "Continue" ||
 		responseData(t, responseReplayPayload)["replay"] != true {
 		t.Fatalf("Attention response replay status=%d payload=%#v", status, responseReplayPayload)
