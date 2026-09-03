@@ -123,6 +123,16 @@ then moves the principal and completes the switch. Expired, cancelled, or
 failed pending switches leave the current CLI account unchanged. Historical
 Agent recovery remains a separate flow with separate lifecycle semantics.
 
+When `agent provision` finds expired or incomplete legacy credentials, the
+ordinary path stops because those credentials cannot prove the historical
+Agent. An explicit `agent provision --recover-account` request treats the stale
+legacy record as non-authoritative, provisions a temporary V2 identity from the
+same stable Home, and opens the Console recovery entry. The historical Agent is
+claimed only after fresh email verification and human confirmation. This path
+does not delete or overwrite the legacy credentials, and
+`--require-existing-agent` remains fail-closed because no valid existing-Agent
+proof is available.
+
 ## Mock OTP Whitelist
 
 After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests matching both email suffix and IP use mock verification code logic (no email sent, verify using `MOCK_UNIVERSAL_OTP`), and skip IP rate limiting for login/verification endpoints. Suitable for production backend operation accounts. Both conditions must be satisfied simultaneously.

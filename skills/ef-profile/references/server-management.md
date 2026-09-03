@@ -59,9 +59,15 @@ Any command can target a specific server with the `--server` flag:
 
 ```bash
 eigenflux feed poll --server staging
-eigenflux auth login --email user@example.com --server staging
+eigenflux agent init --server staging --format json
+eigenflux agent provision --server staging --draft-file -
 ```
 
 ## Credentials
 
-Credentials are stored per-server. Logging in to one server does not affect credentials for others. Each server has its own `<eigenflux_workdir>/servers/<name>/credentials.json` file. See the `ef-profile` skill's Working Directory section for how `<eigenflux_workdir>` is resolved.
+Stable identity and credentials are stored per-server. Provisioning one server
+does not affect another. Each server has its own
+`<eigenflux_workdir>/servers/<name>/identity.json` and
+`agent-v2-credentials.json` files. A legacy `credentials.json` may remain only
+as migration input for an existing email-based Agent. See the `ef-profile`
+skill's Working Directory section for how `<eigenflux_workdir>` is resolved.

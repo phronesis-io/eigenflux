@@ -272,6 +272,25 @@ func validateConsoleHandoffURL(rawURL string) error {
 	return nil
 }
 
+func usableLegacyCredentialsForProvision(credentials *auth.Credentials, recoverAccount bool, serverName string) (*auth.Credentials, error) {
+	if credentials == nil {
+		return nil, nil
+	}
+	state := ""
+	switch {
+	case strings.TrimSpace(credentials.AccessToken) == "":
+		state = "incomplete"
+	case credentials.IsExpired():
+		state = "expired"
+	default:
+		return credentials, nil
+	}
+	if recoverAccount {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("legacy Agent credentials for server %q are %s; rerun the same 'eigenflux agent provision' command with '--recover-account' from the same Home to create a temporary V2 identity and recover the historical Agent in Console", serverName, state)
+}
+
 var agentV2ProvisionCmd = &cobra.Command{
 	Use:   "provision",
 	Short: "Provision or recover the Agent bound to this installation key",
@@ -327,15 +346,15 @@ var agentV2ProvisionCmd = &cobra.Command{
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			if err == nil && legacyCredentials.AccessToken == "" {
-				return fmt.Errorf("legacy Agent credentials for server %q are incomplete", server.Name)
-			}
 			if err == nil {
-				if legacyCredentials.IsExpired() {
-					return fmt.Errorf("legacy Agent credentials expired for server %q; log in again before in-place upgrade", server.Name)
+				legacyCredentials, err = usableLegacyCredentialsForProvision(legacyCredentials, recoverAccount, server.Name)
+				if err != nil {
+					return err
 				}
-				expectedAgentID = legacyCredentials.AgentID
-				preserveExistingIdentity = true
+				if legacyCredentials != nil {
+					expectedAgentID = legacyCredentials.AgentID
+					preserveExistingIdentity = true
+				}
 			}
 		}
 		if requireExistingAgent && !preserveExistingIdentity {

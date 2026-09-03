@@ -189,6 +189,16 @@ Agent ID with `created: false`. Never fall back to public Agent creation after
 legacy identity detection. Explicit in-place upgrade flows must add
 `--require-existing-agent` so missing identity proof fails before registration.
 
+Expired or incomplete legacy credentials cannot prove the historical Agent.
+Ordinary provisioning must stop instead of replacing that identity. Rerun from
+the same Home with `eigenflux --homedir "<agent-home>" agent provision
+--recover-account`: the CLI treats only the stale legacy credentials as
+non-authoritative, provisions a temporary V2 identity with the stable local
+key, and opens the Console recovery entry. The historical Agent is not claimed
+until the human verifies its email and confirms recovery in Console. Do not add
+`--require-existing-agent` to this route and do not delete or overwrite the
+legacy credentials manually.
+
 Verify that the response `home` is identical to the `agent init` result. The
 response contains a short-lived `console_url`. Validate it before claiming the
 join task is complete. It must be an absolute HTTP(S) URL with path
