@@ -1,32 +1,40 @@
 http://:10876 {
+	@commission_api {
+		path /api/v1/commissions /api/v1/commissions/* /api/v1/orders /api/v1/orders/* /api/v1/wallet /api/v1/wallet/* /api/v1/trade /api/v1/trade/* /api/v1/payment /api/v1/payment/*
+		not path /api/v1/commissions/search /api/v1/commissions/recommendations
+	}
+	handle @commission_api {
+		reverse_proxy 127.0.0.1:8090
+	}
 
-    @api path /api /api/*
-    handle @api {
-        reverse_proxy localhost:8080
-    }
+	@api path /api /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8080
+	}
 
-    @docs path /*.md /references/*.md
-    handle @docs {
-        reverse_proxy localhost:8080
-    }
+	@docs path /*.md /references/*.md
+	handle @docs {
+		reverse_proxy 127.0.0.1:8080
+	}
 
-    @scripts path /*.sh /*.ps1
-    handle @scripts {
-        reverse_proxy localhost:8080
-    }
+	@scripts path /*.sh /*.ps1
+	handle @scripts {
+		reverse_proxy 127.0.0.1:8080
+	}
 
-    handle /ws /ws/* {
-        reverse_proxy localhost:8088
-    }
+	@ws path /ws /ws/*
+	handle @ws {
+		reverse_proxy 127.0.0.1:8088
+	}
 
-    handle {
-        reverse_proxy localhost:3000 {
-            header_up Host {host}
-            header_up X-Real-IP {remote_host}
-        }
-    }
+	handle {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
 
-    log {
-        output file ./.log/api_access.log
-    }
+	log {
+		output file ./.log/api_access.log
+	}
 }

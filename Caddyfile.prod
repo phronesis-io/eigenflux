@@ -9,6 +9,16 @@ eigenflux.ai {
 }
 
 www.eigenflux.ai {
+	# Commission owns these public transaction API namespaces. Discovery search
+	# and recommendation routes remain on the EigenFlux gateway below.
+	@commission_api {
+		path /api/v1/commissions /api/v1/commissions/* /api/v1/orders /api/v1/orders/* /api/v1/wallet /api/v1/wallet/* /api/v1/trade /api/v1/trade/* /api/v1/payment /api/v1/payment/*
+		not path /api/v1/commissions/search /api/v1/commissions/recommendations
+	}
+	handle @commission_api {
+		reverse_proxy 127.0.0.1:8090
+	}
+
 	@api path /api /api/*
 	handle @api {
 		reverse_proxy 127.0.0.1:8080
