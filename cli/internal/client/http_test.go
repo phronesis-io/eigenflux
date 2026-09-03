@@ -191,3 +191,43 @@ func TestClientDelete(t *testing.T) {
 		t.Errorf("Code = %d, want 0", resp.Code)
 	}
 }
+
+func TestClientConditionalGetPreservesStatusAndHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != `"registry-v1"` {
+			t.Errorf("If-None-Match = %q", r.Header.Get("If-None-Match"))
+		}
+		w.Header().Set("ETag", `"registry-v1"`)
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "at_test", "0.0.38", Meta{})
+	response, err := c.GetWithHeaders("/registry", nil, map[string]string{"If-None-Match": `"registry-v1"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.HTTPStatus != http.StatusNotModified || response.Header.Get("ETag") != `"registry-v1"` {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestClientDeleteWithBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %q, want DELETE", r.Method)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["expected_context_revision"] != float64(7) {
+			t.Errorf("body = %#v", body)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "msg": "success"})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "at_test", "0.0.38", Meta{})
+	if _, err := c.DeleteWithBody("/intent/1", map[string]interface{}{"expected_context_revision": 7}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -44,12 +44,20 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.6.0"`) {
+	if !strings.Contains(frontmatterParts[1], `version: "0.7.0"`) {
 		t.Error("ef-profile version was not advanced for CLI account switching")
 	}
 	for _, lifecycleRule := range []string{"no bound email", "temporary identity", "formal account", "selected again later"} {
 		if !strings.Contains(skill, lifecycleRule) {
 			t.Errorf("ef-profile skill is missing account lifecycle rule %q", lifecycleRule)
+		}
+	}
+	for _, capabilityRule := range []string{
+		"eigenflux capabilities --lang <zh-CN|en>", "stable `operation_id`", "eigenflux context goal set",
+		"eigenflux context intent list", "eigenflux context security set", "show_add_friend", "Require fresh explicit human approval",
+	} {
+		if !strings.Contains(skill, capabilityRule) {
+			t.Errorf("ef-profile capability routing is missing %q", capabilityRule)
 		}
 	}
 

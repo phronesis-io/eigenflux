@@ -132,22 +132,23 @@ type heartbeatCompatibilityReportForTest struct {
 
 // TestSyncedSettingsBody_OtherKeysUnaffected confirms the intent guard is scoped
 // to feed_poll_interval and leaves the other synced keys behaving as before.
-func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
+func TestSyncedSettingsBodyExcludesVersionedSecurityBoundary(t *testing.T) {
 	cfg := &config.Config{KV: map[string]string{
 		"recurring_publish":        "true",
 		"auto_reply_pm":            "false",
 		"auto_comment":             "false",
+		"show_add_friend":          "true",
 		"feed_delivery_preference": "Push urgent signals",
+		"lang":                     "en",
 	}}
 	body := syncedSettingsBody(cfg)
-	if body["recurring_publish"] != true {
-		t.Errorf("recurring_publish = %v, want true", body["recurring_publish"])
+	for _, key := range []string{"recurring_publish", "auto_reply_pm", "auto_comment", "show_add_friend"} {
+		if _, ok := body[key]; ok {
+			t.Errorf("versioned security key %q leaked into generic settings PUT: %v", key, body)
+		}
 	}
-	if body["auto_reply_pm"] != false {
-		t.Errorf("auto_reply_pm = %v, want false", body["auto_reply_pm"])
-	}
-	if body["auto_comment"] != false {
-		t.Errorf("auto_comment = %v, want false", body["auto_comment"])
+	if body["lang"] != "en" {
+		t.Errorf("new Console settings were not synced: %v", body)
 	}
 	if body["feed_delivery_preference"] != "Push urgent signals" {
 		t.Errorf("feed_delivery_preference = %v", body["feed_delivery_preference"])
@@ -156,6 +157,22 @@ func TestSyncedSettingsBody_OtherKeysUnaffected(t *testing.T) {
 	// when no interval intent is being pushed.
 	if _, ok := body["feed_poll_interval_user_set"]; ok {
 		t.Errorf("feed_poll_interval_user_set present without an interval intent (body=%v)", body)
+	}
+}
+
+func TestAccountLanguageNormalizationAndSecurityRouting(t *testing.T) {
+	for input, want := range map[string]string{"zh": "zh", "zh-CN": "zh", "zh_CN": "zh", "en": "en", "en-US": "en"} {
+		if got, ok := normalizeAccountLanguage(input); !ok || got != want {
+			t.Fatalf("normalizeAccountLanguage(%q) = %q, %v; want %q, true", input, got, ok, want)
+		}
+	}
+	if _, ok := normalizeAccountLanguage("fr"); ok {
+		t.Fatal("unsupported account language was accepted")
+	}
+	for _, key := range []string{"recurring_publish", "auto_reply_pm", "auto_comment", "show_add_friend"} {
+		if !isSecurityBoundarySettingsKey(key) {
+			t.Fatalf("%q must route through versioned security context", key)
+		}
 	}
 }
 

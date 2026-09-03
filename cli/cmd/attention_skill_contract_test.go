@@ -42,6 +42,11 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 		"`eigenflux attention publish --stdin --format json`",
 		"Reapply the safety boundary",
 		"only after human selection",
+		"eigenflux capabilities --lang <zh-CN|en>",
+		"eigenflux attention list --status open",
+		"eigenflux attention respond",
+		"eigenflux attention dismiss",
+		"exact current `attention_id`, `item_revision`, and `action_key`",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("ef-broadcast heartbeat is missing %q", required)

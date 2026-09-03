@@ -3071,6 +3071,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"auto_comment":             settings.AutoComment,
 		"show_add_friend":          settings.ShowAddFriend,
+		"official_pm_optout":       settings.OfficialPMOptout,
 		"feed_delivery_preference": settings.FeedDeliveryPreference,
 		"mode":                     settings.Mode,
 		"client_host":              settings.ClientHost,
@@ -3148,37 +3149,43 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"mode":                     settings.Mode,
 		"runtime_name":             settings.RuntimeName,
 		"runtime_version":          settings.RuntimeVersion,
+		"lang":                     settings.Lang,
 		"updated_at":               settings.UpdatedAt,
 	})
 }
 
-// PutMySettings lets the agent push its own reported fields (feed_delivery_preference,
-// mode) to the backend, authenticated via the agent access token. Only the provided
-// fields are updated; console-owned fields (recurring_publish, feed_poll_interval)
-// are untouched. This is the agent→backend half of settings sync.
+type agentSettingsWriteRequest struct {
+	FeedDeliveryPreference *string `json:"feed_delivery_preference"`
+	Mode                   *string `json:"mode"`
+	Lang                   *string `json:"lang"`
+	// Legacy clients may still send these fields. They are accepted for wire
+	// compatibility but ignored; only the versioned context endpoint writes them.
+	RecurringPublish        *bool  `json:"recurring_publish"`
+	FeedPollInterval        *int32 `json:"feed_poll_interval"`
+	FeedPollIntervalUserSet *bool  `json:"feed_poll_interval_user_set"`
+	AutoReplyPM             *bool  `json:"auto_reply_pm"`
+	AutoComment             *bool  `json:"auto_comment"`
+	ShowAddFriend           *bool  `json:"show_add_friend"`
+	OfficialPMOptout        *bool  `json:"official_pm_optout"`
+}
+
+func (body *agentSettingsWriteRequest) discardLegacySecurityBoundary() {
+	body.RecurringPublish = nil
+	body.AutoReplyPM = nil
+	body.AutoComment = nil
+	body.ShowAddFriend = nil
+}
+
+// PutMySettings lets the agent update ordinary shared settings through the
+// CLI's write-through sync. Security-boundary fields are ignored for legacy
+// wire compatibility and remain writable only through versioned Agent context.
 // @router /api/v1/agents/me/settings [PUT]
 func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	agentID, ok := currentAgentID(c)
 	if !ok {
 		return
 	}
-	var body struct {
-		FeedDeliveryPreference *string `json:"feed_delivery_preference"`
-		Mode                   *string `json:"mode"`
-		// Console-owned fields, accepted here for the CLI write-through sync
-		// (last writer wins through agent_settings).
-		RecurringPublish *bool  `json:"recurring_publish"`
-		FeedPollInterval *int32 `json:"feed_poll_interval"`
-		// FeedPollIntervalUserSet must be sent explicitly to pin feed_poll_interval
-		// as a user override; a value without this flag updates the stored cadence
-		// but leaves the onboarding ramp in effect (so a client echoing its default
-		// can never silently disable the ramp).
-		FeedPollIntervalUserSet *bool `json:"feed_poll_interval_user_set"`
-		AutoReplyPM             *bool `json:"auto_reply_pm"`
-		AutoComment             *bool `json:"auto_comment"`
-		ShowAddFriend           *bool `json:"show_add_friend"`
-		OfficialPMOptout        *bool `json:"official_pm_optout"`
-	}
+	var body agentSettingsWriteRequest
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
 		writeJSON(c, http.StatusBadRequest, 400, "invalid body", nil)
@@ -3188,11 +3195,16 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "feed_poll_interval must be within [10, 86400] seconds", nil)
 		return
 	}
+	if body.Lang != nil && *body.Lang != "zh" && *body.Lang != "en" {
+		writeJSON(c, http.StatusBadRequest, 400, "lang must be zh or en", nil)
+		return
+	}
+	body.discardLegacySecurityBoundary()
 	clientInfo := reqinfo.ClientFromContext(ctx)
 	model := clientInfo.Model
 	identity, hasIdentity := runtimeidentity.Parse(clientInfo.Host)
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := consoledal.UpdateAgentReported(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.RecurringPublish, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.AutoReplyPM, body.OfficialPMOptout, body.AutoComment, body.ShowAddFriend); err != nil {
+		if err := consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout); err != nil {
 			return err
 		}
 		// Persist X-Client-Model in the same transaction. The CLI records its

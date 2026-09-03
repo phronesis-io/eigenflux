@@ -261,3 +261,18 @@ func TestCLIAccountSwitchMigrationKeepsPendingSwitchServerSide(t *testing.T) {
 		t.Fatal("CLI account switch state must not persist OTP or Console session secrets")
 	}
 }
+
+func TestAgentCapabilityScopeMigrationRepairsOnlyActiveCompletedSessions(t *testing.T) {
+	sql := migration(t, "000094_console_v2_agent_context_write.sql")
+	for _, required := range []string{
+		"UPDATE agent_credential_sessions", "context:write", "attention:read", "onboarding.state = 'completed'",
+		"session.revoked_at IS NULL", "session.expires_at >", "session.scopes || ARRAY['context:write', 'attention:read']",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("Agent context-write migration missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "onboarding.state <> 'completed'") {
+		t.Fatal("context:write must not be granted to incomplete Agents")
+	}
+}
