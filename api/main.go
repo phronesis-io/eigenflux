@@ -350,7 +350,7 @@ func main() {
 		if cfg.EnableNeedSearch {
 			consoleV2Service.RegisterDiscovery(h, commissionAccess)
 		}
-		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
+		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg, commissionAccess)
 		log.Print("Console V2 routes registered")
 	}
 
@@ -371,7 +371,7 @@ func main() {
 	}
 }
 
-func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, cfg *config.Config) {
+func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, cfg *config.Config, commissionAccess *commissionaccess.Allowlist) {
 	trade, err := tradebff.New(tradebff.Config{
 		Endpoint:             cfg.CommissionAPIEndpoint,
 		DelegationKeyID:      cfg.CommissionDelegateKID,
@@ -383,11 +383,11 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 	}
 	service.SetDashboardSearchClients(clients.PMClient, clients.ItemClient, clients.ProfileClient)
 	service.RegisterDashboardSearch(h, trade)
-	read := func(path string, handler app.HandlerFunc) {
-		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handler)...)
+	read := func(path string, handlers ...app.HandlerFunc) {
+		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handlers...)...)
 	}
-	write := func(method, path string, handler app.HandlerFunc) {
-		h.Handle(method, "/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(true, handler)...)
+	write := func(method, path string, handlers ...app.HandlerFunc) {
+		h.Handle(method, "/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(true, handlers...)...)
 	}
 
 	read("console/today", apihandler.ConsoleGetToday)
@@ -428,28 +428,35 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 	write(http.MethodPost, "pm/topic-status", apihandler.UpdateConversationTopicStatus)
 	read("items/:item_id", apihandler.GetItem)
 
-	read("trade/overview", trade.TradeOverview)
-	read("trade/commissions", trade.TradeCommissions)
-	read("trade/commissions/:commission_id/reviews", trade.TradeCommissionReviews)
-	read("trade/orders", trade.TradeOrders)
-	read("trade/orders/:order_id", trade.TradeOrder)
-	read("trade/orders/:order_id/snapshots/:snapshot_id/file", trade.TradeOrderFile)
-	write(http.MethodPost, "trade/orders/:order_id/payment", trade.TradeOrderPayment)
-	read("earnings/summary", trade.EarningsSummary)
-	read("earnings/records", trade.EarningsRecords)
-	read("payout-method", trade.PayoutMethod)
-	read("payout-method/kyc", trade.WalletKYC)
-	write(http.MethodPost, "payout-method/kyc", trade.StartWalletKYC)
-	write(http.MethodPost, "payout-method/kyc/authorization", trade.AuthorizeWalletKYC)
+	registerCommissionConsoleBFFRoutes(read, write, commissionAccess.ConsoleMiddleware(), trade)
 	authorization := tradebff.NewAlipayAuthorization(trade, mq.RDB, tradebff.AlipayAuthorizationConfig{AppID: cfg.AlipayAuthAppID, CallbackURL: cfg.AlipayAuthCallbackURL, Production: cfg.AlipayAuthProduction})
-	write(http.MethodPost, "payout-method/alipay/authorizations", authorization.Start)
-	read("payout-method/alipay/authorizations/:authorization_id", authorization.Status)
-	write(http.MethodPost, "payout-method/alipay/authorizations/:authorization_id/confirm", authorization.Confirm)
+	write(http.MethodPost, "payout-method/alipay/authorizations", commissionAccess.ConsoleMiddleware(), authorization.Start)
+	read("payout-method/alipay/authorizations/:authorization_id", commissionAccess.ConsoleMiddleware(), authorization.Status)
+	write(http.MethodPost, "payout-method/alipay/authorizations/:authorization_id/confirm", commissionAccess.ConsoleMiddleware(), authorization.Confirm)
 	h.GET(tradebff.AlipayAuthorizationCallbackPath, authorization.Callback)
 	h.GET(tradebff.AlipayAuthorizationResultPath, tradebff.AlipayAuthorizationResult)
-	write(http.MethodPost, "payout-method/authorization", trade.MutatePayoutMethod)
-	write(http.MethodPost, "withdrawals", trade.CreateWithdrawal)
-	read("withdrawals/:withdrawal_id", trade.Withdrawal)
+}
+
+type consoleBFFReadRegistrar func(string, ...app.HandlerFunc)
+type consoleBFFWriteRegistrar func(string, string, ...app.HandlerFunc)
+
+func registerCommissionConsoleBFFRoutes(read consoleBFFReadRegistrar, write consoleBFFWriteRegistrar, access app.HandlerFunc, trade *tradebff.Service) {
+	read("trade/commissions/:commission_id/reviews", access, trade.TradeCommissionReviews)
+	read("trade/orders/:order_id/snapshots/:snapshot_id/file", access, trade.TradeOrderFile)
+	read("payout-method/kyc", access, trade.WalletKYC)
+	write(http.MethodPost, "payout-method/kyc", access, trade.StartWalletKYC)
+	write(http.MethodPost, "payout-method/kyc/authorization", access, trade.AuthorizeWalletKYC)
+	read("trade/overview", access, trade.TradeOverview)
+	read("trade/commissions", access, trade.TradeCommissions)
+	read("trade/orders", access, trade.TradeOrders)
+	read("trade/orders/:order_id", access, trade.TradeOrder)
+	write(http.MethodPost, "trade/orders/:order_id/payment", access, trade.TradeOrderPayment)
+	read("earnings/summary", access, trade.EarningsSummary)
+	read("earnings/records", access, trade.EarningsRecords)
+	read("payout-method", access, trade.PayoutMethod)
+	write(http.MethodPost, "payout-method/authorization", access, trade.MutatePayoutMethod)
+	write(http.MethodPost, "withdrawals", access, trade.CreateWithdrawal)
+	read("withdrawals/:withdrawal_id", access, trade.Withdrawal)
 }
 
 func splitEtcdEndpoints(raw string) []string {
