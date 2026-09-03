@@ -1348,6 +1348,12 @@ func testCommunicationProjection(t *testing.T, gdb *gorm.DB, h *server.Hertz, id
 	if len(requests) != 1 || requests[0].(map[string]interface{})["peer_agent_id"] != strconv.FormatInt(requestPeerID, 10) {
 		t.Fatalf("outgoing request did not reference its recipient: %#v", requests)
 	}
+	friendRequestCursor := strconv.FormatInt(requestID+1, 10)
+	status, cursorPayload, _ := performJSON(t, h, "GET", "/api/v2/console/relations/friend-requests?direction=outgoing&cursor="+friendRequestCursor, map[string]interface{}{},
+		ut.Header{Key: "Cookie", Value: cookieHeader})
+	if status != 200 || len(responseData(t, cursorPayload)["friend_requests"].([]interface{})) != 1 {
+		t.Fatalf("Snowflake friend request cursor failed: status=%d payload=%#v", status, cursorPayload)
+	}
 
 	status, unauthorizedPayload, _ := performJSON(t, h, "GET", fmt.Sprintf("/api/v2/console/pm/conversations/%d/messages", foreignConvID), map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
