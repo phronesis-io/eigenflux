@@ -114,6 +114,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
 | `ENABLE_COMMISSION_INDEX` | `false` | Enables the Commission Redis-stream projection, its index bootstrap, and Commission discovery endpoints |
+| `COMMISSION_AGENT_ID_WHITELIST` | (empty) | Comma-separated positive Agent IDs allowed to use Commission discovery and Console trade/earnings/payout/withdrawal BFF routes. Empty denies all; malformed values prevent API startup. |
 | `COMMISSION_SOURCE_SERVICE` / `COMMISSION_ORDER_SOURCE_SERVICE` | `CommissionService` / `OrderService` | etcd service names for authoritative catalogue and statistics RPCs |
 | `COMMISSION_INDEX_NAME` / `COMMISSION_INDEX_ALIAS` | `commissions-v1` / `commissions` | Backing Elasticsearch index and its stable read/write alias |
 | `COMMISSION_INDEX_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:index` / `cg:commission:index` / `stream:commission:index:dlq` | Commission source notification stream, consumer group, and poison-message stream |
