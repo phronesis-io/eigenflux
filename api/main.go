@@ -32,6 +32,7 @@ import (
 	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/api/agti"
 	"eigenflux_server/api/clients"
+	"eigenflux_server/api/commissionaccess"
 	"eigenflux_server/api/commissiondiscovery"
 	"eigenflux_server/api/commissionintegration"
 	"eigenflux_server/api/consolev2"
@@ -69,6 +70,10 @@ import (
 
 func main() {
 	cfg := config.Load()
+	commissionAccess, err := commissionaccess.New(cfg.CommissionAgentIDWhitelist)
+	if err != nil {
+		log.Fatal(err)
+	}
 	integrationMode, err := cfg.CommissionIntegrationMode()
 	if err != nil {
 		log.Fatal("invalid Commission integration configuration")
@@ -300,7 +305,7 @@ func main() {
 	// Commission discovery is an authenticated Facade over SortService. Source
 	// writes, orders, wallet operations, and file transfers stay in Commission.
 	if commissionDiscoveryService != nil {
-		commissiondiscovery.Register(h, commissionDiscoveryService)
+		commissiondiscovery.Register(h, commissionDiscoveryService, commissionAccess)
 	}
 
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
