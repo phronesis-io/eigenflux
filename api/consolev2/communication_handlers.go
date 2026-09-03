@@ -567,9 +567,15 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 	}
 	var requests []communicationFriendRequest
 	query := `SELECT id, from_uid, to_uid, greeting, ` + remarkProjection + `, created_at FROM friend_requests
-		WHERE status = 0 AND ` + subjectColumn + ` = ? AND (? = 0 OR id < ?)
-		ORDER BY id DESC LIMIT ?`
-	if err := s.db.Raw(query, viewerID, cursor, cursor, limit+1).Scan(&requests).Error; err != nil {
+		WHERE status = 0 AND ` + subjectColumn + ` = ?`
+	args := []interface{}{viewerID}
+	if cursor > 0 {
+		query += ` AND id < ?`
+		args = append(args, cursor)
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit+1)
+	if err := s.db.Raw(query, args...).Scan(&requests).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "FRIEND_REQUESTS_READ_FAILED", "could not read friend requests", nil)
 		return
 	}
