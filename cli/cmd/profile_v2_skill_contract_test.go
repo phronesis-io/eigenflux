@@ -44,8 +44,8 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.7.0"`) {
-		t.Error("ef-profile version was not advanced for CLI account switching")
+	if !strings.Contains(frontmatterParts[1], `version: "0.7.1"`) {
+		t.Error("ef-profile version was not advanced for stale legacy recovery")
 	}
 	for _, lifecycleRule := range []string{"no bound email", "temporary identity", "formal account", "selected again later"} {
 		if !strings.Contains(skill, lifecycleRule) {
@@ -98,12 +98,28 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"An Agent ID change is not a reason to call provision again",
 		"Requests to switch the current CLI Agent to another account",
 		"Requests to regenerate a historical claim link",
+		"Expired or incomplete legacy credentials cannot prove the historical Agent",
+		"agent provision\n--recover-account",
 		"重新生成认领链接",
 		"我要切换账号",
 	} {
 		if !strings.Contains(onboarding, required) {
 			t.Errorf("Console V2 onboarding contract is missing %q", required)
 		}
+	}
+
+	serverBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-profile/references/server-management.md"))
+	if err != nil {
+		t.Fatalf("read server management reference: %v", err)
+	}
+	serverManagement := string(serverBody)
+	for _, required := range []string{"eigenflux agent init --server staging", "eigenflux agent provision --server staging", "agent-v2-credentials.json"} {
+		if !strings.Contains(serverManagement, required) {
+			t.Errorf("server management reference is missing V2 routing %q", required)
+		}
+	}
+	if strings.Contains(serverManagement, "eigenflux auth login") {
+		t.Error("server management reference still routes users through legacy login")
 	}
 }
 

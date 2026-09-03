@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 )
 
@@ -212,6 +214,37 @@ func TestProvisionCommandExposesFailClosedExistingAgentMode(t *testing.T) {
 	flag := agentV2ProvisionCmd.Flags().Lookup("require-existing-agent")
 	if flag == nil || flag.DefValue != "false" {
 		t.Fatal("agent provision must expose an opt-in fail-closed existing-Agent mode")
+	}
+}
+
+func TestStaleLegacyCredentialsRequireExplicitAccountRecovery(t *testing.T) {
+	tests := []struct {
+		name        string
+		credentials *auth.Credentials
+	}{
+		{name: "expired", credentials: &auth.Credentials{AccessToken: "at_expired", AgentID: "42", ExpiresAt: 1}},
+		{name: "incomplete", credentials: &auth.Credentials{AgentID: "42"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			usable, err := usableLegacyCredentialsForProvision(test.credentials, false, "staging")
+			if err == nil || usable != nil || !strings.Contains(err.Error(), "eigenflux agent provision") || !strings.Contains(err.Error(), "--recover-account") {
+				t.Fatalf("ordinary provision must stop with the explicit recovery command: usable=%#v err=%v", usable, err)
+			}
+
+			usable, err = usableLegacyCredentialsForProvision(test.credentials, true, "staging")
+			if err != nil || usable != nil {
+				t.Fatalf("explicit recovery must ignore stale legacy proof: usable=%#v err=%v", usable, err)
+			}
+		})
+	}
+}
+
+func TestActiveLegacyCredentialsStillUseInPlaceUpgrade(t *testing.T) {
+	credentials := &auth.Credentials{AccessToken: "at_active", AgentID: "42"}
+	usable, err := usableLegacyCredentialsForProvision(credentials, true, "staging")
+	if err != nil || usable != credentials {
+		t.Fatalf("active legacy credentials must remain identity proof: usable=%#v err=%v", usable, err)
 	}
 }
 
