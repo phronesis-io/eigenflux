@@ -570,6 +570,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if status != http.StatusOK || responseData(t, agentGoalPayload)["context_revision"].(float64) <= float64(agentContextRevision) {
 		t.Fatalf("Agent context mutation status=%d payload=%#v", status, agentGoalPayload)
 	}
+	agentMutationContextRevision := int64(responseData(t, agentGoalPayload)["context_revision"].(float64))
 	status, agentGoalReplayPayload, _ := performJSON(t, h, "PUT", "/api/v2/agent-context/network-goal", goalRequest,
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
 	if status != http.StatusOK || responseData(t, agentGoalReplayPayload)["idempotent_replay"] != true {
@@ -678,7 +679,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	contextRevision := int64(onboarding["active_context_revision"].(float64))
+	contextRevision := agentMutationContextRevision
 	fakeFeed.authorID = agentIDInt
 	status, feedPayload, _ := performJSON(t, h, "POST", "/api/v2/feed", pullFeedRequest{Limit: 20},
 		ut.Header{Key: "Authorization", Value: "Bearer " + accessToken})
