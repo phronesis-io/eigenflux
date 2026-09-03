@@ -51,9 +51,13 @@ func New(sortClient SortClient, idgen IDGenerator, publish Publisher, access *co
 	return &Service{sortClient: sortClient, idgen: idgen, publish: publish, access: access}
 }
 
-func Register(h *server.Hertz, service *Service) {
-	h.GET("/api/v1/commissions/search", middleware.AuthMiddleware(), service.Search)
-	h.GET("/api/v1/commissions/recommendations", middleware.AuthMiddleware(), service.Recommend)
+func Register(h *server.Hertz, service *Service, access *commissionaccess.Allowlist) {
+	registerRoutes(h, service, middleware.AuthMiddleware(), access.V1Middleware())
+}
+
+func registerRoutes(h *server.Hertz, service *Service, auth, access app.HandlerFunc) {
+	h.GET("/api/v1/commissions/search", auth, access, service.Search)
+	h.GET("/api/v1/commissions/recommendations", auth, access, service.Recommend)
 }
 
 type candidateDTO struct {
