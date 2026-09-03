@@ -308,7 +308,7 @@ func main() {
 	// Commission discovery is an authenticated Facade over SortService. Source
 	// writes, orders, wallet operations, and file transfers stay in Commission.
 	if commissionDiscoveryService != nil {
-		commissiondiscovery.Register(h, commissionDiscoveryService)
+		commissiondiscovery.Register(h, commissionDiscoveryService, commissionAccess)
 	}
 
 	// Broadcasts: 7-day influence leaderboard + the caller's rated broadcasts.
