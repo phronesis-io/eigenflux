@@ -25,6 +25,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
 	agentcardapi "eigenflux_server/api/agentcard"
@@ -116,6 +117,9 @@ type Service struct {
 	trustedProxyNets         []*net.IPNet
 	todayBriefGenerator      todayBriefGenerator
 	todayBriefSlots          chan struct{}
+	homeDiscoveryRefresh     singleflight.Group
+	homeActivityRefresh      singleflight.Group
+	homeWorthWatchingRefresh singleflight.Group
 }
 
 func (s *Service) tryAcquireProcessStream() bool {
@@ -380,6 +384,9 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/today", s.consoleAuth(false), s.requireCompleted, s.getToday)
 	h.GET("/api/v2/console/today/status", s.consoleAuth(false), s.requireCompleted, s.getTodayStatus)
 	h.GET("/api/v2/console/today/brief", s.consoleAuth(false), s.requireCompleted, s.getTodayBrief)
+	h.GET("/api/v2/console/home/discovery", s.consoleAuth(false), s.requireCompleted, s.getHomeDiscovery)
+	h.GET("/api/v2/console/home/activity", s.consoleAuth(false), s.requireCompleted, s.getHomeActivity)
+	h.GET("/api/v2/console/home/worth-watching", s.consoleAuth(false), s.requireCompleted, s.getHomeWorthWatching)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)

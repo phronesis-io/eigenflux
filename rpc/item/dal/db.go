@@ -20,25 +20,29 @@ type RawItem struct {
 func (RawItem) TableName() string { return "raw_items" }
 
 type ProcessedItem struct {
-	ItemID                 int64   `gorm:"column:item_id;primaryKey"`
-	Status                 int16   `gorm:"column:status;type:smallint;not null;default:0"`
-	DistributionSkipReason string  `gorm:"column:distribution_skip_reason;type:varchar(32);not null;default:''"`
-	DuplicateOfItemID      *int64  `gorm:"column:duplicate_of_item_id;type:bigint"`
-	Summary                string  `gorm:"column:summary;type:text;default:null"`
-	SummaryZh              string  `gorm:"column:summary_zh;type:text;default:null"`
-	BroadcastType          string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
-	Domains                string  `gorm:"column:domains;type:text;default:null"`
-	Keywords               string  `gorm:"column:keywords;type:text;default:null"`
-	ExpireTime             string  `gorm:"column:expire_time;type:varchar(100);default:null"`
-	Geo                    string  `gorm:"column:geo;type:varchar(200);default:null"`
-	SourceType             string  `gorm:"column:source_type;type:varchar(50);default:null"`
-	ExpectedResponse       string  `gorm:"column:expected_response;type:text;default:null"`
-	GroupID                int64   `gorm:"column:group_id;type:bigint;default:null"`
-	QualityScore           float64 `gorm:"column:quality_score;type:real;default:null"`
-	Lang                   string  `gorm:"column:lang;type:varchar(10);default:null"`
-	Timeliness             string  `gorm:"column:timeliness;type:varchar(20);default:null"`
-	Suggestion             string  `gorm:"column:suggestion;type:text;default:null"`
-	UpdatedAt              int64   `gorm:"column:updated_at;not null"`
+	ItemID                    int64   `gorm:"column:item_id;primaryKey"`
+	Status                    int16   `gorm:"column:status;type:smallint;not null;default:0"`
+	DistributionSkipReason    string  `gorm:"column:distribution_skip_reason;type:varchar(32);not null;default:''"`
+	DuplicateOfItemID         *int64  `gorm:"column:duplicate_of_item_id;type:bigint"`
+	Summary                   string  `gorm:"column:summary;type:text;default:null"`
+	SummaryZh                 string  `gorm:"column:summary_zh;type:text;default:null"`
+	BroadcastType             string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
+	Domains                   string  `gorm:"column:domains;type:text;default:null"`
+	Keywords                  string  `gorm:"column:keywords;type:text;default:null"`
+	ExpireTime                string  `gorm:"column:expire_time;type:varchar(100);default:null"`
+	Geo                       string  `gorm:"column:geo;type:varchar(200);default:null"`
+	SourceType                string  `gorm:"column:source_type;type:varchar(50);default:null"`
+	ExpectedResponse          string  `gorm:"column:expected_response;type:text;default:null"`
+	GroupID                   int64   `gorm:"column:group_id;type:bigint;default:null"`
+	QualityScore              float64 `gorm:"column:quality_score;type:real;default:null"`
+	Lang                      string  `gorm:"column:lang;type:varchar(10);default:null"`
+	Timeliness                string  `gorm:"column:timeliness;type:varchar(20);default:null"`
+	Suggestion                string  `gorm:"column:suggestion;type:text;default:null"`
+	HomepageEligible          *bool   `gorm:"column:homepage_eligible"`
+	HomepageRejectionReason   string  `gorm:"column:homepage_rejection_reason;type:varchar(32);not null;default:''"`
+	HomepageEvaluationVersion string  `gorm:"column:homepage_evaluation_version;type:varchar(32);not null;default:''"`
+	HomepageEvaluatedAt       *int64  `gorm:"column:homepage_evaluated_at"`
+	UpdatedAt                 int64   `gorm:"column:updated_at;not null"`
 }
 
 func (ProcessedItem) TableName() string { return "processed_items" }
@@ -107,25 +111,29 @@ func CreateProcessedItem(db *gorm.DB, pi *ProcessedItem) error {
 	return db.Create(pi).Error
 }
 
-func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, status int16) error {
+func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 	kw := strings.Join(keywords, ",")
 
 	// Prepare updates map
 	updates := map[string]interface{}{
-		"status":            status,
-		"summary":           summary,
-		"broadcast_type":    broadcastType,
-		"domains":           domains,
-		"keywords":          kw,
-		"expire_time":       expireTime,
-		"geo":               geo,
-		"expected_response": expectedResponse,
-		"group_id":          groupID,
-		"quality_score":     qualityScore,
-		"lang":              lang,
-		"timeliness":        timeliness,
-		"suggestion":        suggestion,
-		"updated_at":        time.Now().UnixMilli(),
+		"status":                      status,
+		"summary":                     summary,
+		"broadcast_type":              broadcastType,
+		"domains":                     domains,
+		"keywords":                    kw,
+		"expire_time":                 expireTime,
+		"geo":                         geo,
+		"expected_response":           expectedResponse,
+		"group_id":                    groupID,
+		"quality_score":               qualityScore,
+		"lang":                        lang,
+		"timeliness":                  timeliness,
+		"suggestion":                  suggestion,
+		"homepage_eligible":           homepageEligible,
+		"homepage_rejection_reason":   homepageRejectionReason,
+		"homepage_evaluation_version": homepageEvaluationVersion,
+		"homepage_evaluated_at":       time.Now().UnixMilli(),
+		"updated_at":                  time.Now().UnixMilli(),
 	}
 
 	// Handle source_type: empty string -> NULL (to satisfy DB constraint)
@@ -145,6 +153,17 @@ func UpdateSuggestion(db *gorm.DB, itemID int64, suggestion string) error {
 		Updates(map[string]interface{}{
 			"suggestion": suggestion,
 			"updated_at": time.Now().UnixMilli(),
+		}).Error
+}
+
+func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible bool, rejectionReason, version string) error {
+	return db.Model(&ProcessedItem{}).
+		Where("item_id = ? AND status = ?", itemID, StatusCompleted).
+		Updates(map[string]interface{}{
+			"homepage_eligible":           eligible,
+			"homepage_rejection_reason":   rejectionReason,
+			"homepage_evaluation_version": version,
+			"homepage_evaluated_at":       time.Now().UnixMilli(),
 		}).Error
 }
 

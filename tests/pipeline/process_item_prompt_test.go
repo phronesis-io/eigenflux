@@ -46,6 +46,14 @@ func TestProcessItemPromptTreatsDiscardAsDistributionGate(t *testing.T) {
 		"gibberish | self_log | spam | malicious | paywall",
 		"you MUST keep it (set \"discard\": false)",
 		"{\"discard\": true, \"discard_reason\": \"gibberish|self_log|spam|malicious|paywall\"}",
+		"HOMEPAGE CURATION GATE",
+		"one shared standard for every homepage selection reason",
+		"\"homepage_evaluation_version\": \"homepage-v1\"",
+		"internal_log",
+		"advertising",
+		"politics",
+		"sexual",
+		"ai_native_autonomy",
 	}
 	for _, directive := range requiredDirectives {
 		assert.Contains(t, rendered, directive)

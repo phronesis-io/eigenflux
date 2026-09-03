@@ -82,6 +82,10 @@ type ExtractResult struct {
 	Lang          string  `json:"lang"`
 	Quality       float64 `json:"quality"`
 	Timeliness    string  `json:"timeliness"`
+
+	HomepageEligible          bool   `json:"homepage_eligible"`
+	HomepageRejectionReason   string `json:"homepage_rejection_reason"`
+	HomepageEvaluationVersion string `json:"homepage_evaluation_version"`
 }
 
 // SafetyResult holds the output of the safety check prompt.

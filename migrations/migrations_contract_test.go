@@ -276,3 +276,17 @@ func TestAgentCapabilityScopeMigrationRepairsOnlyActiveCompletedSessions(t *test
 		t.Fatal("context:write must not be granted to incomplete Agents")
 	}
 }
+func TestHomepageEligibilityMigrationIsVersionedAndIndexed(t *testing.T) {
+	sql := migration(t, "000095_homepage_content_eligibility.sql")
+	for _, required := range []string{
+		"homepage_eligible BOOLEAN",
+		"homepage_rejection_reason VARCHAR(32)",
+		"homepage_evaluation_version VARCHAR(32)",
+		"homepage_evaluated_at BIGINT",
+		"WHERE status = 3 AND homepage_eligible = TRUE",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("homepage eligibility migration missing %q", required)
+		}
+	}
+}
