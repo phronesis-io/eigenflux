@@ -193,14 +193,19 @@ func (s *Service) confirmAccountRecovery(_ context.Context, c *app.RequestContex
 			return errUnauthorized
 		}
 
-		var sourceState, targetState string
+		var sourceState string
+		var target struct {
+			IdentityState string `gorm:"column:identity_state"`
+			Email         string `gorm:"column:email"`
+			EmailKind     string `gorm:"column:email_kind"`
+		}
 		if err := tx.Raw(`SELECT identity_state FROM agents WHERE agent_id = ? FOR UPDATE`, recovery.SourceAgentID).Scan(&sourceState).Error; err != nil {
 			return err
 		}
-		if err := tx.Raw(`SELECT identity_state FROM agents WHERE agent_id = ? FOR UPDATE`, recovery.TargetAgentID).Scan(&targetState).Error; err != nil {
+		if err := tx.Raw(`SELECT identity_state, email, email_kind FROM agents WHERE agent_id = ? FOR UPDATE`, recovery.TargetAgentID).Scan(&target).Error; err != nil {
 			return err
 		}
-		if sourceState != "active" || targetState != "active" {
+		if sourceState != "active" || target.IdentityState != "active" {
 			return errConflict
 		}
 		var sourceBindingID int64
@@ -236,7 +241,24 @@ func (s *Service) confirmAccountRecovery(_ context.Context, c *app.RequestContex
 			WHERE agent_id = ? AND status = 'active' FOR UPDATE`, recovery.TargetAgentID).Scan(&binding).Error; err != nil {
 			return err
 		}
-		if binding.BindingID == 0 || keyedHash(s.otpPepper, binding.NormalizedEmail) != recovery.NormalizedEmailHash {
+		if binding.BindingID == 0 {
+			normalizedLegacyEmail := strings.ToLower(strings.TrimSpace(target.Email))
+			if target.EmailKind != "legacy_real" || normalizedLegacyEmail == "" ||
+				keyedHash(s.otpPepper, normalizedLegacyEmail) != recovery.NormalizedEmailHash {
+				return errConflict
+			}
+			binding.NormalizedEmail = normalizedLegacyEmail
+			binding.VerificationState = "verified"
+			if err := tx.Raw(`INSERT INTO agent_email_bindings
+				(agent_id, normalized_email, normalization_version, verification_state, status,
+				 verified_at, created_at, updated_at)
+				VALUES (?, ?, 1, 'verified', 'active', ?, ?, ?)
+				RETURNING binding_id`, recovery.TargetAgentID, normalizedLegacyEmail, now, now, now).
+				Row().Scan(&binding.BindingID); err != nil {
+				return err
+			}
+		}
+		if keyedHash(s.otpPepper, binding.NormalizedEmail) != recovery.NormalizedEmailHash {
 			return errConflict
 		}
 		var emailOwnerCount, suspendedCount int64
