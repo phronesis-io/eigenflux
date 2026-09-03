@@ -241,7 +241,7 @@ func main() {
 	clients.SortClient = sortClient
 
 	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
-	skillDocs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{
+	skillDoc, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
 		PublicBaseURL: publicBaseURL,
 		ProjectName:   cfg.ProjectName,
 		ProjectTitle:  cfg.ProjectTitle,
@@ -250,7 +250,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to render skill documents: %v", err)
 	}
-	log.Printf("Skill doc version: %s (%d reference modules)", skilldoc.Version, len(skillDocs.References))
+	log.Printf("Skill doc version: %s", skilldoc.Version)
 
 	// Init Hertz
 	listenAddr := cfg.ListenAddr(cfg.ApiPort)
@@ -273,10 +273,7 @@ func main() {
 			c.Data(http.StatusOK, "text/markdown; charset=utf-8", content)
 		}
 	}
-	h.GET("/skill.md", serveSkillDoc(skillDocs.Main))
-	for name, content := range skillDocs.References {
-		h.GET("/references/"+name+".md", serveSkillDoc(content))
-	}
+	h.GET("/skill.md", serveSkillDoc(skillDoc))
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
 	h.StaticFile("/install.sh", "static/install.sh")
 	h.StaticFile("/install.ps1", "static/install.ps1")

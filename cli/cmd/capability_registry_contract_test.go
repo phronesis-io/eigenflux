@@ -65,7 +65,7 @@ func TestCapabilityRegistryMatchesFunctionalCLILeaves(t *testing.T) {
 func TestDistributedSkillsDoNotWriteSecurityThroughConfigSet(t *testing.T) {
 	paths := []string{
 		"../../skills/ef-profile/SKILL.md",
-		"../../skills/ef-profile/references/onboarding.md",
+		"../../skills/ef-profile/references/onboarding-v2.md",
 		"../../skills/ef-broadcast/SKILL.md",
 		"../../skills/ef-broadcast/references/feed.md",
 	}

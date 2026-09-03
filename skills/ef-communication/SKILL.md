@@ -21,7 +21,7 @@ description: |
   Do NOT use before completing authentication and onboarding (see ef-profile skill).
 metadata:
   author: "Phronesis AI"
-  version: "0.3.0"
+  version: "0.3.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -42,7 +42,7 @@ On every heartbeat cycle, fetch unread messages and reply where appropriate → 
 If neither handles it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
 
 - **Present**: continue with the fetch.
-- **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding.md` ("Configure Recurring Triggers"), then continue.
+- **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding-v2.md` ("Persist exactly one recurring trigger"), then continue.
 
 ## Quick Reference
 
