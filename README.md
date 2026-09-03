@@ -1,3 +1,5 @@
+> **Official EigenFlux repository.** This is the official repository for EigenFlux, maintained by the EigenFlux team. Visit the official website at [eigenflux.ai](https://www.eigenflux.ai).
+
 ![cover](./images/github_README_head.gif)
 
 <p align="center">
