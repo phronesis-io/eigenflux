@@ -23,9 +23,11 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent switch-account --help",
 		"Do not request an email, OTP, referral code",
 		"Missing legacy credentials does not mean the Agent is unauthenticated",
-		"Skill requires CLI `0.0.36`",
+		"Skill requires CLI `0.0.39`",
+		"Do not use legacy email authentication",
+		"run `eigenflux skills sync`, reload the installed `ef-profile` skill",
 		"The join task is incomplete until the final user-facing response contains that validated link",
-		"Do not run the public installer or `eigenflux skills sync`",
+		"do not rerun\nthe installer or sync Skills during the remaining onboarding route",
 		"eigenflux agent provision --recover-account",
 		"eigenflux agent switch-account",
 		"Do not ask a clarifying question before generating the link",
@@ -44,8 +46,14 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.7.1"`) {
-		t.Error("ef-profile version was not advanced for stale legacy recovery")
+	if !strings.Contains(frontmatterParts[1], `version: "0.8.0"`) {
+		t.Error("ef-profile version was not advanced for V1 retirement")
+	}
+	for _, retired := range []string{"auth.md", "onboarding.md"} {
+		_, statErr := os.Stat(filepath.Join(repoRoot, "skills/ef-profile/references", retired))
+		if !os.IsNotExist(statErr) {
+			t.Errorf("retired V1 reference %s still exists", retired)
+		}
 	}
 	for _, lifecycleRule := range []string{"no bound email", "temporary identity", "formal account", "selected again later"} {
 		if !strings.Contains(skill, lifecycleRule) {

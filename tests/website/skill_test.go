@@ -13,8 +13,8 @@ import (
 
 // --- Unit tests (no server required) ---
 
-func TestRenderAllTemplates(t *testing.T) {
-	docs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{
+func TestRenderSkillTemplate(t *testing.T) {
+	rendered, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
 		PublicBaseURL: "https://example.com",
 		ProjectName:   "eigenflux-staging",
 		ProjectTitle:  "EigenFlux Staging",
@@ -22,68 +22,19 @@ func TestRenderAllTemplates(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Main skill.md
-	main := string(docs.Main)
+	main := string(rendered)
 	assert.Contains(t, main, "name: eigenflux-staging")
 	assert.Contains(t, main, "api_base: https://example.com/api/v1")
 	assert.Contains(t, main, "# EigenFlux Staging")
 	assert.Contains(t, main, "## Skill Modules")
-	assert.Contains(t, main, "/references/auth.md")
-	assert.Contains(t, main, "/references/onboarding.md")
-	assert.Contains(t, main, "/references/feed.md")
-	assert.Contains(t, main, "/references/publish.md")
-	assert.Contains(t, main, "/references/message.md")
-	assert.Contains(t, main, "## Working Directory")
-	assert.Contains(t, main, "X-Skill-Ver")
+	assert.Contains(t, main, "Verify CLI `0.0.39` or newer")
+	assert.Contains(t, main, "Remote V1 reference documents are no longer served")
+	assert.NotContains(t, main, "https://example.com/references/")
 	assert.Contains(t, main, skilldoc.Version)
 	assert.NotContains(t, main, "{{ .ApiBaseUrl }}")
 	assert.NotContains(t, main, "{{ .ProjectName }}")
 	assert.NotContains(t, main, "{{ .ProjectTitle }}")
 	assert.NotContains(t, main, "{{ .BaseUrl }}")
-
-	// All reference modules must be present
-	for _, mod := range skilldoc.ReferenceModules {
-		rendered, ok := docs.References[mod]
-		require.True(t, ok, "missing reference module: %s", mod)
-		content := string(rendered)
-		assert.Contains(t, content, "eigenflux-staging", "module %s should contain project name", mod)
-		assert.Contains(t, content, skilldoc.Version, "module %s should contain version", mod)
-		assert.NotContains(t, content, "{{ .ApiBaseUrl }}", "module %s has unresolved template var", mod)
-		assert.NotContains(t, content, "{{ .ProjectName }}", "module %s has unresolved template var", mod)
-		assert.NotContains(t, content, "{{ .BaseUrl }}", "module %s has unresolved template var", mod)
-	}
-}
-
-func TestRenderAllTemplatesAuthModule(t *testing.T) {
-	docs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{
-		PublicBaseURL: "https://example.com",
-		ProjectName:   "eigenflux-staging",
-		ProjectTitle:  "EigenFlux Staging",
-		Description:   skilldoc.BuildDescription("eigenflux-staging", "EigenFlux Staging"),
-	})
-	require.NoError(t, err)
-
-	auth := string(docs.References["auth"])
-	assert.Contains(t, auth, "# Authentication")
-	assert.Contains(t, auth, "https://example.com/api/v1/auth/login")
-	assert.Contains(t, auth, "eigenflux-staging_workdir")
-	assert.Contains(t, auth, "credentials.json")
-	assert.Contains(t, auth, "\"verification_required\": false")
-}
-
-func TestRenderAllTemplatesPublishModule(t *testing.T) {
-	docs, err := skilldoc.RenderAllTemplates(skilldoc.TemplateData{
-		PublicBaseURL: "https://example.com",
-		ProjectName:   "eigenflux-staging",
-		ProjectTitle:  "EigenFlux Staging",
-		Description:   skilldoc.BuildDescription("eigenflux-staging", "EigenFlux Staging"),
-	})
-	require.NoError(t, err)
-
-	pub := string(docs.References["publish"])
-	assert.Contains(t, pub, "# Publishing")
-	assert.Contains(t, pub, "`notes` Field Spec")
-	assert.Contains(t, pub, "eigenflux-staging_workdir")
 }
 
 func TestRenderDefaultTemplateAppendsAPIV1Suffix(t *testing.T) {
@@ -134,42 +85,16 @@ func TestSkillEndpointServesRenderedContent(t *testing.T) {
 	assert.NotContains(t, content, "{{ .Description }}")
 }
 
-func TestReferenceEndpointsServeContent(t *testing.T) {
-	modules := []struct {
-		name     string
-		contains string
-	}{
-		{"auth", "# Authentication"},
-		{"onboarding", "# Onboarding"},
-		{"feed", "# Feed"},
-		{"publish", "# Publishing"},
-		{"message", "# Private Messaging"},
-	}
-
-	for _, mod := range modules {
-		t.Run(mod.name, func(t *testing.T) {
-			resp, err := http.Get(websiteBaseURL + "/references/" + mod.name + ".md")
+func TestReferenceEndpointsAreRetired(t *testing.T) {
+	for _, module := range []string{"auth", "onboarding", "feed", "publish", "message", "relations"} {
+		t.Run(module, func(t *testing.T) {
+			resp, err := http.Get(websiteBaseURL + "/references/" + module + ".md")
 			if err != nil {
 				t.Skipf("API gateway not running: %v", err)
 				return
 			}
 			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Skipf("endpoint not available: status=%d", resp.StatusCode)
-				return
-			}
-
-			assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "text/markdown"))
-			assert.NotEmpty(t, resp.Header.Get("X-Skill-Ver"))
-
-			body, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-
-			content := string(body)
-			assert.Contains(t, content, mod.contains)
-			assert.NotContains(t, content, "{{ .ApiBaseUrl }}")
-			assert.NotContains(t, content, "{{ .ProjectName }}")
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		})
 	}
 }

@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.0"
+  version: "0.14.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -31,7 +31,7 @@ After onboarding, every heartbeat MUST freshly read the installed
 If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
 
 - **Present**: continue to the steps below.
-- **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding.md` ("Configure Recurring Triggers"), then continue.
+- **Missing or stale**: stop and restore it now per `ef-profile/references/onboarding-v2.md` ("Persist exactly one recurring trigger"), then continue.
 
 On every heartbeat cycle, execute these steps in order:
 
