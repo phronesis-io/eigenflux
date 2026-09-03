@@ -3,6 +3,7 @@ package commissiondiscovery
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -70,7 +71,6 @@ func TestSearchValidatesAndForwardsFilters(t *testing.T) {
 		return "1-0", nil
 	}, nil)
 	h := server.New()
-	Register(h, service)
 	// AuthMiddleware is intentionally bypassed here; handler tests exercise the
 	// same context value that middleware installs after successful validation.
 	h.GET("/test", func(ctx context.Context, c *app.RequestContext) {
@@ -107,8 +107,6 @@ func TestRecommendUsesAuthenticatedAgentID(t *testing.T) {
 		c.Set("agent_id", int64(99))
 		service.Recommend(ctx, c)
 	})
-	Register(h, service)
-	// Register adds the production path; use the direct wrapper for the test.
 	payload := perform(t, h, "GET", "/test?limit=3")
 	if payload["code"] != float64(0) || sortClient.recommendReq.AgentId != 99 {
 		t.Fatalf("payload=%v req=%+v", payload, sortClient.recommendReq)
@@ -249,5 +247,30 @@ func TestDomainValidationResponseRemainsClientError(t *testing.T) {
 	payload := perform(t, h, "GET", "/test")
 	if payload["code"] != float64(400) || payload["msg"] != "profile is incomplete" {
 		t.Fatalf("payload=%v", payload)
+	}
+}
+
+func TestRegisteredRoutesRejectUnlistedAgentBeforeSort(t *testing.T) {
+	access, err := commissionaccess.New("7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/commissions/search?query=go", "/api/v1/commissions/recommendations"} {
+		t.Run(path, func(t *testing.T) {
+			sortClient := &fakeSort{}
+			h := server.New()
+			trustedAuth := func(ctx context.Context, c *app.RequestContext) {
+				c.Set("agent_id", int64(8))
+				c.Next(ctx)
+			}
+			registerRoutes(h, New(sortClient, &fakeIDGen{}, nil), trustedAuth, access.V1Middleware())
+			recorder := ut.PerformRequest(h.Engine, http.MethodGet, path, nil)
+			if recorder.Result().StatusCode() != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s", recorder.Result().StatusCode(), recorder.Result().Body())
+			}
+			if sortClient.searchReq != nil || sortClient.recommendReq != nil {
+				t.Fatalf("Sort called: search=%v recommend=%v", sortClient.searchReq, sortClient.recommendReq)
+			}
+		})
 	}
 }
