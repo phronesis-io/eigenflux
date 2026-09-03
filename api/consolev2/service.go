@@ -273,16 +273,17 @@ func (s *Service) SetRedisClient(client *redis.Client) {
 	}
 }
 
-// ConsoleBFFHandlers adapts an existing business handler to the isolated V2
-// browser session. The business handler still receives agent_id from trusted
-// server context; no browser-supplied subject identifier is accepted.
-func (s *Service) ConsoleBFFHandlers(mutation bool, handler app.HandlerFunc) []app.HandlerFunc {
+// ConsoleBFFHandlers adapts business handlers to the isolated V2 browser
+// session. Each handler receives agent_id from trusted server context; no
+// browser-supplied subject identifier is accepted.
+func (s *Service) ConsoleBFFHandlers(mutation bool, handlers ...app.HandlerFunc) []app.HandlerFunc {
 	noStore := func(ctx context.Context, c *app.RequestContext) {
 		c.Header("Cache-Control", "private, no-store")
 		c.Header("Pragma", "no-cache")
 		c.Next(ctx)
 	}
-	return []app.HandlerFunc{s.consoleAuth(mutation), s.requireCompleted, noStore, handler}
+	chain := []app.HandlerFunc{s.consoleAuth(mutation), s.requireCompleted, noStore}
+	return append(chain, handlers...)
 }
 
 func (s *Service) CommunicationEnabled() bool { return s.enableCommunication }
