@@ -81,6 +81,21 @@ func TestV1MiddlewareRejectsUnlistedAgent(t *testing.T) {
 	}
 }
 
+func TestV1MiddlewareFailsClosedWithoutTrustedAgent(t *testing.T) {
+	for name, raw := range map[string]string{"empty allowlist": "", "missing context": "7"} {
+		t.Run(name, func(t *testing.T) {
+			access, err := New(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, _, called, _ := performGate(t, access.V1Middleware(), 0)
+			if status != http.StatusForbidden || called {
+				t.Fatalf("status=%d called=%v", status, called)
+			}
+		})
+	}
+}
+
 func TestConsoleMiddlewareRejectsUnlistedAgent(t *testing.T) {
 	access, _ := New("7")
 	status, payload, called, cacheControl := performGate(t, access.ConsoleMiddleware(), 8)
