@@ -23,3 +23,11 @@ func TestHomepageEligibilityRetryAtDefersFailedItem(t *testing.T) {
 		t.Fatalf("retry at = %d, want %d", got, want)
 	}
 }
+
+func TestHomepageEligibilityWindowStartCoversGlobalDayBoundaries(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	if got := homepageEligibilityWindowStart(now); got != want {
+		t.Fatalf("window start = %d, want %d", got, want)
+	}
+}

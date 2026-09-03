@@ -73,11 +73,13 @@ Backfill: `pipeline/cron/suggestion_backfill.go` processes existing completed it
 New broadcasts persist `homepage_eligible`, `homepage_rejection_reason`,
 `homepage_evaluation_version`, and `homepage_evaluated_at` during normal item
 processing without an additional model call. The pipeline cron process also
-runs a resumable, Redis-lock-protected backfill for recent completed broadcasts
-that predate the current evaluator version. It processes at most 32 items per
-pass with two workers and never runs from a homepage request. A model failure
-defers that item for one hour so it cannot repeatedly occupy a batch and block
-older unevaluated broadcasts.
+runs a resumable, Redis-lock-protected backfill for completed broadcasts from
+the previous rolling 48 hours that predate the current evaluator version. The
+lookback covers homepage day boundaries across global timezones without
+reprocessing the previous 30 days. It processes at most 32 items per pass with
+two workers and never runs from a homepage request. A model failure defers that
+item for one hour so it cannot repeatedly occupy a batch and block older
+unevaluated broadcasts.
 
 ## Replay Log (pkg/replaylog)
 

@@ -17,6 +17,7 @@ const (
 	lockKeyHomepageEligibility           = "lock:cron:homepage_eligibility"
 	defaultHomepageEligibilityBatch      = 32
 	defaultHomepageEligibilityInterval   = 10 * time.Minute
+	defaultHomepageEligibilityLookback   = 48 * time.Hour
 	defaultHomepageEligibilityWorkers    = 2
 	defaultHomepageEligibilityRetryDelay = time.Hour
 )
@@ -56,10 +57,10 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 	if err := db.DB.Table("processed_items AS p").
 		Select("p.item_id, r.raw_content, r.raw_notes").
 		Joins("JOIN raw_items r ON r.item_id=p.item_id").
-		Where(`p.status = ? AND p.updated_at >= ?
+		Where(`p.status = ? AND r.created_at >= ?
 			AND (p.homepage_evaluation_version <> ? OR p.homepage_evaluation_version IS NULL)
 			AND (p.homepage_evaluation_retry_at IS NULL OR p.homepage_evaluation_retry_at <= ?)`,
-			itemDal.StatusCompleted, now.Add(-30*24*time.Hour).UnixMilli(), llm.HomepageEvaluationV1, now.UnixMilli()).
+			itemDal.StatusCompleted, homepageEligibilityWindowStart(now), llm.HomepageEvaluationV1, now.UnixMilli()).
 		Order("p.updated_at DESC, p.item_id DESC").
 		Limit(defaultHomepageEligibilityBatch).
 		Find(&items).Error; err != nil {
@@ -109,6 +110,10 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 
 func homepageEligibilityRetryAt(now time.Time) int64 {
 	return now.Add(defaultHomepageEligibilityRetryDelay).UnixMilli()
+}
+
+func homepageEligibilityWindowStart(now time.Time) int64 {
+	return now.Add(-defaultHomepageEligibilityLookback).UnixMilli()
 }
 
 func homepageReasonForDistributionDiscard(reason string) string {
