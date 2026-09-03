@@ -42,6 +42,7 @@ type ProcessedItem struct {
 	HomepageRejectionReason   string  `gorm:"column:homepage_rejection_reason;type:varchar(32);not null;default:''"`
 	HomepageEvaluationVersion string  `gorm:"column:homepage_evaluation_version;type:varchar(32);not null;default:''"`
 	HomepageEvaluatedAt       *int64  `gorm:"column:homepage_evaluated_at"`
+	HomepageEvaluationRetryAt *int64  `gorm:"column:homepage_evaluation_retry_at"`
 	UpdatedAt                 int64   `gorm:"column:updated_at;not null"`
 }
 
@@ -160,10 +161,19 @@ func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible bool, rejectio
 	return db.Model(&ProcessedItem{}).
 		Where("item_id = ? AND status = ?", itemID, StatusCompleted).
 		Updates(map[string]interface{}{
-			"homepage_eligible":           eligible,
-			"homepage_rejection_reason":   rejectionReason,
-			"homepage_evaluation_version": version,
-			"homepage_evaluated_at":       time.Now().UnixMilli(),
+			"homepage_eligible":            eligible,
+			"homepage_rejection_reason":    rejectionReason,
+			"homepage_evaluation_version":  version,
+			"homepage_evaluated_at":        time.Now().UnixMilli(),
+			"homepage_evaluation_retry_at": nil,
+		}).Error
+}
+
+func ScheduleHomepageEvaluationRetry(db *gorm.DB, itemID, retryAt int64) error {
+	return db.Model(&ProcessedItem{}).
+		Where("item_id = ? AND status = ?", itemID, StatusCompleted).
+		Updates(map[string]interface{}{
+			"homepage_evaluation_retry_at": retryAt,
 		}).Error
 }
 

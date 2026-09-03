@@ -75,7 +75,9 @@ New broadcasts persist `homepage_eligible`, `homepage_rejection_reason`,
 processing without an additional model call. The pipeline cron process also
 runs a resumable, Redis-lock-protected backfill for recent completed broadcasts
 that predate the current evaluator version. It processes at most 32 items per
-pass with two workers and never runs from a homepage request.
+pass with two workers and never runs from a homepage request. A model failure
+defers that item for one hour so it cannot repeatedly occupy a batch and block
+older unevaluated broadcasts.
 
 ## Replay Log (pkg/replaylog)
 

@@ -83,7 +83,7 @@ type ExtractResult struct {
 	Quality       float64 `json:"quality"`
 	Timeliness    string  `json:"timeliness"`
 
-	HomepageEligible          bool   `json:"homepage_eligible"`
+	HomepageEligible          *bool  `json:"homepage_eligible"`
 	HomepageRejectionReason   string `json:"homepage_rejection_reason"`
 	HomepageEvaluationVersion string `json:"homepage_evaluation_version"`
 }
@@ -111,7 +111,23 @@ func (c *Client) ExtractKeywords(ctx context.Context, bio string) ([]string, str
 
 // ProcessItem generates structured information for a content item
 func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (*ExtractResult, error) {
-	return ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
+	result, err := ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
+	if err != nil {
+		return nil, err
+	}
+	if result.Discard {
+		return result, nil
+	}
+	if result.HomepageEligible == nil {
+		return nil, fmt.Errorf("process_item response missing homepage_eligible")
+	}
+	if strings.TrimSpace(result.HomepageEvaluationVersion) != HomepageEvaluationV1 {
+		return nil, fmt.Errorf("process_item response has invalid homepage_evaluation_version %q", result.HomepageEvaluationVersion)
+	}
+	if !*result.HomepageEligible && strings.TrimSpace(result.HomepageRejectionReason) == "" {
+		return nil, fmt.Errorf("process_item response missing homepage_rejection_reason for ineligible content")
+	}
+	return result, nil
 }
 
 // SuggestAction generates an action suggestion for a processed item.

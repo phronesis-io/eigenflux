@@ -283,6 +283,7 @@ func TestHomepageEligibilityMigrationIsVersionedAndIndexed(t *testing.T) {
 		"homepage_rejection_reason VARCHAR(32)",
 		"homepage_evaluation_version VARCHAR(32)",
 		"homepage_evaluated_at BIGINT",
+		"homepage_evaluation_retry_at BIGINT",
 		"WHERE status = 3 AND homepage_eligible = TRUE",
 	} {
 		if !strings.Contains(sql, required) {

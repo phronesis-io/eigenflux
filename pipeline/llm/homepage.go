@@ -16,7 +16,7 @@ func NormalizeHomepageEvaluation(result *ExtractResult) {
 		return
 	}
 	result.HomepageEvaluationVersion = HomepageEvaluationV1
-	if result.HomepageEligible {
+	if result.HomepageEligible != nil && *result.HomepageEligible {
 		result.HomepageRejectionReason = ""
 		return
 	}
@@ -25,4 +25,8 @@ func NormalizeHomepageEvaluation(result *ExtractResult) {
 		reason = "other"
 	}
 	result.HomepageRejectionReason = reason
+}
+
+func HomepageEligibleValue(result *ExtractResult) bool {
+	return result != nil && result.HomepageEligible != nil && *result.HomepageEligible
 }
