@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -125,6 +126,68 @@ func TestHomeHTTPContracts(t *testing.T) {
 		WHERE agent_id=?`, now, now, agentIDValue).Error; err != nil {
 		t.Fatal(err)
 	}
+	demandAgentID := agentIDValue + 1
+	publishAgentID := agentIDValue + 2
+	demandShortID, err := agentidentity.GenerateShortID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishShortID, err := agentidentity.GenerateShortID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO agents
+		(agent_id, short_id, email, email_kind, agent_name, bio, created_at, updated_at, identity_state)
+		VALUES (?, ?, ?, 'internal_alias', 'Demand Contract Agent', '', ?, ?, 'active'),
+		       (?, ?, ?, 'internal_alias', 'Publish Contract Agent', '', ?, ?, 'active')`,
+		demandAgentID, demandShortID, fmt.Sprintf("home-demand-%d@agent.eigenflux.internal", demandAgentID), now-int64(30*24*time.Hour/time.Millisecond), now,
+		publishAgentID, publishShortID, fmt.Sprintf("home-publish-%d@agent.eigenflux.internal", publishAgentID), now-int64(30*24*time.Hour/time.Millisecond), now).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM agents WHERE agent_id IN (?, ?)`, demandAgentID, publishAgentID).Error
+	})
+
+	firstVoiceItemID := agentIDValue + 10
+	oldDemandItemID := agentIDValue + 11
+	newDemandItemID := agentIDValue + 12
+	newPublishItemID := agentIDValue + 13
+	if err := db.Exec(`INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES
+		(?, ?, 'new Agent first voice', ?), (?, ?, 'older demand', ?),
+		(?, ?, 'newer demand', ?), (?, ?, 'newest general publish', ?)`,
+		firstVoiceItemID, agentIDValue, now-4000,
+		oldDemandItemID, demandAgentID, now-3000,
+		newDemandItemID, demandAgentID, now-2000,
+		newPublishItemID, publishAgentID, now-1000).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO processed_items
+		(item_id, status, summary, broadcast_type, quality_score, lang, updated_at,
+		 homepage_eligible, homepage_evaluation_version, homepage_real_world_relevant)
+		VALUES (?, 3, 'new Agent first voice', 'info', 0.70, 'en', ?, TRUE, ?, FALSE),
+		       (?, 3, 'older demand', 'demand', 0.95, 'en', ?, TRUE, ?, FALSE),
+		       (?, 3, 'newer demand', 'demand', 0.80, 'en', ?, TRUE, ?, FALSE),
+		       (?, 3, 'newest general publish', 'info', 0.99, 'en', ?, TRUE, ?, FALSE)`,
+		firstVoiceItemID, now, homepageEvaluationVersion,
+		oldDemandItemID, now, homepageEvaluationVersion,
+		newDemandItemID, now, homepageEvaluationVersion,
+		newPublishItemID, now, homepageEvaluationVersion).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO item_stats
+		(item_id, author_agent_id, score_1_count, score_2_count, created_at, updated_at)
+		VALUES (?, ?, 1, 0, ?, ?), (?, ?, 9, 0, ?, ?),
+		       (?, ?, 2, 0, ?, ?), (?, ?, 3, 0, ?, ?)`,
+		firstVoiceItemID, agentIDValue, now, now,
+		oldDemandItemID, demandAgentID, now, now,
+		newDemandItemID, demandAgentID, now, now,
+		newPublishItemID, publishAgentID, now, now).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM processed_items WHERE item_id IN (?, ?, ?, ?)`, firstVoiceItemID, oldDemandItemID, newDemandItemID, newPublishItemID).Error
+		_ = db.Exec(`DELETE FROM raw_items WHERE item_id IN (?, ?, ?, ?)`, firstVoiceItemID, oldDemandItemID, newDemandItemID, newPublishItemID).Error
+	})
 
 	generatedAt := time.Now().UnixMilli()
 	dayStart := homeDiscoveryDayStart(time.Now(), time.UTC)
@@ -155,7 +218,7 @@ func TestHomeHTTPContracts(t *testing.T) {
 		}
 	}
 	discoveryKey := homeDiscoveryCacheKey("UTC", dayStart)
-	worthKey := homeWorthWatchingCacheKey("UTC", dayStart)
+	worthKey := homeWorthWatchingCacheKey()
 	writeJSON(discoveryKey, discoveryCached)
 	writeJSON(homeActivityCacheKey, activityCached)
 	writeJSON(worthKey, worthCached)
@@ -191,6 +254,13 @@ func TestHomeHTTPContracts(t *testing.T) {
 			if !ok || len(rows) > limits[path] {
 				t.Fatalf("%s %s=%#v limit=%d", path, collection, data[collection], limits[path])
 			}
+			if path == "/api/v2/console/home/worth-watching" {
+				assertHomeWorthWatchingReasons(t, rows, map[string]string{
+					"new_real_world_demand":  strconv.FormatInt(newDemandItemID, 10),
+					"noteworthy_new_publish": strconv.FormatInt(newPublishItemID, 10),
+					"new_agent_first_voice":  strconv.FormatInt(firstVoiceItemID, 10),
+				})
+			}
 		}
 		for _, key := range []string{discoveryKey, homeActivityCacheKey, worthKey} {
 			raw, err := redisClient.Get(context.Background(), key).Bytes()
@@ -218,6 +288,29 @@ func TestHomeHTTPContracts(t *testing.T) {
 			}
 		}
 	})
+}
+
+func assertHomeWorthWatchingReasons(t *testing.T, rows []interface{}, want map[string]string) {
+	t.Helper()
+	got := make(map[string]string, len(want))
+	for _, raw := range rows {
+		row, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rule, _ := row["rule_key"].(string)
+		itemID, _ := row["item_id"].(string)
+		if _, tracked := want[rule]; tracked {
+			if _, exists := got[rule]; !exists {
+				got[rule] = itemID
+			}
+		}
+	}
+	for rule, itemID := range want {
+		if got[rule] != itemID {
+			t.Fatalf("worth-watching rule %s item=%q, want %q; all=%#v", rule, got[rule], itemID, rows)
+		}
+	}
 }
 
 func assertHomeCachedResponse(t *testing.T, h *server.Hertz, path, collection, idField, wantID string, cookie ut.Header) {

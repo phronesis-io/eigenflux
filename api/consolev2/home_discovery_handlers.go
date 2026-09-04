@@ -3,6 +3,7 @@ package consolev2
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
+	redis "github.com/redis/go-redis/v9"
 )
 
 const (
@@ -103,10 +105,12 @@ func homeDiscoveryCountryCode(privateJSON string) string {
 }
 
 func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
+	requestCtx, cancelRequest := context.WithTimeout(ctx, homeRefreshTimeout)
+	defer cancelRequest()
 	agentIDValue, _ := agentID(c)
 	now := time.Now()
 	var privateCard string
-	if err := s.db.Raw(`SELECT COALESCE(private_card, '{}'::jsonb)::text
+	if err := s.db.WithContext(requestCtx).Raw(`SELECT COALESCE(private_card, '{}'::jsonb)::text
 		FROM agent_cards WHERE agent_id = ?`, agentIDValue).Scan(&privateCard).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery timezone", nil)
 		return
@@ -114,8 +118,8 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 	location, timezone := todayLocationFromPrivateCard(privateCard)
 	start := homeDiscoveryDayStart(now, location)
 	cacheKey := homeDiscoveryCacheKey(timezone, start)
-	if cached, ok := s.readHomeDiscoveryCache(ctx, cacheKey); ok {
-		if err := s.decorateHomeDiscoveryRelations(agentIDValue, &cached); err != nil {
+	if cached, ok := s.readHomeDiscoveryCache(requestCtx, cacheKey); ok {
+		if err := s.decorateHomeDiscoveryRelations(requestCtx, agentIDValue, &cached); err != nil {
 			fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery relations", nil)
 			return
 		}
@@ -124,14 +128,18 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 	}
 
 	value, err, _ := s.homeDiscoveryRefresh.Do(cacheKey, func() (interface{}, error) {
-		if cached, ok := s.readHomeDiscoveryCache(ctx, cacheKey); ok {
+		refreshCtx, cancel := context.WithTimeout(context.Background(), homeRefreshTimeout)
+		defer cancel()
+		if cached, ok := s.readHomeDiscoveryCache(refreshCtx, cacheKey); ok {
 			return cached, nil
 		}
-		result, loadErr := s.loadHomeDiscovery(start, now.UnixMilli(), timezone)
+		started := time.Now()
+		result, loadErr := s.loadHomeDiscovery(refreshCtx, start, now.UnixMilli(), timezone)
+		observeHomeRefresh("discovery", started, loadErr)
 		if loadErr != nil {
 			return homeDiscoveryResponse{}, loadErr
 		}
-		s.writeHomeDiscoveryCache(ctx, cacheKey, result)
+		s.writeHomeDiscoveryCache(refreshCtx, cacheKey, result)
 		return result, nil
 	})
 	if err != nil {
@@ -139,14 +147,14 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	result := value.(homeDiscoveryResponse)
-	if err := s.decorateHomeDiscoveryRelations(agentIDValue, &result); err != nil {
+	if err := s.decorateHomeDiscoveryRelations(requestCtx, agentIDValue, &result); err != nil {
 		fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery relations", nil)
 		return
 	}
 	reply(c, http.StatusOK, result)
 }
 
-func (s *Service) decorateHomeDiscoveryRelations(viewerAgentID int64, result *homeDiscoveryResponse) error {
+func (s *Service) decorateHomeDiscoveryRelations(ctx context.Context, viewerAgentID int64, result *homeDiscoveryResponse) error {
 	if result == nil || len(result.Items) == 0 {
 		return nil
 	}
@@ -164,7 +172,7 @@ func (s *Service) decorateHomeDiscoveryRelations(viewerAgentID int64, result *ho
 		return nil
 	}
 	rows := make([]homeDiscoveryRelationRow, 0, len(ids))
-	if err := s.db.Raw(`SELECT a.agent_id,
+	if err := s.db.WithContext(ctx).Raw(`SELECT a.agent_id,
 		EXISTS (SELECT 1 FROM user_relations ur WHERE ur.from_uid=? AND ur.to_uid=a.agent_id AND ur.rel_type=1) AS is_friend,
 		EXISTS (SELECT 1 FROM friend_requests fr WHERE fr.from_uid=? AND fr.to_uid=a.agent_id AND fr.status=0) AS friend_request_pending,
 		COALESCE(settings.show_add_friend, TRUE) AS show_add_friend
@@ -189,16 +197,24 @@ func (s *Service) decorateHomeDiscoveryRelations(viewerAgentID int64, result *ho
 
 func (s *Service) readHomeDiscoveryCache(ctx context.Context, key string) (homeDiscoveryResponse, bool) {
 	if s.redisClient == nil {
+		recordHomeCache("discovery", "disabled")
 		return homeDiscoveryResponse{}, false
 	}
 	raw, err := s.redisClient.Get(ctx, key).Bytes()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			recordHomeCache("discovery", "miss")
+		} else {
+			recordHomeCache("discovery", "error")
+		}
 		return homeDiscoveryResponse{}, false
 	}
 	var result homeDiscoveryResponse
 	if json.Unmarshal(raw, &result) != nil || result.WindowStart <= 0 {
+		recordHomeCache("discovery", "corrupt")
 		return homeDiscoveryResponse{}, false
 	}
+	recordHomeCache("discovery", "hit")
 	return result, true
 }
 
@@ -206,26 +222,33 @@ func (s *Service) writeHomeDiscoveryCache(ctx context.Context, key string, resul
 	if s.redisClient == nil {
 		return
 	}
-	if raw, err := json.Marshal(result); err == nil {
-		_ = s.redisClient.Set(ctx, key, raw, homeDiscoveryCacheTTL).Err()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		recordHomeCache("discovery", "encode_error")
+		return
 	}
+	if err := s.redisClient.Set(ctx, key, raw, homeDiscoveryCacheTTL).Err(); err != nil {
+		recordHomeCache("discovery", "write_error")
+		return
+	}
+	recordHomeCache("discovery", "write_success")
 }
 
-func (s *Service) rankedHomeDiscovery(sql string, args ...interface{}) ([]homeDiscoveryCandidateRow, error) {
+func (s *Service) rankedHomeDiscovery(ctx context.Context, sql string, args ...interface{}) ([]homeDiscoveryCandidateRow, error) {
 	rows := make([]homeDiscoveryCandidateRow, 0, homeDiscoveryCandidate)
-	if err := s.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDiscoveryResponse, error) {
+func (s *Service) loadHomeDiscovery(ctx context.Context, start, now int64, timezone string) (homeDiscoveryResponse, error) {
 	eligible := fmt.Sprintf(`a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''
 		AND COALESCE(a.email, '') NOT LIKE '%%@pgc.eigenflux.one'
 		AND COALESCE(a.email, '') NOT LIKE '%%@bot.eigenflux.one'
 		AND a.agent_id <> %d`, eigenfluxOfficialAssistantID)
 
-	recognition, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	recognition, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(DISTINCT f.agent_id) AS primary_value,
 		       COUNT(DISTINCT f.item_id) AS secondary_value, '' AS dimension
 		FROM feedback_logs f JOIN raw_items r ON r.item_id=f.item_id
@@ -236,7 +259,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		return homeDiscoveryResponse{}, err
 	}
 
-	broadcasts, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	broadcasts, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(*) AS primary_value, COALESCE(SUM(s.consumed_count),0) AS secondary_value, '' AS dimension
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
 		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN item_stats s ON s.item_id=r.item_id
@@ -246,7 +269,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		return homeDiscoveryResponse{}, err
 	}
 
-	relations, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	relations, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(*) AS primary_value, 0 AS secondary_value, '' AS dimension
 		FROM user_relations r JOIN agents a ON a.agent_id=r.from_uid
 		WHERE r.rel_type=1 AND r.created_at >= ? AND %s
@@ -255,7 +278,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		return homeDiscoveryResponse{}, err
 	}
 
-	discussion, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	discussion, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(DISTINCT pm.sender_id) FILTER (WHERE pm.sender_id <> a.agent_id) AS primary_value,
 		       COUNT(DISTINCT c.origin_id) AS secondary_value, '' AS dimension
 		FROM conversations c JOIN private_messages pm ON pm.conv_id=c.conv_id
@@ -267,7 +290,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		return homeDiscoveryResponse{}, err
 	}
 
-	newStandout, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	newStandout, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(DISTINCT f.agent_id) FILTER (WHERE f.score > 0) AS primary_value,
 		       COUNT(DISTINCT r.item_id) AS secondary_value, '' AS dimension
 		FROM agents a JOIN raw_items r ON r.author_agent_id=a.agent_id AND r.created_at >= ?
@@ -279,7 +302,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		return homeDiscoveryResponse{}, err
 	}
 
-	domain, err := s.rankedHomeDiscovery(fmt.Sprintf(`
+	domain, err := s.rankedHomeDiscovery(ctx, fmt.Sprintf(`
 		WITH domain_activity AS (
 		 SELECT r.author_agent_id AS agent_id, BTRIM(tag) AS dimension, COUNT(*) AS broadcasts,
 		        COALESCE(SUM(s.score_1_count+s.score_2_count),0) AS helpful,
@@ -307,7 +330,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		{Key: "domain_representative_today", MetricKey: "recognitions_in_domain_today", Rows: domain},
 	}
 	selected := selectUniqueHomeDiscovery(rules, homeDiscoveryResultLimit)
-	items, err := s.hydrateHomeDiscovery(selected)
+	items, err := s.hydrateHomeDiscovery(ctx, selected)
 	if err != nil {
 		return homeDiscoveryResponse{}, err
 	}
@@ -344,7 +367,7 @@ func selectUniqueHomeDiscovery(rules []homeDiscoveryRule, limit int) []homeDisco
 	return selected
 }
 
-func (s *Service) hydrateHomeDiscovery(selected []homeDiscoveryRule) ([]homeDiscoveryAgent, error) {
+func (s *Service) hydrateHomeDiscovery(ctx context.Context, selected []homeDiscoveryRule) ([]homeDiscoveryAgent, error) {
 	if len(selected) == 0 {
 		return []homeDiscoveryAgent{}, nil
 	}
@@ -353,7 +376,7 @@ func (s *Service) hydrateHomeDiscovery(selected []homeDiscoveryRule) ([]homeDisc
 		ids = append(ids, rule.Rows[0].AgentID)
 	}
 	var rows []homeDiscoveryIdentityRow
-	if err := s.db.Raw(`SELECT a.agent_id, COALESCE(a.short_id,'') AS short_id, a.agent_name,
+	if err := s.db.WithContext(ctx).Raw(`SELECT a.agent_id, COALESCE(a.short_id,'') AS short_id, a.agent_name,
 		COALESCE(a.agent_name_en,'') AS agent_name_en,
 		COALESCE(c.public_card,'{}'::jsonb)::text AS public_card,
 		COALESCE(c.private_card,'{}'::jsonb)::text AS private_card, a.created_at

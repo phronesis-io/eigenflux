@@ -360,3 +360,23 @@ func TestHomepageRealWorldRelevanceMigrationIsIndexed(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleHomeQueryIndexesCoverRecentActivityAndFirstVoice(t *testing.T) {
+	sql := migration(t, "000099_console_home_query_indexes.sql")
+	for _, required := range []string{
+		"idx_raw_items_author_created_item",
+		"raw_items(author_agent_id, created_at, item_id)",
+		"idx_private_messages_home_activity",
+		"private_messages(created_at DESC, msg_id DESC)",
+		"idx_user_relations_home_activity",
+		"WHERE rel_type = 1",
+		"idx_agent_cards_home_activity",
+		"public_card_generated_at DESC",
+		"idx_agent_commands_home_activity",
+		"WHERE command_type = 'task_delegation'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("console home query-index migration missing %q", required)
+		}
+	}
+}

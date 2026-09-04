@@ -32,9 +32,9 @@ func TestSelectUniqueHomeWorthWatchingAllowsRepeatedAgentOnlyToFillRule(t *testi
 	}
 }
 
-func TestHomeWorthWatchingCacheKeyIncludesPolicyAndDay(t *testing.T) {
-	got := homeWorthWatchingCacheKey("Asia/Singapore", 12345)
-	want := "console:v2:home:worth-watching:weekly-v4:homepage-v2:Asia_Singapore:12345"
+func TestHomeWorthWatchingCacheKeyIsGlobalAndVersioned(t *testing.T) {
+	got := homeWorthWatchingCacheKey()
+	want := "console:v2:home:worth-watching:weekly-v5:homepage-v2"
 	if got != want {
 		t.Fatalf("cache key = %q, want %q", got, want)
 	}
