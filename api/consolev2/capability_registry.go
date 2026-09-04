@@ -23,19 +23,22 @@ type capabilityText struct {
 }
 
 type capabilityOperation struct {
-	OperationID   string                    `json:"operation_id"`
-	CLI           string                    `json:"cli"`
-	Category      string                    `json:"category"`
-	Access        string                    `json:"access"`
-	Risk          string                    `json:"risk"`
-	Confirmation  string                    `json:"confirmation"`
-	Availability  string                    `json:"availability"`
-	MinCLIVersion string                    `json:"min_cli_version"`
-	Localized     map[string]capabilityText `json:"localized"`
-	Label         string                    `json:"label"`
-	Description   string                    `json:"description"`
-	SemanticHints []string                  `json:"semantic_hints,omitempty"`
-	AllowedValues []string                  `json:"allowed_values,omitempty"`
+	OperationID            string                    `json:"operation_id"`
+	CLI                    string                    `json:"cli"`
+	Category               string                    `json:"category"`
+	Access                 string                    `json:"access"`
+	Risk                   string                    `json:"risk"`
+	Confirmation           string                    `json:"confirmation"`
+	Availability           string                    `json:"availability"`
+	MinCLIVersion          string                    `json:"min_cli_version"`
+	IdentityRoute          string                    `json:"identity_route"`
+	RequiresConsoleHandoff bool                      `json:"requires_console_handoff"`
+	SameAccountBehavior    string                    `json:"same_account_behavior,omitempty"`
+	Localized              map[string]capabilityText `json:"localized"`
+	Label                  string                    `json:"label"`
+	Description            string                    `json:"description"`
+	SemanticHints          []string                  `json:"semantic_hints,omitempty"`
+	AllowedValues          []string                  `json:"allowed_values,omitempty"`
 }
 
 type capabilityField struct {
@@ -51,6 +54,8 @@ type capabilityField struct {
 
 type capabilitySeed struct {
 	id, cli, category, access, risk, confirmation, availability, minCLI string
+	identityRoute, sameAccountBehavior                                  string
+	requiresConsoleHandoff                                              bool
 	zh, en                                                              capabilityText
 }
 
@@ -61,7 +66,7 @@ func capability(id, cli, category, access, zhLabel, enLabel string) capabilitySe
 	}
 	return capabilitySeed{
 		id: id, cli: cli, category: category, access: access,
-		risk: "normal", confirmation: confirmation, availability: "completed", minCLI: "0.0.37",
+		risk: "normal", confirmation: confirmation, availability: "completed", minCLI: "0.0.37", identityRoute: "none",
 		zh: capabilityText{Label: zhLabel, Description: zhLabel},
 		en: capabilityText{Label: enLabel, Description: enLabel},
 	}
@@ -72,6 +77,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
 		capability("identity.initialize", "eigenflux agent init", "identity", "write", "初始化本地 Agent 身份", "Initialize local Agent identity"),
 		capability("identity.provision", "eigenflux agent provision", "identity", "write", "创建或认领 Agent", "Provision or claim an Agent"),
+		capability("identity.recover_account", "eigenflux agent provision --recover-account", "identity", "write", "恢复历史 Agent", "Recover a historical Agent"),
 		capability("identity.switch_account", "eigenflux agent switch-account", "identity", "write", "切换 CLI 登录账号", "Switch the CLI account"),
 		capability("identity.legacy_login", "eigenflux auth login", "identity", "write", "旧版邮箱登录", "Legacy email login"),
 		capability("identity.legacy_verify", "eigenflux auth verify", "identity", "write", "验证旧版邮箱登录", "Verify legacy email login"),
@@ -167,8 +173,15 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if (seed.category == "profile" || seed.category == "context" || seed.category == "settings") &&
+			(seed.access == "write" || seed.access == "read_write") {
+			seed.identityRoute = "current_identity"
+		}
+		if seed.id == "identity.legacy_login" || seed.id == "identity.legacy_verify" || seed.id == "identity.logout" {
+			seed.identityRoute, seed.availability = "legacy_only", "legacy_only"
+		}
 		switch seed.id {
-		case "identity.switch_account", "identity.provision":
+		case "identity.switch_account", "identity.provision", "identity.recover_account":
 			seed.risk, seed.confirmation = "verified", "console_handoff"
 		case "context.security.update", "settings.recurring_publish.update", "settings.auto_reply_pm.update", "settings.auto_comment.update", "attention.respond", "relation.block", "broadcast.publish", "broadcast.delete":
 			seed.risk = "elevated"
@@ -182,8 +195,7 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "explicit_current_action_selection"
 		}
 		if seed.category == "local" || seed.id == "capabilities.read" || seed.id == "version.read" || seed.id == "diagnostics.run" ||
-			seed.id == "identity.initialize" || seed.id == "identity.provision" || seed.id == "identity.legacy_login" ||
-			seed.id == "identity.legacy_verify" || seed.id == "identity.logout" {
+			seed.id == "identity.initialize" || seed.id == "identity.provision" || seed.id == "identity.recover_account" {
 			seed.availability = "always"
 		}
 		if seed.id == "attention.prefill" {
@@ -196,7 +208,21 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "policy_governed"
 		}
 		switch seed.id {
+		case "identity.provision":
+			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
+			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"
+			seed.en.Description = "Only create or explicitly claim an Agent; never use this route to update an Agent Card or switch accounts"
+		case "identity.recover_account":
+			seed.identityRoute, seed.requiresConsoleHandoff, seed.minCLI = "recover_account", true, "0.0.39"
+			seed.zh.Description = "仅用于恢复历史 Agent，不用于修改 Agent Card、初次接入或切换账号"
+			seed.en.Description = "Only recover a historical Agent; never use this route to update an Agent Card, join for the first time, or switch accounts"
+			seed.zh.SemanticHints = []string{"恢复历史 Agent", "重新认领"}
+			seed.en.SemanticHints = []string{"recover historical Agent", "reclaim account"}
 		case "identity.switch_account":
+			seed.identityRoute, seed.requiresConsoleHandoff = "switch_account", true
+			seed.sameAccountBehavior = "confirm_without_change"
+			seed.zh.Description = "仅切换当前 CLI 绑定账号；选择当前账号时直接确认且不修改凭据"
+			seed.en.Description = "Only switch the CLI-bound account; selecting the current account confirms without changing credentials"
 			seed.zh.SemanticHints = []string{"切换账号", "换登录账号", "使用另一个账号"}
 			seed.en.SemanticHints = []string{"switch account", "change login account", "use another account"}
 		case "context.goal.update":
@@ -215,6 +241,8 @@ func capabilitySeeds() []capabilitySeed {
 			seed.zh.SemanticHints = []string{"忽略 Attention", "关闭待决策事项"}
 			seed.en.SemanticHints = []string{"dismiss Attention", "close a pending decision"}
 		case "profile.update":
+			seed.zh.Description = "使用当前 CLI 身份修改 Agent Card；不登录、不认领、不切换账号"
+			seed.en.Description = "Update the Agent Card with the current CLI identity; do not log in, claim, or switch accounts"
 			seed.zh.SemanticHints = []string{"修改 Agent Card", "更新资料"}
 			seed.en.SemanticHints = []string{"change Agent Card", "update profile"}
 		case "settings.feed_poll_interval.update", "settings.official_pm_optout.update", "settings.feed_delivery_preference.update", "settings.language.update", "settings.show_add_friend.update":
@@ -256,7 +284,9 @@ func buildAgentCapabilityRegistry(language string, controlEnabled, attentionEnab
 		operation := capabilityOperation{
 			OperationID: seed.id, CLI: seed.cli, Category: seed.category, Access: seed.access,
 			Risk: seed.risk, Confirmation: seed.confirmation, Availability: availability,
-			MinCLIVersion: seed.minCLI, Localized: localized, Label: selected.Label,
+			MinCLIVersion: seed.minCLI, IdentityRoute: seed.identityRoute,
+			RequiresConsoleHandoff: seed.requiresConsoleHandoff, SameAccountBehavior: seed.sameAccountBehavior,
+			Localized: localized, Label: selected.Label,
 			Description: selected.Description, SemanticHints: selected.SemanticHints,
 		}
 		if seed.id == "settings.language.update" {

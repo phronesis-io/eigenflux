@@ -13,8 +13,9 @@ var agentV2SwitchAccountCmd = &cobra.Command{
 	Use:   "switch-account",
 	Short: "Switch this Agent Home to another EigenFlux account",
 	Long: `Create a short-lived Console link for replacing the account used by this
-Agent Home. The target account must be verified in the Console. The current CLI
-login remains active until the target account has completed onboarding.`,
+Agent Home. Selecting the current account confirms it without changing credentials.
+A different target account must be verified in the Console. The current CLI login
+remains active until a new target account has completed onboarding.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		v2Client, server, err := newV2ClientForServer(serverFlag, true)

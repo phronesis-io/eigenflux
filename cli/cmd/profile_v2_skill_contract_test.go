@@ -32,6 +32,11 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 		"eigenflux agent switch-account",
 		"Do not ask a clarifying question before generating the link",
 		"Do not use the new-join four-line success template",
+		"## Mandatory Intent Routing",
+		"Keep these routes mutually exclusive",
+		"A successful `eigenflux capabilities` or `eigenflux profile refresh-context` call confirms this route",
+		"no active authenticated account",
+		"Do not start provisioning, recovery, account switching, email verification, or OTP handling",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("ef-profile is missing mandatory Console V2 routing text %q", required)
@@ -46,7 +51,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.8.0"`) {
+	if !strings.Contains(frontmatterParts[1], `version: "0.8.1"`) {
 		t.Error("ef-profile version was not advanced for V1 retirement")
 	}
 	for _, retired := range []string{"auth.md", "onboarding.md"} {
@@ -58,6 +63,15 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 	for _, lifecycleRule := range []string{"no bound email", "temporary identity", "formal account", "selected again later"} {
 		if !strings.Contains(skill, lifecycleRule) {
 			t.Errorf("ef-profile skill is missing account lifecycle rule %q", lifecycleRule)
+		}
+	}
+	switchHelpBody, err := os.ReadFile(filepath.Join(repoRoot, "cli/cmd/agent_switch_account.go"))
+	if err != nil {
+		t.Fatalf("read switch-account command: %v", err)
+	}
+	for _, required := range []string{"Selecting the current account confirms it without changing credentials", "A different target account must be verified"} {
+		if !strings.Contains(string(switchHelpBody), required) {
+			t.Errorf("switch-account help is missing same-account contract %q", required)
 		}
 	}
 	for _, capabilityRule := range []string{

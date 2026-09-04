@@ -1,11 +1,15 @@
 package consolev2
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -180,6 +184,133 @@ func TestPostgresCLIAccountSwitchCompletesAtomically(t *testing.T) {
 		if err := db.Raw(`SELECT COUNT(*) FROM agent_cli_account_switch_audit
 			WHERE switch_id_hash = ? AND result = 'completed'`, fx.record.SwitchIDHash).Scan(&audits).Error; err != nil || audits != 1 {
 			t.Fatalf("completed audits=%d err=%v", audits, err)
+		}
+	})
+
+	t.Run("current account completes without moving credentials", func(t *testing.T) {
+		fx := seed("noop", false, false)
+		fx.record.TargetAgentID = nil
+		fx.record.TargetConsoleSession = ""
+		fx.record.OwnershipVerifiedAt = nil
+		now := time.Now().UnixMilli()
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return completeNoopCLIAccountSwitch(tx, fx.record, now)
+		}); err != nil {
+			t.Fatalf("no-op completion failed: %v", err)
+		}
+		var result struct {
+			Status        string `gorm:"column:status"`
+			TargetAgentID *int64 `gorm:"column:target_agent_id"`
+			CompletedAt   *int64 `gorm:"column:completed_at"`
+		}
+		if err := db.Raw(`SELECT status, target_agent_id, completed_at
+			FROM agent_cli_account_switches WHERE switch_id_hash = ?`, fx.record.SwitchIDHash).Scan(&result).Error; err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "completed_noop" || result.TargetAgentID != nil || result.CompletedAt == nil {
+			t.Fatalf("same-account switch did not reach no-op terminal state: %#v", result)
+		}
+		var principalAgentID int64
+		if err := db.Raw(`SELECT agent_id FROM agent_principals WHERE principal_id = ?`, fx.principalID).Scan(&principalAgentID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if principalAgentID != fx.sourceID {
+			t.Fatalf("no-op switch moved principal to %d", principalAgentID)
+		}
+		var refreshed bool
+		if err := db.Raw(`SELECT access_refresh_required FROM agent_credential_sessions
+			WHERE principal_id = ?`, fx.principalID).Scan(&refreshed).Error; err != nil || refreshed {
+			t.Fatalf("no-op switch refresh flag=%v err=%v", refreshed, err)
+		}
+		var audits int64
+		if err := db.Raw(`SELECT COUNT(*) FROM agent_cli_account_switch_audit
+			WHERE switch_id_hash = ? AND result = 'completed_noop'`, fx.record.SwitchIDHash).Scan(&audits).Error; err != nil || audits != 1 {
+			t.Fatalf("completed_noop audits=%d err=%v", audits, err)
+		}
+	})
+
+	t.Run("current account handler needs no recent email auth and is idempotent", func(t *testing.T) {
+		fx := seed("handler-noop", false, false)
+		token := fmt.Sprintf("efas_handler-noop-%d", fx.sourceID)
+		if err := db.Exec(`UPDATE agent_cli_account_switches SET switch_id_hash = ?
+			WHERE switch_id_hash = ?`, hashString(token), fx.record.SwitchIDHash).Error; err != nil {
+			t.Fatal(err)
+		}
+		fx.record.SwitchIDHash = hashString(token)
+		service := &Service{db: db}
+
+		confirm := func() map[string]interface{} {
+			t.Helper()
+			request := app.NewContext(0)
+			request.Request.Header.Set("Cookie", cliAccountSwitchCookieName+"="+token)
+			request.Set("agent_id", fx.sourceID)
+			request.Set("console_session_id", fx.record.SourceConsoleSession)
+			service.confirmCLIAccountSwitch(context.Background(), request)
+			if request.Response.StatusCode() != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", request.Response.StatusCode(), request.Response.Body())
+			}
+			var envelope struct {
+				Data map[string]interface{} `json:"data"`
+			}
+			if err := json.Unmarshal(request.Response.Body(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			setCookies := request.Response.Header.PeekAll("Set-Cookie")
+			parsedHeaders := http.Header{}
+			for _, cookie := range setCookies {
+				parsedHeaders.Add("Set-Cookie", string(cookie))
+			}
+			cleared := false
+			for _, cookie := range (&http.Response{Header: parsedHeaders}).Cookies() {
+				if cookie.Name == cliAccountSwitchCookieName && cookie.Value == "" &&
+					(cookie.MaxAge < 0 || (!cookie.Expires.IsZero() && cookie.Expires.Before(time.Now()))) {
+					cleared = true
+				}
+			}
+			if !cleared {
+				t.Fatalf("completed response did not clear switch cookie: %q", setCookies)
+			}
+			return envelope.Data
+		}
+
+		for attempt := 1; attempt <= 2; attempt++ {
+			data := confirm()
+			if data["status"] != "completed" || data["agent_id"] != fmt.Sprintf("%d", fx.sourceID) ||
+				data["already_current"] != true || data["refresh_required"] != false {
+				t.Fatalf("attempt %d returned unexpected no-op response: %#v", attempt, data)
+			}
+			if attempt == 1 {
+				if err := db.Exec(`UPDATE agent_cli_account_switches SET expires_at = ?
+					WHERE switch_id_hash = ?`, time.Now().Add(-time.Minute).UnixMilli(), fx.record.SwitchIDHash).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		var audits int64
+		if err := db.Raw(`SELECT COUNT(*) FROM agent_cli_account_switch_audit
+			WHERE switch_id_hash = ? AND result = 'completed_noop'`, fx.record.SwitchIDHash).Scan(&audits).Error; err != nil || audits != 1 {
+			t.Fatalf("idempotent completed_noop audits=%d err=%v", audits, err)
+		}
+	})
+
+	t.Run("current account completion rejects a principal already moved elsewhere", func(t *testing.T) {
+		fx := seed("noop-moved", false, false)
+		if err := db.Exec(`UPDATE agent_principals SET agent_id = ? WHERE principal_id = ?`, fx.targetID, fx.principalID).Error; err != nil {
+			t.Fatal(err)
+		}
+		err := db.Transaction(func(tx *gorm.DB) error {
+			return completeNoopCLIAccountSwitch(tx, fx.record, time.Now().UnixMilli())
+		})
+		if err == nil {
+			t.Fatal("no-op completed after the principal moved to another Agent")
+		}
+		var status string
+		if err := db.Raw(`SELECT status FROM agent_cli_account_switches
+			WHERE switch_id_hash = ?`, fx.record.SwitchIDHash).Scan(&status).Error; err != nil {
+			t.Fatal(err)
+		}
+		if status != "pending_target" {
+			t.Fatalf("rejected no-op left status=%q", status)
 		}
 	})
 

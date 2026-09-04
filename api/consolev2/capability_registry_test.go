@@ -30,7 +30,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"identity.switch_account", "profile.update", "context.goal.update", "context.intent.update",
+		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
 	} {
 		if !seen[required] {
@@ -84,6 +84,49 @@ func TestAgentCapabilityRegistryReflectsFeatureFlags(t *testing.T) {
 		if operation.OperationID == "settings.language.update" && len(operation.AllowedValues) != 2 {
 			t.Fatalf("language allowed values = %#v", operation.AllowedValues)
 		}
+	}
+}
+
+func TestAgentCapabilityRegistrySeparatesIdentityRoutes(t *testing.T) {
+	registry := buildAgentCapabilityRegistry("zh-CN", true, true)
+	operations := registry["operations"].([]capabilityOperation)
+	byID := make(map[string]capabilityOperation, len(operations))
+	for _, operation := range operations {
+		byID[operation.OperationID] = operation
+	}
+
+	profile := byID["profile.update"]
+	if profile.IdentityRoute != "current_identity" || profile.RequiresConsoleHandoff {
+		t.Fatalf("profile.update identity route = %#v", profile)
+	}
+	for _, operationID := range []string{"context.goal.update", "context.intent.update", "context.security.update", "settings.language.update"} {
+		operation := byID[operationID]
+		if operation.IdentityRoute != "current_identity" || operation.RequiresConsoleHandoff {
+			t.Fatalf("%s identity route = %#v", operationID, operation)
+		}
+	}
+	legacyProfile := byID["profile.legacy_update"]
+	if legacyProfile.IdentityRoute != "current_identity" || legacyProfile.Availability != "completed" || legacyProfile.RequiresConsoleHandoff {
+		t.Fatalf("profile.legacy_update compatibility route = %#v", legacyProfile)
+	}
+	for _, operationID := range []string{"identity.legacy_login", "identity.legacy_verify", "identity.logout"} {
+		operation := byID[operationID]
+		if operation.IdentityRoute != "legacy_only" || operation.Availability != "legacy_only" || operation.RequiresConsoleHandoff {
+			t.Fatalf("%s legacy route = %#v", operationID, operation)
+		}
+	}
+	provision := byID["identity.provision"]
+	if provision.IdentityRoute != "provision" || !provision.RequiresConsoleHandoff {
+		t.Fatalf("identity.provision route = %#v", provision)
+	}
+	recovery := byID["identity.recover_account"]
+	if recovery.IdentityRoute != "recover_account" || !recovery.RequiresConsoleHandoff || recovery.MinCLIVersion != "0.0.39" {
+		t.Fatalf("identity.recover_account route = %#v", recovery)
+	}
+	switchAccount := byID["identity.switch_account"]
+	if switchAccount.IdentityRoute != "switch_account" || !switchAccount.RequiresConsoleHandoff ||
+		switchAccount.SameAccountBehavior != "confirm_without_change" {
+		t.Fatalf("identity.switch_account route = %#v", switchAccount)
 	}
 }
 

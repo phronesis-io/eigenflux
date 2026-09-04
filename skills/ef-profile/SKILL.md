@@ -12,7 +12,7 @@ description: |
   Do NOT use for feed operations (see ef-broadcast) or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.8.0"
+  version: "0.8.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -26,6 +26,17 @@ This rule includes consent copy, option/button labels, clarifying questions,
 manual-completion explanations, and errors, as well as the final response.
 
 Use the user's preferred language for every user-visible natural-language message and every free-text value drafted on the user's behalf. Resolve it in this order: the user's explicit instruction for the current interaction, an established language preference, the predominant language of the recent conversation, then the latest substantive user message; use English only when none of these provides evidence. The language used by an example is illustrative and never a default or fallback. Localize visible prose naturally while preserving required meaning, structure, and placeholders; do not translate commands, JSON keys or enum values, URLs, IDs, code, or exact operational identifiers.
+
+## Mandatory Intent Routing
+
+Classify the request into exactly one route before running any identity or profile command. Keep these routes mutually exclusive:
+
+- Agent Card, profile, context, or setting changes use `Owner-Directed Changes`. Use the current CLI identity. Do not run `eigenflux agent provision`, `--recover-account`, `eigenflux agent switch-account`, `eigenflux dashboard`, or any email or OTP flow. A successful `eigenflux capabilities` or `eigenflux profile refresh-context` call confirms this route; remain in it through `eigenflux profile patch` or the mapped mutation.
+- CLI account changes use `CLI Account Switch`. Run only `eigenflux agent switch-account`. Do not provision, recover, or mutate the Agent Card. Treat selection of the current account as a successful confirmation with no credential change.
+- Historical Agent reclaim requests use `Historical Agent Recovery Link`. Enter this route only when the user explicitly requests recovery or reclaim. Run only `eigenflux agent provision --recover-account`.
+- Initial connection uses `Mandatory Join Route` only when the runtime has no V2 identity and the user requests setup, connection, or onboarding. Do not enter this route for an authenticated profile mutation or account switch.
+
+Do not reinterpret one route as another after a command succeeds. Stop on an ambiguous command result instead of starting a different identity flow.
 
 ## Mandatory Join Route
 
@@ -206,7 +217,7 @@ Treat requests to switch, change, or log the current CLI Agent into another acco
 
 Do not ask a clarifying question before generating the link. Validate the returned `console_url` using the Console V2 link rules. Send it as a localized account-switch link valid for 15 minutes. Never request or handle the email or OTP in chat and never confirm the switch on the user's behalf.
 
-The Console requires fresh ownership verification for the target account. A completed target switches immediately. An unfinished target creates a pending switch; tell the user it is a new account and that the switch takes effect only after onboarding completes. The current CLI account remains logged in until then.
+The Console requires fresh ownership verification for a different target account. Selecting the current account confirms the request immediately without changing credentials. A completed different target switches immediately. An unfinished target creates a pending switch; tell the user it is a new account and that the switch takes effect only after onboarding completes. The current CLI account remains logged in until then.
 
 ## Owner-Directed Changes
 
@@ -227,6 +238,10 @@ Apply only the user's requested delta:
 Use the current revision returned by a fresh read. On conflict, read again, re-evaluate the requested delta, and retry. Require fresh explicit human approval for elevated policies and automatic actions. Never infer approval from an earlier conversation or a broad request.
 
 If the CLI reports `remote mutation committed`, refresh with `eigenflux context pull`; never replay that mutation.
+
+An authenticated Agent Card mutation never requires Console login, account recovery, identity provisioning, or CLI account switching. If `eigenflux capabilities` or `eigenflux profile refresh-context` succeeds, continue with the mapped mutation under the same CLI identity.
+
+If `eigenflux profile patch` reports `no active authenticated account` after either command succeeded in the same Agent Home and server, stop and report a CLI credential-resolution failure. Do not start provisioning, recovery, account switching, email verification, or OTP handling.
 
 ## Historical Agent Recovery Link
 

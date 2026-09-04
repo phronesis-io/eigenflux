@@ -39,6 +39,23 @@ func TestShortIDMigrationDownFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCLIAccountSwitchNoopMigrationDownPreservesAuditHistory(t *testing.T) {
+	sql := migration(t, "000096_console_v2_cli_account_switch_noop.sql")
+	up, down, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("CLI account-switch no-op migration has no Down boundary")
+	}
+	guard := "cannot downgrade while completed_noop account-switch history exists"
+	if strings.Contains(up, guard) || !strings.Contains(down, guard) {
+		t.Fatal("completed_noop downgrade guard must fail closed in Down only")
+	}
+	for _, destructiveRewrite := range []string{"SET result = 'revoked'", "SET status = 'revoked'"} {
+		if strings.Contains(down, destructiveRewrite) {
+			t.Fatalf("Down must not rewrite completed_noop audit history with %q", destructiveRewrite)
+		}
+	}
+}
+
 func TestShortIDBackfillUsesOneSetBasedStatementPerBatch(t *testing.T) {
 	raw, err := os.ReadFile("../scripts/common/agent_short_id_backfill.go")
 	if err != nil {
@@ -259,6 +276,25 @@ func TestCLIAccountSwitchMigrationKeepsPendingSwitchServerSide(t *testing.T) {
 	}
 	if strings.Contains(sql, "otp_hmac") || strings.Contains(sql, "session_secret_hash") {
 		t.Fatal("CLI account switch state must not persist OTP or Console session secrets")
+	}
+}
+
+func TestCLIAccountSwitchNoopMigrationAddsTerminalState(t *testing.T) {
+	sql := migration(t, "000096_console_v2_cli_account_switch_noop.sql")
+	up, down, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("CLI account-switch no-op migration has no Down boundary")
+	}
+	for _, required := range []string{
+		"completed_noop", "target_agent_id IS NULL", "completed_at IS NOT NULL",
+		"chk_agent_cli_account_switch_audit_result",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("CLI account-switch no-op migration missing %q", required)
+		}
+	}
+	if !strings.Contains(down, "cannot downgrade while completed_noop account-switch history exists") {
+		t.Fatal("CLI account-switch no-op migration must fail closed instead of rewriting terminal history")
 	}
 }
 
