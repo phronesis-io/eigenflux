@@ -44,6 +44,14 @@ temporary identity and is abandoned, while an email-bound Agent is a formal
 account and remains active. Onboarding or source-side activity never blocks the
 switch, and no account data is merged. A successful request:
 
+Historical Agents created before the binding table may have a unique
+`legacy_real` email without an `agent_email_bindings` row. After the owner has
+passed the bound OTP challenge, recovery confirmation accepts that legacy-only
+shape only when the canonical email hash still matches the recovery record. It
+atomically creates the verified active binding before moving the principal;
+duplicate ownership, invalid identity state, or a hash mismatch still fails
+closed.
+
 - moves the current principal to the requested Agent and preserves that Agent's
   data and other principals;
 - switches the Console session and marks current Agent access credentials for

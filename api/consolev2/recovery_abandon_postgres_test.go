@@ -141,6 +141,11 @@ func TestHistoricalRecoveryAbandonsUnboundTemporaryAgent(t *testing.T) {
 		VALUES (?, ?, 1, 'verified', 'active', ?, ?, ?)`, targetID, historicalEmail, now, now, now).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Reproduce a legacy-only production identity whose email predates the
+	// Console V2 binding table and was never copied by the one-time backfill.
+	if err := gdb.Exec(`DELETE FROM agent_email_bindings WHERE agent_id = ?`, targetID).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := gdb.Exec(`INSERT INTO agent_cards
 		(agent_id, public_card, private_card, schema_version, source_version, rebuild_fence,
 		 card_version, public_card_version, generated_at, public_card_generated_at)
@@ -272,7 +277,7 @@ func TestHistoricalRecoveryAbandonsUnboundTemporaryAgent(t *testing.T) {
 	if err := gdb.Raw(`SELECT agent_id FROM agent_principals WHERE principal_id = ?`, principalID).Scan(&movedAgentID).Error; err != nil {
 		t.Fatal(err)
 	}
-	var sourceProjectionCount, sourceBindingCount, relationCount int64
+	var sourceProjectionCount, sourceBindingCount, targetVerifiedBindingCount, relationCount int64
 	if err := gdb.Raw(`SELECT
 		(EXISTS (SELECT 1 FROM agent_onboarding_drafts WHERE agent_id = ?))::int +
 		(EXISTS (SELECT 1 FROM agent_cards WHERE agent_id = ?))::int +
@@ -282,6 +287,11 @@ func TestHistoricalRecoveryAbandonsUnboundTemporaryAgent(t *testing.T) {
 	}
 	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_email_bindings WHERE agent_id = ? AND status = 'active'`, sourceID).
 		Scan(&sourceBindingCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Raw(`SELECT COUNT(*) FROM agent_email_bindings
+		WHERE agent_id = ? AND normalized_email = ? AND status = 'active' AND verification_state = 'verified'`,
+		targetID, historicalEmail).Scan(&targetVerifiedBindingCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := gdb.Raw(`SELECT COUNT(*) FROM friend_requests WHERE id = ? AND from_uid = ? AND to_uid = ?`,
@@ -302,11 +312,11 @@ func TestHistoricalRecoveryAbandonsUnboundTemporaryAgent(t *testing.T) {
 		Row().Scan(&orphanConsoleStatus, &orphanConsoleRevokedAt); err != nil {
 		t.Fatal(err)
 	}
-	if movedAgentID != targetID || sourceProjectionCount != 0 || sourceBindingCount != 0 || relationCount != 1 ||
+	if movedAgentID != targetID || sourceProjectionCount != 0 || sourceBindingCount != 0 || targetVerifiedBindingCount != 1 || relationCount != 1 ||
 		orphanPrincipalStatus != "revoked" || orphanPrincipalRevokedAt == 0 || orphanCredentialRevokedAt == 0 ||
 		orphanConsoleStatus != "revoked" || orphanConsoleRevokedAt == 0 {
-		t.Fatalf("abandonment cleanup mismatch: moved_agent=%d projections=%d bindings=%d relations=%d orphan_principal=%q/%d credential_revoked=%d orphan_console=%q/%d",
-			movedAgentID, sourceProjectionCount, sourceBindingCount, relationCount, orphanPrincipalStatus,
+		t.Fatalf("abandonment cleanup mismatch: moved_agent=%d projections=%d source_bindings=%d target_verified_bindings=%d relations=%d orphan_principal=%q/%d credential_revoked=%d orphan_console=%q/%d",
+			movedAgentID, sourceProjectionCount, sourceBindingCount, targetVerifiedBindingCount, relationCount, orphanPrincipalStatus,
 			orphanPrincipalRevokedAt, orphanCredentialRevokedAt, orphanConsoleStatus, orphanConsoleRevokedAt)
 	}
 
