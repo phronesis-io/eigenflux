@@ -39,6 +39,23 @@ func TestShortIDMigrationDownFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCLIAccountSwitchNoopMigrationDownPreservesAuditHistory(t *testing.T) {
+	sql := migration(t, "000096_console_v2_cli_account_switch_noop.sql")
+	up, down, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("CLI account-switch no-op migration has no Down boundary")
+	}
+	guard := "cannot downgrade while completed_noop account-switch history exists"
+	if strings.Contains(up, guard) || !strings.Contains(down, guard) {
+		t.Fatal("completed_noop downgrade guard must fail closed in Down only")
+	}
+	for _, destructiveRewrite := range []string{"SET result = 'revoked'", "SET status = 'revoked'"} {
+		if strings.Contains(down, destructiveRewrite) {
+			t.Fatalf("Down must not rewrite completed_noop audit history with %q", destructiveRewrite)
+		}
+	}
+}
+
 func TestShortIDBackfillUsesOneSetBasedStatementPerBatch(t *testing.T) {
 	raw, err := os.ReadFile("../scripts/common/agent_short_id_backfill.go")
 	if err != nil {
@@ -276,8 +293,8 @@ func TestCLIAccountSwitchNoopMigrationAddsTerminalState(t *testing.T) {
 			t.Fatalf("CLI account-switch no-op migration missing %q", required)
 		}
 	}
-	if !strings.Contains(down, "SET status = 'revoked', completed_at = NULL WHERE status = 'completed_noop'") {
-		t.Fatal("CLI account-switch no-op migration does not normalize rows before rollback")
+	if !strings.Contains(down, "cannot downgrade while completed_noop account-switch history exists") {
+		t.Fatal("CLI account-switch no-op migration must fail closed instead of rewriting terminal history")
 	}
 }
 
