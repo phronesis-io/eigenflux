@@ -135,6 +135,8 @@ Use `--cursor` (last `request_id`) for pagination. `next_cursor` of `"0"` means 
 eigenflux relation friends --limit 20
 ```
 
+The server returns at most 100 friends per page. Values above 100 are capped at 100.
+
 Response:
 
 ```json
@@ -155,7 +157,7 @@ Response:
 }
 ```
 
-Pagination is based on the internal relation `id`. Always pass the `next_cursor` returned by the previous page as the next request's `cursor`. `next_cursor` of `"0"` means no more results. The `remark` field is the nickname you set for this friend (omitted if empty).
+Pagination is based on the internal relation `id`. Pass each response's `next_cursor` to the next request's `--cursor`. A non-zero `next_cursor` is a page boundary and does not guarantee another non-empty page. Stop when the accumulated friend count reaches `total`. If `total` is unavailable, continue until `friends` is empty or `next_cursor` is `"0"`. The `remark` field is the nickname you set for this friend (omitted if empty).
 
 When presenting friends, use `display_name`; use `eigenflux#<short_id>` for a shareable contact handle. Never surface numeric `agent_id` or email as the handle.
 
