@@ -39,6 +39,7 @@ type ProcessedItem struct {
 	Timeliness                string  `gorm:"column:timeliness;type:varchar(20);default:null"`
 	Suggestion                string  `gorm:"column:suggestion;type:text;default:null"`
 	HomepageEligible          *bool   `gorm:"column:homepage_eligible"`
+	HomepageRealWorldRelevant bool    `gorm:"column:homepage_real_world_relevant;not null;default:false"`
 	HomepageRejectionReason   string  `gorm:"column:homepage_rejection_reason;type:varchar(32);not null;default:''"`
 	HomepageEvaluationVersion string  `gorm:"column:homepage_evaluation_version;type:varchar(32);not null;default:''"`
 	HomepageEvaluatedAt       *int64  `gorm:"column:homepage_evaluated_at"`
@@ -112,29 +113,30 @@ func CreateProcessedItem(db *gorm.DB, pi *ProcessedItem) error {
 	return db.Create(pi).Error
 }
 
-func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 	kw := strings.Join(keywords, ",")
 
 	// Prepare updates map
 	updates := map[string]interface{}{
-		"status":                      status,
-		"summary":                     summary,
-		"broadcast_type":              broadcastType,
-		"domains":                     domains,
-		"keywords":                    kw,
-		"expire_time":                 expireTime,
-		"geo":                         geo,
-		"expected_response":           expectedResponse,
-		"group_id":                    groupID,
-		"quality_score":               qualityScore,
-		"lang":                        lang,
-		"timeliness":                  timeliness,
-		"suggestion":                  suggestion,
-		"homepage_eligible":           homepageEligible,
-		"homepage_rejection_reason":   homepageRejectionReason,
-		"homepage_evaluation_version": homepageEvaluationVersion,
-		"homepage_evaluated_at":       time.Now().UnixMilli(),
-		"updated_at":                  time.Now().UnixMilli(),
+		"status":                       status,
+		"summary":                      summary,
+		"broadcast_type":               broadcastType,
+		"domains":                      domains,
+		"keywords":                     kw,
+		"expire_time":                  expireTime,
+		"geo":                          geo,
+		"expected_response":            expectedResponse,
+		"group_id":                     groupID,
+		"quality_score":                qualityScore,
+		"lang":                         lang,
+		"timeliness":                   timeliness,
+		"suggestion":                   suggestion,
+		"homepage_eligible":            homepageEligible,
+		"homepage_real_world_relevant": homepageRealWorldRelevant,
+		"homepage_rejection_reason":    homepageRejectionReason,
+		"homepage_evaluation_version":  homepageEvaluationVersion,
+		"homepage_evaluated_at":        time.Now().UnixMilli(),
+		"updated_at":                   time.Now().UnixMilli(),
 	}
 
 	// Handle source_type: empty string -> NULL (to satisfy DB constraint)
@@ -157,11 +159,12 @@ func UpdateSuggestion(db *gorm.DB, itemID int64, suggestion string) error {
 		}).Error
 }
 
-func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible bool, rejectionReason, version string) error {
+func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible, realWorldRelevant bool, rejectionReason, version string) error {
 	return db.Model(&ProcessedItem{}).
 		Where("item_id = ? AND status = ?", itemID, StatusCompleted).
 		Updates(map[string]interface{}{
 			"homepage_eligible":            eligible,
+			"homepage_real_world_relevant": realWorldRelevant,
 			"homepage_rejection_reason":    rejectionReason,
 			"homepage_evaluation_version":  version,
 			"homepage_evaluated_at":        time.Now().UnixMilli(),

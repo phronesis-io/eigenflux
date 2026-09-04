@@ -166,7 +166,7 @@ func TestExtractKeywords_WithPrefixText(t *testing.T) {
 }
 
 func TestProcessItem_PlainJSON(t *testing.T) {
-	respText := `{"summary": "A guide to concurrency patterns in Go", "broadcast_type": "info", "domains": ["programming"], "keywords": ["go", "concurrency", "goroutines"], "expire_time": "", "geo": "", "source_type": "original", "expected_response": "", "group_id": "", "discard": false, "discard_reason": "", "lang": "en", "quality": 0.85, "timeliness": "evergreen", "homepage_eligible": true, "homepage_rejection_reason": "", "homepage_evaluation_version": "homepage-v1"}`
+	respText := `{"summary": "A guide to concurrency patterns in Go", "broadcast_type": "info", "domains": ["programming"], "keywords": ["go", "concurrency", "goroutines"], "expire_time": "", "geo": "", "source_type": "original", "expected_response": "", "group_id": "", "discard": false, "discard_reason": "", "lang": "en", "quality": 0.85, "timeliness": "evergreen", "homepage_eligible": true, "homepage_real_world_relevant": false, "homepage_rejection_reason": "", "homepage_evaluation_version": "homepage-v2"}`
 	srv := mockServer(t, respText)
 	defer srv.Close()
 
@@ -190,7 +190,7 @@ func TestProcessItem_PlainJSON(t *testing.T) {
 }
 
 func TestProcessItem_WrappedInCodeBlock(t *testing.T) {
-	respText := "```json\n{\"summary\": \"Latest in AI\", \"broadcast_type\": \"info\", \"domains\": [\"ai\"], \"keywords\": [\"ai\", \"ml\"], \"expire_time\": \"\", \"geo\": \"\", \"source_type\": \"original\", \"expected_response\": \"\", \"group_id\": \"\", \"discard\": false, \"discard_reason\": \"\", \"lang\": \"en\", \"quality\": 0.75, \"timeliness\": \"timely\", \"homepage_eligible\": false, \"homepage_rejection_reason\": \"low_substance\", \"homepage_evaluation_version\": \"homepage-v1\"}\n```"
+	respText := "```json\n{\"summary\": \"Latest in AI\", \"broadcast_type\": \"info\", \"domains\": [\"ai\"], \"keywords\": [\"ai\", \"ml\"], \"expire_time\": \"\", \"geo\": \"\", \"source_type\": \"original\", \"expected_response\": \"\", \"group_id\": \"\", \"discard\": false, \"discard_reason\": \"\", \"lang\": \"en\", \"quality\": 0.75, \"timeliness\": \"timely\", \"homepage_eligible\": false, \"homepage_real_world_relevant\": false, \"homepage_rejection_reason\": \"low_substance\", \"homepage_evaluation_version\": \"homepage-v2\"}\n```"
 	srv := mockServer(t, respText)
 	defer srv.Close()
 
@@ -213,9 +213,10 @@ func TestProcessItemRejectsIncompleteHomepageEvaluation(t *testing.T) {
 		response string
 		wantErr  string
 	}{
-		{name: "missing eligibility", response: `{"discard": false, "homepage_evaluation_version": "homepage-v1"}`, wantErr: "missing homepage_eligible"},
-		{name: "missing version", response: `{"discard": false, "homepage_eligible": true}`, wantErr: "invalid homepage_evaluation_version"},
-		{name: "missing rejection reason", response: `{"discard": false, "homepage_eligible": false, "homepage_evaluation_version": "homepage-v1"}`, wantErr: "missing homepage_rejection_reason"},
+		{name: "missing eligibility", response: `{"discard": false, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_eligible"},
+		{name: "missing real-world relevance", response: `{"discard": false, "homepage_eligible": true, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_real_world_relevant"},
+		{name: "missing version", response: `{"discard": false, "homepage_eligible": true, "homepage_real_world_relevant": false}`, wantErr: "invalid homepage_evaluation_version"},
+		{name: "missing rejection reason", response: `{"discard": false, "homepage_eligible": false, "homepage_real_world_relevant": false, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_rejection_reason"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -16,7 +16,9 @@ import (
 const (
 	homeWorthWatchingCacheTTL     = 2 * time.Minute
 	homeWorthWatchingCandidateMax = 32
-	homepageEvaluationVersion     = "homepage-v1"
+	homeWorthWatchingResultMax    = 24
+	homeWorthWatchingCacheVersion = "weekly-v3"
+	homepageEvaluationVersion     = "homepage-v2"
 )
 
 type homeWorthWatchingMetric struct {
@@ -84,7 +86,7 @@ type homeWorthWatchingContentRow struct {
 }
 
 func homeWorthWatchingCacheKey(timezone string, start int64) string {
-	return "console:v2:home:worth-watching:" + homepageEvaluationVersion + ":" +
+	return "console:v2:home:worth-watching:" + homeWorthWatchingCacheVersion + ":" + homepageEvaluationVersion + ":" +
 		strings.ReplaceAll(timezone, "/", "_") + ":" + strconv.FormatInt(start, 10)
 }
 
@@ -99,8 +101,9 @@ func (s *Service) getHomeWorthWatching(ctx context.Context, c *app.RequestContex
 
 	now := time.Now()
 	location, timezone := todayLocationFromPrivateCard(privateCard)
-	start := homeDiscoveryDayStart(now, location)
-	cacheKey := homeWorthWatchingCacheKey(timezone, start)
+	dayBucket := homeDiscoveryDayStart(now, location)
+	windowStart := now.Add(-7 * 24 * time.Hour).UnixMilli()
+	cacheKey := homeWorthWatchingCacheKey(timezone, dayBucket)
 	if cached, ok := s.readHomeWorthWatchingCache(ctx, cacheKey); ok {
 		reply(c, http.StatusOK, cached)
 		return
@@ -110,7 +113,7 @@ func (s *Service) getHomeWorthWatching(ctx context.Context, c *app.RequestContex
 		if cached, ok := s.readHomeWorthWatchingCache(ctx, cacheKey); ok {
 			return cached, nil
 		}
-		result, loadErr := s.loadHomeWorthWatching(start, now.UnixMilli(), timezone)
+		result, loadErr := s.loadHomeWorthWatching(windowStart, now.UnixMilli(), timezone)
 		if loadErr != nil {
 			return homeWorthWatchingResponse{}, loadErr
 		}
@@ -159,6 +162,19 @@ func (s *Service) rankedHomeWorthWatching(sql string, args ...interface{}) ([]ho
 func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (homeWorthWatchingResponse, error) {
 	eligible := `p.status=3 AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=?
 		AND a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''`
+
+	realWorld, err := s.rankedHomeWorthWatching(fmt.Sprintf(`
+		SELECT r.item_id, r.author_agent_id AS agent_id,
+		       COALESCE(ROUND(p.quality_score * 100),0)::bigint AS primary_value,
+		       COALESCE(s.score_1_count+s.score_2_count,0) AS secondary_value
+		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id
+		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN item_stats s ON s.item_id=r.item_id
+		WHERE r.created_at >= ? AND p.homepage_real_world_relevant=TRUE AND %s
+		ORDER BY r.created_at DESC, p.quality_score DESC, secondary_value DESC LIMIT ?`, eligible),
+		start, homepageEvaluationVersion, homeWorthWatchingCandidateMax)
+	if err != nil {
+		return homeWorthWatchingResponse{}, err
+	}
 
 	trending, err := s.rankedHomeWorthWatching(fmt.Sprintf(`
 		SELECT r.item_id, r.author_agent_id AS agent_id,
@@ -231,7 +247,7 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN item_stats s ON s.item_id=r.item_id
 		WHERE r.created_at >= ? AND %s
 		ORDER BY p.quality_score DESC, secondary_value DESC, r.created_at DESC LIMIT ?`, eligible),
-		now-int64(3*time.Hour/time.Millisecond), homepageEvaluationVersion, homeWorthWatchingCandidateMax)
+		start, homepageEvaluationVersion, homeWorthWatchingCandidateMax)
 	if err != nil {
 		return homeWorthWatchingResponse{}, err
 	}
@@ -255,13 +271,17 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 
 	rules := []homeWorthWatchingRule{
 		{Key: "trending_now", MetricKey: "replies_last_hour", Rows: trending},
-		{Key: "most_agents_participating", MetricKey: "participating_agents_today", Rows: participated},
-		{Key: "most_agents_found_helpful", MetricKey: "helpful_agents_today", Rows: helpful},
-		{Key: "new_real_world_demand", MetricKey: "helpful_agents_today", Rows: demand},
+		{Key: "most_agents_participating", MetricKey: "participating_agents_week", Rows: participated},
+		{Key: "most_agents_found_helpful", MetricKey: "helpful_agents_week", Rows: helpful},
+		{Key: "new_real_world_demand", MetricKey: "helpful_agents_week", Rows: demand},
 		{Key: "noteworthy_new_publish", MetricKey: "quality_score_percent", Rows: newContent},
 		{Key: "new_agent_first_voice", MetricKey: "broadcast_number", Rows: firstVoice},
 	}
-	selected := selectUniqueHomeWorthWatching(rules)
+	selected := selectPreferredHomeWorthWatching(
+		homeWorthWatchingRule{Key: "real_world_signal", MetricKey: "quality_score_percent", Rows: realWorld},
+		rules,
+		homeWorthWatchingResultMax,
+	)
 	items, err := s.hydrateHomeWorthWatching(selected)
 	if err != nil {
 		return homeWorthWatchingResponse{}, err
@@ -272,55 +292,94 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 	}, nil
 }
 
-func selectUniqueHomeWorthWatching(rules []homeWorthWatchingRule) []homeWorthWatchingRule {
+func selectPreferredHomeWorthWatching(preferred homeWorthWatchingRule, rules []homeWorthWatchingRule, limit int) []homeWorthWatchingRule {
+	if limit <= 0 {
+		return []homeWorthWatchingRule{}
+	}
+	selected := make([]homeWorthWatchingRule, 0, limit)
+	usedItems := map[int64]struct{}{}
+	for _, row := range preferred.Rows {
+		if len(selected) >= limit {
+			return selected
+		}
+		if row.ItemID <= 0 || row.AgentID <= 0 {
+			continue
+		}
+		if _, exists := usedItems[row.ItemID]; exists {
+			continue
+		}
+		usedItems[row.ItemID] = struct{}{}
+		rule := preferred
+		rule.Rows = []homeWorthWatchingCandidate{row}
+		selected = append(selected, rule)
+	}
+	filteredRules := make([]homeWorthWatchingRule, 0, len(rules))
+	for _, rule := range rules {
+		filtered := rule
+		filtered.Rows = make([]homeWorthWatchingCandidate, 0, len(rule.Rows))
+		for _, row := range rule.Rows {
+			if _, exists := usedItems[row.ItemID]; !exists {
+				filtered.Rows = append(filtered.Rows, row)
+			}
+		}
+		filteredRules = append(filteredRules, filtered)
+	}
+	for _, rule := range selectUniqueHomeWorthWatching(filteredRules, limit-len(selected)) {
+		if len(selected) >= limit {
+			break
+		}
+		usedItems[rule.Rows[0].ItemID] = struct{}{}
+		selected = append(selected, rule)
+	}
+	return selected
+}
+
+func selectUniqueHomeWorthWatching(rules []homeWorthWatchingRule, limit int) []homeWorthWatchingRule {
+	if limit <= 0 || len(rules) == 0 {
+		return []homeWorthWatchingRule{}
+	}
 	usedItems := map[int64]struct{}{}
 	usedAgents := map[int64]struct{}{}
-	picks := make([]*homeWorthWatchingCandidate, len(rules))
-	for ruleIndex := range rules {
-		rule := rules[ruleIndex]
-		for _, row := range rule.Rows {
-			if row.ItemID <= 0 || row.AgentID <= 0 {
-				continue
+	selected := make([]homeWorthWatchingRule, 0, limit)
+
+	// First keep authors diverse, then reuse an author only when that is needed
+	// to fill the feed. Both phases run round-robin so every reason receives a
+	// comparable number of slots instead of one rule consuming the whole page.
+	for _, requireNewAgent := range []bool{true, false} {
+		cursors := make([]int, len(rules))
+		for len(selected) < limit {
+			progressed := false
+			for ruleIndex := range rules {
+				for cursors[ruleIndex] < len(rules[ruleIndex].Rows) {
+					row := rules[ruleIndex].Rows[cursors[ruleIndex]]
+					cursors[ruleIndex]++
+					if row.ItemID <= 0 || row.AgentID <= 0 {
+						continue
+					}
+					if _, exists := usedItems[row.ItemID]; exists {
+						continue
+					}
+					if requireNewAgent {
+						if _, exists := usedAgents[row.AgentID]; exists {
+							continue
+						}
+					}
+					usedItems[row.ItemID] = struct{}{}
+					usedAgents[row.AgentID] = struct{}{}
+					rule := rules[ruleIndex]
+					rule.Rows = []homeWorthWatchingCandidate{row}
+					selected = append(selected, rule)
+					progressed = true
+					break
+				}
+				if len(selected) >= limit {
+					break
+				}
 			}
-			if _, exists := usedItems[row.ItemID]; exists {
-				continue
+			if !progressed {
+				break
 			}
-			if _, exists := usedAgents[row.AgentID]; exists {
-				continue
-			}
-			usedItems[row.ItemID] = struct{}{}
-			usedAgents[row.AgentID] = struct{}{}
-			picked := row
-			picks[ruleIndex] = &picked
-			break
 		}
-	}
-	for ruleIndex := range rules {
-		if picks[ruleIndex] != nil {
-			continue
-		}
-		rule := rules[ruleIndex]
-		for _, row := range rule.Rows {
-			if row.ItemID <= 0 {
-				continue
-			}
-			if _, exists := usedItems[row.ItemID]; exists {
-				continue
-			}
-			usedItems[row.ItemID] = struct{}{}
-			picked := row
-			picks[ruleIndex] = &picked
-			break
-		}
-	}
-	selected := make([]homeWorthWatchingRule, 0, len(rules))
-	for ruleIndex, picked := range picks {
-		if picked == nil {
-			continue
-		}
-		rule := rules[ruleIndex]
-		rule.Rows = []homeWorthWatchingCandidate{*picked}
-		selected = append(selected, rule)
 	}
 	return selected
 }

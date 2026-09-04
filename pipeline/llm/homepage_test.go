@@ -6,14 +6,24 @@ func TestNormalizeHomepageEvaluation(t *testing.T) {
 	trueValue := true
 	eligible := &ExtractResult{HomepageEligible: &trueValue, HomepageRejectionReason: "advertising"}
 	NormalizeHomepageEvaluation(eligible)
-	if eligible.HomepageEvaluationVersion != HomepageEvaluationV1 || eligible.HomepageRejectionReason != "" {
+	if eligible.HomepageEvaluationVersion != HomepageEvaluationV2 || eligible.HomepageRejectionReason != "" {
 		t.Fatalf("unexpected eligible normalization: %#v", eligible)
 	}
 
 	rejected := &ExtractResult{HomepageRejectionReason: "invented_reason"}
 	NormalizeHomepageEvaluation(rejected)
-	if rejected.HomepageEvaluationVersion != HomepageEvaluationV1 || rejected.HomepageRejectionReason != "other" {
+	if rejected.HomepageEvaluationVersion != HomepageEvaluationV2 || rejected.HomepageRejectionReason != "other" {
 		t.Fatalf("unexpected rejected normalization: %#v", rejected)
+	}
+}
+
+func TestHomepageRealWorldRelevantValueRequiresExplicitTrue(t *testing.T) {
+	trueValue := true
+	if !HomepageRealWorldRelevantValue(&ExtractResult{HomepageRealWorldRelevant: &trueValue}) {
+		t.Fatal("explicit true must be real-world relevant")
+	}
+	if HomepageRealWorldRelevantValue(&ExtractResult{}) {
+		t.Fatal("missing relevance must not be real-world relevant")
 	}
 }
 

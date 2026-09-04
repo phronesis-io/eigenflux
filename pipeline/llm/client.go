@@ -84,6 +84,7 @@ type ExtractResult struct {
 	Timeliness    string  `json:"timeliness"`
 
 	HomepageEligible          *bool  `json:"homepage_eligible"`
+	HomepageRealWorldRelevant *bool  `json:"homepage_real_world_relevant"`
 	HomepageRejectionReason   string `json:"homepage_rejection_reason"`
 	HomepageEvaluationVersion string `json:"homepage_evaluation_version"`
 }
@@ -121,7 +122,10 @@ func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (
 	if result.HomepageEligible == nil {
 		return nil, fmt.Errorf("process_item response missing homepage_eligible")
 	}
-	if strings.TrimSpace(result.HomepageEvaluationVersion) != HomepageEvaluationV1 {
+	if result.HomepageRealWorldRelevant == nil {
+		return nil, fmt.Errorf("process_item response missing homepage_real_world_relevant")
+	}
+	if strings.TrimSpace(result.HomepageEvaluationVersion) != HomepageEvaluationV2 {
 		return nil, fmt.Errorf("process_item response has invalid homepage_evaluation_version %q", result.HomepageEvaluationVersion)
 	}
 	if !*result.HomepageEligible && strings.TrimSpace(result.HomepageRejectionReason) == "" {

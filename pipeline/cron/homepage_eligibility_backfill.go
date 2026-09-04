@@ -17,7 +17,7 @@ const (
 	lockKeyHomepageEligibility           = "lock:cron:homepage_eligibility"
 	defaultHomepageEligibilityBatch      = 32
 	defaultHomepageEligibilityInterval   = 10 * time.Minute
-	defaultHomepageEligibilityLookback   = 48 * time.Hour
+	defaultHomepageEligibilityLookback   = 7 * 24 * time.Hour
 	defaultHomepageEligibilityWorkers    = 2
 	defaultHomepageEligibilityRetryDelay = time.Hour
 )
@@ -60,7 +60,7 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 		Where(`p.status = ? AND r.created_at >= ?
 			AND (p.homepage_evaluation_version <> ? OR p.homepage_evaluation_version IS NULL)
 			AND (p.homepage_evaluation_retry_at IS NULL OR p.homepage_evaluation_retry_at <= ?)`,
-			itemDal.StatusCompleted, homepageEligibilityWindowStart(now), llm.HomepageEvaluationV1, now.UnixMilli()).
+			itemDal.StatusCompleted, homepageEligibilityWindowStart(now), llm.HomepageEvaluationV2, now.UnixMilli()).
 		Order("p.updated_at DESC, p.item_id DESC").
 		Limit(defaultHomepageEligibilityBatch).
 		Find(&items).Error; err != nil {
@@ -92,7 +92,7 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 					result.HomepageRejectionReason = homepageReasonForDistributionDiscard(result.DiscardReason)
 				}
 				llm.NormalizeHomepageEvaluation(result)
-				if err := itemDal.UpdateHomepageEvaluation(db.DB, item.ItemID, llm.HomepageEligibleValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion); err != nil {
+				if err := itemDal.UpdateHomepageEvaluation(db.DB, item.ItemID, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion); err != nil {
 					logger.Default().Warn("homepage eligibility backfill DB error", "itemID", item.ItemID, "err", err)
 				}
 			}
