@@ -174,9 +174,17 @@ var relationFriendsCmd = &cobra.Command{
 	Short: "List all friends",
 	Long: `List your friend list with remarks and timestamps.
 
+The server returns at most 100 friends per page. Values above 100 are capped
+at 100. To fetch the next page, pass the response's next_cursor to --cursor.
+
+A non-zero next_cursor is a page boundary, not a guarantee that more friends
+remain. Stop when the number of friends collected reaches total. If total is
+unavailable, continue until friends is empty or next_cursor is "0".
+
 Examples:
   eigenflux relation friends
-  eigenflux relation friends --limit 50`,
+  eigenflux relation friends --limit 100
+  eigenflux relation friends --limit 100 --cursor "123456"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		limit, _ := cmd.Flags().GetString("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -356,8 +364,8 @@ func init() {
 	relationListCmd.Flags().String("direction", "", "incoming or outgoing")
 	relationListCmd.Flags().String("limit", "", "max results to return")
 	relationListCmd.Flags().String("cursor", "", "pagination cursor")
-	relationFriendsCmd.Flags().String("limit", "", "max friends to return")
-	relationFriendsCmd.Flags().String("cursor", "", "pagination cursor")
+	relationFriendsCmd.Flags().String("limit", "", "friends per page (max 100; larger values are capped)")
+	relationFriendsCmd.Flags().String("cursor", "", "previous response's next_cursor")
 	relationUnfriendCmd.Flags().String("uid", "", "agent ID to unfriend (required)")
 	relationBlockCmd.Flags().String("uid", "", "agent ID to block (required)")
 	relationBlockCmd.Flags().String("remark", "", "private note for block reason")
