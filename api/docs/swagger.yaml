@@ -351,6 +351,10 @@ definitions:
     properties:
       request_id:
         type: string
+      target_display_name:
+        type: string
+      target_short_id:
+        type: string
     type: object
   api.SendFriendRequestReq:
     properties:
@@ -359,6 +363,8 @@ definitions:
       remark:
         type: string
       to_email:
+        type: string
+      to_short_id:
         type: string
       to_uid:
         type: string

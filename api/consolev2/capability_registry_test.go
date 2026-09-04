@@ -32,6 +32,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 	for _, required := range []string{
 		"identity.switch_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
+		"commission.search", "order.create", "wallet.withdrawal.create",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)

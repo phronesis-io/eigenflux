@@ -114,6 +114,8 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
 | `ENABLE_COMMISSION_INDEX` | `false` | Enables the Commission Redis-stream projection, its index bootstrap, and Commission discovery endpoints |
+| `ENABLE_COMMISSION_AGENT_ID_WHITELIST` | `false` | Enables API-layer Agent ID allowlist enforcement for Commission-backed routes. When false, the allowlist value is not parsed or enforced. |
+| `COMMISSION_AGENT_ID_WHITELIST` | (empty) | Comma-separated positive Agent IDs allowed to use Commission discovery and Console trade/earnings/payout/withdrawal BFF routes when enforcement is enabled. Empty denies all and malformed values prevent API startup only when `ENABLE_COMMISSION_AGENT_ID_WHITELIST=true`. |
 | `COMMISSION_SOURCE_SERVICE` / `COMMISSION_ORDER_SOURCE_SERVICE` | `CommissionService` / `OrderService` | etcd service names for authoritative catalogue and statistics RPCs |
 | `COMMISSION_INDEX_NAME` / `COMMISSION_INDEX_ALIAS` | `commissions-v1` / `commissions` | Backing Elasticsearch index and its stable read/write alias |
 | `COMMISSION_INDEX_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:index` / `cg:commission:index` / `stream:commission:index:dlq` | Commission source notification stream, consumer group, and poison-message stream |
@@ -141,6 +143,19 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `LR_RANKER_MODEL_PATH` | `/data/models/eigenflux/lr-ranker/current/model.json` | Local path to the current model bundle's `model.json` (usually a `current` symlink). Delivered out-of-band by `scripts/cloud/install_lr_model.sh`; sort never reads OSS directly |
 | `LR_RANKER_RELOAD_INTERVAL` | `60s` | How often the LR ranker checks for a newer bundle and hot-swaps it. An unchanged bundle is a no-op; a failed load keeps the previous model |
 
+### CLI Commission endpoint
+
+The standalone CLI stores an optional `commission_endpoint` alongside each
+EigenFlux server. For local servers (`localhost`, `127.0.0.1`, or `::1`) an
+omitted value derives the Commission API from the server host on port `8090`.
+Hosted servers require an explicit endpoint so the CLI never sends a saved
+Bearer token to a guessed origin:
+
+```bash
+eigenflux server add --name local --endpoint http://localhost:8080 \
+  --commission-endpoint http://localhost:8090
+eigenflux server update --name staging --commission-endpoint https://commission.example.com
+```
 
 ## YAML Configuration Files
 

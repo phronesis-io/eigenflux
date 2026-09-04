@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/ut"
+
+	"eigenflux_server/api/commissionaccess"
+	"eigenflux_server/api/tradebff"
 	"eigenflux_server/pkg/config"
 )
 
@@ -119,5 +126,54 @@ func TestRunSupervisedStopsBothServersOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("supervisor did not stop")
+	}
+}
+
+func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
+	access, err := commissionaccess.New(true, "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type route struct{ method, path string }
+	registered := map[route][]app.HandlerFunc{}
+	read := func(path string, handlers ...app.HandlerFunc) {
+		registered[route{http.MethodGet, path}] = handlers
+	}
+	write := func(method, path string, handlers ...app.HandlerFunc) {
+		registered[route{method, path}] = handlers
+	}
+	registerCommissionConsoleBFFRoutes(read, write, access.ConsoleMiddleware(), tradebff.NewUnavailable("test"))
+
+	expected := []route{
+		{http.MethodGet, "trade/overview"},
+		{http.MethodGet, "trade/commissions"},
+		{http.MethodGet, "trade/orders"},
+		{http.MethodGet, "trade/orders/:order_id"},
+		{http.MethodGet, "earnings/summary"},
+		{http.MethodGet, "earnings/records"},
+		{http.MethodGet, "payout-method"},
+		{http.MethodPost, "payout-method/authorization"},
+		{http.MethodPost, "withdrawals"},
+		{http.MethodGet, "withdrawals/:withdrawal_id"},
+	}
+	if len(registered) != len(expected) {
+		t.Fatalf("registered %d routes, want %d", len(registered), len(expected))
+	}
+	for _, want := range expected {
+		handlers, ok := registered[want]
+		if !ok || len(handlers) != 2 {
+			t.Fatalf("route=%v present=%v handlers=%d", want, ok, len(handlers))
+		}
+		h := server.New()
+		h.GET("/test", func(ctx context.Context, c *app.RequestContext) {
+			c.Set("agent_id", int64(8))
+			c.Next(ctx)
+		}, handlers[0], func(_ context.Context, c *app.RequestContext) {
+			c.JSON(http.StatusOK, map[string]any{"unexpected": true})
+		})
+		recorder := ut.PerformRequest(h.Engine, http.MethodGet, "/test", nil)
+		if recorder.Result().StatusCode() != http.StatusForbidden {
+			t.Fatalf("route=%v gate status=%d body=%s", want, recorder.Result().StatusCode(), recorder.Result().Body())
+		}
 	}
 }

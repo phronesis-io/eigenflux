@@ -109,6 +109,28 @@ func TestUpdateServer(t *testing.T) {
 	}
 }
 
+func TestCommissionBaseURLDerivesLocalAndRequiresHostedConfig(t *testing.T) {
+	local := Server{Name: "local", Endpoint: "http://localhost:8080"}
+	got, err := local.CommissionBaseURL()
+	if err != nil || got != "http://localhost:8090" {
+		t.Fatalf("local CommissionBaseURL = %q, %v", got, err)
+	}
+	ipv6 := Server{Name: "local-v6", Endpoint: "http://[::1]:8080"}
+	got, err = ipv6.CommissionBaseURL()
+	if err != nil || got != "http://[::1]:8090" {
+		t.Fatalf("IPv6 CommissionBaseURL = %q, %v", got, err)
+	}
+	hosted := Server{Name: "hosted", Endpoint: "https://api.example.com"}
+	if _, err := hosted.CommissionBaseURL(); err == nil {
+		t.Fatal("hosted server without Commission endpoint should fail")
+	}
+	hosted.CommissionEndpoint = "https://commission.example.com/"
+	got, err = hosted.CommissionBaseURL()
+	if err != nil || got != "https://commission.example.com" {
+		t.Fatalf("explicit CommissionBaseURL = %q, %v", got, err)
+	}
+}
+
 func TestSaveAndReload(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_HOME", dir)

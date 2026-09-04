@@ -106,6 +106,35 @@ func capabilitySeeds() []capabilitySeed {
 		capability("config.read", "eigenflux config show", "local", "read", "查看本地配置", "View local configuration"),
 		capability("config.value.read", "eigenflux config get", "local", "read", "读取本地配置项", "Read a local configuration value"),
 		capability("config.value.update", "eigenflux config set", "local", "write", "修改本地配置项", "Update a local configuration value"),
+		capability("commission.create", "eigenflux commission create", "commission", "write", "创建委托草稿", "Create a Commission draft"),
+		capability("commission.list", "eigenflux commission list", "commission", "read", "查看自己的委托", "List owned Commissions"),
+		capability("commission.read", "eigenflux commission get", "commission", "read", "查看自己的委托详情", "View an owned Commission"),
+		capability("commission.update", "eigenflux commission update", "commission", "write", "修改委托草稿", "Update a Commission draft"),
+		capability("commission.publish", "eigenflux commission publish", "commission", "write", "发布委托", "Publish a Commission"),
+		capability("commission.offline", "eigenflux commission offline", "commission", "write", "下线委托", "Take a Commission offline"),
+		capability("commission.search", "eigenflux commission search", "commission", "read", "搜索可购买的委托", "Search available Commissions"),
+		capability("commission.recommend", "eigenflux commission recommend", "commission", "read", "获取委托推荐", "Get Commission recommendations"),
+		capability("commission.reviews", "eigenflux commission reviews", "commission", "read", "查看委托评价", "List Commission reviews"),
+		capability("commission.statistics", "eigenflux commission statistics", "commission", "read", "查看委托统计", "View Commission statistics"),
+		capability("order.create", "eigenflux order create", "order", "write", "创建订单", "Create an Order"),
+		capability("order.list", "eigenflux order list", "order", "read", "查看订单列表", "List Orders"),
+		capability("order.read", "eigenflux order get", "order", "read", "查看订单详情", "View an Order"),
+		capability("order.materials.submit", "eigenflux order submit-materials", "order", "write", "提交订单材料", "Submit Order materials"),
+		capability("order.cancel", "eigenflux order cancel", "order", "write", "取消订单", "Cancel an Order"),
+		capability("order.accept", "eigenflux order accept", "order", "write", "接受订单", "Accept an Order"),
+		capability("order.reject", "eigenflux order reject", "order", "write", "拒绝订单", "Reject an Order"),
+		capability("order.deliver", "eigenflux order deliver", "order", "write", "交付订单", "Deliver an Order"),
+		capability("order.complete", "eigenflux order complete", "order", "write", "完成订单", "Complete an Order"),
+		capability("order.review", "eigenflux order review", "order", "write", "评价订单", "Review an Order"),
+		capability("order.review.read", "eigenflux order get-review", "order", "read", "查看订单评价", "View an Order review"),
+		capability("order.workspace.upload", "eigenflux order upload", "order", "write", "上传订单工作区文件", "Upload an Order workspace file"),
+		capability("order.workspace.download", "eigenflux order download", "order", "read", "下载订单工作区文件", "Download an Order workspace file"),
+		capability("wallet.read", "eigenflux wallet get", "wallet", "read", "查看钱包状态", "View Wallet state"),
+		capability("wallet.balance.read", "eigenflux wallet balance", "wallet", "read", "查看钱包余额", "View Wallet balances"),
+		capability("wallet.binding.update", "eigenflux wallet bind", "wallet", "write", "绑定付款授权", "Bind payment authorization"),
+		capability("wallet.withdrawal.create", "eigenflux wallet withdraw", "wallet", "write", "发起提现", "Create a withdrawal"),
+		capability("wallet.withdrawal.list", "eigenflux wallet withdrawals", "wallet", "read", "查看提现列表", "List withdrawals"),
+		capability("wallet.withdrawal.read", "eigenflux wallet withdrawal", "wallet", "read", "查看提现详情", "View a withdrawal"),
 		capability("feed.read", "eigenflux feed poll", "feed", "read", "获取 Feed", "Pull the Feed"),
 		capability("feed.item.read", "eigenflux feed get", "feed", "read", "查看 Feed 条目", "View a Feed item"),
 		capability("feed.feedback", "eigenflux feed feedback", "feed", "write", "提交 Feed 反馈", "Submit Feed feedback"),
@@ -163,6 +192,9 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if strings.HasPrefix(seed.id, "settings.") && strings.Contains(seed.cli, "context security set") {
 			seed.minCLI = "0.0.38"
+		}
+		if seed.category == "commission" || seed.category == "order" || seed.category == "wallet" {
+			seed.minCLI = "0.0.39"
 		}
 	}
 	for index := range seeds {
