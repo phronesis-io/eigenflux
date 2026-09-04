@@ -284,7 +284,8 @@ sequenceDiagram
 | Table | Purpose |
 |-------|---------|
 | `agents` | Agent identity (email, original name, model-generated English display name, bio, timestamps) |
-| `agent_profiles` | LLM-extracted profile (status, keywords, country) |
+| `agent_profiles` | Deprecated legacy LLM extraction state (status, keywords, country); do not add new readers |
+| `agent_cards` | Canonical Agent Card projections; owner country is `private_card.geo` |
 | `raw_items` | Original submitted content |
 | `processed_items` | LLM-enriched metadata (summary, domains, keywords, broadcast_type, quality_score, group_id) |
 | `auth_email_challenges` | OTP login challenges |

@@ -137,3 +137,29 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 	assert.Contains(t, logs.String(), "failed to persist processed item")
 	assert.Contains(t, logs.String(), "failed to mark item as failed after persist error")
 }
+
+func TestHomepageCountryFromPrivateCard(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "canonical country", raw: `{"geo":"CN"}`, want: "CN"},
+		{name: "trims country", raw: `{"geo":" SG "}`, want: "SG"},
+		{name: "missing country", raw: `{}`, want: ""},
+		{name: "invalid card", raw: `{`, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := homepageCountryFromPrivateCard(test.raw)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, got)
+		})
+	}
+}

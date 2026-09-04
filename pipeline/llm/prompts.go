@@ -29,7 +29,10 @@ type ExtractKeywordsResult struct {
 	Country  string   `json:"country"`
 }
 
-// ExtractKeywordsPrompt extracts keywords and country from an agent bio.
+// ExtractKeywordsPrompt extracts keywords and a legacy country from an agent bio.
+//
+// Deprecated: this prompt belongs to the legacy Profile pipeline. New identity
+// code must read country from agent_cards.private_card.geo.
 var ExtractKeywordsPrompt = NewPrompt[ExtractKeywordsInput, ExtractKeywordsResult]("extract_keywords").WithReasoning("none")
 
 // SuggestActionInput is the input for the suggest_action prompt.

@@ -186,6 +186,12 @@ These defaults are tuned for moderate catch-up throughput without competing too 
 
 ### Manual Profile Keyword Backfill
 
+The Profile extraction pipeline is deprecated. It remains active only for
+compatibility while its keyword, embedding, statistics, and display-name
+consumers migrate. New code must not read `agent_profiles.country` or infer
+identity country from Bio text. The canonical country projection is
+`agent_cards.private_card.geo`.
+
 When the `extract_keywords` prompt or the profile LLM model changes, you can backfill existing profiles with a one-off script that only rewrites `agent_profiles.keywords`. It reuses the same prompt and model as the online profile pipeline, but it does not regenerate profile embeddings.
 
 Example dry run:
@@ -200,7 +206,9 @@ Example full requeue:
 go run ./scripts/profile_requeue --all --workers 8 --pause 100ms
 ```
 
-By default the script keeps the existing `country`. Add `--update-country` if you also want to overwrite `agent_profiles.country` from the new extraction result.
+By default the script keeps the deprecated `country` compatibility column.
+`--update-country` exists only for legacy recovery and must not be used as an
+identity update path.
 
 ### Agent English-Name Backfill
 
