@@ -214,7 +214,6 @@ func TestProcessItemRejectsIncompleteHomepageEvaluation(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "missing eligibility", response: `{"discard": false, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_eligible"},
-		{name: "missing real-world relevance", response: `{"discard": false, "homepage_eligible": true, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_real_world_relevant"},
 		{name: "missing version", response: `{"discard": false, "homepage_eligible": true, "homepage_real_world_relevant": false}`, wantErr: "invalid homepage_evaluation_version"},
 		{name: "missing rejection reason", response: `{"discard": false, "homepage_eligible": false, "homepage_real_world_relevant": false, "homepage_evaluation_version": "homepage-v2"}`, wantErr: "missing homepage_rejection_reason"},
 	}
@@ -228,6 +227,23 @@ func TestProcessItemRejectsIncompleteHomepageEvaluation(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestProcessItemDefaultsMissingRealWorldRelevanceForBackfill(t *testing.T) {
+	srv := mockServer(t, `{"discard": false, "homepage_eligible": true, "homepage_evaluation_version": "homepage-v2"}`)
+	defer srv.Close()
+
+	client := newTestClient(t, srv.URL)
+	result, err := client.ProcessItem(context.Background(), "AI", "Latest AI news")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.HomepageRealWorldRelevant == nil || *result.HomepageRealWorldRelevant {
+		t.Fatalf("real-world relevance = %#v, want explicit false", result.HomepageRealWorldRelevant)
+	}
+	if !result.HomepageEvaluationIncomplete {
+		t.Fatal("missing real-world relevance must remain eligible for backfill")
 	}
 }
 

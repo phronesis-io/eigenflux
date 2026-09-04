@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	lockKeyHomepageEligibility           = "lock:cron:homepage_eligibility"
-	defaultHomepageEligibilityBatch      = 32
-	defaultHomepageEligibilityInterval   = 10 * time.Minute
-	defaultHomepageEligibilityLookback   = 7 * 24 * time.Hour
-	defaultHomepageEligibilityWorkers    = 2
-	defaultHomepageEligibilityRetryDelay = time.Hour
+	lockKeyHomepageEligibility            = "lock:cron:homepage_eligibility"
+	defaultHomepageEligibilityBatch       = 32
+	defaultHomepageEligibilityInterval    = 10 * time.Minute
+	defaultHomepageEligibilityLookback    = 7 * 24 * time.Hour
+	defaultHomepageEligibilityWorkers     = 1
+	defaultHomepageEligibilityMinInterval = 5 * time.Second
+	defaultHomepageEligibilityRetryDelay  = time.Hour
 )
 
 type homepageEligibilityBackfillItem struct {
@@ -72,12 +73,19 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 	}
 
 	jobs := make(chan homepageEligibilityBackfillItem)
+	rateLimiter := time.NewTicker(defaultHomepageEligibilityMinInterval)
+	defer rateLimiter.Stop()
 	var wg sync.WaitGroup
 	for worker := 0; worker < defaultHomepageEligibilityWorkers; worker++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for item := range jobs {
+				select {
+				case <-ctx.Done():
+					return
+				case <-rateLimiter.C:
+				}
 				result, err := llmClient.ProcessItem(ctx, item.RawContent, item.RawNotes)
 				if err != nil {
 					logger.Default().Warn("homepage eligibility backfill model error", "itemID", item.ItemID, "err", err)
@@ -92,17 +100,27 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 					result.HomepageRejectionReason = homepageReasonForDistributionDiscard(result.DiscardReason)
 				}
 				llm.NormalizeHomepageEvaluation(result)
+				if result.HomepageEvaluationIncomplete {
+					logger.Default().Warn("homepage eligibility backfill received incomplete evaluation", "itemID", item.ItemID)
+					if retryErr := itemDal.ScheduleHomepageEvaluationRetry(db.DB, item.ItemID, homepageEligibilityRetryAt(time.Now())); retryErr != nil {
+						logger.Default().Warn("homepage eligibility backfill retry schedule failed", "itemID", item.ItemID, "err", retryErr)
+					}
+					continue
+				}
 				if err := itemDal.UpdateHomepageEvaluation(db.DB, item.ItemID, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion); err != nil {
 					logger.Default().Warn("homepage eligibility backfill DB error", "itemID", item.ItemID, "err", err)
 				}
 			}
 		}()
 	}
+
+enqueue:
 	for _, item := range items {
-		if ctx.Err() != nil {
-			break
+		select {
+		case <-ctx.Done():
+			break enqueue
+		case jobs <- item:
 		}
-		jobs <- item
 	}
 	close(jobs)
 	wg.Wait()

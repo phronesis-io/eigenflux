@@ -26,8 +26,17 @@ func TestHomepageEligibilityRetryAtDefersFailedItem(t *testing.T) {
 
 func TestHomepageEligibilityWindowStartCoversGlobalDayBoundaries(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
-	want := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	want := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC).UnixMilli()
 	if got := homepageEligibilityWindowStart(now); got != want {
 		t.Fatalf("window start = %d, want %d", got, want)
+	}
+}
+
+func TestHomepageEligibilityBackfillIsRateLimited(t *testing.T) {
+	if defaultHomepageEligibilityWorkers != 1 {
+		t.Fatalf("workers = %d, want 1", defaultHomepageEligibilityWorkers)
+	}
+	if defaultHomepageEligibilityMinInterval < 5*time.Second {
+		t.Fatalf("minimum interval = %s, want at least 5s", defaultHomepageEligibilityMinInterval)
 	}
 }

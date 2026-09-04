@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 )
 
@@ -83,10 +84,11 @@ type ExtractResult struct {
 	Quality       float64 `json:"quality"`
 	Timeliness    string  `json:"timeliness"`
 
-	HomepageEligible          *bool  `json:"homepage_eligible"`
-	HomepageRealWorldRelevant *bool  `json:"homepage_real_world_relevant"`
-	HomepageRejectionReason   string `json:"homepage_rejection_reason"`
-	HomepageEvaluationVersion string `json:"homepage_evaluation_version"`
+	HomepageEligible             *bool  `json:"homepage_eligible"`
+	HomepageRealWorldRelevant    *bool  `json:"homepage_real_world_relevant"`
+	HomepageRejectionReason      string `json:"homepage_rejection_reason"`
+	HomepageEvaluationVersion    string `json:"homepage_evaluation_version"`
+	HomepageEvaluationIncomplete bool   `json:"-"`
 }
 
 // SafetyResult holds the output of the safety check prompt.
@@ -123,7 +125,10 @@ func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (
 		return nil, fmt.Errorf("process_item response missing homepage_eligible")
 	}
 	if result.HomepageRealWorldRelevant == nil {
-		return nil, fmt.Errorf("process_item response missing homepage_real_world_relevant")
+		fallback := false
+		result.HomepageRealWorldRelevant = &fallback
+		result.HomepageEvaluationIncomplete = true
+		logger.Ctx(ctx).Warn("process_item response missing homepage_real_world_relevant; defaulting to false and scheduling backfill")
 	}
 	if strings.TrimSpace(result.HomepageEvaluationVersion) != HomepageEvaluationV2 {
 		return nil, fmt.Errorf("process_item response has invalid homepage_evaluation_version %q", result.HomepageEvaluationVersion)

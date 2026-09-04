@@ -15,7 +15,11 @@ func NormalizeHomepageEvaluation(result *ExtractResult) {
 	if result == nil {
 		return
 	}
-	result.HomepageEvaluationVersion = HomepageEvaluationV2
+	if result.HomepageEvaluationIncomplete {
+		result.HomepageEvaluationVersion = ""
+	} else {
+		result.HomepageEvaluationVersion = HomepageEvaluationV2
+	}
 	if result.HomepageEligible != nil && *result.HomepageEligible {
 		result.HomepageRejectionReason = ""
 		return

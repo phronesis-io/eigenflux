@@ -15,6 +15,12 @@ func TestNormalizeHomepageEvaluation(t *testing.T) {
 	if rejected.HomepageEvaluationVersion != HomepageEvaluationV2 || rejected.HomepageRejectionReason != "other" {
 		t.Fatalf("unexpected rejected normalization: %#v", rejected)
 	}
+
+	incomplete := &ExtractResult{HomepageEligible: &trueValue, HomepageEvaluationIncomplete: true}
+	NormalizeHomepageEvaluation(incomplete)
+	if incomplete.HomepageEvaluationVersion != "" {
+		t.Fatalf("incomplete evaluation version = %q, want empty for backfill", incomplete.HomepageEvaluationVersion)
+	}
 }
 
 func TestHomepageRealWorldRelevantValueRequiresExplicitTrue(t *testing.T) {
