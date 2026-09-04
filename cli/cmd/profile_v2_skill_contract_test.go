@@ -46,7 +46,7 @@ func TestProfileSkillRoutesSupportedCLIToConsoleV2(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account recovery trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatterParts[1], `version: "0.8.0"`) {
+	if !strings.Contains(frontmatterParts[1], `version: "0.8.1"`) {
 		t.Error("ef-profile version was not advanced for V1 retirement")
 	}
 	for _, retired := range []string{"auth.md", "onboarding.md"} {
