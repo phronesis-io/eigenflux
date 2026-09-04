@@ -449,6 +449,72 @@ func TestPMFullFlow(t *testing.T) {
 	})
 }
 
+func TestListConversationsReplyStatus(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	suffix := time.Now().UnixNano()
+	senderEmail := fmt.Sprintf("pm_reply_status_sender_%d@test.com", suffix)
+	receiverEmail := fmt.Sprintf("pm_reply_status_receiver_%d@test.com", suffix)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, senderEmail, receiverEmail) })
+
+	sender := testutil.RegisterAgent(t, senderEmail, "Reply Status Sender", "Test")
+	receiver := testutil.RegisterAgent(t, receiverEmail, "Reply Status Receiver", "Test")
+	senderID, _ := strconv.ParseInt(sender["agent_id"].(string), 10, 64)
+	receiverID, _ := strconv.ParseInt(receiver["agent_id"].(string), 10, 64)
+	t.Cleanup(func() { cleanPMData(t, senderID, receiverID) })
+
+	convID := suffix
+	msgID := suffix + 1
+	now := time.Now().UnixMilli()
+	if _, err := testutil.TestDB.Exec(`INSERT INTO conversations
+		(conv_id, participant_a, participant_b, initiator_id, last_sender_id, origin_type, msg_count, status, updated_at,
+		 participant_a_name, participant_b_name)
+		VALUES ($1, $2, $3, $4, $5, 'friend', 1, 0, $6, $7, $8)`,
+		convID, senderID, receiverID, senderID, senderID, now, "Reply Status Sender", "Reply Status Receiver"); err != nil {
+		t.Fatalf("insert conversation: %v", err)
+	}
+	if _, err := testutil.TestDB.Exec(`INSERT INTO private_messages
+		(msg_id, conv_id, sender_id, receiver_id, content, is_read, created_at, sender_name, receiver_name)
+		VALUES ($1, $2, $3, $4, 'Latest message', false, $5, $6, $7)`,
+		msgID, convID, senderID, receiverID, now, "Reply Status Sender", "Reply Status Receiver"); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+
+	findConversation := func(token string) map[string]interface{} {
+		t.Helper()
+		resp := testutil.DoGet(t, "/api/v1/pm/conversations", token)
+		if code := int(resp["code"].(float64)); code != 0 {
+			t.Fatalf("ListConversations failed: code=%d msg=%v", code, resp["msg"])
+		}
+		for _, raw := range resp["data"].(map[string]interface{})["conversations"].([]interface{}) {
+			conversation := raw.(map[string]interface{})
+			if conversation["conv_id"] == strconv.FormatInt(convID, 10) {
+				return conversation
+			}
+		}
+		t.Fatalf("conversation %d not found", convID)
+		return nil
+	}
+
+	for name, tc := range map[string]struct {
+		token      string
+		needsReply bool
+	}{
+		"sender":   {token: sender["token"].(string), needsReply: false},
+		"receiver": {token: receiver["token"].(string), needsReply: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			conversation := findConversation(tc.token)
+			if got := conversation["last_sender_id"]; got != strconv.FormatInt(senderID, 10) {
+				t.Fatalf("last_sender_id=%v, want %d", got, senderID)
+			}
+			if got, ok := conversation["needs_reply"].(bool); !ok || got != tc.needsReply {
+				t.Fatalf("needs_reply=%v, want %v", conversation["needs_reply"], tc.needsReply)
+			}
+		})
+	}
+}
+
 func TestSendPM_NoReplyItem(t *testing.T) {
 	testutil.WaitForAPI(t)
 

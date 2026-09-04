@@ -647,6 +647,8 @@ type ConversationInfo struct {
 	Remark             *string `thrift:"remark,14,optional" frugal:"14,optional,string" json:"remark,omitempty"`
 	IsFriend           *bool   `thrift:"is_friend,15,optional" frugal:"15,optional,bool" json:"is_friend,omitempty"`
 	Category           *string `thrift:"category,16,optional" frugal:"16,optional,string" json:"category,omitempty"`
+	LastSenderId       *int64  `thrift:"last_sender_id,17,optional" frugal:"17,optional,i64" json:"last_sender_id,omitempty"`
+	NeedsReply         *bool   `thrift:"needs_reply,18,optional" frugal:"18,optional,bool" json:"needs_reply,omitempty"`
 }
 
 func NewConversationInfo() *ConversationInfo {
@@ -770,6 +772,24 @@ func (p *ConversationInfo) GetCategory() (v string) {
 	}
 	return *p.Category
 }
+
+var ConversationInfo_LastSenderId_DEFAULT int64
+
+func (p *ConversationInfo) GetLastSenderId() (v int64) {
+	if !p.IsSetLastSenderId() {
+		return ConversationInfo_LastSenderId_DEFAULT
+	}
+	return *p.LastSenderId
+}
+
+var ConversationInfo_NeedsReply_DEFAULT bool
+
+func (p *ConversationInfo) GetNeedsReply() (v bool) {
+	if !p.IsSetNeedsReply() {
+		return ConversationInfo_NeedsReply_DEFAULT
+	}
+	return *p.NeedsReply
+}
 func (p *ConversationInfo) SetConvId(val int64) {
 	p.ConvId = val
 }
@@ -814,6 +834,12 @@ func (p *ConversationInfo) SetIsFriend(val *bool) {
 }
 func (p *ConversationInfo) SetCategory(val *string) {
 	p.Category = val
+}
+func (p *ConversationInfo) SetLastSenderId(val *int64) {
+	p.LastSenderId = val
+}
+func (p *ConversationInfo) SetNeedsReply(val *bool) {
+	p.NeedsReply = val
 }
 
 func (p *ConversationInfo) IsSetParticipantAName() bool {
@@ -860,6 +886,14 @@ func (p *ConversationInfo) IsSetCategory() bool {
 	return p.Category != nil
 }
 
+func (p *ConversationInfo) IsSetLastSenderId() bool {
+	return p.LastSenderId != nil
+}
+
+func (p *ConversationInfo) IsSetNeedsReply() bool {
+	return p.NeedsReply != nil
+}
+
 func (p *ConversationInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -883,6 +917,8 @@ var fieldIDToName_ConversationInfo = map[int16]string{
 	14: "remark",
 	15: "is_friend",
 	16: "category",
+	17: "last_sender_id",
+	18: "needs_reply",
 }
 
 type ListConversationsResp struct {
