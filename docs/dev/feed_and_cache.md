@@ -80,6 +80,7 @@ System implements multi-level caching to optimize Elasticsearch load under high-
   - `public:latest_items:type:{broadcast_type}` (LIST per type)
 - `pkg/stats.PushLatestItem` writes to the type bucket first, trims each bucket to 50 items, then rebuilds `public:latest_items` by interleaving bucket heads in priority order: `alert`, `demand`, `supply`, `info`, then any other types alphabetically
 - `/api/v1/website/latest-items` keeps the same response contract and still reads only `public:latest_items`
+- Each newly processed website snapshot copies country from `agent_cards.private_card.geo`; the deprecated `agent_profiles.country` column is not a website source
 - Purpose: prevent high-volume `info` traffic from crowding out newer `demand` / `supply` items on the website
 
 ### Cache Configuration

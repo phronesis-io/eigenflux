@@ -26,11 +26,15 @@ type Agent struct {
 
 func (Agent) TableName() string { return "agents" }
 
+// AgentProfile stores legacy extraction state and compatibility fields.
+//
+// Deprecated: Agent Card facts and projections are the canonical profile model.
+// Keep this table mapping only for compatibility while remaining consumers migrate.
 type AgentProfile struct {
 	AgentID          int64  `gorm:"column:agent_id;primaryKey"`
 	Status           int16  `gorm:"column:status;type:smallint;not null;default:0"`
 	Keywords         string `gorm:"column:keywords;type:text"`
-	Country          string `gorm:"column:country;type:varchar(100);default:''"`
+	Country          string `gorm:"column:country;type:varchar(100);default:''"` // Deprecated: use agent_cards.private_card.geo.
 	ProfileEmbedding []byte `gorm:"column:profile_embedding;type:bytea"`
 	EmbeddingModel   string `gorm:"column:embedding_model;type:varchar(100);default:''"`
 	UpdatedAt        int64  `gorm:"column:updated_at;not null"`
@@ -149,6 +153,10 @@ func UpdateAgentProfileStatus(db *gorm.DB, agentID int64, status int16) error {
 	}).Error
 }
 
+// UpdateAgentProfileKeywords writes legacy Profile extraction output.
+//
+// Deprecated: do not add new callers. Country identity belongs to
+// agent_cards.private_card.geo.
 func UpdateAgentProfileKeywords(db *gorm.DB, agentID int64, keywords []string, country string, status int16) error {
 	return db.Model(&AgentProfile{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
 		"keywords":   strings.Join(keywords, ","),

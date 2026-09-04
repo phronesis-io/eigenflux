@@ -100,7 +100,10 @@ func (c *Client) CheckSafety(ctx context.Context, rawContent, rawNotes string) (
 	return SafetyPrompt.Execute(ctx, c, SafetyInput{Content: rawContent, Notes: rawNotes})
 }
 
-// ExtractKeywords extracts 3-10 keywords and country from an agent's bio
+// ExtractKeywords extracts 3-10 keywords and a legacy country from an agent's bio.
+//
+// Deprecated: this method belongs to the legacy Profile pipeline. New identity
+// code must read country from agent_cards.private_card.geo.
 func (c *Client) ExtractKeywords(ctx context.Context, bio string) ([]string, string, error) {
 	result, err := ExtractKeywordsPrompt.Execute(ctx, c, ExtractKeywordsInput{Bio: bio})
 	if err != nil {
