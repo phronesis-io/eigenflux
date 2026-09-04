@@ -558,9 +558,10 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	cursor := req.GetCursor()
+	cursorConvID := req.GetCursorConvId()
 	originType := req.GetOriginType()
 
-	convs, err := dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, limit, originType)
+	convs, err := dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, cursorConvID, limit, originType)
 	if err != nil {
 		return &pm.ListConversationsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list conversations"},
@@ -657,14 +658,18 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	var nextCursor int64
+	var nextCursorConvID *int64
 	if len(convs) > 0 {
 		nextCursor = convs[len(convs)-1].UpdatedAt
+		convID := convs[len(convs)-1].ConvID
+		nextCursorConvID = &convID
 	}
 
 	return &pm.ListConversationsResp{
-		Conversations: conversations,
-		NextCursor:    nextCursor,
-		BaseResp:      &base.BaseResp{Code: 0, Msg: "success"},
+		Conversations:    conversations,
+		NextCursor:       nextCursor,
+		NextCursorConvId: nextCursorConvID,
+		BaseResp:         &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 

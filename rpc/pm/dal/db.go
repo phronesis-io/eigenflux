@@ -116,15 +116,15 @@ func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 // ListConversations retrieves all listed conversations (msg_count >= 1) for an agent.
 // Uses UNION ALL on the two indexed columns to avoid OR-based sequential scan.
 func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
-	return ListConversationsFiltered(db, agentID, cursor, limit, "")
+	return ListConversationsFiltered(db, agentID, cursor, 0, limit, "")
 }
 
-func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, originType string) ([]*Conversation, error) {
+func ListConversationsFiltered(db *gorm.DB, agentID, cursorUpdatedAt, cursorConvID int64, limit int, originType string) ([]*Conversation, error) {
 	// "unbroken" is the inverse of the normal threshold: inbound non-friend DMs
 	// still waiting for the user's first reply. It has its own query shape, so
 	// handle it separately rather than overloading the threshold logic below.
 	if originType == "unbroken" {
-		return listUnbrokenInbound(db, agentID, cursor, limit)
+		return listUnbrokenInbound(db, agentID, cursorUpdatedAt, cursorConvID, limit)
 	}
 
 	var convs []*Conversation
@@ -155,27 +155,43 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 		originFilter = " AND origin_type = ?"
 	}
 
-	if cursor > 0 {
-		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
-		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + " AND updated_at < ?" + originFilter + " ORDER BY updated_at DESC LIMIT ?"
-
-		if originFilter != "" {
-			args = append(args, agentID, cursor, originType, limit, agentID, cursor, originType, limit, limit)
-		} else {
-			args = append(args, agentID, cursor, limit, agentID, cursor, limit, limit)
+	if cursorUpdatedAt > 0 {
+		cursorFilter := " AND updated_at < ?"
+		if cursorConvID > 0 {
+			cursorFilter = " AND (updated_at, conv_id) < (?, ?)"
 		}
-		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + cursorFilter + originFilter + " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + cursorFilter + originFilter + " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+
+		cursorArgs := []interface{}{cursorUpdatedAt}
+		if cursorConvID > 0 {
+			cursorArgs = append(cursorArgs, cursorConvID)
+		}
+		if originFilter != "" {
+			args = append(args, agentID)
+			args = append(args, cursorArgs...)
+			args = append(args, originType, limit, agentID)
+			args = append(args, cursorArgs...)
+			args = append(args, originType, limit, limit)
+		} else {
+			args = append(args, agentID)
+			args = append(args, cursorArgs...)
+			args = append(args, limit, agentID)
+			args = append(args, cursorArgs...)
+			args = append(args, limit, limit)
+		}
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
 		err = db.Raw(query, args...).Scan(&convs).Error
 	} else {
-		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
-		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC LIMIT ?"
+		baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+		baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + originFilter + " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
 
 		if originFilter != "" {
 			args = append(args, agentID, originType, limit, agentID, originType, limit, limit)
 		} else {
 			args = append(args, agentID, limit, agentID, limit, limit)
 		}
-		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC LIMIT ?"
+		query := "SELECT * FROM (" + "(" + baseA + ") UNION ALL (" + baseB + ")" + ") AS c ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
 		err = db.Raw(query, args...).Scan(&convs).Error
 	}
 
@@ -189,7 +205,7 @@ func ListConversationsFiltered(db *gorm.DB, agentID, cursor int64, limit int, or
 // the user received, not first messages the user sent that went unanswered.
 // Since the >= 2 listing threshold was dropped these rows also appear in the
 // broadcast list; the dashboard dedupes by conv_id when merging the two.
-func listUnbrokenInbound(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
+func listUnbrokenInbound(db *gorm.DB, agentID, cursorUpdatedAt, cursorConvID int64, limit int) ([]*Conversation, error) {
 	var convs []*Conversation
 	cond := "status = 0 AND origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
 
@@ -198,15 +214,21 @@ func listUnbrokenInbound(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conv
 
 	var query string
 	var args []interface{}
-	if cursor > 0 {
-		baseA += " AND updated_at < ? ORDER BY updated_at DESC LIMIT ?"
-		baseB += " AND updated_at < ? ORDER BY updated_at DESC LIMIT ?"
-		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC LIMIT ?"
-		args = []interface{}{agentID, agentID, cursor, limit, agentID, agentID, cursor, limit, limit}
+	if cursorUpdatedAt > 0 {
+		if cursorConvID > 0 {
+			baseA += " AND (updated_at, conv_id) < (?, ?) ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+			baseB += " AND (updated_at, conv_id) < (?, ?) ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+			args = []interface{}{agentID, agentID, cursorUpdatedAt, cursorConvID, limit, agentID, agentID, cursorUpdatedAt, cursorConvID, limit, limit}
+		} else {
+			baseA += " AND updated_at < ? ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+			baseB += " AND updated_at < ? ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+			args = []interface{}{agentID, agentID, cursorUpdatedAt, limit, agentID, agentID, cursorUpdatedAt, limit, limit}
+		}
+		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
 	} else {
-		baseA += " ORDER BY updated_at DESC LIMIT ?"
-		baseB += " ORDER BY updated_at DESC LIMIT ?"
-		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC LIMIT ?"
+		baseA += " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+		baseB += " ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
+		query = "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY updated_at DESC, conv_id DESC LIMIT ?"
 		args = []interface{}{agentID, agentID, limit, agentID, agentID, limit, limit}
 	}
 

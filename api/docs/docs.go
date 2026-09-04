@@ -1362,6 +1362,9 @@ const docTemplate = `{
                 },
                 "next_cursor": {
                     "type": "string"
+                },
+                "next_cursor_v2": {
+                    "type": "string"
                 }
             }
         },

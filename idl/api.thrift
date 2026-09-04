@@ -450,6 +450,7 @@ struct ConversationData {
 struct ListConversationsData {
     1: required list<ConversationData> conversations
     2: required string next_cursor
+    3: optional string next_cursor_v2
 }
 
 struct ListConversationsResp {

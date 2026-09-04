@@ -1411,14 +1411,17 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("ListConversations", "agentID", agentID)
 
-	var cursorPtr *int64
+	var cursorPtr, cursorConvIDPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
-		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
+		cursor, err := decodeConversationPageCursor(*req.Cursor)
 		if err != nil {
 			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
 			return
 		}
-		cursorPtr = &cursor
+		cursorPtr = &cursor.UpdatedAt
+		if cursor.ConvID > 0 {
+			cursorConvIDPtr = &cursor.ConvID
+		}
 	}
 
 	var limitPtr *int32
@@ -1429,9 +1432,10 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	// Optional origin_type filter ("item" | "friend"); read directly from the
 	// query so the hz-bound request model needs no IDL change.
 	rpcReq := &pmrpc.ListConversationsReq{
-		AgentId: agentID,
-		Cursor:  cursorPtr,
-		Limit:   limitPtr,
+		AgentId:      agentID,
+		Cursor:       cursorPtr,
+		CursorConvId: cursorConvIDPtr,
+		Limit:        limitPtr,
 	}
 	if originType := strings.TrimSpace(c.Query("origin_type")); originType != "" {
 		rpcReq.OriginType = &originType
@@ -1562,9 +1566,14 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	nextCursorV2 := ""
+	if resp.IsSetNextCursorConvId() {
+		nextCursorV2 = encodeConversationPageCursor(resp.NextCursor, resp.GetNextCursorConvId())
+	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"conversations": conversations,
-		"next_cursor":   strconv.FormatInt(resp.NextCursor, 10),
+		"conversations":  conversations,
+		"next_cursor":    strconv.FormatInt(resp.NextCursor, 10),
+		"next_cursor_v2": nextCursorV2,
 	})
 }
 
