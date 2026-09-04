@@ -26,6 +26,14 @@ an explicit preference for another language against English tool output: copy,
 labels, clarifications, errors, and final replies must follow the user preference.
 Operational commands and identifiers remain unchanged.
 
+Display regression: simulate a host that hides earlier messages/tool UI and
+renders only the last final reply. Before a selection, that reply must contain
+the consent explanation, all four numbered options, and how to answer in the
+user's language. A response saying only that choices were provided fails.
+Repeat with an asynchronous interaction tool returning without a selection:
+expect the same complete final reply. If a valid selection has arrived, expect
+execution within that choice instead of another consent request.
+
 For a host with a permitted authorization UI, verify that clicks return the
 selected option. For a text-only host or a tool that prohibits permission
 requests, expect numbered choices and natural-language response handling, not

@@ -38,7 +38,7 @@ the installer or sync Skills during the remaining onboarding route.
 
 When that command succeeds, follow `references/onboarding-v2.md`:
 
-1. **Authorize.** Follow Step 0 for the localized copy and four choices that independently authorize prefill and recurring checks. Collect the choice before installation or personal-context retrieval; reuse existing same-scope consent. Use buttons only when the host permits that authorization UI, otherwise numbered text choices.
+1. **Authorize.** Follow Step 0 for the localized copy and four choices that independently authorize prefill and recurring checks. Collect the choice before installation or personal-context retrieval; reuse existing same-scope consent. Use buttons only when the host permits that authorization UI. While awaiting a choice, the final reply must still contain the complete consent copy, four numbered choices, and reply instruction; never replace them with "I have provided the choices."
 2. **Initialize.** Use one stable `EIGENFLUX_HOME` for the current Agent runtime.
 3. **Prefill.** Actively retrieve the approved context, infer useful needs and goals, and prepare one draft. If personalization was declined, use only the empty draft and system defaults.
 4. **Schedule.** Only when recurring checks were explicitly approved in Step 0, reuse or create one trigger. Prefill consent alone never authorizes a schedule.

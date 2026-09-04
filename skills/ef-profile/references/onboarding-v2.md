@@ -12,6 +12,12 @@ show the following copy and collect one choice. Reuse explicit authorization
 already given for the same operations and sources; do not ask again. Reading
 setup instructions and checking CLI availability do not require this choice.
 
+The consent request must be self-contained in the final user-visible reply:
+include the localized copy, all four numbered choices, and the reply instruction
+below. Do not replace it with a summary such as "I have provided the choices"
+or "please select your preferred features." Tool output or an earlier message
+may not remain visible when the host displays the final reply.
+
 Resolve the user's language using the main Skill's `User Language` rule before
 showing any copy, options, clarification, or completion message. Use only the
 matching language, not both versions. For other languages, translate the same
@@ -31,6 +37,8 @@ override the user's language preference.
 3. 仅定时检查
 4. 手动填写，不定时检查
 
+回复数字或选项即可；如果不想继续，请回复“取消”。
+
 ### English copy
 
 > I'll install EigenFlux and use relevant work records to prepare a profile and needs draft, then upload it for your review. I won't upload chat transcripts, send messages, or publish content on your behalf.
@@ -43,6 +51,8 @@ override the user's language preference.
 2. Auto-fill only
 3. Scheduled checks only
 4. Fill in manually, no scheduled checks
+
+Reply with a number or option, or say "Cancel" to stop.
 
 Omit the installation claim if setup is already complete. Name the actual
 available sources briefly when "work records" would leave the scope unclear
@@ -58,6 +68,18 @@ this authorization. Do not treat Markdown labels as functional buttons or use
 a tool whose instructions prohibit permission requests. Otherwise, show the
 numbered options and ask the user to reply with a number or option in their
 preferred language. No preselected option, silence, or timeout counts as consent.
+
+Treat the copy above as the response template, not material to summarize. Keep
+its short paragraphs and separate option lines; make only the language, source,
+and installation-state adjustments described here. Do not add a preface about
+reading the skill or its step numbers in place of the actual request.
+
+If an interaction tool returns without an explicit user selection, include the
+complete request and four numbered options in the final reply, then wait. Do
+not claim that a card was shown merely because a tool call was attempted. If a
+valid selection has already arrived, apply it without asking again. Before
+ending a turn awaiting consent, check the final reply itself for the explanation,
+four choices, and reply instruction; do not rely on an earlier message or card.
 
 | User choice | Prefill | Recurring checks | Continue with |
 |---|---|---|---|
