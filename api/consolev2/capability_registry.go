@@ -23,19 +23,22 @@ type capabilityText struct {
 }
 
 type capabilityOperation struct {
-	OperationID   string                    `json:"operation_id"`
-	CLI           string                    `json:"cli"`
-	Category      string                    `json:"category"`
-	Access        string                    `json:"access"`
-	Risk          string                    `json:"risk"`
-	Confirmation  string                    `json:"confirmation"`
-	Availability  string                    `json:"availability"`
-	MinCLIVersion string                    `json:"min_cli_version"`
-	Localized     map[string]capabilityText `json:"localized"`
-	Label         string                    `json:"label"`
-	Description   string                    `json:"description"`
-	SemanticHints []string                  `json:"semantic_hints,omitempty"`
-	AllowedValues []string                  `json:"allowed_values,omitempty"`
+	OperationID            string                    `json:"operation_id"`
+	CLI                    string                    `json:"cli"`
+	Category               string                    `json:"category"`
+	Access                 string                    `json:"access"`
+	Risk                   string                    `json:"risk"`
+	Confirmation           string                    `json:"confirmation"`
+	Availability           string                    `json:"availability"`
+	MinCLIVersion          string                    `json:"min_cli_version"`
+	IdentityRoute          string                    `json:"identity_route"`
+	RequiresConsoleHandoff bool                      `json:"requires_console_handoff"`
+	SameAccountBehavior    string                    `json:"same_account_behavior,omitempty"`
+	Localized              map[string]capabilityText `json:"localized"`
+	Label                  string                    `json:"label"`
+	Description            string                    `json:"description"`
+	SemanticHints          []string                  `json:"semantic_hints,omitempty"`
+	AllowedValues          []string                  `json:"allowed_values,omitempty"`
 }
 
 type capabilityField struct {
@@ -51,6 +54,8 @@ type capabilityField struct {
 
 type capabilitySeed struct {
 	id, cli, category, access, risk, confirmation, availability, minCLI string
+	identityRoute, sameAccountBehavior                                  string
+	requiresConsoleHandoff                                              bool
 	zh, en                                                              capabilityText
 }
 
@@ -61,7 +66,7 @@ func capability(id, cli, category, access, zhLabel, enLabel string) capabilitySe
 	}
 	return capabilitySeed{
 		id: id, cli: cli, category: category, access: access,
-		risk: "normal", confirmation: confirmation, availability: "completed", minCLI: "0.0.37",
+		risk: "normal", confirmation: confirmation, availability: "completed", minCLI: "0.0.37", identityRoute: "none",
 		zh: capabilityText{Label: zhLabel, Description: zhLabel},
 		en: capabilityText{Label: enLabel, Description: enLabel},
 	}
@@ -196,7 +201,15 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "policy_governed"
 		}
 		switch seed.id {
+		case "identity.provision":
+			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
+			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"
+			seed.en.Description = "Only create or explicitly claim an Agent; never use this route to update an Agent Card or switch accounts"
 		case "identity.switch_account":
+			seed.identityRoute, seed.requiresConsoleHandoff = "switch_account", true
+			seed.sameAccountBehavior = "confirm_without_change"
+			seed.zh.Description = "仅切换当前 CLI 绑定账号；选择当前账号时直接确认且不修改凭据"
+			seed.en.Description = "Only switch the CLI-bound account; selecting the current account confirms without changing credentials"
 			seed.zh.SemanticHints = []string{"切换账号", "换登录账号", "使用另一个账号"}
 			seed.en.SemanticHints = []string{"switch account", "change login account", "use another account"}
 		case "context.goal.update":
@@ -215,6 +228,8 @@ func capabilitySeeds() []capabilitySeed {
 			seed.zh.SemanticHints = []string{"忽略 Attention", "关闭待决策事项"}
 			seed.en.SemanticHints = []string{"dismiss Attention", "close a pending decision"}
 		case "profile.update":
+			seed.zh.Description = "使用当前 CLI 身份修改 Agent Card；不登录、不认领、不切换账号"
+			seed.en.Description = "Update the Agent Card with the current CLI identity; do not log in, claim, or switch accounts"
 			seed.zh.SemanticHints = []string{"修改 Agent Card", "更新资料"}
 			seed.en.SemanticHints = []string{"change Agent Card", "update profile"}
 		case "settings.feed_poll_interval.update", "settings.official_pm_optout.update", "settings.feed_delivery_preference.update", "settings.language.update", "settings.show_add_friend.update":
@@ -256,7 +271,9 @@ func buildAgentCapabilityRegistry(language string, controlEnabled, attentionEnab
 		operation := capabilityOperation{
 			OperationID: seed.id, CLI: seed.cli, Category: seed.category, Access: seed.access,
 			Risk: seed.risk, Confirmation: seed.confirmation, Availability: availability,
-			MinCLIVersion: seed.minCLI, Localized: localized, Label: selected.Label,
+			MinCLIVersion: seed.minCLI, IdentityRoute: seed.identityRoute,
+			RequiresConsoleHandoff: seed.requiresConsoleHandoff, SameAccountBehavior: seed.sameAccountBehavior,
+			Localized: localized, Label: selected.Label,
 			Description: selected.Description, SemanticHints: selected.SemanticHints,
 		}
 		if seed.id == "settings.language.update" {

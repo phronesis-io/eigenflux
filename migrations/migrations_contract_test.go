@@ -262,6 +262,25 @@ func TestCLIAccountSwitchMigrationKeepsPendingSwitchServerSide(t *testing.T) {
 	}
 }
 
+func TestCLIAccountSwitchNoopMigrationAddsTerminalState(t *testing.T) {
+	sql := migration(t, "000096_console_v2_cli_account_switch_noop.sql")
+	up, down, ok := strings.Cut(sql, "-- +goose Down")
+	if !ok {
+		t.Fatal("CLI account-switch no-op migration has no Down boundary")
+	}
+	for _, required := range []string{
+		"completed_noop", "target_agent_id IS NULL", "completed_at IS NOT NULL",
+		"chk_agent_cli_account_switch_audit_result",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("CLI account-switch no-op migration missing %q", required)
+		}
+	}
+	if !strings.Contains(down, "SET status = 'revoked', completed_at = NULL WHERE status = 'completed_noop'") {
+		t.Fatal("CLI account-switch no-op migration does not normalize rows before rollback")
+	}
+}
+
 func TestAgentCapabilityScopeMigrationRepairsOnlyActiveCompletedSessions(t *testing.T) {
 	sql := migration(t, "000094_console_v2_agent_context_write.sql")
 	for _, required := range []string{
