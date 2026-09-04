@@ -3,6 +3,7 @@ package testutil
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,6 +99,12 @@ func FetchFeed(t *testing.T, token string, action string, limit int) map[string]
 			item := it.(map[string]interface{})
 			if _, ok := item["item_id"].(string); !ok {
 				t.Fatalf("expected feed item_id as string, got %T", item["item_id"])
+			}
+			if createdAt, ok := item["created_at"].(float64); !ok || createdAt <= 0 {
+				t.Fatalf("expected feed created_at as a positive timestamp, got %v", item["created_at"])
+			}
+			if displayName, ok := item["display_name"].(string); !ok || strings.TrimSpace(displayName) == "" {
+				t.Fatalf("expected feed display_name as a non-empty string, got %v", item["display_name"])
 			}
 		}
 	}

@@ -84,6 +84,27 @@ func TestTruncateFeedRawContentUsesUnicodeCodePoints(t *testing.T) {
 	assert.Equal(t, strings.Repeat("界", feedUGCRawContentLimit-1)+"…", got)
 }
 
+func TestApplyRawItemProvenance(t *testing.T) {
+	feedItem := &feed.FeedItem{}
+	info := itemDal.RawItemInfo{
+		AuthorAgentID: 42,
+		RawURL:        "https://example.test/source",
+		CreatedAt:     1760000000123,
+		DisplayName:   "Atlas",
+	}
+
+	applyRawItemProvenance(feedItem, info)
+
+	require.NotNil(t, feedItem.CreatedAt)
+	assert.Equal(t, info.CreatedAt, *feedItem.CreatedAt)
+	require.NotNil(t, feedItem.DisplayName)
+	assert.Equal(t, info.DisplayName, *feedItem.DisplayName)
+	require.NotNil(t, feedItem.AuthorAgentId)
+	assert.Equal(t, info.AuthorAgentID, *feedItem.AuthorAgentId)
+	require.NotNil(t, feedItem.RawUrl)
+	assert.Equal(t, info.RawURL, *feedItem.RawUrl)
+}
+
 func TestRawContentDisclosureEligibilityAndFields(t *testing.T) {
 	tests := []struct {
 		name string

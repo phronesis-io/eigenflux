@@ -5185,6 +5185,8 @@ type FeedItem struct {
 	UpdatedAt           int64    `thrift:"updated_at,7,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
 	RawContent          *string  `thrift:"raw_content,8,optional" form:"raw_content" json:"raw_content,omitempty" query:"raw_content"`
 	RawContentTruncated *bool    `thrift:"raw_content_truncated,9,optional" form:"raw_content_truncated" json:"raw_content_truncated,omitempty" query:"raw_content_truncated"`
+	CreatedAt           int64    `thrift:"created_at,10,required" form:"created_at,required" json:"created_at,required" query:"created_at,required"`
+	DisplayName         string   `thrift:"display_name,11,required" form:"display_name,required" json:"display_name,required" query:"display_name,required"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -5260,16 +5262,26 @@ func (p *FeedItem) GetRawContentTruncated() (v bool) {
 	return *p.RawContentTruncated
 }
 
+func (p *FeedItem) GetCreatedAt() (v int64) {
+	return p.CreatedAt
+}
+
+func (p *FeedItem) GetDisplayName() (v string) {
+	return p.DisplayName
+}
+
 var fieldIDToName_FeedItem = map[int16]string{
-	1: "item_id",
-	2: "summary",
-	3: "broadcast_type",
-	4: "domains",
-	5: "source_type",
-	6: "url",
-	7: "updated_at",
-	8: "raw_content",
-	9: "raw_content_truncated",
+	1:  "item_id",
+	2:  "summary",
+	3:  "broadcast_type",
+	4:  "domains",
+	5:  "source_type",
+	6:  "url",
+	7:  "updated_at",
+	8:  "raw_content",
+	9:  "raw_content_truncated",
+	10: "created_at",
+	11: "display_name",
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -5303,6 +5315,8 @@ func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
 	var issetItemID bool = false
 	var issetBroadcastType bool = false
 	var issetUpdatedAt bool = false
+	var issetCreatedAt bool = false
+	var issetDisplayName bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -5393,6 +5407,24 @@ func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 10:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField10(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCreatedAt = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 11:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetDisplayName = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -5418,6 +5450,16 @@ func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetUpdatedAt {
 		fieldId = 7
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetCreatedAt {
+		fieldId = 10
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetDisplayName {
+		fieldId = 11
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -5549,6 +5591,28 @@ func (p *FeedItem) ReadField9(iprot thrift.TProtocol) error {
 	p.RawContentTruncated = _field
 	return nil
 }
+func (p *FeedItem) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.CreatedAt = _field
+	return nil
+}
+func (p *FeedItem) ReadField11(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.DisplayName = _field
+	return nil
+}
 
 func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -5590,6 +5654,14 @@ func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField9(oprot); err != nil {
 			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
+			goto WriteFieldError
+		}
+		if err = p.writeField11(oprot); err != nil {
+			fieldId = 11
 			goto WriteFieldError
 		}
 	}
@@ -5781,6 +5853,40 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField10(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("created_at", thrift.I64, 10); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.CreatedAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField11(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("display_name", thrift.STRING, 11); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.DisplayName); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
 }
 
 func (p *FeedItem) String() string {

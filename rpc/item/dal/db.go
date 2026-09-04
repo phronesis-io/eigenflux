@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/agentidentity"
+
 	"gorm.io/gorm"
 )
 
@@ -733,6 +735,8 @@ type RawItemInfo struct {
 	AuthorAgentID int64
 	RawURL        string // empty string when no URL was provided at publish time
 	RawContent    string
+	CreatedAt     int64
+	DisplayName   string
 	AuthorEmail   string
 	AuthorExists  bool
 	IsOfficial    bool
@@ -753,6 +757,9 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 		AuthorAgentID int64  `gorm:"column:author_agent_id"`
 		RawURL        string `gorm:"column:raw_url"`
 		RawContent    string `gorm:"column:raw_content"`
+		CreatedAt     int64  `gorm:"column:created_at"`
+		AgentName     string `gorm:"column:agent_name"`
+		ShortID       string `gorm:"column:short_id"`
 		AuthorEmail   string `gorm:"column:author_email"`
 		AuthorExists  bool   `gorm:"column:author_exists"`
 		IsOfficial    bool   `gorm:"column:is_official"`
@@ -760,6 +767,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 
 	err := db.Table("raw_items AS r").
 		Select(`r.item_id, r.author_agent_id, r.raw_url, LEFT(r.raw_content, 1001) AS raw_content,
+		        r.created_at, COALESCE(a.agent_name, '') AS agent_name, COALESCE(a.short_id, '') AS short_id,
 		        COALESCE(a.email, '') AS author_email,
 		        a.agent_id IS NOT NULL AS author_exists,
 		        COALESCE(a.is_official, false) AS is_official`).
@@ -778,6 +786,8 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 			AuthorAgentID: r.AuthorAgentID,
 			RawURL:        r.RawURL,
 			RawContent:    r.RawContent,
+			CreatedAt:     r.CreatedAt,
+			DisplayName:   agentidentity.DisplayName(r.AgentName, r.ShortID),
 			AuthorEmail:   r.AuthorEmail,
 			AuthorExists:  r.AuthorExists,
 			IsOfficial:    r.IsOfficial,

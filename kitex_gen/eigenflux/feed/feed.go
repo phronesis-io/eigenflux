@@ -26,6 +26,8 @@ type FeedItem struct {
 	AuthorRelation      *string  `thrift:"author_relation,15,optional" frugal:"15,optional,string" json:"author_relation,omitempty"`
 	RawContent          *string  `thrift:"raw_content,16,optional" frugal:"16,optional,string" json:"raw_content,omitempty"`
 	RawContentTruncated *bool    `thrift:"raw_content_truncated,17,optional" frugal:"17,optional,bool" json:"raw_content_truncated,omitempty"`
+	CreatedAt           *int64   `thrift:"created_at,18,optional" frugal:"18,optional,i64" json:"created_at,omitempty"`
+	DisplayName         *string  `thrift:"display_name,19,optional" frugal:"19,optional,string" json:"display_name,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -172,6 +174,24 @@ func (p *FeedItem) GetRawContentTruncated() (v bool) {
 	}
 	return *p.RawContentTruncated
 }
+
+var FeedItem_CreatedAt_DEFAULT int64
+
+func (p *FeedItem) GetCreatedAt() (v int64) {
+	if !p.IsSetCreatedAt() {
+		return FeedItem_CreatedAt_DEFAULT
+	}
+	return *p.CreatedAt
+}
+
+var FeedItem_DisplayName_DEFAULT string
+
+func (p *FeedItem) GetDisplayName() (v string) {
+	if !p.IsSetDisplayName() {
+		return FeedItem_DisplayName_DEFAULT
+	}
+	return *p.DisplayName
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -222,6 +242,12 @@ func (p *FeedItem) SetRawContent(val *string) {
 }
 func (p *FeedItem) SetRawContentTruncated(val *bool) {
 	p.RawContentTruncated = val
+}
+func (p *FeedItem) SetCreatedAt(val *int64) {
+	p.CreatedAt = val
+}
+func (p *FeedItem) SetDisplayName(val *string) {
+	p.DisplayName = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -280,6 +306,14 @@ func (p *FeedItem) IsSetRawContentTruncated() bool {
 	return p.RawContentTruncated != nil
 }
 
+func (p *FeedItem) IsSetCreatedAt() bool {
+	return p.CreatedAt != nil
+}
+
+func (p *FeedItem) IsSetDisplayName() bool {
+	return p.DisplayName != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -305,6 +339,8 @@ var fieldIDToName_FeedItem = map[int16]string{
 	15: "author_relation",
 	16: "raw_content",
 	17: "raw_content_truncated",
+	18: "created_at",
+	19: "display_name",
 }
 
 type FetchFeedReq struct {
