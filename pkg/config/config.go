@@ -132,6 +132,7 @@ type Config struct {
 	CommissionAPIEndpoint       string
 	CommissionDelegateKID       string
 	CommissionDelegatePrivate   string
+	EnableCommissionAgentIDWhitelist bool
 	CommissionAgentIDWhitelist  string
 	EnableCommissionIndex       bool
 	CommissionSourceService     string
@@ -326,6 +327,7 @@ func Load() *Config {
 		CommissionAPIEndpoint:        getEnv("COMMISSION_ENDPOINT", "http://127.0.0.1:8090"),
 		CommissionDelegateKID:        getEnv("COMMISSION_DELEGATION_KEY_ID", ""),
 		CommissionDelegatePrivate:    getEnv("COMMISSION_DELEGATION_PRIVATE_KEY", ""),
+		EnableCommissionAgentIDWhitelist: getEnvBool("ENABLE_COMMISSION_AGENT_ID_WHITELIST", false),
 		CommissionAgentIDWhitelist:   getEnv("COMMISSION_AGENT_ID_WHITELIST", ""),
 		EnableCommissionIndex:        getEnvBool("ENABLE_COMMISSION_INDEX", false),
 		CommissionSourceService:      getEnv("COMMISSION_SOURCE_SERVICE", "CommissionService"),

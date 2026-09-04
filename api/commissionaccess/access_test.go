@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewNormalizesValidAgentIDs(t *testing.T) {
-	access, err := New(" 42, 42, ,9223372036854775807,")
+	access, err := New(true, " 42, 42, ,9223372036854775807,")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestNewNormalizesValidAgentIDs(t *testing.T) {
 func TestNewRejectsInvalidAgentIDs(t *testing.T) {
 	for _, raw := range []string{"0", "-1", "agent-42", "9223372036854775808"} {
 		t.Run(raw, func(t *testing.T) {
-			if access, err := New(raw); err == nil || access != nil {
+			if access, err := New(true, raw); err == nil || access != nil {
 				t.Fatalf("New(%q) access=%v error=%v", raw, access, err)
 			}
 		})
@@ -38,13 +38,23 @@ func TestNewRejectsInvalidAgentIDs(t *testing.T) {
 
 func TestNewEmptyAllowlistDeniesEveryAgent(t *testing.T) {
 	for _, raw := range []string{"", " , , "} {
-		access, err := New(raw)
+		access, err := New(true, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if access.allowed(42) {
 			t.Fatalf("New(%q) allowed Agent 42", raw)
 		}
+	}
+}
+
+func TestNewDisabledSkipsInvalidAllowlist(t *testing.T) {
+	access, err := New(false, "invalid,0,-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access.enabled {
+		t.Fatal("disabled access reported enabled")
 	}
 }
 
@@ -74,7 +84,7 @@ func performGate(t *testing.T, gate app.HandlerFunc, agentID int64) (int, map[st
 }
 
 func TestV1MiddlewareRejectsUnlistedAgent(t *testing.T) {
-	access, _ := New("7")
+	access, _ := New(true, "7")
 	status, payload, called, _ := performGate(t, access.V1Middleware(), 8)
 	if status != http.StatusForbidden || payload["code"] != float64(403) || payload["msg"] != "commission access is not allowed" || called {
 		t.Fatalf("status=%d payload=%v called=%v", status, payload, called)
@@ -84,7 +94,7 @@ func TestV1MiddlewareRejectsUnlistedAgent(t *testing.T) {
 func TestV1MiddlewareFailsClosedWithoutTrustedAgent(t *testing.T) {
 	for name, raw := range map[string]string{"empty allowlist": "", "missing context": "7"} {
 		t.Run(name, func(t *testing.T) {
-			access, err := New(raw)
+			access, err := New(true, raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +107,7 @@ func TestV1MiddlewareFailsClosedWithoutTrustedAgent(t *testing.T) {
 }
 
 func TestConsoleMiddlewareRejectsUnlistedAgent(t *testing.T) {
-	access, _ := New("7")
+	access, _ := New(true, "7")
 	status, payload, called, cacheControl := performGate(t, access.ConsoleMiddleware(), 8)
 	errorPayload := payload["error"].(map[string]any)
 	if status != http.StatusForbidden || errorPayload["code"] != "COMMISSION_ACCESS_FORBIDDEN" || called {
@@ -109,10 +119,28 @@ func TestConsoleMiddlewareRejectsUnlistedAgent(t *testing.T) {
 }
 
 func TestMiddlewareAllowsListedAgent(t *testing.T) {
-	access, _ := New("7")
+	access, _ := New(true, "7")
 	for name, gate := range map[string]app.HandlerFunc{"v1": access.V1Middleware(), "console": access.ConsoleMiddleware()} {
 		t.Run(name, func(t *testing.T) {
 			status, _, called, _ := performGate(t, gate, 7)
+			if status != http.StatusOK || !called {
+				t.Fatalf("status=%d called=%v", status, called)
+			}
+		})
+	}
+}
+
+func TestDisabledMiddlewareBypassesAllowlist(t *testing.T) {
+	access, err := New(false, "invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, gate := range map[string]app.HandlerFunc{
+		"v1":      access.V1Middleware(),
+		"console": access.ConsoleMiddleware(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, _, called, _ := performGate(t, gate, 0)
 			if status != http.StatusOK || !called {
 				t.Fatalf("status=%d called=%v", status, called)
 			}

@@ -70,7 +70,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	commissionAccess, err := commissionaccess.New(cfg.CommissionAgentIDWhitelist)
+	commissionAccess, err := commissionaccess.New(cfg.EnableCommissionAgentIDWhitelist, cfg.CommissionAgentIDWhitelist)
 	if err != nil {
 		log.Fatal(err)
 	}

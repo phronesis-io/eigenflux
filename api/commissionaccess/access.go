@@ -12,10 +12,14 @@ import (
 )
 
 type Allowlist struct {
+	enabled  bool
 	agentIDs map[int64]struct{}
 }
 
-func New(raw string) (*Allowlist, error) {
+func New(enabled bool, raw string) (*Allowlist, error) {
+	if !enabled {
+		return &Allowlist{}, nil
+	}
 	agentIDs := make(map[int64]struct{})
 	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
@@ -28,7 +32,7 @@ func New(raw string) (*Allowlist, error) {
 		}
 		agentIDs[agentID] = struct{}{}
 	}
-	return &Allowlist{agentIDs: agentIDs}, nil
+	return &Allowlist{enabled: true, agentIDs: agentIDs}, nil
 }
 
 func (a *Allowlist) allowed(agentID int64) bool {
@@ -47,6 +51,10 @@ func contextAgentID(c *app.RequestContext) (int64, bool) {
 
 func (a *Allowlist) V1Middleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
 		agentID, ok := contextAgentID(c)
 		if !ok || !a.allowed(agentID) {
 			c.JSON(http.StatusForbidden, map[string]any{"code": 403, "msg": "commission access is not allowed"})
@@ -59,6 +67,10 @@ func (a *Allowlist) V1Middleware() app.HandlerFunc {
 
 func (a *Allowlist) ConsoleMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
 		agentID, ok := contextAgentID(c)
 		if !ok || !a.allowed(agentID) {
 			c.Header("Cache-Control", "private, no-store")

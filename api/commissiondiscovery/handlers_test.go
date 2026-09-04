@@ -128,7 +128,7 @@ func TestDomainValidationResponseRemainsClientError(t *testing.T) {
 }
 
 func TestRegisteredRoutesRejectUnlistedAgentBeforeSort(t *testing.T) {
-	access, err := commissionaccess.New("7")
+	access, err := commissionaccess.New(true, "7")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -286,6 +286,24 @@ func TestLoadCommissionAgentIDWhitelist(t *testing.T) {
 	}
 }
 
+func TestLoadCommissionAgentIDWhitelistDisabledByDefault(t *testing.T) {
+	t.Setenv("ENABLE_COMMISSION_AGENT_ID_WHITELIST", "")
+
+	cfg := Load()
+	if cfg.EnableCommissionAgentIDWhitelist {
+		t.Fatal("Commission Agent ID whitelist enabled by default")
+	}
+}
+
+func TestLoadCommissionAgentIDWhitelistEnabled(t *testing.T) {
+	t.Setenv("ENABLE_COMMISSION_AGENT_ID_WHITELIST", "true")
+
+	cfg := Load()
+	if !cfg.EnableCommissionAgentIDWhitelist {
+		t.Fatal("Commission Agent ID whitelist was not enabled")
+	}
+}
+
 func TestCommissionIntegrationModeDefaultsDisabled(t *testing.T) {
 	mode, err := (&Config{}).CommissionIntegrationMode()
 	if err != nil {
