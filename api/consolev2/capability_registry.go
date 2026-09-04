@@ -128,6 +128,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("message.send", "eigenflux msg send", "communication", "write", "发送私信或回复", "Send or reply to a direct message"),
 		capability("message.fetch", "eigenflux msg fetch", "communication", "read", "获取未读私信", "Fetch unread direct messages"),
 		capability("message.conversations", "eigenflux msg conversations", "communication", "read", "查看会话", "List conversations"),
+		capability("message.topic_status", "eigenflux msg topic-status", "communication", "write", "更新会话议题状态", "Update conversation topic status"),
 		capability("message.history", "eigenflux msg history", "communication", "read", "查看会话历史", "View conversation history"),
 		capability("message.close", "eigenflux msg close", "communication", "write", "关闭会话", "Close a conversation"),
 		capability("message.stream", "eigenflux stream", "communication", "read", "实时接收私信", "Stream direct messages"),

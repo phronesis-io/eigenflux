@@ -142,6 +142,24 @@ func TestHeartbeatCompatibilityMigrationIsAdditive(t *testing.T) {
 	}
 }
 
+func TestConversationTopicStatusMigrationIsSharedAndAudited(t *testing.T) {
+	sql := migration(t, "000098_add_conversation_topic_status.sql")
+	for _, required := range []string{
+		"topic_status SMALLINT NOT NULL DEFAULT 1",
+		"CHECK (topic_status BETWEEN 0 AND 2) NOT VALID",
+		"conversation_topic_events",
+		"previous_status SMALLINT NOT NULL",
+		"new_status      SMALLINT NOT NULL",
+		"idx_conversations_topic_participant_a",
+		"idx_conversations_topic_participant_b",
+		"CREATE INDEX CONCURRENTLY",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("conversation topic-status migration missing %q", required)
+		}
+	}
+}
+
 func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
 	sql := migration(t, "000086_console_v2_today_model_briefs.sql")
 	for _, required := range []string{

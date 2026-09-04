@@ -912,6 +912,26 @@
                 }
             }
         },
+        "/api/v1/pm/topic-status": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PM"
+                ],
+                "summary": "Update conversation topic status",
+                "responses": {}
+            }
+        },
         "/api/v1/relations/applications": {
             "get": {
                 "responses": {}
@@ -1013,8 +1033,7 @@
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "type": "integer",
-                            "format": "int32"
+                            "type": "integer"
                         }
                     }
                 }

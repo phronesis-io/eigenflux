@@ -21,6 +21,7 @@ Examples:
   eigenflux msg fetch --limit 20
   eigenflux msg conversations
   eigenflux msg history --conv-id 456
+  eigenflux msg topic-status --conv-id 456 --status pending_verify
   eigenflux msg close --conv-id 456`,
 }
 
@@ -152,10 +153,12 @@ var msgConversationsCmd = &cobra.Command{
 
 Examples:
   eigenflux msg conversations
-  eigenflux msg conversations --limit 10`,
+  eigenflux msg conversations --limit 10
+  eigenflux msg conversations --sort topic_status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		limit, _ := cmd.Flags().GetString("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
+		sortBy, _ := cmd.Flags().GetString("sort")
 		params := map[string]string{}
 		if limit != "" {
 			params["limit"] = limit
@@ -163,8 +166,43 @@ Examples:
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
+		if sortBy != "" {
+			params["sort"] = sortBy
+		}
 		c := newClient()
 		resp, err := c.Get("/pm/conversations", params)
+		if err != nil {
+			return err
+		}
+		if resp.Code != 0 {
+			return fmt.Errorf("%s", resp.Msg)
+		}
+		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		return nil
+	},
+}
+
+var msgTopicStatusCmd = &cobra.Command{
+	Use:   "topic-status",
+	Short: "Update a conversation topic status",
+	Long: `Set the shared topic status for a conversation.
+
+Examples:
+  eigenflux msg topic-status --conv-id 456 --status pending_verify
+  eigenflux msg topic-status --conv-id 456 --status open
+  eigenflux msg topic-status --conv-id 456 --status closed`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		convID, _ := cmd.Flags().GetString("conv-id")
+		status, _ := cmd.Flags().GetString("status")
+		if convID == "" {
+			return fmt.Errorf("--conv-id is required")
+		}
+		if status != "pending_verify" && status != "open" && status != "closed" {
+			return fmt.Errorf("--status must be pending_verify, open, or closed")
+		}
+		resp, err := newClient().Post("/pm/topic-status", map[string]interface{}{
+			"conv_id": convID, "topic_status": status,
+		})
 		if err != nil {
 			return err
 		}
@@ -324,11 +362,14 @@ func init() {
 	msgFetchCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgConversationsCmd.Flags().String("limit", "", "max conversations to return")
 	msgConversationsCmd.Flags().String("cursor", "", "pagination cursor")
+	msgConversationsCmd.Flags().String("sort", "", "sort mode: recent or topic_status")
 	msgHistoryCmd.Flags().String("conv-id", "", "conversation ID (required)")
 	msgHistoryCmd.Flags().String("limit", "", "max messages to return")
 	msgHistoryCmd.Flags().String("cursor", "", "pagination cursor")
 	msgHistoryCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgCloseCmd.Flags().String("conv-id", "", "conversation ID to close (required)")
-	msgCmd.AddCommand(msgSendCmd, msgFetchCmd, msgConversationsCmd, msgHistoryCmd, msgCloseCmd)
+	msgTopicStatusCmd.Flags().String("conv-id", "", "conversation ID (required)")
+	msgTopicStatusCmd.Flags().String("status", "", "topic status: pending_verify, open, or closed (required)")
+	msgCmd.AddCommand(msgSendCmd, msgFetchCmd, msgConversationsCmd, msgHistoryCmd, msgTopicStatusCmd, msgCloseCmd)
 	rootCmd.AddCommand(msgCmd)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 
+	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
@@ -53,22 +54,25 @@ type communicationMessage struct {
 }
 
 type communicationConversation struct {
-	ConvID       int64                 `gorm:"column:conv_id" json:"conv_id,string"`
-	ParticipantA int64                 `gorm:"column:participant_a" json:"-"`
-	ParticipantB int64                 `gorm:"column:participant_b" json:"-"`
-	OriginType   string                `gorm:"column:origin_type" json:"origin_type"`
-	OriginID     int64                 `gorm:"column:origin_id" json:"origin_id,string,omitempty"`
-	MsgCount     int64                 `gorm:"column:msg_count" json:"msg_count"`
-	UpdatedAt    int64                 `gorm:"column:updated_at" json:"updated_at"`
-	PeerAgentID  int64                 `json:"peer_agent_id,string"`
-	UnreadCount  int64                 `json:"unread_count"`
-	Category     string                `gorm:"-" json:"category"`
-	LastMessage  *communicationMessage `gorm:"-" json:"last_message,omitempty"`
+	ConvID           int64                 `gorm:"column:conv_id" json:"conv_id,string"`
+	ParticipantA     int64                 `gorm:"column:participant_a" json:"-"`
+	ParticipantB     int64                 `gorm:"column:participant_b" json:"-"`
+	OriginType       string                `gorm:"column:origin_type" json:"origin_type"`
+	OriginID         int64                 `gorm:"column:origin_id" json:"origin_id,string,omitempty"`
+	MsgCount         int64                 `gorm:"column:msg_count" json:"msg_count"`
+	UpdatedAt        int64                 `gorm:"column:updated_at" json:"updated_at"`
+	TopicStatusValue int16                 `gorm:"column:topic_status_value" json:"-"`
+	TopicStatus      string                `gorm:"column:topic_status" json:"topic_status"`
+	PeerAgentID      int64                 `json:"peer_agent_id,string"`
+	UnreadCount      int64                 `json:"unread_count"`
+	Category         string                `gorm:"-" json:"category"`
+	LastMessage      *communicationMessage `gorm:"-" json:"last_message,omitempty"`
 }
 
 type conversationCursor struct {
-	UpdatedAt int64 `json:"u"`
-	ConvID    int64 `json:"c"`
+	UpdatedAt   int64 `json:"u"`
+	ConvID      int64 `json:"c"`
+	TopicStatus int16 `json:"t"`
 }
 
 func parseCommunicationLimit(c *app.RequestContext) (int, error) {
@@ -303,6 +307,18 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		fail(c, http.StatusBadRequest, "INVALID_ORIGIN_TYPE", "origin_type must be friend, broadcast or unbroken", nil)
 		return
 	}
+	sortBy := strings.TrimSpace(c.Query("sort"))
+	if sortBy == "" {
+		sortBy = "recent"
+	}
+	if sortBy != "recent" && sortBy != "topic_status" {
+		fail(c, http.StatusBadRequest, "INVALID_SORT", "sort must be recent or topic_status", nil)
+		return
+	}
+	if sortBy == "topic_status" && (cursor.TopicStatus < 0 || cursor.TopicStatus > 2) {
+		fail(c, http.StatusBadRequest, "INVALID_CURSOR", "invalid cursor", nil)
+		return
+	}
 
 	filter := ""
 	branchArgs := func() []interface{} {
@@ -311,7 +327,11 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 			args = append(args, viewerID)
 		}
 		if cursor.UpdatedAt > 0 {
-			args = append(args, cursor.UpdatedAt, cursor.ConvID)
+			if sortBy == "topic_status" {
+				args = append(args, cursor.TopicStatus, cursor.UpdatedAt, cursor.ConvID)
+			} else {
+				args = append(args, cursor.UpdatedAt, cursor.ConvID)
+			}
 		}
 		if originType != "" && originType != "unbroken" {
 			args = append(args, originType)
@@ -320,7 +340,11 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		return args
 	}
 	if cursor.UpdatedAt > 0 {
-		filter += " AND (updated_at, conv_id) < (?, ?)"
+		if sortBy == "topic_status" {
+			filter += " AND (topic_status, updated_at, conv_id) > (?, ?, ?)"
+		} else {
+			filter += " AND (updated_at, conv_id) < (?, ?)"
+		}
 	}
 	if originType != "" && originType != "unbroken" {
 		filter += " AND origin_type = ?"
@@ -329,18 +353,26 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 	if originType == "unbroken" {
 		baseCondition = "status = 0 AND origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
 	}
+	orderBy := "updated_at DESC, conv_id DESC"
+	outerOrderBy := orderBy
+	if sortBy == "topic_status" {
+		orderBy = "topic_status ASC, updated_at ASC, conv_id ASC"
+		outerOrderBy = "topic_status_value ASC, updated_at ASC, conv_id ASC"
+	}
 	baseA := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type,
-		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at
+		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at, topic_status AS topic_status_value,
+		CASE topic_status WHEN 0 THEN 'pending_verify' WHEN 2 THEN 'closed' ELSE 'open' END AS topic_status
 		FROM conversations WHERE participant_a = ? AND ` + baseCondition + filter + `
-		ORDER BY updated_at DESC, conv_id DESC LIMIT ?`
+		ORDER BY ` + orderBy + ` LIMIT ?`
 	baseB := `SELECT conv_id, participant_a, participant_b, COALESCE(origin_type, '') AS origin_type,
-		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at
+		COALESCE(origin_id, 0) AS origin_id, msg_count, updated_at, topic_status AS topic_status_value,
+		CASE topic_status WHEN 0 THEN 'pending_verify' WHEN 2 THEN 'closed' ELSE 'open' END AS topic_status
 		FROM conversations WHERE participant_b = ? AND ` + baseCondition + filter + `
-		ORDER BY updated_at DESC, conv_id DESC LIMIT ?`
+		ORDER BY ` + orderBy + ` LIMIT ?`
 	args := append(branchArgs(), branchArgs()...)
 	args = append(args, limit+1)
 	query := `SELECT * FROM ((` + baseA + `) UNION ALL (` + baseB + `)) AS page
-		ORDER BY updated_at DESC, conv_id DESC LIMIT ?`
+		ORDER BY ` + outerOrderBy + ` LIMIT ?`
 	var rows []communicationConversation
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "CONVERSATIONS_READ_FAILED", "could not read conversations", nil)
@@ -415,7 +447,7 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 	nextCursor := ""
 	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID})
+		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID, TopicStatus: last.TopicStatusValue})
 	}
 	data := map[string]interface{}{
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "conversations": rows,
@@ -427,7 +459,7 @@ func (s *Service) listCommunicationConversations(_ context.Context, c *app.Reque
 		peerIDs = peerIDs[:len(rows)]
 		contexts = filterCommunicationContexts(contexts, peerIDs)
 		last := rows[len(rows)-1]
-		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID})
+		nextCursor = encodeConversationCursor(conversationCursor{UpdatedAt: last.UpdatedAt, ConvID: last.ConvID, TopicStatus: last.TopicStatusValue})
 		data["conversations"], data["agent_contexts"] = rows, contexts
 		data["next_cursor"], data["has_more"] = nextCursor, hasMore
 	}
@@ -527,6 +559,37 @@ func (s *Service) listCommunicationMessages(_ context.Context, c *app.RequestCon
 		return
 	}
 	reply(c, http.StatusOK, data)
+}
+
+func (s *Service) updateCommunicationTopicStatus(_ context.Context, c *app.RequestContext) {
+	viewerID, _ := agentID(c)
+	convID, err := strconv.ParseInt(c.Param("conv_id"), 10, 64)
+	if err != nil || convID <= 0 {
+		fail(c, http.StatusBadRequest, "INVALID_CONVERSATION", "invalid conv_id", nil)
+		return
+	}
+	var req struct {
+		TopicStatus string `json:"topic_status"`
+	}
+	body, _ := c.Body()
+	if json.Unmarshal(body, &req) != nil {
+		fail(c, http.StatusBadRequest, "INVALID_TOPIC_STATUS", "invalid request body", nil)
+		return
+	}
+	topicStatus := strings.TrimSpace(req.TopicStatus)
+	status, ok := pmdal.ParseTopicStatus(topicStatus)
+	if !ok {
+		fail(c, http.StatusBadRequest, "INVALID_TOPIC_STATUS", "topic_status must be pending_verify, open or closed", nil)
+		return
+	}
+	_, changed, err := pmdal.UpdateConversationTopicStatus(s.db, convID, viewerID, status)
+	if err != nil {
+		fail(c, http.StatusNotFound, "CONVERSATION_NOT_FOUND", "conversation not found", nil)
+		return
+	}
+	reply(c, http.StatusOK, map[string]interface{}{
+		"conv_id": strconv.FormatInt(convID, 10), "topic_status": topicStatus, "changed": changed,
+	})
 }
 
 type communicationFriendRequest struct {

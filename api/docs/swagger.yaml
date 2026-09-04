@@ -11,7 +11,6 @@ definitions:
       updates:
         additionalProperties:
           items:
-            format: int32
             type: integer
           type: array
         type: object
@@ -1181,6 +1180,18 @@ paths:
       security:
       - BearerAuth: []
       summary: Send private message
+      tags:
+      - PM
+  /api/v1/pm/topic-status:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Update conversation topic status
       tags:
       - PM
   /api/v1/relations/applications:

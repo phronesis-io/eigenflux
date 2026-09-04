@@ -549,11 +549,13 @@ var fieldIDToName_FetchPMHistoryResp = map[int16]string{
 }
 
 type ListConversationsReq struct {
-	AgentId      int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	Cursor       *int64  `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
-	Limit        *int32  `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
-	OriginType   *string `thrift:"origin_type,4,optional" frugal:"4,optional,string" json:"origin_type,omitempty"`
-	CursorConvId *int64  `thrift:"cursor_conv_id,5,optional" frugal:"5,optional,i64" json:"cursor_conv_id,omitempty"`
+	AgentId           int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Cursor            *int64  `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
+	Limit             *int32  `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	OriginType        *string `thrift:"origin_type,4,optional" frugal:"4,optional,string" json:"origin_type,omitempty"`
+	CursorConvId      *int64  `thrift:"cursor_conv_id,5,optional" frugal:"5,optional,i64" json:"cursor_conv_id,omitempty"`
+	SortBy            *string `thrift:"sort_by,6,optional" frugal:"6,optional,string" json:"sort_by,omitempty"`
+	CursorTopicStatus *int16  `thrift:"cursor_topic_status,7,optional" frugal:"7,optional,i16" json:"cursor_topic_status,omitempty"`
 }
 
 func NewListConversationsReq() *ListConversationsReq {
@@ -602,6 +604,24 @@ func (p *ListConversationsReq) GetCursorConvId() (v int64) {
 	}
 	return *p.CursorConvId
 }
+
+var ListConversationsReq_SortBy_DEFAULT string
+
+func (p *ListConversationsReq) GetSortBy() (v string) {
+	if !p.IsSetSortBy() {
+		return ListConversationsReq_SortBy_DEFAULT
+	}
+	return *p.SortBy
+}
+
+var ListConversationsReq_CursorTopicStatus_DEFAULT int16
+
+func (p *ListConversationsReq) GetCursorTopicStatus() (v int16) {
+	if !p.IsSetCursorTopicStatus() {
+		return ListConversationsReq_CursorTopicStatus_DEFAULT
+	}
+	return *p.CursorTopicStatus
+}
 func (p *ListConversationsReq) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -616,6 +636,12 @@ func (p *ListConversationsReq) SetOriginType(val *string) {
 }
 func (p *ListConversationsReq) SetCursorConvId(val *int64) {
 	p.CursorConvId = val
+}
+func (p *ListConversationsReq) SetSortBy(val *string) {
+	p.SortBy = val
+}
+func (p *ListConversationsReq) SetCursorTopicStatus(val *int16) {
+	p.CursorTopicStatus = val
 }
 
 func (p *ListConversationsReq) IsSetCursor() bool {
@@ -634,6 +660,14 @@ func (p *ListConversationsReq) IsSetCursorConvId() bool {
 	return p.CursorConvId != nil
 }
 
+func (p *ListConversationsReq) IsSetSortBy() bool {
+	return p.SortBy != nil
+}
+
+func (p *ListConversationsReq) IsSetCursorTopicStatus() bool {
+	return p.CursorTopicStatus != nil
+}
+
 func (p *ListConversationsReq) String() string {
 	if p == nil {
 		return "<nil>"
@@ -647,6 +681,8 @@ var fieldIDToName_ListConversationsReq = map[int16]string{
 	3: "limit",
 	4: "origin_type",
 	5: "cursor_conv_id",
+	6: "sort_by",
+	7: "cursor_topic_status",
 }
 
 type ConversationInfo struct {
@@ -667,6 +703,7 @@ type ConversationInfo struct {
 	Category           *string `thrift:"category,16,optional" frugal:"16,optional,string" json:"category,omitempty"`
 	LastSenderId       *int64  `thrift:"last_sender_id,17,optional" frugal:"17,optional,i64" json:"last_sender_id,omitempty"`
 	NeedsReply         *bool   `thrift:"needs_reply,18,optional" frugal:"18,optional,bool" json:"needs_reply,omitempty"`
+	TopicStatus        *string `thrift:"topic_status,19,optional" frugal:"19,optional,string" json:"topic_status,omitempty"`
 }
 
 func NewConversationInfo() *ConversationInfo {
@@ -808,6 +845,15 @@ func (p *ConversationInfo) GetNeedsReply() (v bool) {
 	}
 	return *p.NeedsReply
 }
+
+var ConversationInfo_TopicStatus_DEFAULT string
+
+func (p *ConversationInfo) GetTopicStatus() (v string) {
+	if !p.IsSetTopicStatus() {
+		return ConversationInfo_TopicStatus_DEFAULT
+	}
+	return *p.TopicStatus
+}
 func (p *ConversationInfo) SetConvId(val int64) {
 	p.ConvId = val
 }
@@ -858,6 +904,9 @@ func (p *ConversationInfo) SetLastSenderId(val *int64) {
 }
 func (p *ConversationInfo) SetNeedsReply(val *bool) {
 	p.NeedsReply = val
+}
+func (p *ConversationInfo) SetTopicStatus(val *string) {
+	p.TopicStatus = val
 }
 
 func (p *ConversationInfo) IsSetParticipantAName() bool {
@@ -912,6 +961,10 @@ func (p *ConversationInfo) IsSetNeedsReply() bool {
 	return p.NeedsReply != nil
 }
 
+func (p *ConversationInfo) IsSetTopicStatus() bool {
+	return p.TopicStatus != nil
+}
+
 func (p *ConversationInfo) String() string {
 	if p == nil {
 		return "<nil>"
@@ -937,13 +990,15 @@ var fieldIDToName_ConversationInfo = map[int16]string{
 	16: "category",
 	17: "last_sender_id",
 	18: "needs_reply",
+	19: "topic_status",
 }
 
 type ListConversationsResp struct {
-	Conversations    []*ConversationInfo `thrift:"conversations,1,required" frugal:"1,required,list<ConversationInfo>" json:"conversations"`
-	NextCursor       int64               `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
-	NextCursorConvId *int64              `thrift:"next_cursor_conv_id,3,optional" frugal:"3,optional,i64" json:"next_cursor_conv_id,omitempty"`
-	BaseResp         *base.BaseResp      `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	Conversations         []*ConversationInfo `thrift:"conversations,1,required" frugal:"1,required,list<ConversationInfo>" json:"conversations"`
+	NextCursor            int64               `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	NextCursorConvId      *int64              `thrift:"next_cursor_conv_id,3,optional" frugal:"3,optional,i64" json:"next_cursor_conv_id,omitempty"`
+	NextCursorTopicStatus *int16              `thrift:"next_cursor_topic_status,4,optional" frugal:"4,optional,i16" json:"next_cursor_topic_status,omitempty"`
+	BaseResp              *base.BaseResp      `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewListConversationsResp() *ListConversationsResp {
@@ -970,6 +1025,15 @@ func (p *ListConversationsResp) GetNextCursorConvId() (v int64) {
 	return *p.NextCursorConvId
 }
 
+var ListConversationsResp_NextCursorTopicStatus_DEFAULT int16
+
+func (p *ListConversationsResp) GetNextCursorTopicStatus() (v int16) {
+	if !p.IsSetNextCursorTopicStatus() {
+		return ListConversationsResp_NextCursorTopicStatus_DEFAULT
+	}
+	return *p.NextCursorTopicStatus
+}
+
 var ListConversationsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ListConversationsResp) GetBaseResp() (v *base.BaseResp) {
@@ -987,12 +1051,19 @@ func (p *ListConversationsResp) SetNextCursor(val int64) {
 func (p *ListConversationsResp) SetNextCursorConvId(val *int64) {
 	p.NextCursorConvId = val
 }
+func (p *ListConversationsResp) SetNextCursorTopicStatus(val *int16) {
+	p.NextCursorTopicStatus = val
+}
 func (p *ListConversationsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
 }
 
 func (p *ListConversationsResp) IsSetNextCursorConvId() bool {
 	return p.NextCursorConvId != nil
+}
+
+func (p *ListConversationsResp) IsSetNextCursorTopicStatus() bool {
+	return p.NextCursorTopicStatus != nil
 }
 
 func (p *ListConversationsResp) IsSetBaseResp() bool {
@@ -1010,6 +1081,110 @@ var fieldIDToName_ListConversationsResp = map[int16]string{
 	1:   "conversations",
 	2:   "next_cursor",
 	3:   "next_cursor_conv_id",
+	4:   "next_cursor_topic_status",
+	255: "base_resp",
+}
+
+type UpdateTopicStatusReq struct {
+	AgentId     int64  `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	ConvId      int64  `thrift:"conv_id,2,required" frugal:"2,required,i64" json:"conv_id"`
+	TopicStatus string `thrift:"topic_status,3,required" frugal:"3,required,string" json:"topic_status"`
+}
+
+func NewUpdateTopicStatusReq() *UpdateTopicStatusReq {
+	return &UpdateTopicStatusReq{}
+}
+
+func (p *UpdateTopicStatusReq) InitDefault() {
+}
+
+func (p *UpdateTopicStatusReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *UpdateTopicStatusReq) GetConvId() (v int64) {
+	return p.ConvId
+}
+
+func (p *UpdateTopicStatusReq) GetTopicStatus() (v string) {
+	return p.TopicStatus
+}
+func (p *UpdateTopicStatusReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *UpdateTopicStatusReq) SetConvId(val int64) {
+	p.ConvId = val
+}
+func (p *UpdateTopicStatusReq) SetTopicStatus(val string) {
+	p.TopicStatus = val
+}
+
+func (p *UpdateTopicStatusReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateTopicStatusReq(%+v)", *p)
+}
+
+var fieldIDToName_UpdateTopicStatusReq = map[int16]string{
+	1: "agent_id",
+	2: "conv_id",
+	3: "topic_status",
+}
+
+type UpdateTopicStatusResp struct {
+	TopicStatus string         `thrift:"topic_status,1,required" frugal:"1,required,string" json:"topic_status"`
+	Changed     bool           `thrift:"changed,2,required" frugal:"2,required,bool" json:"changed"`
+	BaseResp    *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewUpdateTopicStatusResp() *UpdateTopicStatusResp {
+	return &UpdateTopicStatusResp{}
+}
+
+func (p *UpdateTopicStatusResp) InitDefault() {
+}
+
+func (p *UpdateTopicStatusResp) GetTopicStatus() (v string) {
+	return p.TopicStatus
+}
+
+func (p *UpdateTopicStatusResp) GetChanged() (v bool) {
+	return p.Changed
+}
+
+var UpdateTopicStatusResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *UpdateTopicStatusResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return UpdateTopicStatusResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *UpdateTopicStatusResp) SetTopicStatus(val string) {
+	p.TopicStatus = val
+}
+func (p *UpdateTopicStatusResp) SetChanged(val bool) {
+	p.Changed = val
+}
+func (p *UpdateTopicStatusResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *UpdateTopicStatusResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *UpdateTopicStatusResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateTopicStatusResp(%+v)", *p)
+}
+
+var fieldIDToName_UpdateTopicStatusResp = map[int16]string{
+	1:   "topic_status",
+	2:   "changed",
 	255: "base_resp",
 }
 
@@ -2675,6 +2850,8 @@ type PMService interface {
 
 	CloseConv(ctx context.Context, req *CloseConvReq) (r *CloseConvResp, err error)
 
+	UpdateTopicStatus(ctx context.Context, req *UpdateTopicStatusReq) (r *UpdateTopicStatusResp, err error)
+
 	SendFriendRequest(ctx context.Context, req *SendFriendRequestReq) (r *SendFriendRequestResp, err error)
 
 	HandleFriendRequest(ctx context.Context, req *HandleFriendRequestReq) (r *HandleFriendRequestResp, err error)
@@ -3297,6 +3474,82 @@ func (p *PMServiceCloseConvResult) String() string {
 }
 
 var fieldIDToName_PMServiceCloseConvResult = map[int16]string{
+	0: "success",
+}
+
+type PMServiceUpdateTopicStatusArgs struct {
+	Req *UpdateTopicStatusReq `thrift:"req,1" frugal:"1,default,UpdateTopicStatusReq" json:"req"`
+}
+
+func NewPMServiceUpdateTopicStatusArgs() *PMServiceUpdateTopicStatusArgs {
+	return &PMServiceUpdateTopicStatusArgs{}
+}
+
+func (p *PMServiceUpdateTopicStatusArgs) InitDefault() {
+}
+
+var PMServiceUpdateTopicStatusArgs_Req_DEFAULT *UpdateTopicStatusReq
+
+func (p *PMServiceUpdateTopicStatusArgs) GetReq() (v *UpdateTopicStatusReq) {
+	if !p.IsSetReq() {
+		return PMServiceUpdateTopicStatusArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *PMServiceUpdateTopicStatusArgs) SetReq(val *UpdateTopicStatusReq) {
+	p.Req = val
+}
+
+func (p *PMServiceUpdateTopicStatusArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *PMServiceUpdateTopicStatusArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateTopicStatusArgs(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateTopicStatusArgs = map[int16]string{
+	1: "req",
+}
+
+type PMServiceUpdateTopicStatusResult struct {
+	Success *UpdateTopicStatusResp `thrift:"success,0,optional" frugal:"0,optional,UpdateTopicStatusResp" json:"success,omitempty"`
+}
+
+func NewPMServiceUpdateTopicStatusResult() *PMServiceUpdateTopicStatusResult {
+	return &PMServiceUpdateTopicStatusResult{}
+}
+
+func (p *PMServiceUpdateTopicStatusResult) InitDefault() {
+}
+
+var PMServiceUpdateTopicStatusResult_Success_DEFAULT *UpdateTopicStatusResp
+
+func (p *PMServiceUpdateTopicStatusResult) GetSuccess() (v *UpdateTopicStatusResp) {
+	if !p.IsSetSuccess() {
+		return PMServiceUpdateTopicStatusResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PMServiceUpdateTopicStatusResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateTopicStatusResp)
+}
+
+func (p *PMServiceUpdateTopicStatusResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PMServiceUpdateTopicStatusResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PMServiceUpdateTopicStatusResult(%+v)", *p)
+}
+
+var fieldIDToName_PMServiceUpdateTopicStatusResult = map[int16]string{
 	0: "success",
 }
 
