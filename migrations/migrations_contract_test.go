@@ -329,7 +329,7 @@ func TestHomepageEligibilityMigrationIsVersionedAndIndexed(t *testing.T) {
 }
 
 func TestHomepageRealWorldRelevanceMigrationIsIndexed(t *testing.T) {
-	sql := migration(t, "000096_homepage_real_world_relevance.sql")
+	sql := migration(t, "000097_homepage_real_world_relevance.sql")
 	for _, required := range []string{
 		"-- +goose NO TRANSACTION",
 		"homepage_real_world_relevant BOOLEAN NOT NULL DEFAULT FALSE",

@@ -22,7 +22,7 @@ BEGIN
           AND i.indrelid = 'public.processed_items'::regclass
           AND NOT i.indisvalid
     ) THEN
-        RAISE EXCEPTION 'idx_processed_items_homepage_real_world_relevant is invalid; drop it concurrently and rerun migration 96';
+        RAISE EXCEPTION 'idx_processed_items_homepage_real_world_relevant is invalid; drop it concurrently and rerun migration 97';
     END IF;
 END;
 $$;
