@@ -85,6 +85,17 @@ func completeNoopCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, no
 		record.TargetAgentID != nil || record.Status != "pending_target" {
 		return errConflict
 	}
+	if err := validateNoopPrincipalBinding(tx, record); err != nil {
+		return err
+	}
+	var activeCredentials int64
+	if err := tx.Raw(`SELECT COUNT(*) FROM agent_credential_sessions
+		WHERE principal_id = ? AND revoked_at IS NULL AND expires_at > ?`, record.PrincipalID, now).Scan(&activeCredentials).Error; err != nil {
+		return err
+	}
+	if activeCredentials == 0 {
+		return errConflict
+	}
 	res := tx.Exec(`UPDATE agent_cli_account_switches
 		SET status = 'completed_noop', completed_at = ?
 		WHERE switch_id_hash = ? AND source_agent_id = ? AND principal_id = ?
@@ -100,6 +111,23 @@ func completeNoopCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, no
 	completedAt := now
 	record.CompletedAt = &completedAt
 	return auditCLIAccountSwitch(tx, record, "completed_noop", now)
+}
+
+func validateNoopPrincipalBinding(tx *gorm.DB, record cliAccountSwitchRecord) error {
+	var principal struct {
+		AgentID int64  `gorm:"column:agent_id"`
+		KeyType string `gorm:"column:key_type"`
+		Status  string `gorm:"column:status"`
+	}
+	if err := tx.Raw(`SELECT agent_id, key_type, status FROM agent_principals
+		WHERE principal_id = ? AND revoked_at IS NULL FOR UPDATE`, record.PrincipalID).Scan(&principal).Error; err != nil {
+		return err
+	}
+	if principal.AgentID != record.SourceAgentID || principal.KeyType != "ed25519-v1" ||
+		(principal.Status != "limited" && principal.Status != "active") {
+		return errConflict
+	}
+	return nil
 }
 
 func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64) error {
@@ -191,8 +219,24 @@ func (s *Service) getCLIAccountSwitch(_ context.Context, c *app.RequestContext) 
 	}
 	now := time.Now().UnixMilli()
 	if (record.Status == "pending_target" || record.Status == "pending_onboarding") && record.ExpiresAt < now {
-		_ = s.db.Transaction(func(tx *gorm.DB) error { return expireCLIAccountSwitch(tx, record, now) })
-		record.Status = "expired"
+		err = s.db.Transaction(func(tx *gorm.DB) error {
+			current, loadErr := loadCLIAccountSwitch(tx, token, true)
+			if loadErr != nil {
+				return loadErr
+			}
+			if (current.Status == "pending_target" || current.Status == "pending_onboarding") && current.ExpiresAt < now {
+				if expireErr := expireCLIAccountSwitch(tx, current, now); expireErr != nil {
+					return expireErr
+				}
+				current.Status = "expired"
+			}
+			record = current
+			return nil
+		})
+		if err != nil {
+			fail(c, http.StatusInternalServerError, "ACCOUNT_SWITCH_FAILED", "could not read the CLI account switch", nil)
+			return
+		}
 	}
 	responseStatus := record.Status
 	alreadyCurrent := record.Status == "completed_noop"
@@ -231,13 +275,6 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		if err != nil {
 			return err
 		}
-		if record.ExpiresAt < now {
-			if err := expireCLIAccountSwitch(tx, record, now); err != nil {
-				return err
-			}
-			expired = true
-			return nil
-		}
 		if record.Status == "completed" {
 			if record.TargetAgentID == nil || *record.TargetAgentID != targetAgentID {
 				return errConflict
@@ -250,9 +287,19 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 			if record.SourceAgentID != targetAgentID {
 				return errConflict
 			}
+			if err := validateNoopPrincipalBinding(tx, record); err != nil {
+				return err
+			}
 			resultAgentID = record.SourceAgentID
 			status = "completed"
 			alreadyCurrent = true
+			return nil
+		}
+		if record.ExpiresAt < now {
+			if err := expireCLIAccountSwitch(tx, record, now); err != nil {
+				return err
+			}
+			expired = true
 			return nil
 		}
 		if record.Status != "pending_target" && record.Status != "pending_onboarding" {
@@ -274,7 +321,7 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 			return errConflict
 		}
 		var onboardingState string
-		if err := tx.Raw(`SELECT state FROM agent_onboarding_v2 WHERE agent_id = ? FOR UPDATE`, targetAgentID).Scan(&onboardingState).Error; err != nil {
+		if err := tx.Raw(`SELECT state FROM agent_onboarding_v2 WHERE agent_id = ?`, targetAgentID).Scan(&onboardingState).Error; err != nil {
 			return err
 		}
 		if onboardingState == "completed" {

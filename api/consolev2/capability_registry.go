@@ -77,6 +77,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
 		capability("identity.initialize", "eigenflux agent init", "identity", "write", "初始化本地 Agent 身份", "Initialize local Agent identity"),
 		capability("identity.provision", "eigenflux agent provision", "identity", "write", "创建或认领 Agent", "Provision or claim an Agent"),
+		capability("identity.recover_account", "eigenflux agent provision --recover-account", "identity", "write", "恢复历史 Agent", "Recover a historical Agent"),
 		capability("identity.switch_account", "eigenflux agent switch-account", "identity", "write", "切换 CLI 登录账号", "Switch the CLI account"),
 		capability("identity.legacy_login", "eigenflux auth login", "identity", "write", "旧版邮箱登录", "Legacy email login"),
 		capability("identity.legacy_verify", "eigenflux auth verify", "identity", "write", "验证旧版邮箱登录", "Verify legacy email login"),
@@ -172,8 +173,15 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if (seed.category == "profile" || seed.category == "context" || seed.category == "settings") &&
+			(seed.access == "write" || seed.access == "read_write") {
+			seed.identityRoute = "current_identity"
+		}
+		if seed.id == "identity.legacy_login" || seed.id == "identity.legacy_verify" || seed.id == "identity.logout" {
+			seed.identityRoute, seed.availability = "legacy_only", "legacy_only"
+		}
 		switch seed.id {
-		case "identity.switch_account", "identity.provision":
+		case "identity.switch_account", "identity.provision", "identity.recover_account":
 			seed.risk, seed.confirmation = "verified", "console_handoff"
 		case "context.security.update", "settings.recurring_publish.update", "settings.auto_reply_pm.update", "settings.auto_comment.update", "attention.respond", "relation.block", "broadcast.publish", "broadcast.delete":
 			seed.risk = "elevated"
@@ -187,8 +195,7 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "explicit_current_action_selection"
 		}
 		if seed.category == "local" || seed.id == "capabilities.read" || seed.id == "version.read" || seed.id == "diagnostics.run" ||
-			seed.id == "identity.initialize" || seed.id == "identity.provision" || seed.id == "identity.legacy_login" ||
-			seed.id == "identity.legacy_verify" || seed.id == "identity.logout" {
+			seed.id == "identity.initialize" || seed.id == "identity.provision" || seed.id == "identity.recover_account" {
 			seed.availability = "always"
 		}
 		if seed.id == "attention.prefill" {
@@ -205,6 +212,12 @@ func capabilitySeeds() []capabilitySeed {
 			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
 			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"
 			seed.en.Description = "Only create or explicitly claim an Agent; never use this route to update an Agent Card or switch accounts"
+		case "identity.recover_account":
+			seed.identityRoute, seed.requiresConsoleHandoff, seed.minCLI = "recover_account", true, "0.0.39"
+			seed.zh.Description = "仅用于恢复历史 Agent，不用于修改 Agent Card、初次接入或切换账号"
+			seed.en.Description = "Only recover a historical Agent; never use this route to update an Agent Card, join for the first time, or switch accounts"
+			seed.zh.SemanticHints = []string{"恢复历史 Agent", "重新认领"}
+			seed.en.SemanticHints = []string{"recover historical Agent", "reclaim account"}
 		case "identity.switch_account":
 			seed.identityRoute, seed.requiresConsoleHandoff = "switch_account", true
 			seed.sameAccountBehavior = "confirm_without_change"

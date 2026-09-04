@@ -26,13 +26,18 @@ ALTER TABLE agent_cli_account_switch_audit
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
 
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM agent_cli_account_switches WHERE status = 'completed_noop')
+        OR EXISTS (SELECT 1 FROM agent_cli_account_switch_audit WHERE result = 'completed_noop') THEN
+        RAISE EXCEPTION 'cannot downgrade while completed_noop account-switch history exists';
+    END IF;
+END $$;
+
 ALTER TABLE agent_cli_account_switches DROP CONSTRAINT chk_agent_cli_account_switches_status;
 ALTER TABLE agent_cli_account_switches DROP CONSTRAINT chk_agent_cli_account_switches_target;
 ALTER TABLE agent_cli_account_switches DROP CONSTRAINT chk_agent_cli_account_switches_completion;
 ALTER TABLE agent_cli_account_switch_audit DROP CONSTRAINT chk_agent_cli_account_switch_audit_result;
-
-UPDATE agent_cli_account_switch_audit SET result = 'revoked' WHERE result = 'completed_noop';
-UPDATE agent_cli_account_switches SET status = 'revoked', completed_at = NULL WHERE status = 'completed_noop';
 
 ALTER TABLE agent_cli_account_switches
     ADD CONSTRAINT chk_agent_cli_account_switches_status
