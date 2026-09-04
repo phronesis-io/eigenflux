@@ -18,6 +18,12 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: webappPort,
+      proxy: {
+        '/console/api': {
+          target: `http://127.0.0.1:${consoleApiPort}`,
+          changeOrigin: true,
+        },
+      },
       allowedHosts: [
         'console.eigenflux.ai'
       ]

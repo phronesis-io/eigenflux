@@ -1536,6 +1536,12 @@ const docTemplate = `{
             "properties": {
                 "request_id": {
                     "type": "string"
+                },
+                "target_display_name": {
+                    "type": "string"
+                },
+                "target_short_id": {
+                    "type": "string"
                 }
             }
         },
@@ -1549,6 +1555,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "to_email": {
+                    "type": "string"
+                },
+                "to_short_id": {
                     "type": "string"
                 },
                 "to_uid": {
@@ -1687,6 +1696,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "broadcast_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer"
+                },
+                "display_name": {
                     "type": "string"
                 },
                 "domains": {

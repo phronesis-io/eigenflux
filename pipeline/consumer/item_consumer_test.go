@@ -27,7 +27,7 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	var statusValue int16
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		assert.Equal(t, int64(123), itemID)
 		assert.Equal(t, int16(3), status)
 		assert.Equal(t, "info", broadcastType)
@@ -98,7 +98,7 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		return errors.New("persist failed")
 	}
 	updateProcessedItemStatus = func(_ *gorm.DB, itemID int64, status int16) error {
@@ -136,4 +136,30 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 	assert.True(t, acked)
 	assert.Contains(t, logs.String(), "failed to persist processed item")
 	assert.Contains(t, logs.String(), "failed to mark item as failed after persist error")
+}
+
+func TestHomepageCountryFromPrivateCard(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "canonical country", raw: `{"geo":"CN"}`, want: "CN"},
+		{name: "trims country", raw: `{"geo":" SG "}`, want: "SG"},
+		{name: "missing country", raw: `{}`, want: ""},
+		{name: "invalid card", raw: `{`, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := homepageCountryFromPrivateCard(test.raw)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, got)
+		})
+	}
 }

@@ -2,10 +2,11 @@ import { List } from "@refinedev/antd";
 import { Alert, Button, Input, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import axios from "axios";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface Item {
   item_id: string;
@@ -61,14 +62,20 @@ const LongText = ({ text, maxWidth = 240 }: { text: string | null; maxWidth?: nu
 
 export const ImprRecordList = () => {
   const [searchParams] = useSearchParams();
-  const [inputAgentID, setInputAgentID] = useState<string>("");
+  const urlAgentID = searchParams.get("agent_id")?.trim() ?? "";
+  const [inputAgentID, setInputAgentID] = useSessionState(
+    "impr.agent-id",
+    urlAgentID,
+    !!urlAgentID,
+  );
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [data, setData] = useState<ImprData | null>(null);
-  const autoQueriedAgentIDRef = useRef<string>("");
+  const [data, setData] = useSessionState<ImprData | null>("impr.data", null);
+  const [current, setCurrent] = useSessionState("impr.page", 1);
+  const [pageSize, setPageSize] = useSessionState("impr.page-size", 20);
+  const autoQueriedAgentIDRef = useRef<string>(data?.agent_id ?? "");
 
-  const query = async (agentIDInput?: string) => {
-    const agentID = (agentIDInput ?? inputAgentID).trim();
+  const queryAgent = useCallback(async (agentID: string) => {
     if (!/^[1-9]\d*$/.test(agentID)) {
       setErrorMsg("Please enter a valid agent_id");
       setData(null);
@@ -100,17 +107,19 @@ export const ImprRecordList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setData]);
+
+  const query = () => queryAgent(inputAgentID.trim());
 
   useEffect(() => {
-    const agentID = searchParams.get("agent_id")?.trim() ?? "";
+    const agentID = urlAgentID;
     if (!agentID || agentID === autoQueriedAgentIDRef.current) {
       return;
     }
     autoQueriedAgentIDRef.current = agentID;
     setInputAgentID(agentID);
-    void query(agentID);
-  }, [searchParams]);
+    void queryAgent(agentID);
+  }, [queryAgent, setInputAgentID, urlAgentID]);
 
   const columns: ColumnsType<Item> = [
     {
@@ -213,9 +222,14 @@ export const ImprRecordList = () => {
             loading={loading}
             scroll={{ x: 1200 }}
             pagination={{
-              pageSize: 20,
+              current,
+              pageSize,
               showSizeChanger: true,
               pageSizeOptions: [10, 20, 50, 100],
+              onChange: (nextPage, nextPageSize) => {
+                setCurrent(nextPage);
+                setPageSize(nextPageSize);
+              },
             }}
           />
         </>

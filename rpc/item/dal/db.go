@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/agentidentity"
+
 	"gorm.io/gorm"
 )
 
@@ -39,6 +41,7 @@ type ProcessedItem struct {
 	Timeliness                string  `gorm:"column:timeliness;type:varchar(20);default:null"`
 	Suggestion                string  `gorm:"column:suggestion;type:text;default:null"`
 	HomepageEligible          *bool   `gorm:"column:homepage_eligible"`
+	HomepageRealWorldRelevant bool    `gorm:"column:homepage_real_world_relevant;not null;default:false"`
 	HomepageRejectionReason   string  `gorm:"column:homepage_rejection_reason;type:varchar(32);not null;default:''"`
 	HomepageEvaluationVersion string  `gorm:"column:homepage_evaluation_version;type:varchar(32);not null;default:''"`
 	HomepageEvaluatedAt       *int64  `gorm:"column:homepage_evaluated_at"`
@@ -112,29 +115,30 @@ func CreateProcessedItem(db *gorm.DB, pi *ProcessedItem) error {
 	return db.Create(pi).Error
 }
 
-func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 	kw := strings.Join(keywords, ",")
 
 	// Prepare updates map
 	updates := map[string]interface{}{
-		"status":                      status,
-		"summary":                     summary,
-		"broadcast_type":              broadcastType,
-		"domains":                     domains,
-		"keywords":                    kw,
-		"expire_time":                 expireTime,
-		"geo":                         geo,
-		"expected_response":           expectedResponse,
-		"group_id":                    groupID,
-		"quality_score":               qualityScore,
-		"lang":                        lang,
-		"timeliness":                  timeliness,
-		"suggestion":                  suggestion,
-		"homepage_eligible":           homepageEligible,
-		"homepage_rejection_reason":   homepageRejectionReason,
-		"homepage_evaluation_version": homepageEvaluationVersion,
-		"homepage_evaluated_at":       time.Now().UnixMilli(),
-		"updated_at":                  time.Now().UnixMilli(),
+		"status":                       status,
+		"summary":                      summary,
+		"broadcast_type":               broadcastType,
+		"domains":                      domains,
+		"keywords":                     kw,
+		"expire_time":                  expireTime,
+		"geo":                          geo,
+		"expected_response":            expectedResponse,
+		"group_id":                     groupID,
+		"quality_score":                qualityScore,
+		"lang":                         lang,
+		"timeliness":                   timeliness,
+		"suggestion":                   suggestion,
+		"homepage_eligible":            homepageEligible,
+		"homepage_real_world_relevant": homepageRealWorldRelevant,
+		"homepage_rejection_reason":    homepageRejectionReason,
+		"homepage_evaluation_version":  homepageEvaluationVersion,
+		"homepage_evaluated_at":        time.Now().UnixMilli(),
+		"updated_at":                   time.Now().UnixMilli(),
 	}
 
 	// Handle source_type: empty string -> NULL (to satisfy DB constraint)
@@ -157,11 +161,12 @@ func UpdateSuggestion(db *gorm.DB, itemID int64, suggestion string) error {
 		}).Error
 }
 
-func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible bool, rejectionReason, version string) error {
+func UpdateHomepageEvaluation(db *gorm.DB, itemID int64, eligible, realWorldRelevant bool, rejectionReason, version string) error {
 	return db.Model(&ProcessedItem{}).
 		Where("item_id = ? AND status = ?", itemID, StatusCompleted).
 		Updates(map[string]interface{}{
 			"homepage_eligible":            eligible,
+			"homepage_real_world_relevant": realWorldRelevant,
 			"homepage_rejection_reason":    rejectionReason,
 			"homepage_evaluation_version":  version,
 			"homepage_evaluated_at":        time.Now().UnixMilli(),
@@ -730,6 +735,8 @@ type RawItemInfo struct {
 	AuthorAgentID int64
 	RawURL        string // empty string when no URL was provided at publish time
 	RawContent    string
+	CreatedAt     int64
+	DisplayName   string
 	AuthorEmail   string
 	AuthorExists  bool
 	IsOfficial    bool
@@ -750,6 +757,9 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 		AuthorAgentID int64  `gorm:"column:author_agent_id"`
 		RawURL        string `gorm:"column:raw_url"`
 		RawContent    string `gorm:"column:raw_content"`
+		CreatedAt     int64  `gorm:"column:created_at"`
+		AgentName     string `gorm:"column:agent_name"`
+		ShortID       string `gorm:"column:short_id"`
 		AuthorEmail   string `gorm:"column:author_email"`
 		AuthorExists  bool   `gorm:"column:author_exists"`
 		IsOfficial    bool   `gorm:"column:is_official"`
@@ -757,6 +767,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 
 	err := db.Table("raw_items AS r").
 		Select(`r.item_id, r.author_agent_id, r.raw_url, LEFT(r.raw_content, 1001) AS raw_content,
+		        r.created_at, COALESCE(a.agent_name, '') AS agent_name, COALESCE(a.short_id, '') AS short_id,
 		        COALESCE(a.email, '') AS author_email,
 		        a.agent_id IS NOT NULL AS author_exists,
 		        COALESCE(a.is_official, false) AS is_official`).
@@ -775,6 +786,8 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 			AuthorAgentID: r.AuthorAgentID,
 			RawURL:        r.RawURL,
 			RawContent:    r.RawContent,
+			CreatedAt:     r.CreatedAt,
+			DisplayName:   agentidentity.DisplayName(r.AgentName, r.ShortID),
 			AuthorEmail:   r.AuthorEmail,
 			AuthorExists:  r.AuthorExists,
 			IsOfficial:    r.IsOfficial,

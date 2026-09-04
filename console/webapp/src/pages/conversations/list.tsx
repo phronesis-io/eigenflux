@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface Conversation {
   conv_id: string;
@@ -72,14 +73,20 @@ const participantLabel = (id: string, name: string) =>
 
 export const ConversationList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [itemIdFilter, setItemIdFilter] = useState<string>(
-    () => searchParams.get("item_id")?.trim() ?? "",
+  const urlItemID = searchParams.get("item_id")?.trim() ?? "";
+  const urlAgentID = searchParams.get("agent_id")?.trim() ?? "";
+  const [itemIdFilter, setItemIdFilter] = useSessionState(
+    "conversations.item-id",
+    urlItemID,
+    !!urlItemID,
   );
-  const [agentIdFilter, setAgentIdFilter] = useState<string>(
-    () => searchParams.get("agent_id")?.trim() ?? "",
+  const [agentIdFilter, setAgentIdFilter] = useSessionState(
+    "conversations.agent-id",
+    urlAgentID,
+    !!urlAgentID,
   );
-  const [current, setCurrent] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [current, setCurrent] = useSessionState("conversations.page", 1);
+  const [pageSize, setPageSize] = useSessionState("conversations.page-size", 20);
 
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -130,15 +137,17 @@ export const ConversationList = () => {
 
   useEffect(() => {
     setCurrent(1);
-  }, [itemIdFilter, agentIdFilter]);
+  }, [agentIdFilter, itemIdFilter, setCurrent]);
 
   // Sync state from URL on navigation (e.g. clicking Conversations from Agents/Items page).
   useEffect(() => {
-    const urlItemID = searchParams.get("item_id")?.trim() ?? "";
-    const urlAgentID = searchParams.get("agent_id")?.trim() ?? "";
-    setItemIdFilter((prev) => (prev === urlItemID ? prev : urlItemID));
-    setAgentIdFilter((prev) => (prev === urlAgentID ? prev : urlAgentID));
-  }, [searchParams]);
+    if (urlItemID) {
+      setItemIdFilter((prev) => (prev === urlItemID ? prev : urlItemID));
+    }
+    if (urlAgentID) {
+      setAgentIdFilter((prev) => (prev === urlAgentID ? prev : urlAgentID));
+    }
+  }, [setAgentIdFilter, setItemIdFilter, urlAgentID, urlItemID]);
 
   // Sync state back to the URL so the current filter is shareable / reloadable.
   const applyItemIdFilter = (value: string) => {

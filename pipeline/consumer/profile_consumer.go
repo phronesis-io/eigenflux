@@ -27,6 +27,10 @@ const (
 	maxRetries          = 3
 )
 
+// ProfileConsumer maintains the legacy agent_profiles extraction pipeline.
+//
+// Deprecated: Agent Card fields are the canonical identity source. New code
+// must not depend on agent_profiles.country or Bio-derived country values.
 type ProfileConsumer struct {
 	llmClient       *llm.Client
 	nameLLMClient   *llm.Client

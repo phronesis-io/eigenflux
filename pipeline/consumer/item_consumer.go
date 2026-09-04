@@ -39,6 +39,16 @@ var (
 	ackItemMessage            = mq.Ack
 )
 
+func homepageCountryFromPrivateCard(raw string) (string, error) {
+	var card struct {
+		Geo string `json:"geo"`
+	}
+	if err := json.Unmarshal([]byte(raw), &card); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(card.Geo), nil
+}
+
 // ItemConsumer enriches published items with LLM-extracted metadata.
 //
 // The tunable fields (consumerName, maxRetries, retryMinIdle, readBlock,
@@ -415,11 +425,16 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 				return
 			}
 
-			// Get agent profile for country
-			profile, err := profileDal.GetAgentProfile(db.DB, raw.AuthorAgentID)
+			// The owner-only Agent Card is the canonical country source. The legacy
+			// agent_profiles.country value is deprecated and may be overwritten by
+			// Bio keyword extraction with an empty value.
 			country := ""
-			if err == nil && profile != nil {
-				country = profile.Country
+			card, err := profileDal.GetAgentCard(db.DB, raw.AuthorAgentID)
+			if err != nil {
+				logger.Default().Warn("ItemConsumer failed to get private Agent Card country", "itemID", itemID, "err", err)
+			} else if country, err = homepageCountryFromPrivateCard(card.PrivateCard); err != nil {
+				logger.Default().Warn("ItemConsumer failed to decode private Agent Card country", "itemID", itemID, "err", err)
+				country = ""
 			}
 
 			// Parse raw_notes as JSON map
@@ -460,7 +475,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {
-	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
+	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
 		logger.Default().Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
 		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {

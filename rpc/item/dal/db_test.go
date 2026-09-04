@@ -38,6 +38,7 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	withURLID := int64(999900100)
 	withoutURLID := int64(999900101)
 	pendingID := int64(999900102)
+	createdAt := int64(1760000000123)
 
 	db.DB.Exec("DELETE FROM processed_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
 	db.DB.Exec("DELETE FROM raw_items WHERE item_id IN (?, ?, ?)", withURLID, withoutURLID, pendingID)
@@ -56,8 +57,8 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 
 	longContent := strings.Repeat("界", 1200)
 	if err := db.DB.Exec(
-		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, ?, 'https://ex.test/a', extract(epoch from now())::bigint)",
-		withURLID, authorID, longContent,
+		"INSERT INTO raw_items (item_id, author_agent_id, raw_content, raw_url, created_at) VALUES (?, ?, ?, 'https://ex.test/a', ?)",
+		withURLID, authorID, longContent, createdAt,
 	).Error; err != nil {
 		t.Fatalf("insert with url: %v", err)
 	}
@@ -94,6 +95,9 @@ func TestBatchGetRawItemInfo(t *testing.T) {
 	}
 	if got[withURLID].AuthorAgentID != authorID || got[withURLID].RawURL != "https://ex.test/a" {
 		t.Errorf("with-url row wrong: %+v", got[withURLID])
+	}
+	if got[withURLID].CreatedAt != createdAt || got[withURLID].DisplayName != "Raw Info" {
+		t.Errorf("feed provenance wrong: %+v", got[withURLID])
 	}
 	if len([]rune(got[withURLID].RawContent)) != 1001 || got[withURLID].AuthorEmail != "raw-info@example.com" || !got[withURLID].AuthorExists || got[withURLID].IsOfficial {
 		t.Errorf("with-url enrichment wrong: %+v", got[withURLID])

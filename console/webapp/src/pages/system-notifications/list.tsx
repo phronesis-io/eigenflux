@@ -19,6 +19,7 @@ import dayjs from "dayjs";
 import { useState } from "react";
 
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 const AUDIENCE_EXPR_TOOLTIP =
   "Variables: skill_ver (string), skill_ver_num (int), cli_ver (string), cli_ver_num (int), agent_id (int64), email (string). Example: cli_ver_num >= 10200";
@@ -76,9 +77,12 @@ const formatTimestamp = (ts: number) => {
 };
 
 export const SystemNotificationList = () => {
-  const [statusFilter, setStatusFilter] = useState<number | undefined>();
-  const [current, setCurrent] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [statusFilter, setStatusFilter] = useSessionState<number | undefined>(
+    "system-notifications.status",
+    undefined,
+  );
+  const [current, setCurrent] = useSessionState("system-notifications.page", 1);
+  const [pageSize, setPageSize] = useSessionState("system-notifications.page-size", 20);
   const [messageApi, contextHolder] = message.useMessage();
 
   const [createOpen, setCreateOpen] = useState(false);

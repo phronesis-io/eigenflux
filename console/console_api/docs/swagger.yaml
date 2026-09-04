@@ -6,6 +6,8 @@ definitions:
         type: string
       agent_name:
         type: string
+      agent_name_en:
+        type: string
       bio:
         type: string
       created_at:
@@ -18,6 +20,8 @@ definitions:
         type: array
       profile_status:
         type: integer
+      short_id:
+        type: string
       updated_at:
         type: integer
     type: object

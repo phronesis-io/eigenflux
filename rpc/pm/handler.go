@@ -17,11 +17,13 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/textguard"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/notifyutil"
 	"eigenflux_server/rpc/pm/ratelimit"
 	"eigenflux_server/rpc/pm/relations"
+	"eigenflux_server/rpc/pm/sendguard"
 	"eigenflux_server/rpc/pm/validator"
 
 	"gorm.io/gorm"
@@ -51,6 +53,7 @@ type PMServiceImpl struct {
 	iceBreaker          *icebreak.IceBreaker
 	validator           *validator.Validator
 	friendRequestLimits *ratelimit.Config
+	sendGuard           *sendguard.Guard
 }
 
 func publicIdentityForNotification(ctx context.Context, agentID int64) (agentidentity.PublicIdentity, bool) {
@@ -86,6 +89,48 @@ func publishFriendResponseEvent(ctx context.Context, recipientID, peerID int64, 
 
 func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	logger.Ctx(ctx).Info("SendPM", "senderID", req.SenderId, "receiverID", req.ReceiverId, "itemID", req.ItemId, "convID", req.ConvId)
+	if err := textguard.ValidateMessageContent(req.Content); err != nil {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+	}
+
+	targetKind, targetID := sendTarget(req)
+	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.Fingerprint(req.SenderId, targetKind, targetID, req.Content))
+	if errors.Is(err, sendguard.ErrInProgress) {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
+	}
+	if err != nil {
+		logger.Ctx(ctx).Error("message send guard unavailable", "senderID", req.SenderId, "err", err)
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 503, Msg: "MESSAGE_SEND_GUARD_UNAVAILABLE: duplicate protection is unavailable; message was not sent"}}, nil
+	}
+	if replay != nil {
+		logger.Ctx(ctx).Info("duplicate message send replayed", "senderID", req.SenderId, "msgID", replay.MsgID, "convID", replay.ConvID)
+		return &pm.SendPMResp{MsgId: replay.MsgID, ConvId: replay.ConvID, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+	}
+
+	resp, sendErr := s.sendPM(ctx, req)
+	if sendErr != nil || resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
+		if releaseErr := s.sendGuard.Release(ctx, lease); releaseErr != nil {
+			logger.Ctx(ctx).Error("failed to release message send guard", "senderID", req.SenderId, "err", releaseErr)
+		}
+		return resp, sendErr
+	}
+	if err := s.sendGuard.Complete(ctx, lease, sendguard.Result{MsgID: resp.MsgId, ConvID: resp.ConvId}); err != nil {
+		logger.Ctx(ctx).Error("failed to complete message send guard", "senderID", req.SenderId, "msgID", resp.MsgId, "convID", resp.ConvId, "err", err)
+	}
+	return resp, nil
+}
+
+func sendTarget(req *pm.SendPMReq) (string, int64) {
+	if req.ItemId != nil && *req.ItemId > 0 {
+		return "item", *req.ItemId
+	}
+	if req.ConvId != nil && *req.ConvId > 0 {
+		return "conversation", *req.ConvId
+	}
+	return "friend", req.ReceiverId
+}
+
+func (s *PMServiceImpl) sendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	// Case 1: New conversation (item_id provided)
 	if req.ItemId != nil && *req.ItemId > 0 {
 		return s.handleNewConversation(ctx, req)
@@ -552,6 +597,8 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
+		lastSenderID := conv.LastSenderID
+		needsReply := lastSenderID != req.AgentId
 		info := &pm.ConversationInfo{
 			ConvId:           conv.ConvID,
 			ParticipantA:     conv.ParticipantA,
@@ -559,6 +606,8 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			UpdatedAt:        conv.UpdatedAt,
 			ParticipantAName: &conv.ParticipantAName,
 			ParticipantBName: &conv.ParticipantBName,
+			LastSenderId:     &lastSenderID,
+			NeedsReply:       &needsReply,
 		}
 		if conv.OriginType != "" {
 			info.OriginType = &conv.OriginType

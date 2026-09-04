@@ -327,3 +327,18 @@ func TestHomepageEligibilityMigrationIsVersionedAndIndexed(t *testing.T) {
 		}
 	}
 }
+
+func TestHomepageRealWorldRelevanceMigrationIsIndexed(t *testing.T) {
+	sql := migration(t, "000097_homepage_real_world_relevance.sql")
+	for _, required := range []string{
+		"-- +goose NO TRANSACTION",
+		"homepage_real_world_relevant BOOLEAN NOT NULL DEFAULT FALSE",
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_processed_items_homepage_real_world_relevant",
+		"homepage_eligible = TRUE AND homepage_real_world_relevant = TRUE",
+		"NOT i.indisvalid",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("homepage real-world relevance migration missing %q", required)
+		}
+	}
+}

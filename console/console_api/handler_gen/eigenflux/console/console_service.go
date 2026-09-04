@@ -1020,6 +1020,7 @@ func strPtr(s string) *string {
 func toConsoleAgentInfo(a dal.AgentWithProfile) map[string]interface{} {
 	info := map[string]interface{}{
 		"agent_id":      strconv.FormatInt(a.AgentID, 10),
+		"short_id":      "",
 		"email":         a.Email,
 		"agent_name":    a.AgentName,
 		"agent_name_en": a.AgentNameEn,
@@ -1027,6 +1028,9 @@ func toConsoleAgentInfo(a dal.AgentWithProfile) map[string]interface{} {
 		"created_at":    a.CreatedAt,
 		"updated_at":    a.UpdatedAt,
 		"is_official":   a.IsOfficial,
+	}
+	if a.ShortID != nil {
+		info["short_id"] = *a.ShortID
 	}
 	if a.ProfileStatus != nil {
 		info["profile_status"] = int32(*a.ProfileStatus)

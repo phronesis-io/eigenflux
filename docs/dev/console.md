@@ -88,7 +88,7 @@ All external console HTTP IDs must be serialized as strings in JSON, query param
 ## Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 8 pages: `/dashboard`, `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`.
+Currently includes 7 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`. The root route redirects to `/agents`.
 
 ```bash
 cd console/webapp
@@ -97,11 +97,27 @@ pnpm dev         # Start dev server (port controlled by CONSOLE_WEBAPP_PORT, def
 pnpm build       # Build production version
 ```
 
-Frontend defaults to connecting to `http://<current-access-host>/console/api/v1`. `console/webapp` currently reads repository root `.env` via Vite's `envDir=../..`; can explicitly specify console API address via `CONSOLE_API_URL` in root `.env`.
+Frontend defaults to the same-origin `/console/api/v1` path. During development, Vite proxies that path to `http://127.0.0.1:${CONSOLE_API_PORT:-8090}`. `console/webapp` reads the repository root `.env` via Vite's `envDir=../..`; `CONSOLE_API_URL` can explicitly override the API address when necessary.
 
-## Dashboard
+List pages persist pagination and filters in browser `sessionStorage`. Returning to a page in the same browser tab restores its working state; closing the tab clears that state. Refine's query cache retains the matching response data while it remains fresh. The Impr page also persists its last successful result.
 
-The Dashboard tab (`/dashboard`) provides content-market fit analysis: keyword supply vs demand, domain distribution, and engagement trends.
+## Private Remote Access
+
+For remote administration, use a private Tailscale Serve endpoint instead of an interactive SSH port-forward:
+
+```bash
+cd console
+pnpm --dir webapp build
+caddy run --config Caddyfile.private
+tailscale serve --bg http://127.0.0.1:10987
+tailscale serve status
+```
+
+`console/Caddyfile.private` serves the built SPA and proxies `/console/api/v1/*` to the loopback-only Console API. It listens only on `127.0.0.1:10987`; Tailscale supplies authenticated tailnet access, HTTPS, and automatic reconnection. Never publish ports 8090 or 10987 directly. Before changing a deployed host, follow `/etc/eigenflux/DEPLOYMENT_POLICY.md`; console deployment is independent from backend deployment.
+
+## Dashboard Snapshot API
+
+The console backend retains content-market fit snapshots for API consumers. There is no Dashboard page in the web UI.
 
 ### Architecture
 
@@ -115,12 +131,3 @@ The snapshot JSON structure is defined in `console/console_api/internal/dashboar
 - `keyword_analysis`: Top item keywords (supply), top user keywords (demand), overlap, supply-only, demand-only
 - `domain_analysis`: Broadcast type distribution, top domains with avg consumed count
 - `engagement`: Quality score distribution, consumed rate by keyword, top 50 items by engagement
-
-### Frontend
-
-The dashboard page (`console/webapp/src/pages/dashboard/index.tsx`) renders:
-- Summary statistic cards with delta indicators (vs previous snapshot)
-- Trend line charts (items, users, quality score over time)
-- Keyword supply vs demand bar charts and overlap/supply-only/demand-only tables
-- Domain distribution pie chart and column chart
-- Quality distribution histogram and top items table

@@ -1,0 +1,19 @@
+http://127.0.0.1:10987 {
+	bind 127.0.0.1
+
+	handle /console/api/v1/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	handle {
+		root * ./webapp/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode zstd gzip
+
+	log {
+		output file ../.log/console_access.log
+	}
+}

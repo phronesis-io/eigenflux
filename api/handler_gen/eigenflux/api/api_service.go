@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -45,6 +46,7 @@ import (
 	"eigenflux_server/pkg/runtimeidentity"
 	"eigenflux_server/pkg/stats"
 	"eigenflux_server/pkg/tagnorm"
+	"eigenflux_server/pkg/textguard"
 	"eigenflux_server/pkg/validator"
 	itemdal "eigenflux_server/rpc/item/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -764,6 +766,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.RawContentTruncated != nil {
 			item["raw_content_truncated"] = *it.RawContentTruncated
 		}
+		applyFeedItemProvenance(item, it)
 		items = append(items, item)
 	}
 
@@ -854,6 +857,15 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 			}
 			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
 		}(agentID, identity, hasIdentity, cliVer, model, requestStartedAt)
+	}
+}
+
+func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
+	if feedItem.CreatedAt != nil {
+		item["created_at"] = *feedItem.CreatedAt
+	}
+	if feedItem.DisplayName != nil {
+		item["display_name"] = *feedItem.DisplayName
 	}
 }
 
@@ -1197,8 +1209,30 @@ func GetLatestItems(ctx context.Context, c *app.RequestContext) {
 // @Failure 401 {object} BaseResp
 // @Router /api/v1/pm/send [post]
 func SendPM(ctx context.Context, c *app.RequestContext) {
+	rawBody, err := c.Body()
+	if err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid request body", nil)
+		return
+	}
+	if !utf8.Valid(rawBody) {
+		writeJSON(c, http.StatusBadRequest, 400, textguard.ErrInvalidUTF8.Error(), nil)
+		return
+	}
+	var contentProbe struct {
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(rawBody, &contentProbe) == nil {
+		if err := textguard.ValidateMessageContent(contentProbe.Content); err != nil {
+			writeJSON(c, http.StatusBadRequest, 400, err.Error(), nil)
+			return
+		}
+	}
 	var req apimodel.SendPMReq
 	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	if err := textguard.ValidateMessageContent(req.Content); err != nil {
+		writeJSON(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
 	agentID, ok := currentAgentID(c)
@@ -1447,6 +1481,12 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"origin_type":          conv.GetOriginType(),
 			"is_friend":            conv.GetIsFriend(),
 			"category":             conv.GetCategory(),
+		}
+		if conv.IsSetLastSenderId() {
+			m["last_sender_id"] = strconv.FormatInt(conv.GetLastSenderId(), 10)
+		}
+		if conv.IsSetNeedsReply() {
+			m["needs_reply"] = conv.GetNeedsReply()
 		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
 			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)

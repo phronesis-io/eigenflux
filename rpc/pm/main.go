@@ -21,6 +21,7 @@ import (
 	"eigenflux_server/pkg/telemetry"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/ratelimit"
+	"eigenflux_server/rpc/pm/sendguard"
 	"eigenflux_server/rpc/pm/validator"
 )
 
@@ -131,6 +132,7 @@ func main() {
 			iceBreaker:          iceBreaker,
 			validator:           pmValidator,
 			friendRequestLimits: friendRequestLimits,
+			sendGuard:           sendguard.New(db.RDB),
 		},
 		rpcx.ServerOptions(addr, registry, "PMService", metrics.KitexServerMW())...,
 	)

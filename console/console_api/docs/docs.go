@@ -1000,6 +1000,9 @@ const docTemplate = `{
                 "agent_name": {
                     "type": "string"
                 },
+                "agent_name_en": {
+                    "type": "string"
+                },
                 "bio": {
                     "type": "string"
                 },
@@ -1017,6 +1020,9 @@ const docTemplate = `{
                 },
                 "profile_status": {
                     "type": "integer"
+                },
+                "short_id": {
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "integer"

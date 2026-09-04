@@ -74,6 +74,8 @@ struct ConversationInfo {
     14: optional string remark    // requester's remark for the peer (from user_relations)
     15: optional bool is_friend    // peer is currently a friend (user_relations rel_type=1)
     16: optional string category   // derived: "friend" | "broadcast_comment" | "non_friend"
+    17: optional i64 last_sender_id // agent that sent the latest message
+    18: optional bool needs_reply   // latest message was sent by the peer
 }
 
 struct ListConversationsResp {

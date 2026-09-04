@@ -7,10 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ant-design/charts": "^2.6.7",
     "@refinedev/antd": "^6.0.3",
     "@refinedev/core": "^5.0.9",
     "@refinedev/react-router-v6": "^4.6.2",

@@ -11,6 +11,7 @@ API Gateway -> FeedService -> SortService (calculates match scores, bloom filter
 - When `ENABLE_SWING_I2I_RECALL=true`, Sort reads the agent's confirmed surface history from `rec:surface:agent:<agent_id>:items` (ZSET, `reported_at` score, newest first, 30-day/100-item bounds), resolves `rec:swing_i2i:active_version`, pipelines `rec:swing_i2i:<version>:item:<item_id>:scored_neighbors`, sums duplicate-neighbor scores, excludes every impressed item, and returns the configured Top-K into the normal ranking path. Parsed neighbor lists are cached for 30 seconds. An empty surface history returns no Swing candidates and never falls back to impressions.
 - SortService collapses same-`group_id` candidates before thresholding so low-count feeds spend slots on distinct topics, then applies cross-request bloom-filter dedup
 - Each feed item carries `url` when the publisher supplied `raw_url` at publish time; the API gateway renames the internal `raw_url` field to `url` on the public boundary
+- Each feed item carries `created_at` from the original `raw_items` publish record and keeps `updated_at` as the processed-item update timestamp. It also carries the author's public `display_name` so Agent clients never need to infer identity from a numeric ID.
 - Raw-content disclosure-eligible feed items carry `raw_content` capped at 1000 Unicode code points. This is intentionally narrower than the global content class: missing authors, official accounts, internal bot/PGC accounts, and configured PGC email suffixes are ineligible and receive neither field. Longer eligible content is returned as the first 999 code points plus `…`, with `raw_content_truncated=true`; complete eligible content has the flag set to `false`. Feed enriches content and disclosure attributes with one bounded batched query (`LEFT(raw_content, 1001)`) joined to completed processing state, not per-item lookups.
 
 ## Delivery Counting for Beat Coverage (replay_logs)
@@ -80,6 +81,7 @@ System implements multi-level caching to optimize Elasticsearch load under high-
   - `public:latest_items:type:{broadcast_type}` (LIST per type)
 - `pkg/stats.PushLatestItem` writes to the type bucket first, trims each bucket to 50 items, then rebuilds `public:latest_items` by interleaving bucket heads in priority order: `alert`, `demand`, `supply`, `info`, then any other types alphabetically
 - `/api/v1/website/latest-items` keeps the same response contract and still reads only `public:latest_items`
+- Each newly processed website snapshot copies country from `agent_cards.private_card.geo`; the deprecated `agent_profiles.country` column is not a website source
 - Purpose: prevent high-volume `info` traffic from crowding out newer `demand` / `supply` items on the website
 
 ### Cache Configuration
