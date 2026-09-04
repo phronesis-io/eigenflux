@@ -19,6 +19,8 @@ const (
 	cliAccountSwitchTTL        = 24 * time.Hour
 )
 
+var errRecentEmailAuthRequired = errors.New("recent email authentication required")
+
 type cliAccountSwitchRecord struct {
 	SwitchIDHash         string `gorm:"column:switch_id_hash"`
 	SourceAgentID        int64  `gorm:"column:source_agent_id"`
@@ -76,6 +78,28 @@ func expireCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int6
 		return errConflict
 	}
 	return auditCLIAccountSwitch(tx, record, "expired", now)
+}
+
+func completeNoopCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64) error {
+	if record.SwitchIDHash == "" || record.SourceAgentID <= 0 || record.PrincipalID <= 0 ||
+		record.TargetAgentID != nil || record.Status != "pending_target" {
+		return errConflict
+	}
+	res := tx.Exec(`UPDATE agent_cli_account_switches
+		SET status = 'completed_noop', completed_at = ?
+		WHERE switch_id_hash = ? AND source_agent_id = ? AND principal_id = ?
+		  AND status = 'pending_target' AND target_agent_id IS NULL`, now, record.SwitchIDHash,
+		record.SourceAgentID, record.PrincipalID)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return errConflict
+	}
+	record.Status = "completed_noop"
+	completedAt := now
+	record.CompletedAt = &completedAt
+	return auditCLIAccountSwitch(tx, record, "completed_noop", now)
 }
 
 func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64) error {
@@ -170,8 +194,14 @@ func (s *Service) getCLIAccountSwitch(_ context.Context, c *app.RequestContext) 
 		_ = s.db.Transaction(func(tx *gorm.DB) error { return expireCLIAccountSwitch(tx, record, now) })
 		record.Status = "expired"
 	}
+	responseStatus := record.Status
+	alreadyCurrent := record.Status == "completed_noop"
+	if alreadyCurrent {
+		responseStatus = "completed"
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"status": record.Status, "source_agent_id": fmt.Sprintf("%d", record.SourceAgentID),
+		"status": responseStatus, "source_agent_id": fmt.Sprintf("%d", record.SourceAgentID),
+		"already_current": alreadyCurrent,
 		"target_agent_id": func() string {
 			if record.TargetAgentID == nil {
 				return ""
@@ -191,13 +221,11 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		fail(c, http.StatusBadRequest, "ACCOUNT_SWITCH_INVALID", "CLI account switch is invalid or expired", nil)
 		return
 	}
-	if !requireRecentEmailAuth(c, now) {
-		fail(c, http.StatusForbidden, "RECENT_EMAIL_AUTH_REQUIRED", "verify the target account email again before switching the CLI account", map[string]interface{}{"window_seconds": int(recentEmailAuthWindow / time.Second)})
-		return
-	}
 	status := ""
 	resultAgentID := targetAgentID
 	expired := false
+	alreadyCurrent := false
+	recentEmailAuth := requireRecentEmailAuth(c, now)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		record, err := loadCLIAccountSwitch(tx, token, true)
 		if err != nil {
@@ -218,11 +246,29 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 			status = "completed"
 			return nil
 		}
+		if record.Status == "completed_noop" {
+			if record.SourceAgentID != targetAgentID {
+				return errConflict
+			}
+			resultAgentID = record.SourceAgentID
+			status = "completed"
+			alreadyCurrent = true
+			return nil
+		}
 		if record.Status != "pending_target" && record.Status != "pending_onboarding" {
 			return errUnauthorized
 		}
 		if targetAgentID == record.SourceAgentID {
-			return errConflict
+			if err := completeNoopCLIAccountSwitch(tx, record, now); err != nil {
+				return err
+			}
+			resultAgentID = record.SourceAgentID
+			status = "completed"
+			alreadyCurrent = true
+			return nil
+		}
+		if !recentEmailAuth {
+			return errRecentEmailAuthRequired
 		}
 		if record.Status == "pending_onboarding" && (record.TargetAgentID == nil || *record.TargetAgentID != targetAgentID || record.TargetConsoleSession != targetSessionID) {
 			return errConflict
@@ -272,6 +318,10 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 		fail(c, http.StatusConflict, "ACCOUNT_SWITCH_CONFLICT", "the selected account cannot be used for this CLI switch", nil)
 		return
 	}
+	if errors.Is(err, errRecentEmailAuthRequired) {
+		fail(c, http.StatusForbidden, "RECENT_EMAIL_AUTH_REQUIRED", "verify the target account email again before switching the CLI account", map[string]interface{}{"window_seconds": int(recentEmailAuthWindow / time.Second)})
+		return
+	}
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "ACCOUNT_SWITCH_FAILED", "could not switch the CLI account", nil)
 		return
@@ -282,7 +332,10 @@ func (s *Service) confirmCLIAccountSwitch(_ context.Context, c *app.RequestConte
 	}
 	if status == "completed" {
 		s.setCLIAccountSwitchCookie(c, "", -1)
-		reply(c, http.StatusOK, map[string]interface{}{"status": status, "agent_id": fmt.Sprintf("%d", resultAgentID), "refresh_required": true})
+		reply(c, http.StatusOK, map[string]interface{}{
+			"status": status, "agent_id": fmt.Sprintf("%d", resultAgentID),
+			"refresh_required": !alreadyCurrent, "already_current": alreadyCurrent,
+		})
 		return
 	}
 	reply(c, http.StatusAccepted, map[string]interface{}{

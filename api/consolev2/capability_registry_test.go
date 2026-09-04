@@ -87,6 +87,29 @@ func TestAgentCapabilityRegistryReflectsFeatureFlags(t *testing.T) {
 	}
 }
 
+func TestAgentCapabilityRegistrySeparatesIdentityRoutes(t *testing.T) {
+	registry := buildAgentCapabilityRegistry("zh-CN", true, true)
+	operations := registry["operations"].([]capabilityOperation)
+	byID := make(map[string]capabilityOperation, len(operations))
+	for _, operation := range operations {
+		byID[operation.OperationID] = operation
+	}
+
+	profile := byID["profile.update"]
+	if profile.IdentityRoute != "none" || profile.RequiresConsoleHandoff {
+		t.Fatalf("profile.update identity route = %#v", profile)
+	}
+	provision := byID["identity.provision"]
+	if provision.IdentityRoute != "provision" || !provision.RequiresConsoleHandoff {
+		t.Fatalf("identity.provision route = %#v", provision)
+	}
+	switchAccount := byID["identity.switch_account"]
+	if switchAccount.IdentityRoute != "switch_account" || !switchAccount.RequiresConsoleHandoff ||
+		switchAccount.SameAccountBehavior != "confirm_without_change" {
+		t.Fatalf("identity.switch_account route = %#v", switchAccount)
+	}
+}
+
 func TestAgentCapabilityRegistrySupportsETagRevalidation(t *testing.T) {
 	service := &Service{enableControl: true, enableAttentionV1: true}
 	first := app.NewContext(0)

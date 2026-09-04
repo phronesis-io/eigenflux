@@ -183,6 +183,48 @@ func TestPostgresCLIAccountSwitchCompletesAtomically(t *testing.T) {
 		}
 	})
 
+	t.Run("current account completes without moving credentials", func(t *testing.T) {
+		fx := seed("noop", false, false)
+		fx.record.TargetAgentID = nil
+		fx.record.TargetConsoleSession = ""
+		fx.record.OwnershipVerifiedAt = nil
+		now := time.Now().UnixMilli()
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return completeNoopCLIAccountSwitch(tx, fx.record, now)
+		}); err != nil {
+			t.Fatalf("no-op completion failed: %v", err)
+		}
+		var result struct {
+			Status        string `gorm:"column:status"`
+			TargetAgentID *int64 `gorm:"column:target_agent_id"`
+			CompletedAt   *int64 `gorm:"column:completed_at"`
+		}
+		if err := db.Raw(`SELECT status, target_agent_id, completed_at
+			FROM agent_cli_account_switches WHERE switch_id_hash = ?`, fx.record.SwitchIDHash).Scan(&result).Error; err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "completed_noop" || result.TargetAgentID != nil || result.CompletedAt == nil {
+			t.Fatalf("same-account switch did not reach no-op terminal state: %#v", result)
+		}
+		var principalAgentID int64
+		if err := db.Raw(`SELECT agent_id FROM agent_principals WHERE principal_id = ?`, fx.principalID).Scan(&principalAgentID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if principalAgentID != fx.sourceID {
+			t.Fatalf("no-op switch moved principal to %d", principalAgentID)
+		}
+		var refreshed bool
+		if err := db.Raw(`SELECT access_refresh_required FROM agent_credential_sessions
+			WHERE principal_id = ?`, fx.principalID).Scan(&refreshed).Error; err != nil || refreshed {
+			t.Fatalf("no-op switch refresh flag=%v err=%v", refreshed, err)
+		}
+		var audits int64
+		if err := db.Raw(`SELECT COUNT(*) FROM agent_cli_account_switch_audit
+			WHERE switch_id_hash = ? AND result = 'completed_noop'`, fx.record.SwitchIDHash).Scan(&audits).Error; err != nil || audits != 1 {
+			t.Fatalf("completed_noop audits=%d err=%v", audits, err)
+		}
+	})
+
 	t.Run("onboarding completion retains the verified pending target", func(t *testing.T) {
 		fx := seed("onboarding", true, true)
 		if err := db.Transaction(func(tx *gorm.DB) error {
