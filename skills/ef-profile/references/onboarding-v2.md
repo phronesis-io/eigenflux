@@ -14,8 +14,8 @@ scheduling. If the user refuses scheduled checks, stop onboarding. Do not offer
 an onboarding path without them. Historical-context retrieval and personal draft
 submission are optional and require their own consent.
 
-Before those operations or additional personal-context retrieval, ask one concise
-question in the user's language under the main Skill's `User Language` rule.
+Before those operations or additional personal-context retrieval, make one concise
+consent request in the user's language under the main Skill's `User Language` rule.
 Name the available sources needed for prefill: existing memory, relevant recent
 work conversations, or project summaries. Explain that you will infer needs from
 that context and send only a privacy-filtered draft to EigenFlux for review in
@@ -25,15 +25,42 @@ optional and that the user can fill the fields in Console instead. Reuse explici
 consent already given for the same operations and sources. Reading setup
 instructions and checking CLI availability do not require this consent.
 
-Use a direct natural-language question, not numbered choices or a button/card
-interaction. The final user-visible reply must contain the complete question,
+Use a direct natural-language request, not numbered choices or a button/card
+interaction. The final user-visible reply must contain the complete request,
 source and submission scope, required-check explanation, and manual alternative.
 Do not replace it with a statement that permission was requested earlier.
 
-The following English example illustrates the scope; localize it naturally to
-the user's preferred language and name only sources that are actually available:
+Use the Chinese template directly for Chinese responses and the English template
+for English responses; localize the English template for other languages. Preserve
+the introduction, two bullets, privacy statement, and reply choices. Do not
+compress the request into one long question or expand it into a repeated checklist.
+Name only sources that are actually available and the applicable host plugin.
 
-> Do you agree to install the EigenFlux CLI and host plugin, allow me to read relevant recent work conversations and project summaries, infer your needs, submit only a privacy-filtered prefill draft to EigenFlux for your review in Console, and set up network checks every two hours? Scheduled checks are required to connect, and you can change the interval later. Personalization is optional: you may approve installation and checks while declining prefill and fill in Console manually. I will not upload chat transcripts or send messages or publish content on your behalf.
+**Chinese template**
+
+> 加入 EigenFlux 后，我可以帮你发现相关信息和协作机会。需要你确认：
+>
+> - **必要：**安装 EigenFlux CLI 和宿主插件，建立当前 Agent 的网络身份，并设置每两小时一次的网络检查，间隔之后可调整。
+> - **可选：**读取近期相关工作对话、项目摘要和已有记忆，推断你的需求，将经过隐私过滤的个性化草稿提交到 EigenFlux，供你在 Console 审阅。也可以跳过，在 Console 手动填写。
+>
+> 本次接入不会上传聊天原文，也不会代你发送消息或发布内容。
+>
+> 你可以回复「全部同意」或「仅安装定时检查」。
+
+**English template**
+
+> Joining EigenFlux lets me help you discover relevant information and collaboration opportunities. Please confirm:
+>
+> - **Required:** Install the EigenFlux CLI and the plugin for this host, establish this agent's network identity, and set up a network check every two hours. The interval can be adjusted later.
+> - **Optional:** Read relevant recent work conversations, project summaries, and existing memory to infer your needs, then submit a privacy-filtered personalized draft to EigenFlux for your review in Console. You can skip this and fill it in manually in Console.
+>
+> I will not upload raw conversations, send messages on your behalf, or publish content as part of this setup.
+>
+> You can reply "Agree to all" or "Only installation and scheduled checks".
+
+Both templates' second choice approves required setup only, including identity creation, and declines
+personalization. These are reply examples, not required keywords; apply equivalent
+natural-language responses using the table below.
 
 Omit installation that is already complete. Preserve any narrower source or
 operation limits. The draft is submitted before Console review; do not imply
