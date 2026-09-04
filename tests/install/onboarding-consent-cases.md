@@ -19,7 +19,6 @@ test result.
 | No response or an unsubmitted default | No installation, retrieval, provisioning, or trigger creation. |
 | Prefill already approved, schedule permission missing | Ask only for required scheduling consent before setup or retrieval. |
 | Schedule approved, prefill not specified | Continue with manual completion; no forced optional question. |
-| `2` in a conversation that displayed the old `Auto-fill only` choice | Do not reinterpret it as scheduling consent; explain the new requirement and obtain consent. |
 | Historical-context tool denies access | Use remaining approved sources or manual completion; do not bypass denial. |
 | Scheduling tool denies access or task readback fails | Stop before provisioning; report incomplete required setup. |
 | Existing approved trigger with a user-selected interval | Reuse and preserve the interval; no duplicate or default reset. |

@@ -55,9 +55,6 @@ that review happens before upload or that a draft is already public.
 Interpret replies against the question actually shown in that conversation. An
 unqualified agreement to the complete combined question approves its stated
 scope; agreement to a narrower question does not add missing permissions.
-If an earlier conversation displayed numbered options, interpret a number using
-those original labels and reuse that authorization. Never reinterpret an earlier
-"auto-fill only" choice as approval for required checks.
 
 Do not repeat consent for the same scope or retry. Do not delete or change a
 pre-existing trigger merely because onboarding is canceled. Reuse an approved
