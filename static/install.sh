@@ -1139,6 +1139,39 @@ report_attribution() {
   fi
 }
 
+# Test-branch overlay: run after host setup, which may sync released skills.
+install_onboarding_test_docs() {
+  TEST_DOC_BASE="https://raw.githubusercontent.com/phronesis-io/eigenflux/codex/onboarding-prefill-consent-main/skills/ef-profile"
+  EF_BIN="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}/eigenflux"
+  [ -x "$EF_BIN" ] || EF_BIN="$(command -v eigenflux)"
+  case "$INVOKING_HOST" in
+    openclaw|claude-code|codex)
+      TEST_SKILLS_DIR=$("$EF_BIN" skills path --host "$INVOKING_HOST") ;;
+    *) TEST_SKILLS_DIR=$("$EF_BIN" skills path) ;;
+  esac
+  [ -n "$TEST_SKILLS_DIR" ] || { err "Cannot resolve test skill directory"; return 1; }
+  TEST_DOC_TMP=$(mktemp -d)
+  if ! curl -fsSL "$TEST_DOC_BASE/SKILL.md" -o "$TEST_DOC_TMP/SKILL.md" ||
+     ! curl -fsSL "$TEST_DOC_BASE/references/onboarding-v2.md" -o "$TEST_DOC_TMP/onboarding-v2.md" ||
+     [ ! -s "$TEST_DOC_TMP/SKILL.md" ] || [ ! -s "$TEST_DOC_TMP/onboarding-v2.md" ]; then
+    rm -rf "$TEST_DOC_TMP"
+    err "Test documents unavailable; stop onboarding instead of using released documents"
+    return 1
+  fi
+  TEST_PROFILE_DIR="$TEST_SKILLS_DIR/ef-profile"
+  mkdir -p "$TEST_PROFILE_DIR/references"
+  cp "$TEST_DOC_TMP/SKILL.md" "$TEST_PROFILE_DIR/SKILL.md"
+  cp "$TEST_DOC_TMP/onboarding-v2.md" "$TEST_PROFILE_DIR/references/onboarding-v2.md"
+  if ! cmp -s "$TEST_DOC_TMP/SKILL.md" "$TEST_PROFILE_DIR/SKILL.md" ||
+     ! cmp -s "$TEST_DOC_TMP/onboarding-v2.md" "$TEST_PROFILE_DIR/references/onboarding-v2.md"; then
+    rm -rf "$TEST_DOC_TMP"
+    err "Test document verification failed; stop onboarding"
+    return 1
+  fi
+  rm -rf "$TEST_DOC_TMP"
+  ok "Onboarding test documents verified in $TEST_PROFILE_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────
 
 # Tests source this file to exercise the resolver without downloading binaries
@@ -1154,6 +1187,7 @@ migrate_config
 provision_agent_v2
 setup_agents
 setup_codex
+install_onboarding_test_docs
 
 # Name the hosts we found but left alone, so "it didn't set up my Codex" is an
 # informed outcome rather than a silent one.
