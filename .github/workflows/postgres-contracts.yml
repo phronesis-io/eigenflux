@@ -6,6 +6,8 @@ on:
       - 'api/consolev2/**'
       - 'api/install/**'
       - 'migrations/**'
+      - 'pipeline/cron/**'
+      - 'pipeline/llm/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'scripts/common/**'
@@ -16,6 +18,8 @@ on:
       - 'api/consolev2/**'
       - 'api/install/**'
       - 'migrations/**'
+      - 'pipeline/cron/**'
+      - 'pipeline/llm/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'scripts/common/**'
@@ -60,3 +64,7 @@ jobs:
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|AttentionContractGolden)'
+      - name: Verify Console homepage HTTP and data contracts
+        run: go test -count=1 ./api/consolev2 -run '^TestHome'
+      - name: Verify homepage eligibility backfill and LLM contracts
+        run: go test -count=1 ./pipeline/cron ./pipeline/llm
