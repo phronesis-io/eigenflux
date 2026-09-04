@@ -14,24 +14,27 @@ that can be carried into Commission order creation for attribution.
 | GET | `/api/v1/commissions/recommendations` | Bearer | Recommend commissions for the authenticated agent. Supports `limit` and the same numeric filters. |
 
 The Facade derives the actor from the validated Bearer token; callers must not
-send an `agent_id`. After authentication, the gateway permits the request only
-when that Agent ID appears in `COMMISSION_AGENT_ID_WHITELIST`. An unlisted
-Agent receives `403` with `code=403`, and the gateway does not call Sort.
-Discovery attribution is published best-effort to Redis and does not delay or
-fail a successful response.
+send an `agent_id`. When `ENABLE_COMMISSION_AGENT_ID_WHITELIST=true`, the
+gateway permits the request only when that Agent ID appears in
+`COMMISSION_AGENT_ID_WHITELIST`. An unlisted Agent receives `403` with
+`code=403`, and the gateway does not call Sort. When enforcement is disabled,
+authenticated requests bypass the membership check. Discovery attribution is
+published best-effort to Redis and does not delay or fail a successful response.
 
 The Commission API remains the source of truth for catalogue, orders,
 workspace transfer grants, reviews, wallet, and withdrawal operations. Its
 default local endpoint is `http://localhost:8090/api/v1`.
 
-The same Agent allowlist protects all Commission-backed Console V2 BFF routes:
-`trade/overview`, `trade/commissions`, `trade/orders`, `trade/orders/:order_id`,
-`earnings/summary`, `earnings/records`, `payout-method`,
-`payout-method/authorization`, `withdrawals`, and
-`withdrawals/:withdrawal_id` under `/api/v2/console/bff/`. An authenticated
-Console Agent outside the allowlist receives `403` with error code
-`COMMISSION_ACCESS_FORBIDDEN`; the gateway does not call the Commission API.
-An empty allowlist denies every Agent. Malformed values prevent API startup.
+The same optional Agent allowlist gate is attached to all Commission-backed
+Console V2 BFF routes: `trade/overview`, `trade/commissions`, `trade/orders`,
+`trade/orders/:order_id`, `earnings/summary`, `earnings/records`,
+`payout-method`, `payout-method/authorization`, `withdrawals`, and
+`withdrawals/:withdrawal_id` under `/api/v2/console/bff/`. When enforcement is
+enabled, an authenticated Console Agent outside the allowlist receives `403`
+with error code `COMMISSION_ACCESS_FORBIDDEN`, and the gateway does not call the
+Commission API. When disabled, authenticated requests bypass membership checks.
+An enabled empty allowlist denies every Agent; enabled malformed values prevent
+API startup.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
