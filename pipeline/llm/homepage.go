@@ -2,7 +2,7 @@ package llm
 
 import "strings"
 
-const HomepageEvaluationV1 = "homepage-v1"
+const HomepageEvaluationV2 = "homepage-v2"
 
 var homepageRejectionReasons = map[string]struct{}{
 	"internal_log": {}, "advertising": {}, "politics": {}, "sexual": {},
@@ -15,7 +15,11 @@ func NormalizeHomepageEvaluation(result *ExtractResult) {
 	if result == nil {
 		return
 	}
-	result.HomepageEvaluationVersion = HomepageEvaluationV1
+	if result.HomepageEvaluationIncomplete {
+		result.HomepageEvaluationVersion = ""
+	} else {
+		result.HomepageEvaluationVersion = HomepageEvaluationV2
+	}
 	if result.HomepageEligible != nil && *result.HomepageEligible {
 		result.HomepageRejectionReason = ""
 		return
@@ -29,4 +33,8 @@ func NormalizeHomepageEvaluation(result *ExtractResult) {
 
 func HomepageEligibleValue(result *ExtractResult) bool {
 	return result != nil && result.HomepageEligible != nil && *result.HomepageEligible
+}
+
+func HomepageRealWorldRelevantValue(result *ExtractResult) bool {
+	return result != nil && result.HomepageRealWorldRelevant != nil && *result.HomepageRealWorldRelevant
 }

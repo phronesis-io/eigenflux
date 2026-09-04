@@ -27,7 +27,7 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	var statusValue int16
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		assert.Equal(t, int64(123), itemID)
 		assert.Equal(t, int16(3), status)
 		assert.Equal(t, "info", broadcastType)
@@ -98,7 +98,7 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 
 	var acked bool
 
-	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		return errors.New("persist failed")
 	}
 	updateProcessedItemStatus = func(_ *gorm.DB, itemID int64, status int16) error {

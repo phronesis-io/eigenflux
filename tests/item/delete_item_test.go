@@ -113,8 +113,9 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 		"timely",
 		"",
 		true,
+		true,
 		"",
-		"homepage-v1",
+		"homepage-v2",
 		dal.StatusCompleted,
 	)
 	if err != nil {

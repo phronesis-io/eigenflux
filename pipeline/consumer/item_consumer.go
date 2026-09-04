@@ -475,7 +475,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {
-	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
+	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
 		logger.Default().Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
 		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {

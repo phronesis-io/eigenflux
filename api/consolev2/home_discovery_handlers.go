@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	homeDiscoveryCacheTTL  = 60 * time.Second
-	homeDiscoveryCandidate = 24
+	homeDiscoveryCacheTTL        = 60 * time.Second
+	homeDiscoveryCandidate       = 24
+	homeDiscoveryResultLimit     = 12
+	eigenfluxOfficialAssistantID = int64(328396977442127872)
 )
 
 type homeDiscoveryMetric struct {
@@ -35,7 +37,8 @@ type homeDiscoveryAgent struct {
 	CountryCode      string              `json:"country_code,omitempty"`
 	AgentDescription string              `json:"agent_description,omitempty"`
 	HumanDescription string              `json:"human_description,omitempty"`
-	Offering         []string            `json:"offering,omitempty"`
+	Capabilities     []string            `json:"capabilities,omitempty"`
+	Runtime          string              `json:"runtime,omitempty"`
 	JoinedAt         int64               `json:"joined_at"`
 	Metric           homeDiscoveryMetric `json:"metric"`
 }
@@ -148,9 +151,10 @@ func (s *Service) rankedHomeDiscovery(sql string, args ...interface{}) ([]homeDi
 }
 
 func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDiscoveryResponse, error) {
-	eligible := `a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''
-		AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
-		AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'`
+	eligible := fmt.Sprintf(`a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''
+		AND COALESCE(a.email, '') NOT LIKE '%%@pgc.eigenflux.one'
+		AND COALESCE(a.email, '') NOT LIKE '%%@bot.eigenflux.one'
+		AND a.agent_id <> %d`, eigenfluxOfficialAssistantID)
 
 	recognition, err := s.rankedHomeDiscovery(fmt.Sprintf(`
 		SELECT a.agent_id, COUNT(DISTINCT f.agent_id) AS primary_value,
@@ -233,7 +237,7 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 		{Key: "new_and_standout", MetricKey: "recognizing_agents_today", Rows: newStandout},
 		{Key: "domain_representative_today", MetricKey: "recognitions_in_domain_today", Rows: domain},
 	}
-	selected := selectUniqueHomeDiscovery(rules)
+	selected := selectUniqueHomeDiscovery(rules, homeDiscoveryResultLimit)
 	items, err := s.hydrateHomeDiscovery(selected)
 	if err != nil {
 		return homeDiscoveryResponse{}, err
@@ -241,17 +245,30 @@ func (s *Service) loadHomeDiscovery(start, now int64, timezone string) (homeDisc
 	return homeDiscoveryResponse{Items: items, WindowStart: start, WindowTimezone: timezone, GeneratedAt: now, CacheTTLSeconds: int64(homeDiscoveryCacheTTL / time.Second)}, nil
 }
 
-func selectUniqueHomeDiscovery(rules []homeDiscoveryRule) []homeDiscoveryRule {
+func selectUniqueHomeDiscovery(rules []homeDiscoveryRule, limit int) []homeDiscoveryRule {
 	used := map[int64]struct{}{}
-	selected := make([]homeDiscoveryRule, 0, len(rules))
-	for _, rule := range rules {
-		for _, row := range rule.Rows {
-			if _, exists := used[row.AgentID]; exists || row.AgentID <= 0 {
-				continue
+	selected := make([]homeDiscoveryRule, 0, limit)
+	nextCandidate := make([]int, len(rules))
+	for len(selected) < limit {
+		progressed := false
+		for ruleIndex, rule := range rules {
+			for nextCandidate[ruleIndex] < len(rule.Rows) {
+				row := rule.Rows[nextCandidate[ruleIndex]]
+				nextCandidate[ruleIndex]++
+				if _, exists := used[row.AgentID]; exists || row.AgentID <= 0 || row.AgentID == eigenfluxOfficialAssistantID {
+					continue
+				}
+				used[row.AgentID] = struct{}{}
+				rule.Rows = []homeDiscoveryCandidateRow{row}
+				selected = append(selected, rule)
+				progressed = true
+				break
 			}
-			used[row.AgentID] = struct{}{}
-			rule.Rows = []homeDiscoveryCandidateRow{row}
-			selected = append(selected, rule)
+			if len(selected) == limit {
+				break
+			}
+		}
+		if !progressed {
 			break
 		}
 	}
@@ -290,7 +307,8 @@ func (s *Service) hydrateHomeDiscovery(selected []homeDiscoveryRule) ([]homeDisc
 			RuleKey: rule.Key, AgentID: strconv.FormatInt(identity.AgentID, 10), ShortID: identity.ShortID,
 			SharePath: "/agent/" + identity.ShortID, AgentName: identity.AgentName, AgentNameEn: identity.AgentNameEn,
 			CountryCode: todayCountryCode(identity.Country), AgentDescription: cardString(card, "agent_description"),
-			HumanDescription: cardString(card, "human_description"), Offering: cardStrings(card, "offering", 3), JoinedAt: identity.CreatedAt,
+			HumanDescription: cardString(card, "human_description"), Capabilities: cardStrings(card, "capabilities", 3),
+			Runtime: cardString(card, "runtime"), JoinedAt: identity.CreatedAt,
 			Metric: homeDiscoveryMetric{Key: rule.MetricKey, Value: candidate.Primary, Secondary: candidate.Secondary, Dimension: candidate.Dimension},
 		})
 	}
@@ -307,13 +325,23 @@ func cardStrings(card map[string]interface{}, key string, limit int) []string {
 	result := make([]string, 0, len(raw))
 	for _, item := range raw {
 		value, ok := item.(string)
-		if !ok || strings.TrimSpace(value) == "" {
+		trimmed := strings.TrimSpace(value)
+		if !ok || trimmed == "" || isUnsetPublicCardValue(trimmed) {
 			continue
 		}
-		result = append(result, strings.TrimSpace(value))
+		result = append(result, trimmed)
 		if len(result) == limit {
 			break
 		}
 	}
 	return result
+}
+
+func isUnsetPublicCardValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "尚未设置", "暂未设置", "not set", "not set yet":
+		return true
+	default:
+		return false
+	}
 }
