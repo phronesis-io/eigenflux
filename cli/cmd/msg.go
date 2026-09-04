@@ -65,7 +65,7 @@ Examples:
 		c := newClient()
 		resp, err := c.Post("/pm/send", body)
 		if err != nil {
-			return err
+			return formatMessageSendError(err, resolveFormat())
 		}
 		if resp.Code != 0 {
 			return fmt.Errorf("%s", resp.Msg)

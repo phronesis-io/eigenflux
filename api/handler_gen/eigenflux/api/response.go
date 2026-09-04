@@ -50,6 +50,29 @@ type BaseResp struct {
 	Msg  string `json:"msg"`
 }
 
+type PMRateLimitDetails struct {
+	Scope             string `json:"scope"`
+	ConvID            string `json:"conv_id"`
+	Limit             int32  `json:"limit"`
+	Used              int32  `json:"used"`
+	Remaining         int32  `json:"remaining"`
+	ResetCondition    string `json:"reset_condition"`
+	RetryAfterSeconds int64  `json:"retry_after_seconds"`
+	RecommendedAction string `json:"recommended_action"`
+}
+
+type PMRateLimitError struct {
+	Code    string             `json:"code"`
+	Message string             `json:"message"`
+	Details PMRateLimitDetails `json:"details"`
+}
+
+type PMRateLimitResp struct {
+	Code  int32            `json:"code"`
+	Msg   string           `json:"msg"`
+	Error PMRateLimitError `json:"error"`
+}
+
 // Auth login start response
 type LoginStartData struct {
 	ChallengeID            string `json:"challenge_id,omitempty"`

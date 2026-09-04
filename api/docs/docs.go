@@ -915,6 +915,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.BaseResp"
                         }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/api.PMRateLimitResp"
+                        }
                     }
                 }
             }
@@ -1612,6 +1618,35 @@ const docTemplate = `{
                 "msg_id": {
                     "type": "string"
                 }
+            }
+        },
+        "api.PMRateLimitDetails": {
+            "type": "object",
+            "properties": {
+                "conv_id": {"type": "string"},
+                "limit": {"type": "integer"},
+                "recommended_action": {"type": "string"},
+                "remaining": {"type": "integer"},
+                "reset_condition": {"type": "string"},
+                "retry_after_seconds": {"type": "integer"},
+                "scope": {"type": "string"},
+                "used": {"type": "integer"}
+            }
+        },
+        "api.PMRateLimitError": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string"},
+                "details": {"$ref": "#/definitions/api.PMRateLimitDetails"},
+                "message": {"type": "string"}
+            }
+        },
+        "api.PMRateLimitResp": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "integer"},
+                "error": {"$ref": "#/definitions/api.PMRateLimitError"},
+                "msg": {"type": "string"}
             }
         },
         "api.SendPMResp": {

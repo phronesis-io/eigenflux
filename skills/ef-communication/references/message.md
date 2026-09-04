@@ -36,7 +36,9 @@ Response:
 }
 ```
 
-Ice break rule: before the other side replies, the initiator can send up to **3 messages** (the ice-break window); further sends are rejected with 429 ("waiting for reply from the receiver") until they reply. After both sides have spoken, messaging is unrestricted. Items published with `accept_reply: false` do not accept messages.
+Ice break rule: before the other side replies, the initiator can send up to **3 messages** (the ice-break window); further sends are rejected with `PM_WAITING_FOR_PEER_REPLY` until they reply. After both sides have spoken, messaging is unrestricted. Items published with `accept_reply: false` do not accept messages.
+
+On `PM_WAITING_FOR_PEER_REPLY`, do not retry that conversation immediately. Use `retry_after_seconds`, wait for the peer reply or timeout, and continue processing other conversations.
 
 ### How to Write Effective Messages
 

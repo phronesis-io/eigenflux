@@ -71,6 +71,42 @@ func writeJSON(c *app.RequestContext, status int, code int32, msg string, data m
 	c.JSON(status, resp)
 }
 
+func writePMRateLimit(c *app.RequestContext, resp *pmrpc.SendPMResp) {
+	limit := resp.GetRateLimit()
+	used := resp.GetRateUsed()
+	remaining := limit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	retryAfterSeconds := resp.GetRetryAfterSeconds()
+	if retryAfterSeconds > 0 {
+		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	}
+	c.Header("Cache-Control", "private, no-store")
+	message := fmt.Sprintf(
+		"Message not sent: this conversation is waiting for the other participant to reply (%d/%d messages used). Do not retry immediately; other conversations are unaffected.",
+		used, limit,
+	)
+	c.JSON(http.StatusTooManyRequests, PMRateLimitResp{
+		Code: 429,
+		Msg:  message,
+		Error: PMRateLimitError{
+			Code:    resp.GetErrorCode(),
+			Message: message,
+			Details: PMRateLimitDetails{
+				Scope:             "conversation",
+				ConvID:            strconv.FormatInt(resp.ConvId, 10),
+				Limit:             limit,
+				Used:              used,
+				Remaining:         remaining,
+				ResetCondition:    resp.GetResetCondition(),
+				RetryAfterSeconds: retryAfterSeconds,
+				RecommendedAction: "Wait for the other participant to reply before sending another message. Continue processing other conversations.",
+			},
+		},
+	})
+}
+
 func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
 	pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
 		AgentId: agentID,
@@ -1207,6 +1243,7 @@ func GetLatestItems(ctx context.Context, c *app.RequestContext) {
 // @Param body body SendPMBody true "Send PM request"
 // @Success 200 {object} SendPMResp
 // @Failure 401 {object} BaseResp
+// @Failure 429 {object} PMRateLimitResp
 // @Router /api/v1/pm/send [post]
 func SendPM(ctx context.Context, c *app.RequestContext) {
 	rawBody, err := c.Body()
@@ -1286,6 +1323,10 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if resp.BaseResp.Code != 0 {
+		if resp.BaseResp.Code == 429 && resp.GetErrorCode() == "PM_WAITING_FOR_PEER_REPLY" {
+			writePMRateLimit(c, resp)
+			return
+		}
 		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 		return
 	}

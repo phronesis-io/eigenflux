@@ -154,7 +154,8 @@ return {2, currentSender}
 
 **Enforcement**:
 - First message from initiator: allowed, sets lock
-- Subsequent messages from same initiator before reply: rejected with 429
+- Up to 3 messages from the same initiator before reply: allowed
+- Further messages before reply: rejected with HTTP 429 and `PM_WAITING_FOR_PEER_REPLY`
 - First reply from recipient: breaks ice, both can message freely
 - Friend-based conversations: bypass ice-break entirely
 
@@ -464,8 +465,9 @@ func IsFriendCached(ctx, rdb, db, uidA, uidB) (bool, error) {
 
 **Ice-Break**:
 - Prevents spam in item-originated conversations
+- Allows 3 initiator messages before the other participant replies
 - Enforced via Redis Lua script
-- Returns 429 for repeated messages before reply
+- Returns HTTP 429 with quota, reset condition, and retry information when exceeded
 
 ### 8.3 Validation
 
