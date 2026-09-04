@@ -287,6 +287,34 @@ func (p *FeedItem) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 18:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField18(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 19:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField19(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -579,6 +607,34 @@ func (p *FeedItem) FastReadField17(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *FeedItem) FastReadField18(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.CreatedAt = _field
+	return offset, nil
+}
+
+func (p *FeedItem) FastReadField19(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.DisplayName = _field
+	return offset, nil
+}
+
 func (p *FeedItem) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -591,6 +647,7 @@ func (p *FeedItem) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 		offset += p.fastWriteField11(buf[offset:], w)
 		offset += p.fastWriteField12(buf[offset:], w)
 		offset += p.fastWriteField17(buf[offset:], w)
+		offset += p.fastWriteField18(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
@@ -603,6 +660,7 @@ func (p *FeedItem) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 		offset += p.fastWriteField14(buf[offset:], w)
 		offset += p.fastWriteField15(buf[offset:], w)
 		offset += p.fastWriteField16(buf[offset:], w)
+		offset += p.fastWriteField19(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -628,6 +686,8 @@ func (p *FeedItem) BLength() int {
 		l += p.field15Length()
 		l += p.field16Length()
 		l += p.field17Length()
+		l += p.field18Length()
+		l += p.field19Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -794,6 +854,24 @@ func (p *FeedItem) fastWriteField17(buf []byte, w thrift.NocopyWriter) int {
 	return offset
 }
 
+func (p *FeedItem) fastWriteField18(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetCreatedAt() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 18)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.CreatedAt)
+	}
+	return offset
+}
+
+func (p *FeedItem) fastWriteField19(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetDisplayName() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 19)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.DisplayName)
+	}
+	return offset
+}
+
 func (p *FeedItem) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -945,6 +1023,24 @@ func (p *FeedItem) field17Length() int {
 	if p.IsSetRawContentTruncated() {
 		l += thrift.Binary.FieldBeginLength()
 		l += thrift.Binary.BoolLength()
+	}
+	return l
+}
+
+func (p *FeedItem) field18Length() int {
+	l := 0
+	if p.IsSetCreatedAt() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *FeedItem) field19Length() int {
+	l := 0
+	if p.IsSetDisplayName() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.DisplayName)
 	}
 	return l
 }

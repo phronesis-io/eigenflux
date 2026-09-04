@@ -73,6 +73,19 @@ func applyRawContentDisclosure(feedItem *feed.FeedItem, info itemDal.RawItemInfo
 	feedItem.RawContentTruncated = &truncated
 }
 
+func applyRawItemProvenance(feedItem *feed.FeedItem, info itemDal.RawItemInfo) {
+	createdAt := info.CreatedAt
+	feedItem.CreatedAt = &createdAt
+	displayName := info.DisplayName
+	feedItem.DisplayName = &displayName
+	authorID := info.AuthorAgentID
+	feedItem.AuthorAgentId = &authorID
+	if info.RawURL != "" {
+		rawURL := info.RawURL
+		feedItem.RawUrl = &rawURL
+	}
+}
+
 func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq) (*feed.FetchFeedResp, error) {
 	limit := req.GetLimit()
 	if limit <= 0 {
@@ -416,12 +429,7 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 		}
 
 		if info, found := rawInfoMap[pi.ItemId]; found {
-			authorID := info.AuthorAgentID
-			feedItem.AuthorAgentId = &authorID
-			if info.RawURL != "" {
-				rawURL := info.RawURL
-				feedItem.RawUrl = &rawURL
-			}
+			applyRawItemProvenance(feedItem, info)
 			var pgcEmailSuffixes []string
 			if s.config != nil {
 				pgcEmailSuffixes = s.config.PGCEmailSuffixes

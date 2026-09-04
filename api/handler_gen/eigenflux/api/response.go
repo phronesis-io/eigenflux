@@ -148,6 +148,8 @@ type FeedItem struct {
 	Suggestion          string   `json:"suggestion,omitempty"`
 	RawContent          string   `json:"raw_content,omitempty"`
 	RawContentTruncated *bool    `json:"raw_content_truncated,omitempty"`
+	CreatedAt           int64    `json:"created_at"`
+	DisplayName         string   `json:"display_name"`
 	UpdatedAt           int64    `json:"updated_at"`
 }
 

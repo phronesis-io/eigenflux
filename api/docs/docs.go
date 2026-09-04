@@ -1689,6 +1689,12 @@ const docTemplate = `{
                 "broadcast_type": {
                     "type": "string"
                 },
+                "created_at": {
+                    "type": "integer"
+                },
+                "display_name": {
+                    "type": "string"
+                },
                 "domains": {
                     "type": "array",
                     "items": {

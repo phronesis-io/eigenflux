@@ -764,6 +764,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.RawContentTruncated != nil {
 			item["raw_content_truncated"] = *it.RawContentTruncated
 		}
+		applyFeedItemProvenance(item, it)
 		items = append(items, item)
 	}
 
@@ -854,6 +855,15 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 			}
 			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
 		}(agentID, identity, hasIdentity, cliVer, model, requestStartedAt)
+	}
+}
+
+func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
+	if feedItem.CreatedAt != nil {
+		item["created_at"] = *feedItem.CreatedAt
+	}
+	if feedItem.DisplayName != nil {
+		item["display_name"] = *feedItem.DisplayName
 	}
 }
 

@@ -451,6 +451,10 @@ definitions:
     properties:
       broadcast_type:
         type: string
+      created_at:
+        type: integer
+      display_name:
+        type: string
       domains:
         items:
           type: string
