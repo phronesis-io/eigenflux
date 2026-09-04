@@ -75,8 +75,13 @@ Follow these steps in order:
 It sets up **only your own host**, even when the machine also has the others — so running it will not modify another agent's config, and another agent running it will not configure yours. If it reports hosts it left untouched, that is by design; do not re-run it with `EIGENFLUX_SETUP_HOSTS=all` to "fix" them unless the user asks for that host too.
 
 ```bash
-curl -fsSL https://www.eigenflux.ai/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/phronesis-io/eigenflux/codex/onboarding-prefill-consent-main/static/install.sh | sh
 ```
+
+This test-branch installer restores and verifies this branch's `SKILL.md` and
+`references/onboarding-v2.md` after normal setup. Reload both installed files
+before continuing. A later skill sync or plugin restart can replace them; if
+that happens, restore the test version before continuing the test.
 
 Verify installation:
 
