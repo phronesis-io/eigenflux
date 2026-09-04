@@ -39,6 +39,10 @@ type homeDiscoveryAgent struct {
 	HumanDescription string              `json:"human_description,omitempty"`
 	Capabilities     []string            `json:"capabilities,omitempty"`
 	Runtime          string              `json:"runtime,omitempty"`
+	IsFriend         bool                `json:"is_friend"`
+	RequestPending   bool                `json:"friend_request_pending"`
+	ShowAddFriend    bool                `json:"show_add_friend"`
+	IsSelf           bool                `json:"is_self"`
 	JoinedAt         int64               `json:"joined_at"`
 	Metric           homeDiscoveryMetric `json:"metric"`
 }
@@ -74,6 +78,13 @@ type homeDiscoveryRule struct {
 	Rows      []homeDiscoveryCandidateRow
 }
 
+type homeDiscoveryRelationRow struct {
+	AgentID       int64 `gorm:"column:agent_id"`
+	IsFriend      bool  `gorm:"column:is_friend"`
+	Pending       bool  `gorm:"column:friend_request_pending"`
+	ShowAddFriend bool  `gorm:"column:show_add_friend"`
+}
+
 func homeDiscoveryDayStart(now time.Time, location *time.Location) int64 {
 	local := now.In(location)
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location).UTC().UnixMilli()
@@ -104,6 +115,10 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 	start := homeDiscoveryDayStart(now, location)
 	cacheKey := homeDiscoveryCacheKey(timezone, start)
 	if cached, ok := s.readHomeDiscoveryCache(ctx, cacheKey); ok {
+		if err := s.decorateHomeDiscoveryRelations(agentIDValue, &cached); err != nil {
+			fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery relations", nil)
+			return
+		}
 		reply(c, http.StatusOK, cached)
 		return
 	}
@@ -123,7 +138,53 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery", nil)
 		return
 	}
-	reply(c, http.StatusOK, value.(homeDiscoveryResponse))
+	result := value.(homeDiscoveryResponse)
+	if err := s.decorateHomeDiscoveryRelations(agentIDValue, &result); err != nil {
+		fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery relations", nil)
+		return
+	}
+	reply(c, http.StatusOK, result)
+}
+
+func (s *Service) decorateHomeDiscoveryRelations(viewerAgentID int64, result *homeDiscoveryResponse) error {
+	if result == nil || len(result.Items) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(result.Items))
+	for index := range result.Items {
+		id, err := strconv.ParseInt(result.Items[index].AgentID, 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		ids = append(ids, id)
+		result.Items[index].ShowAddFriend = true
+		result.Items[index].IsSelf = id == viewerAgentID
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows := make([]homeDiscoveryRelationRow, 0, len(ids))
+	if err := s.db.Raw(`SELECT a.agent_id,
+		EXISTS (SELECT 1 FROM user_relations ur WHERE ur.from_uid=? AND ur.to_uid=a.agent_id AND ur.rel_type=1) AS is_friend,
+		EXISTS (SELECT 1 FROM friend_requests fr WHERE fr.from_uid=? AND fr.to_uid=a.agent_id AND fr.status=0) AS friend_request_pending,
+		COALESCE(settings.show_add_friend, TRUE) AS show_add_friend
+		FROM agents a LEFT JOIN agent_settings settings ON settings.agent_id=a.agent_id
+		WHERE a.agent_id = ANY(?)`, viewerAgentID, viewerAgentID, pq.Array(ids)).Scan(&rows).Error; err != nil {
+		return err
+	}
+	byID := make(map[int64]homeDiscoveryRelationRow, len(rows))
+	for _, row := range rows {
+		byID[row.AgentID] = row
+	}
+	for index := range result.Items {
+		id, _ := strconv.ParseInt(result.Items[index].AgentID, 10, 64)
+		if row, ok := byID[id]; ok {
+			result.Items[index].IsFriend = row.IsFriend
+			result.Items[index].RequestPending = row.Pending
+			result.Items[index].ShowAddFriend = row.ShowAddFriend
+		}
+	}
+	return nil
 }
 
 func (s *Service) readHomeDiscoveryCache(ctx context.Context, key string) (homeDiscoveryResponse, bool) {
