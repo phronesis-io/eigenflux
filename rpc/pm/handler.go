@@ -318,8 +318,22 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 
 		if iceStatus == icebreak.IceStatusLimitReached {
 			logger.Ctx(ctx).Info("reply rejected (icebreak limit)", "convID", convID, "senderID", req.SenderId)
+			errorCode := "PM_WAITING_FOR_PEER_REPLY"
+			limit := int32(icebreak.MaxInitiatorMsgs)
+			used := limit
+			resetCondition := "peer_reply_or_timeout"
+			retryAfterSeconds, retryErr := s.iceBreaker.RetryAfterSeconds(ctx, convID)
+			if retryErr != nil {
+				logger.Ctx(ctx).Warn("could not read icebreak retry time", "convID", convID, "err", retryErr)
+			}
 			return &pm.SendPMResp{
-				BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
+				ConvId:            convID,
+				ErrorCode:         &errorCode,
+				RateLimit:         &limit,
+				RateUsed:          &used,
+				ResetCondition:    &resetCondition,
+				RetryAfterSeconds: &retryAfterSeconds,
+				BaseResp:          &base.BaseResp{Code: 429, Msg: "waiting for reply from the other participant"},
 			}, nil
 		}
 	}

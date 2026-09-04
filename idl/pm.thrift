@@ -13,6 +13,11 @@ struct SendPMReq {
 struct SendPMResp {
     1: required i64 msg_id
     2: required i64 conv_id
+    3: optional string error_code
+    4: optional i32 rate_limit
+    5: optional i32 rate_used
+    6: optional i64 retry_after_seconds
+    7: optional string reset_condition
     255: required base.BaseResp base_resp
 }
 

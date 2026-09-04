@@ -141,9 +141,14 @@ var fieldIDToName_SendPMReq = map[int16]string{
 }
 
 type SendPMResp struct {
-	MsgId    int64          `thrift:"msg_id,1,required" frugal:"1,required,i64" json:"msg_id"`
-	ConvId   int64          `thrift:"conv_id,2,required" frugal:"2,required,i64" json:"conv_id"`
-	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	MsgId             int64          `thrift:"msg_id,1,required" frugal:"1,required,i64" json:"msg_id"`
+	ConvId            int64          `thrift:"conv_id,2,required" frugal:"2,required,i64" json:"conv_id"`
+	ErrorCode         *string        `thrift:"error_code,3,optional" frugal:"3,optional,string" json:"error_code,omitempty"`
+	RateLimit         *int32         `thrift:"rate_limit,4,optional" frugal:"4,optional,i32" json:"rate_limit,omitempty"`
+	RateUsed          *int32         `thrift:"rate_used,5,optional" frugal:"5,optional,i32" json:"rate_used,omitempty"`
+	RetryAfterSeconds *int64         `thrift:"retry_after_seconds,6,optional" frugal:"6,optional,i64" json:"retry_after_seconds,omitempty"`
+	ResetCondition    *string        `thrift:"reset_condition,7,optional" frugal:"7,optional,string" json:"reset_condition,omitempty"`
+	BaseResp          *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewSendPMResp() *SendPMResp {
@@ -161,6 +166,51 @@ func (p *SendPMResp) GetConvId() (v int64) {
 	return p.ConvId
 }
 
+var SendPMResp_ErrorCode_DEFAULT string
+
+func (p *SendPMResp) GetErrorCode() (v string) {
+	if !p.IsSetErrorCode() {
+		return SendPMResp_ErrorCode_DEFAULT
+	}
+	return *p.ErrorCode
+}
+
+var SendPMResp_RateLimit_DEFAULT int32
+
+func (p *SendPMResp) GetRateLimit() (v int32) {
+	if !p.IsSetRateLimit() {
+		return SendPMResp_RateLimit_DEFAULT
+	}
+	return *p.RateLimit
+}
+
+var SendPMResp_RateUsed_DEFAULT int32
+
+func (p *SendPMResp) GetRateUsed() (v int32) {
+	if !p.IsSetRateUsed() {
+		return SendPMResp_RateUsed_DEFAULT
+	}
+	return *p.RateUsed
+}
+
+var SendPMResp_RetryAfterSeconds_DEFAULT int64
+
+func (p *SendPMResp) GetRetryAfterSeconds() (v int64) {
+	if !p.IsSetRetryAfterSeconds() {
+		return SendPMResp_RetryAfterSeconds_DEFAULT
+	}
+	return *p.RetryAfterSeconds
+}
+
+var SendPMResp_ResetCondition_DEFAULT string
+
+func (p *SendPMResp) GetResetCondition() (v string) {
+	if !p.IsSetResetCondition() {
+		return SendPMResp_ResetCondition_DEFAULT
+	}
+	return *p.ResetCondition
+}
+
 var SendPMResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *SendPMResp) GetBaseResp() (v *base.BaseResp) {
@@ -175,8 +225,43 @@ func (p *SendPMResp) SetMsgId(val int64) {
 func (p *SendPMResp) SetConvId(val int64) {
 	p.ConvId = val
 }
+func (p *SendPMResp) SetErrorCode(val *string) {
+	p.ErrorCode = val
+}
+func (p *SendPMResp) SetRateLimit(val *int32) {
+	p.RateLimit = val
+}
+func (p *SendPMResp) SetRateUsed(val *int32) {
+	p.RateUsed = val
+}
+func (p *SendPMResp) SetRetryAfterSeconds(val *int64) {
+	p.RetryAfterSeconds = val
+}
+func (p *SendPMResp) SetResetCondition(val *string) {
+	p.ResetCondition = val
+}
 func (p *SendPMResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *SendPMResp) IsSetErrorCode() bool {
+	return p.ErrorCode != nil
+}
+
+func (p *SendPMResp) IsSetRateLimit() bool {
+	return p.RateLimit != nil
+}
+
+func (p *SendPMResp) IsSetRateUsed() bool {
+	return p.RateUsed != nil
+}
+
+func (p *SendPMResp) IsSetRetryAfterSeconds() bool {
+	return p.RetryAfterSeconds != nil
+}
+
+func (p *SendPMResp) IsSetResetCondition() bool {
+	return p.ResetCondition != nil
 }
 
 func (p *SendPMResp) IsSetBaseResp() bool {
@@ -193,6 +278,11 @@ func (p *SendPMResp) String() string {
 var fieldIDToName_SendPMResp = map[int16]string{
 	1:   "msg_id",
 	2:   "conv_id",
+	3:   "error_code",
+	4:   "rate_limit",
+	5:   "rate_used",
+	6:   "retry_after_seconds",
+	7:   "reset_condition",
 	255: "base_resp",
 }
 
