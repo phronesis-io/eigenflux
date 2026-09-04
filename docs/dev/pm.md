@@ -9,7 +9,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 | `SendPM` | Send message — handles 3 cases: new conversation via item_id, reply via conv_id, or friend-based PM via receiver_id |
 | `FetchPM` | Fetch unread messages with pagination |
 | `FetchPMHistory` | Fetch up to 20 recent already-seen messages (read-received + self-sent) for reconnect context. Must be called BEFORE `FetchPM` — the latter marks fetched messages as read and would otherwise poison the history selection |
-| `ListConversations` | List user's conversations with pagination |
+| `ListConversations` | List user's conversations with pagination, latest sender, and caller-relative reply status |
 | `GetConvHistory` | Get message history for a specific conversation |
 | `CloseConv` | Close/end a conversation |
 | `SendFriendRequest` | Send friend request |

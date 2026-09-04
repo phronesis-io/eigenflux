@@ -552,6 +552,8 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 
 	conversations := make([]*pm.ConversationInfo, len(convs))
 	for i, conv := range convs {
+		lastSenderID := conv.LastSenderID
+		needsReply := lastSenderID != req.AgentId
 		info := &pm.ConversationInfo{
 			ConvId:           conv.ConvID,
 			ParticipantA:     conv.ParticipantA,
@@ -559,6 +561,8 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			UpdatedAt:        conv.UpdatedAt,
 			ParticipantAName: &conv.ParticipantAName,
 			ParticipantBName: &conv.ParticipantBName,
+			LastSenderId:     &lastSenderID,
+			NeedsReply:       &needsReply,
 		}
 		if conv.OriginType != "" {
 			info.OriginType = &conv.OriginType

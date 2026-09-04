@@ -1448,6 +1448,12 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 			"is_friend":            conv.GetIsFriend(),
 			"category":             conv.GetCategory(),
 		}
+		if conv.IsSetLastSenderId() {
+			m["last_sender_id"] = strconv.FormatInt(conv.GetLastSenderId(), 10)
+		}
+		if conv.IsSetNeedsReply() {
+			m["needs_reply"] = conv.GetNeedsReply()
+		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
 			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
 			// Parent broadcast snippet + ownership for discussions on a broadcast.
