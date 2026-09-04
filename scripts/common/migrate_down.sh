@@ -20,8 +20,9 @@ else
   GO_CMD=(go)
 fi
 
+MIGRATION_PGOPTIONS="${PGOPTIONS:+${PGOPTIONS} }-c lock_timeout=5s -c statement_timeout=30min"
 if [[ -n "$TARGET_VERSION" ]]; then
-  "${GO_CMD[@]}" run github.com/pressly/goose/v3/cmd/goose@v3.24.3 -dir "$PROJECT_ROOT/migrations" postgres "$PG_DSN" down-to "$TARGET_VERSION"
+  PGOPTIONS="$MIGRATION_PGOPTIONS" "${GO_CMD[@]}" run github.com/pressly/goose/v3/cmd/goose@v3.24.3 -dir "$PROJECT_ROOT/migrations" postgres "$PG_DSN" down-to "$TARGET_VERSION"
 else
-  "${GO_CMD[@]}" run github.com/pressly/goose/v3/cmd/goose@v3.24.3 -dir "$PROJECT_ROOT/migrations" postgres "$PG_DSN" down
+  PGOPTIONS="$MIGRATION_PGOPTIONS" "${GO_CMD[@]}" run github.com/pressly/goose/v3/cmd/goose@v3.24.3 -dir "$PROJECT_ROOT/migrations" postgres "$PG_DSN" down
 fi
