@@ -8,14 +8,14 @@ test result.
 
 | Input after the consent copy | Expected behavior |
 |---|---|
-| `1` / `Allow scheduled checks and auto-fill` | Retrieve approved context, verify one active trigger, then provision with the personal draft. |
-| `2` / `同意定时检查，手动填写` | No personal-context retrieval or inference; verify one trigger, then provision with an empty draft and defaults. |
-| `3` / `Not now` | Stop before installation, identity creation, retrieval, scheduling, or provisioning. |
+| `同意` / `Yes` / `Agree` in reply to the complete combined question | Retrieve approved context, verify one active trigger, then provision with the personal draft. |
+| `同意安装和定时检查，手动填写` | No personal-context retrieval or inference; verify one trigger, then provision with an empty draft and defaults. |
+| `Not now` | Stop before installation, identity creation, retrieval, scheduling, or provisioning. |
 | `Only auto-fill, no scheduled checks` | Explain the required checks and stop onboarding without retrieval or upload. |
 | `Allow checks, but don't read my history` | Manual path with required checks; no substitute personal context. |
 | `Allow checks; you may read but not upload a personal draft` | Manual path with required checks; no personal draft upload. |
 | `Both, but only use this project` | Scope retrieval to that project; persist one trigger. |
-| `Agree` | Clarify required scheduling consent once; do not infer optional prefill consent. |
+| `Agree` after a narrower question covering only checks | Approve checks only; do not infer optional prefill consent. |
 | No response or an unsubmitted default | No installation, retrieval, provisioning, or trigger creation. |
 | Prefill already approved, schedule permission missing | Ask only for required scheduling consent before setup or retrieval. |
 | Schedule approved, prefill not specified | Continue with manual completion; no forced optional question. |
@@ -26,24 +26,23 @@ test result.
 | Installer starts a plugin loop | Require schedule consent first and verify the plugin-owned trigger. |
 | User cancels while an older trigger exists | Stop onboarding; do not delete or change the older trigger without a request. |
 
-Repeat the three main choices with Chinese and English preferences. Also check
-an explicit preference for another language against English tool output: copy,
-labels, clarifications, errors, and final replies must follow the user preference.
-Operational commands and identifiers remain unchanged.
+Repeat full agreement, manual completion, and refusal with Chinese and English
+preferences. Also check another explicit language preference against English
+tool output: the question, clarifications, errors, and final replies must follow
+the user preference. Operational commands and identifiers remain unchanged.
 
 Display regression: simulate a host that hides earlier messages/tool UI and
-renders only the last final reply. Before a selection, that reply must contain
-the consent explanation, all three numbered options, and how to answer in the
-user's language. A response saying only that choices were provided fails.
-Repeat with an asynchronous interaction tool returning without a selection:
-expect the same complete final reply. If a valid selection has arrived, expect
-execution within that choice instead of another consent request.
+renders only the final reply. It must contain the complete natural-language
+question, available sources, inference, privacy-filtered submission to EigenFlux
+before Console review, required checks, and optional manual completion. Numbered
+choices, button/card tools, or a statement that choices were already provided
+fail this interaction check. Do not treat silence as approval.
 
-For a host with a permitted authorization UI, verify that clicks return the
-selected option. For a text-only host or a tool that prohibits permission
-requests, expect numbered choices and natural-language response handling, not
-fake Markdown buttons. Codex and WorkBuddy UI compatibility must be verified
-separately; passing text cases does not establish clickable UI support.
+Authorization continuity: after agreement to the complete question, retrieval,
+inference, and draft submission stay within that scope without another business
+consent request. If host approval rejects the upload, report the actual reason
+and follow the host-required approval process; do not bypass the rejection or
+claim that the prior business consent guarantees host approval.
 
 For successful personalized provisioning, check the matching Chinese or English
 four-line handoff template. "I" must still refer to the Agent and "you" to the
