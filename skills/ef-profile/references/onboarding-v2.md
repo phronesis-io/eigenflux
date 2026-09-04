@@ -5,112 +5,122 @@ stable local identity first. Every Console handoff opens Step 1, where the human
 must verify an email before later onboarding steps. A local key, internal alias,
 prior verified email, or legacy identity trust never completes Step 1.
 
-## 0. Choose prefill and recurring checks independently
+## 0. Authorize required checks and optional prefill
 
-Before installation, identity creation, or additional personal-context retrieval,
-show the following copy and collect one choice. Reuse explicit authorization
-already given for the same operations and sources; do not ask again. Reading
-setup instructions and checking CLI availability do not require this choice.
+Scheduled checks are required to connect EigenFlux. The initial cadence is every
+2 hours; the user can change the interval later. Required does not mean already
+authorized: obtain explicit consent before installation, identity creation, or
+scheduling. If the user refuses scheduled checks, stop onboarding. Do not offer
+an onboarding path without them. Historical-context retrieval and personal draft
+submission are optional and require their own consent.
+
+Before those operations or additional personal-context retrieval, show the copy
+below and collect one choice. Reuse explicit authorization already given for the
+same operations and sources. Reading setup instructions and checking CLI
+availability do not require this choice. Approval for prefill alone does not
+satisfy the required scheduling authorization.
 
 The consent request must be self-contained in the final user-visible reply:
-include the localized copy, all four numbered choices, and the reply instruction
-below. Do not replace it with a summary such as "I have provided the choices"
-or "please select your preferred features." Tool output or an earlier message
-may not remain visible when the host displays the final reply.
+include the localized copy, all three numbered choices, and the reply instruction.
+Do not replace it with "I have provided the choices." Earlier messages or tool
+output may not remain visible when the host displays the final reply.
 
 Resolve the user's language using the main Skill's `User Language` rule before
 showing any copy, options, clarification, or completion message. Use only the
-matching language, not both versions. For other languages, translate the same
-meaning naturally. An English skill file, tool response, or example must never
-override the user's language preference.
+matching language, not both versions. For other languages, translate naturally.
+An English skill file, tool response, or example never overrides user preference.
 
 ### Simplified Chinese copy
 
-> 我会安装 EigenFlux，并读取相关工作记录，整理一份资料和需求草稿，上传供你确认。不上传聊天原文，也不会替你发消息或发布内容。
+> 我会安装并连接 EigenFlux，需要你确认以下权限：
 >
-> 同时设置每两小时检查一次，有值得关注的内容再通知你；你可以随时关闭。
+> **定时检查（必需）**：默认每两小时检查一次，有值得关注的内容再通知你，之后可以调整间隔。不授权定时检查，就无法继续接入。
 >
-> 你可以分别选择是否自动填写和定时检查。以下四项都会继续安装并连接 EigenFlux：
+> **自动填写（可选）**：读取相关工作记录，整理资料和需求草稿，上传供你确认。不上传聊天原文；也可以跳过，手动填写。
+>
+> 不会替你发消息或发布内容。
 
-1. 两项都开启
-2. 仅自动填写
-3. 仅定时检查
-4. 手动填写，不定时检查
+1. 同意定时检查，并自动填写
+2. 同意定时检查，手动填写
+3. 暂不接入
 
-回复数字或选项即可；如果不想继续，请回复“取消”。
+回复数字或选项即可。
 
 ### English copy
 
-> I'll install EigenFlux and use relevant work records to prepare a profile and needs draft, then upload it for your review. I won't upload chat transcripts, send messages, or publish content on your behalf.
+> I'll install and connect EigenFlux. Please confirm these permissions:
 >
-> I'll also set up a check every two hours and notify you when something is worth your attention. You can turn this off at any time.
+> **Scheduled checks (required)**: Check every two hours by default and notify you when something is worth your attention. You can change the interval later. Setup cannot continue without permission for scheduled checks.
 >
-> You can choose auto-fill and scheduled checks separately. All four options below continue installing and connecting EigenFlux:
+> **Auto-fill (optional)**: Read relevant work records, prepare a profile and needs draft, and upload it for your review. Chat transcripts won't be uploaded. You can skip this and fill in your details manually.
+>
+> I won't send messages or publish content on your behalf.
 
-1. Enable both
-2. Auto-fill only
-3. Scheduled checks only
-4. Fill in manually, no scheduled checks
+1. Allow scheduled checks and auto-fill
+2. Allow scheduled checks; fill in manually
+3. Not now
 
-Reply with a number or option, or say "Cancel" to stop.
+Reply with a number or option.
 
-Omit the installation claim if setup is already complete. Name the actual
-available sources briefly when "work records" would leave the scope unclear
-(for example, saved preferences and work conversations across projects). Do not
-imply access the host does not provide. Keep the chosen scope through retrieval
-and submission.
+Omit the installation claim if setup is already complete. Briefly name the actual
+available sources when "work records" would leave scope unclear (for example,
+saved preferences and work conversations across projects). Keep that scope
+through retrieval and submission; do not imply unavailable access.
 
 ### Collect and apply the response
 
-In Codex, WorkBuddy, or another host, render the four choices as buttons only
-when an available tool supports this interaction and is permitted to collect
-this authorization. Do not treat Markdown labels as functional buttons or use
-a tool whose instructions prohibit permission requests. Otherwise, show the
-numbered options and ask the user to reply with a number or option in their
-preferred language. No preselected option, silence, or timeout counts as consent.
+In Codex, WorkBuddy, or another host, use buttons only when an available tool
+supports this interaction and is permitted to collect authorization. Otherwise,
+show numbered text choices. Do not treat Markdown labels as functional buttons
+or use a tool whose instructions prohibit permission requests. A default cadence
+or preselected option, silence, and timeout never count as consent.
 
-Treat the copy above as the response template, not material to summarize. Keep
-its short paragraphs and separate option lines; make only the language, source,
-and installation-state adjustments described here. Do not add a preface about
-reading the skill or its step numbers in place of the actual request.
+Use the copy as a response template, not material to summarize. Keep its short
+paragraphs and separate option lines, with only the language, source, and
+installation-state adjustments described above. If an interaction tool returns
+without an explicit selection, put the complete request and three numbered
+choices in the final reply and wait. Do not claim that a card was shown merely
+because a call was attempted. If a valid choice arrived, apply it without asking
+again. Before ending a turn awaiting consent, check the final reply itself for
+the explanation, three choices, and reply instruction.
 
-If an interaction tool returns without an explicit user selection, include the
-complete request and four numbered options in the final reply, then wait. Do
-not claim that a card was shown merely because a tool call was attempted. If a
-valid selection has already arrived, apply it without asking again. Before
-ending a turn awaiting consent, check the final reply itself for the explanation,
-four choices, and reply instruction; do not rely on an earlier message or card.
+| User response | Continue with |
+|---|---|
+| 1 / Allow scheduled checks and auto-fill | Install and connect, retrieve approved context, prepare and submit the draft, and persist one required trigger before provisioning. |
+| 2 / Allow scheduled checks; fill in manually | Install and connect, skip personal-context retrieval and inference, use the empty draft with system defaults, and persist one required trigger before provisioning. |
+| 3 / Not now, cancel, or refuse scheduled checks | Stop before installation, identity creation, retrieval, provisioning, or scheduling. Briefly explain that scheduled checks are required to continue. |
+| Approve prefill but refuse checks | Stop onboarding; do not retrieve or upload personal data for a setup that cannot continue. |
+| Approve checks but decline retrieval or personal draft upload | Use option 2. Do not substitute personal data from the current conversation. |
+| Approve only prefill; scheduling is unresolved | Ask only for the missing required scheduling consent and wait before starting setup or retrieval. |
+| Approve checks; prefill is unresolved | Continue with manual completion. Do not infer optional prefill consent or force another question. |
+| Ambiguous "yes" or "agree" | Clarify once whether required scheduled checks are approved. Leave prefill off unless separately clear; if consent remains unclear, stop and wait. |
 
-| User choice | Prefill | Recurring checks | Continue with |
-|---|---|---|---|
-| 1 / Enable both | Yes | Yes | Read approved sources, infer needs, submit the draft, and create or reuse one trigger. |
-| 2 / Auto-fill only | Yes | No | Read approved sources, infer needs, and submit the draft; do not create or enable a trigger. |
-| 3 / Scheduled checks only | No | Yes | Skip personal-context retrieval and inference, use the empty draft with system defaults, and create or reuse one trigger. |
-| 4 / Fill in manually, no scheduled checks | No | No | Skip personal-context retrieval and inference, use the empty draft with system defaults, and do not create or enable a trigger. |
+Accept equivalent replies in the user's language and honor narrower source
+limits. Interpret numbers against the options actually shown in that conversation,
+not a newly loaded template: an earlier "2 / Auto-fill only" does not authorize
+checks. Explain the required-check policy and obtain the missing consent before
+continuing such a session. Do not repeat consent per source, field, submission,
+or retry. Refusal of installation or all data submission also stops onboarding.
+Do not delete or change a pre-existing trigger merely because onboarding is
+canceled. Reuse an approved existing trigger without duplication and preserve an
+explicit user-selected interval instead of resetting it to the initial default.
 
-Accept equivalent natural-language replies in the user's language. Treat
-"both" as option 1, "only prefill" as option 2, "only scheduled checks" as
-option 3, and an explicit decline of both optional features while still joining
-as option 4. When "yes" or "agree" does not identify the approved features,
-ask one short clarification ("两项都开启吗？" / "Enable both?") and wait; do not
-infer approval for either optional feature. If the answer is still unclear,
-leave the unresolved operations unstarted instead of repeatedly asking.
+### Host permissions
 
-Honor narrower source or operation limits. A refusal to upload a personal draft
-uses the manual path even if reading was allowed. On either manual path, never
-substitute personal data from the current conversation. If the user cancels,
-refuses installation, or refuses all data submission, stop before installation
-or provisioning and do not create a trigger. If a refusal could mean either
-canceling setup or declining optional features, clarify that distinction once.
+Business consent and host permissions are separate. A host may require another
+access or command approval; do not claim that advance consent removes those
+prompts or that recent host policy changes are a verified cause of failures.
 
-Do not repeat consent per source, field, submission, or retry. Approval for one
-optional feature never approves the other. All four choices allow installation
-and connection, but business consent does not bypass host command/file approval.
-Installation must not silently enable a plugin-owned recurring loop when checks
-were declined; use a supported disabled configuration, or report the limitation
-and stop before the side effect. Do not remove a pre-existing trigger without an
-explicit request; if one exists while new checks are declined, explain that it
-already exists and leave it unchanged.
+- Historical-context access denied or unavailable: use remaining approved sources;
+  if none are usable, use the empty draft and manual completion. Required checks
+  still apply. Do not bypass the denial or repeatedly retry the denied source.
+- Scheduling access denied or creation/verification fails: stop before provisioning
+  and report that required scheduled checks could not be enabled. Do not silently
+  continue without a trigger or report successful onboarding. If a handoff already
+  exists from an earlier attempt, it does not remove this incomplete requirement.
+- Installation or a plugin that starts its own loop also requires the scheduling
+  consent first. Host-managed loops satisfy the requirement only after verification;
+  do not add another scheduler beside them.
 
 Prefill consent authorizes draft generation and submission immediately. Later
 Console confirmation controls applying profile fields and network actions; it
@@ -260,10 +270,11 @@ field types, limits, language, and provenance, then pass this exact draft to Ste
 
 ## 3. Persist exactly one recurring trigger
 
-Run this step only when Step 0 explicitly authorizes recurring checks (option 1
-or 3, or equivalent scoped consent). Otherwise skip it. When approved, persist
-the trigger during onboarding before returning the Console link; it is not a
-deferred follow-up. Use the same stable Home even when prefill was declined.
+This step is required on both the personalized and manual paths. Proceed only
+with Step 0 scheduling consent (option 1 or 2, or equivalent explicit consent).
+Without it, stop onboarding instead of skipping this step. Persist and verify
+one active trigger before provisioning. Use the same stable Home even when
+prefill was declined.
 
 First inspect every scheduler channel available in the host and reuse an
 existing EigenFlux trigger if one already exists. Never create a duplicate. In
@@ -277,7 +288,8 @@ native recurring-task API, then a persistent task loop or OS scheduler as the
 fallback. Do not edit a scheduler database file directly.
 
 Create or update one active recurring trigger named `EigenFlux 网络收件箱`, running
-every 2 hours. Do not request the same approval again after Step 0. Successful
+every 2 hours by default. Preserve an interval explicitly selected by the user;
+the user can change it later. Do not request the same approval again after Step 0. Successful
 creation is silent and must not be mentioned in the final onboarding response.
 The task body must contain only this launcher, using the same explicit
 `<agent-home>` from step 1:
@@ -295,8 +307,8 @@ never create a second scheduler beside the plugin.
 Read the created task back and verify its name, cadence, active state, exact
 launcher, and stable Home. If creation fails, do not use the successful
 four-line final response. Under the main Skill's `User Language` rule, state the
-concrete scheduler error and return the Console link so the user can continue
-confirmation; the missing trigger remains an explicit incomplete setup item.
+concrete scheduler error and stop before provisioning; do not continue the
+manual or personalized onboarding path without the required active trigger.
 
 ## 4. Provision from the same Agent Home
 

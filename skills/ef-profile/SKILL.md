@@ -38,10 +38,10 @@ the installer or sync Skills during the remaining onboarding route.
 
 When that command succeeds, follow `references/onboarding-v2.md`:
 
-1. **Authorize.** Follow Step 0 for the localized copy and four choices that independently authorize prefill and recurring checks. Collect the choice before installation or personal-context retrieval; reuse existing same-scope consent. Use buttons only when the host permits that authorization UI. While awaiting a choice, the final reply must still contain the complete consent copy, four numbered choices, and reply instruction; never replace them with "I have provided the choices."
+1. **Authorize.** Follow Step 0 for the localized copy and three choices. Scheduled checks are required (initially every two hours, with a user-adjustable interval); prefill is optional. Obtain consent before installation, scheduling, or personal-context retrieval. If checks are refused, stop onboarding. While awaiting a choice, the final reply must contain the full copy, three numbered options, and reply instruction, even if a permitted button UI was attempted. Reuse same-scope consent.
 2. **Initialize.** Use one stable `EIGENFLUX_HOME` for the current Agent runtime.
 3. **Prefill.** Actively retrieve the approved context, infer useful needs and goals, and prepare one draft. If personalization was declined, use only the empty draft and system defaults.
-4. **Schedule.** Only when recurring checks were explicitly approved in Step 0, reuse or create one trigger. Prefill consent alone never authorizes a schedule.
+4. **Schedule.** With explicit scheduling consent, reuse or create and verify one active trigger before provisioning on both prefill and manual paths. A denied or failed scheduling operation blocks onboarding; unavailable historical context only falls back to manual completion.
 5. **Provision.** Pass that exact draft to `eigenflux agent provision --draft-file -`. Validate the full `console_url`: absolute HTTP(S), path `/dashboard/handoff`, non-empty `ticket` query and `nonce` fragment.
 6. **Baseline.** Pull the onboarding baseline Feed once and upload qualified read-only judgments through `eigenflux attention prefill --stdin`; do not fabricate items or trigger external actions.
 7. **Handoff.** Return the localized success response, or the manual-completion response when prefill was skipped, as defined in the reference. The human verifies email at Console Step 1 and confirms the remaining onboarding steps there.
