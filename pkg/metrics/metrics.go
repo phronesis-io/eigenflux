@@ -23,6 +23,17 @@ var (
 		Name: "http_requests_in_flight",
 		Help: "Number of HTTP requests currently being processed.",
 	})
+
+	ConsoleHomeCacheTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "console_home_cache_total",
+		Help: "Console homepage cache operations by module and bounded result.",
+	}, []string{"module", "result"})
+
+	ConsoleHomeRefreshDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "console_home_refresh_duration_seconds",
+		Help:    "Console homepage shared cache refresh latency by module and result.",
+		Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+	}, []string{"module", "result"})
 )
 
 // Public Agent identity rollout metrics. Labels are deliberately bounded;
@@ -217,6 +228,7 @@ var (
 func init() {
 	Registry.MustRegister(
 		HTTPRequestDuration, HTTPRequestsTotal, HTTPRequestsInFlight,
+		ConsoleHomeCacheTotal, ConsoleHomeRefreshDuration,
 		RPCRequestDuration, RPCRequestsTotal,
 		ConsumerMessagesTotal, ConsumerMessageDuration, ConsumerLag, ConsumerRetryTotal,
 		ItemPublishToProcessDuration,

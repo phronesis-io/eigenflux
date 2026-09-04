@@ -21,6 +21,8 @@ const (
 	defaultHomepageEligibilityWorkers     = 1
 	defaultHomepageEligibilityMinInterval = 5 * time.Second
 	defaultHomepageEligibilityRetryDelay  = time.Hour
+	homepageEligibilityLockTTL            = 8 * time.Minute
+	homepageEligibilityItemTimeout        = 60 * time.Second
 )
 
 type homepageEligibilityBackfillItem struct {
@@ -44,7 +46,7 @@ func StartHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, ll
 }
 
 func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmClient *llm.Client) {
-	token, acquired, err := acquireLock(ctx, rdb, lockKeyHomepageEligibility, 8*time.Minute)
+	token, acquired, err := acquireLock(ctx, rdb, lockKeyHomepageEligibility, homepageEligibilityLockTTL)
 	if err != nil || !acquired {
 		if err != nil {
 			logger.Default().Warn("homepage eligibility backfill lock error", "err", err)
@@ -52,10 +54,21 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 		return
 	}
 	defer releaseLock(rdb, lockKeyHomepageEligibility, token)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	stopRenewal, lockLost := startLockRenewal(runCtx, rdb, lockKeyHomepageEligibility, token, homepageEligibilityLockTTL)
+	defer stopRenewal()
+	go func() {
+		select {
+		case <-lockLost:
+			cancelRun()
+		case <-runCtx.Done():
+		}
+	}()
 
 	now := time.Now()
 	var items []homepageEligibilityBackfillItem
-	if err := db.DB.Table("processed_items AS p").
+	if err := db.DB.WithContext(runCtx).Table("processed_items AS p").
 		Select("p.item_id, r.raw_content, r.raw_notes").
 		Joins("JOIN raw_items r ON r.item_id=p.item_id").
 		Where(`p.status = ? AND r.created_at >= ?
@@ -82,14 +95,19 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 			defer wg.Done()
 			for item := range jobs {
 				select {
-				case <-ctx.Done():
+				case <-runCtx.Done():
 					return
 				case <-rateLimiter.C:
 				}
-				result, err := llmClient.ProcessItem(ctx, item.RawContent, item.RawNotes)
+				itemCtx, cancelItem := context.WithTimeout(runCtx, homepageEligibilityItemTimeout)
+				result, err := llmClient.ProcessItem(itemCtx, item.RawContent, item.RawNotes)
+				cancelItem()
+				if runCtx.Err() != nil {
+					return
+				}
 				if err != nil {
 					logger.Default().Warn("homepage eligibility backfill model error", "itemID", item.ItemID, "err", err)
-					if retryErr := itemDal.ScheduleHomepageEvaluationRetry(db.DB, item.ItemID, homepageEligibilityRetryAt(time.Now())); retryErr != nil {
+					if retryErr := itemDal.ScheduleHomepageEvaluationRetry(db.DB.WithContext(runCtx), item.ItemID, homepageEligibilityRetryAt(time.Now())); retryErr != nil {
 						logger.Default().Warn("homepage eligibility backfill retry schedule failed", "itemID", item.ItemID, "err", retryErr)
 					}
 					continue
@@ -102,12 +120,15 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 				llm.NormalizeHomepageEvaluation(result)
 				if result.HomepageEvaluationIncomplete {
 					logger.Default().Warn("homepage eligibility backfill received incomplete evaluation", "itemID", item.ItemID)
-					if retryErr := itemDal.ScheduleHomepageEvaluationRetry(db.DB, item.ItemID, homepageEligibilityRetryAt(time.Now())); retryErr != nil {
+					if retryErr := itemDal.ScheduleHomepageEvaluationRetry(db.DB.WithContext(runCtx), item.ItemID, homepageEligibilityRetryAt(time.Now())); retryErr != nil {
 						logger.Default().Warn("homepage eligibility backfill retry schedule failed", "itemID", item.ItemID, "err", retryErr)
 					}
 					continue
 				}
-				if err := itemDal.UpdateHomepageEvaluation(db.DB, item.ItemID, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion); err != nil {
+				if runCtx.Err() != nil {
+					return
+				}
+				if err := itemDal.UpdateHomepageEvaluation(db.DB.WithContext(runCtx), item.ItemID, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion); err != nil {
 					logger.Default().Warn("homepage eligibility backfill DB error", "itemID", item.ItemID, "err", err)
 				}
 			}
@@ -117,7 +138,7 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 enqueue:
 	for _, item := range items {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			break enqueue
 		case jobs <- item:
 		}

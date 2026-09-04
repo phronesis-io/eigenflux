@@ -40,3 +40,9 @@ func TestHomepageEligibilityBackfillIsRateLimited(t *testing.T) {
 		t.Fatalf("minimum interval = %s, want at least 5s", defaultHomepageEligibilityMinInterval)
 	}
 }
+
+func TestHomepageEligibilityBackfillTimeoutFitsRenewableLease(t *testing.T) {
+	if homepageEligibilityItemTimeout <= 0 || homepageEligibilityItemTimeout >= homepageEligibilityLockTTL {
+		t.Fatalf("item timeout %s must be positive and shorter than lock TTL %s", homepageEligibilityItemTimeout, homepageEligibilityLockTTL)
+	}
+}

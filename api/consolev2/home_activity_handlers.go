@@ -3,6 +3,7 @@ package consolev2
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	redis "github.com/redis/go-redis/v9"
 )
 
 const (
@@ -55,19 +57,25 @@ type homeActivityRow struct {
 }
 
 func (s *Service) getHomeActivity(ctx context.Context, c *app.RequestContext) {
-	if cached, ok := s.readHomeActivityCache(ctx); ok {
+	requestCtx, cancelRequest := context.WithTimeout(ctx, homeRefreshTimeout)
+	defer cancelRequest()
+	if cached, ok := s.readHomeActivityCache(requestCtx); ok {
 		reply(c, http.StatusOK, cached)
 		return
 	}
 	value, err, _ := s.homeActivityRefresh.Do(homeActivityCacheKey, func() (interface{}, error) {
-		if cached, ok := s.readHomeActivityCache(ctx); ok {
+		refreshCtx, cancel := context.WithTimeout(context.Background(), homeRefreshTimeout)
+		defer cancel()
+		if cached, ok := s.readHomeActivityCache(refreshCtx); ok {
 			return cached, nil
 		}
-		result, loadErr := s.loadHomeActivity(time.Now().UnixMilli())
+		started := time.Now()
+		result, loadErr := s.loadHomeActivity(refreshCtx, time.Now().UnixMilli())
+		observeHomeRefresh("activity", started, loadErr)
 		if loadErr != nil {
 			return homeActivityResponse{}, loadErr
 		}
-		s.writeHomeActivityCache(ctx, result)
+		s.writeHomeActivityCache(refreshCtx, result)
 		return result, nil
 	})
 	if err != nil {
@@ -79,16 +87,24 @@ func (s *Service) getHomeActivity(ctx context.Context, c *app.RequestContext) {
 
 func (s *Service) readHomeActivityCache(ctx context.Context) (homeActivityResponse, bool) {
 	if s.redisClient == nil {
+		recordHomeCache("activity", "disabled")
 		return homeActivityResponse{}, false
 	}
 	raw, err := s.redisClient.Get(ctx, homeActivityCacheKey).Bytes()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			recordHomeCache("activity", "miss")
+		} else {
+			recordHomeCache("activity", "error")
+		}
 		return homeActivityResponse{}, false
 	}
 	var result homeActivityResponse
 	if json.Unmarshal(raw, &result) != nil || result.GeneratedAt <= 0 {
+		recordHomeCache("activity", "corrupt")
 		return homeActivityResponse{}, false
 	}
+	recordHomeCache("activity", "hit")
 	return result, true
 }
 
@@ -96,12 +112,19 @@ func (s *Service) writeHomeActivityCache(ctx context.Context, result homeActivit
 	if s.redisClient == nil {
 		return
 	}
-	if raw, err := json.Marshal(result); err == nil {
-		_ = s.redisClient.Set(ctx, homeActivityCacheKey, raw, homeActivityCacheTTL).Err()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		recordHomeCache("activity", "encode_error")
+		return
 	}
+	if err := s.redisClient.Set(ctx, homeActivityCacheKey, raw, homeActivityCacheTTL).Err(); err != nil {
+		recordHomeCache("activity", "write_error")
+		return
+	}
+	recordHomeCache("activity", "write_success")
 }
 
-func (s *Service) loadHomeActivity(now int64) (homeActivityResponse, error) {
+func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivityResponse, error) {
 	var rows []homeActivityRow
 	query := `WITH bounds AS (SELECT ?::bigint AS cutoff), events AS (
 		SELECT 'broadcast:' || r.item_id AS event_id, 'broadcast' AS event_type, r.created_at,
@@ -146,7 +169,7 @@ func (s *Service) loadHomeActivity(now int64) (homeActivityResponse, error) {
 		WHERE command.created_at >= (SELECT cutoff FROM bounds) AND command.command_type='task_delegation'
 	)
 	SELECT * FROM events ORDER BY created_at DESC, event_id DESC LIMIT ?`
-	if err := s.db.Raw(query, homeActivityWindowStart(now), homeActivityLimit).Scan(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Raw(query, homeActivityWindowStart(now), homeActivityLimit).Scan(&rows).Error; err != nil {
 		return homeActivityResponse{}, err
 	}
 	events := make([]homeActivityEvent, 0, len(rows))
