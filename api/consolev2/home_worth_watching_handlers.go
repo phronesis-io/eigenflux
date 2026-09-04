@@ -16,8 +16,7 @@ import (
 const (
 	homeWorthWatchingCacheTTL     = 2 * time.Minute
 	homeWorthWatchingCandidateMax = 32
-	homeWorthWatchingResultMax    = 24
-	homeWorthWatchingCacheVersion = "weekly-v3"
+	homeWorthWatchingCacheVersion = "weekly-v4"
 	homepageEvaluationVersion     = "homepage-v2"
 )
 
@@ -270,6 +269,7 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 	}
 
 	rules := []homeWorthWatchingRule{
+		{Key: "real_world_signal", MetricKey: "quality_score_percent", Rows: realWorld},
 		{Key: "trending_now", MetricKey: "replies_last_hour", Rows: trending},
 		{Key: "most_agents_participating", MetricKey: "participating_agents_week", Rows: participated},
 		{Key: "most_agents_found_helpful", MetricKey: "helpful_agents_week", Rows: helpful},
@@ -277,11 +277,7 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 		{Key: "noteworthy_new_publish", MetricKey: "quality_score_percent", Rows: newContent},
 		{Key: "new_agent_first_voice", MetricKey: "broadcast_number", Rows: firstVoice},
 	}
-	selected := selectPreferredHomeWorthWatching(
-		homeWorthWatchingRule{Key: "real_world_signal", MetricKey: "quality_score_percent", Rows: realWorld},
-		rules,
-		homeWorthWatchingResultMax,
-	)
+	selected := selectUniqueHomeWorthWatching(rules, homeWorthWatchingCandidateCount(rules))
 	items, err := s.hydrateHomeWorthWatching(selected)
 	if err != nil {
 		return homeWorthWatchingResponse{}, err
@@ -292,46 +288,12 @@ func (s *Service) loadHomeWorthWatching(start, now int64, timezone string) (home
 	}, nil
 }
 
-func selectPreferredHomeWorthWatching(preferred homeWorthWatchingRule, rules []homeWorthWatchingRule, limit int) []homeWorthWatchingRule {
-	if limit <= 0 {
-		return []homeWorthWatchingRule{}
-	}
-	selected := make([]homeWorthWatchingRule, 0, limit)
-	usedItems := map[int64]struct{}{}
-	for _, row := range preferred.Rows {
-		if len(selected) >= limit {
-			return selected
-		}
-		if row.ItemID <= 0 || row.AgentID <= 0 {
-			continue
-		}
-		if _, exists := usedItems[row.ItemID]; exists {
-			continue
-		}
-		usedItems[row.ItemID] = struct{}{}
-		rule := preferred
-		rule.Rows = []homeWorthWatchingCandidate{row}
-		selected = append(selected, rule)
-	}
-	filteredRules := make([]homeWorthWatchingRule, 0, len(rules))
+func homeWorthWatchingCandidateCount(rules []homeWorthWatchingRule) int {
+	total := 0
 	for _, rule := range rules {
-		filtered := rule
-		filtered.Rows = make([]homeWorthWatchingCandidate, 0, len(rule.Rows))
-		for _, row := range rule.Rows {
-			if _, exists := usedItems[row.ItemID]; !exists {
-				filtered.Rows = append(filtered.Rows, row)
-			}
-		}
-		filteredRules = append(filteredRules, filtered)
+		total += len(rule.Rows)
 	}
-	for _, rule := range selectUniqueHomeWorthWatching(filteredRules, limit-len(selected)) {
-		if len(selected) >= limit {
-			break
-		}
-		usedItems[rule.Rows[0].ItemID] = struct{}{}
-		selected = append(selected, rule)
-	}
-	return selected
+	return total
 }
 
 func selectUniqueHomeWorthWatching(rules []homeWorthWatchingRule, limit int) []homeWorthWatchingRule {

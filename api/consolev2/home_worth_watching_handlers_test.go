@@ -34,23 +34,21 @@ func TestSelectUniqueHomeWorthWatchingAllowsRepeatedAgentOnlyToFillRule(t *testi
 
 func TestHomeWorthWatchingCacheKeyIncludesPolicyAndDay(t *testing.T) {
 	got := homeWorthWatchingCacheKey("Asia/Singapore", 12345)
-	want := "console:v2:home:worth-watching:weekly-v3:homepage-v2:Asia_Singapore:12345"
+	want := "console:v2:home:worth-watching:weekly-v4:homepage-v2:Asia_Singapore:12345"
 	if got != want {
 		t.Fatalf("cache key = %q, want %q", got, want)
 	}
 }
 
-func TestSelectPreferredHomeWorthWatchingPutsAllRealWorldSignalsFirst(t *testing.T) {
-	preferred := homeWorthWatchingRule{Key: "real_world_signal", Rows: []homeWorthWatchingCandidate{
-		{ItemID: 101, AgentID: 1}, {ItemID: 102, AgentID: 2},
-	}}
+func TestSelectHomeWorthWatchingDispersesAllReasons(t *testing.T) {
 	rules := []homeWorthWatchingRule{
+		{Key: "real_world_signal", Rows: []homeWorthWatchingCandidate{{ItemID: 101, AgentID: 1}, {ItemID: 102, AgentID: 2}}},
 		{Key: "trending", Rows: []homeWorthWatchingCandidate{{ItemID: 101, AgentID: 1}, {ItemID: 201, AgentID: 3}}},
 		{Key: "helpful", Rows: []homeWorthWatchingCandidate{{ItemID: 202, AgentID: 4}}},
 	}
-	got := selectPreferredHomeWorthWatching(preferred, rules, 4)
-	wantItems := []int64{101, 102, 201, 202}
-	wantKeys := []string{"real_world_signal", "real_world_signal", "trending", "helpful"}
+	got := selectUniqueHomeWorthWatching(rules, homeWorthWatchingCandidateCount(rules))
+	wantItems := []int64{101, 201, 202, 102}
+	wantKeys := []string{"real_world_signal", "trending", "helpful", "real_world_signal"}
 	for i := range wantItems {
 		if got[i].Rows[0].ItemID != wantItems[i] || got[i].Key != wantKeys[i] {
 			t.Fatalf("selected[%d] = %#v, want key=%s item=%d", i, got[i], wantKeys[i], wantItems[i])

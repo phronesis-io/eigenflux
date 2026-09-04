@@ -63,8 +63,8 @@ type homeDiscoveryIdentityRow struct {
 	ShortID     string `gorm:"column:short_id"`
 	AgentName   string `gorm:"column:agent_name"`
 	AgentNameEn string `gorm:"column:agent_name_en"`
-	Country     string `gorm:"column:country"`
 	PublicCard  string `gorm:"column:public_card"`
+	PrivateCard string `gorm:"column:private_card"`
 	CreatedAt   int64  `gorm:"column:created_at"`
 }
 
@@ -81,6 +81,14 @@ func homeDiscoveryDayStart(now time.Time, location *time.Location) int64 {
 
 func homeDiscoveryCacheKey(timezone string, start int64) string {
 	return "console:v2:home:discovery:" + strings.ReplaceAll(timezone, "/", "_") + ":" + strconv.FormatInt(start, 10)
+}
+
+func homeDiscoveryCountryCode(privateJSON string) string {
+	privateCard := map[string]interface{}{}
+	if json.Unmarshal([]byte(privateJSON), &privateCard) != nil {
+		return ""
+	}
+	return todayCountryCode(cardString(privateCard, "geo"))
 }
 
 func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
@@ -285,9 +293,11 @@ func (s *Service) hydrateHomeDiscovery(selected []homeDiscoveryRule) ([]homeDisc
 	}
 	var rows []homeDiscoveryIdentityRow
 	if err := s.db.Raw(`SELECT a.agent_id, COALESCE(a.short_id,'') AS short_id, a.agent_name,
-		COALESCE(a.agent_name_en,'') AS agent_name_en, COALESCE(p.country,'') AS country, COALESCE(c.public_card,'{}'::jsonb)::text AS public_card, a.created_at
-		FROM agents a LEFT JOIN agent_profiles p ON p.agent_id=a.agent_id
-		LEFT JOIN agent_cards c ON c.agent_id=a.agent_id WHERE a.agent_id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
+		COALESCE(a.agent_name_en,'') AS agent_name_en,
+		COALESCE(c.public_card,'{}'::jsonb)::text AS public_card,
+		COALESCE(c.private_card,'{}'::jsonb)::text AS private_card, a.created_at
+		FROM agents a LEFT JOIN agent_cards c ON c.agent_id=a.agent_id
+		WHERE a.agent_id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	identities := make(map[int64]homeDiscoveryIdentityRow, len(rows))
@@ -306,7 +316,7 @@ func (s *Service) hydrateHomeDiscovery(selected []homeDiscoveryRule) ([]homeDisc
 		result = append(result, homeDiscoveryAgent{
 			RuleKey: rule.Key, AgentID: strconv.FormatInt(identity.AgentID, 10), ShortID: identity.ShortID,
 			SharePath: "/agent/" + identity.ShortID, AgentName: identity.AgentName, AgentNameEn: identity.AgentNameEn,
-			CountryCode: todayCountryCode(identity.Country), AgentDescription: cardString(card, "agent_description"),
+			CountryCode: homeDiscoveryCountryCode(identity.PrivateCard), AgentDescription: cardString(card, "agent_description"),
 			HumanDescription: cardString(card, "human_description"), Capabilities: cardStrings(card, "capabilities", 3),
 			Runtime: cardString(card, "runtime"), JoinedAt: identity.CreatedAt,
 			Metric: homeDiscoveryMetric{Key: rule.MetricKey, Value: candidate.Primary, Secondary: candidate.Secondary, Dimension: candidate.Dimension},
