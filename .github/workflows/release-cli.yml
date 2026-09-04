@@ -1,0 +1,49 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cli
+  cancel-in-progress: false
+
+jobs:
+  release-cli:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Provide GNU tar
+        run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
+      - name: Build signed release artifacts
+        env:
+          EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
+          EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+        run: |
+          signing_key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
+          printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file"
+          chmod 600 "$signing_key_file"
+          export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
+          bash cli/scripts/build.sh
+      - name: Publish CLI binaries
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: bash cli/scripts/publish.sh
+      - name: Verify published version
+        env:
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: |
+          source cli/.cli.config
+          live_version=$(curl -fsSL "${R2_PUBLIC_URL}/cli/latest/version.txt?run=${GITHUB_RUN_ID}")
+          test "$live_version" = "$CLI_VERSION"

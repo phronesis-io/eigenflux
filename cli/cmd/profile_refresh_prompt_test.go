@@ -34,6 +34,65 @@ func tempAuthenticatedProfileHome(t *testing.T) string {
 	return home
 }
 
+func tempV2AuthenticatedProfileHome(t *testing.T) (string, string) {
+	home := tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	srv, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatalf("active server: %v", err)
+	}
+	if err := auth.SaveV2Credentials(srv.Name, &auth.V2Credentials{
+		AgentID: "84", AccessToken: "v2-access", RefreshToken: "v2-refresh",
+	}); err != nil {
+		t.Fatalf("save V2 test credentials: %v", err)
+	}
+	return home, srv.Name
+}
+
+func TestActiveProfileStateScopeSupportsV2OnlyAccount(t *testing.T) {
+	_, serverName := tempV2AuthenticatedProfileHome(t)
+	srv, agentID := activeProfileStateScope()
+	if srv != serverName || agentID != "84" {
+		t.Fatalf("V2 profile scope = (%q, %q), want (%q, %q)", srv, agentID, serverName, "84")
+	}
+}
+
+func TestActiveProfileStateScopePrefersV2Account(t *testing.T) {
+	_, serverName := tempV2AuthenticatedProfileHome(t)
+	if err := auth.SaveCredentials(serverName, &auth.Credentials{AgentID: "42", AccessToken: "legacy-access"}); err != nil {
+		t.Fatalf("save legacy test credentials: %v", err)
+	}
+	srv, agentID := activeProfileStateScope()
+	if srv != serverName || agentID != "84" {
+		t.Fatalf("dual-credential profile scope = (%q, %q), want V2 (%q, %q)", srv, agentID, serverName, "84")
+	}
+}
+
+func TestActiveProfileStateScopeDoesNotFallBackFromInvalidV2Account(t *testing.T) {
+	tempAuthenticatedProfileHome(t)
+	srv, _ := activeProfileStateScope()
+	if err := auth.SaveV2Credentials(srv, &auth.V2Credentials{AgentID: "84"}); err != nil {
+		t.Fatalf("save incomplete V2 test credentials: %v", err)
+	}
+	if gotServer, gotAgentID := activeProfileStateScope(); gotServer != "" || gotAgentID != "" {
+		t.Fatalf("invalid V2 credentials fell back to legacy scope (%q, %q)", gotServer, gotAgentID)
+	}
+}
+
+func TestV2ProfileStateStampsRoundTrip(t *testing.T) {
+	tempV2AuthenticatedProfileHome(t)
+	if err := stampProfileRefreshed(); err != nil {
+		t.Fatalf("stamp V2 profile refresh: %v", err)
+	}
+	srv, agentID := activeProfileStateScope()
+	if got := profilestate.Load(config.HomeDir(), srv, agentID).LastRefreshUnix; got <= 0 {
+		t.Fatalf("V2 profile refresh stamp was not persisted: %d", got)
+	}
+}
+
 func TestPluginOwnsProfileRefresh(t *testing.T) {
 	for _, tc := range []struct {
 		host    string
