@@ -549,10 +549,11 @@ var fieldIDToName_FetchPMHistoryResp = map[int16]string{
 }
 
 type ListConversationsReq struct {
-	AgentId    int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
-	Cursor     *int64  `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
-	Limit      *int32  `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
-	OriginType *string `thrift:"origin_type,4,optional" frugal:"4,optional,string" json:"origin_type,omitempty"`
+	AgentId      int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Cursor       *int64  `thrift:"cursor,2,optional" frugal:"2,optional,i64" json:"cursor,omitempty"`
+	Limit        *int32  `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	OriginType   *string `thrift:"origin_type,4,optional" frugal:"4,optional,string" json:"origin_type,omitempty"`
+	CursorConvId *int64  `thrift:"cursor_conv_id,5,optional" frugal:"5,optional,i64" json:"cursor_conv_id,omitempty"`
 }
 
 func NewListConversationsReq() *ListConversationsReq {
@@ -592,6 +593,15 @@ func (p *ListConversationsReq) GetOriginType() (v string) {
 	}
 	return *p.OriginType
 }
+
+var ListConversationsReq_CursorConvId_DEFAULT int64
+
+func (p *ListConversationsReq) GetCursorConvId() (v int64) {
+	if !p.IsSetCursorConvId() {
+		return ListConversationsReq_CursorConvId_DEFAULT
+	}
+	return *p.CursorConvId
+}
 func (p *ListConversationsReq) SetAgentId(val int64) {
 	p.AgentId = val
 }
@@ -603,6 +613,9 @@ func (p *ListConversationsReq) SetLimit(val *int32) {
 }
 func (p *ListConversationsReq) SetOriginType(val *string) {
 	p.OriginType = val
+}
+func (p *ListConversationsReq) SetCursorConvId(val *int64) {
+	p.CursorConvId = val
 }
 
 func (p *ListConversationsReq) IsSetCursor() bool {
@@ -617,6 +630,10 @@ func (p *ListConversationsReq) IsSetOriginType() bool {
 	return p.OriginType != nil
 }
 
+func (p *ListConversationsReq) IsSetCursorConvId() bool {
+	return p.CursorConvId != nil
+}
+
 func (p *ListConversationsReq) String() string {
 	if p == nil {
 		return "<nil>"
@@ -629,6 +646,7 @@ var fieldIDToName_ListConversationsReq = map[int16]string{
 	2: "cursor",
 	3: "limit",
 	4: "origin_type",
+	5: "cursor_conv_id",
 }
 
 type ConversationInfo struct {
@@ -922,9 +940,10 @@ var fieldIDToName_ConversationInfo = map[int16]string{
 }
 
 type ListConversationsResp struct {
-	Conversations []*ConversationInfo `thrift:"conversations,1,required" frugal:"1,required,list<ConversationInfo>" json:"conversations"`
-	NextCursor    int64               `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
-	BaseResp      *base.BaseResp      `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+	Conversations    []*ConversationInfo `thrift:"conversations,1,required" frugal:"1,required,list<ConversationInfo>" json:"conversations"`
+	NextCursor       int64               `thrift:"next_cursor,2,required" frugal:"2,required,i64" json:"next_cursor"`
+	NextCursorConvId *int64              `thrift:"next_cursor_conv_id,3,optional" frugal:"3,optional,i64" json:"next_cursor_conv_id,omitempty"`
+	BaseResp         *base.BaseResp      `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
 }
 
 func NewListConversationsResp() *ListConversationsResp {
@@ -942,6 +961,15 @@ func (p *ListConversationsResp) GetNextCursor() (v int64) {
 	return p.NextCursor
 }
 
+var ListConversationsResp_NextCursorConvId_DEFAULT int64
+
+func (p *ListConversationsResp) GetNextCursorConvId() (v int64) {
+	if !p.IsSetNextCursorConvId() {
+		return ListConversationsResp_NextCursorConvId_DEFAULT
+	}
+	return *p.NextCursorConvId
+}
+
 var ListConversationsResp_BaseResp_DEFAULT *base.BaseResp
 
 func (p *ListConversationsResp) GetBaseResp() (v *base.BaseResp) {
@@ -956,8 +984,15 @@ func (p *ListConversationsResp) SetConversations(val []*ConversationInfo) {
 func (p *ListConversationsResp) SetNextCursor(val int64) {
 	p.NextCursor = val
 }
+func (p *ListConversationsResp) SetNextCursorConvId(val *int64) {
+	p.NextCursorConvId = val
+}
 func (p *ListConversationsResp) SetBaseResp(val *base.BaseResp) {
 	p.BaseResp = val
+}
+
+func (p *ListConversationsResp) IsSetNextCursorConvId() bool {
+	return p.NextCursorConvId != nil
 }
 
 func (p *ListConversationsResp) IsSetBaseResp() bool {
@@ -974,6 +1009,7 @@ func (p *ListConversationsResp) String() string {
 var fieldIDToName_ListConversationsResp = map[int16]string{
 	1:   "conversations",
 	2:   "next_cursor",
+	3:   "next_cursor_conv_id",
 	255: "base_resp",
 }
 

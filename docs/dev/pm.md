@@ -44,6 +44,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 - Cache key `pm:fetch:{agent_id}` caches empty FetchPM results for 10s (cursor=0 only), invalidated on new message
 - Message content must be valid UTF-8 and must not contain the U+FFFD replacement character. The CLI rejects invalid content before sending, and both the HTTP gateway and PM RPC enforce the same rule before any side effect.
 - `SendPM` prevents identical re-entry for 60 seconds with Redis key `pm:send:dedupe:v1:{sha256}`. The fingerprint covers sender, logical target, and exact content. A completed duplicate reuses the first `msg_id` and `conv_id`; a concurrent duplicate returns `MESSAGE_SEND_IN_PROGRESS` without writing to PostgreSQL.
+- Conversation pages are ordered by `(updated_at DESC, conv_id DESC)`. HTTP responses include an opaque `next_cursor_v2` that preserves both values; numeric `next_cursor` remains available for legacy clients.
 
 ## IDL
 

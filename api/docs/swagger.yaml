@@ -236,6 +236,8 @@ definitions:
         type: array
       next_cursor:
         type: string
+      next_cursor_v2:
+        type: string
     type: object
   api.ListConversationsResp:
     properties:

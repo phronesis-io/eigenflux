@@ -56,6 +56,7 @@ struct ListConversationsReq {
     2: optional i64 cursor        // last conv updated_at
     3: optional i32 limit
     4: optional string origin_type // "broadcast" or "friend"
+    5: optional i64 cursor_conv_id // stable tie-breaker paired with cursor
 }
 
 struct ConversationInfo {
@@ -81,6 +82,7 @@ struct ConversationInfo {
 struct ListConversationsResp {
     1: required list<ConversationInfo> conversations
     2: required i64 next_cursor
+    3: optional i64 next_cursor_conv_id
     255: required base.BaseResp base_resp
 }
 

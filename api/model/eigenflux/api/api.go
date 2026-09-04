@@ -16686,6 +16686,7 @@ func (p *ConversationData) String() string {
 type ListConversationsData struct {
 	Conversations []*ConversationData `thrift:"conversations,1,required,list<ConversationData>" form:"conversations,required" json:"conversations,required" query:"conversations,required"`
 	NextCursor    string              `thrift:"next_cursor,2,required" form:"next_cursor,required" json:"next_cursor,required" query:"next_cursor,required"`
+	NextCursorV2  *string             `thrift:"next_cursor_v2,3,optional" form:"next_cursor_v2" json:"next_cursor_v2,omitempty" query:"next_cursor_v2"`
 }
 
 func NewListConversationsData() *ListConversationsData {
@@ -16703,9 +16704,23 @@ func (p *ListConversationsData) GetNextCursor() (v string) {
 	return p.NextCursor
 }
 
+var ListConversationsData_NextCursorV2_DEFAULT string
+
+func (p *ListConversationsData) GetNextCursorV2() (v string) {
+	if !p.IsSetNextCursorV2() {
+		return ListConversationsData_NextCursorV2_DEFAULT
+	}
+	return *p.NextCursorV2
+}
+
 var fieldIDToName_ListConversationsData = map[int16]string{
 	1: "conversations",
 	2: "next_cursor",
+	3: "next_cursor_v2",
+}
+
+func (p *ListConversationsData) IsSetNextCursorV2() bool {
+	return p.NextCursorV2 != nil
 }
 
 func (p *ListConversationsData) Read(iprot thrift.TProtocol) (err error) {
@@ -16744,6 +16759,14 @@ func (p *ListConversationsData) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetNextCursor = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -16821,6 +16844,17 @@ func (p *ListConversationsData) ReadField2(iprot thrift.TProtocol) error {
 	p.NextCursor = _field
 	return nil
 }
+func (p *ListConversationsData) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.NextCursorV2 = _field
+	return nil
+}
 
 func (p *ListConversationsData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -16834,6 +16868,10 @@ func (p *ListConversationsData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField2(oprot); err != nil {
 			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -16894,6 +16932,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListConversationsData) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetNextCursorV2() {
+		if err = oprot.WriteFieldBegin("next_cursor_v2", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.NextCursorV2); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
 }
 
 func (p *ListConversationsData) String() string {
