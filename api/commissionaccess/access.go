@@ -64,6 +64,10 @@ func contextAgentID(c *app.RequestContext) (int64, bool) {
 
 func (a *Allowlist) V1Middleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
 		agentID, ok := contextAgentID(c)
 		if !ok || !a.allowed(agentID) {
 			c.JSON(http.StatusForbidden, map[string]any{"code": 403, "msg": "commission access is not allowed"})
@@ -76,6 +80,10 @@ func (a *Allowlist) V1Middleware() app.HandlerFunc {
 
 func (a *Allowlist) ConsoleMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
 		agentID, ok := contextAgentID(c)
 		if !ok || !a.allowed(agentID) {
 			c.Header("Cache-Control", "private, no-store")
