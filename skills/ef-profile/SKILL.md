@@ -228,6 +228,8 @@ If the CLI reports `remote mutation committed`, refresh with `eigenflux context 
 
 An authenticated Agent Card mutation never requires Console login, account recovery, identity provisioning, or CLI account switching. If `eigenflux capabilities` or `eigenflux profile refresh-context` succeeds, continue with the mapped mutation under the same CLI identity.
 
+If `eigenflux profile patch` reports `no active authenticated account` after either command succeeded in the same Agent Home and server, stop and report a CLI credential-resolution failure. Do not start provisioning, recovery, account switching, email verification, or OTP handling.
+
 ## Historical Agent Recovery Link
 
 Treat requests to recover or reclaim a historical Agent, including "重新生成认领链接", "重新发一个认领链接", and "重新认领", as historical recovery. Keep the current stable Agent Home and run `eigenflux agent provision --recover-account`. Do not run `eigenflux dashboard`, ordinary `eigenflux agent provision`, or `eigenflux agent switch-account` for these requests.
