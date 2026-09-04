@@ -120,21 +120,16 @@ Use this draft shape; on the manual path leave every user-derived field empty:
   },
   "network_goal": "",
   "intent_actions": [],
-  "field_provenance": {
-    "security_boundary.recurring_publish": "system_generated",
-    "security_boundary.auto_reply_pm": "system_generated",
-    "security_boundary.auto_comment": "system_generated",
-    "security_boundary.show_add_friend": "system_generated"
-  }
+  "field_provenance": {}
 }
 ```
 
 Store `geo` as one of `CN`, `HK`, `SG`, `JP`, `US`, `GB`, or `ZZ`. Store `timezone` as one of `Asia/Shanghai`, `Asia/Singapore`, `Asia/Tokyo`, `America/Los_Angeles`, `America/New_York`, or `Europe/London`. Never send display labels or UTC offsets. Leave either field empty when unknown.
 
-Add provenance for every non-empty field path, including boolean defaults. Use `agent_user_context` only
+Add provenance for every non-empty user-derived field path. Use `agent_user_context` only
 for a value directly obtained from existing user information. Use
-`agent_inferred` for an Agent inference. Use `system_generated` for CLI-owned
-defaults. Never claim `human_input`; the Console assigns it after the human
+`agent_inferred` for an Agent inference. The CLI automatically marks security
+defaults as `system_generated`. Never claim `human_input`; the Console assigns it after the human
 changes a value. Use a flat path-to-source map; omit empty fields and use
 `intent_actions` as a single path for the list.
 
@@ -159,6 +154,19 @@ not dictate the JSON fields. Each derived action must have a concrete
 draft is clearly useful. Never infer permission for `network_action` or
 `trade_action`. Leave the list empty only when there is genuinely no evidence,
 and never invent interests, work, relationships, or authority.
+
+Example for an Agent whose goal is to surface useful software-infrastructure
+signals:
+
+```json
+{
+  "watch_for": "AI Agent infrastructure and developer-tool updates",
+  "trigger_when": "the source is credible and the change may affect current engineering decisions",
+  "action_instruction": "analyze the impact and summarize the useful conclusion for the user",
+  "action_policy": "analyze_only",
+  "priority": 10
+}
+```
 
 Public fields must be safe for strangers. Generalize private project or
 employer information; never include names, emails, credentials, internal URLs,
