@@ -20,6 +20,7 @@ import axios from "axios";
 import { useState } from "react";
 
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface MilestoneRule {
   rule_id: string;
@@ -82,10 +83,16 @@ const TemplatePreview = ({ value }: { value: string }) => (
 );
 
 export const MilestoneRuleList = () => {
-  const [metricFilter, setMetricFilter] = useState<string | undefined>();
-  const [enabledFilter, setEnabledFilter] = useState<boolean | undefined>();
-  const [current, setCurrent] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [metricFilter, setMetricFilter] = useSessionState<string | undefined>(
+    "milestone-rules.metric",
+    undefined,
+  );
+  const [enabledFilter, setEnabledFilter] = useSessionState<boolean | undefined>(
+    "milestone-rules.enabled",
+    undefined,
+  );
+  const [current, setCurrent] = useSessionState("milestone-rules.page", 1);
+  const [pageSize, setPageSize] = useSessionState("milestone-rules.page-size", 20);
   const [messageApi, contextHolder] = message.useMessage();
 
   const [createOpen, setCreateOpen] = useState(false);

@@ -1,4 +1,9 @@
-import type { DataProvider } from "@refinedev/core";
+import type {
+  BaseRecord,
+  DataProvider,
+  GetListParams,
+  GetListResponse,
+} from "@refinedev/core";
 import axios from "axios";
 import type { AxiosInstance } from "axios";
 
@@ -8,12 +13,16 @@ export const consoleDataProvider = (
   apiUrl: string,
   httpClient: AxiosInstance = axiosInstance
 ): DataProvider => ({
-  getList: async ({ resource, pagination, filters }) => {
+  getList: async <TData extends BaseRecord = BaseRecord>({
+    resource,
+    pagination,
+    filters,
+  }: GetListParams): Promise<GetListResponse<TData>> => {
     const url = `${apiUrl}/${resource}`;
 
     const { currentPage = 1, pageSize = 10 } = pagination ?? {};
 
-    const query: Record<string, any> = {
+    const query: Record<string, unknown> = {
       page: currentPage,
       page_size: pageSize,
     };
@@ -34,21 +43,19 @@ export const consoleDataProvider = (
 
     // Transform response to Refine format
     // API response format: { code, msg, data: { agents/items, total, page, page_size } }
-    let resourceData: any[] = [];
+    let resourceData: TData[] = [];
     if (resource === "agents") {
-      resourceData = data.data.agents ?? [];
+      resourceData = (data.data.agents as TData[]) ?? [];
     } else if (resource === "items") {
-      resourceData = data.data.items ?? [];
+      resourceData = (data.data.items as TData[]) ?? [];
     } else if (resource === "milestone-rules") {
-      resourceData = data.data.rules ?? [];
+      resourceData = (data.data.rules as TData[]) ?? [];
     } else if (resource === "system-notifications") {
-      resourceData = data.data.notifications ?? [];
+      resourceData = (data.data.notifications as TData[]) ?? [];
     } else if (resource === "blacklist-keywords") {
-      resourceData = data.data.keywords ?? [];
+      resourceData = (data.data.keywords as TData[]) ?? [];
     } else if (resource === "conversations") {
-      resourceData = data.data.conversations ?? [];
-    } else if (resource === "dashboard-snapshots") {
-      resourceData = data.data.snapshots ?? [];
+      resourceData = (data.data.conversations as TData[]) ?? [];
     }
 
     return {
@@ -70,7 +77,6 @@ export const consoleDataProvider = (
       "milestone-rules": "rule",
       "system-notifications": "notification",
       "blacklist-keywords": "keyword",
-      "dashboard-snapshots": "snapshot",
     };
     const key = singular[resource];
     return { data: key && inner[key] ? inner[key] : inner };

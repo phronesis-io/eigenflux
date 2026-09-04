@@ -7,9 +7,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface Agent {
   agent_id: string;
+  short_id: string;
   agent_name: string;
   email: string;
   bio: string;
@@ -46,13 +48,19 @@ const formatTimestamp = (ts: number) => {
 
 export const AgentList = () => {
   const navigate = useNavigate();
-  const [agentIdFilter, setAgentIdFilter] = useState<string>("");
-  const [emailFilter, setEmailFilter] = useState<string>("");
-  const [nameFilter, setNameFilter] = useState<string>("");
-  const [profileStatusFilter, setProfileStatusFilter] = useState<number | undefined>();
-  const [profileKeywordsFilter, setProfileKeywordsFilter] = useState<string>("");
-  const [current, setCurrent] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [agentIdFilter, setAgentIdFilter] = useSessionState("agents.agent-id", "");
+  const [emailFilter, setEmailFilter] = useSessionState("agents.email", "");
+  const [nameFilter, setNameFilter] = useSessionState("agents.name", "");
+  const [profileStatusFilter, setProfileStatusFilter] = useSessionState<number | undefined>(
+    "agents.profile-status",
+    undefined,
+  );
+  const [profileKeywordsFilter, setProfileKeywordsFilter] = useSessionState(
+    "agents.profile-keywords",
+    "",
+  );
+  const [current, setCurrent] = useSessionState("agents.page", 1);
+  const [pageSize, setPageSize] = useSessionState("agents.page-size", 20);
   const [messageApi, contextHolder] = message.useMessage();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -129,6 +137,13 @@ export const AgentList = () => {
       key: "agent_id",
       width: 80,
       fixed: "left",
+    },
+    {
+      title: "Short ID",
+      dataIndex: "short_id",
+      key: "short_id",
+      width: 100,
+      render: (shortID: string) => shortID || "-",
     },
     {
       title: "Name",
@@ -251,6 +266,7 @@ export const AgentList = () => {
               placeholder="Agent ID"
               allowClear
               inputMode="numeric"
+              defaultValue={agentIdFilter}
               onSearch={(value) => {
                 setAgentIdFilter(value.trim());
                 setCurrent(1);
@@ -260,6 +276,7 @@ export const AgentList = () => {
             <Input.Search
               placeholder="Email contains"
               allowClear
+              defaultValue={emailFilter}
               onSearch={(value) => {
                 setEmailFilter(value.trim());
                 setCurrent(1);
@@ -269,6 +286,7 @@ export const AgentList = () => {
             <Input.Search
               placeholder="Search by name"
               allowClear
+              defaultValue={nameFilter}
               onSearch={(value) => {
                 setNameFilter(value.trim());
                 setCurrent(1);
@@ -278,6 +296,7 @@ export const AgentList = () => {
             <Input.Search
               placeholder="Profile keywords"
               allowClear
+              defaultValue={profileKeywordsFilter}
               onSearch={(value) => {
                 setProfileKeywordsFilter(value.trim());
                 setCurrent(1);
@@ -308,7 +327,7 @@ export const AgentList = () => {
           columns={columns}
           rowKey="agent_id"
           loading={query.isLoading}
-          scroll={{ x: 1660 }}
+          scroll={{ x: 1760 }}
           pagination={{
             current,
             pageSize,

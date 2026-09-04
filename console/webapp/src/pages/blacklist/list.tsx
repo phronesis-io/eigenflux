@@ -15,6 +15,7 @@ import {
 import { useState } from "react";
 import axios from "axios";
 import { consoleApiUrl } from "../../config";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface BlacklistKeyword {
   keyword_id: string;
@@ -30,9 +31,12 @@ interface KeywordMutationResp {
 
 export const BlacklistKeywordList = () => {
   const [messageApi, contextHolder] = message.useMessage();
-  const [current, setCurrent] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [enabledFilter, setEnabledFilter] = useState<boolean | undefined>(undefined);
+  const [current, setCurrent] = useSessionState("blacklist.page", 1);
+  const [pageSize, setPageSize] = useSessionState("blacklist.page-size", 20);
+  const [enabledFilter, setEnabledFilter] = useSessionState<boolean | undefined>(
+    "blacklist.enabled",
+    undefined,
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [createForm] = Form.useForm<{ keyword: string }>();

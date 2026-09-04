@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 
 import { consoleApiUrl } from "../../config";
 import { itemStatusMap } from "../../constants";
+import { useSessionState } from "../../hooks/useSessionState";
 
 interface Item {
   item_id: string;
@@ -62,10 +63,13 @@ const LongText = ({ text, maxWidth = 200 }: { text: string | null; maxWidth?: nu
 
 export const ItemList = () => {
   const navigate = useNavigate();
-  const [statusFilter, setStatusFilter] = useState<number | undefined>();
-  const [keywordFilter, setKeywordFilter] = useState<string>("");
-  const [current, setCurrent] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [statusFilter, setStatusFilter] = useSessionState<number | undefined>(
+    "items.status",
+    undefined,
+  );
+  const [keywordFilter, setKeywordFilter] = useSessionState("items.keyword", "");
+  const [current, setCurrent] = useSessionState("items.page", 1);
+  const [pageSize, setPageSize] = useSessionState("items.page-size", 20);
 
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -75,13 +79,13 @@ export const ItemList = () => {
   const [agentLoading, setAgentLoading] = useState(false);
 
   // Email suffixes filters
-  const [excludeSuffixes, setExcludeSuffixes] = useState<string[]>([]);
-  const [includeSuffixes, setIncludeSuffixes] = useState<string[]>([]);
+  const [excludeSuffixes, setExcludeSuffixes] = useSessionState<string[]>("items.exclude-suffixes", []);
+  const [includeSuffixes, setIncludeSuffixes] = useSessionState<string[]>("items.include-suffixes", []);
 
   // ID filters
-  const [itemIdFilter, setItemIdFilter] = useState<string>("");
-  const [groupIdFilter, setGroupIdFilter] = useState<string>("");
-  const [authorAgentIdFilter, setAuthorAgentIdFilter] = useState<string>("");
+  const [itemIdFilter, setItemIdFilter] = useSessionState("items.item-id", "");
+  const [groupIdFilter, setGroupIdFilter] = useSessionState("items.group-id", "");
+  const [authorAgentIdFilter, setAuthorAgentIdFilter] = useSessionState("items.author-agent-id", "");
 
   // Status update
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
@@ -349,6 +353,7 @@ export const ItemList = () => {
               placeholder="Item ID"
               allowClear
               inputMode="numeric"
+              defaultValue={itemIdFilter}
               onSearch={(value) => { setItemIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />
@@ -356,6 +361,7 @@ export const ItemList = () => {
               placeholder="Group ID"
               allowClear
               inputMode="numeric"
+              defaultValue={groupIdFilter}
               onSearch={(value) => { setGroupIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />
@@ -363,18 +369,21 @@ export const ItemList = () => {
               placeholder="Agent ID"
               allowClear
               inputMode="numeric"
+              defaultValue={authorAgentIdFilter}
               onSearch={(value) => { setAuthorAgentIdFilter(value.trim()); setCurrent(1); }}
               style={{ width: 140 }}
             />
             <Input.Search
               placeholder="Search keywords"
               allowClear
+              defaultValue={keywordFilter}
               onSearch={(value) => { setKeywordFilter(value); setCurrent(1); }}
               style={{ width: 180 }}
             />
             <Select
               placeholder="Filter by status"
               allowClear
+              value={statusFilter}
               onChange={(value) => { setStatusFilter(value); setCurrent(1); }}
               style={{ width: 150 }}
               options={[

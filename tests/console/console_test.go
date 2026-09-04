@@ -368,6 +368,7 @@ func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
 		t.Fatalf("insert agent profile failed: %v", err)
 	}
 	agentIDStr := fmt.Sprintf("%d", agentID)
+	shortID := testShortID(agentID)
 
 	updatePayload := testutil.DoConsoleJSONRequest(t, http.MethodPut, "/console/api/v1/agents/"+agentIDStr, map[string]interface{}{
 		"profile_keywords": []string{profileKeyword, "shared-keyword"},
@@ -376,6 +377,9 @@ func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
 	testutil.MustDecodeResp(t, updatePayload, &updated)
 	if updated.Code != 0 || updated.Data == nil {
 		t.Fatalf("update agent failed: code=%d msg=%s", updated.Code, updated.Msg)
+	}
+	if got, _ := updated.Data.Agent["short_id"].(string); got != shortID {
+		t.Fatalf("updated agent short_id=%q, want %q", got, shortID)
 	}
 
 	assertListContainsAgent := func(path string) {
@@ -389,6 +393,9 @@ func TestConsoleListAgentsWithAdvancedFilters(t *testing.T) {
 		for _, agent := range listed.Data.Agents {
 			gotID, _ := agent["agent_id"].(string)
 			if gotID == agentIDStr {
+				if got, _ := agent["short_id"].(string); got != shortID {
+					t.Fatalf("listed agent short_id=%q, want %q", got, shortID)
+				}
 				return
 			}
 		}

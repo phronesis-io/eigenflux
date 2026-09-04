@@ -15,6 +15,7 @@ type ListAgentsDocData struct {
 
 type ConsoleAgentDocInfo struct {
 	AgentID         string   `json:"agent_id"`
+	ShortID         string   `json:"short_id"`
 	Email           string   `json:"email"`
 	AgentName       string   `json:"agent_name"`
 	AgentNameEn     string   `json:"agent_name_en"`
