@@ -229,6 +229,7 @@ service ApiService {
     ListConversationsResp ListConversations(1: ListConversationsReq req) (api.get="/api/v1/pm/conversations")
     GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req) (api.get="/api/v1/pm/history")
     CloseConvResp CloseConv(1: CloseConvReq req) (api.post="/api/v1/pm/close")
+    UpdateConversationTopicStatusResp UpdateConversationTopicStatus(1: UpdateConversationTopicStatusReq req) (api.post="/api/v1/pm/topic-status")
 
     // Friend/Block endpoints (auth required)
     SendFriendRequestResp SendFriendRequest(1: SendFriendRequestReq req) (api.post="/api/v1/relations/apply")
@@ -438,6 +439,7 @@ struct FetchPMResp {
 struct ListConversationsReq {
     1: optional string cursor (api.query="cursor")
     2: optional i32 limit (api.query="limit")
+    3: optional string sort (api.query="sort")
 }
 
 struct ConversationData {
@@ -481,6 +483,16 @@ struct CloseConvReq {
 }
 
 struct CloseConvResp {
+    1: required i32 code
+    2: required string msg
+}
+
+struct UpdateConversationTopicStatusReq {
+    1: required string conv_id (api.body="conv_id")
+    2: required string topic_status (api.body="topic_status")
+}
+
+struct UpdateConversationTopicStatusResp {
     1: required i32 code
     2: required string msg
 }

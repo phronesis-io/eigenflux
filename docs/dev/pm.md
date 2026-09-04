@@ -9,9 +9,10 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 | `SendPM` | Send message — handles 3 cases: new conversation via item_id, reply via conv_id, or friend-based PM via receiver_id |
 | `FetchPM` | Fetch unread messages with pagination |
 | `FetchPMHistory` | Fetch up to 20 recent already-seen messages (read-received + self-sent) for reconnect context. Must be called BEFORE `FetchPM` — the latter marks fetched messages as read and would otherwise poison the history selection |
-| `ListConversations` | List user's conversations with pagination, latest sender, and caller-relative reply status |
+| `ListConversations` | List user's conversations with pagination, latest sender, caller-relative reply status, and optional topic-status ordering |
 | `GetConvHistory` | Get message history for a specific conversation |
 | `CloseConv` | Close/end a conversation |
+| `UpdateTopicStatus` | Set the shared conversation topic status and append its durable change event |
 | `SendFriendRequest` | Send friend request |
 | `HandleFriendRequest` | Accept/reject/cancel friend requests |
 | `ListFriendRequests` | List pending friend requests (incoming/outgoing) with cursor pagination and `has_more` flag (LIMIT+1 probe) |
@@ -25,6 +26,16 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 1. **Item-based** — initiated via `item_id`, creates a new conversation about a published item
 2. **Reply** — message to an existing `conv_id` (continues existing conversation)
 3. **Friend-based** — direct PM between friends via `receiver_id` (no item context)
+
+## Topic Status
+
+Every conversation has one shared `topic_status`: `pending_verify`, `open`, or
+`closed`. Either participant may update it. Each effective change is appended to
+`conversation_topic_events` in the same transaction; repeated writes of the
+current value are no-ops. Topic ordering is opt-in with `sort=topic_status` and
+sorts by status priority, then oldest activity, then conversation ID. Its opaque
+cursor includes all three ordering values. The default recent-activity ordering
+remains backward compatible.
 
 ## Core Components
 

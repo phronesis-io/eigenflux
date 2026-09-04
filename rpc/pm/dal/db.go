@@ -3,6 +3,7 @@ package dal
 import (
 	"eigenflux_server/pkg/logger"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -18,9 +19,38 @@ type Conversation struct {
 	OriginID         int64  `gorm:"column:origin_id"`
 	MsgCount         int    `gorm:"column:msg_count;not null;default:0"`
 	Status           int16  `gorm:"column:status;type:smallint;not null;default:0"`
+	TopicStatus      int16  `gorm:"column:topic_status;type:smallint;not null;default:1"`
 	UpdatedAt        int64  `gorm:"column:updated_at;not null"`
 	ParticipantAName string `gorm:"column:participant_a_name;type:varchar(100);not null;default:''"`
 	ParticipantBName string `gorm:"column:participant_b_name;type:varchar(100);not null;default:''"`
+}
+
+const (
+	TopicStatusPendingVerify int16 = iota
+	TopicStatusOpen
+	TopicStatusClosed
+)
+
+var topicStatusValues = map[string]int16{
+	"pending_verify": TopicStatusPendingVerify,
+	"open":           TopicStatusOpen,
+	"closed":         TopicStatusClosed,
+}
+
+func ParseTopicStatus(value string) (int16, bool) {
+	status, ok := topicStatusValues[value]
+	return status, ok
+}
+
+func TopicStatusName(value int16) string {
+	switch value {
+	case TopicStatusPendingVerify:
+		return "pending_verify"
+	case TopicStatusClosed:
+		return "closed"
+	default:
+		return "open"
+	}
 }
 
 func (Conversation) TableName() string { return "conversations" }
@@ -36,6 +66,17 @@ type PrivateMessage struct {
 	SenderName   string `gorm:"column:sender_name;type:varchar(100);not null;default:''"`
 	ReceiverName string `gorm:"column:receiver_name;type:varchar(100);not null;default:''"`
 }
+
+type ConversationTopicEvent struct {
+	EventID        int64 `gorm:"column:event_id;primaryKey"`
+	ConvID         int64 `gorm:"column:conv_id;not null"`
+	ActorID        int64 `gorm:"column:actor_id;not null"`
+	PreviousStatus int16 `gorm:"column:previous_status;not null"`
+	NewStatus      int16 `gorm:"column:new_status;not null"`
+	CreatedAt      int64 `gorm:"column:created_at;not null"`
+}
+
+func (ConversationTopicEvent) TableName() string { return "conversation_topic_events" }
 
 func (PrivateMessage) TableName() string { return "private_messages" }
 
@@ -117,6 +158,92 @@ func MarkMessagesAsRead(db *gorm.DB, msgIDs []int64) error {
 // Uses UNION ALL on the two indexed columns to avoid OR-based sequential scan.
 func ListConversations(db *gorm.DB, agentID, cursor int64, limit int) ([]*Conversation, error) {
 	return ListConversationsFiltered(db, agentID, cursor, 0, limit, "")
+}
+
+type TopicSortCursor struct {
+	TopicStatus int16
+	UpdatedAt   int64
+	ConvID      int64
+}
+
+// ListConversationsByTopicStatus orders shared topic states by priority and
+// then puts the oldest activity first within each state.
+func ListConversationsByTopicStatus(db *gorm.DB, agentID int64, cursor *TopicSortCursor, limit int, originType string) ([]*Conversation, error) {
+	var convs []*Conversation
+	countCond := "msg_count >= 1"
+	originFilter := ""
+	unbroken := originType == "unbroken"
+	if unbroken {
+		countCond = "origin_type <> 'friend' AND msg_count = 1 AND last_sender_id <> ?"
+	} else if originType == "broadcast_all" {
+		countCond = "origin_type <> 'friend' AND msg_count >= 1"
+	} else if originType != "" {
+		originFilter = " AND origin_type = ?"
+	}
+
+	cursorFilter := ""
+	if cursor != nil {
+		cursorFilter = " AND (topic_status, updated_at, conv_id) > (?, ?, ?)"
+	}
+	baseA := "SELECT * FROM conversations WHERE participant_a = ? AND status = 0 AND " + countCond + originFilter + cursorFilter + " ORDER BY topic_status ASC, updated_at ASC, conv_id ASC LIMIT ?"
+	baseB := "SELECT * FROM conversations WHERE participant_b = ? AND status = 0 AND " + countCond + originFilter + cursorFilter + " ORDER BY topic_status ASC, updated_at ASC, conv_id ASC LIMIT ?"
+
+	branchArgs := func() []interface{} {
+		args := []interface{}{agentID}
+		if unbroken {
+			args = append(args, agentID)
+		}
+		if originFilter != "" {
+			args = append(args, originType)
+		}
+		if cursor != nil {
+			args = append(args, cursor.TopicStatus, cursor.UpdatedAt, cursor.ConvID)
+		}
+		return append(args, limit)
+	}
+	args := append(branchArgs(), branchArgs()...)
+	args = append(args, limit)
+	query := "SELECT * FROM ((" + baseA + ") UNION ALL (" + baseB + ")) AS c ORDER BY topic_status ASC, updated_at ASC, conv_id ASC LIMIT ?"
+	return convs, db.Raw(query, args...).Scan(&convs).Error
+}
+
+// UpdateConversationTopicStatus atomically changes a shared topic status and
+// appends the durable conversation event. A no-op update does not emit an event.
+func UpdateConversationTopicStatus(db *gorm.DB, convID, actorID int64, newStatus int16) (int16, bool, error) {
+	var previous int16
+	changed := false
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		result := tx.Raw(`SELECT * FROM conversations
+			WHERE conv_id = ? AND status = 0 AND (participant_a = ? OR participant_b = ?)
+			FOR UPDATE`, convID, actorID, actorID).Scan(&row)
+		if result.Error != nil {
+			return result.Error
+		}
+		if row.ConvID == 0 {
+			return fmt.Errorf("active conversation not found")
+		}
+		previous = row.TopicStatus
+		if previous == newStatus {
+			return nil
+		}
+		if err := tx.Model(&Conversation{}).Where("conv_id = ?", convID).
+			Update("topic_status", newStatus).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&ConversationTopicEvent{
+			ConvID:         convID,
+			ActorID:        actorID,
+			PreviousStatus: previous,
+			NewStatus:      newStatus,
+			CreatedAt:      time.Now().UnixMilli(),
+		}).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	return previous, changed, err
 }
 
 func ListConversationsFiltered(db *gorm.DB, agentID, cursorUpdatedAt, cursorConvID int64, limit int, originType string) ([]*Conversation, error) {

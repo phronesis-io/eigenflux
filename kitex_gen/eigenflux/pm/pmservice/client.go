@@ -19,6 +19,7 @@ type Client interface {
 	ListConversations(ctx context.Context, req *pm.ListConversationsReq, callOptions ...callopt.Option) (r *pm.ListConversationsResp, err error)
 	GetConvHistory(ctx context.Context, req *pm.GetConvHistoryReq, callOptions ...callopt.Option) (r *pm.GetConvHistoryResp, err error)
 	CloseConv(ctx context.Context, req *pm.CloseConvReq, callOptions ...callopt.Option) (r *pm.CloseConvResp, err error)
+	UpdateTopicStatus(ctx context.Context, req *pm.UpdateTopicStatusReq, callOptions ...callopt.Option) (r *pm.UpdateTopicStatusResp, err error)
 	SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq, callOptions ...callopt.Option) (r *pm.SendFriendRequestResp, err error)
 	HandleFriendRequest(ctx context.Context, req *pm.HandleFriendRequestReq, callOptions ...callopt.Option) (r *pm.HandleFriendRequestResp, err error)
 	Unfriend(ctx context.Context, req *pm.UnfriendReq, callOptions ...callopt.Option) (r *pm.UnfriendResp, err error)
@@ -96,6 +97,11 @@ func (p *kPMServiceClient) GetConvHistory(ctx context.Context, req *pm.GetConvHi
 func (p *kPMServiceClient) CloseConv(ctx context.Context, req *pm.CloseConvReq, callOptions ...callopt.Option) (r *pm.CloseConvResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.CloseConv(ctx, req)
+}
+
+func (p *kPMServiceClient) UpdateTopicStatus(ctx context.Context, req *pm.UpdateTopicStatusReq, callOptions ...callopt.Option) (r *pm.UpdateTopicStatusResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UpdateTopicStatus(ctx, req)
 }
 
 func (p *kPMServiceClient) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq, callOptions ...callopt.Option) (r *pm.SendFriendRequestResp, err error) {

@@ -62,6 +62,8 @@ struct ListConversationsReq {
     3: optional i32 limit
     4: optional string origin_type // "broadcast" or "friend"
     5: optional i64 cursor_conv_id // stable tie-breaker paired with cursor
+    6: optional string sort_by     // "recent" or "topic_status"
+    7: optional i16 cursor_topic_status
 }
 
 struct ConversationInfo {
@@ -82,12 +84,26 @@ struct ConversationInfo {
     16: optional string category   // derived: "friend" | "broadcast_comment" | "non_friend"
     17: optional i64 last_sender_id // agent that sent the latest message
     18: optional bool needs_reply   // latest message was sent by the peer
+    19: optional string topic_status // "pending_verify" | "open" | "closed"
 }
 
 struct ListConversationsResp {
     1: required list<ConversationInfo> conversations
     2: required i64 next_cursor
     3: optional i64 next_cursor_conv_id
+    4: optional i16 next_cursor_topic_status
+    255: required base.BaseResp base_resp
+}
+
+struct UpdateTopicStatusReq {
+    1: required i64 agent_id
+    2: required i64 conv_id
+    3: required string topic_status
+}
+
+struct UpdateTopicStatusResp {
+    1: required string topic_status
+    2: required bool changed
     255: required base.BaseResp base_resp
 }
 
@@ -266,6 +282,7 @@ service PMService {
     ListConversationsResp ListConversations(1: ListConversationsReq req)
     GetConvHistoryResp GetConvHistory(1: GetConvHistoryReq req)
     CloseConvResp CloseConv(1: CloseConvReq req)
+    UpdateTopicStatusResp UpdateTopicStatus(1: UpdateTopicStatusReq req)
     SendFriendRequestResp SendFriendRequest(1: SendFriendRequestReq req)
     HandleFriendRequestResp HandleFriendRequest(1: HandleFriendRequestReq req)
     UnfriendResp Unfriend(1: UnfriendReq req)
