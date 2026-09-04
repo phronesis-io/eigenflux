@@ -187,11 +187,21 @@ func profileStateScopeForServer(srv string) (string, string) {
 	if srv == "" {
 		return "", ""
 	}
-	creds, err := auth.LoadCredentials(srv)
-	if err != nil || creds.AgentID == "" {
+	hasV2, err := auth.HasV2Credentials(srv)
+	if err != nil {
 		return "", ""
 	}
-	return srv, creds.AgentID
+	if hasV2 {
+		credentials, err := auth.LoadV2Credentials(srv)
+		if err != nil || credentials.AgentID == "" {
+			return "", ""
+		}
+		return srv, credentials.AgentID
+	}
+	if credentials, err := auth.LoadCredentials(srv); err == nil && credentials.AgentID != "" {
+		return srv, credentials.AgentID
+	}
+	return "", ""
 }
 
 func validProfileStamp(stamp, now int64) int64 {
