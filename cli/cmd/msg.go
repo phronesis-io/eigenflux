@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
@@ -40,6 +42,9 @@ Examples:
 		withContext, _ := cmd.Flags().GetBool("with-context")
 		if content == "" {
 			return fmt.Errorf("--content is required")
+		}
+		if err := validateMessageContent(content); err != nil {
+			return err
 		}
 		if itemID == "" && convID == "" && receiverID == "" {
 			return fmt.Errorf("one of --item-id, --conv-id, or --receiver-id is required")
@@ -88,6 +93,16 @@ Examples:
 		}
 		return nil
 	},
+}
+
+func validateMessageContent(content string) error {
+	if !utf8.ValidString(content) {
+		return fmt.Errorf("INVALID_TEXT_ENCODING: message content is not valid UTF-8; regenerate it as UTF-8 before sending")
+	}
+	if strings.ContainsRune(content, utf8.RuneError) {
+		return fmt.Errorf("INVALID_TEXT_ENCODING: message content contains U+FFFD; regenerate the original text before sending")
+	}
+	return nil
 }
 
 var msgFetchCmd = &cobra.Command{
