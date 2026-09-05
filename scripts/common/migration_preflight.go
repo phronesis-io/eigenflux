@@ -35,6 +35,7 @@ func main() {
 		"idx_conversations_v2_participant_b",
 		"idx_private_messages_v2_receiver_conv_unread",
 		"idx_agents_legacy_normalized_email",
+		"idx_raw_items_author_content_md5",
 	}
 	var invalidNames []string
 	err = db.Raw(`SELECT c.relname FROM pg_class AS c

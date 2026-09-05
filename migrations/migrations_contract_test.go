@@ -160,6 +160,59 @@ func TestConversationTopicStatusMigrationIsSharedAndAudited(t *testing.T) {
 	}
 }
 
+func TestRawItemExactDedupIndexMigrationIsConcurrentAndValidated(t *testing.T) {
+	sql := migration(t, "000100_raw_items_author_content_md5.sql")
+	for _, required := range []string{
+		"-- +goose NO TRANSACTION",
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_raw_items_author_content_md5",
+		"ON raw_items (author_agent_id, md5(raw_content))",
+		"i.indisvalid",
+		"i.indisready",
+		"pg_get_indexdef",
+		"i.indnkeyatts",
+		"i.indnatts",
+		"i.indpred IS NULL",
+		"am.amname",
+		"first_key <> 'author_agent_id'",
+		"second_key <> 'md5(raw_content)'",
+		"DROP INDEX CONCURRENTLY IF EXISTS idx_raw_items_author_content_md5",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("exact-dedup index migration missing %q", required)
+		}
+	}
+
+	preflight, err := os.ReadFile("../scripts/common/migration_preflight.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(preflight), `"idx_raw_items_author_content_md5"`) {
+		t.Fatal("migration preflight must repair an interrupted exact-dedup index build")
+	}
+}
+
+func TestMigrationRunnerPinsConcurrentIndexTimeoutsPerConnection(t *testing.T) {
+	for _, script := range []string{
+		"../scripts/common/migrate_up.sh",
+		"../scripts/common/migrate_down.sh",
+	} {
+		raw, err := os.ReadFile(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(raw)
+		for _, required := range []string{
+			"PGOPTIONS=\"$MIGRATION_PGOPTIONS\"",
+			"-c lock_timeout=5s",
+			"-c statement_timeout=30min",
+		} {
+			if !strings.Contains(source, required) {
+				t.Fatalf("migration runner %s missing per-connection option %q", script, required)
+			}
+		}
+	}
+}
+
 func TestTodayModelBriefStorageIsBoundedPerAgentLanguage(t *testing.T) {
 	sql := migration(t, "000086_console_v2_today_model_briefs.sql")
 	for _, required := range []string{

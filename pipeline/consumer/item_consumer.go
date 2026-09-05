@@ -146,14 +146,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	contentHash := dedup.ComputeContentHash(raw.RawContent)
 	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
-	if hashExists, matchedGroupID, err := dedup.CheckHashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
-		prior, priorErr := itemDal.FindPriorExactBroadcastInGroup(
-			db.DB, raw.AuthorAgentID, matchedGroupID, itemID, raw.RawContent,
+	if hashExists, err := dedup.HashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
+		prior, priorErr := itemDal.FindPriorExactBroadcast(
+			db.DB, raw.AuthorAgentID, itemID, raw.CreatedAt, contentHash, raw.RawContent,
 		)
 		if priorErr != nil {
-			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "groupID", matchedGroupID, "err", priorErr)
-		}
-		if decision := resolveExactDuplicateSkip(prior); decision.Discard {
+			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "err", priorErr)
+		} else if decision := resolveExactDuplicateSkip(prior); decision.Discard {
 			logger.Default().Info("ItemConsumer exact duplicate of prior same-author broadcast, discarding", "itemID", itemID, "duplicateOf", *decision.DuplicateOf)
 			if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipDuplicate, decision.DuplicateOf); err != nil {
 				logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
@@ -161,7 +160,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			}
 			return HandleSuccess
 		}
-		logger.Default().Info("ItemConsumer hash match without a resolvable same-author original, continuing", "itemID", itemID, "groupID", matchedGroupID)
+		logger.Default().Info("ItemConsumer hash match without a resolvable same-author original, continuing", "itemID", itemID)
 	} else if err != nil {
 		logger.Default().Warn("ItemConsumer Redis hash check failed, continuing", "itemID", itemID, "err", err)
 	}
