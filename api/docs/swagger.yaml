@@ -11,7 +11,6 @@ definitions:
       updates:
         additionalProperties:
           items:
-            format: int32
             type: integer
           type: array
         type: object
@@ -236,6 +235,8 @@ definitions:
         type: array
       next_cursor:
         type: string
+      next_cursor_v2:
+        type: string
     type: object
   api.ListConversationsResp:
     properties:
@@ -398,6 +399,43 @@ definitions:
       conv_id:
         type: string
       msg_id:
+        type: string
+    type: object
+  api.PMRateLimitDetails:
+    properties:
+      conv_id:
+        type: string
+      limit:
+        type: integer
+      recommended_action:
+        type: string
+      remaining:
+        type: integer
+      reset_condition:
+        type: string
+      retry_after_seconds:
+        type: integer
+      scope:
+        type: string
+      used:
+        type: integer
+    type: object
+  api.PMRateLimitError:
+    properties:
+      code:
+        type: string
+      details:
+        $ref: '#/definitions/api.PMRateLimitDetails'
+      message:
+        type: string
+    type: object
+  api.PMRateLimitResp:
+    properties:
+      code:
+        type: integer
+      error:
+        $ref: '#/definitions/api.PMRateLimitError'
+      msg:
         type: string
     type: object
   api.SendPMResp:
@@ -1176,9 +1214,25 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/api.BaseResp'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/api.PMRateLimitResp'
       security:
       - BearerAuth: []
       summary: Send private message
+      tags:
+      - PM
+  /api/v1/pm/topic-status:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Update conversation topic status
       tags:
       - PM
   /api/v1/relations/applications:

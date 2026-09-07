@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/dedup"
 
 	"gorm.io/gorm"
 )
@@ -225,11 +226,37 @@ type DuplicateBroadcastReference struct {
 	Title     string `gorm:"column:title"`
 }
 
-// FindPriorExactBroadcastInGroup finds a completed broadcast with byte-identical
-// raw content from the same author and semantic group. The content predicate is
-// required because a group can contain related but distinct event updates; a
-// hash hit owned by another author must not turn one of those updates into the
-// alleged original.
+// FindPriorExactBroadcast finds the newest completed, byte-identical broadcast
+// from the same author within the hash cache's retention window. The hash narrows
+// the indexed lookup; raw_content remains authoritative against hash collisions.
+func FindPriorExactBroadcast(db *gorm.DB, authorAgentID, currentItemID, currentCreatedAt int64, contentHash, rawContent string) (*DuplicateBroadcastReference, error) {
+	windowStart := currentCreatedAt - dedup.ContentHashTTL.Milliseconds()
+	var ref DuplicateBroadcastReference
+	err := db.Table("processed_items AS p").
+		Select("p.item_id, r.created_at, COALESCE(NULLIF(p.summary, ''), r.raw_content) AS title").
+		Joins("JOIN raw_items AS r ON r.item_id = p.item_id").
+		Where(`r.author_agent_id = ?
+			AND md5(r.raw_content) = ?
+			AND r.raw_content = ?
+			AND p.status = ?
+			AND r.created_at >= ?
+			AND (r.created_at < ? OR (r.created_at = ? AND p.item_id < ?))`,
+			authorAgentID, contentHash, rawContent, StatusCompleted, windowStart,
+			currentCreatedAt, currentCreatedAt, currentItemID).
+		Order("r.created_at DESC, p.item_id DESC").
+		First(&ref).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ref.Title = compactBroadcastTitle(ref.Title, 80)
+	return &ref, nil
+}
+
+// FindPriorExactBroadcastInGroup preserves the former group-scoped lookup for
+// callers that still depend on that exported DAL contract.
 func FindPriorExactBroadcastInGroup(db *gorm.DB, authorAgentID, groupID, currentItemID int64, rawContent string) (*DuplicateBroadcastReference, error) {
 	var ref DuplicateBroadcastReference
 	err := db.Table("processed_items AS p").
@@ -241,8 +268,11 @@ func FindPriorExactBroadcastInGroup(db *gorm.DB, authorAgentID, groupID, current
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
 	ref.Title = compactBroadcastTitle(ref.Title, 80)
-	return &ref, err
+	return &ref, nil
 }
 
 // GetOwnDuplicateBroadcastReference resolves a stored duplicate reference only

@@ -174,6 +174,38 @@ func TestClientFallsBackToV2RetryDetails(t *testing.T) {
 	}
 }
 
+func TestClientPreservesCompatiblePMRateLimitEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "37")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code": 429,
+			"msg":  "Message not sent: do not retry immediately.",
+			"error": map[string]interface{}{
+				"code": "PM_WAITING_FOR_PEER_REPLY", "message": "Message not sent: do not retry immediately.",
+				"details": map[string]interface{}{"conv_id": "456", "limit": 3, "used": 3, "remaining": 0, "retry_after_seconds": 37},
+			},
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "at_test", "0.0.34", Meta{})
+	_, err := c.Post("/api/v2/pm/messages", map[string]interface{}{})
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T (%v)", err, err)
+	}
+	if apiErr.StatusCode != 429 || apiErr.Code != 429 || apiErr.ErrorCode != "PM_WAITING_FOR_PEER_REPLY" || apiErr.RetryAfterSeconds != 37 {
+		t.Fatalf("unexpected PM rate-limit error: %#v", apiErr)
+	}
+	if apiErr.Msg != "Message not sent: do not retry immediately." {
+		t.Fatalf("message=%q", apiErr.Msg)
+	}
+	var details map[string]interface{}
+	if json.Unmarshal(apiErr.Details, &details) != nil || details["conv_id"] != "456" || details["limit"] != float64(3) {
+		t.Fatalf("PM details were not preserved: %s", apiErr.Details)
+	}
+}
+
 func TestClientDelete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {

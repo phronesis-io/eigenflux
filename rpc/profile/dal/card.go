@@ -285,6 +285,7 @@ type AgentCard struct {
 	AgentID               int64  `gorm:"column:agent_id;primaryKey"`
 	PublicCard            string `gorm:"column:public_card"`
 	PrivateCard           string `gorm:"column:private_card"`
+	CountryCode           string `gorm:"column:country_code;->"`
 	SchemaVersion         int32  `gorm:"column:schema_version"`
 	SourceVersion         int64  `gorm:"column:source_version"`
 	RebuildFence          int64  `gorm:"column:rebuild_fence"`
@@ -300,7 +301,7 @@ func (AgentCard) TableName() string { return "agent_cards" }
 func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 	var card AgentCard
 	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
-			private_card::text as private_card, schema_version,
+			private_card::text as private_card, COALESCE(private_card->>'geo', '') AS country_code, schema_version,
 			source_version, rebuild_fence, card_version, public_card_version,
 			generated_at, public_card_generated_at
 		FROM agent_cards WHERE agent_id = ?`, agentID).Scan(&card).Error
@@ -313,7 +314,7 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 	return &card, nil
 }
 
-// GetAgentCards loads the already-built public projection for a bounded set of
+// GetAgentCards loads the already-built public projection and country code for a bounded set of
 // agents in one query. Missing cards are intentionally absent from the result:
 // list endpoints must not synchronously rebuild one card per peer.
 func GetAgentCards(db *gorm.DB, agentIDs []int64) (map[int64]*AgentCard, error) {
@@ -340,7 +341,8 @@ func GetAgentCards(db *gorm.DB, agentIDs []int64) (map[int64]*AgentCard, error) 
 
 	var cards []*AgentCard
 	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
-			schema_version, public_card_version, public_card_generated_at
+			schema_version, public_card_version, public_card_generated_at,
+			COALESCE(private_card->>'geo', '') AS country_code
 		FROM agent_cards
 		WHERE agent_id IN ?`, deduplicated).Scan(&cards).Error
 	if err != nil {

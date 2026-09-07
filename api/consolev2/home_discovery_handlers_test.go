@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+func TestHomeDiscoveryCountryCodeUsesAgentCardGeo(t *testing.T) {
+	if got := homeDiscoveryCountryCode(`{"geo":"Singapore"}`); got != "SG" {
+		t.Fatalf("homeDiscoveryCountryCode()=%q want SG", got)
+	}
+	if got := homeDiscoveryCountryCode(`{"geo":""}`); got != "" {
+		t.Fatalf("empty geo=%q want empty", got)
+	}
+	if got := homeDiscoveryCountryCode(`not-json`); got != "" {
+		t.Fatalf("invalid private card=%q want empty", got)
+	}
+}
+
 func TestHomeDiscoveryDayStartUsesAgentTimezone(t *testing.T) {
 	now := time.Date(2026, 9, 3, 7, 45, 0, 0, time.FixedZone("SGT", 8*60*60))
 	location, err := time.LoadLocation("Asia/Singapore")

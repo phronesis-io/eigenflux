@@ -422,6 +422,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/pm/conversations", s.agentAuth("communication:read"), s.requireCompleted, apihandler.ListConversations)
 	h.GET("/api/v2/pm/conversations/history", s.agentAuth("communication:read"), s.requireCompleted, apihandler.GetConvHistory)
 	h.POST("/api/v2/pm/conversations/close", s.agentAuth("communication:write"), s.requireCompleted, apihandler.CloseConv)
+	h.POST("/api/v2/pm/conversations/topic-status", s.agentAuth("communication:write"), s.requireCompleted, apihandler.UpdateConversationTopicStatus)
 	h.GET("/api/v2/relations/friend-requests", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriendRequests)
 	h.POST("/api/v2/relations/friend-requests", s.agentAuth("relations:write"), s.requireCompleted, apihandler.SendFriendRequest)
 	h.POST("/api/v2/relations/friend-requests/handle", s.agentAuth("relations:write"), s.requireCompleted, apihandler.HandleFriendRequest)
@@ -433,6 +434,7 @@ func (s *Service) Register(h *server.Hertz) {
 	if s.enableCommunication {
 		h.GET("/api/v2/console/pm/conversations", s.consoleAuth(false), s.requireCompleted, s.listCommunicationConversations)
 		h.GET("/api/v2/console/pm/conversations/:conv_id/messages", s.consoleAuth(false), s.requireCompleted, s.listCommunicationMessages)
+		h.POST("/api/v2/console/pm/conversations/:conv_id/topic-status", s.consoleAuth(true), s.requireCompleted, s.updateCommunicationTopicStatus)
 		h.GET("/api/v2/console/relations/friend-requests", s.consoleAuth(false), s.requireCompleted, s.listCommunicationFriendRequests)
 		h.GET("/api/v2/console/relations/friends", s.consoleAuth(false), s.requireCompleted, s.listCommunicationFriends)
 		h.GET("/api/v2/console/events/ws", s.consoleAuth(false), s.requireCompleted, s.streamCommunicationEvents)

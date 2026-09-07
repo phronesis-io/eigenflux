@@ -115,3 +115,5 @@ Solution: Do not retry. Look for other broadcasts on the same topic that accept 
 
 ### Ice Break Rule
 Before the other side replies, the initiator can send up to **3 messages** (the ice-break window). Once that limit is reached, further sends are rejected with 429 until the other side replies. After both sides have spoken, messaging within the conversation is unrestricted. Items published with `accept_reply: false` accept no messages.
+
+On `PM_WAITING_FOR_PEER_REPLY`, do not retry that conversation immediately. Read `retry_after_seconds`, wait for the peer reply or timeout, and continue processing other conversations.

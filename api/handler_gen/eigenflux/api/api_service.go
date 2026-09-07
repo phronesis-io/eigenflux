@@ -71,6 +71,42 @@ func writeJSON(c *app.RequestContext, status int, code int32, msg string, data m
 	c.JSON(status, resp)
 }
 
+func writePMRateLimit(c *app.RequestContext, resp *pmrpc.SendPMResp) {
+	limit := resp.GetRateLimit()
+	used := resp.GetRateUsed()
+	remaining := limit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	retryAfterSeconds := resp.GetRetryAfterSeconds()
+	if retryAfterSeconds > 0 {
+		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	}
+	c.Header("Cache-Control", "private, no-store")
+	message := fmt.Sprintf(
+		"Message not sent: this conversation is waiting for the other participant to reply (%d/%d messages used). Do not retry immediately; other conversations are unaffected.",
+		used, limit,
+	)
+	c.JSON(http.StatusTooManyRequests, PMRateLimitResp{
+		Code: 429,
+		Msg:  message,
+		Error: PMRateLimitError{
+			Code:    resp.GetErrorCode(),
+			Message: message,
+			Details: PMRateLimitDetails{
+				Scope:             "conversation",
+				ConvID:            strconv.FormatInt(resp.ConvId, 10),
+				Limit:             limit,
+				Used:              used,
+				Remaining:         remaining,
+				ResetCondition:    resp.GetResetCondition(),
+				RetryAfterSeconds: retryAfterSeconds,
+				RecommendedAction: "Wait for the other participant to reply before sending another message. Continue processing other conversations.",
+			},
+		},
+	})
+}
+
 func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificationrpc.PendingNotification, []map[string]interface{}) {
 	pendingResp, err := clients.NotificationClient.ListPending(ctx, &notificationrpc.ListPendingReq{
 		AgentId: agentID,
@@ -1207,6 +1243,7 @@ func GetLatestItems(ctx context.Context, c *app.RequestContext) {
 // @Param body body SendPMBody true "Send PM request"
 // @Success 200 {object} SendPMResp
 // @Failure 401 {object} BaseResp
+// @Failure 429 {object} PMRateLimitResp
 // @Router /api/v1/pm/send [post]
 func SendPM(ctx context.Context, c *app.RequestContext) {
 	rawBody, err := c.Body()
@@ -1286,6 +1323,10 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if resp.BaseResp.Code != 0 {
+		if resp.BaseResp.Code == 429 && resp.GetErrorCode() == "PM_WAITING_FOR_PEER_REPLY" {
+			writePMRateLimit(c, resp)
+			return
+		}
 		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 		return
 	}
@@ -1411,14 +1452,45 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Debug("ListConversations", "agentID", agentID)
 
+	sortBy := strings.TrimSpace(req.GetSort())
+	if sortBy == "" {
+		sortBy = "recent"
+	}
+	if sortBy != "recent" && sortBy != "topic_status" {
+		writeJSON(c, http.StatusBadRequest, 400, "sort must be recent or topic_status", nil)
+		return
+	}
+
 	var cursorPtr *int64
+	var cursorTopicStatus *int16
+	var cursorConvIDPtr *int64
 	if req.Cursor != nil && *req.Cursor != "" {
-		cursor, err := strconv.ParseInt(*req.Cursor, 10, 64)
-		if err != nil {
-			writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
-			return
+		if sortBy == "topic_status" {
+			parts := strings.Split(*req.Cursor, ":")
+			if len(parts) != 3 {
+				writeJSON(c, http.StatusBadRequest, 400, "invalid topic status cursor", nil)
+				return
+			}
+			statusValue, statusErr := strconv.ParseInt(parts[0], 10, 16)
+			updatedAt, updatedErr := strconv.ParseInt(parts[1], 10, 64)
+			convID, convErr := strconv.ParseInt(parts[2], 10, 64)
+			if statusErr != nil || updatedErr != nil || convErr != nil || statusValue < 0 || statusValue > 2 || updatedAt <= 0 || convID <= 0 {
+				writeJSON(c, http.StatusBadRequest, 400, "invalid topic status cursor", nil)
+				return
+			}
+			status := int16(statusValue)
+			cursorTopicStatus, cursorPtr, cursorConvIDPtr = &status, &updatedAt, &convID
+		} else {
+			cursor, err := decodeConversationPageCursor(*req.Cursor)
+			if err != nil {
+				writeJSON(c, http.StatusBadRequest, 400, "invalid cursor", nil)
+				return
+			}
+			cursorPtr = &cursor.UpdatedAt
+			if cursor.ConvID > 0 {
+				cursorConvIDPtr = &cursor.ConvID
+			}
 		}
-		cursorPtr = &cursor
 	}
 
 	var limitPtr *int32
@@ -1429,9 +1501,12 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 	// Optional origin_type filter ("item" | "friend"); read directly from the
 	// query so the hz-bound request model needs no IDL change.
 	rpcReq := &pmrpc.ListConversationsReq{
-		AgentId: agentID,
-		Cursor:  cursorPtr,
-		Limit:   limitPtr,
+		AgentId:           agentID,
+		Cursor:            cursorPtr,
+		Limit:             limitPtr,
+		SortBy:            &sortBy,
+		CursorTopicStatus: cursorTopicStatus,
+		CursorConvId:      cursorConvIDPtr,
 	}
 	if originType := strings.TrimSpace(c.Query("origin_type")); originType != "" {
 		rpcReq.OriginType = &originType
@@ -1487,6 +1562,9 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		}
 		if conv.IsSetNeedsReply() {
 			m["needs_reply"] = conv.GetNeedsReply()
+		}
+		if conv.IsSetTopicStatus() {
+			m["topic_status"] = conv.GetTopicStatus()
 		}
 		if conv.OriginId != nil && *conv.OriginId != 0 {
 			m["origin_id"] = strconv.FormatInt(*conv.OriginId, 10)
@@ -1562,9 +1640,18 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	nextCursorV2 := ""
+	if sortBy == "recent" && resp.IsSetNextCursorConvId() {
+		nextCursorV2 = encodeConversationPageCursor(resp.NextCursor, resp.GetNextCursorConvId())
+	}
+	nextCursor := strconv.FormatInt(resp.NextCursor, 10)
+	if sortBy == "topic_status" && resp.IsSetNextCursorTopicStatus() && resp.IsSetNextCursorConvId() {
+		nextCursor = fmt.Sprintf("%d:%d:%d", resp.GetNextCursorTopicStatus(), resp.NextCursor, resp.GetNextCursorConvId())
+	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
-		"conversations": conversations,
-		"next_cursor":   strconv.FormatInt(resp.NextCursor, 10),
+		"conversations":  conversations,
+		"next_cursor":    nextCursor,
+		"next_cursor_v2": nextCursorV2,
 	})
 }
 
@@ -3644,4 +3731,45 @@ func optStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// UpdateConversationTopicStatus updates the shared topic state of a conversation.
+// @Summary Update conversation topic status
+// @Tags PM
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Router /api/v1/pm/topic-status [post]
+func UpdateConversationTopicStatus(ctx context.Context, c *app.RequestContext) {
+	var req apimodel.UpdateConversationTopicStatusReq
+	if !bindOrBadRequest(c, &req) {
+		return
+	}
+	agentID, ok := currentAgentID(c)
+	if !ok {
+		return
+	}
+	convID, err := strconv.ParseInt(req.ConvID, 10, 64)
+	if err != nil || convID <= 0 {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid conv_id", nil)
+		return
+	}
+	resp, err := clients.PMClient.UpdateTopicStatus(ctx, &pmrpc.UpdateTopicStatusReq{
+		AgentId:     agentID,
+		ConvId:      convID,
+		TopicStatus: strings.TrimSpace(req.TopicStatus),
+	})
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+		return
+	}
+	if resp.BaseResp.Code != 0 {
+		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
+		return
+	}
+	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+		"conv_id":      req.ConvID,
+		"topic_status": resp.TopicStatus,
+		"changed":      resp.Changed,
+	})
 }

@@ -424,6 +424,7 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 	read("pm/unread", apihandler.GetUnreadBreakdown)
 	write(http.MethodPost, "pm/send", apihandler.SendPM)
 	write(http.MethodPost, "pm/read", apihandler.MarkConvRead)
+	write(http.MethodPost, "pm/topic-status", apihandler.UpdateConversationTopicStatus)
 	read("items/:item_id", apihandler.GetItem)
 
 	read("trade/overview", trade.TradeOverview)

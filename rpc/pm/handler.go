@@ -318,8 +318,22 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 
 		if iceStatus == icebreak.IceStatusLimitReached {
 			logger.Ctx(ctx).Info("reply rejected (icebreak limit)", "convID", convID, "senderID", req.SenderId)
+			errorCode := "PM_WAITING_FOR_PEER_REPLY"
+			limit := int32(icebreak.MaxInitiatorMsgs)
+			used := limit
+			resetCondition := "peer_reply_or_timeout"
+			retryAfterSeconds, retryErr := s.iceBreaker.RetryAfterSeconds(ctx, convID)
+			if retryErr != nil {
+				logger.Ctx(ctx).Warn("could not read icebreak retry time", "convID", convID, "err", retryErr)
+			}
 			return &pm.SendPMResp{
-				BaseResp: &base.BaseResp{Code: 429, Msg: "waiting for reply from the receiver"},
+				ConvId:            convID,
+				ErrorCode:         &errorCode,
+				RateLimit:         &limit,
+				RateUsed:          &used,
+				ResetCondition:    &resetCondition,
+				RetryAfterSeconds: &retryAfterSeconds,
+				BaseResp:          &base.BaseResp{Code: 429, Msg: "waiting for reply from the other participant"},
 			}, nil
 		}
 	}
@@ -558,9 +572,33 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	cursor := req.GetCursor()
+	cursorConvID := req.GetCursorConvId()
 	originType := req.GetOriginType()
+	sortBy := req.GetSortBy()
+	if sortBy == "" {
+		sortBy = "recent"
+	}
 
-	convs, err := dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, limit, originType)
+	var convs []*dal.Conversation
+	var err error
+	if sortBy == "topic_status" {
+		var topicCursor *dal.TopicSortCursor
+		if req.IsSetCursorTopicStatus() || req.IsSetCursorConvId() || cursor > 0 {
+			if !req.IsSetCursorTopicStatus() || !req.IsSetCursorConvId() || cursor <= 0 {
+				return &pm.ListConversationsResp{BaseResp: &base.BaseResp{Code: 400, Msg: "invalid topic status cursor"}}, nil
+			}
+			topicCursor = &dal.TopicSortCursor{
+				TopicStatus: req.GetCursorTopicStatus(),
+				UpdatedAt:   cursor,
+				ConvID:      req.GetCursorConvId(),
+			}
+		}
+		convs, err = dal.ListConversationsByTopicStatus(db.DB, req.AgentId, topicCursor, limit, originType)
+	} else if sortBy == "recent" {
+		convs, err = dal.ListConversationsFiltered(db.DB, req.AgentId, cursor, cursorConvID, limit, originType)
+	} else {
+		return &pm.ListConversationsResp{BaseResp: &base.BaseResp{Code: 400, Msg: "sort_by must be recent or topic_status"}}, nil
+	}
 	if err != nil {
 		return &pm.ListConversationsResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to list conversations"},
@@ -599,6 +637,7 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	for i, conv := range convs {
 		lastSenderID := conv.LastSenderID
 		needsReply := lastSenderID != req.AgentId
+		topicStatus := dal.TopicStatusName(conv.TopicStatus)
 		info := &pm.ConversationInfo{
 			ConvId:           conv.ConvID,
 			ParticipantA:     conv.ParticipantA,
@@ -608,6 +647,7 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 			ParticipantBName: &conv.ParticipantBName,
 			LastSenderId:     &lastSenderID,
 			NeedsReply:       &needsReply,
+			TopicStatus:      &topicStatus,
 		}
 		if conv.OriginType != "" {
 			info.OriginType = &conv.OriginType
@@ -657,14 +697,55 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	}
 
 	var nextCursor int64
+	var nextTopicStatus *int16
+	var nextConvID *int64
 	if len(convs) > 0 {
-		nextCursor = convs[len(convs)-1].UpdatedAt
+		last := convs[len(convs)-1]
+		nextCursor = last.UpdatedAt
+		if sortBy == "topic_status" {
+			nextTopicStatus = &last.TopicStatus
+		}
+		nextConvID = &last.ConvID
 	}
 
 	return &pm.ListConversationsResp{
-		Conversations: conversations,
-		NextCursor:    nextCursor,
-		BaseResp:      &base.BaseResp{Code: 0, Msg: "success"},
+		Conversations:         conversations,
+		NextCursor:            nextCursor,
+		NextCursorTopicStatus: nextTopicStatus,
+		NextCursorConvId:      nextConvID,
+		BaseResp:              &base.BaseResp{Code: 0, Msg: "success"},
+	}, nil
+}
+
+func (s *PMServiceImpl) UpdateTopicStatus(ctx context.Context, req *pm.UpdateTopicStatusReq) (*pm.UpdateTopicStatusResp, error) {
+	status, ok := dal.ParseTopicStatus(req.TopicStatus)
+	if !ok {
+		return &pm.UpdateTopicStatusResp{
+			TopicStatus: req.TopicStatus,
+			Changed:     false,
+			BaseResp:    &base.BaseResp{Code: 400, Msg: "topic_status must be pending_verify, open or closed"},
+		}, nil
+	}
+	if _, err := s.validator.ValidateConvMembership(ctx, req.ConvId, req.AgentId); err != nil {
+		return &pm.UpdateTopicStatusResp{
+			TopicStatus: req.TopicStatus,
+			Changed:     false,
+			BaseResp:    &base.BaseResp{Code: 403, Msg: err.Error()},
+		}, nil
+	}
+	_, changed, err := dal.UpdateConversationTopicStatus(db.DB, req.ConvId, req.AgentId, status)
+	if err != nil {
+		return &pm.UpdateTopicStatusResp{
+			TopicStatus: req.TopicStatus,
+			Changed:     false,
+			BaseResp:    &base.BaseResp{Code: 400, Msg: err.Error()},
+		}, nil
+	}
+	logger.Ctx(ctx).Info("UpdateTopicStatus", "agentID", req.AgentId, "convID", req.ConvId, "topicStatus", req.TopicStatus, "changed", changed)
+	return &pm.UpdateTopicStatusResp{
+		TopicStatus: req.TopicStatus,
+		Changed:     changed,
+		BaseResp:    &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 

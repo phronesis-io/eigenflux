@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
 	"github.com/cloudwego/kitex/client"
+	"github.com/lib/pq"
 )
 
 var pmRPCClient pmservice.Client
@@ -512,6 +513,93 @@ func TestListConversationsReplyStatus(t *testing.T) {
 				t.Fatalf("needs_reply=%v, want %v", conversation["needs_reply"], tc.needsReply)
 			}
 		})
+	}
+}
+
+func TestConversationTopicStatus(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	suffix := time.Now().UnixNano()
+	firstEmail := fmt.Sprintf("pm_topic_first_%d@test.com", suffix)
+	secondEmail := fmt.Sprintf("pm_topic_second_%d@test.com", suffix)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, firstEmail, secondEmail) })
+	first := testutil.RegisterAgent(t, firstEmail, "Topic First", "Test")
+	second := testutil.RegisterAgent(t, secondEmail, "Topic Second", "Test")
+	firstID, _ := strconv.ParseInt(first["agent_id"].(string), 10, 64)
+	secondID, _ := strconv.ParseInt(second["agent_id"].(string), 10, 64)
+	t.Cleanup(func() { cleanPMData(t, firstID, secondID) })
+
+	participantA, participantB := firstID, secondID
+	if participantA > participantB {
+		participantA, participantB = participantB, participantA
+	}
+	convIDs := []int64{suffix, suffix + 1, suffix + 2}
+	now := time.Now().UnixMilli()
+	for index, convID := range convIDs {
+		if _, err := testutil.TestDB.Exec(`INSERT INTO conversations
+			(conv_id, participant_a, participant_b, initiator_id, last_sender_id, origin_type, origin_id,
+			 msg_count, status, updated_at, participant_a_name, participant_b_name)
+			VALUES ($1, $2, $3, $2, $2, 'broadcast', $4, 1, 0, $5, 'Topic First', 'Topic Second')`,
+			convID, participantA, participantB, suffix+int64(index)+100, now+int64(index)); err != nil {
+			t.Fatalf("insert conversation %d: %v", convID, err)
+		}
+	}
+
+	update := func(token string, convID int64, status string) map[string]interface{} {
+		t.Helper()
+		resp := testutil.DoPost(t, "/api/v1/pm/topic-status", map[string]string{
+			"conv_id": strconv.FormatInt(convID, 10), "topic_status": status,
+		}, token)
+		if code := int(resp["code"].(float64)); code != 0 {
+			t.Fatalf("update topic status failed: code=%d msg=%v", code, resp["msg"])
+		}
+		return resp["data"].(map[string]interface{})
+	}
+	if changed := update(first["token"].(string), convIDs[0], "pending_verify")["changed"]; changed != true {
+		t.Fatalf("first topic update changed=%v", changed)
+	}
+	if changed := update(second["token"].(string), convIDs[2], "closed")["changed"]; changed != true {
+		t.Fatalf("second participant topic update changed=%v", changed)
+	}
+	if changed := update(second["token"].(string), convIDs[2], "closed")["changed"]; changed != false {
+		t.Fatalf("no-op topic update changed=%v", changed)
+	}
+
+	resp := testutil.DoGet(t, "/api/v1/pm/conversations?sort=topic_status&limit=10", first["token"].(string))
+	if code := int(resp["code"].(float64)); code != 0 {
+		t.Fatalf("topic sorted conversations failed: code=%d msg=%v", code, resp["msg"])
+	}
+	rows := resp["data"].(map[string]interface{})["conversations"].([]interface{})
+	if len(rows) != 3 {
+		t.Fatalf("topic sorted conversation count=%d, want 3", len(rows))
+	}
+	wantStatuses := []string{"pending_verify", "open", "closed"}
+	for index, raw := range rows {
+		row := raw.(map[string]interface{})
+		if row["conv_id"] != strconv.FormatInt(convIDs[index], 10) || row["topic_status"] != wantStatuses[index] {
+			t.Fatalf("topic row %d=%#v, want conv=%d status=%s", index, row, convIDs[index], wantStatuses[index])
+		}
+	}
+	cursor := ""
+	for index, wantConvID := range convIDs {
+		path := "/api/v1/pm/conversations?sort=topic_status&limit=1"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		page := testutil.DoGet(t, path, first["token"].(string))
+		pageData := page["data"].(map[string]interface{})
+		pageRows := pageData["conversations"].([]interface{})
+		if len(pageRows) != 1 || pageRows[0].(map[string]interface{})["conv_id"] != strconv.FormatInt(wantConvID, 10) {
+			t.Fatalf("topic page %d=%#v, want conv=%d", index, pageRows, wantConvID)
+		}
+		cursor = pageData["next_cursor"].(string)
+	}
+	var eventCount int
+	if err := testutil.TestDB.QueryRow(`SELECT COUNT(*) FROM conversation_topic_events WHERE conv_id = ANY($1)`, pq.Array(convIDs)).Scan(&eventCount); err != nil {
+		t.Fatalf("count topic events: %v", err)
+	}
+	if eventCount != 2 {
+		t.Fatalf("topic event count=%d, want 2", eventCount)
 	}
 }
 

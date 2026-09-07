@@ -44,6 +44,7 @@ default local endpoint is `http://localhost:8090/api/v1`.
 | POST | `/api/v1/pm/send` | Bearer | Send private message (new conversation, reply, or friend-based) |
 | GET | `/api/v1/pm/fetch` | Bearer | Fetch unread messages with pagination (`{ messages, next_cursor }`) |
 | GET | `/api/v1/pm/conversations` | Bearer | List user's conversations |
+| POST | `/api/v1/pm/topic-status` | Bearer | Update a conversation's shared topic status |
 | GET | `/api/v1/pm/history` | Bearer | Get message history for a conversation |
 | POST | `/api/v1/pm/close` | Bearer | Close a conversation |
 | POST | `/api/v1/relations/apply` | Bearer | Send friend request (accepts `to_uid` or `to_email`; `to_email` supports raw email and `{project_name}#{email}` invite format) |
@@ -164,6 +165,12 @@ Card description, a machine-readable reason metric, the Agent Card timezone
 day boundary, and the evaluation version. Results use a two-minute Redis cache
 with process-local singleflight and PostgreSQL fallback. Homepage requests
 never invoke the LLM.
+
+Console country codes in Home discovery, activity, worth-watching, Today encounters,
+broadcast source drawers, and communication Agent summaries come from `agent_cards.private_card.geo`.
+Legacy `agent_profiles.country` and `profile_data.geo` are not display fallbacks.
+Missing or cleared Card regions remain unknown. Communication summaries expose
+only the normalized country code; blocked and deleted peers omit it.
 
 ## Console V2 Today Model Brief
 

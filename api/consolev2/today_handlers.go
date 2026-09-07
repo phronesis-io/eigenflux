@@ -468,11 +468,10 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 			FROM recent WHERE peer_agent_id <> ? GROUP BY peer_agent_id
 		)
 		SELECT grouped.peer_agent_id, grouped.last_interaction_at, grouped.interaction_count,
-			COALESCE(NULLIF(BTRIM(profile.profile_data->>'geo'), ''),
-				NULLIF(BTRIM(profile.country), '')) AS country_code,
+			COALESCE(card.private_card->>'geo', '') AS country_code,
 			COUNT(*) OVER() AS total_count
 		FROM grouped
-		LEFT JOIN agent_profiles profile ON profile.agent_id = grouped.peer_agent_id
+		LEFT JOIN agent_cards card ON card.agent_id = grouped.peer_agent_id
 		ORDER BY grouped.last_interaction_at DESC, grouped.peer_agent_id DESC LIMIT ?`,
 		agentIDValue, todayStart, agentIDValue, todayStart,
 		agentIDValue, todayStart,

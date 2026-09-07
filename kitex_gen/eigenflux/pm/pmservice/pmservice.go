@@ -69,6 +69,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"UpdateTopicStatus": kitex.NewMethodInfo(
+		updateTopicStatusHandler,
+		newPMServiceUpdateTopicStatusArgs,
+		newPMServiceUpdateTopicStatusResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"SendFriendRequest": kitex.NewMethodInfo(
 		sendFriendRequestHandler,
 		newPMServiceSendFriendRequestArgs,
@@ -335,6 +342,24 @@ func newPMServiceCloseConvResult() interface{} {
 	return pm.NewPMServiceCloseConvResult()
 }
 
+func updateTopicStatusHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*pm.PMServiceUpdateTopicStatusArgs)
+	realResult := result.(*pm.PMServiceUpdateTopicStatusResult)
+	success, err := handler.(pm.PMService).UpdateTopicStatus(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPMServiceUpdateTopicStatusArgs() interface{} {
+	return pm.NewPMServiceUpdateTopicStatusArgs()
+}
+
+func newPMServiceUpdateTopicStatusResult() interface{} {
+	return pm.NewPMServiceUpdateTopicStatusResult()
+}
+
 func sendFriendRequestHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*pm.PMServiceSendFriendRequestArgs)
 	realResult := result.(*pm.PMServiceSendFriendRequestResult)
@@ -564,6 +589,16 @@ func (p *kClient) CloseConv(ctx context.Context, req *pm.CloseConvReq) (r *pm.Cl
 	_args.Req = req
 	var _result pm.PMServiceCloseConvResult
 	if err = p.c.Call(ctx, "CloseConv", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UpdateTopicStatus(ctx context.Context, req *pm.UpdateTopicStatusReq) (r *pm.UpdateTopicStatusResp, err error) {
+	var _args pm.PMServiceUpdateTopicStatusArgs
+	_args.Req = req
+	var _result pm.PMServiceUpdateTopicStatusResult
+	if err = p.c.Call(ctx, "UpdateTopicStatus", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

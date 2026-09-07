@@ -237,3 +237,8 @@ func _pushfeedeventsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _updateconversationtopicstatusMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

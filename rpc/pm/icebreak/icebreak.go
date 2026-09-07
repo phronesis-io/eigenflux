@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -116,6 +117,20 @@ func (ib *IceBreaker) CheckAndSetIceBreak(ctx context.Context, convID, senderID 
 	}
 
 	return status, lastSenderID, nil
+}
+
+// RetryAfterSeconds returns the remaining lock lifetime rounded up to a whole
+// second. A peer reply can lift the restriction before this fallback timeout.
+func (ib *IceBreaker) RetryAfterSeconds(ctx context.Context, convID int64) (int64, error) {
+	lockKey := fmt.Sprintf("pm:lock:%d", convID)
+	ttl, err := ib.rdb.PTTL(ctx, lockKey).Result()
+	if err != nil {
+		return 0, fmt.Errorf("read ice break lock TTL: %w", err)
+	}
+	if ttl <= 0 {
+		return 0, nil
+	}
+	return int64((ttl + time.Second - 1) / time.Second), nil
 }
 
 // RollbackIceBreak rolls back ice break state on transaction failure

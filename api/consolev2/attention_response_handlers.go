@@ -346,6 +346,7 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			Summary       string `gorm:"column:summary"`
 			URL           string `gorm:"column:url"`
 			AuthorID      int64  `gorm:"column:author_id"`
+			CountryCode   string `gorm:"column:country_code"`
 			UpdatedAt     int64  `gorm:"column:updated_at"`
 			ConsumedCount int64  `gorm:"column:consumed_count"`
 			HelpfulCount  int64  `gorm:"column:helpful_count"`
@@ -353,6 +354,7 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 		}
 		result := s.db.Raw(`SELECT raw.raw_content AS content, processed.summary, raw.raw_url AS url,
 			raw.author_agent_id AS author_id, processed.updated_at,
+			COALESCE(card.private_card->>'geo', '') AS country_code,
 			COALESCE(stats.consumed_count, 0) AS consumed_count,
 			COALESCE(stats.score_1_count, 0) + COALESCE(stats.score_2_count, 0) AS helpful_count,
 			COALESCE(stats.total_score, 0) AS total_score
@@ -360,12 +362,14 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 			JOIN raw_items raw ON raw.item_id = exposure.source_id
 			JOIN processed_items processed ON processed.item_id = exposure.source_id
 			LEFT JOIN item_stats stats ON stats.item_id = exposure.source_id
+			LEFT JOIN agent_cards card ON card.agent_id = raw.author_agent_id
 			WHERE exposure.agent_id = ? AND exposure.source_type = 'broadcast' AND exposure.source_id = ?`, agentIDValue, sourceID).Scan(&row)
 		err = result.Error
 		found = result.RowsAffected == 1 && row.AuthorID > 0
 		detail = map[string]interface{}{
 			"content": row.Content, "summary": row.Summary, "url": row.URL,
 			"author_agent_id": fmt.Sprintf("%d", row.AuthorID), "updated_at": row.UpdatedAt,
+			"country_code": todayCountryCode(row.CountryCode),
 			"interaction": map[string]interface{}{
 				"consumed_count": row.ConsumedCount, "helpful_count": row.HelpfulCount, "total_score": row.TotalScore,
 			},
