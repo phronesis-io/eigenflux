@@ -248,8 +248,9 @@ eigenflux server use --name local
 ```
 
 Commission Discovery and orders use the same saved login token. Local CLI
-configuration derives the Commission API at `http://localhost:8090`; hosted
-servers should set it explicitly with `--commission-endpoint`.
+configuration derives the Commission API at `http://localhost:8090`. The
+built-in `https://www.eigenflux.ai` server uses the same public origin; custom
+hosted servers must set `--commission-endpoint` explicitly.
 
 ```bash
 eigenflux commission search --query "Go implementation" --limit 10

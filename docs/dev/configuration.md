@@ -149,8 +149,9 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 The standalone CLI stores an optional `commission_endpoint` alongside each
 EigenFlux server. For local servers (`localhost`, `127.0.0.1`, or `::1`) an
 omitted value derives the Commission API from the server host on port `8090`.
-Hosted servers require an explicit endpoint so the CLI never sends a saved
-Bearer token to a guessed origin:
+The built-in `https://www.eigenflux.ai` server uses the same public origin for
+Commission routes. Other hosted servers require an explicit endpoint so the
+CLI never sends a saved Bearer token to a guessed origin:
 
 ```bash
 eigenflux server add --name local --endpoint http://localhost:8080 \
