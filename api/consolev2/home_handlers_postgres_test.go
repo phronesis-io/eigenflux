@@ -89,6 +89,7 @@ func TestHomeHTTPContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.redisClient = redisClient
+	svc.enableAttentionV1 = true
 	h := server.New(server.WithHostPorts("127.0.0.1:0"))
 	svc.Register(h)
 
@@ -187,6 +188,10 @@ func TestHomeHTTPContracts(t *testing.T) {
 	t.Cleanup(func() {
 		_ = db.Exec(`DELETE FROM processed_items WHERE item_id IN (?, ?, ?, ?)`, firstVoiceItemID, oldDemandItemID, newDemandItemID, newPublishItemID).Error
 		_ = db.Exec(`DELETE FROM raw_items WHERE item_id IN (?, ?, ?, ?)`, firstVoiceItemID, oldDemandItemID, newDemandItemID, newPublishItemID).Error
+	})
+
+	t.Run("country sources agree across Console", func(t *testing.T) {
+		testConsoleCountrySources(t, db, svc, h, cookie, agentIDValue, demandAgentID, publishAgentID, firstVoiceItemID, newPublishItemID, now)
 	})
 
 	generatedAt := time.Now().UnixMilli()
@@ -333,5 +338,120 @@ func assertHomeCachedResponse(t *testing.T, h *server.Hertz, path, collection, i
 	}
 	if _, ok := data["cache_ttl_seconds"].(float64); !ok {
 		t.Fatalf("%s cache_ttl_seconds has unexpected type: %#v", path, data["cache_ttl_seconds"])
+	}
+}
+
+func testConsoleCountrySources(t *testing.T, db *gorm.DB, svc *Service, h *server.Hertz, cookie ut.Header,
+	actorID, peerID, missingCardID, itemID, missingCardItemID, now int64) {
+	t.Helper()
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	originalDB := svc.db
+	svc.db = tx
+	t.Cleanup(func() { svc.db = originalDB; tx.Rollback() })
+	exec := func(sql string, args ...interface{}) {
+		t.Helper()
+		if err := tx.Exec(sql, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The canonical card deliberately disagrees with both legacy profile fields.
+	exec(`INSERT INTO agent_profiles (agent_id, country, profile_data, updated_at)
+  VALUES (?, '', '{"geo":"US"}', ?), (?, 'US', '{"geo":"US"}', ?)`, actorID, now, missingCardID, now)
+	exec(`UPDATE agent_cards SET private_card='{"geo":" CN ","timezone":"UTC"}',
+  public_card_version=2, public_card_generated_at=? WHERE agent_id=?`, now, actorID)
+	// A card-only peer proves that no legacy profile row is required.
+	exec(`INSERT INTO agent_cards (agent_id, public_card, private_card, schema_version, source_version,
+  rebuild_fence, card_version, public_card_version, generated_at, public_card_generated_at)
+  VALUES (?, '{}', '{"geo":"Singapore"}', 1, 1, 0, 1, 1, ?, 0)`, peerID, now)
+	convID, replyConvID := actorID+30, actorID+31
+	exec(`INSERT INTO conversations (conv_id, participant_a, participant_b, initiator_id, last_sender_id,
+  origin_type, origin_id, updated_at) VALUES (?, ?, ?, ?, ?, 'direct', 0, ?), (?, ?, ?, ?, ?, 'broadcast', ?, ?)`,
+		convID, actorID, peerID, actorID, actorID, now, replyConvID, actorID, peerID, actorID, actorID, itemID, now)
+	exec(`INSERT INTO private_messages (msg_id, conv_id, sender_id, receiver_id, content, created_at)
+  VALUES (?, ?, ?, ?, 'direct message', ?), (?, ?, ?, ?, 'broadcast reply', ?)`,
+		actorID+32, convID, actorID, peerID, now, actorID+33, replyConvID, actorID, peerID, now)
+	exec(`INSERT INTO user_relations (from_uid, to_uid, rel_type, created_at) VALUES (?, ?, 1, ?)`, actorID, peerID, now)
+	exec(`INSERT INTO agent_commands (agent_id, command_type, payload_hash, idempotency_key, created_at)
+  VALUES (?, 'task_delegation', 'country-test', 'country-test', ?)`, actorID, now)
+	activity, err := svc.loadHomeActivity(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, event := range activity.Events {
+		if event.ActorName != "Home Contract Agent" && event.ActorName != "H***" {
+			continue
+		}
+		seen[event.Type] = true
+		if event.ActorCountryCode != "CN" {
+			t.Fatalf("%s actor country=%q", event.Type, event.ActorCountryCode)
+		}
+		if (event.Type == "relation" || event.Type == "message") && event.CounterpartCountry != "SG" {
+			t.Fatalf("%s counterpart country=%q", event.Type, event.CounterpartCountry)
+		}
+	}
+	for _, kind := range []string{"broadcast", "profile", "relation", "message", "reply", "delegation"} {
+		if !seen[kind] {
+			t.Fatalf("missing activity type %s", kind)
+		}
+	}
+	selected := []homeWorthWatchingRule{
+		{Key: "test", Rows: []homeWorthWatchingCandidate{{ItemID: itemID}}},
+		{Key: "missing", Rows: []homeWorthWatchingCandidate{{ItemID: missingCardItemID}}},
+	}
+	worth, err := svc.hydrateHomeWorthWatching(context.Background(), selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worth) != 2 || worth[0].AgentCountryCode != "CN" || worth[1].AgentCountryCode != "" {
+		t.Fatalf("worth watching countries=%#v", worth)
+	}
+	status, payload, _ := performJSON(t, h, http.MethodGet, "/api/v2/console/today", map[string]interface{}{}, cookie)
+	if status != http.StatusOK {
+		t.Fatalf("Today status=%d payload=%#v", status, payload)
+	}
+	data := responseData(t, payload)
+	encounters, ok := data["encounters"].([]interface{})
+	if !ok || len(encounters) != 1 || encounters[0].(map[string]interface{})["country_code"] != "SG" {
+		t.Fatalf("Today encounters=%#v", data["encounters"])
+	}
+	contexts := data["agent_contexts"].(map[string]interface{})
+	if contexts[strconv.FormatInt(peerID, 10)].(map[string]interface{})["country_code"] != "SG" {
+		t.Fatalf("Today contexts=%#v", contexts)
+	}
+
+	exec(`INSERT INTO agent_feed_exposures (agent_id, source_type, source_id, content_class,
+  author_agent_id, first_seen_at, last_seen_at) VALUES (?, 'broadcast', ?, 'ugc', ?, ?, ?)`, actorID, itemID, actorID, now, now)
+	attentionID := actorID + 40
+	exec(`INSERT INTO agent_attention_items (attention_id, agent_id, title, source_type, source_id,
+  created_at, expires_at, producer, protocol_version, client_item_id, payload_hash, source_ref,
+  actions_snapshot, generated_at, updated_at)
+  VALUES (?, ?, 'country source', 'broadcast', ?, ?, ?, 'agent', 'agent_attention.v1', 'country-source',
+  'country-source', jsonb_build_object('type', 'broadcast', 'id', ?::text), '[{"action_key":"open"}]', ?, ?)`,
+		attentionID, actorID, itemID, now, now+3600000, strconv.FormatInt(itemID, 10), now, now)
+	status, sourcePayload, _ := performJSON(t, h, http.MethodGet,
+		fmt.Sprintf("/api/v2/console/attention-items/%d/source", attentionID), map[string]interface{}{}, cookie)
+	if status != http.StatusOK {
+		t.Fatalf("source status=%d payload=%#v", status, sourcePayload)
+	}
+	if responseData(t, sourcePayload)["detail"].(map[string]interface{})["country_code"] != "CN" {
+		t.Fatalf("broadcast source country=%#v", sourcePayload)
+	}
+	// Clearing the canonical value must not resurrect an obsolete country.
+	exec(`UPDATE agent_cards SET private_card='{}' WHERE agent_id=?`, actorID)
+	worth, err = svc.hydrateHomeWorthWatching(context.Background(), selected[:1])
+	if err != nil || len(worth) != 1 || worth[0].AgentCountryCode != "" {
+		t.Fatalf("cleared country: items=%#v err=%v", worth, err)
+	}
+	exec(`INSERT INTO user_relations (from_uid, to_uid, rel_type, created_at) VALUES (?, ?, 2, ?)`, actorID, peerID, now)
+	blocked, err := svc.loadCommunicationContexts(actorID, []int64{peerID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked[strconv.FormatInt(peerID, 10)].CountryCode != "" {
+		t.Fatalf("blocked peer exposes country: %#v", blocked)
 	}
 }

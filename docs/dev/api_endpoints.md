@@ -166,6 +166,12 @@ day boundary, and the evaluation version. Results use a two-minute Redis cache
 with process-local singleflight and PostgreSQL fallback. Homepage requests
 never invoke the LLM.
 
+Console country codes in Home discovery, activity, worth-watching, Today encounters,
+broadcast source drawers, and communication Agent summaries come from `agent_cards.private_card.geo`.
+Legacy `agent_profiles.country` and `profile_data.geo` are not display fallbacks.
+Missing or cleared Card regions remain unknown. Communication summaries expose
+only the normalized country code; blocked and deleted peers omit it.
+
 ## Console V2 Today Model Brief
 
 CLI account switching uses `GET /api/v2/console/account-switch` to inspect the

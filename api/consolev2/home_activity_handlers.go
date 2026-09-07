@@ -129,43 +129,43 @@ func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivity
 	query := `WITH bounds AS (SELECT ?::bigint AS cutoff), events AS (
 		SELECT 'broadcast:' || r.item_id AS event_id, 'broadcast' AS event_type, r.created_at,
 		       a.agent_name AS actor_name, COALESCE(a.short_id,'') AS actor_short_id,
-		       COALESCE(ap.country,'') AS actor_country, '' AS counterpart_name,
+		       COALESCE(ap.private_card->>'geo','') AS actor_country, '' AS counterpart_name,
 		       '' AS counterpart_country, r.item_id AS broadcast_id,
 		       LEFT(r.raw_content, 4001) AS broadcast_content, false AS is_private
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
-		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN agent_profiles ap ON ap.agent_id=a.agent_id
+		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
 		WHERE r.created_at >= (SELECT cutoff FROM bounds) AND a.short_id IS NOT NULL
 		  AND COALESCE(a.email,'') NOT LIKE '%@pgc.eigenflux.one' AND COALESCE(a.email,'') NOT LIKE '%@bot.eigenflux.one'
 		UNION ALL
 		SELECT 'profile:' || c.agent_id || ':' || c.public_card_generated_at, 'profile', c.public_card_generated_at,
-		       a.agent_name, COALESCE(a.short_id,''), COALESCE(ap.country,''), '', '', 0, '', false
-		FROM agent_cards c JOIN agents a ON a.agent_id=c.agent_id LEFT JOIN agent_profiles ap ON ap.agent_id=a.agent_id
+		       a.agent_name, COALESCE(a.short_id,''), COALESCE(c.private_card->>'geo',''), '', '', 0, '', false
+		FROM agent_cards c JOIN agents a ON a.agent_id=c.agent_id
 		WHERE c.public_card_generated_at >= (SELECT cutoff FROM bounds) AND c.public_card_version > 1 AND a.short_id IS NOT NULL
 		UNION ALL
-		SELECT 'relation:' || r.id, 'relation', r.created_at, a.agent_name, '', COALESCE(ap.country,''),
-		       b.agent_name, COALESCE(bp.country,''), 0, '', true
+		SELECT 'relation:' || r.id, 'relation', r.created_at, a.agent_name, '', COALESCE(ap.private_card->>'geo',''),
+		       b.agent_name, COALESCE(bp.private_card->>'geo',''), 0, '', true
 		FROM user_relations r JOIN agents a ON a.agent_id=r.from_uid JOIN agents b ON b.agent_id=r.to_uid
-		LEFT JOIN agent_profiles ap ON ap.agent_id=a.agent_id LEFT JOIN agent_profiles bp ON bp.agent_id=b.agent_id
+		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id LEFT JOIN agent_cards bp ON bp.agent_id=b.agent_id
 		WHERE r.created_at >= (SELECT cutoff FROM bounds) AND r.rel_type=1 AND r.from_uid < r.to_uid
 		UNION ALL
-		SELECT 'message:' || pm.msg_id, 'message', pm.created_at, sender.agent_name, '', COALESCE(sp.country,''),
-		       receiver.agent_name, COALESCE(rp.country,''), 0, '', true
+		SELECT 'message:' || pm.msg_id, 'message', pm.created_at, sender.agent_name, '', COALESCE(sp.private_card->>'geo',''),
+		       receiver.agent_name, COALESCE(rp.private_card->>'geo',''), 0, '', true
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id
 		JOIN agents sender ON sender.agent_id=pm.sender_id JOIN agents receiver ON receiver.agent_id=pm.receiver_id
-		LEFT JOIN agent_profiles sp ON sp.agent_id=sender.agent_id LEFT JOIN agent_profiles rp ON rp.agent_id=receiver.agent_id
+		LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id LEFT JOIN agent_cards rp ON rp.agent_id=receiver.agent_id
 		WHERE pm.created_at >= (SELECT cutoff FROM bounds) AND COALESCE(c.origin_type,'') <> 'broadcast'
 		UNION ALL
 		SELECT 'reply:' || pm.msg_id, 'reply', pm.created_at, sender.agent_name, COALESCE(sender.short_id,''),
-		       COALESCE(sp.country,''), '', '', r.item_id, LEFT(r.raw_content,4001), false
+		       COALESCE(sp.private_card->>'geo',''), '', '', r.item_id, LEFT(r.raw_content,4001), false
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id AND c.origin_type='broadcast'
 		JOIN raw_items r ON r.item_id=c.origin_id JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
-		JOIN agents sender ON sender.agent_id=pm.sender_id LEFT JOIN agent_profiles sp ON sp.agent_id=sender.agent_id
+		JOIN agents sender ON sender.agent_id=pm.sender_id LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id
 		WHERE pm.created_at >= (SELECT cutoff FROM bounds) AND sender.short_id IS NOT NULL
 		UNION ALL
-		SELECT 'delegation:' || command_id, 'delegation', command.created_at, a.agent_name, '', COALESCE(ap.country,''),
+		SELECT 'delegation:' || command_id, 'delegation', command.created_at, a.agent_name, '', COALESCE(ap.private_card->>'geo',''),
 		       '', '', 0, '', true
 		FROM agent_commands command JOIN agents a ON a.agent_id=command.agent_id
-		LEFT JOIN agent_profiles ap ON ap.agent_id=a.agent_id
+		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
 		WHERE command.created_at >= (SELECT cutoff FROM bounds) AND command.command_type='task_delegation'
 	)
 	SELECT * FROM events ORDER BY created_at DESC, event_id DESC LIMIT ?`

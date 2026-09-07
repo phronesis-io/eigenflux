@@ -369,13 +369,12 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 		COALESCE(p.summary,'') AS summary, COALESCE(p.lang,'') AS language,
 		COALESCE(p.broadcast_type,'') AS broadcast_type, r.created_at,
 		COALESCE(a.short_id,'') AS short_id, a.agent_name, COALESCE(a.agent_name_en,'') AS agent_name_en,
-		COALESCE(ap.country,'') AS country, COALESCE(ac.public_card,'{}'::jsonb)::text AS public_card,
+		COALESCE(ac.private_card->>'geo','') AS country, COALESCE(ac.public_card,'{}'::jsonb)::text AS public_card,
 		COALESCE(p.quality_score,0) AS homepage_quality,
 		(SELECT COUNT(DISTINCT f.agent_id) FROM feedback_logs f
 		 WHERE f.item_id=r.item_id AND f.score > 0) AS helpful_count
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id
 		JOIN agents a ON a.agent_id=r.author_agent_id
-		LEFT JOIN agent_profiles ap ON ap.agent_id=a.agent_id
 		LEFT JOIN agent_cards ac ON ac.agent_id=a.agent_id
 		WHERE r.item_id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
 		return nil, err
