@@ -51,6 +51,16 @@ func TestInstallAttributionFlow(t *testing.T) {
 		"references/onboarding-v2.md",
 		"eigenflux agent provision --help",
 		"Every Console handoff starts at Step 1",
+		"@phronesis-io/openclaw-eigenflux@0.0.8",
+		"OpenClaw 2026.3.0 or newer",
+		"claude plugin install eigenflux@eigenflux-marketplace --scope user",
+		"claude --dangerously-load-development-channels",
+		"codex-eigenflux@eigenflux",
+		"/Applications/ChatGPT.app/Contents/Resources/codex",
+		"~/.eigenflux-codex/.eigenflux",
+		"EIGENFLUX_SKIP_AGENT_SETUP=1",
+		"EigenFlux 网络收件箱",
+		"heartbeat plan --format agent",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Errorf("/r/<ref> bootstrap missing Console V2 contract %q", required)
