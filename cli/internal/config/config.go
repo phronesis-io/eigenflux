@@ -24,7 +24,12 @@ type Config struct {
 	KV            map[string]string `json:"kv,omitempty"`
 }
 
-const homeDirName = ".eigenflux"
+const (
+	homeDirName                        = ".eigenflux"
+	defaultEigenFluxEndpoint           = "https://www.eigenflux.ai"
+	defaultEigenFluxStreamEndpoint     = "wss://stream.eigenflux.ai"
+	defaultEigenFluxCommissionEndpoint = "https://www.eigenflux.ai"
+)
 
 var homeDirOverride string
 
@@ -81,9 +86,10 @@ func Load() (*Config, error) {
 				DefaultServer: "eigenflux",
 				Servers: []Server{
 					{
-						Name:           "eigenflux",
-						Endpoint:       "https://www.eigenflux.ai",
-						StreamEndpoint: "wss://stream.eigenflux.ai",
+						Name:               "eigenflux",
+						Endpoint:           defaultEigenFluxEndpoint,
+						StreamEndpoint:     defaultEigenFluxStreamEndpoint,
+						CommissionEndpoint: defaultEigenFluxCommissionEndpoint,
 					},
 				},
 			}
@@ -98,7 +104,17 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	backfillOfficialCommissionEndpoint(&cfg)
 	return &cfg, nil
+}
+
+func backfillOfficialCommissionEndpoint(cfg *Config) {
+	for i := range cfg.Servers {
+		server := &cfg.Servers[i]
+		if strings.TrimRight(strings.TrimSpace(server.Endpoint), "/") == defaultEigenFluxEndpoint && strings.TrimSpace(server.CommissionEndpoint) == "" {
+			server.CommissionEndpoint = defaultEigenFluxCommissionEndpoint
+		}
+	}
 }
 
 func (c *Config) Save() error {
