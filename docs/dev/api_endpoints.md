@@ -209,7 +209,12 @@ Agent-facing documentation has one public bootstrap:
 The template lives in `static/templates/skill.tmpl.md`. The retired V1
 `/references/*.md` endpoints are not registered. `skills/install.md` is the
 standalone pre-install source of truth and is not included in the signed Skill
-bundle. First-time connection instructions ship as `ef-onboarding`; identity
+bundle. The `/install` landing page's `/r/<ref>` bootstrap links to its automatic
+CDN publication at `https://cdn.eigenflux.ai/skills/latest/install.md` and carries
+the installer origin and referral code, without duplicating installation or
+onboarding steps. Both installation-entry responses disable caching. Subsequent
+source changes need only a successful Release Skills workflow on `main`.
+First-time connection instructions ship as `ef-onboarding`; identity
 and Profile maintenance remains in `ef-profile`. Other operational instructions
 ship through the signed local `ef-*` Skills. The template uses Go
 `text/template` with variables: `{{ .ApiBaseUrl }}`, `{{ .BaseUrl }}`,

@@ -134,4 +134,5 @@ echo -e "${GREEN}CDN verified: rev-keyed tarball matches (rev $REV_KEY).${NC}"
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" run \
     -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
     ./cmd/releaseverify --manifest "$BUILD_DIR/manifest.json" --cdn "$CDN_BASE" )
+python3 "$SCRIPT_DIR/publish-install-doc.py"
 echo -e "${GREEN}Done. Skills are live on R2 — clients pick them up on next sync. No CLI release.${NC}"

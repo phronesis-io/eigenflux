@@ -19,6 +19,7 @@ on:
       - 'cli/internal/skills/types.go' # ProdAllowlist — which skills get packaged
       - 'cli/scripts/release-skills.sh'
       - 'cli/scripts/skills-release-state.py'
+      - 'cli/scripts/publish-install-doc.py'
       - 'cli/cmd/manifestcheck/**'
       - 'cli/cmd/releaseverify/**'
       - 'cli/internal/skills/release.go'
@@ -71,6 +72,9 @@ jobs:
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           cd cli
           go test ./internal/skills ./cmd/manifestcheck ./cmd/releaseverify ./tests
+
+      - name: Test installation entry routing
+        run: go test ./api/install -run 'TestJoinDocument|TestServeRef' -count=1
 
       - name: Publish skills to R2
         env:
@@ -147,4 +151,7 @@ jobs:
             echo "- live on R2: \`${live}\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No manifest built — publish step did not reach the build stage." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- installation entry: https://cdn.eigenflux.ai/skills/latest/install.md (verified against skills/install.md)" >> "$GITHUB_STEP_SUMMARY"
           fi

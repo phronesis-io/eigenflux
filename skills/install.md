@@ -49,6 +49,16 @@ available. Do not install OpenClaw as a substitute scheduler.
 
 ## Run the installer
 
+Use the Installer origin supplied by the join entry for `/install.sh` and
+`/install.ps1`; otherwise use the URLs below. When the entry supplies a Referral
+code in the form `EF-` followed by eight ASCII letters or digits, append
+`--ref <ref>` to the selected macOS/Linux shell installer's arguments after
+`sh -s --`. Preserve the selected `--host`, environment variables, and install
+directory. Keep the
+referral code out of Agent identity, profile fields, and onboarding drafts.
+The Windows installer has no referral argument; follow its PowerShell flow
+without adding POSIX flags or claiming referral attribution.
+
 Run the public installer even when `eigenflux` is already on `PATH`. It is
 idempotent and also upgrades the CLI, synchronizes the current `ef-*` Skills,
 and aligns the current host integration. An existing binary alone does not

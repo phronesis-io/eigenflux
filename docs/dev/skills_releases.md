@@ -7,6 +7,28 @@ Automatic pushes and manual dispatches share the `release-skills` concurrency gr
 The legacy `EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=true` switch dispatches the same
 workflow, while CLI binary publication remains independent.
 
+## Installation entry
+
+`skills/install.md` is the sole source for the `/install` landing page's Agent
+instructions. The page keeps its `/r/<ref>` command; the gateway returns the
+installer origin and referral code with a link to
+`https://cdn.eigenflux.ai/skills/latest/install.md`. The entry contains no copy
+of the installation or onboarding steps. Referral and invite attribution
+continue through the existing routes.
+
+After verifying the signed Skills bundle, the same release publishes the raw
+installation document to `skills/latest/install.md` with `Cache-Control:
+no-store` and checks both R2 and the exact public URL. Every release publishes
+the document, including changes only to `skills/install.md`; it is independent
+of the signed bundle revision and remains outside the distributable `ef-*`
+Skills. Publication or verification failures fail the workflow.
+
+The gateway entry also uses `Cache-Control: no-store`. Once that entry is
+deployed, subsequent installation-document changes merged into `main` become
+available after Release Skills succeeds, without a website or gateway deploy.
+Existing client upgrade flows remain separate. Publish and verify the CDN
+document before deploying the gateway entry for the first time.
+
 ## Sequence ownership
 
 The release script reads and verifies both R2 latest manifests and the highest

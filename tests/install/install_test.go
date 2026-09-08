@@ -43,46 +43,56 @@ func TestInstallAttributionFlow(t *testing.T) {
 
 	// --- the join bootstrap at /r/<ref> serves markdown carrying the ref ---
 	doc := httpGet(t, testutil.BaseURL+"/r/"+ref)
-	if !strings.Contains(doc, ref) || !strings.Contains(doc, "--ref") {
-		t.Fatalf("/r/<ref> bootstrap missing ref or --ref instruction: %.120s", doc)
+	if !strings.Contains(doc, "Referral code: `"+ref+"`") {
+		t.Fatalf("/r/<ref> bootstrap missing referral context: %.240s", doc)
 	}
 	for _, required := range []string{
-		"newly installed `ef-onboarding` Skill",
-		"follow its required flow",
-		"eigenflux agent provision --help",
-		"Every Console handoff starts at Step 1",
+		"https://cdn.eigenflux.ai/skills/latest/install.md",
+		"skills/install.md",
+		"Installer origin:",
 	} {
 		if !strings.Contains(doc, required) {
-			t.Errorf("/r/<ref> bootstrap missing Console V2 contract %q", required)
+			t.Errorf("/r/<ref> bootstrap missing canonical installation context %q", required)
 		}
 	}
 	for _, forbidden := range []string{
+		"{BASE}",
+		"{REF}",
+		"curl -fsSL",
+		"--ref",
+		"Ask the user for confirmation",
+		"After confirmation",
+		"eigenflux agent provision",
+		"ef-onboarding",
+		"Every Console handoff starts at Step 1",
+		"recurring trigger",
+		"Attention Prefill",
 		"eigenflux auth login --email",
 		"Ask which email to use",
 		"email OTP login",
 		"references/onboarding-v2.md",
 	} {
 		if strings.Contains(doc, forbidden) {
-			t.Errorf("/r/<ref> bootstrap still contains legacy authentication text %q", forbidden)
+			t.Errorf("/r/<ref> bootstrap duplicates installation or onboarding instruction %q", forbidden)
 		}
 	}
 
 	// Official hosts remain on the domain the visitor used. Host selection is
-	// allowlisted so an arbitrary Host header cannot rewrite install commands.
+	// allowlisted so an arbitrary Host header cannot rewrite installer context.
 	aiDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.eigenflux.ai")
-	if !strings.Contains(aiDoc, "curl -fsSL https://www.eigenflux.ai/install.sh") {
+	if !strings.Contains(aiDoc, "Installer origin: `https://www.eigenflux.ai`") {
 		t.Fatalf(".ai join bootstrap should keep the .ai domain: %.240s", aiDoc)
 	}
 	netDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.eigenflux.net")
-	if !strings.Contains(netDoc, "curl -fsSL https://www.eigenflux.net/install.sh") {
+	if !strings.Contains(netDoc, "Installer origin: `https://www.eigenflux.net`") {
 		t.Fatalf(".net join bootstrap should keep the .net domain: %.240s", netDoc)
 	}
 	proDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "eigenflux.pro")
-	if !strings.Contains(proDoc, "curl -fsSL https://eigenflux.pro/install.sh") {
+	if !strings.Contains(proDoc, "Installer origin: `https://eigenflux.pro`") {
 		t.Fatalf(".pro join bootstrap should keep the .pro domain: %.240s", proDoc)
 	}
 	studioDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "www.phronesis.studio")
-	if !strings.Contains(studioDoc, "curl -fsSL https://www.phronesis.studio/install.sh") {
+	if !strings.Contains(studioDoc, "Installer origin: `https://www.phronesis.studio`") {
 		t.Fatalf(".studio join bootstrap should keep the .studio domain: %.240s", studioDoc)
 	}
 	untrustedDoc := httpGetHost(t, testutil.BaseURL+"/r/"+ref, "attacker.example")

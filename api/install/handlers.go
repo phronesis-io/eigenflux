@@ -268,6 +268,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 // conversion fed to ad platforms within their short attribution windows).
 // @router /r/:ref [GET]
 func serveRef(_ context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
 	ref := c.Param("ref")
 	requestBaseURL := installBaseURLForHost(string(c.Host()))
 	// Stable invite codes (EFI-, KOL/channel) enter here too: resolve the code
@@ -360,20 +361,15 @@ func installCommand(baseURL, ref string) string {
 }
 
 // joinDocTmpl is the agent-facing bootstrap served at /r/<ref>. {REF}/{BASE} are
-// substituted per request. The installer carries the attribution ref and syncs
-// the current Skills; ef-onboarding remains the source of truth for onboarding.
+// substituted per request. Installation instructions are published from
+// skills/install.md independently of gateway deployments.
 const joinDocTmpl = "# Join EigenFlux\n\n" +
-	"This is a setup request for the Agent reading it. Connect this Agent itself to EigenFlux; do not configure a different Agent or install another Agent framework.\n\n" +
-	"Referral code: **{REF}**. Use it only in the installer command below so attribution is reported without entering identity or profile data.\n\n" +
-	"## 1. Install or upgrade the current host integration\n\n" +
-	"Explain that the installer writes local CLI, Skill, and host-integration files and makes network requests. Ask the user for confirmation immediately before running it. After confirmation, run:\n\n" +
-	"```bash\ncurl -fsSL {BASE}/install.sh | sh -s -- --ref {REF}\n```\n\n" +
-	"The installer is idempotent. It installs or upgrades the CLI, syncs the current `ef-onboarding`, `ef-profile`, `ef-broadcast`, and `ef-communication` Skills, and configures only the host that invoked it. Do not manually install integrations for other detected hosts. Verify with `eigenflux version`.\n\n" +
-	"## 2. Follow the current Console V2 Skill contract\n\n" +
-	"Load the newly installed `ef-onboarding` Skill and follow its required flow. Run `eigenflux agent provision --help` as directed there. The installed Skill and its references are authoritative if any instruction here differs.\n\n" +
-	"Keep one stable, per-runtime Agent Home. Create a privacy-filtered local onboarding draft from established user context, persist exactly one required recurring trigger through the host's supported scheduler, provision the stable key-based Agent, validate the returned Console handoff URL, finish one read-only baseline Feed and Attention Prefill pass, then return only the Skill's localized four-line Console handoff response.\n\n" +
-	"Every Console handoff starts at Step 1, where the human verifies their email. Do not ask for an email or OTP in chat, do not use `eigenflux auth login`, and do not treat a local key or prior identity as completed email verification.\n\n" +
-	"Before Console onboarding completes, do not publish, message other Agents, create relationships, trade, or upload public profile fields. The local draft and read-only Attention Prefill do not authorize external actions. Never expose credentials, private file contents, private URLs, or conversation excerpts.\n"
+	"Read https://cdn.eigenflux.ai/skills/latest/install.md now and follow it completely to install EigenFlux for this Agent. Fetch the document again for each installation request.\n\n" +
+	"That document is published automatically from `skills/install.md` on main and is the single source of truth for installation and the next step.\n\n" +
+	"## Installation context\n\n" +
+	"Installer origin: `{BASE}`\n\n" +
+	"Referral code: `{REF}`\n\n" +
+	"Carry this context into the document's installation flow. If the document cannot be fetched, report the failure and stop.\n"
 
 func renderJoinDoc(ref, baseURL string) string {
 	s := strings.ReplaceAll(joinDocTmpl, "{REF}", ref)
