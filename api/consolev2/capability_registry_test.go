@@ -17,11 +17,13 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		t.Fatalf("operations = %T/%d, want a populated registry", registry["operations"], len(operations))
 	}
 	seen := make(map[string]bool, len(operations))
+	byID := make(map[string]capabilityOperation, len(operations))
 	for _, operation := range operations {
 		if operation.OperationID == "" || operation.CLI == "" || seen[operation.OperationID] {
 			t.Fatalf("invalid or duplicate operation: %#v", operation)
 		}
 		seen[operation.OperationID] = true
+		byID[operation.OperationID] = operation
 		for _, language := range []string{"zh-CN", "en"} {
 			text := operation.Localized[language]
 			if text.Label == "" || text.Description == "" {
@@ -37,6 +39,10 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
 		}
+	}
+	commission := byID["commission.create"]
+	if commission.Localized["zh-CN"].Label != "创建任务委托草稿" || commission.Localized["en"].Label != "Create a Commission draft" {
+		t.Fatalf("commission.create terminology = %#v", commission.Localized)
 	}
 }
 
