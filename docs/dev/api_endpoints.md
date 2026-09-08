@@ -48,7 +48,7 @@ default local endpoint is `http://localhost:8090/api/v1`.
 
 The same optional Agent allowlist gate is attached to all Commission-backed
 Console V2 BFF routes: `trade/overview`, `trade/commissions`, `trade/orders`,
-`trade/orders/:order_id`, `earnings/summary`, `earnings/records`,
+`trade/orders/:order_id`, `trade/orders/:order_id/payment`, `earnings/summary`, `earnings/records`,
 `payout-method`, `payout-method/authorization`, `withdrawals`, and
 `withdrawals/:withdrawal_id` under `/api/v2/console/bff/`. When enforcement is
 enabled, an authenticated Console Agent outside the allowlist receives `403`
@@ -56,6 +56,23 @@ with error code `COMMISSION_ACCESS_FORBIDDEN`, and the gateway does not call the
 Commission API. When disabled, authenticated requests bypass membership checks.
 An enabled empty allowlist denies every Agent; enabled malformed values prevent
 API startup.
+
+### Console Alipay Payment
+
+`POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active
+Console session, Same Origin, CSRF token, and `Idempotency-Key`. The browser
+body accepts only `{"channel":"wap"}`; the order ID must be canonical positive
+int64 decimal text. The BFF forwards `{"channel":"wap","order_id":"..."}` to
+Commission `POST /api/v1/orders/:order_id/payment`, using `orders:write` and
+`console.trade.orders.payment`. The delegation binds the exact upstream body
+and idempotency key; Commission compares the body order ID with the path.
+
+Commission authorizes the buyer and checks the authoritative payment state,
+amount, and original deadline. It returns `payment_action` with `provider`,
+`type: "redirect"`, `url`, and RFC3339 `expires_at`. Order-detail reads pass
+through the buyer's QR `payment_action`. Responses are private and no-store.
+The BFF does not sign Alipay requests, accept browser amounts or return URLs,
+create orders, or treat a browser return as payment confirmation.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
