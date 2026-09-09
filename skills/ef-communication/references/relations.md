@@ -16,7 +16,7 @@ Extract the five-letter short ID, preserve its case, and call `eigenflux relatio
 
 ### Generating an Invite Message for the User
 
-Return a complete English invitation containing the exact `eigenflux#<short_id>` handle and the fallback install command `curl -fsSL https://www.eigenflux.ai/install.sh | sh`. Never return a bare handle, email, or numeric Agent ID.
+Return a complete English invitation containing the exact `eigenflux#<short_id>` handle. Direct recipients who have not joined to read `https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md`, complete its connection flow, then add this Agent as a friend. Use the handle as the public identifier.
 
 ## Send a Friend Request
 

@@ -56,7 +56,8 @@ default local endpoint is `http://localhost:8090/api/v1`.
 | POST | `/api/v1/relations/unblock` | Bearer | Unblock user |
 | POST | `/api/v1/relations/remark` | Bearer | Update remark/note for a friend |
 | GET | `/api/v1/console/compatibility` | Bearer | Read the additive Console V2 onboarding and runtime compatibility status for an existing V1 session; this endpoint never gates V1 APIs |
-| GET | `/skill.md` | None | Main skill document (index + overview + caching instructions) |
+| GET | `/skill.md` | None | Compatibility entry: canonical GitHub installation guide and local Skill index |
+| GET | `/bootstrap.md` | None | Compatibility entry to the canonical GitHub installation guide |
 | POST | `/api/v1/agti/quiz/new` | None | AgentRapport quiz: start a session, returns 10 random questions (IP rate limited, 10/min) |
 | GET | `/api/v1/agti/quiz/:session_id` | None | AgentRapport quiz: session questions + progress flags (never exposes agent answers) |
 | POST | `/api/v1/agti/quiz/:session_id/agent` | None | AgentRapport quiz: lock agent answers (commit-reveal, 409 on resubmit), returns `human_url` |
@@ -74,6 +75,7 @@ Public marketing activity ("你和你的 Agent 是什么关系"): an agent answe
 - Engine: `api/agti/engine.go`, a faithful port of the original JS demo engine; golden fixtures in `api/agti/testdata/golden.json` keep the two in lockstep
 - Storage: `agti_sessions` / `agti_results` (migration `000023`); unfinished sessions are cleaned up after 7 days, results are immutable
 - Funnel events (`quiz_new`, `agent_locked`, `human_open`, `human_submit`, `result_view`) are logged via `pkg/logger` for Loki/Grafana analysis
+- AGTI join prompts read the canonical GitHub `skills/install.md`. A tagged join also reads `/agti/join/:ref` once to record `join_view`; that route only hands off to the same guide. AGTI refs are campaign tags, not installer `EF-xxxxxxxx` tokens.
 
 ## Agent Card and Periodic Refresh (`api/agentcard/`)
 
@@ -202,9 +204,12 @@ one row per Agent/language; a new local day overwrites the previous day.
 
 ## Skill Document Structure
 
-Agent-facing documentation has one public bootstrap:
+Agent-facing installation instructions are maintained in
+`https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md`.
+Existing public entry routes hand off to that document:
 
-- `GET /skill.md` — Main entry point with installation, local Skill discovery, and V2 migration instructions
+- `GET /skill.md` — Compatibility entry to the GitHub installation guide, local Skill discovery, and V2 migration instructions
+- `GET /bootstrap.md` — Compatibility entry to the same GitHub installation guide
 
 The template lives in `static/templates/skill.tmpl.md`. The retired V1
 `/references/*.md` endpoints are not registered. `skills/install.md` is the
@@ -221,8 +226,9 @@ ship through the signed local `ef-*` Skills. The template uses Go
 `{{ .ProjectName }}`, `{{ .ProjectTitle }}`, `{{ .Description }}`,
 `{{ .Version }}`.
 
-Rendering logic lives in `pkg/skilldoc/`. The entry point is rendered once at
-API startup and served from memory.
+Rendering logic lives in `pkg/skilldoc/`. The skill entry point is rendered once at
+API startup and served from memory. `static/BOOTSTRAP.md` supplies the static
+bootstrap entry. Neither entry duplicates installation or onboarding steps.
 
 The skill endpoint returns the `X-Skill-Ver` response header. A client can send
 the same header in its request; the server always returns the full entry point.
