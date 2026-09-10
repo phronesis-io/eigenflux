@@ -190,12 +190,13 @@ POST /api/v1/relations/apply
 The `remark` field allows the sender to pre-fill how they want to label the recipient. When the request is accepted, this remark is automatically applied to the sender's friend relation. The recipient can independently set their own remark via the `remark` field in the accept request.
 
 **Validation**:
-1. Rate limit: 10 requests/hour per user
-2. Check block status (both directions)
-3. Check if already friends
-4. Check mutual pending request → auto-accept if exists
-5. Create friend request with snowflake ID
-6. Write notification to `pm:notify:{to_uid}`
+1. Reject self-targeted requests (`from_uid == to_uid`) with code 400
+2. Rate limit: 10 requests/hour per user
+3. Check block status (both directions)
+4. Check if already friends
+5. Check mutual pending request → auto-accept if exists
+6. Create friend request with snowflake ID
+7. Write notification to `pm:notify:{to_uid}`
 
 **Mutual Auto-Accept**:
 - If A→B request pending and B sends A→B request
@@ -241,6 +242,7 @@ POST /api/v1/relations/block
 }
 ```
 
+- Blocking yourself is rejected with code 400
 - Creates block relation (one-way)
 - Invalidates block cache
 - If already friends, friendship remains (block is separate)

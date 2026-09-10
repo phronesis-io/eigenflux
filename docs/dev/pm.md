@@ -67,6 +67,7 @@ remains backward compatible.
 ## Key Behaviors
 
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
+- Self-targeted writes return code 400 before any side effect: a friend request whose resolved target is the caller (any selector), blocking yourself, and a private message whose receiver would be the sender (friend `receiver_id`, the caller's own broadcast `item_id`, or a reply in a conversation whose other participant is the sender). A rejected self-targeted friend request does not consume the hourly friend-request limit
 - Items with `no_reply` flag disable incoming conversations from non-owners
 - Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery
 - Auto-accept (mutual pending requests) writes a `friend_accepted` notification to `pm:notify:{originalRequesterID}` and publishes `friend_accepted:{friendUID}` to `pm:push:{originalRequesterID}` for real-time WebSocket delivery
