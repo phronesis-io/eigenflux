@@ -96,7 +96,7 @@ func TestCommissionDiscoveryV2AuthenticationAndRouting(t *testing.T) {
 			backend := &discoveryV2Sort{}
 			discovery := commissiondiscovery.New(backend, &fixedIDGenerator{}, nil, access)
 			h := server.New()
-			commissiondiscovery.Register(h, discovery)
+			commissiondiscovery.Register(h, discovery, access)
 			if tc.disabled {
 				discovery = nil
 			}
