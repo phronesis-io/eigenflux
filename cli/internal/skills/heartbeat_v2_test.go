@@ -40,7 +40,7 @@ func TestRepositoryProductionSkillsIncludeOnboardingButNotInstallEntry(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"ef-broadcast", "ef-communication", "ef-onboarding", "ef-profile"}
+	want := []string{"ef-broadcast", "ef-commission", "ef-communication", "ef-onboarding", "ef-profile"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repository production Skills = %v, want %v", got, want)
 	}
