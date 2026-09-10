@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"eigenflux_server/pkg/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,8 +11,14 @@ import (
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
+	itemdal "eigenflux_server/rpc/item/dal"
 	"eigenflux_server/rpc/pm/dal"
 )
+
+// ErrItemNotAvailable rejects item-originated sends whose broadcast was deleted
+// by its author or discarded before distribution. Existing conversations
+// continue through conv_id.
+var ErrItemNotAvailable = errors.New("ITEM_NOT_AVAILABLE: this broadcast is deleted or not distributed and cannot open a conversation")
 
 type Validator struct {
 	db  *gorm.DB
@@ -62,6 +69,24 @@ func (v *Validator) GetItemOwner(ctx context.Context, itemID int64) (int64, erro
 	}
 
 	return result.(int64), nil
+}
+
+// ValidateItemAvailable rejects broadcasts that can no longer open a
+// conversation: deleted by the author or discarded before distribution. The
+// status is read from the database on every call so a retraction takes effect
+// immediately. In-flight items (pending, processing, failed) stay reachable so
+// replies that race the processing pipeline, such as the official reply to a
+// member's first broadcast, still land.
+func (v *Validator) ValidateItemAvailable(ctx context.Context, itemID int64) error {
+	status, err := dal.GetItemStatus(v.db.WithContext(ctx), itemID)
+	if err != nil {
+		return fmt.Errorf("failed to check item status: %w", err)
+	}
+	switch status {
+	case itemdal.StatusDeleted, itemdal.StatusDiscarded:
+		return ErrItemNotAvailable
+	}
+	return nil
 }
 
 // ValidateNoReply checks if item has expected_response = 'no_reply'

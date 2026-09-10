@@ -164,6 +164,19 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 		}, nil
 	}
 
+	// A deleted or undistributed broadcast is no longer an entry point for contact.
+	if err := s.validator.ValidateItemAvailable(ctx, itemID); err != nil {
+		if errors.Is(err, validator.ErrItemNotAvailable) {
+			return &pm.SendPMResp{
+				BaseResp: &base.BaseResp{Code: 404, Msg: err.Error()},
+			}, nil
+		}
+		logger.Ctx(ctx).Error("SendPM item availability check failed", "senderID", req.SenderId, "itemID", itemID, "err", err)
+		return &pm.SendPMResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to check item availability"},
+		}, nil
+	}
+
 	// Block check - silent success if blocked
 	blocked, _ := relations.IsBlockedCached(ctx, db.RDB, db.DB, receiverID, req.SenderId)
 	if blocked {
