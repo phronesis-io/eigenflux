@@ -34,6 +34,18 @@ func TestMain(m *testing.M) {
 // Child processes keep configuration and automatic skill refreshes inside testHome.
 func runCLI(t *testing.T, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
+	bin := resolveTestCLI(t)
+	cmd := exec.Command(bin, args...)
+	cmd.Env = cliTestEnv()
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	runErr := cmd.Run()
+	return outBuf.String(), errBuf.String(), runErr
+}
+
+func resolveTestCLI(t *testing.T) string {
+	t.Helper()
 	bin := os.Getenv("EIGENFLUX_TEST_CLI")
 	if bin == "" {
 		var lookErr error
@@ -42,13 +54,7 @@ func runCLI(t *testing.T, args ...string) (stdout string, stderr string, err err
 			t.Fatalf("eigenflux binary not found in PATH: %v", lookErr)
 		}
 	}
-	cmd := exec.Command(bin, args...)
-	cmd.Env = cliTestEnv()
-	var outBuf, errBuf strings.Builder
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	runErr := cmd.Run()
-	return outBuf.String(), errBuf.String(), runErr
+	return bin
 }
 
 // A separate EIGENFLUX_HOME alone does not isolate the feed-poll skill sync:
@@ -593,7 +599,8 @@ func TestStreamReceivesPush(t *testing.T) {
 	t.Cleanup(func() { cleanMockItem(t, itemID) })
 
 	// Start `eigenflux stream` as a background process.
-	bin, _ := exec.LookPath("eigenflux")
+	bin := resolveTestCLI(t)
+	t.Logf("stream CLI binary: %s", bin)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
