@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2305,4 +2306,216 @@ func TestBroadcastConv_UnfriendReactivatesIceBreak(t *testing.T) {
 		t.Fatalf("Expected 429 after unfriend (ice-break reactivated), got code=%d msg=%v", code, resp["msg"])
 	}
 	t.Logf("Ice-break correctly reactivated after unfriend")
+}
+
+// befriend sends a friend request from agentA to agentB and accepts it as agentB.
+func befriend(t *testing.T, agentA, agentB map[string]interface{}) {
+	t.Helper()
+	applyResp := testutil.DoPost(t, "/api/v1/relations/apply", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(applyResp["code"].(float64)); code != 0 {
+		t.Fatalf("friend request failed: code=%d msg=%v", code, applyResp["msg"])
+	}
+	requestID := applyResp["data"].(map[string]interface{})["request_id"].(string)
+	acceptResp := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": requestID,
+		"action":     1,
+	}, agentB["token"].(string))
+	if code := int(acceptResp["code"].(float64)); code != 0 {
+		t.Fatalf("accept failed: code=%d msg=%v", code, acceptResp["msg"])
+	}
+}
+
+func countFriendRows(t *testing.T, uidA, uidB int64) int64 {
+	t.Helper()
+	var count int64
+	err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM user_relations WHERE ((from_uid = $1 AND to_uid = $2) OR (from_uid = $2 AND to_uid = $1)) AND rel_type = 1",
+		uidA, uidB,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count friend rows: %v", err)
+	}
+	return count
+}
+
+// Issue #278: unfriending an agent who is not a friend is a client error with
+// a fixed message, not a 500 carrying the DAL's internal row-count text.
+func TestUnfriend_NotFriends(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"unfriend_nf_a@test.com", "unfriend_nf_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "UnfriendNF A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "UnfriendNF B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/unfriend", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(resp["code"].(float64)); code != 400 {
+		t.Fatalf("expected code=400 for unfriend of non-friend, got code=%d msg=%v", code, resp["msg"])
+	}
+	if msg := resp["msg"]; msg != "not friends" {
+		t.Fatalf("expected msg=%q, got %v", "not friends", msg)
+	}
+}
+
+// Unfriending yourself has no relation to delete and is rejected the same way.
+// The general self-target guard for relation endpoints is tracked in #283.
+func TestUnfriend_Self(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"unfriend_self_a@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "UnfriendSelf A", "bio")
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/unfriend", map[string]string{
+		"to_uid": agentA["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(resp["code"].(float64)); code != 400 {
+		t.Fatalf("expected code=400 for self unfriend, got code=%d msg=%v", code, resp["msg"])
+	}
+	if msg := resp["msg"]; msg != "not friends" {
+		t.Fatalf("expected msg=%q, got %v", "not friends", msg)
+	}
+}
+
+func TestUnblockUser_NotBlocked(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"unblock_nb_a@test.com", "unblock_nb_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "UnblockNB A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "UnblockNB B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	resp := testutil.DoPost(t, "/api/v1/relations/unblock", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(resp["code"].(float64)); code != 400 {
+		t.Fatalf("expected code=400 for unblock without block, got code=%d msg=%v", code, resp["msg"])
+	}
+	if msg := resp["msg"]; msg != "not blocked" {
+		t.Fatalf("expected msg=%q, got %v", "not blocked", msg)
+	}
+}
+
+// Blocking twice must not surface the uq_relation constraint violation; the
+// second call is a fixed 409 and the original block row (and remark) is kept.
+func TestBlockUser_TwiceReturnsAlreadyBlocked(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"block_twice_a@test.com", "block_twice_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "BlockTwice A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "BlockTwice B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	first := testutil.DoPost(t, "/api/v1/relations/block", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+		"remark": "first",
+	}, agentA["token"].(string))
+	if code := int(first["code"].(float64)); code != 0 {
+		t.Fatalf("first block failed: code=%d msg=%v", code, first["msg"])
+	}
+
+	second := testutil.DoPost(t, "/api/v1/relations/block", map[string]interface{}{
+		"to_uid": agentB["agent_id"].(string),
+		"remark": "second",
+	}, agentA["token"].(string))
+	if code := int(second["code"].(float64)); code != 409 {
+		t.Fatalf("expected code=409 for repeated block, got code=%d msg=%v", code, second["msg"])
+	}
+	msg, _ := second["msg"].(string)
+	if msg != "already blocked" {
+		t.Fatalf("expected msg=%q, got %q", "already blocked", msg)
+	}
+	if strings.Contains(msg, "SQLSTATE") || strings.Contains(msg, "uq_relation") {
+		t.Fatalf("database error text leaked to client: %q", msg)
+	}
+
+	var count int64
+	var remark string
+	err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*), MIN(remark) FROM user_relations WHERE from_uid = $1 AND to_uid = $2 AND rel_type = 2",
+		uidA, uidB,
+	).Scan(&count, &remark)
+	if err != nil {
+		t.Fatalf("failed to query block rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 block row, got %d", count)
+	}
+	if remark != "first" {
+		t.Fatalf("expected original remark to be kept, got %q", remark)
+	}
+}
+
+// Blocking removes the friendship on purpose (TestBlockUser_RemovesFriendship)
+// and unblocking does not restore it, so a later unfriend finds nothing to
+// delete and is a client error rather than a 500.
+func TestUnfriend_AfterBlockUnblockCycle(t *testing.T) {
+	testutil.WaitForAPI(t)
+	emails := []string{"unfriend_cycle_a@test.com", "unfriend_cycle_b@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	agentA := testutil.RegisterAgent(t, emails[0], "UnfriendCycle A", "bio")
+	agentB := testutil.RegisterAgent(t, emails[1], "UnfriendCycle B", "bio")
+
+	uidA, _ := strconv.ParseInt(agentA["agent_id"].(string), 10, 64)
+	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
+	defer cleanRelationsData(t, uidA, uidB)
+
+	befriend(t, agentA, agentB)
+	if n := countFriendRows(t, uidA, uidB); n != 2 {
+		t.Fatalf("expected 2 friend rows after accept, got %d", n)
+	}
+
+	blockResp := testutil.DoPost(t, "/api/v1/relations/block", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(blockResp["code"].(float64)); code != 0 {
+		t.Fatalf("block failed: code=%d msg=%v", code, blockResp["msg"])
+	}
+	unblockResp := testutil.DoPost(t, "/api/v1/relations/unblock", map[string]string{
+		"to_uid": agentB["agent_id"].(string),
+	}, agentA["token"].(string))
+	if code := int(unblockResp["code"].(float64)); code != 0 {
+		t.Fatalf("unblock failed: code=%d msg=%v", code, unblockResp["msg"])
+	}
+	if n := countFriendRows(t, uidA, uidB); n != 0 {
+		t.Fatalf("expected friendship to stay removed after unblock, got %d rows", n)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		caller map[string]interface{}
+		target map[string]interface{}
+	}{
+		{"blocker unfriends", agentA, agentB},
+		{"blocked side unfriends", agentB, agentA},
+	} {
+		resp := testutil.DoPost(t, "/api/v1/relations/unfriend", map[string]string{
+			"to_uid": tc.target["agent_id"].(string),
+		}, tc.caller["token"].(string))
+		if code := int(resp["code"].(float64)); code != 400 {
+			t.Fatalf("%s: expected code=400 after block/unblock cycle, got code=%d msg=%v", tc.name, code, resp["msg"])
+		}
+		if msg := resp["msg"]; msg != "not friends" {
+			t.Fatalf("%s: expected msg=%q, got %v", tc.name, "not friends", msg)
+		}
+	}
 }
