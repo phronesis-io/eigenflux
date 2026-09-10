@@ -304,53 +304,37 @@ func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int
 	return requests, false, nil
 }
 
-// officialFriendIDs returns the subset of an agent's friends that are ops-flagged
-// official accounts (agents.is_official) — normally just the singleton new-user
-// guide. Used to pin the official account to the top of the relations list.
-func officialFriendIDs(db *gorm.DB, agentID int64) ([]int64, error) {
-	var ids []int64
-	err := db.Model(&UserRelation{}).
-		Joins("JOIN agents a ON a.agent_id = user_relations.to_uid").
-		Where("user_relations.from_uid = ? AND user_relations.rel_type = ? AND a.is_official",
-			agentID, RelTypeFriend).
-		Pluck("user_relations.to_uid", &ids).Error
-	if err != nil {
-		return nil, err
-	}
-	return ids, nil
-}
-
-// ListFriends retrieves friends with names and pagination. Official accounts are
-// pinned to the very top of the first page (cursor == 0) and excluded from the
-// normal id-DESC body on every page, so the official account always leads the
-// list and never appears twice across pages.
+// ListFriends pages the complete (official first, relation ID descending) order.
+// The integer cursor is the last relation ID, whose official status determines
+// whether the next page continues the official group or the ordinary group.
 func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend, error) {
-	official, err := officialFriendIDs(db, agentID)
-	if err != nil {
-		return nil, err
+	query := db.Table("user_relations r").
+		Select("r.*").
+		Joins("LEFT JOIN agents a ON a.agent_id = r.to_uid").
+		Where("r.from_uid = ? AND r.rel_type = ?", agentID, RelTypeFriend)
+	if cursor > 0 {
+		var officialCursor bool
+		// Scope the anchor to this user's current friendships. Missing anchors
+		// retain the ordinary ID-cursor behavior, including after unfriend.
+		if err := db.Table("user_relations r").
+			Select("COALESCE(a.is_official, FALSE)").
+			Joins("LEFT JOIN agents a ON a.agent_id = r.to_uid").
+			Where("r.id = ? AND r.from_uid = ? AND r.rel_type = ?", cursor, agentID, RelTypeFriend).
+			Scan(&officialCursor).Error; err != nil {
+			return nil, err
+		}
+		if officialCursor {
+			// Ordinary IDs may be newer than the last pinned official relation.
+			query = query.Where("NOT COALESCE(a.is_official, FALSE) OR r.id < ?", cursor)
+		} else {
+			query = query.Where("NOT COALESCE(a.is_official, FALSE) AND r.id < ?", cursor)
+		}
 	}
 
 	var relations []UserRelation
-	query := db.Where("from_uid = ? AND rel_type = ?", agentID, RelTypeFriend)
-	if len(official) > 0 {
-		query = query.Where("to_uid NOT IN ?", official)
-	}
-	if cursor > 0 {
-		query = query.Where("id < ?", cursor)
-	}
-	if err := query.Order("id DESC").Limit(limit).Find(&relations).Error; err != nil {
+	if err := query.Order("COALESCE(a.is_official, FALSE) DESC, r.id DESC").
+		Limit(limit).Find(&relations).Error; err != nil {
 		return nil, err
-	}
-
-	// First page: prepend the official account(s) ahead of the id-DESC body.
-	if cursor == 0 && len(official) > 0 {
-		var pinned []UserRelation
-		if err := db.Where("from_uid = ? AND rel_type = ? AND to_uid IN ?",
-			agentID, RelTypeFriend, official).
-			Order("id DESC").Find(&pinned).Error; err != nil {
-			return nil, err
-		}
-		relations = append(pinned, relations...)
 	}
 
 	if len(relations) == 0 {

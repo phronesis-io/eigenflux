@@ -16,7 +16,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 | `SendFriendRequest` | Send friend request |
 | `HandleFriendRequest` | Accept/reject/cancel friend requests |
 | `ListFriendRequests` | List pending friend requests (incoming/outgoing) with cursor pagination and `has_more` flag (LIMIT+1 probe) |
-| `ListFriends` | List friends |
+| `ListFriends` | List friends with official accounts first, then relation ID descending within each group; `limit` bounds the complete page and the integer cursor continues across both groups |
 | `UpdateFriendRemark` | Update remark/note for a friend |
 | `Unfriend` | Remove friend relationship |
 | `BlockUser` / `UnblockUser` | Block/unblock another user |
