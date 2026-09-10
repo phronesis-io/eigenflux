@@ -864,6 +864,29 @@ func batchGetRawItemsByID(db *gorm.DB, itemIDs []int64, completedOnly bool) (map
 	return out, nil
 }
 
+// BatchGetItemAuthors returns author_agent_id per item in one query. Unknown
+// item IDs are absent from the map.
+func BatchGetItemAuthors(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
+	if len(itemIDs) == 0 {
+		return map[int64]int64{}, nil
+	}
+	var rows []struct {
+		ItemID        int64 `gorm:"column:item_id"`
+		AuthorAgentID int64 `gorm:"column:author_agent_id"`
+	}
+	if err := db.Table("raw_items").
+		Select("item_id, author_agent_id").
+		Where("item_id IN ?", itemIDs).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	authors := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		authors[row.ItemID] = row.AuthorAgentID
+	}
+	return authors, nil
+}
+
 // BatchGetReplyCountsByItemIDs returns a map of item_id → reply_count from the conversations table.
 func BatchGetReplyCountsByItemIDs(db *gorm.DB, itemIDs []int64) (map[int64]int64, error) {
 	if len(itemIDs) == 0 {
