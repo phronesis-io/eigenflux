@@ -203,6 +203,68 @@ var commissionOfflineCmd = &cobra.Command{
 	},
 }
 
+var commissionSaveCmd = &cobra.Command{
+	Use:   "save <commission-id>",
+	Short: "Save another agent's commission for later",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+		resp, err := newCommissionClient().Put(path, nil)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+var commissionUnsaveCmd = &cobra.Command{
+	Use:   "unsave <commission-id>",
+	Short: "Remove a commission from saved commissions",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+		resp, err := newCommissionClient().Delete(path)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+var commissionSavedCmd = &cobra.Command{
+	Use:     "saved",
+	Aliases: []string{"favorites"},
+	Short:   "List saved commissions",
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		cursor, _ := cmd.Flags().GetInt64("cursor")
+		limit, _ := cmd.Flags().GetInt("limit")
+		if cursor < 0 {
+			return fmt.Errorf("--cursor must not be negative")
+		}
+		if limit < 1 || limit > 100 {
+			return fmt.Errorf("--limit must be between 1 and 100")
+		}
+		params := map[string]string{"limit": strconv.Itoa(limit)}
+		if cursor > 0 {
+			params["cursor"] = strconv.FormatInt(cursor, 10)
+		}
+		resp, err := newCommissionClient().Get("/commissions/saved", params)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
 func discoveryParams(cmd *cobra.Command, includeQuery bool) (map[string]string, error) {
 	limit, _ := cmd.Flags().GetInt("limit")
 	if limit < 1 || limit > 100 {
@@ -212,10 +274,21 @@ func discoveryParams(cmd *cobra.Command, includeQuery bool) (map[string]string, 
 	if includeQuery {
 		query, _ := cmd.Flags().GetString("query")
 		query = strings.TrimSpace(query)
-		if query == "" {
-			return nil, fmt.Errorf("--query is required")
+		commissionIDRaw, _ := cmd.Flags().GetString("commission-id")
+		commissionIDRaw = strings.TrimSpace(commissionIDRaw)
+		if commissionIDRaw != "" {
+			commissionID, err := strconv.ParseInt(commissionIDRaw, 10, 64)
+			if err != nil || commissionID <= 0 {
+				return nil, fmt.Errorf("--commission-id must be a positive integer")
+			}
+			params["commission_id"] = strconv.FormatInt(commissionID, 10)
 		}
-		params["query"] = query
+		if (query == "") == (commissionIDRaw == "") {
+			return nil, fmt.Errorf("exactly one of --query or --commission-id is required")
+		}
+		if query != "" {
+			params["query"] = query
+		}
 	}
 	for _, name := range []string{"min-price-fen", "max-price-fen", "min-promised-delivery-ms", "max-promised-delivery-ms"} {
 		value, _ := cmd.Flags().GetInt64(name)
@@ -228,7 +301,8 @@ func discoveryParams(cmd *cobra.Command, includeQuery bool) (map[string]string, 
 
 func addDiscoveryFlags(command *cobra.Command, query bool) {
 	if query {
-		command.Flags().String("query", "", "search query")
+		command.Flags().String("query", "", "search query (mutually exclusive with --commission-id)")
+		command.Flags().String("commission-id", "", "exact Commission ID (mutually exclusive with --query)")
 	}
 	command.Flags().Int("limit", 20, "maximum candidates (1-100)")
 	command.Flags().Int64("min-price-fen", -1, "minimum price in minor currency units")
@@ -303,12 +377,14 @@ func init() {
 	addIdempotencyFlag(commissionCreateCmd)
 	commissionListCmd.Flags().Int64("cursor", 0, "pagination cursor")
 	commissionListCmd.Flags().Int("limit", 20, "maximum commissions")
+	commissionSavedCmd.Flags().Int64("cursor", 0, "pagination cursor")
+	commissionSavedCmd.Flags().Int("limit", 20, "maximum saved commissions (1-100)")
 	addCommissionInputFlags(commissionUpdateCmd)
 	commissionUpdateCmd.Flags().Int64("expected-version", 0, "expected draft version")
 	addIdempotencyFlag(commissionUpdateCmd)
 	addIdempotencyFlag(commissionOfflineCmd)
 	commissionCmd.AddCommand(commissionCreateCmd, commissionListCmd, commissionGetCmd, commissionUpdateCmd,
 		commissionPublishCmd, commissionOfflineCmd, commissionSearchCmd, commissionRecommendCmd,
-		commissionReviewsCmd, commissionStatisticsCmd)
+		commissionReviewsCmd, commissionStatisticsCmd, commissionSaveCmd, commissionUnsaveCmd, commissionSavedCmd)
 	rootCmd.AddCommand(commissionCmd)
 }
