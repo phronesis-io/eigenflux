@@ -4,12 +4,114 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"github.com/spf13/cobra"
 )
+
+func setCommissionInputFlags(t *testing.T, command *cobra.Command, fulfillmentSkill string) {
+	t.Helper()
+	values := map[string]string{
+		"title":                  "Repository security review",
+		"capability-description": "Review a bounded repository revision",
+		"request-spec-text":      "Provide the revision and repository files",
+		"delivery-spec-text":     "Write the report to outputs/report.md",
+		"tags":                   "security,code-review",
+		"price-fen":              "1000",
+		"currency":               "CNY",
+		"promised-delivery-ms":   "86400000",
+		"request-spec-schema":    `{"type":"object"}`,
+		"delivery-spec-schema":   `{"type":"object"}`,
+		"fulfillment-skill":      fulfillmentSkill,
+	}
+	for name, value := range values {
+		if err := command.Flags().Set(name, value); err != nil {
+			t.Fatalf("set --%s: %v", name, err)
+		}
+		name := name
+		t.Cleanup(func() { _ = command.Flags().Set(name, command.Flags().Lookup(name).DefValue) })
+	}
+}
+
+func TestCommissionCreateAndUpdateSendFulfillmentSkill(t *testing.T) {
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type request struct {
+		Method           string
+		Path             string
+		FulfillmentSkill string
+	}
+	requests := make([]request, 0, 2)
+	commission := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input struct {
+				FulfillmentSkill string `json:"fulfillment_skill"`
+			} `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, request{r.Method, r.URL.Path, body.Input.FulfillmentSkill})
+		writeTestEnvelope(w)
+	}))
+	defer commission.Close()
+	if err := cfg.UpdateServerWithCommission(active.Name, "https://gateway.example.com", "", commission.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveCredentials(active.Name, &auth.Credentials{AgentID: "42", AccessToken: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
+
+	setCommissionInputFlags(t, commissionCreateCmd, "repository-security-review")
+	if err := commissionCreateCmd.RunE(commissionCreateCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	setCommissionInputFlags(t, commissionUpdateCmd, "repository-security-review-v2")
+	if err := commissionUpdateCmd.Flags().Set("expected-version", "3"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = commissionUpdateCmd.Flags().Set("expected-version", "0") })
+	if err := commissionUpdateCmd.RunE(commissionUpdateCmd, []string{"77"}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []request{
+		{http.MethodPost, "/api/v1/commissions", "repository-security-review"},
+		{http.MethodPut, "/api/v1/commissions/77/draft", "repository-security-review-v2"},
+	}
+	if len(requests) != len(want) {
+		t.Fatalf("requests = %#v", requests)
+	}
+	for i := range want {
+		if requests[i] != want[i] {
+			t.Errorf("request %d = %#v, want %#v", i, requests[i], want[i])
+		}
+	}
+}
+
+func TestCommissionInputRejectsInvalidFulfillmentSkill(t *testing.T) {
+	for _, skill := range []string{"", "Repository-Review", "repository/review", "repository_review", strings.Repeat("a", 65)} {
+		t.Run(skill, func(t *testing.T) {
+			setCommissionInputFlags(t, commissionCreateCmd, skill)
+			_, err := commissionInput(commissionCreateCmd)
+			if err == nil || !strings.Contains(err.Error(), "fulfillment skill") {
+				t.Fatalf("commissionInput fulfillment skill %q error = %v", skill, err)
+			}
+		})
+	}
+}
 
 func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 	gatewayCalls := 0
