@@ -8,7 +8,7 @@ import (
 
 func TestLoadFileAndHourlyLimit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "limits.yaml")
-	if err := os.WriteFile(path, []byte("default_hourly_limit: 10\noverrides:\n  - agent_id: 101\n    hourly_limit: 200\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("default_hourly_limit: 20\noverrides:\n  - agent_id: 101\n    hourly_limit: 200\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -19,8 +19,8 @@ func TestLoadFileAndHourlyLimit(t *testing.T) {
 	if got := cfg.HourlyLimit(101); got != 200 {
 		t.Fatalf("HourlyLimit(101) = %d, want 200", got)
 	}
-	if got := cfg.HourlyLimit(202); got != 10 {
-		t.Fatalf("HourlyLimit(202) = %d, want 10", got)
+	if got := cfg.HourlyLimit(202); got != 20 {
+		t.Fatalf("HourlyLimit(202) = %d, want 20", got)
 	}
 }
 
@@ -81,4 +81,14 @@ func TestResolveConfigPath(t *testing.T) {
 			t.Fatalf("resolveConfigPath() = %q, want legacy path", got)
 		}
 	})
+}
+
+func TestDefaultHourlyLimit(t *testing.T) {
+	for name, cfg := range map[string]*Config{"default": DefaultConfig(), "nil": nil} {
+		t.Run(name, func(t *testing.T) {
+			if got := cfg.HourlyLimit(202); got != 20 {
+				t.Fatalf("HourlyLimit(202) = %d, want 20", got)
+			}
+		})
+	}
 }

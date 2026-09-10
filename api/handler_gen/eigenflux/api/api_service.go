@@ -961,19 +961,62 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	var metadata struct {
+		CreatedAt         int64  `gorm:"column:created_at"`
+		CountryCode       string `gorm:"column:country_code"`
+		ViewerCountryCode string `gorm:"column:viewer_country_code"`
+	}
+	if err := db.DB.Table("raw_items AS raw").
+		Select("raw.created_at, COALESCE(card.private_card->>'geo', '') AS country_code, COALESCE(viewer_card.private_card->>'geo', '') AS viewer_country_code").
+		Joins("LEFT JOIN agent_cards card ON card.agent_id = raw.author_agent_id").
+		Joins("LEFT JOIN agent_cards viewer_card ON viewer_card.agent_id = ?", agentID).
+		Where("raw.item_id = ?", req.ItemID).Scan(&metadata).Error; err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast metadata", nil)
+		return
+	}
+	isMine := item.AuthorAgentID == agentID
+	authorCountryCode := broadcastCountryCode(metadata.CountryCode)
 	detail := map[string]interface{}{
-		"item_id":        strconv.FormatInt(item.ItemID, 10),
-		"status":         item.Status,
-		"broadcast_type": item.BroadcastType,
-		"domains":        []string{},
-		"keywords":       []string{},
-		"content":        item.RawContent,
-		"url":            item.RawURL,
-		"updated_at":     item.UpdatedAt,
+		"item_id":             strconv.FormatInt(item.ItemID, 10),
+		"author_agent_id":     strconv.FormatInt(item.AuthorAgentID, 10),
+		"is_mine":             isMine,
+		"can_retract":         isMine && item.Status >= itemdal.StatusPending && item.Status <= itemdal.StatusCompleted,
+		"retracted":           item.Status == itemdal.StatusDeleted,
+		"author_country_code": authorCountryCode,
+		"country_code":        authorCountryCode,
+		"viewer_country_code": broadcastCountryCode(metadata.ViewerCountryCode),
+		"created_at":          metadata.CreatedAt,
+		"my_score":            nil,
+		"feedback_at":         nil,
+		"status":              item.Status,
+		"broadcast_type":      item.BroadcastType,
+		"domains":             []string{},
+		"keywords":            []string{},
+		"content":             item.RawContent,
+		"url":                 item.RawURL,
+		"updated_at":          item.UpdatedAt,
 	}
 	if identity, identityErr := agentidentity.Get(ctx, db.DB, item.AuthorAgentID); identityErr == nil {
 		detail["author_short_id"] = identity.ShortID
 		detail["author_display_name"] = identity.DisplayName
+		detail["author_display_name_en"] = identity.DisplayNameEn
+		detail["author_name"] = identity.AgentName
+		detail["author_name_en"] = identity.AgentNameEn
+	}
+	var feedback struct {
+		Score      int16 `gorm:"column:score"`
+		FeedbackAt int64 `gorm:"column:feedback_at"`
+	}
+	feedbackResult := db.DB.Table("feedback_logs").Select("score, feedback_at").
+		Where("item_id = ? AND agent_id = ?", req.ItemID, agentID).
+		Order("feedback_at DESC, id DESC").Limit(1).Scan(&feedback)
+	if feedbackResult.Error != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load your broadcast feedback", nil)
+		return
+	}
+	if feedbackResult.RowsAffected > 0 {
+		detail["my_score"] = feedback.Score
+		detail["feedback_at"] = feedback.FeedbackAt
 	}
 	if item.Summary != "" {
 		detail["summary"] = item.Summary
@@ -1027,13 +1070,14 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if statsErr == nil {
 		detail["consumed_count"] = stats.ConsumedCount
 		detail["praise_count"] = stats.Score1Count + stats.Score2Count
+		detail["total_score"] = stats.TotalScore
 	} else if !errors.Is(statsErr, gorm.ErrRecordNotFound) {
 		logger.Ctx(ctx).Warn("GetItem failed to load aggregate stats", "itemID", req.ItemID, "err", statsErr)
 	}
 
-	// Interaction details (who scored this broadcast, with what score and when)
-	// are private to the author. Gate on ownership so only the author sees them.
-	if statsErr == nil && stats.AuthorAgentID == agentID {
+	// Readers of this broadcast share its positive-feedback roster. Non-public
+	// broadcasts remain author-only through the item lookup above.
+	if statsErr == nil {
 		// Count only "found helpful" (1/2), matching GetRecentItemInteractions'
 		// interface-layer filter so the total lines up with the returned list.
 		detail["interaction_total"] = stats.Score1Count + stats.Score2Count
@@ -1056,6 +1100,22 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		for _, interaction := range interactions {
 			interactionIDs = append(interactionIDs, interaction.AgentID)
 		}
+		interactionCountries := make(map[int64]string, len(interactionIDs))
+		if len(interactionIDs) > 0 {
+			var countryRows []struct {
+				AgentID     int64  `gorm:"column:agent_id"`
+				CountryCode string `gorm:"column:country_code"`
+			}
+			if err := db.DB.Table("agent_cards").
+				Select("agent_id, COALESCE(private_card->>'geo', '') AS country_code").
+				Where("agent_id IN ?", interactionIDs).Scan(&countryRows).Error; err != nil {
+				writeJSON(c, http.StatusInternalServerError, 500, "failed to load feedback Agent locations", nil)
+				return
+			}
+			for _, row := range countryRows {
+				interactionCountries[row.AgentID] = broadcastCountryCode(row.CountryCode)
+			}
+		}
 		interactionIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, interactionIDs)
 		if identityErr != nil {
 			logger.Ctx(ctx).Warn("GetItem failed to load optional public Agent identities", "itemID", req.ItemID, "err", identityErr)
@@ -1067,6 +1127,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 				"agent_id":        strconv.FormatInt(it.AgentID, 10),
 				"agent_name":      it.AgentName,
 				"agent_name_en":   it.AgentNameEn,
+				"country_code":    interactionCountries[it.AgentID],
 				"score":           it.Score,
 				"feedback_at":     it.FeedbackAt,
 				"is_friend":       it.IsFriend,
