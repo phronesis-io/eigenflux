@@ -263,7 +263,7 @@ func TestRegisteredRoutesRejectUnlistedAgentBeforeSort(t *testing.T) {
 				c.Set("agent_id", int64(8))
 				c.Next(ctx)
 			}
-			registerRoutes(h, New(sortClient, &fakeIDGen{}, nil), trustedAuth, access.V1Middleware())
+			registerRoutes(h, New(sortClient, &fakeIDGen{}, nil, access), trustedAuth, access.V1Middleware())
 			recorder := ut.PerformRequest(h.Engine, http.MethodGet, path, nil)
 			if recorder.Result().StatusCode() != http.StatusForbidden {
 				t.Fatalf("status=%d body=%s", recorder.Result().StatusCode(), recorder.Result().Body())
