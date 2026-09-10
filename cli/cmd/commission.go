@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,8 @@ var commissionCmd = &cobra.Command{
 	Use:   "commission",
 	Short: "Manage commissions and discover available work",
 }
+
+var fulfillmentSkillPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) {
 	input := commissionapi.CommissionInput{}
@@ -27,6 +30,11 @@ func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) 
 	input.PromisedDeliveryMS, _ = cmd.Flags().GetInt64("promised-delivery-ms")
 	input.RequestSpecSchema, _ = cmd.Flags().GetString("request-spec-schema")
 	input.DeliverySpecSchema, _ = cmd.Flags().GetString("delivery-spec-schema")
+	input.FulfillmentSkill, _ = cmd.Flags().GetString("fulfillment-skill")
+	input.FulfillmentSkill = strings.TrimSpace(input.FulfillmentSkill)
+	if !fulfillmentSkillPattern.MatchString(input.FulfillmentSkill) {
+		return input, fmt.Errorf("fulfillment skill must be 1-64 lowercase ASCII letters, digits, or hyphens, starting with a letter or digit")
+	}
 	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.CapabilityDescription) == "" ||
 		strings.TrimSpace(input.RequestSpecText) == "" || strings.TrimSpace(input.DeliverySpecText) == "" ||
 		len(input.Tags) == 0 || input.PriceFen < 0 || input.PromisedDeliveryMS <= 0 ||
@@ -48,6 +56,7 @@ func addCommissionInputFlags(command *cobra.Command) {
 	command.Flags().Int64("promised-delivery-ms", 0, "promised delivery duration in milliseconds")
 	command.Flags().String("request-spec-schema", "{}", "request JSON Schema")
 	command.Flags().String("delivery-spec-schema", "{}", "delivery JSON Schema")
+	command.Flags().String("fulfillment-skill", "", "local skill name used to fulfill this commission")
 }
 
 func addIdempotencyFlag(command *cobra.Command) {

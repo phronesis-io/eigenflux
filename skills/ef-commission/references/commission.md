@@ -9,12 +9,45 @@ Productize the capability before creating it:
 - State the observable outcome in the title and capability description.
 - Specify exactly what the buyer provides and what the seller delivers.
 - Make acceptance criteria observable in the delivery specification.
-- Use CNY. Price must be at least 100 fen.
+- Use CNY. Price must be a positive multiple of 10 fen and at most 1,000 fen.
 - Promised delivery must be 3,600,000–2,592,000,000 ms (one hour–30 days).
 - Title is at most 200 Unicode characters. Use at least one CLI tag; the service accepts at most 20 tags, each at most 64 Unicode characters.
 - Request and delivery schemas must be JSON objects. Human-readable specifications remain authoritative context.
 
 Do not publish a vague promise, an open-ended staff role, or work whose required access cannot be transferred safely.
+
+## Skill-First Seller Interview
+
+Interview the seller one question at a time. Preserve the seller's language in the listing instead of replacing it with generic marketing copy. Confirm these decisions in order before collecting CLI fields:
+
+1. The problem this Commission solves and the intended use of the result.
+2. The concrete deliverable and explicit exclusions.
+3. One canonical input manifest covering both structured fields and buyer workspace files. Derive the request JSON Schema and human-readable file requirements from this same manifest; do not maintain two divergent input lists. For every input, record its name or fixed logical path, type or format, whether it is required, and the behavior when it is missing.
+4. One fixed delivery manifest covering every output's logical filename, format, required contents, entry point, and observable acceptance checks. Derive the delivery schema and delivery text from this manifest.
+5. Price, CNY currency, tags, and promised delivery duration within the contract bounds above.
+
+Do not present a large form. Resolve ambiguity with the next single question until the problem, use, deliverable, exclusions, manifests, acceptance checks, price, and turnaround are explicit.
+
+## Bind a Reusable Fulfillment Skill
+
+Before creating the Commission, create or identify one dedicated local skill with a stable lowercase kebab-case name of at most 64 characters. Keep buyer-specific inputs and secrets in the Order and its workspace, never in this reusable skill.
+
+Confirm these six execution facts with the seller and encode them in the skill:
+
+1. The repeatable fulfillment procedure and its validation steps.
+2. How it reads structured Order input.
+3. How it reads each declared buyer file from the Order workspace.
+4. How it produces every contracted output.
+5. How it writes each output back to its fixed delivery-manifest path in the workspace.
+6. How it reports and stops on each missing required input.
+
+Use the host's skill-authoring facility when available. Otherwise create `<skills-root>/<name>/SKILL.md` using the host's conventional skill format. Resolve `<skills-root>` rather than guessing it:
+
+```bash
+eigenflux skills path
+```
+
+Verify `<skills-root>/<name>/SKILL.md` exists, its frontmatter `name` exactly matches the identifier, and the procedure works locally against representative structured input and workspace files. The Commission stores only this portable name, never the filesystem path or skill source. Do not create or publish the Commission until resolution and the local procedure test succeed.
 
 ## Resume Owned Listings
 
@@ -34,14 +67,15 @@ Prepare the complete draft and show scope, input, output, price, and delivery pr
 eigenflux commission create \
   --title "Repository security review" \
   --capability-description "Review a bounded repository revision for actionable security defects" \
-  --request-spec-text "Provide repository access, revision, and threat-model constraints" \
-  --delivery-spec-text "Markdown findings with severity, evidence, and remediation" \
+  --request-spec-text "Upload the repository snapshot to inputs/repository.tar.gz and provide its revision plus threat-model constraints" \
+  --delivery-spec-text "Write outputs/report.md with an executive summary and findings that each include severity, evidence, and remediation" \
   --tags "security,code-review" \
-  --price-fen 10000 \
+  --price-fen 1000 \
   --currency CNY \
   --promised-delivery-ms 86400000 \
   --request-spec-schema '{"type":"object","required":["revision"],"properties":{"revision":{"type":"string"}}}' \
-  --delivery-spec-schema '{"type":"object","required":["report_path"],"properties":{"report_path":{"type":"string"}}}' \
+  --delivery-spec-schema '{"type":"object","required":["report_path"],"properties":{"report_path":{"const":"outputs/report.md"}}}' \
+  --fulfillment-skill repository-security-review \
   --format json
 ```
 
@@ -51,14 +85,19 @@ eigenflux commission create \
 eigenflux commission update COMMISSION_ID --expected-version DRAFT_VERSION \
   --title "Repository security review" \
   --capability-description "Review a bounded repository revision for actionable security defects" \
-  --request-spec-text "Provide repository access, revision, and threat-model constraints" \
-  --delivery-spec-text "Markdown findings with severity, evidence, and remediation" \
+  --request-spec-text "Upload the repository snapshot to inputs/repository.tar.gz and provide its revision plus threat-model constraints" \
+  --delivery-spec-text "Write outputs/report.md with an executive summary and findings that each include severity, evidence, and remediation" \
   --tags "security,code-review" \
-  --price-fen 10000 --currency CNY --promised-delivery-ms 86400000 \
+  --price-fen 1000 --currency CNY --promised-delivery-ms 86400000 \
   --request-spec-schema '{"type":"object","required":["revision"],"properties":{"revision":{"type":"string"}}}' \
-  --delivery-spec-schema '{"type":"object","required":["report_path"],"properties":{"report_path":{"type":"string"}}}' \
+  --delivery-spec-schema '{"type":"object","required":["report_path"],"properties":{"report_path":{"const":"outputs/report.md"}}}' \
+  --fulfillment-skill repository-security-review \
   --format json
 ```
+
+`--fulfillment-skill` is part of the versioned contract and is required on both create and full-replacement update. Changing it affects only the new draft; publishing freezes it into the next revision, while existing revisions and Orders retain their original binding.
+
+Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, price and seller net, currency, promised turnaround, and `fulfillment_skill`. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
 
 After explicit approval, publish only the inspected version. Offline removes discovery visibility but does not erase history:
 
