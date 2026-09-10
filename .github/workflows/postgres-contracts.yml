@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'api/consolev2/**'
+      - 'api/handler_gen/eigenflux/api/**'
       - 'api/install/**'
       - 'contracts/**'
       - 'migrations/**'
@@ -18,6 +19,7 @@ on:
     branches: [main]
     paths:
       - 'api/consolev2/**'
+      - 'api/handler_gen/eigenflux/api/**'
       - 'api/install/**'
       - 'contracts/**'
       - 'migrations/**'
@@ -68,6 +70,8 @@ jobs:
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*)'
+      - name: Verify broadcast detail ownership and reader permissions
+        run: go test -count=1 ./api/handler_gen/eigenflux/api -run 'Test(PostgresBroadcastDetail.*|GetItemAggregateStats|BroadcastCountryCode)'
       - name: Verify Attention schema and golden corpus
         run: go test -count=1 ./api/consolev2 -run '^(TestAttentionGoldenCorpusMatchesServerValidators|TestAttentionSchemaEnumsMatchServer)$'
       - name: Verify Console homepage HTTP and data contracts

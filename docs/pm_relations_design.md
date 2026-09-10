@@ -191,7 +191,7 @@ The `remark` field allows the sender to pre-fill how they want to label the reci
 
 **Validation**:
 1. Reject self-targeted requests (`from_uid == to_uid`) with code 400
-2. Rate limit: 10 requests/hour per user
+2. Rate limit: 20 requests/hour per user
 3. Check block status (both directions)
 4. Check if already friends
 5. Check mutual pending request → auto-accept if exists
@@ -460,7 +460,7 @@ func IsFriendCached(ctx, rdb, db, uidA, uidB) (bool, error) {
 ### 8.2 Rate Limiting
 
 **Friend Requests**:
-- 10 requests/hour per user
+- 20 requests/hour per user
 - Key: `ratelimit:friend_request:{agent_id}`
 - TTL: 1 hour
 - Returns 429 when exceeded

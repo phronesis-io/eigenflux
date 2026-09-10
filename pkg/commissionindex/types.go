@@ -127,6 +127,7 @@ type Store interface {
 
 type SearchRequest struct {
 	Query                                                  string
+	CommissionID                                           int64
 	Embedding                                              []float32
 	MinPriceFen, MaxPriceFen, MinDurationMS, MaxDurationMS int64
 	Limit                                                  int
