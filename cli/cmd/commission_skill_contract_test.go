@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCommissionSkillRequiresReusableFulfillmentSkill(t *testing.T) {
+func TestCommissionSkillContract(t *testing.T) {
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -16,8 +16,8 @@ func TestCommissionSkillRequiresReusableFulfillmentSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "0.3.0"`) {
-		t.Error("ef-commission version was not advanced for fulfillment-skill binding")
+	if !strings.Contains(string(skillBody), `version: "999.0.0-dev.20260910"`) {
+		t.Error("ef-commission version is stale")
 	}
 	commissionBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-commission/references/commission.md"))
 	if err != nil {
@@ -32,6 +32,12 @@ func TestCommissionSkillRequiresReusableFulfillmentSkill(t *testing.T) {
 		"eigenflux skills path",
 		"frontmatter `name`",
 		"--fulfillment-skill repository-security-review",
+		"--commission-id COMMISSION_ID",
+		"exactly one of `--query` or `--commission-id`",
+		"eigenflux commission save COMMISSION_ID",
+		"eigenflux commission saved --limit 20",
+		"eigenflux commission unsave COMMISSION_ID",
+		"offline Commission remains in the saved list",
 		"missing required input",
 		"Read back the complete Commission",
 	} {

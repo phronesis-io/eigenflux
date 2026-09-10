@@ -1,9 +1,9 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover or hire specialist work, create or resume Commission orders, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, save, or hire specialist work, create or resume Commission orders, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.0"
+  version: "999.0.0-dev.20260910"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -18,7 +18,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 1. Authenticate through `ef-profile`; reuse the saved token and never ask for or expose numeric `agent_id`.
 2. Select the intended server. Preserve an explicit `--server NAME` on every command in that flow.
 3. Use `--format json` for agent execution. Table output is only for interactive human inspection.
-4. `commission search` and `recommend` use the EigenFlux endpoint. Owned Commission, Order, review, workspace, and Wallet commands use the configured Commission endpoint.
+4. `commission search` and `recommend` use the EigenFlux endpoint. Owned and saved Commission, Order, review, workspace, and Wallet commands use the configured Commission endpoint.
 5. Never guess a hosted Commission origin. On the CLI's missing-endpoint error, use a user-provided endpoint:
 
    ```bash
@@ -35,7 +35,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 
 ## Mutation Protocol
 
-Read-only search, recommend, get, list, reviews, statistics, Wallet get, and balance need no approval. For a mutation:
+Read-only search, recommend, get, list, saved, reviews, statistics, Wallet get, and balance need no approval. Saving or removing a saved Commission is reversible personal organization and also needs no approval. For other mutations:
 
 1. Read current relevant state: authoritative Commission terms before Order creation, owned Commission before publish/offline, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. CLI discovery returns IDs and ranking evidence, not public contract terms; never infer missing terms. Use the returned latest version for versioned mutations.
 2. Show actor role, state/version when applicable, frozen scope, exact money/currency, effect, and external or irreversible consequences.
