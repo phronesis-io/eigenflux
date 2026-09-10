@@ -88,3 +88,8 @@ stream exemption test uses the real production key name in that separate
 database, preserving the running pipeline's stream and consumer group in DB 0.
 
 Whitelist-matched emails automatically use `MOCK_UNIVERSAL_OTP`, other emails manually input OTP.
+
+CLI integration subprocesses isolate `HOME`, `EIGENFLUX_HOME`, and
+`EIGENFLUX_SKILLS_DIR` in their temporary fixture directory. Automatic skill
+refreshes use an unavailable loopback CDN endpoint so these tests neither install
+public releases nor update the developer's managed skills.

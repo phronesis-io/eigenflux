@@ -18,7 +18,7 @@ import (
 	"eigenflux_server/tests/testutil"
 )
 
-// testHome is a temporary directory used as EIGENFLUX_HOME for all CLI invocations.
+// testHome isolates CLI data, the user home, and managed skills for each test.
 var testHome string
 
 // apiBaseURL is the local API gateway address.
@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 }
 
 // runCLI executes the eigenflux binary with the given args, returning stdout, stderr and error.
-// EIGENFLUX_HOME is pointed at a temporary directory so tests don't pollute the real config.
+// Child processes keep configuration and automatic skill refreshes inside testHome.
 func runCLI(t *testing.T, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
 	bin := os.Getenv("EIGENFLUX_TEST_CLI")
@@ -43,12 +43,23 @@ func runCLI(t *testing.T, args ...string) (stdout string, stderr string, err err
 		}
 	}
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+testHome)
+	cmd.Env = cliTestEnv()
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	runErr := cmd.Run()
 	return outBuf.String(), errBuf.String(), runErr
+}
+
+// A separate EIGENFLUX_HOME alone does not isolate the feed-poll skill sync:
+// its default target is resolved from HOME, independently of CLI data storage.
+func cliTestEnv() []string {
+	return append(os.Environ(),
+		"HOME="+testHome,
+		"EIGENFLUX_HOME="+testHome,
+		"EIGENFLUX_SKILLS_DIR="+filepath.Join(testHome, ".agents", "skills"),
+		"EIGENFLUX_CDN_URL=http://127.0.0.1:1",
+	)
 }
 
 // mustRunCLI is like runCLI but fatals on error.
@@ -110,6 +121,9 @@ func TestVersion(t *testing.T) {
 	}
 	if v["home"] != filepath.Join(testHome, ".eigenflux") || v["home_source"] != "env" {
 		t.Errorf("version must report the isolated test home: %v", v)
+	}
+	if got := strings.TrimSpace(mustRunCLI(t, "skills", "path")); got != filepath.Join(testHome, ".agents", "skills") {
+		t.Fatalf("skills target escaped test home: %s", got)
 	}
 	t.Logf("version: %v", v)
 }
@@ -584,7 +598,7 @@ func TestStreamReceivesPush(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "stream", "--format", "json")
-	cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+testHome)
+	cmd.Env = cliTestEnv()
 	var outBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = os.Stderr
