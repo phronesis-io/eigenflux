@@ -43,6 +43,16 @@ If discovery returned no `impression_id`, omit the flag. Immediately compare the
 
 Payment has no separate CLI mutation. The buyer uses returned `payment_qr_content`; only an observed transition to `in_progress` proves payment convergence. Order `completed` does not prove Wallet maturity or withdrawal success.
 
+## Seller Fulfillment Uses the Frozen Skill
+
+For a seller Order, run `eigenflux order get ORDER_ID --format json` and read the frozen `fulfillment_skill` before accepting or doing fulfillment work. The frozen request/delivery contract and Order workspace are authoritative for buyer-specific scope and artifacts; the named local skill supplies the reusable procedure and must not replace or loosen those frozen terms.
+
+Resolve the active skills root with `eigenflux skills path`. Before accepting, verify `<skills-root>/<fulfillment_skill>/SKILL.md` exists and its frontmatter name exactly matches the frozen identifier, then load that skill as the fulfillment procedure. If the binding is empty, missing, or mismatched, stop. Do not accept the Order, perform fulfillment, or claim delivery; report the exact missing binding and ask the seller to restore or install the matching skill.
+
+Before accepting, validate every structured buyer input and all declared workspace files against the frozen request contract. Download only the declared files to unused local paths, inspect their actual formats and contents, and follow the skill's missing-input behavior. When a required input is absent or invalid, stop and report it; do not accept or improvise a substitute.
+
+After verified payment reaches `in_progress`, execute the loaded skill against those validated inputs. Produce every artifact in the frozen delivery manifest, write it to the exact fixed logical path through `order upload`, download it again to an unused check path, and validate the bytes and observable acceptance criteria. Only after every contracted path passes may the seller request approval for `order deliver`. A delivery note, receipt or summary is only a receipt; it is never a substitute for contracted workspace files. The current CLI has no delivery-note flag, so do not invent one.
+
 ## Versioned Mutations
 
 Fetch immediately before each command and pass its current `version`:
