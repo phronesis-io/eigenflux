@@ -580,7 +580,7 @@ func TestConversationTopicStatus(t *testing.T) {
 			(conv_id, participant_a, participant_b, initiator_id, last_sender_id, origin_type, origin_id,
 			 msg_count, status, updated_at, participant_a_name, participant_b_name)
 			VALUES ($1, $2, $3, $2, $2, 'broadcast', $4, 1, 0, $5, 'Topic First', 'Topic Second')`,
-			convID, participantA, participantB, suffix+int64(index)+100, now+int64(index)); err != nil {
+			convID, participantA, participantB, suffix+int64(index)+100, now-60000+int64(index)); err != nil {
 			t.Fatalf("insert conversation %d: %v", convID, err)
 		}
 	}
@@ -603,6 +603,28 @@ func TestConversationTopicStatus(t *testing.T) {
 	}
 	if changed := update(second["token"].(string), convIDs[2], "closed")["changed"]; changed != false {
 		t.Fatalf("no-op topic update changed=%v", changed)
+	}
+	for _, convID := range []int64{convIDs[0], convIDs[2]} {
+		var updatedAt int64
+		if err := testutil.TestDB.QueryRow("SELECT updated_at FROM conversations WHERE conv_id = $1", convID).Scan(&updatedAt); err != nil {
+			t.Fatalf("read conversation activity time: %v", err)
+		}
+		if updatedAt < now {
+			t.Fatalf("topic update stored updated_at=%d, want a current Unix millisecond timestamp >= %d", updatedAt, now)
+		}
+	}
+	recent := testutil.DoGet(t, "/api/v1/pm/conversations?limit=10", first["token"].(string))
+	if code := int(recent["code"].(float64)); code != 0 {
+		t.Fatalf("recent conversations failed: code=%d msg=%v", code, recent["msg"])
+	}
+	recentRows := recent["data"].(map[string]interface{})["conversations"].([]interface{})
+	if len(recentRows) != 3 {
+		t.Fatalf("recent conversation count=%d, want 3", len(recentRows))
+	}
+	for index, wantConvID := range []int64{convIDs[2], convIDs[0], convIDs[1]} {
+		if got := recentRows[index].(map[string]interface{})["conv_id"]; got != strconv.FormatInt(wantConvID, 10) {
+			t.Fatalf("recent row %d conv_id=%v, want %d", index, got, wantConvID)
+		}
 	}
 
 	resp := testutil.DoGet(t, "/api/v1/pm/conversations?sort=topic_status&limit=10", first["token"].(string))

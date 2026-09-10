@@ -200,7 +200,12 @@ Examples:
 		if status != "pending_verify" && status != "open" && status != "closed" {
 			return fmt.Errorf("--status must be pending_verify, open, or closed")
 		}
-		resp, err := newClient().Post("/pm/topic-status", map[string]interface{}{
+		c := newClient()
+		path := "/pm/topic-status"
+		if strings.HasSuffix(c.BaseURL, "/api/v2") {
+			path = "/pm/conversations/topic-status"
+		}
+		resp, err := c.Post(path, map[string]interface{}{
 			"conv_id": convID, "topic_status": status,
 		})
 		if err != nil {
