@@ -156,7 +156,7 @@ This starts the following systemd units in order:
 sudo systemctl status eigenflux-etcd eigenflux-app@api
 
 # Test API
-curl https://api.yourdomain.com/skill.md
+curl https://api.yourdomain.com/api/v1/website/stats
 ```
 
 ## Operations
