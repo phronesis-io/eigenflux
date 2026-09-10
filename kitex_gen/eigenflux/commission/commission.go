@@ -19,6 +19,7 @@ type CommissionInput struct {
 	PromisedDeliveryMs    int64    `thrift:"promised_delivery_ms,8" frugal:"8,default,i64" json:"promised_delivery_ms"`
 	RequestSpecSchema     string   `thrift:"request_spec_schema,9" frugal:"9,default,string" json:"request_spec_schema"`
 	DeliverySpecSchema    string   `thrift:"delivery_spec_schema,10" frugal:"10,default,string" json:"delivery_spec_schema"`
+	FulfillmentSkill      *string  `thrift:"fulfillment_skill,11,optional" frugal:"11,optional,string" json:"fulfillment_skill,omitempty"`
 }
 
 func NewCommissionInput() *CommissionInput {
@@ -67,6 +68,15 @@ func (p *CommissionInput) GetRequestSpecSchema() (v string) {
 func (p *CommissionInput) GetDeliverySpecSchema() (v string) {
 	return p.DeliverySpecSchema
 }
+
+var CommissionInput_FulfillmentSkill_DEFAULT string
+
+func (p *CommissionInput) GetFulfillmentSkill() (v string) {
+	if !p.IsSetFulfillmentSkill() {
+		return CommissionInput_FulfillmentSkill_DEFAULT
+	}
+	return *p.FulfillmentSkill
+}
 func (p *CommissionInput) SetTitle(val string) {
 	p.Title = val
 }
@@ -97,6 +107,13 @@ func (p *CommissionInput) SetRequestSpecSchema(val string) {
 func (p *CommissionInput) SetDeliverySpecSchema(val string) {
 	p.DeliverySpecSchema = val
 }
+func (p *CommissionInput) SetFulfillmentSkill(val *string) {
+	p.FulfillmentSkill = val
+}
+
+func (p *CommissionInput) IsSetFulfillmentSkill() bool {
+	return p.FulfillmentSkill != nil
+}
 
 func (p *CommissionInput) String() string {
 	if p == nil {
@@ -116,6 +133,7 @@ var fieldIDToName_CommissionInput = map[int16]string{
 	8:  "promised_delivery_ms",
 	9:  "request_spec_schema",
 	10: "delivery_spec_schema",
+	11: "fulfillment_skill",
 }
 
 type CommissionDefinition struct {
