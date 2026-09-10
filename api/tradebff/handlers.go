@@ -165,6 +165,31 @@ func (s *Service) TradeOrder(ctx context.Context, c *app.RequestContext) {
 	s.proxy(ctx, c, "orders:read", "console.trade.orders.get", http.MethodGet, "/api/v2/console/trade/orders/"+url.PathEscape(orderID), nil, nil, false)
 }
 
+// TradeOrderPayment delegates only a channel selection. Commission owns the
+// order amount, buyer authorization, payment deadline, and Alipay signing.
+func (s *Service) TradeOrderPayment(ctx context.Context, c *app.RequestContext) {
+	orderID := c.Param("order_id")
+	if orderID != strings.TrimSpace(orderID) || !positiveDecimal(orderID) {
+		replyError(c, http.StatusBadRequest, "INVALID_ORDER_ID", "订单号无效")
+		return
+	}
+	var fields map[string]json.RawMessage
+	var channel string
+	if err := json.Unmarshal(c.Request.Body(), &fields); err != nil || len(fields) != 1 ||
+		json.Unmarshal(fields["channel"], &channel) != nil || channel != "wap" {
+		replyError(c, http.StatusBadRequest, "INVALID_PAYMENT_REQUEST", "仅支持选择支付宝手机支付")
+		return
+	}
+	// Include the canonical path resource in the signed body. The upstream
+	// handler must compare it with its path before authorizing the payment.
+	body, _ := json.Marshal(struct {
+		Channel string `json:"channel"`
+		OrderID string `json:"order_id"`
+	}{Channel: channel, OrderID: orderID})
+	s.proxy(ctx, c, "orders:write", "console.trade.orders.payment", http.MethodPost,
+		"/api/v1/orders/"+orderID+"/payment", nil, body, true)
+}
+
 func (s *Service) EarningsSummary(ctx context.Context, c *app.RequestContext) {
 	s.proxy(ctx, c, "wallet:read", "wallet.balance.read", http.MethodGet, "/api/v1/wallet/balance", nil, nil, false)
 }

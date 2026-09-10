@@ -26,6 +26,34 @@ func TestLoadCreatesDefault(t *testing.T) {
 	if cfg.Servers[i].StreamEndpoint != "wss://stream.eigenflux.ai" {
 		t.Errorf("default stream endpoint = %q, want %q", cfg.Servers[i].StreamEndpoint, "wss://stream.eigenflux.ai")
 	}
+	if cfg.Servers[i].CommissionEndpoint != "https://www.eigenflux.ai" {
+		t.Errorf("default Commission endpoint = %q, want %q", cfg.Servers[i].CommissionEndpoint, "https://www.eigenflux.ai")
+	}
+}
+
+func TestLoadBackfillsOfficialCommissionEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+	home := filepath.Join(dir, ".eigenflux")
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"default_server":"eigenflux","servers":[{"name":"eigenflux","endpoint":"https://www.eigenflux.ai","stream_endpoint":"wss://stream.eigenflux.ai"}]}`)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	server, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.CommissionEndpoint != "https://www.eigenflux.ai" {
+		t.Errorf("backfilled Commission endpoint = %q, want %q", server.CommissionEndpoint, "https://www.eigenflux.ai")
+	}
 }
 
 func TestAddAndRemoveServer(t *testing.T) {
@@ -106,6 +134,28 @@ func TestUpdateServer(t *testing.T) {
 	i := cfg.findServer("eigenflux")
 	if cfg.Servers[i].Endpoint != "https://new.eigenflux.ai" {
 		t.Errorf("endpoint = %q, want %q", cfg.Servers[i].Endpoint, "https://new.eigenflux.ai")
+	}
+}
+
+func TestCommissionBaseURLDerivesLocalAndRequiresHostedConfig(t *testing.T) {
+	local := Server{Name: "local", Endpoint: "http://localhost:8080"}
+	got, err := local.CommissionBaseURL()
+	if err != nil || got != "http://localhost:8090" {
+		t.Fatalf("local CommissionBaseURL = %q, %v", got, err)
+	}
+	ipv6 := Server{Name: "local-v6", Endpoint: "http://[::1]:8080"}
+	got, err = ipv6.CommissionBaseURL()
+	if err != nil || got != "http://[::1]:8090" {
+		t.Fatalf("IPv6 CommissionBaseURL = %q, %v", got, err)
+	}
+	hosted := Server{Name: "hosted", Endpoint: "https://api.example.com"}
+	if _, err := hosted.CommissionBaseURL(); err == nil {
+		t.Fatal("hosted server without Commission endpoint should fail")
+	}
+	hosted.CommissionEndpoint = "https://commission.example.com/"
+	got, err = hosted.CommissionBaseURL()
+	if err != nil || got != "https://commission.example.com" {
+		t.Fatalf("explicit CommissionBaseURL = %q, %v", got, err)
 	}
 }
 

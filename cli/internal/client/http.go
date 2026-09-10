@@ -198,6 +198,10 @@ func (c *Client) Post(path string, body interface{}) (*APIResponse, error) {
 	return c.do("POST", path, body)
 }
 
+func (c *Client) PostWithHeaders(path string, body interface{}, headers map[string]string) (*APIResponse, error) {
+	return c.doWithHeaders("POST", path, body, headers)
+}
+
 func (c *Client) Put(path string, body interface{}) (*APIResponse, error) {
 	return c.do("PUT", path, body)
 }
