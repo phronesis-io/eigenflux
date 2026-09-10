@@ -1,7 +1,6 @@
 package sort_test
 
 import (
-	"os"
 	"testing"
 
 	"eigenflux_server/pkg/config"
@@ -18,7 +17,9 @@ func TestScoringConfigDefaults(t *testing.T) {
 		"FRESHNESS_ALERT_OFFSET", "FRESHNESS_ALERT_SCALE", "FRESHNESS_ALERT_DECAY",
 		"FRESHNESS_SUPPLY_OFFSET", "FRESHNESS_SUPPLY_SCALE", "FRESHNESS_SUPPLY_DECAY",
 	} {
-		os.Unsetenv(key)
+		// An explicitly empty value selects the built-in default and prevents
+		// config.Load from reintroducing a caller's local .env value.
+		t.Setenv(key, "")
 	}
 
 	cfg := config.Load()
@@ -48,24 +49,14 @@ func TestScoringConfigDefaults(t *testing.T) {
 }
 
 func TestScoringConfigOverrides(t *testing.T) {
-	os.Setenv("SCORE_WEIGHT_SEMANTIC", "0.5")
-	os.Setenv("EXPLORATION_SLOTS", "0")
-	os.Setenv("FRESHNESS_ALERT_OFFSET", "1h")
-	os.Setenv("MIN_RELEVANCE_SCORE", "0.25")
-	os.Setenv("ENABLE_KNN_RECALL", "true")
-	os.Setenv("ENABLE_SWING_I2I_RECALL", "true")
-	os.Setenv("SWING_I2I_RECALL_SEEDS", "12")
-	os.Setenv("SWING_I2I_RECALL_K", "60")
-	defer func() {
-		os.Unsetenv("SCORE_WEIGHT_SEMANTIC")
-		os.Unsetenv("EXPLORATION_SLOTS")
-		os.Unsetenv("FRESHNESS_ALERT_OFFSET")
-		os.Unsetenv("MIN_RELEVANCE_SCORE")
-		os.Unsetenv("ENABLE_KNN_RECALL")
-		os.Unsetenv("ENABLE_SWING_I2I_RECALL")
-		os.Unsetenv("SWING_I2I_RECALL_SEEDS")
-		os.Unsetenv("SWING_I2I_RECALL_K")
-	}()
+	t.Setenv("SCORE_WEIGHT_SEMANTIC", "0.5")
+	t.Setenv("EXPLORATION_SLOTS", "0")
+	t.Setenv("FRESHNESS_ALERT_OFFSET", "1h")
+	t.Setenv("MIN_RELEVANCE_SCORE", "0.25")
+	t.Setenv("ENABLE_KNN_RECALL", "true")
+	t.Setenv("ENABLE_SWING_I2I_RECALL", "true")
+	t.Setenv("SWING_I2I_RECALL_SEEDS", "12")
+	t.Setenv("SWING_I2I_RECALL_K", "60")
 
 	cfg := config.Load()
 

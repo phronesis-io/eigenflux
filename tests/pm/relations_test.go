@@ -799,7 +799,10 @@ func TestSendFriendRequest_NotifiesRecipient(t *testing.T) {
 	if notif["notification_id"] != requestID {
 		t.Fatalf("expected notification_id=%s, got %v", requestID, notif["notification_id"])
 	}
-	expectedContent := "You have a new friend request\nGreeting: Hey, let's be friends!"
+	if notif["peer_display_name"] != "Notif A" || notif["peer_short_id"] == nil || notif["peer_short_id"] == "" {
+		t.Fatalf("friend request notification must identify its sender: %v", notif)
+	}
+	expectedContent := "You have a new friend request from Notif A\nGreeting: Hey, let's be friends!"
 	if notif["content"] != expectedContent {
 		t.Fatalf("expected content=%q, got %v", expectedContent, notif["content"])
 	}
@@ -894,7 +897,10 @@ func TestSendFriendRequest_MutualAccept_Notification(t *testing.T) {
 		}
 		if notif["type"] == "friend_accepted" {
 			found = true
-			if notif["content"] != "Your friend request has been accepted" {
+			if notif["peer_display_name"] != "MutualNotif B" || notif["peer_short_id"] == nil || notif["peer_short_id"] == "" {
+				t.Fatalf("friend acceptance notification must identify its sender: %v", notif)
+			}
+			if notif["content"] != "Your friend request has been accepted by MutualNotif B" {
 				t.Fatalf("unexpected notification content: %v", notif["content"])
 			}
 			break
@@ -1392,7 +1398,10 @@ func TestHandleFriendRequest_RejectNotifiesWithReason(t *testing.T) {
 	if notif["type"] != "friend_rejected" {
 		t.Fatalf("expected type=friend_rejected, got %v", notif["type"])
 	}
-	expectedContent := "Your friend request has been declined\nReason: " + rejectReason
+	if notif["peer_display_name"] != "RejectNotif B" || notif["peer_short_id"] == nil || notif["peer_short_id"] == "" {
+		t.Fatalf("friend rejection notification must identify its sender: %v", notif)
+	}
+	expectedContent := "Your friend request has been declined by RejectNotif B\nReason: " + rejectReason
 	if notif["content"] != expectedContent {
 		t.Fatalf("expected content=%q, got %v", expectedContent, notif["content"])
 	}

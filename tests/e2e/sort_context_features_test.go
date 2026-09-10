@@ -48,14 +48,14 @@ func TestSortContextFeaturesInReplayLog(t *testing.T) {
 	userID := testutil.MustID(t, userReg["agent_id"], "agent_id")
 
 	testutil.UpdateProfile(t, userToken,
-		"Interested in artificial intelligence, machine learning, large language models")
+		"Domains: retrieval-augmented generation, enterprise knowledge management, semantic chunking, RAG")
 	testutil.WaitForProfileProcessed(t, userID)
 
 	// Use the longer-form study content known to survive the LLM filter
 	// (same shape as items in TestE2EFullFlow / TestGetItemErrorCases).
 	publishResp := testutil.PublishItem(t, authorToken,
 		"Microsoft Research released a comprehensive study on retrieval-augmented generation (RAG) techniques for enterprise knowledge management. The paper evaluates 12 different chunking strategies across 5 embedding models and finds that semantic chunking with overlap produces 35% better recall than fixed-size approaches. The study also introduces a novel hybrid retrieval pipeline combining dense and sparse retrievers that achieves state-of-the-art performance on domain-specific QA benchmarks.",
-		"RAG techniques study with practical enterprise recommendations",
+		`{"summary":"RAG techniques study with practical enterprise recommendations","keywords":["rag","chunking","retrieval-augmented"]}`,
 		"")
 	itemID := testutil.MustID(t, publishResp["item_id"], "item_id")
 	testutil.WaitForItemsProcessed(t, []int64{itemID})

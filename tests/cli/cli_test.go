@@ -34,9 +34,13 @@ func TestMain(m *testing.M) {
 // EIGENFLUX_HOME is pointed at a temporary directory so tests don't pollute the real config.
 func runCLI(t *testing.T, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
-	bin, lookErr := exec.LookPath("eigenflux")
-	if lookErr != nil {
-		t.Fatalf("eigenflux binary not found in PATH: %v", lookErr)
+	bin := os.Getenv("EIGENFLUX_TEST_CLI")
+	if bin == "" {
+		var lookErr error
+		bin, lookErr = exec.LookPath("eigenflux")
+		if lookErr != nil {
+			t.Fatalf("eigenflux binary not found in PATH: %v", lookErr)
+		}
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+testHome)
@@ -100,8 +104,12 @@ func TestVersion(t *testing.T) {
 	if _, ok := v["cli_version"]; !ok {
 		t.Error("expected cli_version in version output")
 	}
-	if v["os"] == nil || v["arch"] == nil {
-		t.Error("expected os and arch in version output")
+	platform, _ := v["os"].(string)
+	if parts := strings.Split(platform, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		t.Errorf("expected os/arch platform in version output, got %q", platform)
+	}
+	if v["home"] != filepath.Join(testHome, ".eigenflux") || v["home_source"] != "env" {
+		t.Errorf("version must report the isolated test home: %v", v)
 	}
 	t.Logf("version: %v", v)
 }
@@ -176,12 +184,21 @@ func TestConfigKV(t *testing.T) {
 	setup(t)
 
 	// Global set/get — values are free-form strings.
-	mustRunCLI(t, "config", "set", "--key", "recurring_publish", "--value", "true")
-	out := mustRunCLI(t, "config", "get", "--key", "recurring_publish")
+	mustRunCLI(t, "config", "set", "--key", "verification_note", "--value", "true")
+	out := mustRunCLI(t, "config", "get", "--key", "verification_note")
 	if strings.TrimSpace(out) != "true" {
-		t.Errorf("expected recurring_publish=\"true\", got %q", strings.TrimSpace(out))
+		t.Errorf("expected verification_note=\"true\", got %q", strings.TrimSpace(out))
+	}
+	for _, key := range []string{"recurring_publish", "auto_reply_pm", "auto_comment", "show_add_friend"} {
+		_, stderr, err := runCLI(t, "config", "set", "--key", key, "--value", "true")
+		if err == nil || !strings.Contains(stderr, "context security set") {
+			t.Fatalf("security setting %s must require the versioned command: err=%v stderr=%q", key, err, stderr)
+		}
 	}
 
+	email := fmt.Sprintf("cli_config_%d@test.com", time.Now().UnixNano())
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+	loginAndAuth(t, email)
 	mustRunCLI(t, "config", "set", "--key", "feed_delivery_preference", "--value", "push urgent signals")
 
 	// Per-server scope (server-first read, global fallback) applies to ordinary
@@ -206,31 +223,36 @@ func TestConfigKV(t *testing.T) {
 
 	// Backend-synced keys are account-level: --server is ignored and the value
 	// is forced into the GLOBAL kv (the sync layer reads global-only), with any
-	// stray per-server copy scrubbed. Setting auto_reply_pm with --server local
+	// stray per-server copy scrubbed. Setting official_pm_optout with --server local
 	// must land in global kv, not server_kv.
-	mustRunCLI(t, "config", "set", "--key", "auto_reply_pm", "--value", "true", "--server", "local")
+	mustRunCLI(t, "config", "set", "--key", "official_pm_optout", "--value", "true", "--server", "local")
 	out = mustRunCLI(t, "config", "show", "--server", "local", "--format", "json")
 	v := parseJSON(t, out)
 	kv, _ := v["kv"].(map[string]interface{})
-	if kv["auto_reply_pm"] != "true" {
-		t.Errorf("synced key set with --server must land in global kv; show.kv.auto_reply_pm = %v, want \"true\"", kv["auto_reply_pm"])
+	if kv["official_pm_optout"] != "true" {
+		t.Errorf("synced key set with --server must land in global kv; show.kv.official_pm_optout = %v, want \"true\"", kv["official_pm_optout"])
 	}
 	if serverKV, _ := v["server_kv"].(map[string]interface{}); serverKV != nil {
-		if _, ok := serverKV["auto_reply_pm"]; ok {
-			t.Errorf("synced key must not be stored under server_kv; got server_kv.auto_reply_pm = %v", serverKV["auto_reply_pm"])
+		if _, ok := serverKV["official_pm_optout"]; ok {
+			t.Errorf("synced key must not be stored under server_kv; got server_kv.official_pm_optout = %v", serverKV["official_pm_optout"])
 		}
 	}
-	if kv["recurring_publish"] != "true" {
-		t.Errorf("show.kv.recurring_publish = %v, want \"true\"", kv["recurring_publish"])
+	if kv["verification_note"] != "true" {
+		t.Errorf("show.kv.verification_note = %v, want \"true\"", kv["verification_note"])
+	}
+	for _, key := range []string{"recurring_publish", "auto_reply_pm", "auto_comment", "show_add_friend"} {
+		if _, exists := kv[key]; exists {
+			t.Errorf("rejected security setting %s was persisted in ordinary config", key)
+		}
 	}
 
-	// auto_comment is backend-synced too: same global-only scoping contract.
-	mustRunCLI(t, "config", "set", "--key", "auto_comment", "--value", "false", "--server", "local")
+	// Account language uses the same global-only scoping contract.
+	mustRunCLI(t, "config", "set", "--key", "lang", "--value", "en", "--server", "local")
 	out = mustRunCLI(t, "config", "show", "--server", "local", "--format", "json")
 	v = parseJSON(t, out)
 	kv, _ = v["kv"].(map[string]interface{})
-	if kv["auto_comment"] != "false" {
-		t.Errorf("synced key set with --server must land in global kv; show.kv.auto_comment = %v, want \"false\"", kv["auto_comment"])
+	if kv["lang"] != "en" {
+		t.Errorf("synced key set with --server must land in global kv; show.kv.lang = %v, want \"en\"", kv["lang"])
 	}
 	if kv["feed_delivery_preference"] != "push urgent signals" {
 		t.Errorf("show.kv.feed_delivery_preference = %v, want \"push urgent signals\"", kv["feed_delivery_preference"])
@@ -737,4 +759,3 @@ func loginAndAuth(t *testing.T, email string) {
 		t.Fatalf("verify did not return access_token: %v", verifyResult)
 	}
 }
-

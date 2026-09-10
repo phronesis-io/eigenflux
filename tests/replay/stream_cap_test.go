@@ -2,11 +2,13 @@ package replay_test
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"testing"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/mq"
+	"github.com/redis/go-redis/v9"
 )
 
 // TestStreamCap verifies mq.Publish bounds ordinary streams via approximate
@@ -16,12 +18,29 @@ import (
 // from a stream.
 func TestStreamCap(t *testing.T) {
 	cfg := config.Load()
-	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	// The exemption must use the production key name, so use a separate Redis
+	// database. Deleting that key in DB 0 would destroy the live pipeline group.
+	testDB := 15
+	if raw := os.Getenv("EIGENFLUX_TEST_REDIS_DB"); raw != "" {
+		var err error
+		testDB, err = strconv.Atoi(raw)
+		if err != nil || testDB <= 0 {
+			t.Fatal("EIGENFLUX_TEST_REDIS_DB must be a positive isolated Redis database number")
+		}
+	}
+	previous := mq.RDB
+	mq.RDB = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: testDB})
+	t.Cleanup(func() {
+		_ = mq.RDB.Close()
+		mq.RDB = previous
+	})
 	mq.SetDefaultStreamMaxLen(20000)
 
 	ctx := context.Background()
 	publishN := func(stream string, n int, capped func(string, int) error) {
-		mq.RDB.Del(ctx, stream)
+		if exists, err := mq.RDB.Exists(ctx, stream).Result(); err != nil || exists != 0 {
+			t.Fatalf("isolated Redis DB %d key %s must be unused: exists=%d err=%v", testDB, stream, exists, err)
+		}
 		t.Cleanup(func() { mq.RDB.Del(ctx, stream) })
 		for i := range n {
 			if err := capped(stream, i); err != nil {
