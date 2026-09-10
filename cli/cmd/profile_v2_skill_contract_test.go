@@ -102,7 +102,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.1.0"`,
+		`version: "0.1.1"`,
 		"references/consent.md",
 		"references/prefill.md",
 		"references/recurring-trigger.md",
@@ -207,6 +207,60 @@ func TestConsoleV2SchedulerStoresOnlyHeartbeatLauncher(t *testing.T) {
 	for _, required := range []string{"Never create a duplicate", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "read both back"} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("scheduler contract is missing %q", required)
+		}
+	}
+}
+
+func TestOnboardingSkillContinuesOnUnattendedHosts(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	requiredByFile := map[string][]string{
+		"skills/ef-onboarding/SKILL.md": {
+			"non-interactive host applies its no-reply rule instead of waiting",
+			"without a scheduler channel leaves the trigger pending and still continues",
+		},
+		"skills/ef-onboarding/references/recurring-trigger.md": {
+			"Codex: only when the host provides native task-title and automation",
+			"such as `codex exec` do not provide them; do not search for them",
+			"When one inspection finds none of these channels, the trigger is pending",
+			"A pending trigger never blocks provisioning",
+			"continue to provisioning and report\nthe recurring trigger as pending",
+			"replace the four-line success response with the concrete reason",
+			"the validated Console link",
+		},
+		"skills/ef-onboarding/references/consent.md": {
+			"do not ask or wait",
+			"| Silence or no submitted response in an interactive host |",
+			"| No reply can arrive (non-interactive host) | Treat the required checks as accepted by the join request.",
+			"Approve Prefill only when the invoking instruction explicitly authorizes context access; otherwise use the manual path.",
+		},
+		"skills/ef-onboarding/references/console-handoff.md": {
+			"A pending recurring trigger is the exception",
+			"replaces the success response but still returns\nthe validated link",
+		},
+	}
+	for rel, required := range requiredByFile {
+		text := readRepoFile(t, repoRoot, rel)
+		for _, fragment := range required {
+			if !strings.Contains(text, fragment) {
+				t.Errorf("%s is missing unattended-host contract %q", rel, fragment)
+			}
+		}
+	}
+
+	forbiddenByFile := map[string][]string{
+		"skills/ef-onboarding/references/recurring-trigger.md": {"stop before provisioning"},
+		"skills/ef-onboarding/references/consent.md":           {"| Silence or no submitted response |"},
+	}
+	for rel, forbidden := range forbiddenByFile {
+		text := readRepoFile(t, repoRoot, rel)
+		for _, fragment := range forbidden {
+			if strings.Contains(text, fragment) {
+				t.Errorf("%s still blocks unattended hosts with %q", rel, fragment)
+			}
 		}
 	}
 }

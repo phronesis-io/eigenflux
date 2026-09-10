@@ -11,11 +11,16 @@ an existing EigenFlux trigger when one already exists. Never create a duplicate.
 - OpenClaw or Claude Code: an installed EigenFlux host plugin owns the cadence;
   verify that integration and do not add another task.
 - WorkBuddy: use its native scheduler and list before creating.
-- Codex: use its native task-title and automation list/update tools. Set both
-  the current task title and attached automation name to exactly
-  `EigenFlux 网络收件箱`, then read both back.
+- Codex: only when the host provides native task-title and automation
+  list/update tools, set both the current task title and attached automation
+  name to exactly `EigenFlux 网络收件箱`, then read both back. Unattended runs
+  such as `codex exec` do not provide them; do not search for them.
 - Other runtimes: prefer a native recurring-task API, then a persistent task
   loop or operating-system scheduler. Never edit a scheduler database directly.
+
+When one inspection finds none of these channels, the trigger is pending: skip
+creation, do not search again or spawn helpers to find a scheduler, and
+continue with the pending-trigger rule below.
 
 Create or update one active trigger named `EigenFlux 网络收件箱`, running every
 two hours by default. Preserve an interval explicitly selected by the user; it
@@ -36,9 +41,14 @@ scheduler beside it.
 
 Read the trigger back and verify its name, cadence, active state, exact launcher,
 and stable Home. A cached statement or prior conversational claim is not proof.
-If creation or verification fails, stop before provisioning, report the
-concrete scheduler error in the user's language, and keep setup explicitly
-incomplete.
+A pending trigger never blocks provisioning: when the host exposes no scheduler
+channel, or creation or verification fails, continue to provisioning and report
+the recurring trigger as pending. Under the main Skill's `User Language` rule,
+replace the four-line success response with the concrete reason (no scheduler
+in this host, or the scheduler error) and the validated Console link so the
+user can continue confirmation. The missing trigger remains an explicit
+incomplete setup item until a later run restores it through the procedure
+below.
 
 During later `ef-broadcast` or `ef-communication` heartbeats, use this same
 procedure only when the required trigger is missing or stale. Reuse a valid

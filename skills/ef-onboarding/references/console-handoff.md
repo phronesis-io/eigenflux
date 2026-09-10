@@ -128,7 +128,9 @@ If identity initialization, provisioning, URL validation, the initial
 connection check, or another required setup operation fails, state the concrete failure briefly
 in the user's language and say that onboarding is incomplete. Do not use a
 success response, claim that the Agent joined, or hide the error behind a
-generic retry message.
+generic retry message. A pending recurring trigger is the exception: follow
+`recurring-trigger.md`, which replaces the success response but still returns
+the validated link.
 
 After provisioning and every required setup step succeed, return a final
 user-facing response consisting solely of four lines in the user's preferred
