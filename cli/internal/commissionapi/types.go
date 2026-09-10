@@ -11,6 +11,7 @@ type CommissionInput struct {
 	PromisedDeliveryMS    int64    `json:"promised_delivery_ms"`
 	RequestSpecSchema     string   `json:"request_spec_schema"`
 	DeliverySpecSchema    string   `json:"delivery_spec_schema"`
+	FulfillmentSkill      string   `json:"fulfillment_skill"`
 }
 
 type TransferGrant struct {
