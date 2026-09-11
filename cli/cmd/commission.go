@@ -366,6 +366,8 @@ func commissionReadCommand(use, short, suffix string, flags func(*cobra.Command)
 	return command
 }
 
+var commissionOrderableCmd = commissionReadCommand("orderable", "Get the current published contract for ordering", "/orderable", nil)
+
 var commissionReviewsCmd = commissionReadCommand("reviews", "List commission reviews", "/reviews", func(command *cobra.Command) {
 	command.Flags().Int("limit", 20, "maximum reviews")
 	command.Flags().String("cursor", "", "pagination cursor")
@@ -384,7 +386,7 @@ func init() {
 	addIdempotencyFlag(commissionUpdateCmd)
 	addIdempotencyFlag(commissionOfflineCmd)
 	commissionCmd.AddCommand(commissionCreateCmd, commissionListCmd, commissionGetCmd, commissionUpdateCmd,
-		commissionPublishCmd, commissionOfflineCmd, commissionSearchCmd, commissionRecommendCmd,
+		commissionPublishCmd, commissionOfflineCmd, commissionOrderableCmd, commissionSearchCmd, commissionRecommendCmd,
 		commissionReviewsCmd, commissionStatisticsCmd, commissionSaveCmd, commissionUnsaveCmd, commissionSavedCmd)
 	rootCmd.AddCommand(commissionCmd)
 }
