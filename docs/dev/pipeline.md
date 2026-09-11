@@ -20,8 +20,19 @@ remain pending for retry. Documents retain independent catalogue and statistics
 versions, and offline entries are retained as `active=false` tombstones so a
 delayed older event cannot reactivate them.
 
-Run `go run ./scripts/commission_backfill` to page active source snapshots and
-idempotently populate the same index while the consumer remains online.
+With `ENABLE_COMMISSION_INDEX=true`, run
+`go run ./scripts/commission_backfill` to page active source snapshots and
+idempotently populate the same index while the consumer remains online. The
+command fails before connecting to infrastructure when the switch is disabled.
+
+For staged rollout, enable `ENABLE_COMMISSION_INDEX` on Sort and Pipeline first,
+run the backfill, and verify the projection before exposing traffic. Configure
+the Commission Agent ID whitelist on the API process, then set both
+`ENABLE_COMMISSION_INDEX=true` and `ENABLE_COMMISSION_DISCOVERY_API=true` there
+to register search and recommendation. Setting only
+`ENABLE_COMMISSION_DISCOVERY_API=true` is invalid and prevents API startup.
+Public exposure can be rolled back by disabling the discovery API switch while
+leaving the index and consumer online.
 
 ### Surface history projection
 

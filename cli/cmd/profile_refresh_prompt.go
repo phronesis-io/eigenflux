@@ -121,7 +121,8 @@ func maybePromptProfileRefresh() {
 func maybePromptProfileRefreshFor(srv, agentID string) {
 	// Plugin hosts own their refresh loop and discard CLI stderr. Keep this
 	// gate in the scoped implementation so feed poll cannot bypass it.
-	if pluginOwnsProfileRefresh(clientMeta.Host, clientMeta.Channel) {
+	meta := clientMetaForServerName(srv)
+	if pluginOwnsProfileRefresh(meta.Host, meta.Mode) {
 		return
 	}
 	now := time.Now().Unix()
@@ -164,18 +165,8 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 	})
 }
 
-func pluginOwnsProfileRefresh(host, channel string) bool {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	if channel == "" || channel == "cli" || channel == "skill" {
-		return false
-	}
-	name := strings.ToLower(strings.TrimSpace(strings.SplitN(host, "/", 2)[0]))
-	switch name {
-	case "openclaw", "claude-code", "codex":
-		return true
-	default:
-		return false
-	}
+func pluginOwnsProfileRefresh(_ string, mode string) bool {
+	return strings.TrimSpace(mode) == "plugin"
 }
 
 func activeProfileStateScope() (string, string) {

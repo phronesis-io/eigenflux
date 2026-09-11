@@ -36,7 +36,14 @@ func TestResolveMetaWithEnv(t *testing.T) {
 	t.Setenv("EIGENFLUX_DEVICE_NAME", "Lynn-MacBook-Pro.local")
 	t.Setenv("EIGENFLUX_CHANNEL", "feishu")
 	t.Setenv("EIGENFLUX_MODEL", "claude-opus-4-8")
+	t.Setenv("EIGENFLUX_MODE", "skill")
+	t.Setenv("EIGENFLUX_PLUGIN_VERSION", "0.0.99")
 	m := ResolveMeta()
+	headers := http.Header{}
+	m.SetHeaders(headers)
+	if headers.Get("X-Client-Mode") != "skill" || headers.Get("X-Client-Plugin-Version") != "0.0.99" {
+		t.Fatalf("independent mode/plugin metadata missing: %v", headers)
+	}
 	if m.Host != "openclaw/0.0.10" {
 		t.Errorf("Host = %q, want %q", m.Host, "openclaw/0.0.10")
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/json"
 
 	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 )
@@ -213,6 +214,73 @@ func TestESStoreSearchSetsJSONContentType(t *testing.T) {
 	})
 	if _, err := (ESStore{Alias: "commissions"}).Search(context.Background(), SearchRequest{Query: "integration", Limit: 1}); err != nil {
 		t.Fatalf("Search() error=%v", err)
+	}
+}
+
+func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
+	const commissionID = int64(9223372036854775807)
+	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var request struct {
+			Size  int             `json:"size"`
+			KNN   json.RawMessage `json:"knn"`
+			Query struct {
+				Bool struct {
+					Must   json.RawMessage   `json:"must"`
+					Filter []json.RawMessage `json:"filter"`
+				} `json:"bool"`
+			} `json:"query"`
+		}
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if request.Size != 1 {
+			t.Fatalf("size=%d", request.Size)
+		}
+		if len(request.KNN) != 0 {
+			t.Fatalf("exact lookup included knn: %s", request.KNN)
+		}
+		if len(request.Query.Bool.Must) != 0 {
+			t.Fatalf("exact lookup included full-text query: %s", request.Query.Bool.Must)
+		}
+		encoded, err := json.Marshal(request.Query.Bool.Filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		filterText := string(encoded)
+		for _, expected := range []string{`"active":true`, `"commission_id":9223372036854775807`, `"price_fen":{"gte":10,"lte":99}`} {
+			if !strings.Contains(filterText, expected) {
+				t.Fatalf("filters omitted %s: %s", expected, filterText)
+			}
+		}
+		response := `{"hits":{"hits":[{"_score":1,"_source":{"commission_id":9223372036854775807,"active":true}}]}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
+	})
+
+	hits, err := (ESStore{Alias: "commissions"}).Search(context.Background(), SearchRequest{
+		CommissionID: commissionID,
+		Embedding:    []float32{1, 2, 3},
+		MinPriceFen:  10,
+		MaxPriceFen:  99,
+		Limit:        100,
+	})
+	if err != nil || len(hits) != 1 || hits[0].Document.CommissionID != commissionID {
+		t.Fatalf("hits=%+v error=%v", hits, err)
+	}
+}
+
+func TestESStoreSearchRejectsMissingOrConflictingMode(t *testing.T) {
+	for _, request := range []SearchRequest{
+		{},
+		{CommissionID: -1},
+		{Query: "research", CommissionID: 42},
+	} {
+		if _, err := (ESStore{Alias: "commissions"}).Search(context.Background(), request); err == nil {
+			t.Fatalf("Search(%+v) succeeded", request)
+		}
 	}
 }
 

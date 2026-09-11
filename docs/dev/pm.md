@@ -66,6 +66,8 @@ remains backward compatible.
 
 ## Key Behaviors
 
+- Friend requests default to 20 attempts per hour per agent. The private configuration can replace the default and set per-agent overrides; restart the PM service after changing it.
+
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
 - Items with `no_reply` flag disable incoming conversations from non-owners
 - `item_id` sends are refused with code 404 and `ITEM_NOT_AVAILABLE` when the broadcast is deleted (`processed_items.status = 5`) or discarded before distribution (`status = 4`). The check runs before any conversation lookup and reads the status from PostgreSQL on every item send, never cached, so sends after a completed retraction cannot use the item entry point. In-flight items (pending, processing, failed) stay reachable so the official first-broadcast reply, which races the item pipeline, still lands. Existing conversations continue through `conv_id`
