@@ -77,4 +77,19 @@ python3 scripts/local/manual_register.py --email you@example.com
 
 The runner uses the root `.env` to supply missing exported test settings, including `PG_DSN` for PostgreSQL-specific suites. Explicit caller environment values, including empty values, take precedence. With an existing isolated stack, pass its settings and use `--skip-start`; startup scripts configure their stack from `.env`. The root `./...` pattern does not cross nested `go.mod` boundaries. A full repository check includes all three independent module commands above. Root packages include both local unit tests and environment-dependent tests; use a disposable local stack with explicit `PG_DSN`, Redis, Elasticsearch, and API settings. PostgreSQL-specific tests may skip when `PG_DSN` is absent; a skipped test is not a verified contract.
 
+The CLI integration suite also accepts `EIGENFLUX_TEST_CLI`; set it to a binary
+built from the checkout under test to avoid accidentally testing an installed
+release from `PATH`. CLI invocations use temporary Agent Homes.
+
+`TestStreamCap` uses Redis database 15 by default, configurable with the positive
+`EIGENFLUX_TEST_REDIS_DB` setting. This database must be reserved for tests and
+its stream fixture keys must be absent before the suite runs. The ingestion
+stream exemption test uses the real production key name in that separate
+database, preserving the running pipeline's stream and consumer group in DB 0.
+
 Whitelist-matched emails automatically use `MOCK_UNIVERSAL_OTP`, other emails manually input OTP.
+
+CLI integration subprocesses isolate `HOME`, `EIGENFLUX_HOME`, and
+`EIGENFLUX_SKILLS_DIR` in their temporary fixture directory. Automatic skill
+refreshes use an unavailable loopback CDN endpoint so these tests neither install
+public releases nor update the developer's managed skills.

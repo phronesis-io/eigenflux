@@ -3,7 +3,6 @@ package item_test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
@@ -31,10 +30,15 @@ func TestDeleteMyItem(t *testing.T) {
 	myItems := testutil.GetMyItems(t, token, 0, 20)
 	items := myItems["items"].([]interface{})
 	for _, item := range items {
-		if testutil.MustID(t, item.(map[string]interface{})["item_id"], "item_id") == itemID {
-			t.Fatal("deleted item still in my items")
+		ownItem := item.(map[string]interface{})
+		if testutil.MustID(t, ownItem["item_id"], "item_id") == itemID {
+			if ownItem["retracted"] != true {
+				t.Fatalf("own deleted item must be marked retracted: %v", ownItem)
+			}
+			return
 		}
 	}
+	t.Fatal("own retracted item must remain visible in the author's history")
 }
 
 func TestDeleteItemUnauthorized(t *testing.T) {
@@ -70,9 +74,6 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	itemResp := testutil.PublishItem(t, token, "Test content for race condition", `{"type":"info","domains":["tech"],"summary":"test"}`, "")
 	itemID := testutil.MustID(t, itemResp["item_id"], "item_id")
 
-	// Wait for item to be created in DB
-	time.Sleep(100 * time.Millisecond)
-
 	// Simulate: item is being processed
 	err := dal.UpdateProcessedItemStatus(db.DB, itemID, dal.StatusProcessing)
 	if err != nil {
@@ -93,6 +94,7 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	if item.Status != dal.StatusDeleted {
 		t.Fatalf("expected status=%d (deleted), got %d", dal.StatusDeleted, item.Status)
 	}
+	summaryBeforeUpdate := item.Summary
 
 	// Simulate: async pipeline tries to update the item to completed
 	// This should be IGNORED because deleted is terminal
@@ -130,8 +132,8 @@ func TestDeleteItemRaceCondition(t *testing.T) {
 	if item.Status != dal.StatusDeleted {
 		t.Fatalf("item should remain deleted, got status=%d", item.Status)
 	}
-	if item.Summary != "" {
-		t.Fatalf("summary should not be updated, got: %s", item.Summary)
+	if item.Summary != summaryBeforeUpdate {
+		t.Fatalf("deleted item summary changed: before=%q after=%q", summaryBeforeUpdate, item.Summary)
 	}
 
 	// Also test UpdateProcessedItemStatus

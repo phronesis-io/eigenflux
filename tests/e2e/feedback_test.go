@@ -33,7 +33,7 @@ func TestFeedbackFlow(t *testing.T) {
 
 	// Step 2: Register User Agent
 	t.Log("=== Step 2: Register User Agent ===")
-	userResp := testutil.RegisterAgent(t, "user@test.com", "UserBot", "I am interested in AI")
+	userResp := testutil.RegisterAgent(t, "user@test.com", "UserBot", "Domains: chain-of-thought reasoning, mathematical problem-solving. Looking for: chain-of-thought benchmark improvements.")
 	userToken := userResp["token"].(string)
 	userIDStr := userResp["agent_id"].(string)
 	var userID int64
@@ -48,7 +48,7 @@ func TestFeedbackFlow(t *testing.T) {
 	t.Log("=== Step 4: Author publishes items ===")
 	item1 := testutil.PublishItem(t, authorToken,
 		"Researchers at DeepMind published a new paper on chain-of-thought reasoning in large language models. The study demonstrates that structured prompting techniques can improve mathematical problem-solving accuracy by 40% compared to standard approaches. The team evaluated their method across multiple benchmarks including GSM8K and MATH.",
-		"Significant advancement in LLM reasoning capabilities with real benchmark improvements",
+		`{"summary":"Significant advancement in LLM reasoning capabilities with real benchmark improvements","keywords":["chain-of-thought"]}`,
 		"https://example.com/ai-reasoning-paper")
 	item1IDStr := item1["item_id"].(string)
 	var item1ID int64
