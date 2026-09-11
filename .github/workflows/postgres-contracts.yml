@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'api/consolev2/**'
+      - 'api/dal/**'
+      - 'api/middleware/**'
+      - 'pkg/reqinfo/**'
+      - 'pkg/runtimeidentity/**'
       - 'api/handler_gen/eigenflux/api/**'
       - 'api/install/**'
       - 'contracts/**'
@@ -19,6 +23,10 @@ on:
     branches: [main]
     paths:
       - 'api/consolev2/**'
+      - 'api/dal/**'
+      - 'api/middleware/**'
+      - 'pkg/reqinfo/**'
+      - 'pkg/runtimeidentity/**'
       - 'api/handler_gen/eigenflux/api/**'
       - 'api/install/**'
       - 'contracts/**'
@@ -66,10 +74,12 @@ jobs:
         run: go test -count=1 ./migrations
       - name: Verify PostgreSQL retention and identity semantics
         run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
+      - name: Verify runtime observation and request identity
+        run: go test -count=1 ./api/dal ./api/middleware ./pkg/reqinfo ./pkg/runtimeidentity
       - name: Verify short-ID install attribution
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
-        run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*)'
+        run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|RuntimeObservationPostgresHTTP)'
       - name: Verify broadcast detail ownership and reader permissions
         run: go test -count=1 ./api/handler_gen/eigenflux/api -run 'Test(PostgresBroadcastDetail.*|GetItemAggregateStats|BroadcastCountryCode)'
       - name: Verify Attention schema and golden corpus

@@ -723,7 +723,6 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 // @Failure 401 {object} BaseResp
 // @Router /api/v1/items/feed [get]
 func Feed(ctx context.Context, c *app.RequestContext) {
-	requestStartedAt := time.Now().UnixMilli()
 	var req apimodel.FeedReq
 	if !bindOrBadRequest(c, &req) {
 		return
@@ -838,62 +837,6 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
-
-	// Persist observability fields derived from request headers. Two independent
-	// axes, both refreshed here off the feed pull every runtime makes:
-	//   - runtime mode/host from X-Client-Host: host plugins launch the CLI with
-	//     EIGENFLUX_HOST set ("openclaw/<ver>", "claude-code/<ver>", …), so any
-	//     non-default host means a plugin runtime — no agent-side report needed.
-	//     Bare-CLI runtimes send the "terminal" default; skill runtimes keep
-	//     reporting mode via `settings push --mode skill` (heartbeat template).
-	//   - cli_version from X-CLI-Ver: sent by every runtime, plugin or
-	//     CLI-direct, and shown on the dashboard runtime card.
-	ci := reqinfo.ClientFromContext(ctx)
-	identity, hasIdentity := runtimeidentity.Parse(ci.Host)
-	cliVer, model := ci.CLIVer, ci.Model
-	if hasIdentity || cliVer != "" {
-		go func(agentID int64, identity runtimeidentity.Identity, hasIdentity bool, cliVer, model string, requestStartedAt int64) {
-			cur, gerr := consoledal.GetSettings(db.DB, agentID)
-			if gerr != nil {
-				return
-			}
-			// Fill-only for mode/host: never override an explicitly reported mode
-			// — a skill runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis")
-			// and its heartbeat-reported "skill" must win. A CLI-direct runtime
-			// (terminal host) leaves mode/client_host as-is and only refreshes
-			// cli_version. client_host / model / cli_version stay pure
-			// observability fields and refresh on change.
-			mode, newHost := cur.Mode, cur.ClientHost
-			runtimeName, runtimeVersion := cur.RuntimeName, cur.RuntimeVersion
-			if hasIdentity {
-				runtimeName, runtimeVersion = identity.Name, identity.Version
-			}
-			if identity.IsPlugin {
-				if mode == "" {
-					mode = "plugin"
-				}
-				newHost = identity.Name
-				if identity.Version != "" {
-					newHost += "/" + identity.Version
-				}
-			}
-			if cur.Mode == mode && cur.ClientHost == newHost &&
-				cur.RuntimeName == runtimeName && cur.RuntimeVersion == runtimeVersion &&
-				(model == "" || cur.Model == model) &&
-				(cliVer == "" || cur.CLIVersion == cliVer) {
-				return
-			}
-			updated, uerr := consoledal.UpdateDerivedRuntimeIfNotSuperseded(db.DB, agentID, mode, newHost, runtimeName, runtimeVersion, model, cliVer, requestStartedAt)
-			if uerr != nil {
-				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
-				return
-			}
-			if !updated {
-				return
-			}
-			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
-		}(agentID, identity, hasIdentity, cliVer, model, requestStartedAt)
-	}
 }
 
 func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
@@ -3277,6 +3220,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"cli_version":              settings.CLIVersion,
 		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
+		"last_activity_at":         settings.LastActivityAt,
 		"created_at":               createdAt,
 	})
 }
@@ -3346,6 +3290,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"mode":                     settings.Mode,
 		"runtime_name":             settings.RuntimeName,
 		"runtime_version":          settings.RuntimeVersion,
+		"last_activity_at":         settings.LastActivityAt,
 		"lang":                     settings.Lang,
 		"updated_at":               settings.UpdatedAt,
 	})
@@ -3378,10 +3323,18 @@ func (body *agentSettingsWriteRequest) discardLegacySecurityBoundary() {
 // wire compatibility and remain writable only through versioned Agent context.
 // @router /api/v1/agents/me/settings [PUT]
 func PutMySettings(ctx context.Context, c *app.RequestContext) {
+	ctx = reqinfo.WithRequestStart(ctx)
+	requestStartedAt := reqinfo.RequestStartedAt(ctx)
 	agentID, ok := currentAgentID(c)
 	if !ok {
 		return
 	}
+	defer func() {
+		identity, hasIdentity := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+		logger.Ctx(ctx).Info("agent_settings_response", "agent_id", agentID, "http_status", c.Response.StatusCode(),
+			"host_present", hasIdentity, "runtime_name", identity.Name, "cli_present", len(c.GetHeader("X-CLI-Ver")) > 0,
+			"plugin_version", reqinfo.SafePluginVersion(string(c.GetHeader("X-Client-Plugin-Version"))))
+	}()
 	var body agentSettingsWriteRequest
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -3398,26 +3351,41 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	}
 	body.discardLegacySecurityBoundary()
 	clientInfo := reqinfo.ClientFromContext(ctx)
-	model := clientInfo.Model
-	identity, hasIdentity := runtimeidentity.Parse(clientInfo.Host)
-	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout); err != nil {
-			return err
-		}
-		// Persist X-Client-Model in the same transaction. The CLI records its
-		// local "reported" snapshot only after this endpoint succeeds, so a
-		// model failure must roll the settings write back and remain retryable.
-		if err := consoledal.UpdateAgentModel(tx, agentID, model); err != nil {
-			return err
-		}
-		if hasIdentity {
-			return consoledal.UpdateRuntimeIdentity(tx, agentID, identity.Name, identity.Version)
-		}
-		return nil
-	}); err != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+	mode := clientInfo.Mode
+	if body.Mode != nil {
+		mode = *body.Mode
+	}
+	if mode != "" && mode != "plugin" && mode != "skill" {
+		logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "invalid_mode")
+		writeJSON(c, http.StatusBadRequest, 400, "mode must be plugin or skill", nil)
 		return
 	}
+	var observation consoledal.RuntimeObservationResult
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		observation, err = consoledal.ObserveRuntime(tx, agentID, consoledal.RuntimeObservation{
+			Host: clientInfo.Host, Mode: mode, Model: clientInfo.Model, CLIVersion: clientInfo.CLIVer,
+			ObservedAt: requestStartedAt, Explicit: true,
+		})
+		if err != nil {
+			return err
+		}
+		if observation.Outcome == "stale" {
+			return errors.New("runtime report superseded")
+		}
+		return consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, nil, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout)
+	}); err != nil {
+		if observation.Outcome == "stale" {
+			logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "stale")
+			writeJSON(c, http.StatusConflict, 409, "newer runtime report exists; retry settings report", nil)
+			return
+		}
+		logger.Ctx(ctx).Warn("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "failed")
+		writeJSON(c, http.StatusInternalServerError, 500, "settings report failed", nil)
+		return
+	}
+	logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", observation.Outcome, "mode", mode)
+
 	agentcard.PublishRebuild(ctx, agentID, "settings_update")
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/api/clients"
 	auth "eigenflux_server/kitex_gen/eigenflux/auth"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
 )
@@ -36,6 +37,8 @@ func SetBlockedAgentEmails(emails []string) {
 
 func AuthMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		ctx = reqinfo.WithRequestStart(ctx)
+		requestStartedAt := reqinfo.RequestStartedAt(ctx)
 		header := string(c.GetHeader("Authorization"))
 		if header == "" {
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{
@@ -90,5 +93,6 @@ func AuthMiddleware() app.HandlerFunc {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyEmail, *resp.Email)
 		}
 		c.Next(ctx)
+		ObserveSuccessfulAgentRequest(ctx, c, db.DB, resp.AgentId, requestStartedAt, true)
 	}
 }

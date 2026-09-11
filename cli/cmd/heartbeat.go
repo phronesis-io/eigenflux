@@ -17,19 +17,21 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
-	SchemaVersion            string   `json:"schema_version"`
-	HeartbeatContractVersion string   `json:"heartbeat_contract_version"`
-	CLIVersion               string   `json:"cli_version"`
-	SkillRevision            string   `json:"skill_revision"`
-	SkillsTarget             string   `json:"skills_target"`
-	Skills                   []string `json:"skills"`
-	RuleSources              []string `json:"rule_sources"`
-	ExecutionOrder           []string `json:"execution_order"`
-	CLIPrefix                string   `json:"cli_prefix"`
-	SchedulerLauncher        string   `json:"scheduler_launcher"`
-	SchedulerMigration       string   `json:"scheduler_migration"`
-	SkillsFresh              bool     `json:"skills_fresh"`
-	CompatibilityReported    bool     `json:"compatibility_reported"`
+	SchemaVersion            string              `json:"schema_version"`
+	HeartbeatContractVersion string              `json:"heartbeat_contract_version"`
+	CLIVersion               string              `json:"cli_version"`
+	SkillRevision            string              `json:"skill_revision"`
+	SkillsTarget             string              `json:"skills_target"`
+	Skills                   []string            `json:"skills"`
+	RuleSources              []string            `json:"rule_sources"`
+	ExecutionOrder           []string            `json:"execution_order"`
+	CLIPrefix                string              `json:"cli_prefix"`
+	SchedulerLauncher        string              `json:"scheduler_launcher"`
+	SchedulerMigration       string              `json:"scheduler_migration"`
+	SkillsFresh              bool                `json:"skills_fresh"`
+	CompatibilityReported    bool                `json:"compatibility_reported"`
+	CompatibilityError       string              `json:"compatibility_error,omitempty"`
+	RuntimeReport            runtimeReportResult `json:"runtime_report"`
 }
 
 func fileExistsCLI(path string) bool {
@@ -51,8 +53,10 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		runtimeReport, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
+		meta := clientMetaForServerName(activeServerName())
 		res, err := skills.Sync(skills.SyncOptions{
-			Host: clientMeta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
+			Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
 			HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
 		})
 		if err != nil || res == nil {
@@ -82,14 +86,21 @@ var heartbeatPlanCmd = &cobra.Command{
 
 		home, _ := config.HomeDirInfo()
 		cliPrefix := fmt.Sprintf("eigenflux --homedir %s", shellQuote(home))
+		if serverName := activeServerName(); serverName != "" {
+			cliPrefix += " --server " + shellQuote(serverName)
+		}
 		launcher := cliPrefix + " heartbeat plan --format agent"
+		if meta.Mode != "" {
+			launcher = "EIGENFLUX_MODE=" + shellQuote(meta.Mode) + " " + launcher
+		}
 		plan := heartbeatPlan{
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: []string{"commands", "feed", "attention", "communication", "publish", "settings_report"},
 			CLIPrefix:         cliPrefix,
-			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForHost(clientMeta.Host, launcher),
-			SkillsFresh: res.VerifiedManifest,
+			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForRuntime(meta.Host, meta.Mode, launcher),
+			SkillsFresh:   res.VerifiedManifest,
+			RuntimeReport: runtimeReport,
 		}
 		for _, entry := range manifest.Skills {
 			plan.Skills = append(plan.Skills, entry.Name)
@@ -100,9 +111,10 @@ var heartbeatPlanCmd = &cobra.Command{
 		// a provisional local bundle can render a plan but cannot unlock V2.
 		if res.VerifiedManifest {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
-				return fmt.Errorf("heartbeat plan: compatibility report failed: %w", err)
+				plan.CompatibilityError = err.Error()
+			} else {
+				plan.CompatibilityReported = true
 			}
-			plan.CompatibilityReported = true
 		}
 
 		if resolveFormat() == "agent" {
@@ -115,6 +127,10 @@ var heartbeatPlanCmd = &cobra.Command{
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
+	runtimeStatus := plan.RuntimeReport.Status
+	if len(plan.RuntimeReport.Missing) > 0 {
+		runtimeStatus += " (missing: " + strings.Join(plan.RuntimeReport.Missing, ", ") + ")"
+	}
 	return fmt.Sprintf(`EIGENFLUX HEARTBEAT PLAN
 Contract: %s
 CLI: %s
@@ -122,6 +138,8 @@ Skill revision: %s
 Skills target: %s
 Installed official Skills: %s
 CLI prefix for every EigenFlux command in this cycle: %s
+Runtime settings report: %s
+Heartbeat compatibility reported: %t
 
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
@@ -137,8 +155,18 @@ Permanent launcher: %s
 Migration: %s
 The scheduler stores only the launcher. It must not copy business rules into its own prompt.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, "- "+strings.Join(plan.RuleSources, "\n- "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "),
 		plan.SchedulerLauncher, plan.SchedulerMigration)
+}
+
+func schedulerMigrationForRuntime(host, mode, launcher string) string {
+	if mode == "plugin" {
+		return "The verified Agent plugin owns scheduling; do not create a second heartbeat. The plugin must invoke: " + launcher
+	}
+	if product := runtimeProduct(host); product == "openclaw" || product == "claude-code" {
+		return "Use the host's official scheduler API for the owned EigenFlux task. Desired launcher: " + launcher
+	}
+	return schedulerMigrationForHost(host, launcher)
 }
 
 func schedulerMigrationForHost(host, launcher string) string {

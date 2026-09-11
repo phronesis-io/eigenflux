@@ -15,15 +15,18 @@ import (
 
 // Meta holds client environment metadata sent as HTTP headers on every request.
 type Meta struct {
-	OS         string // e.g. "darwin/arm64"
-	TZ         string // e.g. "Asia/Shanghai"
-	Lang       string // e.g. "zh-CN"
-	Host       string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
-	DeviceName string // user-visible computer name, e.g. "Lynn-MacBook-Pro"
-	Model      string // e.g. "claude-opus-4-8" (the model the host agent runs as)
-	Channel    string // e.g. "feishu", "cli", "telegram"
-	ClientID   string // e.g. "a1b2c3d4"
-	CLIVersion string // e.g. "0.0.16" — enables backend to know which skills bundle the client carries
+	OS            string // e.g. "darwin/arm64"
+	TZ            string // e.g. "Asia/Shanghai"
+	Lang          string // e.g. "zh-CN"
+	Host          string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
+	HostExplicit  bool   // EIGENFLUX_HOST supplied the complete product identity
+	Mode          string // explicitly configured installation mode: plugin or skill
+	PluginVersion string // plugin package version, independent of the host product
+	DeviceName    string // user-visible computer name, e.g. "Lynn-MacBook-Pro"
+	Model         string // e.g. "claude-opus-4-8" (the model the host agent runs as)
+	Channel       string // e.g. "feishu", "cli", "telegram"
+	ClientID      string // e.g. "a1b2c3d4"
+	CLIVersion    string // e.g. "0.0.16" — enables backend to know which skills bundle the client carries
 }
 
 // SetHeaders writes all non-empty Meta fields to the given http.Header.
@@ -39,6 +42,12 @@ func (m Meta) SetHeaders(h http.Header) {
 	}
 	if m.Host != "" {
 		h.Set("X-Client-Host", m.Host)
+	}
+	if m.Mode == "plugin" || m.Mode == "skill" {
+		h.Set("X-Client-Mode", m.Mode)
+	}
+	if m.PluginVersion != "" {
+		h.Set("X-Client-Plugin-Version", m.PluginVersion)
 	}
 	if m.DeviceName != "" {
 		h.Set("X-Client-Device-Name", m.DeviceName)
@@ -60,14 +69,17 @@ func (m Meta) SetHeaders(h http.Header) {
 // ResolveMeta collects environment metadata from the current runtime.
 func ResolveMeta() Meta {
 	return Meta{
-		OS:         runtime.GOOS + "/" + runtime.GOARCH,
-		TZ:         resolveTimezone(),
-		Lang:       resolveLanguage(),
-		Host:       resolveRuntimeHost(),
-		DeviceName: resolveDeviceName(),
-		Model:      os.Getenv("EIGENFLUX_MODEL"),
-		Channel:    resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
-		ClientID:   loadOrCreateClientID(),
+		OS:            runtime.GOOS + "/" + runtime.GOARCH,
+		TZ:            resolveTimezone(),
+		Lang:          resolveLanguage(),
+		Host:          resolveRuntimeHost(),
+		HostExplicit:  strings.TrimSpace(os.Getenv("EIGENFLUX_HOST")) != "",
+		Mode:          strings.TrimSpace(os.Getenv("EIGENFLUX_MODE")),
+		PluginVersion: strings.TrimSpace(os.Getenv("EIGENFLUX_PLUGIN_VERSION")),
+		DeviceName:    resolveDeviceName(),
+		Model:         os.Getenv("EIGENFLUX_MODEL"),
+		Channel:       resolveEnvOrDefault("EIGENFLUX_CHANNEL", "cli"),
+		ClientID:      loadOrCreateClientID(),
 	}
 }
 

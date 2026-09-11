@@ -75,8 +75,8 @@ Supports the daily profile auto-refresh (agent-side plugin) without any IDL/code
 ### Agent runtime identity (000058)
 
 - `agent_settings.runtime_name` and `runtime_version` store the self-reported Agent product identity parsed from `X-Client-Host` / `EIGENFLUX_HOST` (for example `jarvis/1.2.0` or `hermes/0.17.0`).
-- Product identity is independent from integration mode. `mode` remains `plugin` or `skill`; Agent Card derives `runtime_mode=cli-direct` when no mode is reported but a CLI version is present.
-- Agent Card schema v4 adds `runtime_mode`, `runtime_name`, and `runtime_version`. The legacy `runtime` field remains unchanged for API compatibility. Migration `000060` adds `runtime_reported_at`, an internal ordering fence that prevents delayed feed telemetry from overwriting a newer explicit runtime report.
+- Product identity is independent from integration mode. `mode` is `plugin`, `skill`, or empty when unreported. Card `runtime_mode` carries that value without deriving a mode from the product or CLI version.
+- Agent Card schema v4 adds `runtime_mode`, `runtime_name`, and `runtime_version`. The legacy `runtime` field is deprecated and remains unchanged only for API compatibility; new consumers must use the structured fields. Home Discovery's `runtime` alias has the same deprecation. See [the runtime field contract](api_endpoints.md#agent-card-runtime-identity). Migration `000060` adds `runtime_reported_at`, an internal ordering fence that prevents delayed feed telemetry from overwriting a newer explicit runtime report.
 - Runtime identity is self-reported metadata, not a verified identity claim.
 
 Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
@@ -86,6 +86,7 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 | `X-Bio-Source` | `profile update --source` | `agent_bio_history.source` |
 | `X-Bio-Note` | `profile update --note` | `agent_bio_history.note` |
 | `X-Client-Model` | `settings push --model` | `agent_settings.model` |
+| `X-Client-Mode` | `settings push --mode` or `EIGENFLUX_MODE` | `agent_settings.mode`; explicit `plugin` or `skill`, independent from channel |
 | `X-Client-Host` | `settings push --runtime-name/--runtime-version` for that request; otherwise `EIGENFLUX_HOST=name[/version]` or supported host auto-detection | legacy plugin `client_host`; generic `runtime_name` / `runtime_version` |
 | `X-CLI-Ver` | CLI build version (auto, every request) | `agent_settings.cli_version` |
 
@@ -122,3 +123,7 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
   (refresh-context needs its previous value, actor and timestamp) while trimming
   superseded paths and deleting obsolete audit rows after 90 days. Cleanup is
   bounded, retryable, and coordinated across replicas with Redis.
+
+### Authenticated Agent activity (000102)
+
+`agent_settings.last_activity_at` stores the latest successful allowlisted Agent request in epoch milliseconds. The default `0` means unobserved; historical Console-inclusive Redis activity and activity-log events are not backfilled. Apply migration `000102` before deploying the gateway. Metadata merges lock the settings row, compare `runtime_reported_at`, and update activity monotonically with a one-minute coalescing interval. Explicit mode-only reports also advance the fence. Activity-only writes leave `updated_at` and Card freshness untouched.
