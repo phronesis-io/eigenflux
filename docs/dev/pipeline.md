@@ -176,7 +176,7 @@ per-user-per-day (`OFFICIAL_CHAT_DAILY_PER_USER`), and a global per-minute cap
 
 Captures append-only feedback events for offline analysis and replay-log joins. Records every feedback submission that reaches the `item_stats` pipeline, without replacing the aggregate counters in `item_stats`.
 
-- **Write path**: API `POST /api/v1/items/feedback` → `stream:item:stats` (Redis Stream) → `ItemStatsConsumer` → `feedback_logs` + `item_stats` (PostgreSQL)
+- **Write path**: API `POST /api/v1/items/feedback` → `stream:item:stats` (Redis Stream) → `ItemStatsConsumer` → `feedback_logs` + `item_stats` (PostgreSQL). The gateway resolves item authors in one batched `raw_items` query and drops an author's score on their own broadcast before publishing, so self feedback never enters the stream or the aggregates
 - **Table**: `feedback_logs` — one row per feedback stream message. Stores `stream_message_id`, `impression_id`, `agent_id`, `item_id`, `score`, and event timestamps
 - **Idempotency**: `stream_message_id` is unique, so consumer retries do not duplicate feedback logs or aggregate counters
 - **Consumer ownership**: `pipeline/consumer/item_stats_consumer.go` persists feedback logs and updates `item_stats` in the same database transaction

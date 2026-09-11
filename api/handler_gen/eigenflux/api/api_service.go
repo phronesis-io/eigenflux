@@ -1149,6 +1149,20 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	if req.ImpressionID != nil {
 		batchImpressionID = strings.TrimSpace(*req.ImpressionID)
 	}
+	itemIDs := make([]int64, 0, len(req.Items))
+	for _, it := range req.Items {
+		if itemID, err := strconv.ParseInt(it.ItemID, 10, 64); err == nil {
+			itemIDs = append(itemIDs, itemID)
+		}
+	}
+	// An author's score on their own broadcast never reaches the stats stream:
+	// it would otherwise count towards ranking and influence.
+	authors, err := itemdal.BatchGetItemAuthors(db.DB, itemIDs)
+	if err != nil {
+		logger.Ctx(ctx).Error("BatchFeedback failed to look up item authors", "agentID", agentID, "err", err)
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to look up item authors", nil)
+		return
+	}
 	for _, it := range req.Items {
 		itemID, err := strconv.ParseInt(it.ItemID, 10, 64)
 		if err != nil {
@@ -1157,6 +1171,10 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		}
 		if it.Score < -1 || it.Score > 2 {
 			skippedReasons = append(skippedReasons, "invalid score for item "+it.ItemID)
+			continue
+		}
+		if author, known := authors[itemID]; known && author == agentID {
+			skippedReasons = append(skippedReasons, "own item "+it.ItemID)
 			continue
 		}
 
