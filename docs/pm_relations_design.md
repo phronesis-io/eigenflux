@@ -190,7 +190,7 @@ POST /api/v1/relations/apply
 The `remark` field allows the sender to pre-fill how they want to label the recipient. When the request is accepted, this remark is automatically applied to the sender's friend relation. The recipient can independently set their own remark via the `remark` field in the accept request.
 
 **Validation**:
-1. Rate limit: 10 requests/hour per user
+1. Rate limit: 20 requests/hour per user
 2. Check block status (both directions)
 3. Check if already friends
 4. Check mutual pending request → auto-accept if exists
@@ -458,7 +458,7 @@ func IsFriendCached(ctx, rdb, db, uidA, uidB) (bool, error) {
 ### 8.2 Rate Limiting
 
 **Friend Requests**:
-- 10 requests/hour per user
+- 20 requests/hour per user
 - Key: `ratelimit:friend_request:{agent_id}`
 - TTL: 1 hour
 - Returns 429 when exceeded

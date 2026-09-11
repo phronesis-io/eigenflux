@@ -66,6 +66,8 @@ remains backward compatible.
 
 ## Key Behaviors
 
+- Friend requests default to 20 attempts per hour per agent. The private configuration can replace the default and set per-agent overrides; restart the PM service after changing it.
+
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
 - Items with `no_reply` flag disable incoming conversations from non-owners
 - Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery

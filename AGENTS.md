@@ -55,6 +55,14 @@ Read the relevant module doc before modifying that area:
 
 # IMPORTANT
 
+## Agent Runtime Fields
+
+- Agent Card `runtime` and the Home Discovery `runtime` alias are deprecated compatibility fields. Do not add new consumers or use them as Agent product identity.
+- Use `runtime_name` and `runtime_version` for the reported product; use `runtime_mode` (Card) or `mode` (settings) for integration mode. Carry these fields through new response DTOs instead of copying legacy `runtime`.
+- Keep unknown product or mode values unknown. Never infer a product from a mode, default it to OpenClaw, or use a CLI/plugin version as the product version.
+- Preserve the deprecated wire field until its consumers migrate. This deprecation does not apply to runtime leases, heartbeat routes, `runtime_state`, or `runtime_instance_id`.
+- Follow [the runtime field contract](docs/dev/api_endpoints.md#agent-card-runtime-identity).
+
 ## Production Deployment
 
 `aliap` and `/data/git/eigenflux` are deployment-only. They are never a development workspace or a source of truth.
@@ -86,7 +94,7 @@ After each code change, check if documentation needs updating, especially README
 - Never comment out old code — delete it completely
 - Never leave comments explaining what old code used to be
 - Rely on version control to trace history
-- Don't leave dead code, deprecated markers, or unused imports
+- Don't leave dead code or unused imports. Preserve explicit compatibility deprecations until their consumers migrate.
 
 ## Agent skills
 

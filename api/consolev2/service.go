@@ -37,6 +37,7 @@ import (
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	mailservice "eigenflux_server/pkg/email"
+	"eigenflux_server/pkg/reqinfo"
 )
 
 const (
@@ -582,6 +583,8 @@ func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
 
 func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		ctx = reqinfo.WithRequestStart(ctx)
+		requestStartedAt := reqinfo.RequestStartedAt(ctx)
 		header := string(c.GetHeader("Authorization"))
 		if !strings.HasPrefix(header, "Bearer efv2a_") {
 			fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "missing or invalid Agent V2 bearer token", nil)
@@ -617,6 +620,7 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		c.Set("agent_credential_session_id", principal.SessionID)
 		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
 		c.Next(ctx)
+		middleware.ObserveSuccessfulAgentRequest(ctx, c, s.db, principal.AgentID, requestStartedAt, false)
 	}
 }
 

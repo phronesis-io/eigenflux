@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,8 @@ func TestStateRoundTripAndScopeIsolation(t *testing.T) {
 	if got := Load(home, "staging", "101"); got != (State{}) {
 		t.Fatalf("another server inherited state: %+v", got)
 	}
-	if mode := fileMode(t, FilePath(home, "prod", "101")); mode != 0o600 {
+	// Windows reports synthesized mode bits; its file access uses inherited ACLs.
+	if mode := fileMode(t, FilePath(home, "prod", "101")); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Fatalf("state mode = %o, want 600", mode)
 	}
 }
@@ -103,11 +105,20 @@ func TestUpdateSerializesConcurrentMutations(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := Update(home, "prod", "101", func(state *State) bool {
-				state.LastPromptedUnix++
-				return true
-			})
-			errs <- err
+			// A bounded lock timeout is valid under heavy runner contention. Retry
+			// only that outcome; every successful mutation must still appear once.
+			// Timeout behavior itself is covered by TestLockContentionTimesOutAndRecovers.
+			deadline := time.Now().Add(15 * time.Second)
+			for {
+				_, err := Update(home, "prod", "101", func(state *State) bool {
+					state.LastPromptedUnix++
+					return true
+				})
+				if !errors.Is(err, errLockTimeout) || time.Now().After(deadline) {
+					errs <- err
+					break
+				}
+			}
 		}()
 	}
 	wg.Wait()

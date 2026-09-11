@@ -370,9 +370,10 @@ var fieldIDToName_CommissionCandidate = map[int16]string{
 }
 
 type SearchCommissionsReq struct {
-	Query   string                   `thrift:"query,1,required" frugal:"1,required,string" json:"query"`
-	Filters *CommissionSearchFilters `thrift:"filters,2,optional" frugal:"2,optional,CommissionSearchFilters" json:"filters,omitempty"`
-	Limit   *int32                   `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	Query        string                   `thrift:"query,1,required" frugal:"1,required,string" json:"query"`
+	Filters      *CommissionSearchFilters `thrift:"filters,2,optional" frugal:"2,optional,CommissionSearchFilters" json:"filters,omitempty"`
+	Limit        *int32                   `thrift:"limit,3,optional" frugal:"3,optional,i32" json:"limit,omitempty"`
+	CommissionId *int64                   `thrift:"commission_id,4,optional" frugal:"4,optional,i64" json:"commission_id,omitempty"`
 }
 
 func NewSearchCommissionsReq() *SearchCommissionsReq {
@@ -403,6 +404,15 @@ func (p *SearchCommissionsReq) GetLimit() (v int32) {
 	}
 	return *p.Limit
 }
+
+var SearchCommissionsReq_CommissionId_DEFAULT int64
+
+func (p *SearchCommissionsReq) GetCommissionId() (v int64) {
+	if !p.IsSetCommissionId() {
+		return SearchCommissionsReq_CommissionId_DEFAULT
+	}
+	return *p.CommissionId
+}
 func (p *SearchCommissionsReq) SetQuery(val string) {
 	p.Query = val
 }
@@ -412,6 +422,9 @@ func (p *SearchCommissionsReq) SetFilters(val *CommissionSearchFilters) {
 func (p *SearchCommissionsReq) SetLimit(val *int32) {
 	p.Limit = val
 }
+func (p *SearchCommissionsReq) SetCommissionId(val *int64) {
+	p.CommissionId = val
+}
 
 func (p *SearchCommissionsReq) IsSetFilters() bool {
 	return p.Filters != nil
@@ -419,6 +432,10 @@ func (p *SearchCommissionsReq) IsSetFilters() bool {
 
 func (p *SearchCommissionsReq) IsSetLimit() bool {
 	return p.Limit != nil
+}
+
+func (p *SearchCommissionsReq) IsSetCommissionId() bool {
+	return p.CommissionId != nil
 }
 
 func (p *SearchCommissionsReq) String() string {
@@ -432,6 +449,7 @@ var fieldIDToName_SearchCommissionsReq = map[int16]string{
 	1: "query",
 	2: "filters",
 	3: "limit",
+	4: "commission_id",
 }
 
 type SearchCommissionsResp struct {

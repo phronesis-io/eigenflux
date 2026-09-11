@@ -84,10 +84,7 @@ Examples:
 		}
 		_ = json.Unmarshal(resp.Data, &data)
 
-		runtimeMode := "skill"
-		if pluginOwnsProfileRefresh(clientMeta.Host, clientMeta.Channel) {
-			runtimeMode = "plugin"
-		}
+		runtimeMode := clientMetaForServerName(serverName).Mode
 		prompt := buildRefreshPrompt(data.Profile.AgentName, data.Profile.Bio, memorySnippets, sessionSnippets, serverName, runtimeMode)
 
 		// Agent Card refresh context (versioned field-level patching).
@@ -325,8 +322,8 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 	if serverName != "" {
 		settingsCommand = "eigenflux --server " + shellQuote(serverName) + " settings push"
 	}
-	if runtimeMode != "plugin" {
-		runtimeMode = "skill"
+	if runtimeMode != "plugin" && runtimeMode != "skill" {
+		runtimeMode = "<verified-mode>"
 	}
 
 	w(
@@ -402,15 +399,16 @@ func buildRefreshPrompt(agentName, bio string, memorySnippets, sessionSnippets [
 		"runtime_name is not proof that the same product is still running. Use only",
 		"identity and version facts explicitly supplied by the host environment or",
 		"system context. Never infer or guess missing values.",
-		"- Report the current delivery mode shown in the command below. Plugin-triggered",
-		"  reviews use plugin; shell/skill-triggered reviews use skill.",
+		"- Report the verified installation mode shown below. A verified plugin loop",
+		"  uses plugin; native scheduled tasks and Skills-driven loops use skill.",
+		"  Resolve an unknown mode from the actual launcher before reporting.",
 		"- When product identity is known, add --runtime-name and, only when known,",
 		"  --runtime-version. WorkBuddy process metadata is detected automatically.",
 		"- Add --model only when the current model identifier is explicitly known.",
 		fmt.Sprintf(`   %s --mode %s --runtime-name "<product>" \`, settingsCommand, runtimeMode),
 		`     --runtime-version "<version>" --model "<model>"`,
 		"Omit unknown optional flags rather than copying an old value. The command",
-		"is change-deduplicated, so reporting the same facts again is a local no-op.",
+		"persists identity for this Home and server, retries failures, and re-reports daily.",
 		fmt.Sprintf(`(The agent name %q is already on record; no need to change it unless wrong.)`, agentName),
 	)
 

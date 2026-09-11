@@ -65,6 +65,5 @@ stores `last_refresh_unix`, `last_checked_unix`, and `last_prompted_unix` in a
 private `profile-refresh-<scope>.json` sidecar under `<eigenflux_workdir>`, with
 the scope derived from the active server and authenticated Agent ID. The prompt
 timestamp limits an unresolved `[PENDING TASK]` reminder to once per hour.
-Known plugin-owned loops (`openclaw`, `claude-code`, and `codex`) do not claim
-this reminder when their plugin channel is active; those adapters run their own
-profile refresh cycle and discard CLI stderr.
+Skip the CLI reminder only when the explicitly configured mode is `plugin`.
+Keep CLI reminders enabled for `skill` mode, including native Codex scheduling.

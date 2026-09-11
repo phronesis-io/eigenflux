@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'cli/internal/auth/**'
+      - 'cli/internal/profilestate/**'
+      - 'cli/internal/client/**'
+      - 'cli/internal/config/**'
+      - 'cli/cmd/**'
+      - 'cli/.cli.config'
+      - 'skills/**'
       - 'cli/go.mod'
       - 'cli/go.sum'
       - '.github/workflows/cli-auth-cross-platform.yml'
@@ -11,6 +17,12 @@ on:
     branches: [main]
     paths:
       - 'cli/internal/auth/**'
+      - 'cli/internal/profilestate/**'
+      - 'cli/internal/client/**'
+      - 'cli/internal/config/**'
+      - 'cli/cmd/**'
+      - 'cli/.cli.config'
+      - 'skills/**'
       - 'cli/go.mod'
       - 'cli/go.sum'
       - '.github/workflows/cli-auth-cross-platform.yml'
@@ -37,6 +49,8 @@ jobs:
           cache-dependency-path: cli/go.sum
       - name: Test identity and credential storage
         run: go test ./internal/auth -count=1
+      - name: Test runtime identity persistence and automatic reporting
+        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
       - name: Build Windows test binary
         if: runner.os == 'Windows'
         run: |

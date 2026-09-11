@@ -17,19 +17,39 @@ import (
 )
 
 func (s *SortServiceESImpl) SearchCommissions(ctx context.Context, req *sort.SearchCommissionsReq) (*sort.SearchCommissionsResp, error) {
-	if strings.TrimSpace(req.GetQuery()) == "" {
-		return commissionSearchError("query is required"), nil
-	}
-	embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
-	vector, err := embedder.GetEmbedding(ctx, req.GetQuery())
+	query, commissionID, err := commissionSearchMode(req)
 	if err != nil {
-		return commissionSearchError(fmt.Sprintf("embed Commission query: %v", err)), nil
+		return commissionSearchError(err.Error()), nil
 	}
-	candidates, err := searchCommissions(ctx, req.GetQuery(), vector, req.GetFilters(), int(req.GetLimit()))
+	var vector []float32
+	if commissionID == 0 {
+		embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
+		vector, err = embedder.GetEmbedding(ctx, query)
+		if err != nil {
+			return commissionSearchError(fmt.Sprintf("embed Commission query: %v", err)), nil
+		}
+	}
+	candidates, err := searchCommissions(ctx, query, vector, commissionID, req.GetFilters(), int(req.GetLimit()))
 	if err != nil {
 		return commissionSearchError(err.Error()), nil
 	}
 	return &sort.SearchCommissionsResp{Candidates: candidates, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
+}
+
+func commissionSearchMode(req *sort.SearchCommissionsReq) (string, int64, error) {
+	if req == nil {
+		return "", 0, fmt.Errorf("exactly one of query or commission_id is required")
+	}
+	query := strings.TrimSpace(req.GetQuery())
+	hasCommissionID := req.IsSetCommissionId()
+	commissionID := req.GetCommissionId()
+	if hasCommissionID && commissionID <= 0 {
+		return "", 0, fmt.Errorf("commission_id must be a positive integer")
+	}
+	if (query == "" && !hasCommissionID) || (query != "" && hasCommissionID) {
+		return "", 0, fmt.Errorf("exactly one of query or commission_id is required")
+	}
+	return query, commissionID, nil
 }
 
 func (s *SortServiceESImpl) RecommendCommissions(ctx context.Context, req *sort.RecommendCommissionsReq) (*sort.RecommendCommissionsResp, error) {
@@ -45,21 +65,21 @@ func (s *SortServiceESImpl) RecommendCommissions(ctx context.Context, req *sort.
 		return commissionRecommendError("profile has no discovery features"), nil
 	}
 	vector := embcodec.Decode(profile.ProfileEmbedding)
-	candidates, err := searchCommissions(ctx, query, vector, req.GetFilters(), int(req.GetLimit()))
+	candidates, err := searchCommissions(ctx, query, vector, 0, req.GetFilters(), int(req.GetLimit()))
 	if err != nil {
 		return commissionRecommendError(err.Error()), nil
 	}
 	return &sort.RecommendCommissionsResp{Candidates: candidates, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }
 
-func searchCommissions(ctx context.Context, query string, vector []float32, filters *sort.CommissionSearchFilters, limit int) ([]*sort.CommissionCandidate, error) {
+func searchCommissions(ctx context.Context, query string, vector []float32, commissionID int64, filters *sort.CommissionSearchFilters, limit int) ([]*sort.CommissionCandidate, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	request := commissionindex.SearchRequest{Query: query, Embedding: vector, Limit: limit}
+	request := commissionindex.SearchRequest{Query: query, CommissionID: commissionID, Embedding: vector, Limit: limit}
 	if filters != nil {
 		request.MinPriceFen = filters.GetMinPriceFen()
 		request.MaxPriceFen = filters.GetMaxPriceFen()
