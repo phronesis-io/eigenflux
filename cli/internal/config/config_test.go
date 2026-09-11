@@ -146,7 +146,11 @@ func TestHomeDir(t *testing.T) {
 	t.Setenv("EIGENFLUX_HOME", "")
 	os.Unsetenv("EIGENFLUX_HOME")
 	home = HomeDir()
-	expected := filepath.Join(os.Getenv("HOME"), ".eigenflux")
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(userHome, ".eigenflux")
 	if home != expected {
 		t.Errorf("HomeDir = %q, want %q", home, expected)
 	}

@@ -289,8 +289,8 @@ func TestPushReportedSupportsV2OnlyCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14")
-	if got, ok, err := cfg.GetServerOnlyKV(active.Name, settingsReportedKey); err != nil || !ok || got != want {
-		t.Fatalf("cached snapshot = %q, %v, %v; want %q", got, ok, err, want)
+	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
+		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}
 }
 
@@ -346,7 +346,7 @@ func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
 	}
 	<-requestSeen
 	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0")
-	if got, ok, err := cfg.GetServerOnlyKV(active.Name, settingsReportedKey); err != nil || !ok || got != want {
-		t.Fatalf("cached snapshot = %q, %v, %v; want %q", got, ok, err, want)
+	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
+		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}
 }

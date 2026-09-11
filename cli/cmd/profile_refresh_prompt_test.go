@@ -99,10 +99,10 @@ func TestPluginOwnsProfileRefresh(t *testing.T) {
 		channel string
 		want    bool
 	}{
-		{"openclaw/0.0.30", "openclaw", true},
-		{"openclaw/0.0.30", "telegram", true},
-		{"claude-code/0.0.9", "claude-code", true},
-		{"codex/0.0.30", "codex", true},
+		{"openclaw/0.0.30", "plugin", true},
+		{"openclaw/0.0.30", "telegram", false},
+		{"claude-code/0.0.9", "skill", false},
+		{"codex/0.0.30", "codex", false},
 		{"codex/0.0.30", "skill", false},
 		{"codex/0.0.30", "cli", false},
 		{"workbuddy/5.3.8", "cli", false},
@@ -124,7 +124,7 @@ func TestPluginPollDoesNotConsumeProfilePromptCooldown(t *testing.T) {
 	}
 
 	oldMeta := clientMeta
-	clientMeta = client.Meta{Host: "openclaw/0.0.30", Channel: "openclaw"}
+	clientMeta = client.Meta{Host: "openclaw/0.0.30", Channel: "openclaw", Mode: "plugin"}
 	t.Cleanup(func() { clientMeta = oldMeta })
 	maybePromptProfileRefreshFor(srv, agentID)
 

@@ -94,6 +94,10 @@ func Update(homeDir, serverName, agentID string, mutate func(*State) bool) (Stat
 }
 
 func saveUnlocked(homeDir, serverName, agentID string, state State) error {
+	return saveJSONFile(homeDir, FilePath(homeDir, serverName, agentID), state)
+}
+
+func saveJSONFile(homeDir, path string, state interface{}) error {
 	b, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -124,7 +128,7 @@ func saveUnlocked(homeDir, serverName, agentID string, state State) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := replaceFile(tmpPath, FilePath(homeDir, serverName, agentID)); err != nil {
+	if err := replaceFile(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}

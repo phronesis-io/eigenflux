@@ -27,6 +27,7 @@ import (
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/runtimeidentity"
 )
 
@@ -265,6 +266,7 @@ func normalizeDeviceName(value string) (string, bool) {
 }
 
 func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
+	ctx = reqinfo.WithRequestStart(ctx)
 	var req provisionRequest
 	if err := decodeBody(c, &req); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
@@ -609,11 +611,19 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
-	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
+	cliVersion := string(c.GetHeader("X-CLI-Ver"))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db.WithContext(ctx), agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion, string(c.GetHeader("X-Client-Mode"))); err != nil {
+		if errors.Is(err, consoledal.ErrRuntimeReportSuperseded) {
+			logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "stale")
+			fail(c, http.StatusConflict, "RUNTIME_REPORT_SUPERSEDED", "newer runtime report exists; retry provision", nil)
+			return
+		}
+		logger.Ctx(ctx).Warn("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "failed")
 		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
 		return
 	}
+	logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "applied")
+	agentcard.PublishRebuild(ctx, agentID, "runtime_update")
 	if created {
 		activity.PublishAgentJoined(ctx, agentID)
 	}
@@ -1023,7 +1033,8 @@ type createHandoffRequest struct {
 	ClientCapabilities []string `json:"client_capabilities,omitempty"`
 }
 
-func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
+func (s *Service) createHandoff(ctx context.Context, c *app.RequestContext) {
+	ctx = reqinfo.WithRequestStart(ctx)
 	agentID, ok := agentID(c)
 	principalValue, principalOK := c.Get("principal_id")
 	principalID, principalTypeOK := principalValue.(int64)
@@ -1053,11 +1064,19 @@ func (s *Service) createHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
 		return
 	}
-	cliVersion := strings.TrimSpace(string(c.GetHeader("X-CLI-Ver")))
-	if err := consoledal.UpdateHandoffClientIdentity(s.db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion); err != nil {
+	cliVersion := string(c.GetHeader("X-CLI-Ver"))
+	if err := consoledal.UpdateHandoffClientIdentity(s.db.WithContext(ctx), agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion, string(c.GetHeader("X-Client-Mode"))); err != nil {
+		if errors.Is(err, consoledal.ErrRuntimeReportSuperseded) {
+			logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "handoff", "outcome", "stale")
+			fail(c, http.StatusConflict, "RUNTIME_REPORT_SUPERSEDED", "newer runtime report exists; retry handoff", nil)
+			return
+		}
+		logger.Ctx(ctx).Warn("agent_runtime_report", "agent_id", agentID, "source", "handoff", "outcome", "failed")
 		fail(c, http.StatusInternalServerError, "HANDOFF_CLIENT_REPORT_FAILED", "could not record Console client identity", nil)
 		return
 	}
+	logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "handoff", "outcome", "applied")
+	agentcard.PublishRebuild(ctx, agentID, "runtime_update")
 	ticket, err := randomToken("efht_", 32)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not create handoff", nil)
