@@ -19,10 +19,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const (
-	defaultProjectName  = "myhub"
-	defaultProjectTitle = "MyHub"
-)
+const defaultProjectName = "myhub"
 
 type RegLimit struct {
 	WindowSec   int
@@ -48,7 +45,6 @@ type Config struct {
 	RedisAddr                   string
 	RedisPassword               string
 	ProjectName                 string
-	ProjectTitle                string
 	PublicBaseURL               string
 	ESUsername                  string
 	ESPassword                  string
@@ -247,7 +243,6 @@ func Load() *Config {
 		RedisAddr:                    getEnv("REDIS_ADDR", "localhost:"+redisPort),
 		RedisPassword:                getEnv("REDIS_PASSWORD", ""),
 		ProjectName:                  getEnv("PROJECT_NAME", defaultProjectName),
-		ProjectTitle:                 getEnv("PROJECT_TITLE", defaultProjectTitle),
 		PublicBaseURL:                getEnv("PUBLIC_BASE_URL", ""),
 		ESUsername:                   getEnv("ES_USERNAME", ""),
 		ESPassword:                   getEnv("ES_PASSWORD", ""),

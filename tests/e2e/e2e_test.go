@@ -198,35 +198,19 @@ func TestE2EFullFlow(t *testing.T) {
 	}
 	t.Logf("Deduplication check: %d groups seen previously, %d items in deduped feed", len(seenGroupIDs), len(dedupeItems))
 
-	// Step 11: Verify SKILL.md is accessible
-	t.Log("=== Step 11: Verify SKILL.md ===")
-	resp, err := http.Get(testutil.BaseURL + "/skill.md")
-	if err != nil {
-		t.Fatalf("failed to fetch skill.md: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	t.Logf("[Step11.GetSkill] status=%d", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200 for skill.md, got %d", resp.StatusCode)
-	}
-	if !strings.Contains(string(body), config.Load().ProjectTitle) {
-		t.Fatalf("skill.md does not contain expected project title %q", config.Load().ProjectTitle)
-	}
-
-	// Step 12: Test auth - unauthorized access
-	t.Log("=== Step 12: Test unauthorized access ===")
+	// Step 11: Test auth - unauthorized access
+	t.Log("=== Step 11: Test unauthorized access ===")
 	req, _ := http.NewRequest("GET", testutil.BaseURL+"/api/v1/items/feed", nil)
-	resp2, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp2.Body.Close()
-	unauthorizedBody, _ := io.ReadAll(resp2.Body)
-	t.Logf("[Step12.UnauthorizedFeed] status=%d", resp2.StatusCode)
-	logRawHTTPBody(t, "Step12.UnauthorizedFeed", unauthorizedBody)
-	if resp2.StatusCode != 401 {
-		t.Fatalf("expected 401 for unauthorized access, got %d", resp2.StatusCode)
+	defer resp.Body.Close()
+	unauthorizedBody, _ := io.ReadAll(resp.Body)
+	t.Logf("[Step11.UnauthorizedFeed] status=%d", resp.StatusCode)
+	logRawHTTPBody(t, "Step11.UnauthorizedFeed", unauthorizedBody)
+	if resp.StatusCode != 401 {
+		t.Fatalf("expected 401 for unauthorized access, got %d", resp.StatusCode)
 	}
 
 	t.Log("=== ALL E2E TESTS PASSED ===")

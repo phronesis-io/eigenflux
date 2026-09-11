@@ -64,7 +64,6 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/publicurl"
 	"eigenflux_server/pkg/rpcx"
-	"eigenflux_server/pkg/skilldoc"
 	"eigenflux_server/pkg/telemetry"
 )
 
@@ -249,16 +248,6 @@ func main() {
 	clients.SortClient = sortClient
 
 	publicBaseURL := publicurl.Resolve(cfg.PublicBaseURL, cfg.ApiPort)
-	skillDoc, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
-		PublicBaseURL: publicBaseURL,
-		ProjectName:   cfg.ProjectName,
-		ProjectTitle:  cfg.ProjectTitle,
-		Description:   skilldoc.BuildDescription(cfg.ProjectName, cfg.ProjectTitle),
-	})
-	if err != nil {
-		log.Fatalf("failed to render skill documents: %v", err)
-	}
-	log.Printf("Skill doc version: %s", skilldoc.Version)
 
 	// Init Hertz
 	listenAddr := cfg.ListenAddr(cfg.ApiPort)
@@ -271,17 +260,7 @@ func main() {
 	h.Use(middleware.TraceIDMiddleware())
 	h.Use(metrics.HertzMiddleware())
 
-	// Skill document endpoints. All return text/markdown with version header.
-	serveSkillDoc := func(content []byte) app.HandlerFunc {
-		return func(_ context.Context, c *app.RequestContext) {
-			if v := c.GetHeader("X-Skill-Ver"); len(v) > 0 {
-				log.Printf("Skill request from version: %s", string(v))
-			}
-			c.Header("X-Skill-Ver", skilldoc.Version)
-			c.Data(http.StatusOK, "text/markdown; charset=utf-8", content)
-		}
-	}
-	h.GET("/skill.md", serveSkillDoc(skillDoc))
+	// Public installation entry document and installer scripts.
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
 	h.StaticFile("/install.sh", "static/install.sh")
 	h.StaticFile("/install.ps1", "static/install.ps1")
@@ -368,7 +347,7 @@ func main() {
 	router_gen.GeneratedRegister(h)
 
 	log.Printf("API gateway starting on %s", listenAddr)
-	log.Printf("API base URL: %s", skilldoc.BuildAPIBaseURL(publicBaseURL))
+	log.Printf("Public base URL: %s", publicBaseURL)
 	if integrationServer == nil {
 		h.Spin()
 		return

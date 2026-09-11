@@ -251,7 +251,7 @@ wait_for_service_ready() {
 
   case "$name" in
     api)
-      wait_for_http_ready "http://127.0.0.1:${port}/skill.md" 30
+      wait_for_http_ready "http://127.0.0.1:${port}/api/v1/website/stats" 30
       ;;
     pipeline|cron)
       sleep 2

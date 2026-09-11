@@ -4,15 +4,23 @@ import (
 	"net"
 	"strconv"
 	"strings"
-
-	"eigenflux_server/pkg/skilldoc"
 )
 
+const apiBasePath = "/api/v1"
+
+// Resolve returns the public root URL of the API gateway: the configured
+// PUBLIC_BASE_URL normalized to its root, or a LAN-reachable fallback.
 func Resolve(configuredBaseURL string, port int) string {
-	if normalized := skilldoc.NormalizePublicBaseURL(configuredBaseURL); normalized != "" {
+	if normalized := normalizeBaseURL(configuredBaseURL); normalized != "" {
 		return normalized
 	}
 	return "http://" + net.JoinHostPort(bestShareHost(), strconv.Itoa(port))
+}
+
+func normalizeBaseURL(publicBaseURL string) string {
+	normalized := strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
+	normalized = strings.TrimSuffix(normalized, apiBasePath)
+	return strings.TrimRight(normalized, "/")
 }
 
 func bestShareHost() string {
