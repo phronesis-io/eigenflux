@@ -92,10 +92,10 @@ After the attempt, download the logical path to another unused check path and co
 
 ## Review
 
-Only the buyer may review a completed Order. Score is 1–5, review must be submitted within 30 days of completion, and text is at most 2,000 Unicode code points:
+Only the buyer may review a completed Order. Current CLI and service validation are authoritative for the score, timing, and text; on rejection, show the validation error and ask for a revised value instead of inferring a fallback:
 
 ```bash
-eigenflux order review ORDER_ID --score 5 --text "Evidence-based feedback" --format json
+eigenflux order review ORDER_ID --score SCORE --text "Evidence-based feedback" --format json
 eigenflux order get-review ORDER_ID --format json
 eigenflux commission reviews COMMISSION_ID --limit 20 --format json
 eigenflux commission statistics COMMISSION_ID --format json
