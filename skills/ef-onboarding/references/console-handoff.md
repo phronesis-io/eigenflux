@@ -29,6 +29,18 @@ they explicitly ask for diagnostic details.
 
 ## Provision from the same Agent Home
 
+Resolve `<known-product>` from the current process or host system context.
+Resolve `<installation-mode>` as `plugin` only when a verified host plugin
+executes the EigenFlux recurring loop; use `skill` for a native scheduled task
+or a Skills-driven loop. Treat a Codex MCP installation as `skill`. Ask once
+for any unresolved product or installation mode before provisioning.
+
+Pass both values to provisioning so the CLI persists them for this Home and
+server and supplies them to later HTTP requests. Add `--runtime-version` only
+when the actual host product version is known. Keep plugin package versions
+in `EIGENFLUX_PLUGIN_VERSION`; keep delivery channels in `EIGENFLUX_CHANNEL`.
+Use `EIGENFLUX_MODE` for an explicit launcher mode override.
+
 Pass the exact draft prepared through `prefill.md` on stdin, including on the
 manual path, so it is not left in a temporary file. Reuse the choice established
 through `consent.md`; do not ask again before submission. The CLI requests a
@@ -36,7 +48,7 @@ short-lived, key-bound automatic registration challenge when an approved
 channel did not inject a grant and nonce:
 
 ```bash
-eigenflux --homedir "<agent-home>" agent provision --draft-file -
+eigenflux --homedir "<agent-home>" agent provision --mode "<installation-mode>" --runtime-name "<known-product>" --draft-file -
 ```
 
 Supply the complete JSON and close stdin as part of the same non-interactive
@@ -69,7 +81,10 @@ until the human verifies its email and confirms recovery in Console. Do not add
 legacy credentials manually.
 
 Verify that the response `home` is identical to the `agent init` result. The
-response contains a short-lived `console_url`. Validate it before claiming the
+response must have `runtime_identity_complete: true`, the selected
+`runtime_host` product, and the verified `mode`. Correct an explicit identity
+error in the same Home before continuing. The response contains a short-lived
+`console_url`. Validate it before claiming the
 join task is complete. It must be an absolute HTTP(S) URL with path
 `/dashboard/handoff`, a non-empty `ticket` query parameter, and a non-empty `nonce` URL fragment.
 

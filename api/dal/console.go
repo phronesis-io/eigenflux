@@ -56,6 +56,7 @@ type AgentSettings struct {
 	RuntimeName            string `gorm:"column:runtime_name"`
 	RuntimeVersion         string `gorm:"column:runtime_version"`
 	RuntimeReportedAt      int64  `gorm:"column:runtime_reported_at"`
+	LastActivityAt         int64  `gorm:"column:last_activity_at;not null;default:0"`
 	Model                  string `gorm:"column:model"`
 	// CLIVersion is the EigenFlux CLI version (X-CLI-Ver), reported by every
 	// runtime — plugin or CLI-direct — and shown on the dashboard runtime card.
@@ -117,6 +118,7 @@ func UpdateAgentReported(db *gorm.DB, agentID int64, feedPref, mode, lang *strin
 			return fmt.Errorf("mode must be plugin or skill")
 		}
 		vals["mode"] = *mode
+		vals["runtime_reported_at"] = time.Now().UnixMilli()
 		if *mode == "skill" {
 			// A CLI-direct skill report is authoritative for the current runtime;
 			// clear a plugin host left by an older heartbeat so the public Card
@@ -170,14 +172,14 @@ func UpdateAgentReportedSettings(db *gorm.DB, agentID int64, feedPref, mode, lan
 }
 
 // UpdateHeartbeatCompatibility records evidence from a successful Heartbeat
-// plan. The CLI version comes from authenticated request metadata.
+// plan. CLI identity is merged separately by the authenticated request observer
+// so a delayed compatibility request cannot bypass the runtime ordering fence.
 func UpdateHeartbeatCompatibility(db *gorm.DB, agentID int64, cliVersion, contractVersion, skillRevision string) error {
 	if _, err := GetSettings(db, agentID); err != nil {
 		return err
 	}
 	now := time.Now().UnixMilli()
 	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
-		"cli_version":                cliVersion,
 		"heartbeat_contract_version": contractVersion,
 		"skill_revision":             skillRevision,
 		"heartbeat_reported_at":      now,
@@ -185,79 +187,59 @@ func UpdateHeartbeatCompatibility(db *gorm.DB, agentID int64, cliVersion, contra
 	}).Error
 }
 
-// UpdateDerivedRuntimeIfNotSuperseded persists request-derived runtime metadata
-// unless a newer explicit runtime report has committed since this request
-// started. It remains asynchronous and adds no read to the feed response path.
-// This prevents a delayed feed goroutine from overwriting an explicit
-// `settings push` that switched Agent products after the feed was received.
-// The persisted metadata includes the mode, raw host string (X-Client-Host), model
-// (X-Client-Model), and the CLI version (X-CLI-Ver), all for display. An empty
-// model or cliVer leaves that column untouched so a request that omits the
-// header never clobbers a previously reported value.
+// UpdateDerivedRuntimeIfNotSuperseded merges validated request metadata through
+// the same fence used by explicit reports. Callers must supply an observed mode;
+// a product name is never evidence of integration mode.
 func UpdateDerivedRuntimeIfNotSuperseded(db *gorm.DB, agentID int64, mode, host, runtimeName, runtimeVersion, model, cliVer string, requestStartedAt int64) (bool, error) {
-	if _, err := GetSettings(db, agentID); err != nil { // ensures row exists
-		return false, err
+	if runtimeName != "" {
+		host = runtimeName
+		if runtimeVersion != "" {
+			host += "/" + runtimeVersion
+		}
 	}
-	vals := map[string]interface{}{
-		"mode":            mode,
-		"client_host":     host,
-		"runtime_name":    runtimeName,
-		"runtime_version": runtimeVersion,
-		"updated_at":      time.Now().UnixMilli(),
-	}
-	if model != "" {
-		vals["model"] = model
-	}
-	if cliVer != "" {
-		vals["cli_version"] = cliVer
-	}
-	result := db.Model(&AgentSettings{}).
-		Where("agent_id = ? AND runtime_reported_at < ?", agentID, requestStartedAt).
-		Updates(vals)
-	return result.RowsAffected > 0, result.Error
+	result, err := ObserveRuntime(db, agentID, RuntimeObservation{Host: host, Mode: mode, Model: model, CLIVersion: cliVer, ObservedAt: requestStartedAt})
+	return result.IdentityChanged, err
 }
 
-// UpdateRuntimeIdentity persists a validated self-reported Agent product
-// identity. It is independent from mode: Jarvis/Hermes/WorkBuddy may run in
-// skill mode, while OpenClaw/Claude Code/Codex commonly run as plugins.
+// UpdateRuntimeIdentity persists an explicit product report independently of mode.
 func UpdateRuntimeIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion string) error {
 	if runtimeName == "" {
 		return nil
 	}
-	if _, err := GetSettings(db, agentID); err != nil {
-		return err
+	host := runtimeName
+	if runtimeVersion != "" {
+		host += "/" + runtimeVersion
 	}
-	now := time.Now().UnixMilli()
-	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).
-		Updates(map[string]interface{}{
-			"runtime_name":        runtimeName,
-			"runtime_version":     runtimeVersion,
-			"runtime_reported_at": now,
-			"updated_at":          now,
-		}).Error
+	_, err := ObserveRuntime(db, agentID, RuntimeObservation{Host: host, Explicit: true})
+	return err
 }
 
-// UpdateHandoffClientIdentity records the computer that generated a Console
-// handoff and, when present, the current Agent product and CLI identity in one write.
-func UpdateHandoffClientIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion, deviceName, cliVersion string) error {
-	vals := map[string]interface{}{}
-	now := time.Now().UnixMilli()
-	if runtimeName != "" {
-		vals["runtime_name"] = runtimeName
-		vals["runtime_version"] = runtimeVersion
-		vals["runtime_reported_at"] = now
+// UpdateHandoffClientIdentity records the authenticated computer and optional
+// product/mode facts before onboarding gates can block regular settings reports.
+func UpdateHandoffClientIdentity(db *gorm.DB, agentID int64, runtimeName, runtimeVersion, deviceName, cliVersion string, reportedMode ...string) error {
+	host := runtimeName
+	if runtimeVersion != "" {
+		host += "/" + runtimeVersion
 	}
-	if cliVersion != "" {
-		vals["cli_version"] = cliVersion
+	mode := ""
+	if len(reportedMode) > 0 && (reportedMode[0] == "plugin" || reportedMode[0] == "skill") {
+		mode = reportedMode[0]
 	}
-	// The provision/handoff represents the current computer. Clear a stale value
-	// when an older CLI cannot report it instead of displaying another machine.
-	vals["device_name"] = deviceName
-	if _, err := GetSettings(db, agentID); err != nil {
-		return err
-	}
-	vals["updated_at"] = now
-	return db.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(vals).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		result, err := ObserveRuntime(tx, agentID, RuntimeObservation{Host: host, Mode: mode, CLIVersion: cliVersion, Explicit: true})
+		if err != nil {
+			return err
+		}
+		if result.Outcome == "stale" {
+			return ErrRuntimeReportSuperseded
+		}
+		if _, err := GetSettings(tx, agentID); err != nil {
+			return err
+		}
+		return tx.Model(&AgentSettings{}).Where("agent_id = ?", agentID).Updates(map[string]interface{}{
+			"device_name": deviceName, "updated_at": time.Now().UnixMilli(),
+		}).Error
+	})
 }
 
 // UpdateAgentModel persists the agent's reported runtime model (X-Client-Model).

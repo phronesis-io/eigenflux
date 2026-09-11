@@ -16,6 +16,7 @@ import (
 	"github.com/cloudwego/kitex/client/callopt"
 	"go.opentelemetry.io/otel/trace"
 
+	"eigenflux_server/api/commissionaccess"
 	"eigenflux_server/api/middleware"
 	sortmodel "eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/pkg/logger"
@@ -43,10 +44,11 @@ type Service struct {
 	sortClient SortClient
 	idgen      IDGenerator
 	publish    Publisher
+	access     *commissionaccess.Allowlist
 }
 
-func New(sortClient SortClient, idgen IDGenerator, publish Publisher) *Service {
-	return &Service{sortClient: sortClient, idgen: idgen, publish: publish}
+func New(sortClient SortClient, idgen IDGenerator, publish Publisher, access *commissionaccess.Allowlist) *Service {
+	return &Service{sortClient: sortClient, idgen: idgen, publish: publish, access: access}
 }
 
 func Register(h *server.Hertz, service *Service) {
@@ -91,6 +93,18 @@ func parseOptionalNonNegative(c *app.RequestContext, name string) (*int64, error
 	return &value, nil
 }
 
+func parseCommissionID(c *app.RequestContext) (*int64, error) {
+	raw := strings.TrimSpace(c.Query("commission_id"))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return nil, fmt.Errorf("commission_id must be a positive integer")
+	}
+	return &value, nil
+}
+
 func parseRequest(c *app.RequestContext) (filters, int32, error) {
 	var parsed filters
 	var err error
@@ -130,6 +144,19 @@ func callerAgentID(c *app.RequestContext) (int64, bool) {
 	}
 	agentID, ok := value.(int64)
 	return agentID, ok && agentID > 0
+}
+
+func (s *Service) authorize(c *app.RequestContext) (int64, bool) {
+	agentID, ok := callerAgentID(c)
+	if !ok {
+		respond(c, http.StatusUnauthorized, 401, "invalid or expired token", nil)
+		return 0, false
+	}
+	if !s.access.Allows(agentID) {
+		respond(c, http.StatusForbidden, 403, "commission access is not allowed", nil)
+		return 0, false
+	}
+	return agentID, true
 }
 
 func respond(c *app.RequestContext, status, code int, message string, data any) {
@@ -224,15 +251,22 @@ func (s *Service) publishAttribution(requestContext context.Context, operation, 
 }
 
 func (s *Service) Search(ctx context.Context, c *app.RequestContext) {
-	agentID, ok := callerAgentID(c)
+	_, ok := s.authorize(c)
 	if !ok {
-		respond(c, http.StatusUnauthorized, 401, "invalid or expired token", nil)
 		return
 	}
-	_ = agentID
 	query := strings.TrimSpace(c.Query("query"))
-	if query == "" || len(query) > maxQueryBytes {
-		respond(c, http.StatusBadRequest, 400, "query is required and must not exceed 512 bytes", nil)
+	commissionID, err := parseCommissionID(c)
+	if err != nil {
+		respond(c, http.StatusBadRequest, 400, err.Error(), nil)
+		return
+	}
+	if (query == "" && commissionID == nil) || (query != "" && commissionID != nil) {
+		respond(c, http.StatusBadRequest, 400, "exactly one of query or commission_id is required", nil)
+		return
+	}
+	if len(query) > maxQueryBytes {
+		respond(c, http.StatusBadRequest, 400, "query must not exceed 512 bytes", nil)
 		return
 	}
 	parsed, limit, err := parseRequest(c)
@@ -240,7 +274,7 @@ func (s *Service) Search(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
-	response, err := s.sortClient.SearchCommissions(ctx, &sortmodel.SearchCommissionsReq{Query: query, Filters: parsed.thrift(), Limit: &limit})
+	response, err := s.sortClient.SearchCommissions(ctx, &sortmodel.SearchCommissionsReq{Query: query, Filters: parsed.thrift(), Limit: &limit, CommissionId: commissionID})
 	if err != nil || response == nil || response.BaseResp == nil {
 		rpcError(ctx, c, "search", err)
 		return
@@ -252,9 +286,8 @@ func (s *Service) Search(ctx context.Context, c *app.RequestContext) {
 }
 
 func (s *Service) Recommend(ctx context.Context, c *app.RequestContext) {
-	agentID, ok := callerAgentID(c)
+	agentID, ok := s.authorize(c)
 	if !ok {
-		respond(c, http.StatusUnauthorized, 401, "invalid or expired token", nil)
 		return
 	}
 	parsed, limit, err := parseRequest(c)

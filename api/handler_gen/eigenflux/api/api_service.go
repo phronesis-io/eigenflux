@@ -723,7 +723,6 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 // @Failure 401 {object} BaseResp
 // @Router /api/v1/items/feed [get]
 func Feed(ctx context.Context, c *app.RequestContext) {
-	requestStartedAt := time.Now().UnixMilli()
 	var req apimodel.FeedReq
 	if !bindOrBadRequest(c, &req) {
 		return
@@ -838,62 +837,6 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
-
-	// Persist observability fields derived from request headers. Two independent
-	// axes, both refreshed here off the feed pull every runtime makes:
-	//   - runtime mode/host from X-Client-Host: host plugins launch the CLI with
-	//     EIGENFLUX_HOST set ("openclaw/<ver>", "claude-code/<ver>", …), so any
-	//     non-default host means a plugin runtime — no agent-side report needed.
-	//     Bare-CLI runtimes send the "terminal" default; skill runtimes keep
-	//     reporting mode via `settings push --mode skill` (heartbeat template).
-	//   - cli_version from X-CLI-Ver: sent by every runtime, plugin or
-	//     CLI-direct, and shown on the dashboard runtime card.
-	ci := reqinfo.ClientFromContext(ctx)
-	identity, hasIdentity := runtimeidentity.Parse(ci.Host)
-	cliVer, model := ci.CLIVer, ci.Model
-	if hasIdentity || cliVer != "" {
-		go func(agentID int64, identity runtimeidentity.Identity, hasIdentity bool, cliVer, model string, requestStartedAt int64) {
-			cur, gerr := consoledal.GetSettings(db.DB, agentID)
-			if gerr != nil {
-				return
-			}
-			// Fill-only for mode/host: never override an explicitly reported mode
-			// — a skill runtime may set a custom EIGENFLUX_HOST (e.g. "jarvis")
-			// and its heartbeat-reported "skill" must win. A CLI-direct runtime
-			// (terminal host) leaves mode/client_host as-is and only refreshes
-			// cli_version. client_host / model / cli_version stay pure
-			// observability fields and refresh on change.
-			mode, newHost := cur.Mode, cur.ClientHost
-			runtimeName, runtimeVersion := cur.RuntimeName, cur.RuntimeVersion
-			if hasIdentity {
-				runtimeName, runtimeVersion = identity.Name, identity.Version
-			}
-			if identity.IsPlugin {
-				if mode == "" {
-					mode = "plugin"
-				}
-				newHost = identity.Name
-				if identity.Version != "" {
-					newHost += "/" + identity.Version
-				}
-			}
-			if cur.Mode == mode && cur.ClientHost == newHost &&
-				cur.RuntimeName == runtimeName && cur.RuntimeVersion == runtimeVersion &&
-				(model == "" || cur.Model == model) &&
-				(cliVer == "" || cur.CLIVersion == cliVer) {
-				return
-			}
-			updated, uerr := consoledal.UpdateDerivedRuntimeIfNotSuperseded(db.DB, agentID, mode, newHost, runtimeName, runtimeVersion, model, cliVer, requestStartedAt)
-			if uerr != nil {
-				logger.Default().Warn("derived runtime write failed", "agentID", agentID, "err", uerr)
-				return
-			}
-			if !updated {
-				return
-			}
-			agentcard.PublishRebuild(context.Background(), agentID, "runtime_update")
-		}(agentID, identity, hasIdentity, cliVer, model, requestStartedAt)
-	}
 }
 
 func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
@@ -961,19 +904,62 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	var metadata struct {
+		CreatedAt         int64  `gorm:"column:created_at"`
+		CountryCode       string `gorm:"column:country_code"`
+		ViewerCountryCode string `gorm:"column:viewer_country_code"`
+	}
+	if err := db.DB.Table("raw_items AS raw").
+		Select("raw.created_at, COALESCE(card.private_card->>'geo', '') AS country_code, COALESCE(viewer_card.private_card->>'geo', '') AS viewer_country_code").
+		Joins("LEFT JOIN agent_cards card ON card.agent_id = raw.author_agent_id").
+		Joins("LEFT JOIN agent_cards viewer_card ON viewer_card.agent_id = ?", agentID).
+		Where("raw.item_id = ?", req.ItemID).Scan(&metadata).Error; err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load broadcast metadata", nil)
+		return
+	}
+	isMine := item.AuthorAgentID == agentID
+	authorCountryCode := broadcastCountryCode(metadata.CountryCode)
 	detail := map[string]interface{}{
-		"item_id":        strconv.FormatInt(item.ItemID, 10),
-		"status":         item.Status,
-		"broadcast_type": item.BroadcastType,
-		"domains":        []string{},
-		"keywords":       []string{},
-		"content":        item.RawContent,
-		"url":            item.RawURL,
-		"updated_at":     item.UpdatedAt,
+		"item_id":             strconv.FormatInt(item.ItemID, 10),
+		"author_agent_id":     strconv.FormatInt(item.AuthorAgentID, 10),
+		"is_mine":             isMine,
+		"can_retract":         isMine && item.Status >= itemdal.StatusPending && item.Status <= itemdal.StatusCompleted,
+		"retracted":           item.Status == itemdal.StatusDeleted,
+		"author_country_code": authorCountryCode,
+		"country_code":        authorCountryCode,
+		"viewer_country_code": broadcastCountryCode(metadata.ViewerCountryCode),
+		"created_at":          metadata.CreatedAt,
+		"my_score":            nil,
+		"feedback_at":         nil,
+		"status":              item.Status,
+		"broadcast_type":      item.BroadcastType,
+		"domains":             []string{},
+		"keywords":            []string{},
+		"content":             item.RawContent,
+		"url":                 item.RawURL,
+		"updated_at":          item.UpdatedAt,
 	}
 	if identity, identityErr := agentidentity.Get(ctx, db.DB, item.AuthorAgentID); identityErr == nil {
 		detail["author_short_id"] = identity.ShortID
 		detail["author_display_name"] = identity.DisplayName
+		detail["author_display_name_en"] = identity.DisplayNameEn
+		detail["author_name"] = identity.AgentName
+		detail["author_name_en"] = identity.AgentNameEn
+	}
+	var feedback struct {
+		Score      int16 `gorm:"column:score"`
+		FeedbackAt int64 `gorm:"column:feedback_at"`
+	}
+	feedbackResult := db.DB.Table("feedback_logs").Select("score, feedback_at").
+		Where("item_id = ? AND agent_id = ?", req.ItemID, agentID).
+		Order("feedback_at DESC, id DESC").Limit(1).Scan(&feedback)
+	if feedbackResult.Error != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load your broadcast feedback", nil)
+		return
+	}
+	if feedbackResult.RowsAffected > 0 {
+		detail["my_score"] = feedback.Score
+		detail["feedback_at"] = feedback.FeedbackAt
 	}
 	if item.Summary != "" {
 		detail["summary"] = item.Summary
@@ -1027,13 +1013,14 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 	if statsErr == nil {
 		detail["consumed_count"] = stats.ConsumedCount
 		detail["praise_count"] = stats.Score1Count + stats.Score2Count
+		detail["total_score"] = stats.TotalScore
 	} else if !errors.Is(statsErr, gorm.ErrRecordNotFound) {
 		logger.Ctx(ctx).Warn("GetItem failed to load aggregate stats", "itemID", req.ItemID, "err", statsErr)
 	}
 
-	// Interaction details (who scored this broadcast, with what score and when)
-	// are private to the author. Gate on ownership so only the author sees them.
-	if statsErr == nil && stats.AuthorAgentID == agentID {
+	// Readers of this broadcast share its positive-feedback roster. Non-public
+	// broadcasts remain author-only through the item lookup above.
+	if statsErr == nil {
 		// Count only "found helpful" (1/2), matching GetRecentItemInteractions'
 		// interface-layer filter so the total lines up with the returned list.
 		detail["interaction_total"] = stats.Score1Count + stats.Score2Count
@@ -1056,6 +1043,22 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		for _, interaction := range interactions {
 			interactionIDs = append(interactionIDs, interaction.AgentID)
 		}
+		interactionCountries := make(map[int64]string, len(interactionIDs))
+		if len(interactionIDs) > 0 {
+			var countryRows []struct {
+				AgentID     int64  `gorm:"column:agent_id"`
+				CountryCode string `gorm:"column:country_code"`
+			}
+			if err := db.DB.Table("agent_cards").
+				Select("agent_id, COALESCE(private_card->>'geo', '') AS country_code").
+				Where("agent_id IN ?", interactionIDs).Scan(&countryRows).Error; err != nil {
+				writeJSON(c, http.StatusInternalServerError, 500, "failed to load feedback Agent locations", nil)
+				return
+			}
+			for _, row := range countryRows {
+				interactionCountries[row.AgentID] = broadcastCountryCode(row.CountryCode)
+			}
+		}
 		interactionIdentities, identityErr := agentidentity.GetBatch(ctx, db.DB, interactionIDs)
 		if identityErr != nil {
 			logger.Ctx(ctx).Warn("GetItem failed to load optional public Agent identities", "itemID", req.ItemID, "err", identityErr)
@@ -1067,6 +1070,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 				"agent_id":        strconv.FormatInt(it.AgentID, 10),
 				"agent_name":      it.AgentName,
 				"agent_name_en":   it.AgentNameEn,
+				"country_code":    interactionCountries[it.AgentID],
 				"score":           it.Score,
 				"feedback_at":     it.FeedbackAt,
 				"is_friend":       it.IsFriend,
@@ -3216,6 +3220,7 @@ func ConsoleGetSettings(ctx context.Context, c *app.RequestContext) {
 		"cli_version":              settings.CLIVersion,
 		"lang":                     settings.Lang,
 		"last_sync_at":             lastSyncAt,
+		"last_activity_at":         settings.LastActivityAt,
 		"created_at":               createdAt,
 	})
 }
@@ -3285,6 +3290,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 		"mode":                     settings.Mode,
 		"runtime_name":             settings.RuntimeName,
 		"runtime_version":          settings.RuntimeVersion,
+		"last_activity_at":         settings.LastActivityAt,
 		"lang":                     settings.Lang,
 		"updated_at":               settings.UpdatedAt,
 	})
@@ -3317,10 +3323,18 @@ func (body *agentSettingsWriteRequest) discardLegacySecurityBoundary() {
 // wire compatibility and remain writable only through versioned Agent context.
 // @router /api/v1/agents/me/settings [PUT]
 func PutMySettings(ctx context.Context, c *app.RequestContext) {
+	ctx = reqinfo.WithRequestStart(ctx)
+	requestStartedAt := reqinfo.RequestStartedAt(ctx)
 	agentID, ok := currentAgentID(c)
 	if !ok {
 		return
 	}
+	defer func() {
+		identity, hasIdentity := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+		logger.Ctx(ctx).Info("agent_settings_response", "agent_id", agentID, "http_status", c.Response.StatusCode(),
+			"host_present", hasIdentity, "runtime_name", identity.Name, "cli_present", len(c.GetHeader("X-CLI-Ver")) > 0,
+			"plugin_version", reqinfo.SafePluginVersion(string(c.GetHeader("X-Client-Plugin-Version"))))
+	}()
 	var body agentSettingsWriteRequest
 	raw, _ := c.Body()
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -3337,26 +3351,41 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 	}
 	body.discardLegacySecurityBoundary()
 	clientInfo := reqinfo.ClientFromContext(ctx)
-	model := clientInfo.Model
-	identity, hasIdentity := runtimeidentity.Parse(clientInfo.Host)
-	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, body.Mode, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout); err != nil {
-			return err
-		}
-		// Persist X-Client-Model in the same transaction. The CLI records its
-		// local "reported" snapshot only after this endpoint succeeds, so a
-		// model failure must roll the settings write back and remain retryable.
-		if err := consoledal.UpdateAgentModel(tx, agentID, model); err != nil {
-			return err
-		}
-		if hasIdentity {
-			return consoledal.UpdateRuntimeIdentity(tx, agentID, identity.Name, identity.Version)
-		}
-		return nil
-	}); err != nil {
-		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
+	mode := clientInfo.Mode
+	if body.Mode != nil {
+		mode = *body.Mode
+	}
+	if mode != "" && mode != "plugin" && mode != "skill" {
+		logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "invalid_mode")
+		writeJSON(c, http.StatusBadRequest, 400, "mode must be plugin or skill", nil)
 		return
 	}
+	var observation consoledal.RuntimeObservationResult
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		observation, err = consoledal.ObserveRuntime(tx, agentID, consoledal.RuntimeObservation{
+			Host: clientInfo.Host, Mode: mode, Model: clientInfo.Model, CLIVersion: clientInfo.CLIVer,
+			ObservedAt: requestStartedAt, Explicit: true,
+		})
+		if err != nil {
+			return err
+		}
+		if observation.Outcome == "stale" {
+			return errors.New("runtime report superseded")
+		}
+		return consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, nil, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout)
+	}); err != nil {
+		if observation.Outcome == "stale" {
+			logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "stale")
+			writeJSON(c, http.StatusConflict, 409, "newer runtime report exists; retry settings report", nil)
+			return
+		}
+		logger.Ctx(ctx).Warn("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", "failed")
+		writeJSON(c, http.StatusInternalServerError, 500, "settings report failed", nil)
+		return
+	}
+	logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "settings", "outcome", observation.Outcome, "mode", mode)
+
 	agentcard.PublishRebuild(ctx, agentID, "settings_update")
 	writeJSON(c, http.StatusOK, 0, "success", nil)
 }

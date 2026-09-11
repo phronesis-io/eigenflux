@@ -136,6 +136,9 @@ type Config struct {
 	AlipayAuthCallbackURL       string
 	AlipayAuthProduction        bool
 	EnableCommissionIndex       bool
+	CommissionDiscoveryEnabled  bool
+	EnableCommissionAllowlist   bool
+	CommissionAgentIDWhitelist  string
 	CommissionSourceService     string
 	OrderSourceService          string
 	CommissionIndexName         string
@@ -332,6 +335,9 @@ func Load() *Config {
 		AlipayAuthCallbackURL:        getEnv("ALIPAY_AUTH_CALLBACK_URL", ""),
 		AlipayAuthProduction:         getEnvBool("ALIPAY_AUTH_PRODUCTION", true),
 		EnableCommissionIndex:        getEnvBool("ENABLE_COMMISSION_INDEX", false),
+		CommissionDiscoveryEnabled:   getEnvBool("ENABLE_COMMISSION_DISCOVERY_API", false),
+		EnableCommissionAllowlist:    getEnvBool("ENABLE_COMMISSION_AGENT_ID_WHITELIST", false),
+		CommissionAgentIDWhitelist:   getEnv("COMMISSION_AGENT_ID_WHITELIST", ""),
 		CommissionSourceService:      getEnv("COMMISSION_SOURCE_SERVICE", "CommissionService"),
 		OrderSourceService:           getEnv("COMMISSION_ORDER_SOURCE_SERVICE", "OrderService"),
 		CommissionIndexName:          getEnv("COMMISSION_INDEX_NAME", "commissions-v1"),
@@ -454,11 +460,19 @@ func (c *Config) IsDev() bool {
 }
 
 var (
+	ErrInvalidCommissionDiscoveryConfiguration   = errors.New("invalid commission discovery configuration")
 	ErrCommissionIntegrationDisabled             = errors.New("commission integration mode disabled")
 	ErrInvalidCommissionIntegrationConfiguration = errors.New("invalid commission integration configuration")
 	ErrCommissionIntegrationUnauthorized         = errors.New("commission integration authorization failed")
 	ErrInvalidCommissionIntegrationRunID         = errors.New("invalid commission integration run ID")
 )
+
+func (c *Config) ValidateCommissionDiscoveryConfiguration() error {
+	if c == nil || c.CommissionDiscoveryEnabled && !c.EnableCommissionIndex {
+		return ErrInvalidCommissionDiscoveryConfiguration
+	}
+	return nil
+}
 
 var commissionIntegrationRunIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{7,63}$`)
 

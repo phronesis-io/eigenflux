@@ -13,6 +13,17 @@ Both return Commission-specific candidates with the deterministic score and
 compact ranking features. They do not create impressions, replay rows, or
 change the Broadcast `SortItems` contract.
 
+Search also accepts an optional positive `commission_id` RPC field. Exact ID
+mode is mutually exclusive with `query`, skips embedding, and issues a term
+query limited to one result. The `active=true` constraint and supplied
+price/delivery filters still apply, so an offline or filtered-out Commission
+returns an empty candidate list.
+
+`ENABLE_COMMISSION_INDEX=true` initializes the Commission index in Sort but no
+longer exposes HTTP discovery by itself. The API gateway registers the public
+search and recommendation routes only when
+`ENABLE_COMMISSION_DISCOVERY_API=true` as well.
+
 The Sort RPC service (`rpc/sort/`, port `SORT_RPC_PORT`) owns item recall, ranking, reranking, deduplication, and feed ordering through `SortItems`.
 
 ## Subpackages

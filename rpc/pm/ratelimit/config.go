@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultHourlyLimit   = 10
+	DefaultHourlyLimit   = 20
 	ConfigPathEnv        = "FRIEND_REQUEST_LIMITS_CONFIG"
 	ProductionConfigPath = "/etc/eigenflux/friend_request_limits.yaml"
 	LegacyConfigPath     = "configs/pm/friend_request_limits.yaml"

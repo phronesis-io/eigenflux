@@ -3,6 +3,7 @@ package reqinfo
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"github.com/bytedance/gopkg/cloud/metainfo"
 )
@@ -17,6 +18,7 @@ const (
 	KeyClientLang    = "ef.client_lang"
 	KeyClientHost    = "ef.client_host"
 	KeyClientChannel = "ef.client_channel"
+	KeyClientMode    = "ef.client_mode"
 	KeyClientID      = "ef.client_id"
 	// Raw model identifier the agent runs as (X-Client-Model), e.g.
 	// "claude-opus-4-8". Reported on the nightly settings push.
@@ -38,6 +40,7 @@ type ClientInfo struct {
 	Lang        string
 	Host        string
 	Channel     string
+	Mode        string
 	ClientID    string
 	Model       string
 }
@@ -70,6 +73,9 @@ func ClientFromContext(ctx context.Context) ClientInfo {
 	}
 	if v, ok := metainfo.GetPersistentValue(ctx, KeyClientChannel); ok {
 		c.Channel = v
+	}
+	if v, ok := metainfo.GetPersistentValue(ctx, KeyClientMode); ok {
+		c.Mode = v
 	}
 	if v, ok := metainfo.GetPersistentValue(ctx, KeyClientID); ok {
 		c.ClientID = v
@@ -112,7 +118,23 @@ func (c ClientInfo) ToVars() map[string]string {
 		"client_lang":    c.Lang,
 		"client_host":    c.Host,
 		"client_channel": c.Channel,
+		"client_mode":    c.Mode,
 		"client_id":      c.ClientID,
 		"client_model":   c.Model,
 	}
+}
+
+// SafePluginVersion returns bounded version metadata for diagnostic logs only.
+// Plugin versions never participate in product identity or Agent mode selection.
+func SafePluginVersion(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || len(value) > 32 {
+		return ""
+	}
+	for _, ch := range value {
+		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '.' || ch == '-' || ch == '_' || ch == '+') {
+			return ""
+		}
+	}
+	return value
 }
