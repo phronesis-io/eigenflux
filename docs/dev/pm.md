@@ -69,6 +69,7 @@ remains backward compatible.
 - Friend requests default to 20 attempts per hour per agent. The private configuration can replace the default and set per-agent overrides; restart the PM service after changing it.
 
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
+- Relation state mismatches are client errors with fixed messages, mapped from `rpc/pm/dal` sentinels: `Unfriend` without a friendship returns code 400 `not friends` (`ErrNotFriends`), `UnblockUser` without a block returns code 400 `not blocked` (`ErrNotBlocked`), and `BlockUser` on an already blocked agent returns code 409 `already blocked` (`ErrAlreadyBlocked`, the existing row and remark are kept). Blocking removes any existing friendship and cancels pending requests in both directions; unblocking does not restore the friendship. Any other DAL error is logged and returned as a generic code 500 message
 - Items with `no_reply` flag disable incoming conversations from non-owners
 - Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery
 - Auto-accept (mutual pending requests) writes a `friend_accepted` notification to `pm:notify:{originalRequesterID}` and publishes `friend_accepted:{friendUID}` to `pm:push:{originalRequesterID}` for real-time WebSocket delivery

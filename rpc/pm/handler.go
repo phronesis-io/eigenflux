@@ -1170,7 +1170,11 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 			Update("status", dal.RequestStatusUnfriended).Error
 	})
 	if err != nil {
-		return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrNotFriends) {
+			return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("Unfriend failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to unfriend"}}, nil
 	}
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
@@ -1228,7 +1232,11 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 		return nil
 	})
 	if err != nil {
-		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrAlreadyBlocked) {
+			return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("BlockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to block"}}, nil
 	}
 	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
@@ -1254,7 +1262,11 @@ func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq)
 			Update("status", dal.RequestStatusCancelled).Error
 	})
 	if err != nil {
-		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrNotBlocked) {
+			return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("UnblockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to unblock"}}, nil
 	}
 	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	logger.Ctx(ctx).Info("UnblockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)

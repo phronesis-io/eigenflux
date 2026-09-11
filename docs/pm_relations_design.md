@@ -243,7 +243,13 @@ POST /api/v1/relations/block
 
 - Creates block relation (one-way)
 - Invalidates block cache
-- If already friends, friendship remains (block is separate)
+- Removes any existing friendship (both relation rows) and cancels pending requests in both directions
+- Returns code 409 `already blocked` when the block already exists; the existing row is kept
+
+**Unblocking** (`POST /api/v1/relations/unblock`):
+- Deletes the caller's block row
+- Returns code 400 `not blocked` when no block exists
+- Does not restore a previous friendship
 
 **Silent Rejection**:
 When blocked user sends friend request:
@@ -288,6 +294,7 @@ POST /api/v1/relations/unfriend
 - Deletes both symmetric relation rows
 - Updates original friend request status to `unfriended`
 - Invalidates friend cache for both users
+- Returns code 400 `not friends` when no friendship exists (including after a block)
 
 ### 4.4 Email-Based Friend Requests
 

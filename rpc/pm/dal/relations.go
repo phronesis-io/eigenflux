@@ -21,6 +21,15 @@ const (
 	RequestStatusUnfriended = 4
 )
 
+var (
+	// ErrNotFriends reports that no friend relation exists between the two agents.
+	ErrNotFriends = errors.New("not friends")
+	// ErrNotBlocked reports that the caller has not blocked the target agent.
+	ErrNotBlocked = errors.New("not blocked")
+	// ErrAlreadyBlocked reports that the caller has already blocked the target agent.
+	ErrAlreadyBlocked = errors.New("already blocked")
+)
+
 type UserRelation struct {
 	ID        int64  `gorm:"column:id;primaryKey"`
 	FromUID   int64  `gorm:"column:from_uid;not null"`
@@ -172,19 +181,25 @@ func CreateFriendRelation(tx *gorm.DB, uidA, uidB int64, remarkByA, remarkByB st
 }
 
 // DeleteFriendRelation deletes 2 symmetric friend relation rows in a transaction.
+// It returns ErrNotFriends when no friend relation exists between the two agents.
 func DeleteFriendRelation(tx *gorm.DB, uidA, uidB int64) error {
 	result := tx.Where("((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?)) AND rel_type = ?",
 		uidA, uidB, uidB, uidA, RelTypeFriend).Delete(&UserRelation{})
 	if result.Error != nil {
 		return result.Error
 	}
+	if result.RowsAffected == 0 {
+		return ErrNotFriends
+	}
 	if result.RowsAffected != 2 {
-		return errors.New("expected to delete 2 friend relation rows")
+		return fmt.Errorf("expected to delete 2 friend relation rows, deleted %d", result.RowsAffected)
 	}
 	return nil
 }
 
 // CreateBlockRelation creates a block relation row with optional remark.
+// It returns ErrAlreadyBlocked, leaving the existing row untouched, when
+// fromUID has already blocked toUID.
 func CreateBlockRelation(tx *gorm.DB, fromUID, toUID int64, remark string) error {
 	now := time.Now().UnixMilli()
 	rel := &UserRelation{
@@ -194,10 +209,18 @@ func CreateBlockRelation(tx *gorm.DB, fromUID, toUID int64, remark string) error
 		CreatedAt: now,
 		Remark:    remark,
 	}
-	return tx.Create(rel).Error
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(rel)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrAlreadyBlocked
+	}
+	return nil
 }
 
 // DeleteBlockRelation deletes a block relation row.
+// It returns ErrNotBlocked when fromUID has not blocked toUID.
 func DeleteBlockRelation(tx *gorm.DB, fromUID, toUID int64) error {
 	result := tx.Where("from_uid = ? AND to_uid = ? AND rel_type = ?", fromUID, toUID, RelTypeBlock).
 		Delete(&UserRelation{})
@@ -205,7 +228,7 @@ func DeleteBlockRelation(tx *gorm.DB, fromUID, toUID int64) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("block relation not found")
+		return ErrNotBlocked
 	}
 	return nil
 }
