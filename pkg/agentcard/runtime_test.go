@@ -10,7 +10,7 @@ func TestCardRuntimeFields(t *testing.T) {
 	}{
 		{name: "plugin remains backward compatible", mode: "plugin", host: "openclaw/0.0.29", product: "openclaw", version: "0.0.29", legacy: "openclaw/0.0.29", runtimeMode: "plugin", runtimeName: "openclaw", runtimeVersion: "0.0.29"},
 		{name: "custom skill product", mode: "skill", host: "jarvis/1.2.0", product: "jarvis", version: "1.2.0", legacy: "skill", runtimeMode: "skill", runtimeName: "jarvis", runtimeVersion: "1.2.0"},
-		{name: "direct cli", cliVersion: "0.0.30", runtimeMode: "cli-direct"},
+		{name: "CLI version does not establish mode", cliVersion: "0.0.30"},
 		{name: "rolling deploy fallback", mode: "skill", host: "hermes/0.17.0", legacy: "skill", runtimeMode: "skill", runtimeName: "hermes", runtimeVersion: "0.17.0"},
 	}
 	for _, tt := range tests {

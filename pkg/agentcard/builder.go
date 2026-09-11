@@ -211,7 +211,7 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 		"agent_name_en":     agent.AgentNameEn,
 		"agent_description": agent.Bio,
 		"human_description": rawOr(profileData, "human_description", ""),
-		"runtime":           runtime,
+		"runtime":           runtime, // Deprecated: compatibility only; consume runtime_name/runtime_version and runtime_mode.
 		"runtime_mode":      runtimeMode,
 		"runtime_name":      runtimeName,
 		"runtime_version":   runtimeVersion,
@@ -273,6 +273,8 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 	return profiledal.UpsertAgentCardWithFence(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion, rebuildFence)
 }
 
+// cardRuntimeFields preserves the deprecated first return value for existing
+// wire consumers. New consumers must use the separate mode, name, and version.
 func cardRuntimeFields(mode, clientHost, runtimeName, runtimeVersion, cliVersion string) (legacy, runtimeMode, name, version string) {
 	legacy = mode
 	if mode == "plugin" && clientHost != "" {
@@ -281,9 +283,6 @@ func cardRuntimeFields(mode, clientHost, runtimeName, runtimeVersion, cliVersion
 		legacy = clientHost
 	}
 	runtimeMode = mode
-	if runtimeMode == "" && cliVersion != "" {
-		runtimeMode = "cli-direct"
-	}
 	name, version = runtimeName, runtimeVersion
 	if name == "" {
 		if identity, ok := runtimeidentity.Parse(clientHost); ok {

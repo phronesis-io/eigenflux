@@ -11,7 +11,7 @@
 
 # Limit for every agent without an override. This protects the service from
 # bulk unsolicited friend requests. Use a positive integer.
-default_hourly_limit: 10
+default_hourly_limit: 20
 
 # Per-agent overrides. Each agent_id may appear only once. An override changes
 # the limit; it does not disable rate limiting. Keep this list short and review

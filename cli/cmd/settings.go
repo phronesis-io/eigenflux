@@ -5,17 +5,30 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/profilestate"
 
 	"github.com/spf13/cobra"
 )
 
-// settingsReportedKey stores the last snapshot successfully pushed to the
-// backend, so `settings push` can be a no-op when nothing changed.
+// Legacy config cache keys remain reserved. Runtime identity and report stamps
+// now live in the locked runtime sidecar, independently of config.json writers.
 const settingsReportedKey = "_settings_reported"
+const settingsReportedAtKey = "_settings_reported_at"
+const settingsReportedClientKey = "_settings_reported_client"
+const settingsReportInterval = 24 * time.Hour
+
+type runtimeReportResult struct {
+	Status  string   `json:"status"`
+	Missing []string `json:"missing,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
 
 // settingsSyncedKey marks that at least one reconcile with the backend has
 // happened. Before that, existing local values initialize the backend instead
@@ -141,7 +154,10 @@ func syncedSettingsBody(cfg *config.Config) map[string]interface{} {
 // after every `feed poll`, so console edits reach the agent within one poll
 // interval.
 func SyncSettings(cfg *config.Config) error {
-	c := newClient()
+	c, err := newSettingsClient(cfg, activeServerName())
+	if err != nil {
+		return err
+	}
 	pendingLocal := cfg.GetKV(settingsDirtyKey) != "" ||
 		(cfg.GetKV(settingsSyncedKey) == "" && len(syncedSettingsBody(cfg)) > 0)
 	if pendingLocal {
@@ -186,6 +202,8 @@ func SyncSettings(cfg *config.Config) error {
 	// compromised backend could disable updates or overflow the throttle.
 	skip := map[string]bool{
 		"mode": true, "updated_at": true,
+		runtimeHostKey: true, runtimeModeKey: true,
+		"runtime_name": true, "runtime_version": true, "runtime_reported_at": true,
 		autoSkillSyncKey: true, skillSyncIntervalKey: true,
 		// Profile-refresh bookkeeping is client-local for the same reason: a
 		// backend-supplied stamp could silence the prompt forever (future
@@ -194,7 +212,7 @@ func SyncSettings(cfg *config.Config) error {
 	}
 	changed := false
 	for k, v := range remote {
-		if skip[k] {
+		if skip[k] || strings.HasPrefix(k, "_") {
 			continue
 		}
 		switch val := v.(type) {
@@ -215,69 +233,144 @@ func SyncSettings(cfg *config.Config) error {
 	return nil
 }
 
+func newSettingsClient(cfg *config.Config, serverName string) (*client.Client, error) {
+	server, err := cfg.GetActive(serverName)
+	if err != nil {
+		return nil, err
+	}
+	hasV2, err := auth.HasV2Credentials(serverName)
+	if err != nil {
+		return nil, err
+	}
+	if hasV2 {
+		c, _, err := newV2ClientForServer(serverName, true)
+		return c, err
+	}
+	credentials, err := auth.LoadCredentials(serverName)
+	if err != nil {
+		return nil, err
+	}
+	if credentials.IsExpired() {
+		return nil, fmt.Errorf("credentials expired for server %q", serverName)
+	}
+	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", credentials.AccessToken, version, clientMetaForServer(server))
+	c.OnSuccess = sync.OnceFunc(func() { auth.RefreshExpiry(serverName) })
+	return c, nil
+}
+
 // pushReported sends agent-reported fields to the backend, skipping the
 // request when nothing changed since the last successful push. Product
 // identity is independent from mode and travels through X-Client-Host, the
 // existing server-side runtime identity contract.
 func pushReported(cfg *config.Config, mode, model, runtimeName, runtimeVersion string, force bool) error {
-	feedPref := cfg.GetKV("feed_delivery_preference")
+	result, err := reportRuntimeSettings(cfg, mode, model, runtimeName, runtimeVersion, force)
+	if err != nil {
+		output.PrintMessage("settings failed")
+		return err
+	}
+	output.PrintMessage("settings %s", result.Status)
+	if len(result.Missing) > 0 {
+		output.PrintMessage("runtime identity missing: %s", strings.Join(result.Missing, ", "))
+	}
+	return nil
+}
+
+func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtimeVersion string, force bool) (result runtimeReportResult, err error) {
+	result.Status = "failed"
+	defer func() {
+		if err != nil {
+			result.Error = err.Error()
+		}
+	}()
 	serverName := activeServerName()
 	if serverName == "" {
-		return fmt.Errorf("no active server")
+		return result, fmt.Errorf("no active server")
 	}
-	runtimeHost, err := reportedRuntimeHost(runtimeName, runtimeVersion)
+	meta, state, err := configureRuntimeReportIdentity(cfg, serverName, mode, runtimeName, runtimeVersion)
 	if err != nil {
-		return err
+		return result, err
 	}
-	if runtimeHost == "" {
-		runtimeHost = clientMeta.Host
+	if model != "" {
+		meta.Model = model
 	}
-
-	// Canonical snapshot of the agent-reported fields. \x1f (unit separator)
-	// cannot appear in these values, so it is a safe delimiter.
+	if meta.Host == "" {
+		result.Missing = append(result.Missing, "runtime_name")
+	}
+	if meta.Mode == "" {
+		result.Missing = append(result.Missing, "mode")
+	}
 	agentID := settingsAgentID(serverName)
 	if agentID == "" {
-		return fmt.Errorf("no authenticated account for server %q", serverName)
+		result.Status = "missing"
+		result.Missing = append(result.Missing, "authenticated_account")
+		return result, nil
 	}
-	snapshot := reportedSettingsSnapshot(agentID, mode, feedPref, model, runtimeHost)
-	lastSnapshot, _, _ := cfg.GetServerOnlyKV(serverName, settingsReportedKey)
-	if !force && snapshot == lastSnapshot {
-		output.PrintMessage("settings unchanged; nothing to report")
-		return nil
+	if meta.Host == "" && meta.Mode == "" && meta.Model == "" {
+		result.Status = "missing"
+		return result, nil
+	}
+	server, err := cfg.GetActive(serverName)
+	if err != nil {
+		return result, err
+	}
+	hasV2, err := auth.HasV2Credentials(serverName)
+	if err != nil {
+		return result, err
+	}
+	apiFamily := "/api/v1"
+	if hasV2 {
+		apiFamily = "/api/v2"
+	}
+	clientSnapshot := strings.Join([]string{version, strings.TrimRight(server.Endpoint, "/") + apiFamily, meta.PluginVersion}, "\x1f")
+	snapshot := reportedSettingsSnapshot(agentID, meta.Mode, "", meta.Model, meta.Host)
+	lastSnapshot, lastClient, reportedAt := state.ReportedSnapshot, state.ReportedClient, state.ReportedAtMillis
+	ago := time.Now().UnixMilli() - reportedAt
+	if !force && snapshot == lastSnapshot && clientSnapshot == lastClient && reportedAt > 0 && ago >= 0 && ago < settingsReportInterval.Milliseconds() {
+		result.Status = "unchanged"
+		return result, nil
 	}
 
-	body := map[string]interface{}{
-		"feed_delivery_preference": feedPref,
-	}
-	if mode != "" {
-		body["mode"] = mode
+	// Runtime observations must not write cached shared settings before SyncSettings
+	// reconciles remote changes. Preferences remain on the existing sync path.
+	body := map[string]interface{}{}
+	if meta.Mode != "" {
+		body["mode"] = meta.Mode
 	}
 
-	c := newClientForServer(serverName)
-	// model is carried as a header (X-Client-Model) so the server stores it
-	// alongside the derived runtime, consistent with X-Client-Host.
-	headers := map[string]string{}
-	if model != "" {
-		headers["X-Client-Model"] = model
+	// This path must return errors, never output.Die: automatic metadata
+	// reporting cannot terminate a successful Feed or heartbeat operation.
+	c, err := newSettingsClient(cfg, serverName)
+	if err != nil {
+		return result, err
 	}
-	if runtimeName != "" {
-		headers["X-Client-Host"] = runtimeHost
-	}
+	c.Meta = meta
+	headers := map[string]string{"X-Client-Host": meta.Host, "X-Client-Mode": meta.Mode, "X-Client-Model": meta.Model}
 	resp, err := c.PutWithHeaders("/agents/me/settings", body, headers)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if resp.Code != 0 {
-		return fmt.Errorf("%s", resp.Msg)
+		return result, fmt.Errorf("%s", resp.Msg)
 	}
 
 	// Persist the snapshot only after a successful push, so a failed attempt
 	// is retried on the next call.
-	if err := cfg.SetServerKV(serverName, settingsReportedKey, snapshot); err != nil {
-		return err
+	_, err = profilestate.UpdateRuntime(config.HomeDir(), serverName, func(current *profilestate.RuntimeState) (bool, error) {
+		// An older in-flight report cannot replace a newer installation intent
+		// or its successful report cache, including a change away and back.
+		if current.Revision != state.Revision {
+			return false, nil
+		}
+		current.ReportedSnapshot = snapshot
+		current.ReportedClient = clientSnapshot
+		current.ReportedAtMillis = time.Now().UnixMilli()
+		return true, nil
+	})
+	if err != nil {
+		return result, err
 	}
-	output.PrintMessage("settings reported")
-	return nil
+	result.Status = "reported"
+	return result, nil
 }
 
 func settingsAgentID(serverName string) string {
@@ -332,8 +425,12 @@ func reportedRuntimeHost(name, version string) (string, error) {
 		}
 		return "", nil
 	}
-	if name == "terminal" || !validRuntimeIdentityPart(name) {
-		return "", fmt.Errorf("--runtime-name must be 1-64 letters, digits, '.', '-' or '_', and cannot be terminal")
+	switch name {
+	case "terminal", "plugin", "skill", "skills", "cli", "cli-direct", "unknown":
+		return "", fmt.Errorf("--runtime-name must identify the Agent product, not an installation mode or unknown sentinel")
+	}
+	if !validRuntimeIdentityPart(name) {
+		return "", fmt.Errorf("--runtime-name must be 1-64 letters, digits, '.', '-' or '_'")
 	}
 	if version == "" {
 		return name, nil
@@ -360,14 +457,19 @@ var settingsCmd = &cobra.Command{
 
 var settingsPushCmd = &cobra.Command{
 	Use:   "push",
-	Short: "Report agent-side settings to the backend, only when changed",
-	Long: `Push agent-reported settings (mode, runtime product, model, feed_delivery_preference) to the backend
+	Short: "Persist runtime identity and report settings when changed or due daily",
+	Long: `Push agent-reported identity (mode, runtime product, model) to the backend
 via PUT /agents/me/settings.
 
-feed_delivery_preference is read from the config KV; mode, runtime identity, and model come from flags.
+Mode and runtime identity come from explicit flags, process metadata, or this
+Home's per-server runtime sidecar.
+Flags persist product and mode for later commands. Plugin versions belong in
+EIGENFLUX_PLUGIN_VERSION, installation mode in EIGENFLUX_MODE, and delivery
+channels in EIGENFLUX_CHANNEL.
 The combined snapshot is compared against the last successfully reported one
-(stored in the config KV under "_settings_reported") and a request is sent only
-when something changed. Safe to call on every heartbeat — it no-ops otherwise.
+(stored in the runtime sidecar) and a request is sent only
+when something changed, the CLI or endpoint changed, or 24 hours have elapsed.
+Only successful requests update the snapshot. Safe to call on every heartbeat.
 
 Examples:
   eigenflux settings push --mode plugin --model gpt-5.6
