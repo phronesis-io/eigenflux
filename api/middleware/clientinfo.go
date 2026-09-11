@@ -13,6 +13,7 @@ import (
 
 func ClientInfoMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		ctx = reqinfo.WithRequestStart(ctx)
 		if v := c.GetHeader("X-Skill-Ver"); len(v) > 0 {
 			ver := string(v)
 			num := parseVersionNum(ver)
@@ -39,6 +40,7 @@ func ClientInfoMiddleware() app.HandlerFunc {
 			{"X-Client-Lang", "client_lang", reqinfo.KeyClientLang},
 			{"X-Client-Host", "client_host", reqinfo.KeyClientHost},
 			{"X-Client-Channel", "client_channel", reqinfo.KeyClientChannel},
+			{"X-Client-Mode", "client_mode", reqinfo.KeyClientMode},
 			{"X-Client-ID", "client_id", reqinfo.KeyClientID},
 			{"X-Client-Model", "client_model", reqinfo.KeyClientModel},
 			{"X-Bio-Source", "bio_source", reqinfo.KeyBioSource},
@@ -46,8 +48,15 @@ func ClientInfoMiddleware() app.HandlerFunc {
 		} {
 			if v := c.GetHeader(h.header); len(v) > 0 {
 				val := string(v)
-				if len(val) > 128 {
-					val = val[:128]
+				limit := 128
+				if h.header == "X-Client-Host" {
+					limit = 129
+				}
+				if len(val) > limit {
+					if h.header == "X-Client-Host" || h.header == "X-Client-Model" {
+						continue
+					}
+					val = val[:limit]
 				}
 				c.Set(h.key, val)
 				ctx = metainfo.WithPersistentValue(ctx, h.ctxKey, val)

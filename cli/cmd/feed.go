@@ -4,9 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,6 +38,9 @@ var feedPollCmd = &cobra.Command{
 	Short: "Pull personalized feed",
 	Long: `Fetch your personalized feed with curated content.
 
+Agent V2 pulls the latest feed without cursor pagination. --action more pulls
+again; it does not guarantee a distinct next page. --cursor is V1-only.
+
 Examples:
   eigenflux feed poll
   eigenflux feed poll --limit 20 --action refresh
@@ -69,18 +70,14 @@ Examples:
 		cfg, _ := config.Load()
 		maybeSyncSkills(cfg)
 		if _, v2Err := auth.LoadV2Credentials(serverName); v2Err == nil {
-			if cursor == "" && (action == "" || action == "refresh") {
-				v2PollErr := pollFeedV2(cmd, serverName, limit)
-				if v2PollErr == nil {
-					return nil
+			return runFeedV2Poll(action, cursor, func() error {
+				if err := pollFeedV2(cmd, serverName, limit); err != nil {
+					return err
 				}
-				var apiErr *client.APIError
-				if !errors.As(v2PollErr, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
-					return v2PollErr
-				}
-			}
+				finishFeedPoll(cfg, serverName)
+				return nil
+			})
 		}
-		_, agentID := profileStateScopeForServer(serverName)
 		c := newClientForServer(serverName)
 		resp, err := c.Get("/items/feed", params)
 		if err != nil {
@@ -99,14 +96,39 @@ Examples:
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.
 		// Best-effort: a sync failure must never break the poll itself.
-		if cfg != nil {
-			_ = SyncSettings(cfg)
-		}
-		if agentID != "" {
-			maybePromptProfileRefreshFor(serverName, agentID)
-		}
+		finishFeedPoll(cfg, serverName)
 		return nil
 	},
+}
+
+func runFeedV2Poll(action, cursor string, poll func() error) error {
+	if cursor != "" {
+		return fmt.Errorf("--cursor is only supported by Feed V1; Agent V2 has no cursor pagination: omit --cursor to pull the latest feed")
+	}
+	if action != "" && action != "refresh" && action != "more" {
+		return fmt.Errorf("--action must be refresh or more for Feed V2")
+	}
+	return poll()
+}
+
+// Both Feed transports complete the same reconciliation, independently of
+// optional local memory/profile state. Diagnostics stay off the Feed JSON stream.
+func finishFeedPoll(cfg *config.Config, serverName string) {
+	if cfg != nil {
+		result, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
+		if result.Status == "failed" || result.Status == "missing" || len(result.Missing) > 0 {
+			fmt.Fprintf(os.Stderr, "EigenFlux runtime report: %s", result.Status)
+			if len(result.Missing) > 0 {
+				fmt.Fprintf(os.Stderr, " (missing: %s)", strings.Join(result.Missing, ", "))
+			}
+			fmt.Fprintln(os.Stderr)
+		}
+		_ = SyncSettings(cfg)
+	}
+	_, agentID := profileStateScopeForServer(serverName)
+	if agentID != "" {
+		maybePromptProfileRefreshFor(serverName, agentID)
+	}
 }
 
 var feedGetCmd = &cobra.Command{
@@ -411,7 +433,7 @@ func pushEvents(events []map[string]interface{}) error {
 		return fmt.Errorf("token expired for server %q", srv.Name)
 	}
 	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
-	c := client.New(baseURL, creds.AccessToken, version, clientMeta)
+	c := client.New(baseURL, creds.AccessToken, version, clientMetaForServer(srv))
 	resp, err := c.Post("/items/events", map[string]interface{}{"events": events})
 	if err != nil {
 		return err

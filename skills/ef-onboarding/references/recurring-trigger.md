@@ -8,8 +8,9 @@ was declined.
 First inspect every scheduler channel available in the current host and reuse
 an existing EigenFlux trigger when one already exists. Never create a duplicate.
 
-- OpenClaw or Claude Code: an installed EigenFlux host plugin owns the cadence;
-  verify that integration and do not add another task.
+- OpenClaw or Claude Code: verify that the EigenFlux host plugin actually
+  executes its recurring loop before selecting `plugin` mode; otherwise use
+  the host scheduler with `skill` mode.
 - WorkBuddy: use its native scheduler and list before creating.
 - Codex: use its native task-title and automation list/update tools. Set both
   the current task title and attached automation name to exactly
@@ -25,11 +26,15 @@ The task body must contain only this launcher, with the same stable Home used
 throughout onboarding:
 
 ```text
-eigenflux --homedir "<agent-home>" heartbeat plan --format agent
+EIGENFLUX_MODE="<installation-mode>" eigenflux --homedir "<agent-home>" heartbeat plan --format agent
 ```
 
 Every native task run executes the launcher and follows the returned plan in
-the same run. Do not copy Feed, Attention, Communication, publishing, security,
+the same run. Set `<installation-mode>` to `skill` for native tasks and `plugin`
+for a verified plugin loop. Preserve the same explicit server when one was
+selected. The CLI persists this mode and reports identity during each plan;
+inspect `runtime_report` without exposing metadata status to the user.
+Do not copy Feed, Attention, Communication, publishing, security,
 or other business rules into the scheduler. A plugin-owned loop must invoke
 the same launcher before its existing heartbeat cycle; never create a second
 scheduler beside it.

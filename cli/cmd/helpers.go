@@ -45,7 +45,7 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 			if credentialErr != nil {
 				output.Die(output.ExitAuthRequired, "Agent V2 authentication failed for server %q: %v", srv.Name, credentialErr)
 			}
-			result := client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMeta)
+			result := client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServer(srv))
 			result.OnUnauthorized = func() (string, error) {
 				refreshed, refreshErr := refreshV2Credentials(srv.Name, srv.Endpoint, true)
 				if refreshErr != nil {
@@ -84,7 +84,7 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *cli
 		token = creds.AccessToken
 	}
 	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
-	c := client.New(baseURL, token, version, clientMeta)
+	c := client.New(baseURL, token, version, clientMetaForServer(srv))
 	if requireAuth {
 		serverName := srv.Name
 		c.OnSuccess = sync.OnceFunc(func() {

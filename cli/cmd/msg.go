@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -200,12 +201,15 @@ Examples:
 		if status != "pending_verify" && status != "open" && status != "closed" {
 			return fmt.Errorf("--status must be pending_verify, open, or closed")
 		}
-		c := newClient()
+		hasV2, err := auth.HasV2Credentials(activeServerName())
+		if err != nil {
+			return err
+		}
 		path := "/pm/topic-status"
-		if strings.HasSuffix(c.BaseURL, "/api/v2") {
+		if hasV2 {
 			path = "/pm/conversations/topic-status"
 		}
-		resp, err := c.Post(path, map[string]interface{}{
+		resp, err := newClient().Post(path, map[string]interface{}{
 			"conv_id": convID, "topic_status": status,
 		})
 		if err != nil {
