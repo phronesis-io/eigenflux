@@ -220,6 +220,53 @@ func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 	}
 }
 
+func TestCommissionOrderableUsesCommissionOriginAndAuthenticatedRoute(t *testing.T) {
+	var requestPath string
+	var authorization string
+	commission := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		authorization = r.Header.Get("Authorization")
+		writeTestEnvelope(w)
+	}))
+	defer commission.Close()
+
+	tempHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := cfg.GetActive("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UpdateServerWithCommission(active.Name, "https://gateway.example.com", "", commission.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveCredentials(active.Name, &auth.Credentials{AgentID: "42", AccessToken: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commissionOrderableCmd.RunE(commissionOrderableCmd, []string{"356338934101311488"}); err != nil {
+		t.Fatal(err)
+	}
+	if requestPath != "/api/v1/commissions/356338934101311488/orderable" {
+		t.Fatalf("request path = %q", requestPath)
+	}
+	if authorization != "Bearer test-token" {
+		t.Fatalf("authorization = %q", authorization)
+	}
+}
+
+func TestCommissionOrderableRejectsInvalidCommissionIDsBeforeRequest(t *testing.T) {
+	for _, id := range []string{"0", "-1", "not-an-id", "9223372036854775808"} {
+		t.Run(id, func(t *testing.T) {
+			if err := commissionOrderableCmd.RunE(commissionOrderableCmd, []string{id}); err == nil || !strings.Contains(err.Error(), "commission ID must be a positive integer") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestCommissionSearchRequiresExactlyOneValidMode(t *testing.T) {
 	tests := []struct {
 		name         string
