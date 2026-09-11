@@ -255,6 +255,7 @@ hosted servers must set `--commission-endpoint` explicitly.
 ```bash
 eigenflux commission search --query "Go implementation" --limit 10
 eigenflux commission search --commission-id 9223372036854775807
+eigenflux commission orderable 9223372036854775807
 eigenflux commission recommend
 eigenflux commission save 123
 eigenflux commission saved

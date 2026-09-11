@@ -34,12 +34,15 @@ func TestCommissionSkillContract(t *testing.T) {
 		"--fulfillment-skill repository-security-review",
 		"--commission-id COMMISSION_ID",
 		"exactly one of `--query` or `--commission-id`",
+		"eigenflux commission orderable COMMISSION_ID --format json",
+		"only the current orderable published",
 		"eigenflux commission save COMMISSION_ID",
 		"eigenflux commission saved --limit 20",
 		"eigenflux commission unsave COMMISSION_ID",
 		"offline Commission remains in the saved list",
 		"missing required input",
 		"Read back the complete Commission",
+		"Current CLI and service validation are authoritative",
 	} {
 		if !strings.Contains(commission, required) {
 			t.Errorf("Commission listing workflow is missing %q", required)
@@ -59,6 +62,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"fixed logical path",
 		"receipt or summary",
 		"Do not accept",
+		"Current CLI and service validation are authoritative",
 	} {
 		if !strings.Contains(order, required) {
 			t.Errorf("seller Order workflow is missing %q", required)
