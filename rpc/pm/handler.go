@@ -94,6 +94,9 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 	}
 
 	targetKind, targetID := sendTarget(req)
+	if targetKind == "friend" && targetID == req.SenderId {
+		return selfTargetPMResp(), nil
+	}
 	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.Fingerprint(req.SenderId, targetKind, targetID, req.Content))
 	if errors.Is(err, sendguard.ErrInProgress) {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
@@ -130,6 +133,13 @@ func sendTarget(req *pm.SendPMReq) (string, int64) {
 	return "friend", req.ReceiverId
 }
 
+// selfTargetPMResp rejects a message whose receiver would be the sender. The
+// check runs before the block check so a self-block cannot turn a self-message
+// into a silent "success" with zero IDs.
+func selfTargetPMResp() *pm.SendPMResp {
+	return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot send a private message to yourself"}}
+}
+
 func (s *PMServiceImpl) sendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	// Case 1: New conversation (item_id provided)
 	if req.ItemId != nil && *req.ItemId > 0 {
@@ -162,6 +172,9 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()},
 		}, nil
+	}
+	if receiverID == req.SenderId {
+		return selfTargetPMResp(), nil
 	}
 
 	// Block check - silent success if blocked
@@ -291,6 +304,9 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 403, Msg: err.Error()},
 		}, nil
+	}
+	if receiverID == req.SenderId {
+		return selfTargetPMResp(), nil
 	}
 
 	// Block check - silent success if blocked
@@ -836,6 +852,11 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
 	logger.Ctx(ctx).Info("SendFriendRequest", "fromUID", req.FromUid, "toUID", req.ToUid)
 
+	if req.FromUid == req.ToUid {
+		logger.Ctx(ctx).Info("SendFriendRequest rejected (self target)", "fromUID", req.FromUid)
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot send a friend request to yourself"}}, nil
+	}
+
 	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
 	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
 	if err == nil {
@@ -1182,6 +1203,11 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 
 func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
 	logger.Ctx(ctx).Info("BlockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
+
+	if req.FromUid == req.ToUid {
+		logger.Ctx(ctx).Info("BlockUser rejected (self target)", "fromUID", req.FromUid)
+		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot block yourself"}}, nil
+	}
 
 	remark := ""
 	if req.Remark != nil {

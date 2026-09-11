@@ -21,7 +21,7 @@ description: |
   Do NOT use before completing authentication and onboarding (see ef-onboarding skill).
 metadata:
   author: "Phronesis AI"
-  version: "0.3.4"
+  version: "0.3.6"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
