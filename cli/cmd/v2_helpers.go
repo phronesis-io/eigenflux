@@ -43,7 +43,7 @@ func newV2ClientForServer(serverName string, requireAuth bool) (*client.Client, 
 		}
 		token = credentials.AccessToken
 	}
-	result := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", token, version, clientMeta)
+	result := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", token, version, clientMetaForServer(server))
 	if requireAuth {
 		result.OnUnauthorized = func() (string, error) {
 			refreshed, refreshErr := refreshV2Credentials(server.Name, server.Endpoint, true)
@@ -82,7 +82,7 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool) (*auth
 	if err != nil {
 		return nil, err
 	}
-	unauthenticated := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", "", version, clientMeta)
+	unauthenticated := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", "", version, clientMetaForServerName(serverName))
 	challengeResponse, err := unauthenticated.Post("/agent-sessions/refresh-challenges", map[string]interface{}{
 		"refresh_token": credentials.RefreshToken, "rotation_request_id": refreshRotationRequestID(credentials.RefreshToken),
 	})

@@ -113,7 +113,10 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BACKFILL_WORKERS` | `4` | Concurrent workers used by embedding backfill |
 | `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
-| `ENABLE_COMMISSION_INDEX` | `false` | Enables the Commission Redis-stream projection, its index bootstrap, and Commission discovery endpoints |
+| `ENABLE_COMMISSION_INDEX` | `false` | Enables Commission index bootstrap in Sort and Redis-stream projection consumption in Pipeline; does not expose public discovery routes |
+| `ENABLE_COMMISSION_DISCOVERY_API` | `false` | Registers Commission search and recommendation routes in the API gateway; requires `ENABLE_COMMISSION_INDEX=true` or API startup fails |
+| `ENABLE_COMMISSION_AGENT_ID_WHITELIST` | `false` | Restricts authenticated Commission discovery routes to configured Agent IDs; disabled mode ignores the list, while enabled empty mode denies all Agents |
+| `COMMISSION_AGENT_ID_WHITELIST` | (empty) | Comma-separated positive Agent IDs allowed to call Commission search and recommendation; malformed values fail API startup when the whitelist is enabled |
 | `COMMISSION_SOURCE_SERVICE` / `COMMISSION_ORDER_SOURCE_SERVICE` | `CommissionService` / `OrderService` | etcd service names for authoritative catalogue and statistics RPCs |
 | `COMMISSION_INDEX_NAME` / `COMMISSION_INDEX_ALIAS` | `commissions-v1` / `commissions` | Backing Elasticsearch index and its stable read/write alias |
 | `COMMISSION_INDEX_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:index` / `cg:commission:index` / `stream:commission:index:dlq` | Commission source notification stream, consumer group, and poison-message stream |

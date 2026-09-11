@@ -38,6 +38,7 @@ struct SearchCommissionsReq {
     1: required string query
     2: optional CommissionSearchFilters filters
     3: optional i32 limit
+    4: optional i64 commission_id
 }
 
 struct SearchCommissionsResp {

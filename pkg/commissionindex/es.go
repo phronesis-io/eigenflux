@@ -275,8 +275,15 @@ func (s ESStore) Upsert(ctx context.Context, doc Document) error {
 }
 
 func (s ESStore) Search(ctx context.Context, req SearchRequest) ([]Hit, error) {
+	queryText := strings.TrimSpace(req.Query)
+	if req.CommissionID < 0 || (queryText == "" && req.CommissionID == 0) || (queryText != "" && req.CommissionID != 0) {
+		return nil, fmt.Errorf("invalid Commission search mode")
+	}
 	if req.Limit <= 0 {
 		req.Limit = 20
+	}
+	if req.CommissionID > 0 {
+		req.Limit = 1
 	}
 	filters := []any{map[string]any{"term": map[string]any{"active": true}}}
 	for field, r := range map[string][2]int64{"price_fen": {req.MinPriceFen, req.MaxPriceFen}, "promised_delivery_ms": {req.MinDurationMS, req.MaxDurationMS}} {
@@ -291,12 +298,19 @@ func (s ESStore) Search(ctx context.Context, req SearchRequest) ([]Hit, error) {
 			filters = append(filters, map[string]any{"range": map[string]any{field: bounds}})
 		}
 	}
+	boolQuery := map[string]any{"filter": filters}
+	if req.CommissionID > 0 {
+		filters = append(filters, map[string]any{"term": map[string]any{"commission_id": req.CommissionID}})
+		boolQuery["filter"] = filters
+	} else {
+		boolQuery["must"] = []any{map[string]any{"multi_match": map[string]any{"query": queryText, "fields": []string{"title^3", "capability_description^2", "request_spec_text", "delivery_spec_text", "search_text"}}}}
+	}
 	query := map[string]any{
 		"size":    req.Limit,
 		"_source": []string{"commission_id", "completion_rate_bps", "average_rating_milli", "has_rating", "completed_count"},
-		"query":   map[string]any{"bool": map[string]any{"filter": filters, "must": []any{map[string]any{"multi_match": map[string]any{"query": req.Query, "fields": []string{"title^3", "capability_description^2", "request_spec_text", "delivery_spec_text", "search_text"}}}}}},
+		"query":   map[string]any{"bool": boolQuery},
 	}
-	if len(req.Embedding) > 0 {
+	if req.CommissionID == 0 && len(req.Embedding) > 0 {
 		query["knn"] = map[string]any{"field": "embedding", "query_vector": req.Embedding, "k": req.Limit, "num_candidates": req.Limit * 4, "filter": map[string]any{"bool": map[string]any{"filter": filters}}}
 	}
 	body, err := json.Marshal(query)

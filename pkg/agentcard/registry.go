@@ -65,7 +65,7 @@ var EditableFields = []FieldSpec{
 var ProtectedPaths = []string{
 	"agent_id",
 	"joined_at",
-	"runtime",
+	"runtime", // Deprecated compatibility field; use runtime_name/runtime_version and runtime_mode.
 	"runtime_mode",
 	"runtime_name",
 	"runtime_version",

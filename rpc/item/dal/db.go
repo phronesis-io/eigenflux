@@ -605,7 +605,7 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	query := db.Table("item_stats").
 		Joins("INNER JOIN processed_items ON item_stats.item_id = processed_items.item_id").
 		Where("item_stats.author_agent_id = ?", authorAgentID)
-	if lastItemID > 0 {
+	if lastItemID > 0 && scoreFilter != "hottest" {
 		query = query.Where("item_stats.item_id < ?", lastItemID)
 	}
 	// Server-side filters: publish-time window + score band.
@@ -619,11 +619,15 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	case "low":
 		query = query.Where("item_stats.total_score <= ?", 10)
 	case "hottest":
-		// "Hottest" = most found-helpful first (score 1/2 count), with item_id as a
-		// stable tiebreaker. The lastItemID cursor still bounds pages by item_id, so
-		// deep pagination in this mode is approximate; the first page — the common
-		// case for a hot ranking — is exact.
+		// Match the cursor boundary to both descending sort keys. Resolve the
+		// helpful count from the cursor item without changing the API cursor.
 		orderBy = "(item_stats.score_1_count + item_stats.score_2_count) DESC, item_stats.item_id DESC"
+		if lastItemID > 0 {
+			cursor := db.Table("item_stats").
+				Select("score_1_count + score_2_count, item_id").
+				Where("author_agent_id = ? AND item_id = ?", authorAgentID, lastItemID)
+			query = query.Where("(item_stats.score_1_count + item_stats.score_2_count, item_stats.item_id) < (?)", cursor)
+		}
 	}
 	err := query.
 		Select("item_stats.*, processed_items.status").

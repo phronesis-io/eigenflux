@@ -2,6 +2,52 @@ package config
 
 import "testing"
 
+func TestLoadCommissionDiscoveryConfiguration(t *testing.T) {
+	t.Setenv("ENABLE_COMMISSION_INDEX", "true")
+	t.Setenv("ENABLE_COMMISSION_DISCOVERY_API", "true")
+	t.Setenv("ENABLE_COMMISSION_AGENT_ID_WHITELIST", "true")
+	t.Setenv("COMMISSION_AGENT_ID_WHITELIST", "42, 99")
+
+	cfg := Load()
+	if !cfg.EnableCommissionIndex || !cfg.CommissionDiscoveryEnabled || !cfg.EnableCommissionAllowlist {
+		t.Fatalf("Commission discovery switches were not loaded: %#v", cfg)
+	}
+	if cfg.CommissionAgentIDWhitelist != "42, 99" {
+		t.Fatalf("CommissionAgentIDWhitelist=%q", cfg.CommissionAgentIDWhitelist)
+	}
+}
+
+func TestLoadCommissionDiscoveryConfigurationDefaultsDisabled(t *testing.T) {
+	t.Setenv("ENABLE_COMMISSION_INDEX", "")
+	t.Setenv("ENABLE_COMMISSION_DISCOVERY_API", "")
+	t.Setenv("ENABLE_COMMISSION_AGENT_ID_WHITELIST", "")
+	t.Setenv("COMMISSION_AGENT_ID_WHITELIST", "")
+
+	cfg := Load()
+	if cfg.EnableCommissionIndex || cfg.CommissionDiscoveryEnabled || cfg.EnableCommissionAllowlist || cfg.CommissionAgentIDWhitelist != "" {
+		t.Fatalf("Commission discovery defaults were not disabled: %#v", cfg)
+	}
+}
+
+func TestValidateCommissionDiscoveryConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cfg     Config
+		wantErr error
+	}{
+		{name: "disabled", cfg: Config{}},
+		{name: "index only", cfg: Config{EnableCommissionIndex: true}},
+		{name: "index and API", cfg: Config{EnableCommissionIndex: true, CommissionDiscoveryEnabled: true}},
+		{name: "API without index", cfg: Config{CommissionDiscoveryEnabled: true}, wantErr: ErrInvalidCommissionDiscoveryConfiguration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.cfg.ValidateCommissionDiscoveryConfiguration(); err != tc.wantErr {
+				t.Fatalf("ValidateCommissionDiscoveryConfiguration() error=%v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestIsProdEnv(t *testing.T) {
 	t.Parallel()
 

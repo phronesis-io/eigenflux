@@ -3,6 +3,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log"
+	"strings"
+
 	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/pipeline/embedding"
@@ -11,15 +16,17 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/rpcx"
-	"fmt"
-	"log"
-	"strings"
 
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
+var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE_COMMISSION_INDEX=true")
+
 func main() {
 	cfg := config.Load()
+	if err := validateConfiguration(cfg); err != nil {
+		log.Fatal(err)
+	}
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {
 		log.Fatal(err)
 	}
@@ -49,6 +56,13 @@ func main() {
 	if err := store.PromoteAlias(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func validateConfiguration(cfg *config.Config) error {
+	if cfg == nil || !cfg.EnableCommissionIndex {
+		return errCommissionIndexDisabled
+	}
+	return nil
 }
 
 type embedder interface {

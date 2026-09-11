@@ -314,6 +314,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
 		recoverAccount, _ := cmd.Flags().GetBool("recover-account")
 		requireExistingAgent, _ := cmd.Flags().GetBool("require-existing-agent")
+		mode, _ := cmd.Flags().GetString("mode")
+		runtimeName, _ := cmd.Flags().GetString("runtime-name")
+		runtimeVersion, _ := cmd.Flags().GetString("runtime-version")
 		if strings.TrimSpace(agentName) == "" {
 			agentName = "EigenFlux Agent"
 		}
@@ -325,11 +328,15 @@ var agentV2ProvisionCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		meta, err := configureRuntimeIdentity(cfg, server.Name, mode, runtimeName, runtimeVersion)
+		if err != nil {
+			return err
+		}
 		publicKey, privateKey, _, err := auth.LoadOrCreateIdentity(server.Name)
 		if err != nil {
 			return err
 		}
-		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, clientMeta)
+		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, meta)
 		expectedAgentID := ""
 		preserveExistingIdentity := false
 		var legacyCredentials *auth.Credentials
@@ -381,7 +388,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 			if hasV2 {
 				grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
 			} else if legacyCredentials != nil && legacyCredentials.AccessToken != "" {
-				legacy := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", legacyCredentials.AccessToken, version, clientMeta)
+				legacy := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", legacyCredentials.AccessToken, version, meta)
 				var challengeAgentID string
 				grant, nonce, challengeAgentID, err = requestLegacyAgentUpgradeChallenge(legacy, publicKey)
 				if err == nil && expectedAgentID != "" && challengeAgentID != expectedAgentID {
@@ -455,13 +462,15 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		result := map[string]interface{}{
 			"agent_id": provisioned.AgentID, "created": provisioned.Created,
-			"next_step": provisioned.NextStep,
+			"next_step":    provisioned.NextStep,
+			"runtime_host": meta.Host, "mode": meta.Mode,
+			"runtime_identity_complete": meta.Host != "" && meta.Mode != "",
 		}
 		homeDir, homeSource := config.HomeDirInfo()
 		result["home"] = homeDir
 		result["home_source"] = homeSource
 		if !noHandoff {
-			authenticated := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", provisioned.AccessToken, version, clientMeta)
+			authenticated := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", provisioned.AccessToken, version, meta)
 			browserNonce, nonceErr := newBrowserNonce()
 			if nonceErr != nil {
 				return nonceErr
@@ -488,6 +497,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 }
 
 func init() {
+	agentV2ProvisionCmd.Flags().String("mode", "", "persist the verified installation mode (plugin|skill)")
+	agentV2ProvisionCmd.Flags().String("runtime-name", "", "persist the Agent product identity for this Home and server")
+	agentV2ProvisionCmd.Flags().String("runtime-version", "", "known Agent product version, independent of plugin version")
 	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "optional short-lived controlled-channel grant (automatic registration is used when omitted)")
 	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce paired with --bootstrap-grant")
 	agentV2ProvisionCmd.Flags().String("agent-name", "EigenFlux Agent", "Agent name used to prefill onboarding")
