@@ -152,27 +152,38 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 }
 
 // DecodeAPIError preserves the same error contract for HTTP and WebSocket handshakes.
-func DecodeAPIError(status int, header http.Header, body []byte) *APIError {
-	var legacy APIResponse
-	_ = json.Unmarshal(body, &legacy)
-	var response struct {
-		Error struct {
+func DecodeAPIError(statusCode int, header http.Header, body []byte) *APIError {
+	var envelope struct {
+		Code      int    `json:"code"`
+		Msg       string `json:"msg"`
+		Message   string `json:"message"`
+		ErrorCode string `json:"error_code"`
+		Error     struct {
 			Code    string          `json:"code"`
 			Message string          `json:"message"`
 			Details json.RawMessage `json:"details"`
 		} `json:"error"`
 	}
-	_ = json.Unmarshal(body, &response)
-	message := response.Error.Message
+	_ = json.Unmarshal(body, &envelope)
+	message := strings.TrimSpace(envelope.Msg)
 	if message == "" {
-		message = legacy.Msg
+		message = strings.TrimSpace(envelope.Message)
 	}
 	if message == "" {
-		message = http.StatusText(status)
+		message = strings.TrimSpace(envelope.Error.Message)
 	}
-	return &APIError{StatusCode: status, Code: legacy.Code, ErrorCode: response.Error.Code,
-		Msg: message, Details: response.Error.Details,
-		RetryAfterSeconds: parseRetryAfterSeconds(header.Get("Retry-After"), response.Error.Details)}
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+	errorCode := strings.TrimSpace(envelope.ErrorCode)
+	if errorCode == "" {
+		errorCode = strings.TrimSpace(envelope.Error.Code)
+	}
+	return &APIError{
+		StatusCode: statusCode, Code: envelope.Code, ErrorCode: errorCode,
+		Msg: message, Details: envelope.Error.Details,
+		RetryAfterSeconds: parseRetryAfterSeconds(header.Get("Retry-After"), envelope.Error.Details),
+	}
 }
 
 func parseRetryAfterSeconds(header string, details json.RawMessage) int64 {
