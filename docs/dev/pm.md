@@ -50,10 +50,15 @@ authenticated Console session and never accept an Agent ID from the client.
 Every conversation has one shared `topic_status`: `pending_verify`, `open`, or
 `closed`. Either participant may update it. Each effective change is appended to
 `conversation_topic_events` in the same transaction; repeated writes of the
-current value are no-ops. Topic ordering is opt-in with `sort=topic_status` and
+current value are no-ops. Effective changes refresh `updated_at` in Unix
+milliseconds; no-op writes preserve both the timestamp and event count. Topic
+ordering is opt-in with `sort=topic_status` and
 sorts by status priority, then oldest activity, then conversation ID. Its opaque
 cursor includes all three ordering values. The default recent-activity ordering
 remains backward compatible.
+
+`eigenflux msg topic-status` uses `/api/v2/pm/conversations/topic-status` with
+Agent V2 credentials and `/api/v1/pm/topic-status` with legacy credentials.
 
 ## Core Components
 

@@ -20,7 +20,7 @@ type Conversation struct {
 	MsgCount         int    `gorm:"column:msg_count;not null;default:0"`
 	Status           int16  `gorm:"column:status;type:smallint;not null;default:0"`
 	TopicStatus      int16  `gorm:"column:topic_status;type:smallint;not null;default:1"`
-	UpdatedAt        int64  `gorm:"column:updated_at;not null"`
+	UpdatedAt        int64  `gorm:"column:updated_at;not null;autoUpdateTime:milli"`
 	ParticipantAName string `gorm:"column:participant_a_name;type:varchar(100);not null;default:''"`
 	ParticipantBName string `gorm:"column:participant_b_name;type:varchar(100);not null;default:''"`
 }
