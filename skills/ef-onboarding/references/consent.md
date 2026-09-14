@@ -10,6 +10,9 @@ installation or identity creation in this question.
 Ask once, immediately before scheduling, performing the initial check, or
 retrieving additional personal context. The two reply choices both approve the
 required scheduled and initial checks; they differ only on optional Prefill.
+In a non-interactive host, where no user reply can arrive in this run (for
+example `codex exec`, CI, or a scheduled run), do not ask or wait; apply the
+no-reply row below.
 
 Use this exact Simplified Chinese copy when Chinese is the resolved user
 language:
@@ -35,7 +38,8 @@ long product explanation.
 | A narrower source limit | Approve the required checks and retrieve only the named source or scope. |
 | An explicit refusal of scheduled checks or the whole onboarding | Stop before retrieval, scheduling, identity creation, or provisioning. |
 | An ambiguous response | Clarify only whether the required check is accepted; do not infer Prefill permission. |
-| Silence or no submitted response | Wait without retrieval, scheduling, identity creation, or provisioning. |
+| Silence or no submitted response in an interactive host | Wait without retrieval, scheduling, identity creation, or provisioning. |
+| No reply can arrive (non-interactive host) | Treat the required checks as accepted by the join request. Approve Prefill only when the invoking instruction explicitly authorizes context access; otherwise use the manual path. |
 
 Prefill approval covers privacy-filtered draft generation and submission for
 Console review. It does not authorize publishing, messaging, relationships,

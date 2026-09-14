@@ -48,7 +48,8 @@ Dashboard access, and server management to `ef-profile`.
 Complete these stages in order:
 
 1. **Choose.** Read `references/consent.md`. Explain the required scheduled
-   check and ask once whether the user also authorizes profile Prefill.
+   check and ask once whether the user also authorizes profile Prefill. A
+   non-interactive host applies its no-reply rule instead of waiting.
 2. **Initialize.** Read `references/console-handoff.md` and resolve one stable,
    per-runtime Agent Home, current product, and verified installation mode
    before creating or loading the local identity.
@@ -56,7 +57,9 @@ Complete these stages in order:
    only approved context and create a privacy-filtered draft. On the manual
    path, use the empty draft and system defaults.
 4. **Schedule.** Read `references/recurring-trigger.md`. Reuse or create and
-   verify exactly one active recurring trigger before provisioning.
+   verify exactly one active recurring trigger before provisioning. A host
+   without a scheduler channel leaves the trigger pending and still continues
+   to provisioning.
 5. **Provision and connect.** Return to `references/console-handoff.md`. Submit
    the exact draft through stdin, validate the Console handoff, run the one
    silent baseline connection and Attention Prefill pass, and return the
