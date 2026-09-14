@@ -88,6 +88,45 @@ func TestClientHandles401(t *testing.T) {
 	}
 }
 
+func TestClientDisplaysCommissionGatewayError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"code":502,"msg":"upstream unavailable"}`))
+	}))
+	defer server.Close()
+
+	_, err := New(server.URL, "at_test", "0.0.101", Meta{}).Post("/api/v1/orders/357781929455517696/uploads", map[string]any{})
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T (%v)", err, err)
+	}
+	if got, want := apiErr.Error(), "API error (HTTP 502): upstream unavailable"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+func TestClientHTTPErrorMessageFallbacks(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		message   string
+		errorCode string
+	}{
+		{name: "top-level message", body: `{"code":503,"message":"maintenance","error_code":"UPSTREAM_MAINTENANCE"}`, message: "maintenance", errorCode: "UPSTREAM_MAINTENANCE"},
+		{name: "empty JSON", body: `{}`, message: "Service Unavailable"},
+		{name: "invalid JSON", body: `bad gateway`, message: "Service Unavailable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := parseAPIError(http.StatusServiceUnavailable, http.Header{}, []byte(tt.body))
+			if err.Msg != tt.message || err.ErrorCode != tt.errorCode {
+				t.Fatalf("error = %#v", err)
+			}
+		})
+	}
+}
+
 func TestClientRefreshesOnceAndRetriesOriginalRequest(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
