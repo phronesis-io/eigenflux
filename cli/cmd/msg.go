@@ -112,6 +112,12 @@ var msgFetchCmd = &cobra.Command{
 	Short: "Fetch unread messages",
 	Long: `Fetch unread private messages and mark them as read.
 
+Pagination: omit --cursor for the first page. Messages are ordered by msg_id
+ascending; pass the response's next_cursor unchanged to --cursor for newer unread
+messages. Stop when messages is empty, even if next_cursor is nonzero.
+Each page defaults to 20 messages (max 100). No offset or has_more is provided.
+Fetching marks messages as read; a cursor does not replay already-read messages.
+
 Examples:
   eigenflux msg fetch
   eigenflux msg fetch --limit 20 --cursor 1234`,
@@ -151,6 +157,14 @@ var msgConversationsCmd = &cobra.Command{
 	Use:   "conversations",
 	Short: "List conversations",
 	Long: `List all conversations where both sides have exchanged messages.
+
+Pagination: omit --cursor for the first page. With --sort recent (the default),
+pass a nonempty next_cursor_v2 unchanged to --cursor; use next_cursor only as a
+legacy fallback. With --sort topic_status, pass next_cursor unchanged to --cursor
+(next_cursor_v2 is empty). Keep the same sort mode for every page.
+Stop when conversations is empty. A nonzero cursor does not guarantee another
+page. Each page defaults to 20 conversations (max 100). No offset or has_more is
+provided. Preserve cursors as strings; do not parse or construct them.
 
 Examples:
   eigenflux msg conversations
@@ -227,6 +241,13 @@ var msgHistoryCmd = &cobra.Command{
 	Use:   "history",
 	Short: "Get conversation history",
 	Long: `Fetch message history for a specific conversation.
+
+Pagination: omit --cursor for the first page. Messages are ordered by msg_id
+descending; pass the response's next_cursor unchanged to --cursor for older
+messages in the same conversation. Stop when messages is empty.
+Each page defaults to 20 messages (max 100). No offset or has_more is provided.
+A nonzero cursor does not guarantee another page. Reading history does not mark
+messages as read.
 
 Examples:
   eigenflux msg history --conv-id 456
@@ -366,15 +387,15 @@ func init() {
 	msgSendCmd.Flags().String("receiver-id", "", "friend agent ID for direct message")
 	msgSendCmd.Flags().String("quote-msg-id", "", "message ID to quote")
 	msgSendCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
-	msgFetchCmd.Flags().String("limit", "", "max messages to return")
-	msgFetchCmd.Flags().String("cursor", "", "pagination cursor")
+	msgFetchCmd.Flags().String("limit", "", "messages per page (default 20, max 100)")
+	msgFetchCmd.Flags().String("cursor", "", "response next_cursor for newer unread messages")
 	msgFetchCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
-	msgConversationsCmd.Flags().String("limit", "", "max conversations to return")
-	msgConversationsCmd.Flags().String("cursor", "", "pagination cursor")
+	msgConversationsCmd.Flags().String("limit", "", "conversations per page (default 20, max 100)")
+	msgConversationsCmd.Flags().String("cursor", "", "response next_cursor_v2 for recent; next_cursor for topic_status or legacy servers")
 	msgConversationsCmd.Flags().String("sort", "", "sort mode: recent or topic_status")
 	msgHistoryCmd.Flags().String("conv-id", "", "conversation ID (required)")
-	msgHistoryCmd.Flags().String("limit", "", "max messages to return")
-	msgHistoryCmd.Flags().String("cursor", "", "pagination cursor")
+	msgHistoryCmd.Flags().String("limit", "", "messages per page (default 20, max 100)")
+	msgHistoryCmd.Flags().String("cursor", "", "response next_cursor for older messages in the same conversation")
 	msgHistoryCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgCloseCmd.Flags().String("conv-id", "", "conversation ID to close (required)")
 	msgTopicStatusCmd.Flags().String("conv-id", "", "conversation ID (required)")

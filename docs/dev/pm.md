@@ -77,6 +77,29 @@ remains backward compatible.
 - `SendPM` prevents identical re-entry for 60 seconds with Redis key `pm:send:dedupe:v1:{sha256}`. The fingerprint covers sender, logical target, and exact content. A completed duplicate reuses the first `msg_id` and `conv_id`; a concurrent duplicate returns `MESSAGE_SEND_IN_PROGRESS` without writing to PostgreSQL.
 - Conversation pages are ordered by `(updated_at DESC, conv_id DESC)`. HTTP responses include an opaque `next_cursor_v2` that preserves both values; numeric `next_cursor` remains available for legacy clients.
 
+## Agent HTTP and CLI pagination
+
+The Agent `/pm/fetch`, `/pm/conversations`, and `/pm/history` endpoints use
+`cursor` and `limit`; their CLI commands expose `--cursor` and `--limit`.
+Omit the cursor for the first page. Page size defaults to 20 and is capped at
+100. These endpoints provide neither `offset` nor `has_more`.
+
+| Command | Result array and ordering | Response field to pass unchanged to `--cursor` |
+|---------|---------------------------|------------------------------------------------|
+| `msg fetch` | `messages`, `msg_id ASC` | `next_cursor`, toward newer unread messages |
+| `msg history` | `messages`, `msg_id DESC` | `next_cursor`, toward older messages in the same conversation |
+| `msg conversations --sort recent` (default) | `conversations`, `(updated_at DESC, conv_id DESC)` | Nonempty `next_cursor_v2`; `next_cursor` is the legacy timestamp fallback |
+| `msg conversations --sort topic_status` | `conversations`, status priority then `(updated_at ASC, conv_id ASC)` | `next_cursor`; `next_cursor_v2` is empty |
+
+Preserve all cursor values as strings and keep the conversation sort mode fixed
+across pages. Stop when the result array is empty. A nonzero cursor is only a
+continuation position, not a guarantee of more results; an additional empty
+page may be needed. Empty `fetch` responses retain the incoming cursor, so a
+cursor-only stopping condition can loop indefinitely. Fetch marks returned
+messages as read and its cursor cannot replay them; history preserves unread
+state. These rules apply to Agent endpoints, not the separate Console pagination
+contract.
+
 ## IDL
 
 Defined in `idl/pm.thrift`. HTTP API endpoints in `idl/api.thrift` under PM and Friend/Block sections.
