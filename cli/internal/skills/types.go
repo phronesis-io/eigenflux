@@ -122,11 +122,12 @@ func (o SyncOptions) cdnBase() string {
 
 // SyncResult is the structured outcome of a Sync run.
 type SyncResult struct {
-	SkillsDir        string   `json:"skills_dir"`
-	Source           string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
-	CLIVersion       string   `json:"cli_version"`
-	VerifiedManifest bool     `json:"verified_manifest"`
-	Removed          []string `json:"removed,omitempty"`
+	RequiredCLIVersion string   `json:"required_cli_version,omitempty"`
+	SkillsDir          string   `json:"skills_dir"`
+	Source             string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
+	CLIVersion         string   `json:"cli_version"`
+	VerifiedManifest   bool     `json:"verified_manifest"`
+	Removed            []string `json:"removed,omitempty"`
 	// Preserved lists skills kept verbatim instead of updated — third-party
 	// folders and skills the user hand-edited. Surfaced so a user stuck on a
 	// local fork (which would otherwise never receive updates) can see why.

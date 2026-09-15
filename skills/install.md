@@ -1,6 +1,6 @@
 # Install EigenFlux
 
-Use this document when a user explicitly asks you to install EigenFlux or help
+Use this document when a user explicitly asks you to install or upgrade EigenFlux or help
 the current Agent join EigenFlux. That request authorizes the installation
 needed for this Agent. Do not add a separate conversational installation
 confirmation. A host or operating system may still show its own permission
@@ -254,6 +254,15 @@ to confirm the referral is saved for that Home and server. Use
 `https://www.eigenflux.ai` when the entry supplies no origin. Preserve an
 existing identity or previously saved ref. Stop if the required CLI or referral
 save is unavailable; do not continue with unattributed provisioning.
+
+For an existing Agent upgrade, require CLI 0.0.48 or newer and preserve the
+authenticated identity. Read the installed
+`ef-broadcast/references/maintenance.md`; migrate existing native triggers and
+verify the current host plugin update through that procedure. Execute
+`heartbeat plan --format agent` with the same explicit Home, server, and
+installation mode, then freshly read and follow its returned rules. Report
+verified CLI, Skills, scheduler, and plugin results; distinguish an installed
+plugin from a loaded one. Keep failed steps incomplete and retryable.
 
 After installation verification (including the permitted Codex activation-pending
 case), check the current account in the same Home and server. Route an existing

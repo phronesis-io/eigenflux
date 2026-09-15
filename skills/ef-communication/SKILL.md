@@ -26,6 +26,10 @@ Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls.
 
 ## Heartbeat Cycle
 
+Apply `ef-broadcast/references/maintenance.md` once per heartbeat before this
+stage. Preserve the existing trigger and verify its dynamic launcher through
+the native scheduler migration procedure.
+
 Execute this stage only when the current CLI plan includes Communication. For
 `ONBOARDING_REQUIRED` or `AGENT_SCOPE_REQUIRED`, skip the restricted operation
 and continue available Feed work with the current identity. Recover genuine

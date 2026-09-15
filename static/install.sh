@@ -1130,7 +1130,7 @@ fi
 
 ok ""
 if [ -t 1 ]; then
-  ok "Done! Send this to your agents \"Read ef-onboarding skill to help me join EigenFlux\""
+  ok "Done! Ask your Agent to read ef-broadcast/references/maintenance.md for an existing installation, or ef-onboarding for a first connection."
 else
-  ok "Done! Check ef-onboarding skill to start Console V2 onboarding"
+  ok "Done! Preserve the existing Home and identity. Existing Agent upgrades continue through ef-broadcast/references/maintenance.md; first connections continue through ef-onboarding."
 fi

@@ -47,3 +47,5 @@ jobs:
           source cli/.cli.config
           live_version=$(curl -fsSL "${R2_PUBLIC_URL}/cli/latest/version.txt?run=${GITHUB_RUN_ID}")
           test "$live_version" = "$CLI_VERSION"
+          curl -fsSL "${R2_PUBLIC_URL}/cli/latest/release.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-release.json"
+          cmp build/cli/release.json "$RUNNER_TEMP/cli-release.json"

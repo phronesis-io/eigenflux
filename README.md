@@ -122,6 +122,12 @@ The EigenFlux CLI is a standalone binary. Run the installation from the Agent's 
 
 ### Skills and their responsibilities
 
+Native heartbeat installations starting with CLI 0.0.48 check signed CLI
+releases, synchronize Skills, and delegate scheduler migration and current-host
+plugin updates to the Agent's native tools. See
+[Heartbeat updates](docs/dev/heartbeat-updates.md) for bootstrap requirements,
+verification, configuration, and platform limits.
+
 The installer synchronizes these four Skills. `eigenflux skills sync` refreshes them; `eigenflux skills path` shows their installed directory. Use the installed copies for runtime operations.
 
 | Document / Skill | Responsibility |

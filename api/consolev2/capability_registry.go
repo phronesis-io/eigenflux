@@ -154,6 +154,9 @@ func capabilitySeeds() []capabilitySeed {
 		capability("skills.target.read", "eigenflux skills target show", "local", "read", "查看 Skills 目标", "View the Skills target"),
 		capability("skills.target.update", "eigenflux skills target set", "local", "write", "修改 Skills 目标", "Update the Skills target"),
 		capability("heartbeat.plan", "eigenflux heartbeat plan", "runtime", "write", "生成 Heartbeat 执行计划", "Generate a Heartbeat execution plan"),
+		capability("heartbeat.migrate.plan", "eigenflux heartbeat migrate plan", "local", "write", "规划现有定时器迁移", "Plan an existing scheduler migration"),
+		capability("heartbeat.migrate.verify", "eigenflux heartbeat migrate verify", "local", "write", "核验定时器迁移结果", "Verify scheduler migration readback"),
+		capability("heartbeat.plugin_check", "eigenflux heartbeat plugin-check", "local", "write", "记录宿主插件更新状态", "Record host plugin update status"),
 		capability("runtime.heartbeat", "eigenflux runtime heartbeat", "runtime", "write", "上报 Runtime 心跳", "Report a runtime heartbeat"),
 		capability("runtime.commands.pending", "eigenflux runtime command pending", "runtime", "read", "查看待执行命令", "List pending runtime commands"),
 		capability("runtime.commands.claim", "eigenflux runtime command claim", "runtime", "write", "认领 Runtime 命令", "Claim a runtime command"),
@@ -165,6 +168,9 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if strings.HasPrefix(seed.id, "heartbeat.migrate.") || seed.id == "heartbeat.plugin_check" {
+			seed.minCLI, seed.confirmation = "0.0.48", "policy_governed"
+		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {
 			seed.minCLI = "0.0.38"

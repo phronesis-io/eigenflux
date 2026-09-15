@@ -9,6 +9,7 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,8 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
+	PluginMaintenance        pluginMaintenance   `json:"plugin_maintenance"`
+	CLIUpdate                selfupdate.Result   `json:"cli_update"`
 	AgentPrompt              string              `json:"agent_prompt"`
 	WakeOnEmpty              bool                `json:"wake_on_empty"`
 	Access                   runtimeAccess       `json:"access"`
@@ -57,12 +60,26 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		cliUpdate, restarted, updateErr := updateHeartbeatCLI(cmd, cfg, "")
+		if restarted || updateErr != nil {
+			return updateErr
+		}
 		runtimeReport, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
 		meta := clientMetaForServerName(activeServerName())
 		res, err := skills.Sync(skills.SyncOptions{
 			Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
 			HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
 		})
+		if res != nil && res.RequiredCLIVersion != "" {
+			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, res.RequiredCLIVersion)
+			if restarted || updateErr != nil {
+				return updateErr
+			}
+			if !compatibleLocalHeartbeatRules(res.SkillsDir, version) {
+				return fmt.Errorf("heartbeat needs CLI >= %s; automatic update %s: %s", res.RequiredCLIVersion, cliUpdate.Status, cliUpdate.Error)
+			}
+			err = nil // Continue only the already-installed compatible rules.
+		}
 		if err != nil || res == nil {
 			return fmt.Errorf("heartbeat plan: skills sync failed: %w", err)
 		}
@@ -79,6 +96,11 @@ var heartbeatPlanCmd = &cobra.Command{
 			filepath.Join(res.SkillsDir, "ef-broadcast", "SKILL.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
+		}
+		// Older compatible bundles remain executable while the new release rolls out.
+		maintenanceRule := filepath.Join(res.SkillsDir, "ef-broadcast", "references", "maintenance.md")
+		if fileExistsCLI(maintenanceRule) {
+			ruleSources = append(ruleSources, maintenanceRule)
 		}
 		for _, source := range ruleSources {
 			if _, err := filepath.Abs(source); err != nil {
@@ -104,7 +126,9 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 		launcher := cliPrefix + " heartbeat plan --format agent"
 		plan := heartbeatPlan{
-			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
+			PluginMaintenance: pluginMaintenanceForHost(meta.Host, cfg),
+			CLIUpdate:         cliUpdate,
+			SchemaVersion:     "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: access.OnboardingState == "completed",
@@ -139,6 +163,14 @@ var heartbeatPlanCmd = &cobra.Command{
 	},
 }
 
+func compatibleLocalHeartbeatRules(dir, current string) bool {
+	m, err := skills.ReadLocalManifest(dir)
+	if err != nil || m == nil || m.Revision == "" {
+		return false
+	}
+	return m.MinCLIVersion == "" || (selfupdate.ValidVersion(current) && selfupdate.ValidVersion(m.MinCLIVersion) && selfupdate.Compare(current, m.MinCLIVersion) >= 0)
+}
+
 func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
@@ -147,6 +179,10 @@ func heartbeatStages(access runtimeAccess) []string {
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
+	updateStatus := plan.CLIUpdate.Status
+	if plan.CLIUpdate.Error != "" {
+		updateStatus += " (" + plan.CLIUpdate.Error + ")"
+	}
 	runtimeStatus := plan.RuntimeReport.Status
 	if len(plan.RuntimeReport.Missing) > 0 {
 		runtimeStatus += " (missing: " + strings.Join(plan.RuntimeReport.Missing, ", ") + ")"
@@ -160,6 +196,8 @@ Installed official Skills: %s
 CLI prefix for every EigenFlux command in this cycle: %s
 Runtime settings report: %s
 Heartbeat compatibility reported: %t
+CLI automatic update: %s
+Plugin maintenance: %s (due: %t)
 
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
@@ -175,7 +213,7 @@ Migration: %s
 Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, plan.PluginMaintenance.Status, plan.PluginMaintenance.Due, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
 		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
 }
 

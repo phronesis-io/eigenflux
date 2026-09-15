@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"cli.eigenflux.ai/internal/client"
@@ -147,6 +148,11 @@ func run() error {
 
 func Execute() {
 	if err := run(); err != nil {
+		var updated *updatedCLIError
+		var exitErr *exec.ExitError
+		if errors.As(err, &updated) && errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
+			os.Exit(exitErr.ExitCode())
+		}
 		fmt.Fprintln(os.Stderr, err)
 		// Map a server-side 401 to the auth-required exit code so adapters
 		// (which key off exit 4) prompt re-login even when the local token

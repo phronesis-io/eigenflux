@@ -42,22 +42,28 @@ S3_ARGS="--endpoint-url $R2_ENDPOINT"
 echo -e "${CYAN}Publishing eigenflux CLI v${CLI_VERSION} to R2${NC}"
 echo ""
 
+test -s "$BUILD_DIR/release.json"
+
 for file in "$BUILD_DIR"/eigenflux-*; do
   name=$(basename "$file")
   echo -ne "${CYAN}Uploading $name ...${NC} "
 
   # Upload to versioned path
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/$CLI_VERSION/$name" $S3_ARGS --quiet && \
-    echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
+  aws s3 cp "$file" "s3://$R2_BUCKET/cli/$CLI_VERSION/$name" $S3_ARGS --quiet
+  echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
 
   # Also upload to latest/
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet && \
-    echo -e "${GREEN}latest${NC}"
+  aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
+  echo -e "${GREEN}latest${NC}"
 done
 
 # Upload version.txt
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/$CLI_VERSION/version.txt" $S3_ARGS --quiet
+
+# Publish the signed discovery pointer only after every versioned artifact exists.
+aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/$CLI_VERSION/release.json" $S3_ARGS --quiet
+aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
 
 # Skills are published by the Linux-only Release Skills workflow. Keeping that
 # path single-writer prevents different gzip implementations from producing

@@ -15,6 +15,10 @@ missing `--runtime-mode` or wording different from the new template alone is
 not a repair reason. Use the current plan's CLI prefix for subsequent operations;
 receiving a new plan does not require rewriting the stored task.
 
+For a confirmed native-trigger repair, follow
+`ef-broadcast/references/maintenance.md` and verify the migration receipt.
+Preserve an explicitly paused trigger.
+
 Only when a confirmed execution incompatibility requires conversion, update the same
 owned task through the host API: replace the legacy mode assignment with the
 equivalent `--runtime-mode` argument. Preserve task identity, thread, Home,

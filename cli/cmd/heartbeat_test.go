@@ -162,6 +162,7 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 
 func installHeartbeatTestRules(t *testing.T) string {
 	t.Helper()
+	t.Setenv(updateReexecEnv, "1") // These unit tests exercise plans, not binary replacement.
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_SKILLS_DIR", dir)
 	t.Setenv("EIGENFLUX_CDN_URL", "http://127.0.0.1:1")
