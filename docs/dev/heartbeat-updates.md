@@ -19,11 +19,13 @@ The updater holds an OS lock beside the resolved executable, downloads into
 that directory, validates bytes and `version --short` under the same explicit
 stable Home, retains `.previous`,
 and replaces the executable. A failed installed-binary probe restores the
-backup. A successful install re-runs the original arguments with the same
+backup. TERM/INT during the update cancels the probe, waits for rollback and
+stops the cycle before business work. A successful install re-runs the original arguments with the same
 resolved Home and environment. The new process reports its actual CLI version.
 Business errors from the new process are returned without replaying the task.
 During re-execution, termination signals are forwarded and the child is reaped;
-an unresponsive child is killed after a bounded grace period.
+an unresponsive child is killed after a bounded grace period. Signal exits use
+the conventional `128 + signal` status; normal child exit codes are retained.
 The update state is binary-scoped so several Homes sharing an installation do
 not independently download the same version. It stores last attempt, minimum,
 highest accepted version and the most recent error.
@@ -45,19 +47,21 @@ sync continues using its existing configuration and compatibility checks.
 ## Native scheduler migration
 
 `heartbeat migrate plan --stdin` consumes a complete, normalized host inventory
-and stores at most one one-hour pending plan per Home/server/host. Only tasks with
+and stores at most one one-hour plan snapshot per Home/server/host. Only tasks with
 verified heartbeat purpose, EigenFlux ownership, a matching absolute Home and explicit server
 qualify. More than one match or missing identity evidence blocks migration.
 The plan changes only the prompt; it does not create tasks or write scheduler
 databases. Paused tasks remain paused. An already-current task needs no pending
 record. Plans retain only the selected task, not unrelated scheduler contents.
+Verification leaves this bounded snapshot untouched so concurrent new plans
+cannot be deleted. The next update replaces it; expiry prevents stale use.
 
 The host Agent applies the prompt through its native scheduler tool, lists the
 tasks again, and submits the fresh inventory to `heartbeat migrate verify
 --stdin`. Verification checks the selected task's ID, prompt, cadence, status,
 thread and other configuration, and rejects duplicate heartbeat tasks in the
 same scope. Unrelated task changes do not invalidate the readback. Only successful
-readback writes a verified receipt; retries validate fresh inventory against that
+readback writes a host-scoped verified receipt; retries validate fresh inventory against that
 receipt while it remains valid. The CLI validates host-supplied evidence;
 it cannot independently attest that a host tool was called. Updated Skills
 require fresh host reads and prohibit treating stored receipts as current proof.

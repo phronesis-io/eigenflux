@@ -40,6 +40,12 @@ func TestPluginCacheIsDiscoveryOnlyAndWorkspaceBound(t *testing.T) {
 			t.Fatalf("automatic maintenance in mode %q: %+v", mode, got)
 		}
 	}
+	if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if got := pluginMaintenanceForHost("codex", "skill", cfg); got.Due || got.Status != "not_applicable" {
+		t.Fatalf("disabled plugin maintenance was offered: %+v", got)
+	}
 }
 
 func TestPluginReceiptRequiresScope(t *testing.T) {

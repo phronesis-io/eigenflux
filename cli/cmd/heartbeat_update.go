@@ -35,7 +35,14 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	r := selfupdate.Check(ctx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key})
+	updateCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	r := selfupdate.Check(updateCtx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key})
+	// Check must finish synchronous rollback before restoring signal defaults.
+	updateErr := updateCtx.Err()
+	stop()
+	if updateErr != nil {
+		return r, false, updateErr
+	}
 	if r.Status != "updated" {
 		return r, false, nil
 	}

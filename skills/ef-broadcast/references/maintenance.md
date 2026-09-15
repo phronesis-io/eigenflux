@@ -44,6 +44,10 @@ paused tasks and unrelated tasks. Keep failed migrations retryable on the next r
 
 ## Current Host Plugin Update
 
+During automatic heartbeats, skip this section when the plan's
+`plugin_maintenance.status` is `not_applicable`. Apply explicit upgrades only
+within the user's current authorization.
+
 During explicit upgrades and native `skill` heartbeats, read the host's
 installed-plugin list, exact EigenFlux plugin ID, source, scope, enabled state,
 and installed version. Preserve disabled plugins and report `blocked`. Record

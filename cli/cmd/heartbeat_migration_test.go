@@ -46,6 +46,15 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	}}
 	host := clientMetaForServerName(server).Host
 	path := migrationPendingPath(host)
+	currentInput := in
+	currentInput.Tasks = append([]heartbeatmigration.Task(nil), in.Tasks...)
+	currentInput.Tasks[0].Prompt = heartbeatLauncher(config.HomeDir(), server, "skill")
+	if current, err := call("plan", currentInput); err != nil || current.Plan.Status != "current" {
+		t.Fatalf("fresh current: %+v %v", current, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("current created a plan snapshot")
+	}
 	var r migrationRecord
 	for i := 0; i < 4; i++ {
 		var err error
@@ -77,8 +86,8 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	if err := verify(r.ID, actual); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("pending remains: %v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("bounded snapshot missing: %v", err)
 	}
 	if err := verify(r.ID, actual); err != nil {
 		t.Fatalf("retry failed: %v", err)
@@ -99,8 +108,24 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// With the old snapshot superseded, retry must use this host's receipt.
+	otherHost := host + "-other"
+	other := r
+	other.ID, other.Host, other.Verified = "11111111111111111111111111111111", otherHost, time.Now()
+	if err := saveMaintenance(migrationReceiptPath(otherHost), other); err != nil {
+		t.Fatal(err)
+	}
+	if migrationReceiptPath(host) == migrationReceiptPath(otherHost) {
+		t.Fatal("receipt scopes collide")
+	}
 	if err := verify(r.ID, actual); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := call("plan", actual); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(newPlan.ID, newPlan.Plan.After); err != nil {
+		t.Fatal("concurrent current invalidated pending verify:", err)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -114,18 +139,18 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	if err != nil || current.Plan.Status != "current" {
 		t.Fatalf("current failed: %+v %v", current, err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("current retained pending")
+	if now, err := os.ReadFile(path); err != nil || !bytes.Equal(now, b) {
+		t.Fatal("current changed another pending plan")
 	}
 	if _, err := call("plan", actual); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("current created pending")
+	if now, err := os.ReadFile(path); err != nil || !bytes.Equal(now, b) {
+		t.Fatal("repeated current changed pending plan")
 	}
 	r.Created = time.Now().Add(-2 * time.Hour)
 	r.Verified = time.Now()
-	if err := saveMaintenance(maintenancePath("scheduler"), r); err != nil {
+	if err := saveMaintenance(migrationReceiptPath(host), r); err != nil {
 		t.Fatal(err)
 	}
 	if err := verify(r.ID, actual); err == nil {
@@ -133,7 +158,7 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	}
 	r.Created = time.Now()
 	r.Home = "/wrong-home"
-	if err := saveMaintenance(maintenancePath("scheduler"), r); err != nil {
+	if err := saveMaintenance(migrationReceiptPath(host), r); err != nil {
 		t.Fatal(err)
 	}
 	if err := verify(r.ID, actual); err == nil {
@@ -146,7 +171,7 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	if err := verify(newPlan.ID, actual); err == nil {
 		t.Fatal("expired pending accepted")
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("expired pending retained")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("expired verify removed shared snapshot")
 	}
 }

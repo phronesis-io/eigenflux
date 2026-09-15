@@ -91,7 +91,7 @@ func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
 	if err = json.Unmarshal([]byte(out), &record); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(maintenancePath("scheduler")); !os.IsNotExist(err) {
+	if _, err = os.Stat(migrationReceiptPath(record.Host)); !os.IsNotExist(err) {
 		t.Fatal("plan alone recorded migration success")
 	}
 	_ = verifyCmd.Flags().Set("stdin", "true")
@@ -111,7 +111,7 @@ func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
 			t.Fatal("unchanged old prompt accepted")
 		}
 	}
-	b, err = os.ReadFile(maintenancePath("scheduler"))
+	b, err = os.ReadFile(migrationReceiptPath(record.Host))
 	if err != nil {
 		t.Fatal(err)
 	}

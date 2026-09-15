@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -150,8 +151,13 @@ func Execute() {
 	if err := run(); err != nil {
 		var updated *updatedCLIError
 		var exitErr *exec.ExitError
-		if errors.As(err, &updated) && errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
-			os.Exit(exitErr.ExitCode())
+		if errors.As(err, &updated) && errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				os.Exit(128 + int(status.Signal()))
+			}
+			if exitErr.ExitCode() > 0 {
+				os.Exit(exitErr.ExitCode())
+			}
 		}
 		fmt.Fprintln(os.Stderr, err)
 		// Map a server-side 401 to the auth-required exit code so adapters
