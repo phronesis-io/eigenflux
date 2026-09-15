@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
+	"path/filepath"
 	"time"
 )
 
 type pluginMaintenance struct {
 	Host             string    `json:"host"`
 	PluginID         string    `json:"plugin_id"`
+	Scope            string    `json:"scope,omitempty"`
+	Context          string    `json:"context,omitempty"`
 	Due              bool      `json:"due"`
 	Status           string    `json:"status"`
 	InstalledVersion string    `json:"installed_version,omitempty"`
@@ -35,19 +38,33 @@ func heartbeatPluginID(host string) string {
 	}
 }
 
-func pluginMaintenanceForHost(host string, cfg *config.Config) pluginMaintenance {
+func pluginContext() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	return dir
+}
+
+func pluginMaintenanceForHost(host, mode string, cfg *config.Config) pluginMaintenance {
 	p := pluginMaintenance{Host: runtimeProduct(host), PluginID: heartbeatPluginID(host), Status: "due", Due: true}
-	if p.PluginID == "" || !automaticMaintenanceEnabled(cfg, "auto_plugin_update") {
+	if mode != "skill" || p.PluginID == "" || !automaticMaintenanceEnabled(cfg, "auto_plugin_update") {
 		p.Status, p.Due = "not_applicable", false
 		return p
 	}
 	b, err := os.ReadFile(maintenancePath("plugin-" + p.Host))
 	var saved pluginMaintenance
-	if err == nil && json.Unmarshal(b, &saved) == nil && saved.PluginID == p.PluginID && saved.Host == p.Host {
+	context := pluginContext()
+	if err == nil && json.Unmarshal(b, &saved) == nil && saved.PluginID == p.PluginID && saved.Host == p.Host && context != "" && saved.Context == context && saved.Scope != "" {
 		age := time.Since(saved.CheckedAt)
 		if age >= 0 && age < 24*time.Hour {
-			saved.Due = false
-			return saved
+			// Cache release discovery, never the current installation or process state.
+			p.Due, p.Status = false, "check_required"
+			p.Scope, p.LatestVersion, p.CheckedAt = saved.Scope, saved.LatestVersion, saved.CheckedAt
+			return p
 		}
 	}
 	return p
@@ -56,6 +73,9 @@ func pluginMaintenanceForHost(host string, cfg *config.Config) pluginMaintenance
 func validatePluginReceipt(p pluginMaintenance, host string) error {
 	if p.Host != runtimeProduct(host) || p.PluginID == "" || p.PluginID != heartbeatPluginID(host) {
 		return fmt.Errorf("plugin does not belong to the current host")
+	}
+	if p.Scope == "" {
+		return fmt.Errorf("fresh host-verified plugin installation scope required")
 	}
 	switch p.Status {
 	case "loaded", "restart_required":
@@ -87,6 +107,10 @@ func init() {
 		}
 		if err := validatePluginReceipt(p, clientMetaForServerName(activeServerName()).Host); err != nil {
 			return err
+		}
+		p.Context = pluginContext()
+		if p.Context == "" {
+			return fmt.Errorf("cannot resolve plugin check workspace")
 		}
 		p.CheckedAt, p.Due = time.Now(), false
 		if err := saveMaintenance(maintenancePath("plugin-"+p.Host), p); err != nil {

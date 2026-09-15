@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -126,7 +127,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 		launcher := cliPrefix + " heartbeat plan --format agent"
 		plan := heartbeatPlan{
-			PluginMaintenance: pluginMaintenanceForHost(meta.Host, cfg),
+			PluginMaintenance: pluginMaintenanceForHost(meta.Host, meta.Mode, cfg),
 			CLIUpdate:         cliUpdate,
 			SchemaVersion:     "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
@@ -179,6 +180,7 @@ func heartbeatStages(access runtimeAccess) []string {
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
+	pluginInfo, _ := json.Marshal(plan.PluginMaintenance)
 	updateStatus := plan.CLIUpdate.Status
 	if plan.CLIUpdate.Error != "" {
 		updateStatus += " (" + plan.CLIUpdate.Error + ")"
@@ -197,7 +199,7 @@ CLI prefix for every EigenFlux command in this cycle: %s
 Runtime settings report: %s
 Heartbeat compatibility reported: %t
 CLI automatic update: %s
-Plugin maintenance: %s (due: %t)
+Plugin maintenance: %s
 
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
@@ -213,7 +215,7 @@ Migration: %s
 Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, plan.PluginMaintenance.Status, plan.PluginMaintenance.Due, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
 		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
 }
 

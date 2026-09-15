@@ -16,6 +16,7 @@ type Task struct {
 	Name     string                 `json:"name"`
 	Prompt   string                 `json:"prompt"`
 	Owner    string                 `json:"owner"`
+	Purpose  string                 `json:"purpose"`
 	Home     string                 `json:"home"`
 	Server   string                 `json:"server"`
 	Schedule string                 `json:"schedule"`
@@ -38,16 +39,16 @@ type Plan struct {
 }
 
 func Build(in Inventory, home, server, launcher string) (Plan, error) {
-	p := Plan{Version: Version, Status: "missing", Before: in, After: Inventory{Complete: in.Complete, Tasks: append([]Task(nil), in.Tasks...)}}
+	p := Plan{Version: Version, Status: "missing"}
 	if err := validate(in); err != nil {
 		return p, err
 	}
-	if !filepath.IsAbs(home) || launcher == "" {
+	if !filepath.IsAbs(home) || server == "" || launcher == "" {
 		return p, fmt.Errorf("absolute stable Home and launcher required")
 	}
 	index := -1
 	for i, t := range in.Tasks {
-		if t.Owner != "eigenflux" {
+		if t.Owner != "eigenflux" || t.Purpose != "heartbeat" {
 			continue
 		}
 		if !filepath.IsAbs(t.Home) || t.Server == "" {
@@ -57,7 +58,7 @@ func Build(in Inventory, home, server, launcher string) (Plan, error) {
 			continue
 		}
 		if index >= 0 {
-			return p, fmt.Errorf("multiple EigenFlux tasks match this Home/server; resolve duplicates explicitly")
+			return p, fmt.Errorf("multiple EigenFlux heartbeat tasks match this Home/server; resolve duplicates explicitly")
 		}
 		index = i
 	}
@@ -69,12 +70,14 @@ func Build(in Inventory, home, server, launcher string) (Plan, error) {
 		return p, fmt.Errorf("task %s lacks scheduler metadata", t.ID)
 	}
 	p.TaskID = t.ID
+	p.Before = Inventory{Complete: true, Tasks: []Task{t}}
+	p.After = Inventory{Complete: true, Tasks: []Task{t}}
 	if strings.TrimSpace(t.Prompt) == launcher {
 		p.Status = "current"
 		return p, nil
 	}
 	p.Status = "update"
-	p.After.Tasks[index].Prompt = launcher
+	p.After.Tasks[0].Prompt = launcher
 	return p, nil
 }
 
@@ -85,17 +88,29 @@ func Verify(p Plan, actual Inventory) error {
 	if err := validate(actual); err != nil {
 		return err
 	}
-	if len(actual.Tasks) != len(p.After.Tasks) {
-		return fmt.Errorf("scheduler task count changed")
+	if len(p.After.Tasks) != 1 || p.After.Tasks[0].ID != p.TaskID {
+		return fmt.Errorf("plan must contain exactly one target heartbeat")
 	}
-	byID := map[string]Task{}
-	for _, t := range actual.Tasks {
-		byID[t.ID] = t
+	want := p.After.Tasks[0]
+	if want.Owner != "eigenflux" || want.Purpose != "heartbeat" {
+		return fmt.Errorf("plan target is not an EigenFlux heartbeat")
 	}
-	for _, t := range p.After.Tasks {
-		if got, ok := byID[t.ID]; !ok || !reflect.DeepEqual(got, t) {
-			return fmt.Errorf("task %s readback differs from planned prompt or preserved metadata", t.ID)
-		}
+	fresh, err := Build(actual, want.Home, want.Server, want.Prompt)
+	if err != nil {
+		return err
+	}
+	if fresh.TaskID != p.TaskID || len(fresh.Before.Tasks) != 1 {
+		return fmt.Errorf("target heartbeat missing or replaced")
+	}
+	got := fresh.Before.Tasks[0]
+	if len(got.Metadata) == 0 {
+		got.Metadata = nil
+	}
+	if len(want.Metadata) == 0 {
+		want.Metadata = nil
+	}
+	if !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("task %s readback differs from planned prompt or preserved metadata", want.ID)
 	}
 	return nil
 }

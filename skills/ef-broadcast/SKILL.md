@@ -30,7 +30,7 @@ context compaction. Apply its direct-CLI and host-output requirements across
 every stage below, including other Skills invoked by this cycle.
 
 Read `references/maintenance.md` during every heartbeat and explicit in-place
-upgrade. Apply scheduler migration and due current-host plugin maintenance
+upgrade. Apply scheduler migration and current-host plugin maintenance
 before business stages. Resolve CLI versions below 0.0.48 through the public
 installation entry before running maintenance commands.
 

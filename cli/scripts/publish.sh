@@ -27,12 +27,9 @@ if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
   exit 1
 fi
 
-# Route the legacy emergency entry point through the serialized Skills publisher.
-# Unset the switch after dispatch so this invocation only uploads CLI binaries.
-if [[ "${EIGENFLUX_PUBLISH_SKILLS_WITH_CLI:-false}" == "true" ]]; then
-  bash "$SCRIPT_DIR/release-skills.sh"
-  EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false
-fi
+# Defer the optional Skills workflow dispatch until CLI publication succeeds.
+PUBLISH_SKILLS_AFTER_CLI="${EIGENFLUX_PUBLISH_SKILLS_WITH_CLI:-false}"
+EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false
 
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
@@ -44,12 +41,48 @@ echo ""
 
 test -s "$BUILD_DIR/release.json"
 
+# Check every immutable object before writing anything, including partial releases.
+CHECK_DIR=$(mktemp -d)
+trap 'rm -rf "$CHECK_DIR"' EXIT
+VERSION_FILES=("$BUILD_DIR"/eigenflux-* "$BUILD_DIR/version.txt" "$BUILD_DIR/release.json")
+for file in "${VERSION_FILES[@]}"; do
+  name=$(basename "$file")
+  test -s "$file"
+  if aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
+      "$CHECK_DIR/$name" $S3_ARGS > /dev/null 2> "$CHECK_DIR/error"; then
+    cmp -s "$file" "$CHECK_DIR/$name" || {
+      echo "Published $CLI_VERSION/$name differs; bump CLI_VERSION" >&2
+      exit 1
+    }
+  elif grep -q 'An error occurred (NoSuchKey) when calling the GetObject operation' "$CHECK_DIR/error"; then
+    touch "$CHECK_DIR/$name.missing"
+  else
+    cat "$CHECK_DIR/error" >&2
+    exit 1
+  fi
+done
+for file in "${VERSION_FILES[@]}"; do
+  name=$(basename "$file")
+  if [[ -f "$CHECK_DIR/$name.missing" ]]; then
+    # Conditional creation also protects against concurrent/manual publishers.
+    if ! aws s3api put-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
+        --body "$file" --if-none-match '*' $S3_ARGS > /dev/null; then
+      aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
+        "$CHECK_DIR/$name" $S3_ARGS > /dev/null
+      cmp -s "$file" "$CHECK_DIR/$name" || {
+        echo "Published $CLI_VERSION/$name differs; bump CLI_VERSION" >&2
+        exit 1
+      }
+    fi
+  fi
+done
+
 for file in "$BUILD_DIR"/eigenflux-*; do
   name=$(basename "$file")
   echo -ne "${CYAN}Uploading $name ...${NC} "
 
   # Upload to versioned path
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/$CLI_VERSION/$name" $S3_ARGS --quiet
+  # The immutable versioned object was verified or conditionally created above.
   echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
 
   # Also upload to latest/
@@ -59,10 +92,8 @@ done
 
 # Upload version.txt
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
-aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/$CLI_VERSION/version.txt" $S3_ARGS --quiet
 
 # Publish the signed discovery pointer only after every versioned artifact exists.
-aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/$CLI_VERSION/release.json" $S3_ARGS --quiet
 aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
 
 # Skills are published by the Linux-only Release Skills workflow. Keeping that
@@ -86,3 +117,6 @@ fi
 echo ""
 echo -e "${GREEN}Published to ${R2_PUBLIC_URL}/cli/${CLI_VERSION}/${NC}"
 echo -e "${GREEN}Latest at ${R2_PUBLIC_URL}/cli/latest/${NC}"
+if [[ "$PUBLISH_SKILLS_AFTER_CLI" == "true" ]]; then
+  bash "$SCRIPT_DIR/release-skills.sh"
+fi

@@ -54,7 +54,7 @@ func fixture(t *testing.T) (Options, *Manifest, *[]byte, *atomic.Int32) {
 		_, _ = w.Write(bin)
 	}))
 	t.Cleanup(srv.Close)
-	return Options{Executable: path, Version: "0.0.47", CDN: srv.URL, Key: pub, Now: time.Now()}, m, &bin, &count
+	return Options{Home: t.TempDir(), Executable: path, Version: "0.0.47", CDN: srv.URL, Key: pub, Now: time.Now()}, m, &bin, &count
 }
 
 func TestUpdateSignedBinaryAndKeepIdentity(t *testing.T) {
@@ -79,6 +79,46 @@ func TestUpdateSignedBinaryAndKeepIdentity(t *testing.T) {
 	r = Check(context.Background(), o)
 	if r.Status != "deferred" || count.Load() != 2 {
 		t.Fatalf("daily check not throttled: %+v requests=%d", r, count.Load())
+	}
+}
+
+func TestAllVersionProbesUseStableHome(t *testing.T) {
+	o, m, bin, _ := fixture(t)
+	envHome := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", envHome)
+	t.Setenv("EF_EXPECTED_HOME", o.Home)
+	log := filepath.Join(t.TempDir(), "probes")
+	t.Setenv("EF_PROBE_LOG", log)
+	makeScript := func(v string) []byte {
+		return []byte("#!/bin/sh\n[ \"$1\" = --homedir ] && [ \"$2\" = \"$EF_EXPECTED_HOME\" ] && [ \"$3\" = version ] && [ \"$4\" = --short ] || exit 41\nprintf 'probe\\n' >> \"$EF_PROBE_LOG\"\necho " + v + "\n")
+	}
+	if err := os.WriteFile(o.Executable, makeScript(o.Version), 0755); err != nil {
+		t.Fatal(err)
+	}
+	*bin = makeScript(m.Version)
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Key = pub
+	sum := sha256.Sum256(*bin)
+	for k := range m.Artifacts {
+		m.Artifacts[k] = Artifact{SHA256: hex.EncodeToString(sum[:]), Size: int64(len(*bin))}
+	}
+	if err := Sign(m, key); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if r := Check(context.Background(), o); r.Status != "updated" {
+			t.Fatalf("%+v", r)
+		}
+	}
+	b, err := os.ReadFile(log)
+	if err != nil || strings.Count(string(b), "probe\n") != 4 {
+		t.Fatalf("expected current, staged, installed and sibling probes: %q %v", b, err)
+	}
+	if entries, err := os.ReadDir(envHome); err != nil || len(entries) != 0 {
+		t.Fatalf("environment Home changed: %v %v", entries, err)
 	}
 }
 

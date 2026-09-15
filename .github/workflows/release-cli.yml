@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-cli
+  group: release-r2
   cancel-in-progress: false
 
 jobs:
@@ -22,6 +22,11 @@ jobs:
           cache-dependency-path: cli/go.sum
       - name: Provide GNU tar
         run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
+      - name: Test publication safeguards
+        run: |
+          aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
+          cd cli
+          go test ./cmd/clirelease ./tests
       - name: Build signed release artifacts
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
