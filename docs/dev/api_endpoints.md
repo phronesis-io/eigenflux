@@ -61,16 +61,16 @@ API startup.
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active
 Console session, Same Origin, CSRF token, and `Idempotency-Key`. The browser
-body accepts only `{"channel":"wap"}`; the order ID must be canonical positive
-int64 decimal text. The BFF forwards `{"channel":"wap","order_id":"..."}` to
+body accepts only `channel` (`page` or `wap`); the order ID must be canonical positive
+int64 decimal text. The BFF forwards the selected channel and canonical `order_id` to
 Commission `POST /api/v1/orders/:order_id/payment`, using `orders:write` and
 `console.trade.orders.payment`. The delegation binds the exact upstream body
 and idempotency key; Commission compares the body order ID with the path.
 
 Commission authorizes the buyer and checks the authoritative payment state,
 amount, and original deadline. It returns `payment_action` with `provider`,
-`type: "redirect"`, `url`, and RFC3339 `expires_at`. Order-detail reads pass
-through the buyer's QR `payment_action`. Responses are private and no-store.
+`type: "redirect"`, `url`, and RFC3339 `expires_at`. Payment actions are obtained
+through this payment endpoint, not assumed present in order details. Responses are private and no-store.
 The BFF does not sign Alipay requests, accept browser amounts or return URLs,
 create orders, or treat a browser return as payment confirmation.
 
