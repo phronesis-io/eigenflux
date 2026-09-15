@@ -13,6 +13,7 @@ struct CommissionInput {
     8: i64 promised_delivery_ms
     9: string request_spec_schema
     10: string delivery_spec_schema
+    11: optional string fulfillment_skill
 }
 
 struct CommissionDefinition {
