@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -54,6 +55,20 @@ func Upload(ctx context.Context, httpClient *http.Client, grant TransferGrant, l
 	}
 	for key, value := range grant.Headers {
 		request.Header.Set(key, value)
+	}
+	if rawLength := request.Header.Get("Content-Length"); rawLength != "" {
+		contentLength, parseErr := strconv.ParseInt(strings.TrimSpace(rawLength), 10, 64)
+		if parseErr != nil || contentLength < 0 {
+			return fmt.Errorf("invalid signed Content-Length: %q", rawLength)
+		}
+		fileInfo, statErr := file.Stat()
+		if statErr != nil {
+			return statErr
+		}
+		if fileInfo.Size() != contentLength {
+			return fmt.Errorf("signed Content-Length %d does not match local file size %d", contentLength, fileInfo.Size())
+		}
+		request.ContentLength = contentLength
 	}
 	response, err := transferClient(httpClient).Do(request)
 	if err != nil {
