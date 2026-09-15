@@ -23,6 +23,9 @@ func TestUploadUsesPresignedGrantWithoutAuthorization(t *testing.T) {
 		if r.Header.Get("X-Upload") != "ok" {
 			t.Error("grant header missing")
 		}
+		if r.Header.Get("Content-Length") != "7" {
+			t.Errorf("content-length = %q, want 7", r.Header.Get("Content-Length"))
+		}
 		data, _ := io.ReadAll(r.Body)
 		body = string(data)
 		w.WriteHeader(http.StatusNoContent)
@@ -32,7 +35,10 @@ func TestUploadUsesPresignedGrantWithoutAuthorization(t *testing.T) {
 	if err := os.WriteFile(path, []byte("payload"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Upload(context.Background(), server.Client(), TransferGrant{Method: "PUT", URL: server.URL, Headers: map[string]string{"X-Upload": "ok"}}, path); err != nil {
+	if err := Upload(context.Background(), server.Client(), TransferGrant{Method: "PUT", URL: server.URL, Headers: map[string]string{
+		"X-Upload":       "ok",
+		"Content-Length": "7",
+	}}, path); err != nil {
 		t.Fatal(err)
 	}
 	if body != "payload" {
@@ -71,5 +77,23 @@ func TestUploadRejectsExpiredGrantBeforeTransfer(t *testing.T) {
 	err := Upload(context.Background(), server.Client(), TransferGrant{URL: server.URL, ExpiresAt: time.Now().Add(-time.Second).UnixMilli()}, path)
 	if err == nil || called {
 		t.Fatalf("expired upload err=%v called=%v", err, called)
+	}
+}
+
+func TestUploadRejectsSignedContentLengthMismatchBeforeTransfer(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "payload.txt")
+	if err := os.WriteFile(path, []byte("payload"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := Upload(context.Background(), server.Client(), TransferGrant{
+		Method:  http.MethodPut,
+		URL:     server.URL,
+		Headers: map[string]string{"Content-Length": "8"},
+	}, path)
+	if err == nil || called {
+		t.Fatalf("mismatched upload err=%v called=%v", err, called)
 	}
 }
