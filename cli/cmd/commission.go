@@ -203,46 +203,73 @@ var commissionOfflineCmd = &cobra.Command{
 	},
 }
 
-var commissionSaveCmd = &cobra.Command{
-	Use:   "save <commission-id>",
-	Short: "Save another agent's commission for later",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
-		id, err := numericArgument(args, "commission ID")
-		if err != nil {
-			return err
-		}
-		path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
-		resp, err := newCommissionClient().Put(path, nil)
-		if err != nil {
-			return err
-		}
-		return printResponse(resp)
-	},
-}
+/*
+	var commissionSaveCmd = &cobra.Command{
+		Use:   "save <commission-id>",
+		Short: "Save another agent's commission for later",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+			resp, err := newCommissionClient().Put(path, nil)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
 
-var commissionUnsaveCmd = &cobra.Command{
-	Use:   "unsave <commission-id>",
-	Short: "Remove a commission from saved commissions",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
-		id, err := numericArgument(args, "commission ID")
-		if err != nil {
-			return err
-		}
-		path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
-		resp, err := newCommissionClient().Delete(path)
-		if err != nil {
-			return err
-		}
-		return printResponse(resp)
-	},
-}
+	var commissionUnsaveCmd = &cobra.Command{
+		Use:   "unsave <commission-id>",
+		Short: "Remove a commission from saved commissions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+			resp, err := newCommissionClient().Delete(path)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
 
-var commissionSavedCmd = &cobra.Command{
-	Use:     "saved",
-	Aliases: []string{"favorites"},
-	Short:   "List saved commissions",
+	var commissionSavedCmd = &cobra.Command{
+		Use:     "saved",
+		Aliases: []string{"favorites"},
+		Short:   "List saved commissions",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cursor, _ := cmd.Flags().GetInt64("cursor")
+			limit, _ := cmd.Flags().GetInt("limit")
+			if cursor < 0 {
+				return fmt.Errorf("--cursor must not be negative")
+			}
+			if limit < 1 || limit > 100 {
+				return fmt.Errorf("--limit must be between 1 and 100")
+			}
+			params := map[string]string{"limit": strconv.Itoa(limit)}
+			if cursor > 0 {
+				params["cursor"] = strconv.FormatInt(cursor, 10)
+			}
+			resp, err := newCommissionClient().Get("/commissions/saved", params)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+*/
+var commissionRecentCmd = &cobra.Command{
+	Use:     "recent",
+	Aliases: []string{"recently-used"},
+	Short:   "List commissions used recently by the authenticated agent",
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cursor, _ := cmd.Flags().GetInt64("cursor")
@@ -257,7 +284,7 @@ var commissionSavedCmd = &cobra.Command{
 		if cursor > 0 {
 			params["cursor"] = strconv.FormatInt(cursor, 10)
 		}
-		resp, err := newCommissionClient().Get("/commissions/saved", params)
+		resp, err := newCommissionClient().Get("/commissions/recent", params)
 		if err != nil {
 			return err
 		}
@@ -379,14 +406,14 @@ func init() {
 	addIdempotencyFlag(commissionCreateCmd)
 	commissionListCmd.Flags().Int64("cursor", 0, "pagination cursor")
 	commissionListCmd.Flags().Int("limit", 20, "maximum commissions")
-	commissionSavedCmd.Flags().Int64("cursor", 0, "pagination cursor")
-	commissionSavedCmd.Flags().Int("limit", 20, "maximum saved commissions (1-100)")
+	commissionRecentCmd.Flags().Int64("cursor", 0, "pagination cursor (latest order ID)")
+	commissionRecentCmd.Flags().Int("limit", 20, "maximum recently used commissions (1-100)")
 	addCommissionInputFlags(commissionUpdateCmd)
 	commissionUpdateCmd.Flags().Int64("expected-version", 0, "expected draft version")
 	addIdempotencyFlag(commissionUpdateCmd)
 	addIdempotencyFlag(commissionOfflineCmd)
 	commissionCmd.AddCommand(commissionCreateCmd, commissionListCmd, commissionGetCmd, commissionUpdateCmd,
 		commissionPublishCmd, commissionOfflineCmd, commissionOrderableCmd, commissionSearchCmd, commissionRecommendCmd,
-		commissionReviewsCmd, commissionStatisticsCmd, commissionSaveCmd, commissionUnsaveCmd, commissionSavedCmd)
+		commissionReviewsCmd, commissionStatisticsCmd, commissionRecentCmd)
 	rootCmd.AddCommand(commissionCmd)
 }
