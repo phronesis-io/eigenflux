@@ -59,6 +59,11 @@ func maintenancePath(name string) string {
 	return filepath.Join(config.HomeDir(), "maintenance", hex.EncodeToString(server[:8])+"-"+name+".json")
 }
 
+func migrationPendingPath(host string) string {
+	scope := sha256.Sum256([]byte(host))
+	return maintenancePath("migration-pending-" + hex.EncodeToString(scope[:8]))
+}
+
 func saveMaintenance(path string, v interface{}) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
@@ -109,10 +114,12 @@ func init() {
 			return err
 		}
 		r := migrationRecord{ID: hex.EncodeToString(token), Home: home, Server: server, Host: meta.Host, Created: time.Now(), Plan: p}
-		if p.Status != "missing" {
-			if err = saveMaintenance(maintenancePath("migration-"+r.ID), r); err != nil {
+		if p.Status == "update" {
+			if err = saveMaintenance(migrationPendingPath(meta.Host), r); err != nil {
 				return err
 			}
+		} else if err = os.Remove(migrationPendingPath(meta.Host)); err != nil && !os.IsNotExist(err) {
+			return err
 		}
 		output.PrintData(r, resolveFormat())
 		return nil
@@ -128,20 +135,44 @@ func init() {
 		if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(in.PlanID) {
 			return fmt.Errorf("invalid plan ID")
 		}
-		path := maintenancePath("migration-" + in.PlanID)
+		meta := clientMetaForServerName(activeServerName())
+		path := migrationPendingPath(meta.Host)
 		b, err := os.ReadFile(path)
-		if err != nil {
+		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		var r migrationRecord
-		if err = json.Unmarshal(b, &r); err != nil {
-			return err
+		pending := err == nil
+		if pending {
+			if err = json.Unmarshal(b, &r); err != nil {
+				return err
+			}
+			pending = r.ID == in.PlanID
 		}
-		meta := clientMetaForServerName(activeServerName())
+		if !pending {
+			b, err = os.ReadFile(maintenancePath("scheduler"))
+			if err != nil {
+				return err
+			}
+			if err = json.Unmarshal(b, &r); err != nil {
+				return err
+			}
+			if r.Verified.IsZero() {
+				return fmt.Errorf("migration receipt is not verified")
+			}
+		}
+		if r.ID != in.PlanID {
+			return fmt.Errorf("migration plan ID mismatch")
+		}
 		if r.Home != config.HomeDir() || r.Server != activeServerName() || r.Host != meta.Host || meta.Mode == "plugin" {
 			return fmt.Errorf("migration identity/runtime mismatch")
 		}
 		if time.Since(r.Created) > time.Hour || time.Since(r.Created) < 0 {
+			if pending {
+				if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+			}
 			return fmt.Errorf("migration plan expired; read scheduler again")
 		}
 		if err = heartbeatmigration.Verify(r.Plan, in.Inventory); err != nil {
@@ -151,8 +182,10 @@ func init() {
 		if err = saveMaintenance(maintenancePath("scheduler"), r); err != nil {
 			return err
 		}
-		if err = os.Remove(path); err != nil {
-			return err
+		if pending {
+			if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 		output.PrintData(map[string]interface{}{"status": "verified", "migration_version": heartbeatmigration.Version, "task_id": r.Plan.TaskID}, resolveFormat())
 		return nil

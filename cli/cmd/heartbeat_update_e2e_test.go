@@ -102,12 +102,16 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				}
 			}
 			cmd := exec.Command(bin, "--homedir", config.HomeDir(), "--server", server, "heartbeat", "plan", "--format", "json")
-			cmd.Env = append(os.Environ(), "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex", "EIGENFLUX_MODEL=test-model")
+			envHome := t.TempDir()
+			cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex", "EIGENFLUX_MODEL=test-model")
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			out, err := cmd.Output()
 			if err != nil {
 				t.Fatalf("heartbeat failed: %s %s %v", out, stderr.String(), err)
+			}
+			if entries, err := os.ReadDir(envHome); err != nil || len(entries) != 0 {
+				t.Fatalf("environment Home changed by update probes: %v %v", entries, err)
 			}
 			var plan heartbeatPlan
 			if err = json.Unmarshal(out, &plan); err != nil {

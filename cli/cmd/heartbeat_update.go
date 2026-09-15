@@ -9,7 +9,10 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 )
 
 const updateReexecEnv = "EIGENFLUX_UPDATE_REEXEC"
@@ -20,7 +23,7 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	if os.Getenv(updateReexecEnv) == "1" {
 		return selfupdate.Result{Status: "restarted", Version: version}, false, nil
 	}
-	if meta.Mode == "plugin" || !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
+	if meta.Mode != "skill" || !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
 		return selfupdate.Result{Status: "skipped", Version: version}, false, nil
 	}
 	path, err := os.Executable()
@@ -32,7 +35,7 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	r := selfupdate.Check(ctx, selfupdate.Options{Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key})
+	r := selfupdate.Check(ctx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key})
 	if r.Status != "updated" {
 		return r, false, nil
 	}
@@ -41,10 +44,42 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	child := exec.CommandContext(ctx, r.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), serverName)...)
 	child.Env = heartbeatReexecEnvironment(os.Environ())
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
-	if err = child.Run(); err != nil {
+	if err = runHeartbeatReexec(child); err != nil {
 		return r, true, &updatedCLIError{err}
 	}
 	return r, true, nil
+}
+
+// Handle termination only while the replacement CLI runs. SIGKILL cannot be
+// intercepted; recovery from a killed parent is outside this waiter's scope.
+func runHeartbeatReexec(child *exec.Cmd) error {
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	if err := child.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case sig := <-signals:
+		// Windows does not support forwarding these signals through os.Process.
+		if err := child.Process.Signal(sig); err != nil {
+			_ = child.Process.Kill()
+		}
+	}
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-signals:
+	case <-timer.C:
+	}
+	_ = child.Process.Kill()
+	return <-done
 }
 
 func heartbeatReexecArgs(args []string, home, server string) []string {

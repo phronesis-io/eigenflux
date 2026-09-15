@@ -13,7 +13,7 @@ import (
 )
 
 func TestPluginMaintenanceRequiresLoadedEvidence(t *testing.T) {
-	p := pluginMaintenance{Host: "codex", PluginID: "codex-eigenflux@eigenflux", Status: "loaded", InstalledVersion: "0.1.8", LatestVersion: "0.1.8"}
+	p := pluginMaintenance{Host: "codex", PluginID: "codex-eigenflux@eigenflux", Scope: "user", Status: "loaded", InstalledVersion: "0.1.8", LatestVersion: "0.1.8"}
 	if err := validatePluginReceipt(p, "codex/1.0"); err == nil {
 		t.Fatal("unloaded plugin accepted as loaded")
 	}
@@ -79,7 +79,7 @@ func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "original", Name: "old", Owner: "eigenflux", Home: config.HomeDir(), Server: server, Prompt: "static rules", Schedule: "2h", Status: "PAUSED", ThreadID: "original-thread"}}}
+	in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "original", Name: "old", Owner: "eigenflux", Purpose: "heartbeat", Home: config.HomeDir(), Server: server, Prompt: "static rules", Schedule: "2h", Status: "PAUSED", ThreadID: "original-thread"}}}
 	b, _ := json.Marshal(in)
 	planCmd.SetIn(bytes.NewReader(b))
 	_ = planCmd.Flags().Set("stdin", "true")

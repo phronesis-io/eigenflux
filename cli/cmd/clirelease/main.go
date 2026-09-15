@@ -22,7 +22,19 @@ func main() {
 	dir := flag.String("dir", "", "built CLI artifact directory")
 	version := flag.String("version", "", "stable release version")
 	keyFile := flag.String("signing-key-file", "", "Ed25519 private key file")
+	cdn := flag.String("verify-cdn", "", "verify the published CLI and all platform artifacts")
+	minimum := flag.String("min-version", "", "minimum compatible CLI version")
 	flag.Parse()
+	if *cdn != "" {
+		key, err := base64.StdEncoding.DecodeString(os.Getenv("EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := verifyPublished(*cdn, *minimum, key); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *dir == "" || !selfupdate.ValidVersion(*version) || *keyFile == "" {
 		log.Fatal("--dir, --version and --signing-key-file are required")
 	}

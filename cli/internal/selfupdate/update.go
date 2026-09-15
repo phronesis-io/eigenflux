@@ -19,6 +19,7 @@ import (
 )
 
 type Options struct {
+	Home                              string
 	Executable, Version, Minimum, CDN string
 	Key                               ed25519.PublicKey
 	Client                            *http.Client
@@ -79,7 +80,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	defer unlock(lock)
 	// A sibling heartbeat may have replaced the shared executable after this
 	// process started. Adopt it instead of downgrading it or waiting for the TTL.
-	if installed, e := executableVersion(ctx, path); e == nil && ValidVersion(installed) && Compare(installed, o.Version) > 0 {
+	if installed, e := executableVersion(ctx, path, o.Home); e == nil && ValidVersion(installed) && Compare(installed, o.Version) > 0 {
 		return Result{Status: "updated", Version: installed, Executable: path}
 	}
 	var s state
@@ -158,7 +159,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if err != nil {
 		return fail(err)
 	}
-	if err = probe(ctx, tmpName, m.Version); err != nil {
+	if err = probe(ctx, tmpName, m.Version, o.Home); err != nil {
 		return fail(err)
 	}
 	// A hard link keeps the old bytes available without a gap at the installed path.
@@ -177,7 +178,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	err = syncDirectory(filepath.Dir(path))
 	if err == nil {
-		err = probe(ctx, path, m.Version)
+		err = probe(ctx, path, m.Version, o.Home)
 	}
 	if err != nil {
 		if restoreErr := replace(backup, path); restoreErr != nil {
@@ -191,8 +192,8 @@ func Check(ctx context.Context, o Options) (result Result) {
 	return Result{Status: "updated", Version: m.Version, Executable: path}
 }
 
-func probe(ctx context.Context, path, version string) error {
-	got, err := executableVersion(ctx, path)
+func probe(ctx context.Context, path, version, home string) error {
+	got, err := executableVersion(ctx, path, home)
 	if err != nil {
 		return err
 	}
@@ -202,10 +203,13 @@ func probe(ctx context.Context, path, version string) error {
 	return nil
 }
 
-func executableVersion(ctx context.Context, path string) (string, error) {
+func executableVersion(ctx context.Context, path, home string) (string, error) {
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("CLI health check requires an absolute Agent Home")
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "version", "--short").Output()
+	out, err := exec.CommandContext(ctx, path, "--homedir", home, "version", "--short").Output()
 	if err != nil {
 		return "", fmt.Errorf("CLI health check: %w", err)
 	}
