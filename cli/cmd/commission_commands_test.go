@@ -314,7 +314,7 @@ func TestCommissionSearchRequiresExactlyOneValidMode(t *testing.T) {
 	}
 }
 
-func TestCommissionSavedCommandsUseCommissionOriginAndAuthenticatedRoutes(t *testing.T) {
+func TestCommissionRecentCommandUsesCommissionOrigin(t *testing.T) {
 	type request struct {
 		Method string
 		Path   string
@@ -346,35 +346,22 @@ func TestCommissionSavedCommandsUseCommissionOriginAndAuthenticatedRoutes(t *tes
 		t.Fatal(err)
 	}
 
-	for _, invocation := range []struct {
-		command *cobra.Command
-		args    []string
-	}{
-		{command: commissionSaveCmd, args: []string{"77"}},
-		{command: commissionUnsaveCmd, args: []string{"77"}},
-	} {
-		if err := invocation.command.RunE(invocation.command, invocation.args); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := commissionSavedCmd.Flags().Set("cursor", "123"); err != nil {
+	if err := commissionRecentCmd.Flags().Set("cursor", "456"); err != nil {
 		t.Fatal(err)
 	}
-	if err := commissionSavedCmd.Flags().Set("limit", "10"); err != nil {
+	if err := commissionRecentCmd.Flags().Set("limit", "5"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = commissionSavedCmd.Flags().Set("cursor", "0")
-		_ = commissionSavedCmd.Flags().Set("limit", "20")
+		_ = commissionRecentCmd.Flags().Set("cursor", "0")
+		_ = commissionRecentCmd.Flags().Set("limit", "20")
 	})
-	if err := commissionSavedCmd.RunE(commissionSavedCmd, nil); err != nil {
+	if err := commissionRecentCmd.RunE(commissionRecentCmd, nil); err != nil {
 		t.Fatal(err)
 	}
 
 	want := []request{
-		{Method: http.MethodPut, Path: "/api/v1/commissions/77/saved"},
-		{Method: http.MethodDelete, Path: "/api/v1/commissions/77/saved"},
-		{Method: http.MethodGet, Path: "/api/v1/commissions/saved", Query: "cursor=123&limit=10"},
+		{Method: http.MethodGet, Path: "/api/v1/commissions/recent", Query: "cursor=456&limit=5"},
 	}
 	if len(requests) != len(want) {
 		t.Fatalf("requests = %#v", requests)
@@ -386,11 +373,11 @@ func TestCommissionSavedCommandsUseCommissionOriginAndAuthenticatedRoutes(t *tes
 	}
 }
 
-func TestCommissionSavedListValidatesPagination(t *testing.T) {
-	command := &cobra.Command{Use: "saved"}
+func TestCommissionRecentListValidatesPagination(t *testing.T) {
+	command := &cobra.Command{Use: "recent"}
 	command.Flags().Int64("cursor", 0, "")
 	command.Flags().Int("limit", 20, "")
-	command.RunE = commissionSavedCmd.RunE
+	command.RunE = commissionRecentCmd.RunE
 
 	requireError := func(name, value, want string) {
 		t.Helper()
