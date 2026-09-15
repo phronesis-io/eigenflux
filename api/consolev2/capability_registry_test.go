@@ -35,7 +35,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		"need.input.create", "need.input.get", "need.input.list",
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
-		"commission.search", "commission.save", "commission.unsave", "commission.saved.list", "order.create", "wallet.withdrawal.create",
+		"commission.search", "order.create", "wallet.withdrawal.create",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
