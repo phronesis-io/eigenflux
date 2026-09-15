@@ -1,10 +1,50 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPluginReceiptRetainsOriginatingPlanContext(t *testing.T) {
+	cfg, _ := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	clientMeta.Host, clientMeta.Mode = "codex", "plugin"
+	plan := pluginMaintenanceForHost("codex", "plugin", cfg)
+	if plan.Context == "" {
+		t.Fatal("plan omitted discovery context")
+	}
+	plan.Scope, plan.Status = "user", "not_installed"
+	// The Agent can execute the native manager and report from a different cwd.
+	t.Chdir(t.TempDir())
+	cmd, _, err := rootCmd.Find([]string{"heartbeat", "plugin-check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(plan)
+	cmd.SetIn(bytes.NewReader(b))
+	_ = cmd.Flags().Set("stdin", "true")
+	if _, err := captureHeartbeatStdout(t, func() error { return cmd.RunE(cmd, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(maintenancePath("plugin-codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt pluginMaintenance
+	if err := json.Unmarshal(b, &receipt); err != nil || receipt.Context != plan.Context {
+		t.Fatalf("lost plan context: %+v %v", receipt, err)
+	}
+	if !pluginMaintenanceForHost("codex", "plugin", cfg).Due {
+		t.Fatal("another workspace reused discovery")
+	}
+	t.Chdir(plan.Context)
+	if pluginMaintenanceForHost("codex", "plugin", cfg).Due {
+		t.Fatal("originating plugin could not reuse completed discovery")
+	}
+}
 
 func TestAgentPlanIncludesDiscoveryScope(t *testing.T) {
 	p := heartbeatPlan{PluginMaintenance: pluginMaintenance{Host: "codex", Scope: "user", Status: "check_required", LatestVersion: "1.2.3"}}
@@ -35,7 +75,7 @@ func TestPluginCacheIsDiscoveryOnlyAndWorkspaceBound(t *testing.T) {
 			t.Fatalf("different workspace reused cached scope: %+v", got)
 		}
 	}
-	for _, mode := range []string{"", "plugin", "unknown"} {
+	for _, mode := range []string{"", "unknown"} {
 		if got := pluginMaintenanceForHost("codex", mode, cfg); got.Due || got.Status != "not_applicable" {
 			t.Fatalf("automatic maintenance in mode %q: %+v", mode, got)
 		}
@@ -56,5 +96,48 @@ func TestPluginReceiptRequiresScope(t *testing.T) {
 	p.Scope = "user"
 	if err := validatePluginReceipt(p, "codex"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSharedHeartbeatMaintenanceModes(t *testing.T) {
+	cfg, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	for _, mode := range []string{"skill", "plugin"} {
+		for _, host := range []string{"codex", "claude-code", "openclaw"} {
+			p := pluginMaintenanceForHost(host, mode, cfg)
+			if !p.Due || p.PluginID != heartbeatPluginID(host) {
+				t.Fatalf("missing maintenance for %s/%s: %+v", host, mode, p)
+			}
+		}
+	}
+	for _, key := range []string{"auto_cli_update", "auto_plugin_update"} {
+		if err := cfg.SetKV(key, "false"); err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"skill", "plugin"} {
+			if heartbeatMaintenanceEnabled(mode, cfg, key) {
+				t.Fatalf("%s ignored in %s", key, mode)
+			}
+		}
+		if err := cfg.SetServerKV(server, key, "true"); err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"skill", "plugin"} {
+			if !heartbeatMaintenanceEnabled(mode, cfg, key) {
+				t.Fatalf("server override ignored for %s/%s", key, mode)
+			}
+		}
+	}
+}
+
+func TestPluginMaintenanceCanWakeWithoutFeed(t *testing.T) {
+	baseline := runtimeAccess{OnboardingState: "in_progress"}
+	if !heartbeatWakeOnEmpty(baseline, pluginMaintenance{Due: true}) {
+		t.Fatal("due maintenance dropped when Feed is empty")
+	}
+	if heartbeatWakeOnEmpty(baseline, pluginMaintenance{Status: "not_applicable"}) {
+		t.Fatal("disabled maintenance woke incomplete onboarding")
+	}
+	if stages := heartbeatStages(baseline); len(stages) != 1 || stages[0] != "feed" {
+		t.Fatal("maintenance wake bypassed onboarding restrictions")
 	}
 }

@@ -3,7 +3,11 @@
 Native heartbeat installations use one stable launcher with explicit Agent
 Home, server and `EIGENFLUX_MODE=skill`. CLI 0.0.48 adds binary updates,
 scheduler migration validation, and current-host plugin maintenance receipts.
-The three plugin packages need no runner changes for this workflow.
+Native triggers and plugin loops share the same `heartbeat plan` implementation.
+Codex uses the agent format; Claude Code and OpenClaw consume the JSON plan and
+deliver its `agent_prompt`. Their plan subprocess timeout is five minutes to
+allow CLI update attempts and Skills synchronization; ordinary CLI calls keep
+their existing timeout. No plugin implements a second updater or update policy.
 
 ## Binary updates
 
@@ -36,7 +40,9 @@ and remain visible in `cli_update`. Platforms that lock running executables,
 including Windows configurations rejecting replacement, require an installer
 update outside the running process. No elevation or host restart is attempted.
 Development builds without a compiled trust key do not update themselves.
-Only explicit `skill` mode enables automatic binary and plugin maintenance.
+Explicit `skill` and `plugin` modes share automatic binary and plugin maintenance.
+Unknown modes do not enable automatic maintenance. Plugin mode continues to
+skip native scheduler migration and never creates a second recurring trigger.
 An uncatchable process termination during replacement can interrupt rollback;
 the retained backup is not an automatic crash-recovery launcher.
 
@@ -75,12 +81,17 @@ receive one bootstrap upgrade before it can participate.
 
 The plan requests release discovery once daily per current workspace context.
 The Agent freshly inspects installation scope and process-load evidence on each
-native heartbeat; cached receipts never attest current installation or loading.
+delivered heartbeat; cached receipts never attest current installation or loading.
+Due maintenance sets `wake_on_empty` so a plugin delivers the plan even when
+Feed is empty; onboarding business restrictions remain unchanged.
 Scope changes force fresh release discovery. The Agent uses the
 host's official manager to refresh the trusted source, select the latest
 host-compatible release and update an already installed, enabled EigenFlux
 plugin. It preserves scope and does not install plugins for other hosts.
 Disabled plugins, missing permissions and source mismatches remain blocked.
+The plan carries its discovery `context` into the receipt, so a plugin fetching
+the plan and an Agent recording results from another directory share the same
+daily check without mixing unrelated workspaces.
 
 `heartbeat plugin-check --stdin` records normalized observations from fresh
 host reads. `loaded` requires installed/latest/loaded versions to agree;
@@ -89,6 +100,8 @@ adoption. Receipts include the host-verified installation scope. Cached plan
 output retains only release-discovery information and marks `check_required`.
 Missing plugins are recorded without installing them. Failed checks
 are retried the following day. Disruptive restart remains a host/user action.
+Managers that cannot stage updates without interrupting the running plugin
+must defer installation to an authorized maintenance window.
 
 ## Release and validation
 

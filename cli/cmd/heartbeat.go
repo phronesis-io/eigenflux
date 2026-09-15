@@ -130,13 +130,14 @@ var heartbeatPlanCmd = &cobra.Command{
 		// heartbeat, so a publish records origin=heartbeat. The persisted launcher
 		// stays without it.
 		cliPrefix += " --origin " + publishOriginHeartbeat
+		pluginMaintenance := pluginMaintenanceForHost(meta.Host, meta.Mode, cfg)
 		plan := heartbeatPlan{
-			PluginMaintenance: pluginMaintenanceForHost(meta.Host, meta.Mode, cfg),
+			PluginMaintenance: pluginMaintenance,
 			CLIUpdate:         cliUpdate,
 			SchemaVersion:     "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
-			Access: access, WakeOnEmpty: access.OnboardingState == "completed",
+			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
 			CLIPrefix:         cliPrefix,
 			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForRuntime(meta.Host, meta.Mode, launcher),
 			SchedulerPrompt: heartbeatSchedulerPrompt(launcher),
@@ -174,6 +175,10 @@ func compatibleLocalHeartbeatRules(dir, current string) bool {
 		return false
 	}
 	return m.MinCLIVersion == "" || (selfupdate.ValidVersion(current) && selfupdate.ValidVersion(m.MinCLIVersion) && selfupdate.Compare(current, m.MinCLIVersion) >= 0)
+}
+
+func heartbeatWakeOnEmpty(access runtimeAccess, maintenance pluginMaintenance) bool {
+	return access.OnboardingState == "completed" || maintenance.Due
 }
 
 func heartbeatStages(access runtimeAccess) []string {
