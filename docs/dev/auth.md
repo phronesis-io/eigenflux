@@ -212,6 +212,14 @@ Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP`
 | `MOCK_OTP_EMAIL_SUFFIXES` | Comma-separated email suffix whitelist (e.g. `@test.com`) |
 | `MOCK_OTP_IP_WHITELIST` | Comma-separated IP whitelist (e.g. `10.0.0.1,192.168.1.1`) |
 
+## CLI refresh lock errors
+
+Expired CLI Agent V2 refresh locks are removed on demand. If removal fails,
+the command stops with the lock path and underlying filesystem error, with
+guidance to check file/directory permissions, ownership, and host sandbox access.
+Keep `agent-v2-credentials.json` intact. An already-removed lock is safe to retry;
+all lock contention retries remain bounded by the caller's wait deadline.
+
 ## Logout
 
 ### Endpoint

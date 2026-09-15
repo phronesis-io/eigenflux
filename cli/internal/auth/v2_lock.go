@@ -14,6 +14,10 @@ import (
 // WithV2CredentialsLock serializes refresh rotation across CLI processes for
 // one server. The callback must reload credentials after acquiring the lock.
 func WithV2CredentialsLock(serverName string, wait time.Duration, callback func() error) error {
+	return withV2CredentialsLock(serverName, wait, callback, os.Remove)
+}
+
+func withV2CredentialsLock(serverName string, wait time.Duration, callback func() error, remove func(string) error) error {
 	dir := filepath.Join(config.HomeDir(), "servers", serverName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -33,12 +37,14 @@ func WithV2CredentialsLock(serverName string, wait time.Duration, callback func(
 		if !os.IsExist(err) {
 			return err
 		}
-		if staleV2CredentialLock(path) {
-			_ = os.Remove(path)
-			continue
-		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting for Agent V2 credential refresh lock")
+		}
+		if staleV2CredentialLock(path) {
+			if err := remove(path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("cannot remove expired Agent V2 credential refresh lock %q; check the lock file and parent directory permissions, ownership, and host application sandbox access; keep agent-v2-credentials.json intact: %w", path, err)
+			}
+			continue
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
