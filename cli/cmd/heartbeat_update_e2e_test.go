@@ -51,8 +51,15 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 	if err := selfupdate.Sign(&release, key); err != nil {
 		t.Fatal(err)
 	}
-	for _, forced := range []bool{false, true} {
-		t.Run(map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[forced], func(t *testing.T) {
+	for _, tc := range []struct {
+		mode, host string
+		forced     bool
+	}{
+		{"skill", "codex", false}, {"skill", "codex", true},
+		{"plugin", "claude-code", false}, {"plugin", "claude-code", true},
+		{"plugin", "openclaw", false}, {"plugin", "openclaw", true},
+	} {
+		t.Run(tc.host+"/"+map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced], func(t *testing.T) {
 			var requests, reported atomic.Int32
 			var manifest *skills.Manifest
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +102,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if err = os.WriteFile(bin, oldBytes, 0755); err != nil {
 				t.Fatal(err)
 			}
-			if forced {
+			if tc.forced {
 				b, _ := json.Marshal(map[string]interface{}{"attempt": time.Now()})
 				if err = os.WriteFile(bin+".update.json", b, 0600); err != nil {
 					t.Fatal(err)
@@ -103,7 +110,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "--homedir", config.HomeDir(), "--server", server, "heartbeat", "plan", "--format", "json")
 			envHome := t.TempDir()
-			cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex", "EIGENFLUX_MODEL=test-model")
+			cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE="+tc.mode, "EIGENFLUX_HOST="+tc.host, "EIGENFLUX_MODEL=test-model")
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			out, err := cmd.Output()
@@ -126,6 +133,15 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}
 			if !strings.Contains(plan.SchedulerLauncher, config.HomeDir()) || !strings.Contains(plan.SchedulerLauncher, server) {
 				t.Fatal("stable Home/server lost after reexec")
+			}
+			if !strings.Contains(plan.SchedulerLauncher, "EIGENFLUX_MODE="+shellQuote(tc.mode)) {
+				t.Fatal("integration mode changed after upgrade")
+			}
+			if plan.PluginMaintenance.Host != tc.host || !plan.PluginMaintenance.Due || !strings.Contains(plan.AgentPrompt, `"plugin_id":"`+heartbeatPluginID(tc.host)+`"`) {
+				t.Fatalf("shared plan omitted host plugin maintenance: %+v", plan.PluginMaintenance)
+			}
+			if tc.mode == "plugin" && !strings.Contains(plan.SchedulerMigration, "do not create a second heartbeat") {
+				t.Fatal("plugin loop lost scheduler ownership")
 			}
 		})
 	}

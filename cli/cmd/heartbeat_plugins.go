@@ -50,8 +50,8 @@ func pluginContext() string {
 }
 
 func pluginMaintenanceForHost(host, mode string, cfg *config.Config) pluginMaintenance {
-	p := pluginMaintenance{Host: runtimeProduct(host), PluginID: heartbeatPluginID(host), Status: "due", Due: true}
-	if mode != "skill" || p.PluginID == "" || !automaticMaintenanceEnabled(cfg, "auto_plugin_update") {
+	p := pluginMaintenance{Host: runtimeProduct(host), PluginID: heartbeatPluginID(host), Context: pluginContext(), Status: "due", Due: true}
+	if p.PluginID == "" || !heartbeatMaintenanceEnabled(mode, cfg, "auto_plugin_update") {
 		p.Status, p.Due = "not_applicable", false
 		return p
 	}
@@ -108,9 +108,13 @@ func init() {
 		if err := validatePluginReceipt(p, clientMetaForServerName(activeServerName()).Host); err != nil {
 			return err
 		}
-		p.Context = pluginContext()
+		// A host plugin can fetch the plan outside the Agent's working directory.
+		// Carry the plan's discovery context back without changing filesystem scope.
 		if p.Context == "" {
-			return fmt.Errorf("cannot resolve plugin check workspace")
+			p.Context = pluginContext()
+		}
+		if !filepath.IsAbs(p.Context) {
+			return fmt.Errorf("absolute plugin plan context required")
 		}
 		p.CheckedAt, p.Due = time.Now(), false
 		if err := saveMaintenance(maintenancePath("plugin-"+p.Host), p); err != nil {

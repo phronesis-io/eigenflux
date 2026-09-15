@@ -11,11 +11,66 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
+
+func TestPluginBaselinePlanDeliversDueMaintenance(t *testing.T) {
+	for _, state := range []string{"due", "cached", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v2/agent-context" {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":{"code":"ONBOARDING_REQUIRED","details":{"onboarding_state":"in_progress"}}}`))
+					return
+				}
+				if r.URL.Path != "/api/v2/agents/me/settings" {
+					t.Errorf("unexpected baseline request: %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+			}))
+			defer server.Close()
+			cfg, _ := runtimeTestConfig(t, server.URL, true)
+			clientMeta.Host, clientMeta.Mode = "claude-code", "plugin"
+			if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
+			installHeartbeatTestRules(t)
+			if state == "cached" {
+				p := pluginMaintenanceForHost("claude-code", "plugin", cfg)
+				p.Scope, p.Status, p.CheckedAt = "user", "not_installed", time.Now()
+				if err := saveMaintenance(maintenancePath("plugin-claude-code"), p); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "disabled" {
+				if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldFormat := formatFlag
+			formatFlag = "json"
+			t.Cleanup(func() { formatFlag = oldFormat })
+			out, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(&cobra.Command{}, nil) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan heartbeatPlan
+			if err := json.Unmarshal([]byte(out), &plan); err != nil {
+				t.Fatal(err)
+			}
+			if plan.WakeOnEmpty != (state == "due") || !reflect.DeepEqual(plan.ExecutionOrder, []string{"feed"}) {
+				t.Fatalf("incorrect baseline maintenance dispatch: %+v", plan)
+			}
+			if plan.AgentPrompt != renderHeartbeatPlanForAgent(plan) || !strings.Contains(plan.AgentPrompt, `"plugin_id":"eigenflux@eigenflux-marketplace"`) {
+				t.Fatal("plugin maintenance missing from delivered prompt")
+			}
+		})
+	}
+}
 
 func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 	plan := heartbeatPlan{

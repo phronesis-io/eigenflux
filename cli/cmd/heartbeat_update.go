@@ -23,7 +23,7 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	if os.Getenv(updateReexecEnv) == "1" {
 		return selfupdate.Result{Status: "restarted", Version: version}, false, nil
 	}
-	if meta.Mode != "skill" || !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
+	if !heartbeatMaintenanceEnabled(meta.Mode, cfg, "auto_cli_update") {
 		return selfupdate.Result{Status: "skipped", Version: version}, false, nil
 	}
 	path, err := os.Executable()
@@ -106,6 +106,12 @@ func automaticMaintenanceEnabled(cfg *config.Config, key string) bool {
 		return value != "false"
 	}
 	return cfg.GetKV(key) != "false"
+}
+
+// Both host adapters and native triggers enter the same heartbeat plan pipeline.
+// Unknown integration modes remain unknown rather than enabling maintenance.
+func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bool {
+	return (mode == "skill" || mode == "plugin") && automaticMaintenanceEnabled(cfg, key)
 }
 
 func heartbeatReexecEnvironment(env []string) []string {

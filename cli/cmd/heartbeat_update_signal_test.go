@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func TestHeartbeatUpdateRequiresSkillMode(t *testing.T) {
+func TestHeartbeatUpdateRequiresKnownMode(t *testing.T) {
 	for _, mode := range []string{"", "plugin", "unknown", "skill"} {
 		t.Run(mode, func(t *testing.T) {
 			tempHome(t)
@@ -34,13 +34,13 @@ func TestHeartbeatUpdateRequiresSkillMode(t *testing.T) {
 			if err != nil || reexec {
 				t.Fatalf("unexpected reexec: %v", err)
 			}
-			// The test executable has no release version/key. Skill mode can
-			// reach the updater; other modes must stop before it is invoked.
-			if mode != "skill" && r.Status != "skipped" {
+			// The test executable has no release key. Both known modes can
+			// reach the updater; unknown modes must stop before it is invoked.
+			if mode != "skill" && mode != "plugin" && r.Status != "skipped" {
 				t.Fatalf("mode %q: %+v", mode, r)
 			}
-			if mode == "skill" && r.Status != "unconfigured" {
-				t.Fatalf("skill mode did not reach updater: %+v", r)
+			if (mode == "skill" || mode == "plugin") && r.Status != "unconfigured" {
+				t.Fatalf("known mode did not reach updater: %+v", r)
 			}
 		})
 	}
