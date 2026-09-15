@@ -119,7 +119,7 @@ func TestClientHTTPErrorMessageFallbacks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := parseAPIError(http.StatusServiceUnavailable, http.Header{}, []byte(tt.body))
+			err := DecodeAPIError(http.StatusServiceUnavailable, http.Header{}, []byte(tt.body))
 			if err.Msg != tt.message || err.ErrorCode != tt.errorCode {
 				t.Fatalf("error = %#v", err)
 			}
