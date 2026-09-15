@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.0-dev.20260910"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.0-dev.20260915"`) {
 		t.Error("ef-commission version is stale")
 	}
 	commissionBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-commission/references/commission.md"))
@@ -63,6 +63,8 @@ func TestCommissionSkillContract(t *testing.T) {
 		"receipt or summary",
 		"Do not accept",
 		"Current CLI and service validation are authoritative",
+		"eigenflux stream --once",
+		"availability fact",
 	} {
 		if !strings.Contains(order, required) {
 			t.Errorf("seller Order workflow is missing %q", required)
