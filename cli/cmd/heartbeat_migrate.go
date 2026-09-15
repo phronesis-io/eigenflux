@@ -64,6 +64,11 @@ func migrationPendingPath(host string) string {
 	return maintenancePath("migration-pending-" + hex.EncodeToString(scope[:8]))
 }
 
+func migrationReceiptPath(host string) string {
+	scope := sha256.Sum256([]byte(host))
+	return maintenancePath("scheduler-" + hex.EncodeToString(scope[:8]))
+}
+
 func saveMaintenance(path string, v interface{}) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
@@ -118,8 +123,6 @@ func init() {
 			if err = saveMaintenance(migrationPendingPath(meta.Host), r); err != nil {
 				return err
 			}
-		} else if err = os.Remove(migrationPendingPath(meta.Host)); err != nil && !os.IsNotExist(err) {
-			return err
 		}
 		output.PrintData(r, resolveFormat())
 		return nil
@@ -150,7 +153,7 @@ func init() {
 			pending = r.ID == in.PlanID
 		}
 		if !pending {
-			b, err = os.ReadFile(maintenancePath("scheduler"))
+			b, err = os.ReadFile(migrationReceiptPath(meta.Host))
 			if err != nil {
 				return err
 			}
@@ -168,25 +171,17 @@ func init() {
 			return fmt.Errorf("migration identity/runtime mismatch")
 		}
 		if time.Since(r.Created) > time.Hour || time.Since(r.Created) < 0 {
-			if pending {
-				if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-			}
 			return fmt.Errorf("migration plan expired; read scheduler again")
 		}
 		if err = heartbeatmigration.Verify(r.Plan, in.Inventory); err != nil {
 			return err
 		}
 		r.Verified = time.Now()
-		if err = saveMaintenance(maintenancePath("scheduler"), r); err != nil {
+		if err = saveMaintenance(migrationReceiptPath(meta.Host), r); err != nil {
 			return err
 		}
-		if pending {
-			if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-		}
+		// Retain one expiring plan snapshot. Deleting it here could remove a
+		// newer plan written concurrently; only a new update plan replaces it.
 		output.PrintData(map[string]interface{}{"status": "verified", "migration_version": heartbeatmigration.Version, "task_id": r.Plan.TaskID}, resolveFormat())
 		return nil
 	}}
