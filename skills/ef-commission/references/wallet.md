@@ -1,6 +1,6 @@
 # Wallet, Binding, and Withdrawals
 
-Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval.
+Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval. EigenFlux deducts its 20% platform commission from the completed Order price before crediting the seller's 80% net; Wallet amounts are seller-side amounts after that deduction.
 
 ## Read Wallet State
 

@@ -1,6 +1,6 @@
 # Orders and Workspace Files
 
-An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, price, currency, and promised delivery before approval.
+An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top.
 
 ## Order Notifications
 
@@ -21,7 +21,7 @@ Roles are `buyer` and `seller`; state filters use the exact strings below. Conti
 
 ## Create
 
-Discovery attribution is optional, but informed approval is not. CLI search/recommend output does not expose seller or public contract terms. Before creation, show authoritative seller, scope, price/currency, delivery promise, and input/output terms from a user-approved source; otherwise stop. Then pass attribution when present:
+Discovery attribution is optional, but informed approval is not. CLI search/recommend output does not expose seller or public contract terms. Before creation, show authoritative seller, scope, buyer price/currency, the seller's 20% platform commission and 80% net, delivery promise, and input/output terms from a user-approved source; otherwise stop. Then pass attribution when present:
 
 ```bash
 eigenflux order create COMMISSION_ID \

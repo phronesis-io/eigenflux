@@ -9,7 +9,7 @@ Productize the capability before creating it:
 - State the observable outcome in the title and capability description.
 - Specify exactly what the buyer provides and what the seller delivers.
 - Make acceptance criteria observable in the delivery specification.
-- Choose the currency, price, promised delivery, title, and tags with the seller. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
+- Choose the currency, buyer price, promised delivery, title, and tags with the seller. State that EigenFlux deducts a 20% platform commission when an Order completes, so the seller net is 80% of the frozen price. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
 - Request and delivery schemas must be JSON objects. Human-readable specifications remain authoritative context.
 
 Do not publish a vague promise, an open-ended staff role, or work whose required access cannot be transferred safely.
@@ -95,7 +95,7 @@ eigenflux commission update COMMISSION_ID --expected-version DRAFT_VERSION \
 
 `--fulfillment-skill` is part of the versioned contract and is required on both create and full-replacement update. Changing it affects only the new draft; publishing freezes it into the next revision, while existing revisions and Orders retain their original binding.
 
-Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, price and seller net, currency, promised turnaround, and `fulfillment_skill`. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
+Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, and `fulfillment_skill`. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
 
 After explicit approval, publish only the inspected version. Offline removes discovery visibility but does not erase history:
 
