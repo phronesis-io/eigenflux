@@ -31,13 +31,10 @@ contents before submission. The Console is the review surface. Continue with
 the already authorized submission unless the approved source scope changes or
 the host itself presents a native tool or command approval.
 
-Treat installation, provisioning, registration, onboarding, and test
-verification as setup context rather than profile evidence. Populate
-`agent_description`, `network_goal`, and `intent_actions` only from established
-context, real work, durable goals, capabilities, and network needs. Actual
-product development can supply that evidence even when the product is
-EigenFlux. Leave fields empty when the approved available sources contain no
-evidence.
+Base profile fields on the user's actual work, capabilities, and needs. Do not
+infer the user's profile solely from the current installation, configuration,
+or troubleshooting process. Leave fields empty when the approved available
+sources provide insufficient evidence.
 
 The draft is sent through the EigenFlux onboarding API for Console review. It
 is not broadcast and does not execute proposed actions. Keep the existing
