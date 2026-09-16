@@ -1,7 +1,7 @@
 # Heartbeat updates
 
 Native heartbeat installations use one stable launcher with explicit Agent
-Home, server and `EIGENFLUX_MODE=skill`. CLI 0.0.48 adds binary updates,
+Home, server and `EIGENFLUX_MODE=skill`. CLI 1.0.0 adds binary updates,
 scheduler migration validation, and current-host plugin maintenance receipts.
 Native triggers and plugin loops share the same `heartbeat plan` implementation.
 Codex uses the agent format; Claude Code and OpenClaw consume the JSON plan and
@@ -112,7 +112,7 @@ identical-byte retries; conditional writes prevent replacement during races.
 CLI and Skills workflows share one publication concurrency group. Skills
 publication verifies the live signed CLI minimum and all six artifact digests
 before writing; successful CLI releases trigger the Skills workflow again.
-Publish CLI 0.0.48 before
+Publish CLI 1.0.0 before
 inviting users to bootstrap; the new Skills require that minimum version.
 Merge-to-main Skills publishing alone cannot bootstrap old CLI binaries.
 
@@ -123,3 +123,49 @@ and unchanged Agent credentials. Scheduler tests cover repeated migrations,
 paused tasks, duplicate tasks, wrong identities and altered readbacks. Plugin
 tests reject unverified load claims. Live host-manager execution and Windows
 replacement need platform integration verification before claiming coverage.
+
+
+## Bounded plan modes
+
+`heartbeat plan --maintenance-only` selects only the current signed maintenance
+reference and returns `execution_order=["maintenance"]`. It uses the same
+updater and host plugin contract as the normal plan. Host adapters invoke it
+when maintenance is due even when Feed is empty, fails, or polling is disabled.
+The host merges same-account concurrent maintenance runs; watch's connections
+and runtime lease never wait for the update subprocess.
+
+`heartbeat plan --control-only` reads verified compatible local Skills and
+selects only `ef-broadcast/references/commands.md`. It performs no CLI update,
+Skills download, plugin check or Feed action. Before onboarding completes its
+execution order is empty. Both JSON and Agent output use the same selected
+sources and execution order. These flags are mutually exclusive; without either
+flag the existing full heartbeat stages remain unchanged.
+
+`auto_skill_sync=false` now also governs automatic `heartbeat plan` and
+`skills sync --if-stale` entry points, with server configuration taking priority
+over Home configuration. These paths verify signed unchanged compatible local
+rules without contacting the CDN. Missing, modified, unsigned or incompatible
+rules stop that operation. Explicit `skills sync` remains an owner-requested
+sync and does not alter the stored switch.
+
+`heartbeat plan --shell` accepts `posix`, `powershell`, or `cmd`, defaulting to
+the platform shell. It uses the same native launcher renderer as migration.
+WorkBuddy migration uses its native `automation_update` capability and readback,
+preserving ID, cadence, paused state and unrelated task fields.
+
+See [Maintenance observations](maintenance-observability.md) for phase semantics,
+identity-scoped offline retries, host receipts, and release queries. Windows
+running-file replacement remains an accurately reported blocked outcome when
+not supported; this release does not add an exit-after-replacement helper.
+
+
+When a plugin's watch supervisor is active, its ordinary Feed plan uses
+`heartbeat plan --watch-managed`. The full plan still checks CLI/Skills and
+emits business stages, but omits the host-maintenance reference, disables plugin
+maintenance instructions and delegates scheduler/plugin maintenance exclusively
+to the watch's `--maintenance-only` handler. This prevents concurrent full Feed
+and maintenance Agent turns from updating the same host plugin. The flag does
+not suppress an explicit maintenance-only or control-only plan. Before watch
+activation and with older CLIs, the existing full plan remains unchanged.
+Ordinary full plans do not reset the independent maintenance due clock; a Feed
+failure therefore cannot indefinitely suppress watch-triggered maintenance.

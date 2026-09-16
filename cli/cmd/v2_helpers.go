@@ -71,18 +71,38 @@ func refreshV2Credentials(serverName, endpoint string, force bool) (*auth.V2Cred
 }
 
 func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool) (*auth.V2Credentials, error) {
+	return ensureV2CredentialsUnlockedWithGuard(serverName, endpoint, force, nil, nil)
+}
+
+// A pinned background consumer validates identity both under the refresh lock
+// and before persisting a response. Interactive recovery keeps its old behavior.
+func ensureV2CredentialsUnlockedWithGuard(serverName, endpoint string, force bool, guard func(*auth.V2Credentials) error, configure func(*client.Client)) (*auth.V2Credentials, error) {
 	credentials, err := auth.LoadV2Credentials(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("Agent V2 is not provisioned for server %q — run 'eigenflux agent init' and then 'eigenflux agent provision': %w", serverName, err)
 	}
+	if guard != nil {
+		if err := guard(credentials); err != nil {
+			return nil, err
+		}
+	}
 	if !force && credentials.ExpiresAt > time.Now().Add(30*time.Second).UnixMilli() {
 		return credentials, nil
 	}
-	publicKey, privateKey, _, err := auth.LoadOrCreateIdentity(serverName)
+	var publicKey ed25519.PublicKey
+	var privateKey ed25519.PrivateKey
+	if guard != nil {
+		publicKey, privateKey, err = auth.LoadIdentity(serverName)
+	} else {
+		publicKey, privateKey, _, err = auth.LoadOrCreateIdentity(serverName)
+	}
 	if err != nil {
 		return nil, err
 	}
 	unauthenticated := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", "", version, clientMetaForServerName(serverName))
+	if configure != nil {
+		configure(unauthenticated)
+	}
 	challengeResponse, err := unauthenticated.Post("/agent-sessions/refresh-challenges", map[string]interface{}{
 		"refresh_token": credentials.RefreshToken, "rotation_request_id": refreshRotationRequestID(credentials.RefreshToken),
 	})
@@ -122,6 +142,21 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool) (*auth
 	}
 	if json.Unmarshal(refreshResponse.Data, &refreshed) != nil || refreshed.AgentID == "" || refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
 		return nil, fmt.Errorf("invalid Agent V2 refresh response")
+	}
+	if guard != nil {
+		candidate := *credentials
+		candidate.AgentID, candidate.PrincipalID = refreshed.AgentID, refreshed.PrincipalID
+		if err := guard(&candidate); err != nil {
+			return nil, err
+		}
+		// Also catch writers that replaced credentials without taking the lock.
+		current, err := auth.LoadV2Credentials(serverName)
+		if err != nil {
+			return nil, err
+		}
+		if err := guard(current); err != nil {
+			return nil, err
+		}
 	}
 	oldAgentID := credentials.AgentID
 	credentials.AccessToken = refreshed.AccessToken

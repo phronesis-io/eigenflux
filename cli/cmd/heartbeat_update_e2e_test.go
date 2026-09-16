@@ -73,6 +73,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(manifest)
 				case "/api/v2/agent-context":
 					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
+				case "/api/v2/maintenance/events:batch":
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 				case "/api/v2/agents/me/settings", "/api/v2/agent-settings/heartbeat-compatibility":
 					if r.Method == http.MethodPut || r.Method == http.MethodPost {
 						if r.Header.Get("X-Client-CLI-Version") == "0.0.48" {
@@ -86,7 +88,10 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				}
 			}))
 			defer srv.Close()
-			_, server := runtimeTestConfig(t, srv.URL, true)
+			cfg, server := runtimeTestConfig(t, srv.URL, true)
+			if err := cfg.SetKV(autoSkillSyncKey, "true"); err != nil {
+				t.Fatal(err)
+			}
 			rules := installHeartbeatTestRules(t)
 			manifest, err = skills.ReadLocalManifest(rules)
 			if err != nil {

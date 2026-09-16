@@ -141,3 +141,22 @@ func TestPluginMaintenanceCanWakeWithoutFeed(t *testing.T) {
 		t.Fatal("maintenance wake bypassed onboarding restrictions")
 	}
 }
+
+func TestCachedPluginLoadCheckDoesNotExtendDiscoveryTTL(t *testing.T) {
+	runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	now := time.Now()
+	p := pluginMaintenance{Host: "codex", PluginID: heartbeatPluginID("codex"), Scope: "user", Context: pluginContext(), LatestVersion: "1.2.3", CheckedAt: now.Add(-23 * time.Hour)}
+	if err := saveMaintenance(maintenancePath("plugin-codex"), p); err != nil {
+		t.Fatal(err)
+	}
+	if got := pluginDiscoveryTime(p, now); !got.Equal(p.CheckedAt) {
+		t.Fatal("cached load evidence postponed discovery")
+	}
+	if got := pluginDiscoveryTime(p, now.Add(2*time.Hour)); !got.Equal(now.Add(2 * time.Hour)) {
+		t.Fatal("expired discovery not refreshed")
+	}
+	p.LatestVersion = "1.2.4"
+	if got := pluginDiscoveryTime(p, now); !got.Equal(now) {
+		t.Fatal("new release discovery kept old timestamp")
+	}
+}

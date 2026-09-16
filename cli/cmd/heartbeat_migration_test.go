@@ -48,7 +48,11 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	path := migrationPendingPath(host)
 	currentInput := in
 	currentInput.Tasks = append([]heartbeatmigration.Task(nil), in.Tasks...)
-	currentInput.Tasks[0].Prompt = heartbeatLauncher(config.HomeDir(), server, "skill")
+	launcher, err := nativeHeartbeatLauncher(config.HomeDir(), server, "skill", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentInput.Tasks[0].Prompt = launcher
 	if current, err := call("plan", currentInput); err != nil || current.Plan.Status != "current" {
 		t.Fatalf("fresh current: %+v %v", current, err)
 	}

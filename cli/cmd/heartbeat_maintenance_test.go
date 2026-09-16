@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/heartbeatmigration"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/skills"
 	"encoding/json"
 	"os"
@@ -117,5 +118,16 @@ func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
 	}
 	if err = json.Unmarshal(b, &record); err != nil || record.Verified.IsZero() {
 		t.Fatal("missing verification receipt")
+	}
+	scope, scopeErr := maintenanceScope(server)
+	if scopeErr != nil {
+		t.Fatal(scopeErr)
+	}
+	observation, observeErr := maintenance.LastAttempt(scope, "scheduler")
+	if observeErr != nil {
+		t.Fatal(observeErr)
+	}
+	if observation.AttemptID != record.ID || observation.Result != "verified" || observation.Phase != "migration" {
+		t.Fatalf("missing successful scheduler observation: %+v", observation)
 	}
 }

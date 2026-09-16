@@ -46,14 +46,23 @@ reconciled away when they leave the manifest.`,
 		host, _ := cmd.Flags().GetString("host")
 		ifStale, _ := cmd.Flags().GetBool("if-stale")
 		quiet, _ := cmd.Flags().GetBool("quiet")
-		res, err := skills.Sync(skills.SyncOptions{
-			Into:       into,
-			Host:       host,
-			IfStale:    ifStale,
-			Quiet:      quiet,
-			CLIVersion: version,
-			CDNBase:    cdnBase(),
-		})
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		var res *skills.SyncResult
+		if ifStale && !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
+			res, err = localHeartbeatSkillsAt(into, host)
+		} else {
+			res, err = skills.Sync(skills.SyncOptions{
+				Into:       into,
+				Host:       host,
+				IfStale:    ifStale,
+				Quiet:      quiet,
+				CLIVersion: version,
+				CDNBase:    cdnBase(),
+			})
+		}
 		if err != nil {
 			// Generic failure (network/IO/checksum) — NOT auth. Using exit 4
 			// here would make hooks misread a CDN outage as "re-login needed".
