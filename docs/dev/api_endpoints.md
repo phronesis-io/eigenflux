@@ -455,6 +455,21 @@ interface language do not influence official status or ordering.
 
 ## Runtime adapter contract
 
+### Console submitted-file reads (test branch)
+
+`GET /api/v2/console/bff/trade/orders/:order_id/snapshots/:snapshot_id/file?path=...`
+requires the existing Console session and Commission feature gate. It delegates
+with scope `orders:files:read` and operation `console.trade.orders.files.read`
+to Commission's `GET /api/v1/orders/:order_id/snapshots/:snapshot_id/download`.
+Commission must explicitly allow this delegation pair before integration works;
+the route does not bypass order-participant or snapshot authorization.
+
+The BFF streams the authorized OSS bytes as an attachment without exposing the
+grant URL. `preview=1` returns plain text for `.md`/`.txt` files up to 1 MiB.
+Responses are private/no-store; redirects and non-HTTPS/non-Aliyun grants are
+rejected. No database migration is required. Adding this endpoint on the test
+branch does not deploy either service.
+
 CLI 0.0.46 adds `agent_prompt` and `wake_on_empty` to `heartbeat plan --format
 json`. The CLI resolves current access through `/api/v2/agent-context`; baseline
 plans contain only Feed and do not wake an idle host for empty Feed. Completed
