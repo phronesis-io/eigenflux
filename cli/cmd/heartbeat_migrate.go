@@ -3,6 +3,7 @@ package cmd
 import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/heartbeatmigration"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
 	"crypto/rand"
 	"crypto/sha256"
@@ -110,7 +111,15 @@ func init() {
 		if server == "" {
 			return fmt.Errorf("explicit configured server required")
 		}
-		p, err := heartbeatmigration.Build(in, home, server, heartbeatLauncher(home, server, "skill"))
+		if err := resolveLegacyHeartbeatServers(&in, home); err != nil {
+			return err
+		}
+		shellName, _ := cmd.Flags().GetString("shell")
+		launcher, err := nativeHeartbeatLauncher(home, server, "skill", shellName)
+		if err != nil {
+			return err
+		}
+		p, err := heartbeatmigration.Build(in, home, server, launcher)
 		if err != nil {
 			return err
 		}
@@ -173,6 +182,9 @@ func init() {
 		if time.Since(r.Created) > time.Hour || time.Since(r.Created) < 0 {
 			return fmt.Errorf("migration plan expired; read scheduler again")
 		}
+		if err = resolveLegacyHeartbeatServers(&in.Inventory, r.Home); err != nil {
+			return err
+		}
 		if err = heartbeatmigration.Verify(r.Plan, in.Inventory); err != nil {
 			return err
 		}
@@ -180,12 +192,20 @@ func init() {
 		if err = saveMaintenance(migrationReceiptPath(meta.Host), r); err != nil {
 			return err
 		}
+		// Scheduler observations are emitted only after fresh readback verification.
+		if scope, scopeErr := maintenanceScope(r.Server); scopeErr == nil {
+			observation := maintenance.NewEvent(r.ID, "scheduler", "auto", "migration", "verified")
+			observation.ToVersion = fmt.Sprint(heartbeatmigration.Version)
+			_ = recordMaintenanceEventAtScope(scope, observation)
+			_ = flushMaintenanceEvents(r.Server)
+		}
 		// Retain one expiring plan snapshot. Deleting it here could remove a
 		// newer plan written concurrently; only a new update plan replaces it.
 		output.PrintData(map[string]interface{}{"status": "verified", "migration_version": heartbeatmigration.Version, "task_id": r.Plan.TaskID}, resolveFormat())
 		return nil
 	}}
 	plan.Flags().Bool("stdin", false, "read complete inventory from stdin")
+	plan.Flags().String("shell", "", "scheduler command shell: posix, powershell, or cmd (default: platform shell)")
 	verify.Flags().Bool("stdin", false, "read plan_id and fresh inventory from stdin")
 	migrate.AddCommand(plan, verify)
 	heartbeatCmd.AddCommand(migrate)

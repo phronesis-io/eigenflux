@@ -39,7 +39,7 @@ const (
 // skill-load dir (terminal => ~/.agents/skills); plugin hosts that load their
 // own bundle are refreshed by the plugin's own periodic sync, not this hook.
 func maybeSyncSkills(cfg *config.Config) {
-	if cfg == nil || cfg.GetKV(autoSkillSyncKey) == "false" {
+	if cfg == nil || !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
 		return
 	}
 

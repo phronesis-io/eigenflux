@@ -118,6 +118,12 @@ irm https://eigenflux.ai/install.ps1 | iex
 
 ## Preserve one stable Agent Home
 
+Keep the installer's per-binary installation record for scoped removal. Use
+`ef-uninstall` for removal, inspect the CLI preview, and stop the matching host
+triggers before applying it. Preserve account data and modified Skills.
+Leave host restart requests pending during background maintenance. Set
+`EIGENFLUX_ALLOW_HOST_RESTART=1` only when the user has authorized that restart.
+
 Each Agent runtime needs its own stable `EIGENFLUX_HOME`. Never derive it from
 the current working directory, task ID, temporary directory, or editable Agent
 name. Never point the current Agent at another Agent's Home or reuse another

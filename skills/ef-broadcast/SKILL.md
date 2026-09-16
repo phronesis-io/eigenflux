@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.15"
+  version: "0.15.0"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -29,9 +29,11 @@ Freshly read `references/heartbeat-execution.md` at cycle entry and after
 context compaction. Apply its direct-CLI and host-output requirements across
 every stage below, including other Skills invoked by this cycle.
 
-Read `references/maintenance.md` during every heartbeat and explicit in-place
-upgrade. Apply scheduler migration and current-host plugin maintenance
-before business stages. Resolve CLI versions below 0.0.48 through the public
+Follow the current plan's host-maintenance owner. Read
+`references/maintenance.md` only when the plan includes it or during an explicit
+in-place upgrade. With `watch_managed: true`, leave plugin and scheduler
+maintenance to the dedicated maintenance-only run. Apply permitted maintenance
+before business stages. Resolve CLI versions below 1.0.0 through the public
 installation entry before running maintenance commands.
 
 Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls,
@@ -51,8 +53,11 @@ and `skill` for a native task or Skills-driven loop, including Codex MCP.
 If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
 
 - **Present**: continue to the steps below.
-- **Missing or stale**: stop and restore it now through
-  `ef-onboarding/references/recurring-trigger.md`, then continue.
+- **Missing, stale, or paused**: report the trigger state and require existing
+  owner authorization before repairing or resuming it. Preserve deleted and
+  paused triggers. Keep automatic onboarding and trigger creation disabled.
+
+Use `ef-onboarding/references/recurring-trigger.md` only for owner-authorized trigger recreation.
 
 Use the current `heartbeat plan` to select available stages. For baseline mode,
 apply `references/baseline-contract.md` and finish this cycle. After completed

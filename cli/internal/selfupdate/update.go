@@ -19,6 +19,8 @@ import (
 )
 
 type Options struct {
+	// OnAttempt runs after the shared lock and throttle admit a real release check.
+	OnAttempt                         func()
 	Home                              string
 	Executable, Version, Minimum, CDN string
 	Key                               ed25519.PublicKey
@@ -27,6 +29,8 @@ type Options struct {
 }
 
 type Result struct {
+	Phase      string `json:"phase,omitempty"`
+	Attempted  bool   `json:"attempted,omitempty"`
 	Status     string `json:"status"`
 	Version    string `json:"version"`
 	Error      string `json:"error,omitempty"`
@@ -43,7 +47,7 @@ type state struct {
 // Check retains the running executable on every pre-install failure. State and
 // locking are binary-scoped because several Agent Homes can share one install.
 func Check(ctx context.Context, o Options) (result Result) {
-	result = Result{Status: "skipped", Version: o.Version}
+	result = Result{Status: "skipped", Version: o.Version, Phase: "check"}
 	if !ValidVersion(o.Version) {
 		return
 	}
@@ -81,7 +85,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	// A sibling heartbeat may have replaced the shared executable after this
 	// process started. Adopt it instead of downgrading it or waiting for the TTL.
 	if installed, e := executableVersion(ctx, path, o.Home); e == nil && ValidVersion(installed) && Compare(installed, o.Version) > 0 {
-		return Result{Status: "updated", Version: installed, Executable: path}
+		return Result{Status: "updated", Version: installed, Executable: path, Phase: "adoption"}
 	}
 	var s state
 	if b, e := os.ReadFile(path + ".update.json"); e == nil {
@@ -92,6 +96,10 @@ func Check(ctx context.Context, o Options) (result Result) {
 		return
 	}
 	s.Attempt, s.Minimum = o.Now, o.Minimum
+	result.Attempted = true
+	if o.OnAttempt != nil {
+		o.OnAttempt()
+	}
 	if err := saveState(path, s); err != nil {
 		result.Status, result.Error = "failed", err.Error()
 		return
@@ -102,7 +110,10 @@ func Check(ctx context.Context, o Options) (result Result) {
 			result.Error = strings.TrimSpace(result.Error + "; save update state: " + err.Error())
 		}
 	}()
-	fail := func(err error) Result { return Result{Status: "failed", Version: o.Version, Error: err.Error()} }
+	phase := "check"
+	fail := func(err error) Result {
+		return Result{Status: "failed", Version: o.Version, Error: err.Error(), Phase: phase, Attempted: true}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	data, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/latest/release.json", 1<<20, o.Version)
@@ -132,10 +143,12 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if !ok || a.Size <= 0 || a.Size > 128<<20 {
 		return fail(fmt.Errorf("missing or invalid CLI artifact for %s", name))
 	}
+	phase = "download"
 	bin, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name, a.Size, o.Version)
 	if err != nil {
 		return fail(err)
 	}
+	phase = "verify"
 	sum := sha256.Sum256(bin)
 	if int64(len(bin)) != a.Size || hex.EncodeToString(sum[:]) != a.SHA256 {
 		return fail(fmt.Errorf("CLI artifact checksum or size mismatch"))
@@ -159,9 +172,11 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if err != nil {
 		return fail(err)
 	}
+	phase = "probe"
 	if err = probe(ctx, tmpName, m.Version, o.Home); err != nil {
 		return fail(err)
 	}
+	phase = "install"
 	// A hard link keeps the old bytes available without a gap at the installed path.
 	backup := path + ".previous"
 	if err = os.Remove(backup); err != nil && !os.IsNotExist(err) {
@@ -178,6 +193,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	err = syncDirectory(filepath.Dir(path))
 	if err == nil {
+		phase = "probe"
 		err = probe(ctx, path, m.Version, o.Home)
 	}
 	if err != nil {
@@ -189,7 +205,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 		}
 		return fail(fmt.Errorf("CLI check failed; previous binary restored: %w", err))
 	}
-	return Result{Status: "updated", Version: m.Version, Executable: path}
+	return Result{Status: "updated", Version: m.Version, Executable: path, Phase: "install", Attempted: true}
 }
 
 func probe(ctx context.Context, path, version, home string) error {

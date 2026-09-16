@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 )
 
 type pluginMaintenance struct {
+	AttemptID        string    `json:"attempt_id,omitempty"`
 	Host             string    `json:"host"`
 	PluginID         string    `json:"plugin_id"`
 	Scope            string    `json:"scope,omitempty"`
@@ -64,8 +66,19 @@ func pluginMaintenanceForHost(host, mode string, cfg *config.Config) pluginMaint
 			// Cache release discovery, never the current installation or process state.
 			p.Due, p.Status = false, "check_required"
 			p.Scope, p.LatestVersion, p.CheckedAt = saved.Scope, saved.LatestVersion, saved.CheckedAt
+			p.AttemptID = saved.AttemptID
 			return p
 		}
+	}
+	if scope, err := maintenanceScope(activeServerName()); err == nil {
+		previous, _ := maintenance.LastAttempt(scope, "plugin")
+		if previous.AttemptID != "" && previous.Result == "restart_required" {
+			p.AttemptID = previous.AttemptID
+		} else {
+			p.AttemptID = maintenance.NewID()
+		}
+		e := maintenance.NewEvent(p.AttemptID, "plugin", "auto", "check", "started")
+		_ = recordMaintenanceEvent(activeServerName(), e)
 	}
 	return p
 }
@@ -116,13 +129,47 @@ func init() {
 		if !filepath.IsAbs(p.Context) {
 			return fmt.Errorf("absolute plugin plan context required")
 		}
-		p.CheckedAt, p.Due = time.Now(), false
+		if scope, err := maintenanceScope(activeServerName()); err == nil {
+			previous, _ := maintenance.LastAttempt(scope, "plugin")
+			if p.AttemptID != "" && p.AttemptID != previous.AttemptID {
+				return fmt.Errorf("plugin receipt does not match this account attempt")
+			}
+			if p.AttemptID == "" {
+				p.AttemptID = previous.AttemptID
+			}
+		}
+		if p.AttemptID == "" {
+			p.AttemptID = maintenance.NewID()
+		}
+		p.CheckedAt, p.Due = pluginDiscoveryTime(p, time.Now()), false
 		if err := saveMaintenance(maintenancePath("plugin-"+p.Host), p); err != nil {
 			return err
 		}
+		e := maintenance.NewEvent(p.AttemptID, "plugin", "auto", "load", p.Status)
+		e.ToVersion = p.LatestVersion
+		e.RunningVersion = p.LoadedVersion
+		if p.Error != "" {
+			e.ErrorCode = "host_maintenance_failed"
+		}
+		_ = recordMaintenanceEvent(activeServerName(), e)
+		_ = flushMaintenanceEvents(activeServerName())
 		output.PrintData(p, resolveFormat())
 		return nil
 	}}
 	c.Flags().Bool("stdin", false, "read fresh host plugin observations from stdin")
 	heartbeatCmd.AddCommand(c)
+}
+
+// Fresh load observations must not postpone the next release discovery when
+// they only confirm the cached target in the same installation context.
+func pluginDiscoveryTime(p pluginMaintenance, now time.Time) time.Time {
+	b, err := os.ReadFile(maintenancePath("plugin-" + p.Host))
+	var previous pluginMaintenance
+	if err == nil && json.Unmarshal(b, &previous) == nil && previous.PluginID == p.PluginID && previous.Scope == p.Scope && previous.Context == p.Context && previous.LatestVersion == p.LatestVersion {
+		age := now.Sub(previous.CheckedAt)
+		if age >= 0 && age < 24*time.Hour {
+			return previous.CheckedAt
+		}
+	}
+	return now
 }

@@ -160,6 +160,9 @@ func Execute() {
 			}
 		}
 		fmt.Fprintln(os.Stderr, err)
+		if isWatchTerminal(err) {
+			os.Exit(78)
+		}
 		// Map a server-side 401 to the auth-required exit code so adapters
 		// (which key off exit 4) prompt re-login even when the local token
 		// looked valid but the server rejected it (revoked / clock skew /

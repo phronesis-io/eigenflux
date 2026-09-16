@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"context"
@@ -16,11 +17,23 @@ import (
 )
 
 const updateReexecEnv = "EIGENFLUX_UPDATE_REEXEC"
+const updateAttemptEnv = "EIGENFLUX_UPDATE_ATTEMPT"
 
 func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) (selfupdate.Result, bool, error) {
 	serverName := activeServerName()
+	observationScope, _ := maintenanceScope(serverName)
+	recordObservation := func(e maintenance.Event) { _ = recordMaintenanceEventAtScope(observationScope, e) }
 	meta := clientMetaForServerName(serverName)
 	if os.Getenv(updateReexecEnv) == "1" {
+		if scope, err := maintenanceScope(serverName); err == nil {
+			if previous, err := maintenance.LastAttempt(scope, "cli"); err == nil && previous.AttemptID == os.Getenv(updateAttemptEnv) && previous.ToVersion == version && previous.Result == "installed" {
+				e := maintenance.NewEvent(previous.AttemptID, "cli", previous.Trigger, "execute", "executed")
+				e.FromVersion = previous.FromVersion
+				e.ToVersion = version
+				e.RunningVersion = version
+				recordObservation(e)
+			}
+		}
 		return selfupdate.Result{Status: "restarted", Version: version}, false, nil
 	}
 	if !heartbeatMaintenanceEnabled(meta.Mode, cfg, "auto_cli_update") {
@@ -36,7 +49,45 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 		ctx = context.Background()
 	}
 	updateCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	r := selfupdate.Check(updateCtx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key})
+	started := time.Now()
+	observation := maintenanceEvent("cli", "check", "started")
+	observation.FromVersion = version
+	r := selfupdate.Check(updateCtx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key, OnAttempt: func() { recordObservation(observation) }})
+	result := "no_update"
+	switch r.Status {
+	case "updated":
+		result = "installed"
+	case "failed":
+		result = "failed"
+	case "unconfigured":
+		result = "blocked"
+	}
+	phase := r.Phase
+	if phase == "" {
+		phase = "check"
+	}
+	trigger := "auto"
+	if phase == "adoption" {
+		trigger = "adoption"
+	}
+	e := maintenance.NewEvent(observation.AttemptID, "cli", trigger, phase, result)
+	e.FromVersion = version
+	e.ToVersion = r.Version
+	e.DurationMS = time.Since(started).Milliseconds()
+	if r.Error != "" {
+		e.ErrorCode = "update_failed"
+		if strings.Contains(r.Error, "permission") || strings.Contains(r.Error, "access is denied") || strings.Contains(r.Error, "existing binary retained") {
+			e.Result = "blocked"
+			e.ErrorCode = "installation_blocked"
+		}
+		if strings.Contains(r.Error, "previous binary restored") {
+			e.Result = "rolled_back"
+			e.ErrorCode = "probe_failed"
+		}
+	}
+	if r.Attempted || r.Status == "failed" || r.Status == "unconfigured" || r.Status == "updated" {
+		recordObservation(e)
+	}
 	// Check must finish synchronous rollback before restoring signal defaults.
 	updateErr := updateCtx.Err()
 	stop()
@@ -49,7 +100,7 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	// Run once with original arguments and inherited identity/runtime environment.
 	// Business failures are returned, never replayed with the previous binary.
 	child := exec.CommandContext(ctx, r.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), serverName)...)
-	child.Env = heartbeatReexecEnvironment(os.Environ())
+	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+observation.AttemptID)
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err = runHeartbeatReexec(child); err != nil {
 		return r, true, &updatedCLIError{err}
@@ -117,7 +168,7 @@ func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bo
 func heartbeatReexecEnvironment(env []string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
-		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
+		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
 			continue
 		}
 		out = append(out, v)

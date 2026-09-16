@@ -108,6 +108,8 @@ function Install-Cli {
     if ($eigenfluxCmd) {
         try { $currentVersion = (& eigenflux version --short 2>$null).Trim() } catch {}
         if ($currentVersion -eq $script:latestVersion) {
+            $script:installedCliPath = $eigenfluxCmd.Source
+            $script:installDir = Split-Path -Parent $script:installedCliPath
             Ok "eigenflux ${currentVersion} is already up to date."
             return
         }
@@ -134,6 +136,7 @@ function Install-Cli {
         Info "D: drive not found; installing to ${fallbackDir}"
     }
     $installPath = Join-Path $script:installDir "eigenflux.exe"
+    $script:installedCliPath = $installPath
 
     Info "Downloading ${downloadUrl}..."
     Download-WithRetry -Url $downloadUrl -Destination $installPath -Sha256Url $sha256Url
@@ -152,6 +155,7 @@ function Install-Cli {
 # ── Step 2: Install skills ────────────────────────────────────
 
 function Install-Skills {
+    $script:installedSkillsTarget = ""
     $skillsDir = Join-Path $env:USERPROFILE ".agents\skills"
     $zipUrl = "https://github.com/${GithubRepo}/archive/refs/heads/${Branch}.zip"
     $tmpZip = Join-Path $env:TEMP "eigenflux-skills.zip"
@@ -180,6 +184,7 @@ function Install-Skills {
                     Copy-Item -Recurse -Path $_.FullName -Destination $dest
                 }
             }
+            $script:installedSkillsTarget = $skillsDir
             Ok "EigenFlux skills installed to ${skillsDir}"
         } else {
             Info "Skills installation skipped (no skills found)"
@@ -317,7 +322,7 @@ function Setup-Agents {
         $pluginChanged = $true
     }
 
-    if ($pluginChanged) {
+    if ($pluginChanged -and $env:EIGENFLUX_ALLOW_HOST_RESTART -eq "1") {
         Info "Restarting OpenClaw gateway..."
         try {
             & openclaw gateway restart 2>$null
@@ -334,6 +339,11 @@ Install-Cli
 Install-Skills
 Migrate-Config
 Setup-Agents
+$recordBin = $script:installedCliPath
+$recordHost = Get-InvokingHost
+& $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$script:installedSkillsTarget" | Out-Null
+if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
+Info "Updated plugin files may require a host restart after current work finishes."
 
 Ok ""
 if ([Console]::IsOutputRedirected) {

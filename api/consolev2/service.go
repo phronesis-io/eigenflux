@@ -390,6 +390,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/home/activity", s.consoleAuth(false), s.requireCompleted, s.getHomeActivity)
 	h.GET("/api/v2/console/home/worth-watching", s.consoleAuth(false), s.requireCompleted, s.getHomeWorthWatching)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
+	h.POST("/api/v2/maintenance/events:batch", s.agentAuth("settings:write"), s.recordMaintenanceBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)
 		h.GET("/api/v2/feed/items/:source_type/:source_id", s.agentAuth("feed:read"), s.getFeedSourceItem)

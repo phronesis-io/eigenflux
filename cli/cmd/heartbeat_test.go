@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -27,7 +30,7 @@ func TestPluginBaselinePlanDeliversDueMaintenance(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":{"code":"ONBOARDING_REQUIRED","details":{"onboarding_state":"in_progress"}}}`))
 					return
 				}
-				if r.URL.Path != "/api/v2/agents/me/settings" {
+				if r.URL.Path != "/api/v2/agents/me/settings" && r.URL.Path != "/api/v2/maintenance/events:batch" {
 					t.Errorf("unexpected baseline request: %s", r.URL.Path)
 				}
 				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
@@ -128,7 +131,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 					return
 				}
-				if baseline {
+				if baseline && r.URL.Path != "/api/v2/maintenance/events:batch" {
 					t.Errorf("baseline made non-Feed business request: %s %s", r.Method, r.URL.Path)
 				}
 				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
@@ -174,7 +177,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if strings.Contains(plan.SchedulerLauncher, "EIGENFLUX_MODEL") {
 				t.Fatal("scheduler must not freeze the current model")
 			}
-			if plan.SkillsTarget != rulesDir || !strings.Contains(plan.CLIPrefix, "--server "+shellQuote(serverName)) {
+			if plan.SkillsTarget != rulesDir || (!strings.Contains(plan.CLIPrefix, "--server") || !strings.Contains(plan.CLIPrefix, shellQuote(serverName))) {
 				t.Fatalf("host target/server lost: %+v", plan)
 			}
 		})
@@ -217,6 +220,14 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 
 func installHeartbeatTestRules(t *testing.T) string {
 	t.Helper()
+	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
+	version = "0.0.46"
+	t.Cleanup(func() { version, skills.VerifyPublicKeyBase64 = oldVersion, oldKey })
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills.VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(pub)
 	t.Setenv(updateReexecEnv, "1") // These unit tests exercise plans, not binary replacement.
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_SKILLS_DIR", dir)
@@ -245,8 +256,19 @@ func installHeartbeatTestRules(t *testing.T) string {
 	if err := os.WriteFile(modelRule, []byte("# Runtime Model Reporting\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"maintenance.md", "commands.md"} {
+		if err := os.WriteFile(filepath.Join(dir, "ef-broadcast", "references", name), []byte("# Central rules\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sequence = 1
+	manifest.TarSHA256 = strings.Repeat("a", 64)
+	manifest.ManagedBy = skills.ManagedByValue
+	if err := skills.SignManifest(manifest, key); err != nil {
 		t.Fatal(err)
 	}
 	if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
@@ -283,7 +305,7 @@ func captureHeartbeatStdout(t *testing.T, run func() error) (string, error) {
 func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 	launcher := "eigenflux --homedir /stable heartbeat plan --format agent"
 	tests := map[string][]string{
-		"workbuddy/5.3.14": {"CronList/CronUpdate", "owned EigenFlux task"},
+		"workbuddy/5.3.14": {"automation_update", "owned EigenFlux task"},
 		"codex/1.0":        {"native automation", "owned EigenFlux task"},
 		"hermes/0.20":      {"cron list/edit", "ownership marker", "matching Home"},
 		"openclaw/1.0":     {"plugin owns scheduling", "do not create a second heartbeat"},

@@ -1,6 +1,6 @@
 # Heartbeat Maintenance
 
-Require CLI 0.0.48. Preserve the current stable Home, server, Agent identity,
+Require CLI 1.0.0. Preserve the current stable Home, server, Agent identity,
 installation mode, enabled state, and host permissions throughout maintenance.
 Use the current plan's CLI prefix for every EigenFlux command.
 
@@ -88,3 +88,13 @@ If the manager cannot stage an update without interrupting the active loop,
 report `blocked` and defer installation to an authorized maintenance window.
 Report required user action once. Keep installation and loaded
 version claims distinct. Keep routine successful checks silent.
+
+## Scoped Maintenance
+
+Use the current plan scope. For maintenance-only, execute maintenance and return. For control-only, read commands.md and process owner commands. Keep Feed, private-message replies, and profile review outside these scoped runs.
+
+Respect auto_cli_update, auto_plugin_update, and auto_skill_sync for automatic operations. Preserve each setting during explicit user upgrades. Use current plan report templates with heartbeat maintenance-report --stdin only after observing their stated phase. Confirm rules_read after freshly reading the installed rule paths. Keep cli_running, watch runtime_ready, plugin installed, and plugin loaded distinct.
+
+For native migration, select the actual command shell with --shell. Resolve a missing server only from the exact task environment, verified setup binding, or a uniquely configured authenticated Home. Preserve ambiguous tasks for an explicit owner decision. Use WorkBuddy desktop automation_update where available. Keep native tasks bounded to heartbeat plan.
+
+Keep uninstallation reasons local unless the owner explicitly requests sharing. Use ef-uninstall for removal.
