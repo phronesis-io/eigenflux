@@ -414,16 +414,17 @@ install_skills() {
     skill_name=$(basename "$skill_dir")
     # Only the production allowlist — never ship dev-only skills (e.g. ef-localdev).
     case "$skill_name" in
-      ef-broadcast|ef-communication|ef-onboarding|ef-profile) ;;
+      ef-broadcast|ef-communication|ef-onboarding|ef-profile|ef-uninstall) ;;
       *) continue ;;
     esac
     rm -rf "$SKILLS_DIR/$skill_name"
     cp -R "$skill_dir" "$SKILLS_DIR/$skill_name"
   done
   : > "$SKILLS_DIR/.ef-stale"
-  INSTALL_SKILLS_TARGET="$SKILLS_DIR"
+  INSTALL_SKILLS_TARGET=""
 
   ok "EigenFlux skills bootstrapped to ${SKILLS_DIR} (provisional — will refresh from R2 on next sync)"
+  info "Uninstall will preserve provisional Skills at ${SKILLS_DIR}; no verified managed target was registered."
 }
 
 # ── Step 3: Migrate legacy config ─────────────────────────────

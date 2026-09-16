@@ -3,14 +3,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/skills"
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
 
@@ -201,6 +204,58 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		}
 		if _, err := os.Stat(bin); err != nil {
 			t.Fatal("blocked uninstall removed executable")
+		}
+	})
+	t.Run("multiple_skills_targets_retry_after_partial_removal", func(t *testing.T) {
+		bin, home, invoke := fixture(t)
+		bundle := filepath.Join(t.TempDir(), "bundle")
+		if err := os.MkdirAll(filepath.Join(bundle, "ef-broadcast"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bundle, "ef-broadcast", "SKILL.md"), []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		targets := []string{filepath.Join(t.TempDir(), "skills"), filepath.Join(t.TempDir(), "skills")}
+		for i, target := range targets {
+			if _, err := skills.InstallFromBundle(skills.SyncOptions{Into: target, BundleDir: bundle, CLIVersion: "1.0.0"}); err != nil {
+				t.Fatal(err)
+			}
+			registeredHome := home
+			if i > 0 {
+				registeredHome = filepath.Join(t.TempDir(), ".eigenflux")
+			}
+			if err := registerInstallation(bin, installationHome{Home: registeredHome, Host: "codex", SkillsTarget: target}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lock := filepath.Join(filepath.Dir(targets[1]), ".ef-skills.lock")
+		if err := os.WriteFile(lock, []byte(fmt.Sprintf("%d %d\n", os.Getpid(), time.Now().Unix())), 0600); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"uninstall", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed"}
+		out, err := invoke(args...)
+		if err == nil || !strings.Contains(string(out), "synchronization is active") {
+			t.Fatalf("expected partial failure: %v %s", err, out)
+		}
+		if _, err := os.Stat(filepath.Join(targets[0], "ef-broadcast")); !os.IsNotExist(err) {
+			t.Fatalf("first target not removed: %v", err)
+		}
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatal("partial failure removed executable", err)
+		}
+		if err := os.Remove(lock); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := invoke(args...); err != nil {
+			t.Fatalf("retry: %v %s", err, out)
+		}
+		if _, err := os.Stat(filepath.Join(targets[1], "ef-broadcast")); !os.IsNotExist(err) {
+			t.Fatalf("retry left second target: %v", err)
+		}
+		if runtime.GOOS != "windows" {
+			if _, err := os.Stat(bin); !os.IsNotExist(err) {
+				t.Fatalf("retry left executable: %v", err)
+			}
 		}
 	})
 	t.Run("foreign_backup_is_preserved", func(t *testing.T) {

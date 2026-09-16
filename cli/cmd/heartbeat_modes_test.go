@@ -52,7 +52,7 @@ func TestHeartbeatNarrowModesUseOnlyCentralSelectedRules(t *testing.T) {
 			if mode == "control" {
 				wantRule, wantStage = "commands.md", "commands"
 			}
-			if len(plan.RuleSources) != 1 || plan.RuleSources[0] != filepath.Join(rules, "ef-broadcast", "references", wantRule) || len(plan.ExecutionOrder) != 1 || plan.ExecutionOrder[0] != wantStage {
+			if len(plan.RuleSources) != 2 || plan.RuleSources[0] != filepath.Join(rules, "ef-profile", "references", "runtime-model.md") || plan.RuleSources[1] != filepath.Join(rules, "ef-broadcast", "references", wantRule) || len(plan.ExecutionOrder) != 1 || plan.ExecutionOrder[0] != wantStage {
 				t.Fatalf("mode leaked other stages: %+v", plan)
 			}
 			if plan.AgentPrompt != renderHeartbeatPlanForAgent(plan) {
@@ -123,6 +123,51 @@ func TestAutomaticSkillsSyncHonorsDisabledSwitchWithoutCDN(t *testing.T) {
 	}
 	if requests != 0 {
 		t.Fatal("disabled automatic sync contacted CDN")
+	}
+}
+
+func TestDisabledSkillsSyncQuietlySkipsUnavailableLocalRules(t *testing.T) {
+	for _, state := range []string{"missing", "modified", "unsigned"} {
+		t.Run(state, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				http.Error(w, "unexpected request", 500)
+			}))
+			defer server.Close()
+			runtimeTestConfig(t, server.URL, true)
+			dir := installHeartbeatTestRules(t)
+			switch state {
+			case "missing":
+				t.Setenv("EIGENFLUX_SKILLS_DIR", filepath.Join(t.TempDir(), "missing"))
+			case "modified":
+				if err := os.WriteFile(filepath.Join(dir, "ef-broadcast", "SKILL.md"), []byte("modified"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "unsigned":
+				manifest, err := skills.ReadLocalManifest(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				manifest.Signature = ""
+				if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("EIGENFLUX_CDN_URL", server.URL)
+			command := &cobra.Command{}
+			command.Flags().Bool("if-stale", true, "")
+			command.Flags().Bool("quiet", true, "")
+			command.Flags().String("host", "codex", "")
+			command.Flags().String("into", "", "")
+			text, err := captureHeartbeatStdout(t, func() error { return skillsSyncCmd.RunE(command, nil) })
+			if err != nil || text != "" || requests != 0 {
+				t.Fatalf("quiet disabled sync: output=%q err=%v requests=%d", text, err, requests)
+			}
+			if _, err := localHeartbeatSkills("codex"); err == nil {
+				t.Fatal("heartbeat accepted unavailable local rules")
+			}
+		})
 	}
 }
 

@@ -73,7 +73,7 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 	if server == "" || !filepath.IsAbs(home) {
 		return "", fmt.Errorf("absolute Home and explicit server required")
 	}
-	args := []string{bin, "--homedir", home, "--server", server, "heartbeat", "plan", "--format", "agent"}
+	args := []string{bin, "--homedir", home, "--server", server, "heartbeat", "plan", "--shell", shellName, "--format", "agent"}
 	switch shellName {
 	case "posix":
 		for i := range args {

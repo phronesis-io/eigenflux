@@ -53,6 +53,9 @@ reconciled away when they leave the manifest.`,
 		var res *skills.SyncResult
 		if ifStale && !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
 			res, err = localHeartbeatSkillsAt(into, host)
+			if err != nil && quiet {
+				return nil
+			}
 		} else {
 			res, err = skills.Sync(skills.SyncOptions{
 				Into:       into,
