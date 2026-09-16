@@ -303,8 +303,7 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 						if data.NextCursor != "" {
 							cursor = data.NextCursor
 						}
-						cacheMessagesForServer(event.Data, w.server.Name)
-						if emitErr := w.emit(event.Type, event.Data); emitErr != nil {
+						if emitErr := w.deliverPM(ctx, event.Type, event.Data); emitErr != nil {
 							err = emitErr
 							break
 						}
@@ -333,6 +332,22 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// Account switching clears the same cache under the credential lock. Validate
+// and write within that lock so a frame from the old socket cannot repopulate it.
+func (w *accountWatch) deliverPM(ctx context.Context, kind string, data json.RawMessage) error {
+	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
+		credentials, err := auth.LoadV2Credentials(w.server.Name)
+		if err != nil {
+			return err
+		}
+		if !w.identityOK(credentials) {
+			return errWatchIdentity
+		}
+		cacheMessagesForServer(data, w.server.Name)
+		return w.emit(kind, data)
+	})
 }
 
 type contextWatchDialer struct {

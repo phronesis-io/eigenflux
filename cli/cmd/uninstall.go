@@ -194,7 +194,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			}
 		}
 		for i, result := range skillResults {
-			removed, err := skills.Uninstall(result.Target, true)
+			removed, err := skills.Uninstall(result.Target, true, true)
 			if err != nil {
 				return err
 			}

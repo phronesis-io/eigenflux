@@ -184,8 +184,9 @@ function Install-Skills {
                     Copy-Item -Recurse -Path $_.FullName -Destination $dest
                 }
             }
-            $script:installedSkillsTarget = $skillsDir
+            $script:installedSkillsTarget = ""
             Ok "EigenFlux skills installed to ${skillsDir}"
+            Info "Uninstall will preserve provisional Skills at ${skillsDir}; no verified managed target was registered."
         } else {
             Info "Skills installation skipped (no skills found)"
         }

@@ -8,11 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/controlcontext"
 	watchstate "cli.eigenflux.ai/internal/watch"
@@ -124,6 +127,46 @@ func TestWatchRejectsIdentitySwitchBeforeRefresh(t *testing.T) {
 	}
 	if _, err := w.credentials(context.Background(), true); err != errWatchIdentity {
 		t.Fatalf("want pinned identity error, got %v", err)
+	}
+}
+
+func TestWatchRejectsOldAccountFrameAfterSwitch(t *testing.T) {
+	_, name := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	before, _ := auth.LoadV2Credentials(name)
+	w := &accountWatch{identity: *before}
+	w.server.Name = name
+	emitted := 0
+	w.emit = func(string, interface{}) error { emitted++; return nil }
+	cache.SaveProfile(name, &cache.Profile{AgentID: before.AgentID})
+	frame := json.RawMessage(`{"messages":[{"msg_id":"old-private","conv_id":"conv","sender_id":"peer","receiver_id":"agent-1","content":"old account only","created_at":1770000000000}]}`)
+	if err := w.deliverPM(context.Background(), "pm_push", frame); err != nil {
+		t.Fatal(err)
+	}
+	if emitted != 1 {
+		t.Fatal("valid frame was not emitted")
+	}
+	if err := auth.WithV2CredentialsLock(name, time.Second, func() error {
+		after := *before
+		after.AgentID = "new-agent"
+		if err := auth.SaveV2Credentials(name, &after); err != nil {
+			return err
+		}
+		if err := cache.DeleteIdentityScopedData(name); err != nil {
+			return err
+		}
+		cache.SaveProfile(name, &cache.Profile{AgentID: after.AgentID})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.deliverPM(context.Background(), "pm_push", frame); err != errWatchIdentity {
+		t.Fatalf("old frame accepted: %v", err)
+	}
+	if emitted != 1 {
+		t.Fatal("old frame escaped after identity changed")
+	}
+	if _, err := os.Stat(filepath.Join(cache.ServerDataDir(name), "messages")); !os.IsNotExist(err) {
+		t.Fatalf("old frame repopulated new account cache: %v", err)
 	}
 }
 

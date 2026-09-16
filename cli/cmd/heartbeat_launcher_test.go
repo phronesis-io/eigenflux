@@ -33,9 +33,26 @@ func TestNativeLauncherQuoting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "skill\n--homedir\n" + home + "\n--server\nserver '$HOME'\nheartbeat\nplan\n--format\nagent\n"
+	want := "skill\n--homedir\n" + home + "\n--server\nserver '$HOME'\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
 	if string(result) != want {
 		t.Fatalf("got %q want %q", result, want)
+	}
+}
+
+func TestNativeLauncherPreservesSelectedShell(t *testing.T) {
+	home := t.TempDir()
+	for _, shell := range []string{"posix", "powershell", "cmd"} {
+		launcher, err := renderHeartbeatLauncher("eigenflux", home, "server", "skill", shell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		quote := "'"
+		if shell == "cmd" {
+			quote = "\""
+		}
+		if !strings.Contains(launcher, quote+"--shell"+quote+" "+quote+shell+quote) {
+			t.Fatalf("shell lost in launcher: %s", launcher)
+		}
 	}
 }
 

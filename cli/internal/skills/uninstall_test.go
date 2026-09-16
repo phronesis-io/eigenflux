@@ -62,6 +62,33 @@ func TestUninstallPreviewDoesNotTouchStaleLock(t *testing.T) {
 	}
 }
 
+func TestUninstallInstallationRetainsEvidenceForRetry(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "skills")
+	_ = os.MkdirAll(filepath.Join(target, "ef-one"), 0700)
+	_ = os.WriteFile(filepath.Join(target, "ef-one", "SKILL.md"), []byte("one"), 0600)
+	digest, _ := dirSHA256(filepath.Join(target, "ef-one"))
+	if err := WriteManifestAtomic(target, &Manifest{ManagedBy: ManagedByValue, Skills: []SkillEntry{{Name: "ef-one", SHA256: digest}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Uninstall(target, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "ef-one")); !os.IsNotExist(err) {
+		t.Fatalf("skill not removed: %v", err)
+	}
+	for _, apply := range []bool{false, true} {
+		r, err := Uninstall(target, apply, true)
+		if err != nil || len(r.Removed) != 0 || len(r.Preserved) != 0 {
+			t.Fatalf("retry failed: %+v %v", r, err)
+		}
+	}
+	unknown := filepath.Join(t.TempDir(), "skills")
+	_ = os.MkdirAll(unknown, 0700)
+	if _, err := Uninstall(unknown, true, true); err == nil {
+		t.Fatal("arbitrary unowned target was accepted")
+	}
+}
+
 func TestUninstallValidatesWholeManifestBeforeRemoval(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "skills")
 	_ = os.MkdirAll(filepath.Join(target, "ef-one"), 0700)

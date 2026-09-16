@@ -5,7 +5,12 @@ executable. It performs no network requests and does not write files during
 preview, including when Skills inspection is requested.
 
 The installers register the actual executable selected or installed, the
-normalized Agent Home, the invoking host, and the Skills target they used.
+normalized Agent Home, the invoking host, and any successfully synchronized
+managed Skills target. The POSIX GitHub fallback and Windows direct-copy
+installer leave the registered Skills target empty and report the preserved
+provisional directory, even if a manifest from an earlier sync remains there.
+After a successful `skills sync`, explicitly register its actual target to
+include it in installation-wide removal.
 `installation record --host HOST --skills-target PATH` also supports explicit
 registration. An explicitly empty `--skills-target=` records no Skills target.
 Registrations are deduplicated by Home and host; registrations from other Homes
@@ -45,7 +50,9 @@ EigenFlux-managed manifest with an unchanged synchronization hash are removed.
 Edited directories, unrelated files, and symlinked skill roots are retained.
 A symlinked target or manifest is rejected. Provisional installations without a
 managed manifest are not treated as managed content. The manifest remains when
-edited content is preserved.
+edited content is preserved. Installation-wide removal also retains it as
+ownership evidence, allowing retries after a later target or executable fails
+without accepting arbitrary unmanaged directories.
 
 Verification uses a separately compiled CLI copied into isolated temporary
 fixtures. Tests never invoke uninstall against the developer's installed CLI

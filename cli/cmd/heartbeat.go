@@ -130,8 +130,9 @@ var heartbeatPlanCmd = &cobra.Command{
 			return fmt.Errorf("heartbeat plan: managed Skills have local edits and were not upgraded: %s", strings.Join(res.Preserved, ", "))
 		}
 
+		modelRule := filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md")
 		ruleSources := []string{
-			filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md"),
+			modelRule,
 			filepath.Join(res.SkillsDir, "ef-broadcast", "SKILL.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
@@ -144,11 +145,11 @@ var heartbeatPlanCmd = &cobra.Command{
 		planMode := "full"
 		if maintenanceOnly {
 			planMode = "maintenance"
-			ruleSources = []string{maintenanceRule}
+			ruleSources = []string{modelRule, maintenanceRule}
 		}
 		if controlOnly {
 			planMode = "control"
-			ruleSources = []string{filepath.Join(res.SkillsDir, "ef-broadcast", "references", "commands.md")}
+			ruleSources = []string{modelRule, filepath.Join(res.SkillsDir, "ef-broadcast", "references", "commands.md")}
 		}
 		for _, source := range ruleSources {
 			if _, err := filepath.Abs(source); err != nil {

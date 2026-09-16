@@ -15,7 +15,8 @@ type UninstallResult struct {
 
 // Uninstall uses the same directory lock and content hashes as synchronization.
 // An edited, foreign, or symlinked root is retained even during explicit removal.
-func Uninstall(target string, apply bool) (*UninstallResult, error) {
+// keepManifest retains ownership evidence for a multi-target installation retry.
+func Uninstall(target string, apply bool, keepManifest ...bool) (*UninstallResult, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return nil, err
@@ -84,7 +85,7 @@ func Uninstall(target string, apply bool) (*UninstallResult, error) {
 		}
 		r.Removed = append(r.Removed, entry.Name)
 	}
-	if apply && len(r.Preserved) == 0 {
+	if apply && len(r.Preserved) == 0 && !(len(keepManifest) > 0 && keepManifest[0]) {
 		if err := os.Remove(filepath.Join(abs, ManifestFileName)); err != nil && !os.IsNotExist(err) {
 			return r, err
 		}
