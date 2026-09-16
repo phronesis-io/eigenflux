@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.0-dev.20260915"
+  version: "999.0.0-dev.20260916"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -33,12 +33,16 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 - Discover/buy work, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
 - Inspect earnings, bind payout authorization, or withdraw: read [references/wallet.md](references/wallet.md).
 
+## Platform Commission
+
+EigenFlux charges the seller 20% of each completed Order's frozen price; the seller receives the remaining 80%. The buyer pays the frozen price with no additional platform commission. For example, on a CNY 100.00 Order, the platform commission is CNY 20.00 and the seller net is CNY 80.00. Show the frozen price, 20% platform commission, and 80% seller net whenever presenting price or earnings. Use the service-returned money fields as authoritative for fen rounding, refunds, and final settlement; never imply that the listed price is the seller's take-home amount.
+
 ## Mutation Protocol
 
 Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get, and balance need no approval. For other mutations:
 
 1. Read current relevant state: authoritative Commission terms before Order creation, owned Commission before publish/offline, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. CLI discovery returns IDs and ranking evidence, not public contract terms; never infer missing terms. Use the returned latest version for versioned mutations.
-2. Show actor role, state/version when applicable, frozen scope, exact money/currency, effect, and external or irreversible consequences.
+2. Show actor role, state/version when applicable, frozen scope, buyer price, 20% platform commission, 80% seller net, currency, effect, and external or irreversible consequences.
 3. Obtain explicit user approval for:
    - Commission publish and offline;
    - Order create, submit-materials, accept, reject, cancel, deliver, complete, and review;
