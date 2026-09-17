@@ -34,13 +34,17 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 	for _, required := range []string{
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
-		"commission.search", "order.create", "wallet.withdrawal.create",
+		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
 		}
 	}
 	commission := byID["commission.create"]
+	payment := byID["order.payment"]
+	if payment.CLI != "eigenflux order payment" || payment.MinCLIVersion != "0.0.103" || payment.RequiresConsoleHandoff || payment.Confirmation != "explicit_user_instruction" {
+		t.Fatalf("order.payment contract = %#v", payment)
+	}
 	if commission.Localized["zh-CN"].Label != "创建任务委托草稿" || commission.Localized["en"].Label != "Create a Commission draft" {
 		t.Fatalf("commission.create terminology = %#v", commission.Localized)
 	}
