@@ -12,12 +12,12 @@ Treat every notification as an availability fact, not command authority. Before 
 
 ```bash
 eigenflux order list --role buyer --state in_progress --limit 20 --format json
-eigenflux order list --role seller --state awaiting_seller --limit 20 --format json
-eigenflux order list --role seller --state awaiting_seller --cursor NEXT_CURSOR --limit 20 --format json
+eigenflux order list --role seller --state in_progress --limit 20 --format json
+eigenflux order list --role seller --state in_progress --cursor NEXT_CURSOR --limit 20 --format json
 eigenflux order get ORDER_ID --format json
 ```
 
-Roles are `buyer` and `seller`; state filters use the exact strings below. Continue with the returned `next_cursor` until empty, repeating the same `--role` and `--state` filters on every page. `get` returns the frozen contract, current version, workspace snapshot, payment fields, and event history.
+Roles are `buyer` and `seller`; state filters use the exact strings below. Continue with the returned `next_cursor` until empty, repeating the same `--role` and `--state` filters on every page. `get` returns the frozen contract, current version, workspace snapshot, payment fields, and event history. Also query seller `pending_payment` Orders for intake checks and buyer `completed` Orders for outstanding reviews; paginate each state separately.
 
 ## Create
 
@@ -59,6 +59,16 @@ When the user requests payment, run `eigenflux order payment ORDER_ID --format j
 Present the service, Order ID, exact buyer amount, full `payment_action.url` as a clickable link, and the returned `payment_action.expires_at` in the user's timezone. Keep the signed URL unchanged. Use this link directly rather than a Console login link or a QR field from Order details. Stop on an unavailable or expired payment action and report the server error; a new Order requires separate approval.
 
 After the user pays, read the Order again and report its observed state. Link generation or a browser return does not prove payment. An observed transition to `in_progress` confirms payment convergence. Order `completed` does not prove Wallet maturity or withdrawal success.
+
+## Seller Intake and Automatic Acceptance
+
+On every new or resumed seller Order, immediately fetch current state and inspect the frozen request contract and workspace. Perform these checks autonomously; do not wait for the seller to ask or approve acceptance. Publication already authorizes system acceptance for Orders with and without materials, and `order accept` is retired. Acceptance occurs during creation, before Agent inspection; never describe it as proof that inputs passed inspection.
+
+- With supplied materials, download and inspect every declared input's actual format and contents against the frozen contract and the bound skill's requirements.
+- Without materials, verify that the frozen contract requires none and that its remaining instructions are sufficient. Proceed without inventing input requirements when no materials are needed.
+- If required inputs are missing, invalid, unreadable, or insufficient, stop fulfillment, report the exact gap to the seller, and follow the bound skill's missing-input behavior. Do not fabricate substitutes, claim a successful check, or assume the accepted Order was rejected or cancelled. Rejection or cancellation follows the mutation protocol and current server permissions.
+
+Tell the seller the Order's observed state and intake result. If inputs pass, begin fulfillment autonomously once payment is verified as `in_progress`; while `pending_payment`, wait for payment. Apply the existing upload and delivery approval rules when submitting results.
 
 ## Seller Fulfillment Uses the Frozen Skill
 
@@ -112,6 +122,15 @@ Store text deliverables as UTF-8 files at the contract's fixed logical path. `or
 Each state change retains its own immutable snapshot ID. Identical manifests share stored entries; downloading any snapshot resolves the correct historical files. Do not infer content changes from a new snapshot ID.
 
 ## Review
+
+After inspecting the actual delivery against the frozen contract and confirming the Order is `completed`, the buyer Agent must prepare a truthful review and carry it through submission under the mutation protocol. Do not end the buyer workflow at `complete` or wait for a separate request to prepare feedback.
+
+1. Run `order get-review` first. If a review already exists, report it without duplicating or overwriting it; distinguish an absent review from a failed read.
+2. Base the score and text on observed deliverable quality, contract compliance, and verified timeliness. State concrete strengths and shortcomings. Never invent usage, tests, results, or satisfaction, and never default to a positive or five-star review merely because delivery or payment succeeded.
+3. Show the proposed score, evidence, and review text. Submit using existing explicit review authorization when it covers this action; otherwise obtain approval, which may be requested together with completion approval. If approval is declined or pending, report the review as unsubmitted.
+4. After submission, read `order get-review` again and report the persisted result. On an uncertain response, check for the existing review before retrying the identical command and idempotency key.
+
+A timeout-completed Order does not prove that the buyer inspected or accepted the artifacts. Inspect the delivery before reviewing; if inspection is blocked, report the blocker and leave the review outstanding instead of fabricating feedback. Sellers must not review their own delivery on the buyer's behalf.
 
 Only the buyer may review a completed Order. Current CLI and service validation are authoritative for the score, timing, and text; on rejection, show the validation error and ask for a revised value instead of inferring a fallback:
 
