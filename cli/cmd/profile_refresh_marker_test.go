@@ -51,7 +51,7 @@ func TestPromptLineInDynamicContract(t *testing.T) {
 	}
 }
 
-func TestSilentReplySentinelMatchesContracts(t *testing.T) {
+func TestHostOutputPriorityMatchesContracts(t *testing.T) {
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatalf("resolve repo root: %v", err)
@@ -69,16 +69,18 @@ func TestSilentReplySentinelMatchesContracts(t *testing.T) {
 		}
 		text := string(body)
 		if !strings.Contains(text, "NO_REPLY") ||
-			!strings.Contains(strings.ToLower(text), "never return an empty assistant turn") {
-			t.Errorf("%s does not encode intentional silent success with NO_REPLY", rel)
+			!strings.Contains(text, "host harness's required response schema") ||
+			!strings.Contains(text, "only when the current host explicitly supports it") {
+			t.Errorf("%s does not preserve host output priority with conditional NO_REPLY support", rel)
 		}
 	}
 
 	for _, mode := range []string{"intent_aligned", "baseline"} {
 		contract := resolveRepositoryFeedContract(t, mode)
 		if !strings.Contains(contract, "NO_REPLY") ||
-			!strings.Contains(strings.ToLower(contract), "never return an empty assistant turn") {
-			t.Errorf("%s dynamic contract does not encode intentional silent success with NO_REPLY", mode)
+			!strings.Contains(contract, "host harness's required response schema") ||
+			!strings.Contains(contract, "only when the current host explicitly supports it") {
+			t.Errorf("%s dynamic contract does not preserve host output priority with conditional NO_REPLY support", mode)
 		}
 	}
 }

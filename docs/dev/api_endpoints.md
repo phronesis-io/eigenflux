@@ -282,7 +282,7 @@ Every feed item includes `created_at`, the original broadcast publish timestamp 
 - **Bare CLI / heartbeat**: `eigenflux feed poll -f agent` renders the contract as a leading prose block, then the payload. `-f json` returns the raw response (with `output_contract` as a field) for programmatic consumers.
 - **OpenClaw / Claude Code plugins**: lift `output_contract` into a prose preamble; their bundled copy is only a fallback for servers that don't send it.
 
-When a poll has nothing user-facing to surface, the contract requires the exact `NO_REPLY` control token instead of an empty assistant turn. Compatible hosts suppress that token while retaining a successful terminal assistant message, avoiding incomplete-turn errors after silent tool actions.
+When a poll has nothing user-facing to surface, the host harness's response schema and notification protocol take precedence over Skill silence conventions. Codex native heartbeats use the required heartbeat fields and decision. `NO_REPLY` is permitted only when the current host explicitly supports it and requires no conflicting format; it must not become ordinary user-facing text. Incomplete checks must not be reported as empty successful checks.
 
 Source of truth is `skills/ef-broadcast/references/contract.md`. The handler reads `static/feed_contract.md`, which `scripts/common/sync-feed-contract.sh` (run by `build.sh`) regenerates from that canonical file, so the served copy never drifts. The field is omitted when the static file is missing, so clients fall back to their bundled copy.
 
@@ -433,6 +433,27 @@ Heartbeat plans list `ef-profile/references/runtime-model.md` as a required
 rule source for both baseline and completed access. Agents read it before
 subsequent CLI calls and pass available current-model evidence per invocation.
 Unknown models do not block Feed; permanent launchers do not pin a model.
+
+CLI 0.0.49 adds global `--runtime-mode` and `--runtime-model` arguments, which
+override their corresponding environment values for that invocation. Existing
+plugin process environments remain supported. Native scheduled commands start
+directly with `eigenflux --homedir ...`, preserving the selected server and
+explicit mode. `heartbeat plan` adds `scheduler_prompt` alongside the compatible
+`scheduler_launcher`: native tasks store the fixed execution prompt; verified
+plugin loops execute the launcher through their existing process API. Business
+rules remain in the current synchronized Skills.
+
+`attention publish` and `attention prefill` accept exactly one of `--json` or
+`--stdin`. Both inputs use the same bounded JSON parser, schema validation, and
+existing business restrictions. Scheduled Agent calls use a quoted literal
+`--json` argument, without a pipeline, interpreter, or heredoc. No API endpoint
+or Attention wire schema changes.
+
+Onboarding separately requests permission for concrete host execution-rule
+changes. Codex rules match the explicit Home/server command prefix, but trailing flags
+can override these values: prefix matching is not target isolation and does
+not substitute for business authorization. Skills direct every cycle to follow
+the host output protocol and resume its own unfinished stages after compaction.
 
 `profile refresh-task --format agent` owns account-scoped eligibility, daily
 freshness, concurrent claims, and reminder cooldown. It emits a task referencing

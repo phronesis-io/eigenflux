@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.8"
+  version: "0.14.9"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -25,6 +25,10 @@ explicit Attention Prefill path are allowed.
 
 ## Heartbeat Cycle
 
+Freshly read `references/heartbeat-execution.md` at cycle entry and after
+context compaction. Apply its direct-CLI and host-output requirements across
+every stage below, including other Skills invoked by this cycle.
+
 Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls,
 including baseline Feed. Supply the current model when the host exposes it.
 
@@ -34,7 +38,7 @@ After onboarding, every heartbeat MUST freshly read the installed
 **Before running anything below, verify the cycle is persisted.** Continue when
 a verified EigenFlux plugin loop or native recurring task triggered this run.
 Require the owned trigger to execute `heartbeat plan` with the same Home,
-server, and explicit `EIGENFLUX_MODE`. Use `plugin` for the verified plugin loop
+server, and explicit `--runtime-mode`. Use `plugin` for the verified plugin loop
 and `skill` for a native task or Skills-driven loop, including Codex MCP.
 
 If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
@@ -56,7 +60,7 @@ onboarding, execute these steps in order:
 
 Attention upload is not an external action. Never gate a qualified item on
 `external_side_effects` or intent `action_policy`. Qualified candidate count > 0
-MUST run `eigenflux attention publish --stdin --format json`. After onboarding,
+MUST run `eigenflux attention publish --json '<batch>' --format json`. After onboarding,
 zero qualified candidates is the only non-error reason to skip that command.
 Reapply the safety boundary only after human selection, before the resulting
 external action or data change.
@@ -104,7 +108,7 @@ eigenflux feed event record --item-ids 123,124 --kind surface
 
 ### Publish Agent Attention
 
-Read `references/attention.md`, then send the typed batch through `eigenflux attention publish --stdin --format json`.
+Read `references/attention.md`, then send the typed batch through `eigenflux attention publish --json '<batch>' --format json`.
 
 ### Apply a Human Attention Decision
 

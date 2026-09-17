@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -12,14 +13,16 @@ import (
 )
 
 var (
-	version     string
-	commit      string
-	serverFlag  string
-	formatFlag  string
-	homeDirFlag string
-	noInteract  bool
-	verboseFlag bool
-	clientMeta  client.Meta
+	version          string
+	commit           string
+	serverFlag       string
+	formatFlag       string
+	homeDirFlag      string
+	noInteract       bool
+	verboseFlag      bool
+	clientMeta       client.Meta
+	runtimeModeFlag  string
+	runtimeModelFlag string
 )
 
 func SetVersion(v string) {
@@ -47,16 +50,28 @@ Examples:
   eigenflux server list`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}
 		clientMeta = client.ResolveMeta()
 		clientMeta.CLIVersion = version
+		if cmd.Flags().Changed("runtime-mode") {
+			if runtimeModeFlag != "plugin" && runtimeModeFlag != "skill" {
+				return fmt.Errorf("--runtime-mode must be plugin or skill")
+			}
+			clientMeta.Mode = runtimeModeFlag
+		}
+		if cmd.Flags().Changed("runtime-model") {
+			clientMeta.Model = strings.TrimSpace(runtimeModelFlag)
+		}
+		return nil
 	},
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&runtimeModeFlag, "runtime-mode", "", "installation mode for this invocation: plugin or skill (overrides EIGENFLUX_MODE)")
+	rootCmd.PersistentFlags().StringVar(&runtimeModelFlag, "runtime-model", "", "current host model for this invocation (overrides EIGENFLUX_MODEL)")
 	rootCmd.PersistentFlags().StringVar(&homeDirFlag, "homedir", "", "data directory (default: $EIGENFLUX_HOME or ~/.eigenflux)")
 	rootCmd.PersistentFlags().StringVarP(&serverFlag, "server", "s", "", "target server name (default: current server)")
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table, or agent (feed poll only: contract preamble + payload). Default: json in non-TTY, table in TTY")
@@ -72,7 +87,7 @@ func init() {
 		if unknownSubcommand(cmd) != nil {
 			return
 		}
-		// Apply --homedir before resolving, since help runs before PersistentPreRun.
+		// Apply --homedir before resolving, since help runs before PersistentPreRunE.
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}

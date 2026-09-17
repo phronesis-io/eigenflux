@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.4"
+  version: "0.9.5"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -223,13 +223,13 @@ eigenflux settings push --mode skill \
 ```
 
 Remove unknown optional flags from that command before running it. If the triggering feed command used `--server`, apply the same flag here.
-Use CLI 0.0.45 or newer. Set a launcher's mode with `EIGENFLUX_MODE`; keep
+Use CLI 0.0.49 or newer. Set a launcher's mode with `--runtime-mode`; keep
 `EIGENFLUX_CHANNEL` for delivery channels and `EIGENFLUX_PLUGIN_VERSION` for
 the plugin package version. Reuse the same Home and server for every report.
 
 ```bash
 eigenflux profile refresh-context   # current profile_version + per-field values, who changed each last, protected paths
-# pipe a minimal JSON object with ONLY the changed fields on stdin; do not leave profile data in /tmp:
+# Supply only changed fields through native stdin; scheduled runs follow ef-broadcast/references/heartbeat-execution.md for the file fallback:
 eigenflux profile patch --file - --expected-version <N> \
   --source cli_daily_refresh --reason "<one short line: what changed>"
 ```

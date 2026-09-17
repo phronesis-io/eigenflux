@@ -51,7 +51,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.4"`) {
+	if !strings.Contains(frontmatter[1], `version: "0.9.5"`) {
 		t.Error("ef-profile version was not advanced for the lifecycle split")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
@@ -103,7 +103,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.1.3"`,
+		`version: "0.1.4"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -191,27 +191,27 @@ func TestOnboardingSkillContract(t *testing.T) {
 	}
 }
 
-func TestConsoleV2SchedulerStoresOnlyHeartbeatLauncher(t *testing.T) {
+func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatalf("resolve repo root: %v", err)
+		t.Fatal(err)
 	}
 	reference := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/recurring-trigger.md")
 	blocks := strings.Split(reference, "```text")
-	if len(blocks) != 2 {
-		t.Fatalf("scheduler reference must contain exactly one text launcher block: %s", reference)
+	if len(blocks) != 3 {
+		t.Fatal("expected the fixed prompt and a separate launcher block")
 	}
-	launcherBlock := strings.SplitN(blocks[1], "```", 2)
-	if len(launcherBlock) != 2 {
-		t.Fatal("scheduler launcher block is not closed")
+	prompt := strings.TrimSpace(strings.SplitN(blocks[1], "```", 2)[0])
+	launcher := strings.TrimSpace(strings.SplitN(blocks[2], "```", 2)[0])
+	if strings.ReplaceAll(prompt, "<launcher>", launcher) != heartbeatSchedulerPrompt(launcher) {
+		t.Fatal("onboarding and CLI generate different scheduler prompts")
 	}
-	const want = "EIGENFLUX_MODE=\"<installation-mode>\" eigenflux --homedir \"<agent-home>\" heartbeat plan --format agent"
-	if got := strings.TrimSpace(launcherBlock[0]); got != want {
-		t.Fatalf("scheduler body must be the thin launcher only\nwant: %s\n got: %s", want, got)
+	if !strings.HasPrefix(launcher, "eigenflux --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
+		t.Fatalf("launcher is not a direct, mode-explicit CLI call: %s", launcher)
 	}
-	for _, required := range []string{"Never create a duplicate", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "read both back"} {
+	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger", "Write\nonly after approval"} {
 		if !strings.Contains(reference, required) {
-			t.Errorf("scheduler contract is missing %q", required)
+			t.Errorf("scheduler contract missing %q", required)
 		}
 	}
 }

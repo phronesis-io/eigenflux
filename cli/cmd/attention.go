@@ -136,8 +136,8 @@ var attentionCmd = &cobra.Command{
 }
 
 var attentionPublishCmd = &cobra.Command{
-	Use:   "publish --stdin",
-	Short: "Validate and publish one Agent Attention batch from standard input",
+	Use:   "publish (--json <batch> | --stdin)",
+	Short: "Validate and publish one Agent Attention batch from JSON or standard input",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return runAttentionUpload(cmd, attentionPublishEndpoint, false)
@@ -145,7 +145,7 @@ var attentionPublishCmd = &cobra.Command{
 }
 
 var attentionPrefillCmd = &cobra.Command{
-	Use:   "prefill --stdin",
+	Use:   "prefill (--json <batch> | --stdin)",
 	Short: "Validate and upload one read-only onboarding Attention Prefill batch",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
@@ -155,10 +155,16 @@ var attentionPrefillCmd = &cobra.Command{
 
 func runAttentionUpload(cmd *cobra.Command, endpoint string, prefill bool) error {
 	fromStdin, _ := cmd.Flags().GetBool("stdin")
-	if !fromStdin {
-		return fmt.Errorf("--stdin is required")
+	fromJSON := cmd.Flags().Changed("json")
+	if fromStdin == fromJSON {
+		return fmt.Errorf("exactly one of --json or --stdin is required")
 	}
-	request, err := readAttentionPublishRequest(cmd.InOrStdin())
+	reader := cmd.InOrStdin()
+	if fromJSON {
+		payload, _ := cmd.Flags().GetString("json")
+		reader = strings.NewReader(payload)
+	}
+	request, err := readAttentionPublishRequest(reader)
 	if err != nil {
 		return err
 	}
@@ -499,6 +505,8 @@ func rejectFullLocalIntentAdds(serverName, ownerAgentID string, request attentio
 }
 
 func init() {
+	attentionPublishCmd.Flags().String("json", "", "one agent_attention.v1 JSON batch as a literal argument")
+	attentionPrefillCmd.Flags().String("json", "", "one agent_attention.v1 JSON batch as a literal argument")
 	attentionPublishCmd.Flags().Bool("stdin", false, "read one agent_attention.v1 JSON batch from standard input")
 	attentionPrefillCmd.Flags().Bool("stdin", false, "read one agent_attention.v1 JSON batch from standard input")
 	attentionCmd.AddCommand(attentionPrefillCmd, attentionPublishCmd)

@@ -10,7 +10,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.3"
+  version: "0.1.4"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -36,7 +36,7 @@ interruption, inspect the current installation again. Accept a supported
 bare-CLI setup when that is the selected installation mode.
 
 Run `eigenflux agent provision --help` and require `--mode`, `--runtime-name`,
-and `--runtime-version` from CLI 0.0.45 or newer. Require both CLI compatibility
+and `--runtime-version` from CLI 0.0.49 or newer. Require both CLI compatibility
 and current-host installation verification before continuing. If components
 are missing or outdated, follow the installation entry with the same Home and
 host, verify the result, and reload this Skill. Report verification errors and
@@ -63,7 +63,9 @@ Complete these stages in order:
    only approved context and create a privacy-filtered draft. On the manual
    path, use the empty draft and system defaults.
 4. **Schedule.** Read `references/recurring-trigger.md`. Reuse or create and
-   verify exactly one active recurring trigger before provisioning.
+   verify exactly one active recurring trigger before provisioning. Complete
+   its host execution-permission disclosure before enabling the trigger;
+   scheduling consent alone does not authorize writing host Rules.
 5. **Provision and connect.** Return to `references/console-handoff.md`. Submit
    the exact draft through stdin, validate the Console handoff, run the one
    silent baseline connection and Attention Prefill pass, and return the
