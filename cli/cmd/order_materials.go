@@ -180,8 +180,10 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", prepared.Msg)
 	}
 	var data struct {
-		PreparationID int64           `json:"preparation_id"`
-		Order         json.RawMessage `json:"order"`
+		PreparationID int64 `json:"preparation_id"`
+		Order         *struct {
+			OrderID int64 `json:"order_id"`
+		} `json:"order"`
 	}
 	if err = json.Unmarshal(prepared.Data, &data); err != nil {
 		return err
@@ -190,7 +192,10 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("incomplete order preparation")
 	}
 	preparationID = data.PreparationID
-	finalized := len(data.Order) > 0 && string(data.Order) != "null"
+	finalized := data.Order != nil && data.Order.OrderID > 0
+	if data.Order != nil && (data.Order.OrderID < 0 || (finalized && data.Order.OrderID != preparationID)) {
+		return fmt.Errorf("invalid finalized order ID for preparation %d", preparationID)
+	}
 	if !finalized {
 		for _, file := range files {
 			if err := uploadMaterial(cmd.Context(), c, "/order-preparations/"+strconv.FormatInt(preparationID, 10), master, file); err != nil {
