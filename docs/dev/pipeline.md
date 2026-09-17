@@ -12,6 +12,13 @@ When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationC
 
 ### Commission Index Projection
 
+`commission.deleted.v1` is a catalogue invalidation event with aggregate type
+`commission`. Read the authoritative source snapshot and retain an inactive
+tombstone at its current catalogue version. Deleted definitions stay available
+to the internal source RPC as offline records; delayed publication/statistics
+events cannot restore them. Active backfills exclude deleted definitions.
+Deploy this consumer before enabling Commission deletion writers.
+
 When `ENABLE_COMMISSION_INDEX=true`, `CommissionIndexConsumer` reads
 `stream:commission:index` through group `cg:commission:index`. It treats events
 as notifications and pulls authoritative catalogue snapshots from

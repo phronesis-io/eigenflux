@@ -85,3 +85,17 @@ func TestCommissionConsumerDoesNotTombstoneNewerRepublication(t *testing.T) {
 		t.Fatalf("delayed offline event regressed republication: %#v, %v", store.document, result)
 	}
 }
+
+func TestCommissionDeletionAndDelayedEventsKeepTombstone(t *testing.T) {
+	for _, topic := range []string{commissionindex.DeletedTopic, commissionPublishedTopic, commissionStatsTopic} {
+		t.Run(topic, func(t *testing.T) {
+			store := &commissionTestStore{}
+			c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: commissionindex.CatalogueSnapshot{CommissionID: 4, Status: "offline", CatalogueVersion: 9}}, store: store, embedder: commissionTestEmbedder{}}
+			aggregate, _ := commissionindex.ExpectedAggregateType(topic)
+			result := c.Handle(context.Background(), "9-0", map[string]any{"event_id": "9", "schema_version": "1", "topic": topic, "aggregate_type": aggregate, "aggregate_id": "4", "aggregate_version": "3", "occurred_at": "9", "payload_json": "{}"})
+			if result != HandleSuccess || store.document.Active || store.document.CatalogueVersion != 9 {
+				t.Fatalf("deleted commission reappeared: %#v result=%v", store.document, result)
+			}
+		})
+	}
+}
