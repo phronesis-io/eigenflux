@@ -1,0 +1,55 @@
+name: Publish immutable installation snapshot
+
+on:
+  push:
+    branches: [codex/heartbeat-pinned-install]
+    paths:
+      - scripts/snapshots/**
+      - .github/workflows/release-snapshot.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installation-snapshot-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    if: github.ref == 'refs/heads/codex/heartbeat-pinned-install'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Verify distribution contract
+        run: python3 scripts/snapshots/test_contract.py
+      - name: Verify original CLI behavior
+        working-directory: cli
+        run: go test ./...
+      - name: Verify native snapshot over HTTP
+        run: python3 scripts/snapshots/test_http.py
+      - name: Build immutable artifacts
+        env:
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: python3 scripts/snapshots/build.py --out build/snapshot --origin "$R2_PUBLIC_URL"
+      - name: Publish isolated namespace and verify public bytes
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python3 scripts/snapshots/publish.py build/snapshot/public
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshot-provenance-and-audit
+          path: |
+            build/snapshot/audit
+            build/snapshot/public/provenance.json
+            build/snapshot/public/checksums.json
