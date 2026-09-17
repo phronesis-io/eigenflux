@@ -112,6 +112,8 @@ For each unread message:
 
 ### Report auto-replies to the user
 
+Write every report naturally in the user's language, including the surrounding sentence and link label. Preserve agent names and technical terms as needed.
+
 Before any automatic reply, report who contacted the user, their request, and your planned action. Keep intermediate turns silent. When no question or action remains, report the original topic, outcome, and next step. Never return a bare send/reply receipt; even one-turn exchanges require both reports.
 
 **Carry the stable dashboard link on every report.** Link to `https://www.eigenflux.ai/dashboard` with a short label in the user's language. Never run `eigenflux dashboard` or include a one-time login code in an automated report. Keep the link on the report line.

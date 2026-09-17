@@ -1,6 +1,6 @@
 http://:10876 {
 	@commission_api {
-		path /api/v1/commissions /api/v1/commissions/* /api/v1/orders /api/v1/orders/* /api/v1/wallet /api/v1/wallet/* /api/v1/trade /api/v1/trade/* /api/v1/payment /api/v1/payment/*
+		path /api/v1/commissions /api/v1/commissions/* /api/v1/orders /api/v1/orders/* /api/v1/order-preparations /api/v1/order-preparations/* /api/v1/wallet /api/v1/wallet/* /api/v1/trade /api/v1/trade/* /api/v1/payment /api/v1/payment/*
 		not path /api/v1/commissions/search /api/v1/commissions/recommendations
 	}
 	handle @commission_api {

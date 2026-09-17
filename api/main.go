@@ -430,6 +430,7 @@ type consoleBFFWriteRegistrar func(string, string, ...app.HandlerFunc)
 func registerCommissionConsoleBFFRoutes(read consoleBFFReadRegistrar, write consoleBFFWriteRegistrar, access app.HandlerFunc, trade *tradebff.Service) {
 	read("trade/overview", access, trade.TradeOverview)
 	read("trade/commissions", access, trade.TradeCommissions)
+	read("trade/commissions/:commission_id/reviews", access, trade.TradeCommissionReviews)
 	read("trade/orders", access, trade.TradeOrders)
 	read("trade/orders/:order_id", access, trade.TradeOrder)
 	read("trade/orders/:order_id/snapshots/:snapshot_id/file", access, trade.TradeOrderFile)

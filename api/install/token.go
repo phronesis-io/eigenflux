@@ -80,6 +80,8 @@ var channelMap = map[string]string{
 	"redbook":     "xiaohongshu",
 	"rednote":     "xiaohongshu",
 	"小红书":         "xiaohongshu",
+	"bilibili":    "bilibili",
+	"b站":          "bilibili",
 }
 
 // normalizeChannel maps a raw utm_source to a channel bucket. Unknown non-empty
@@ -102,9 +104,14 @@ func normalizeChannel(utmSource string) string {
 // deriveChannel resolves the channel bucket for a mint. A dedicated landing
 // entry is authoritative even when an ad platform drops its dynamic click
 // macros. Otherwise an explicit utm_source wins, followed by platform click IDs.
-func deriveChannel(entryChannel, utmSource, clickID, twclid, gclid, xingtuClickID, oceanengineClickID string) string {
+func deriveChannel(entryChannel, utmSource, clickID, bilibiliTrackID, twclid, gclid, xingtuClickID, oceanengineClickID string) string {
 	if c := normalizeChannel(entryChannel); c != "unknown" {
 		return c
+	}
+	// A Bilibili track_id is issued for the ad click and is more authoritative
+	// than a stale UTM cookie left by an earlier visit.
+	if bilibiliTrackID != "" {
+		return "bilibili"
 	}
 	c := normalizeChannel(utmSource)
 	if c == "unknown" {

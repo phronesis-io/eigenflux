@@ -147,6 +147,7 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 	expected := []route{
 		{http.MethodGet, "trade/overview"},
 		{http.MethodGet, "trade/commissions"},
+		{http.MethodGet, "trade/commissions/:commission_id/reviews"},
 		{http.MethodGet, "trade/orders"},
 		{http.MethodGet, "trade/orders/:order_id"},
 		{http.MethodGet, "trade/orders/:order_id/snapshots/:snapshot_id/file"},

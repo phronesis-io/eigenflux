@@ -382,6 +382,20 @@ The editable name remains empty, while public `display_name` uses the standard
 short-ID fallback. Snapshot existence is determined by the returned row count;
 missing records and database failures remain errors.
 
+### Commission submitted-file BFF
+
+`GET /api/v2/console/bff/trade/orders/:order_id/snapshots/:snapshot_id/file?path=...`
+uses the existing Console session. It delegates to Commission's exact snapshot
+download route with scope `orders:files:read` and operation
+`console.trade.orders.files.read`; Commission retains participant and snapshot
+authorization. It never reads the mutable current workspace instead.
+
+The default response downloads the original bytes as an attachment. `preview=1`
+returns plain text for `.md` and `.txt` files up to 1 MiB. Responses are private,
+no-store and nosniff. The BFF accepts only unexpired HTTPS Aliyun OSS grants,
+does not follow redirects, and does not forward Console credentials to storage.
+No database migration or RPC rollout is required.
+
 ### Commission payment BFF
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` uses the Console
@@ -491,3 +505,7 @@ Baseline Feed uses `static/feed_baseline_contract.md`; completed Feed uses
 `static/feed_contract.md`. Both are generated from the central Skills. A CLI
 without a server contract reads the corresponding current synchronized Skill
 and reports missing rules instead of using a compiled business-policy copy.
+
+## Console Commission reviews
+
+`GET /api/v2/console/bff/trade/commissions/:commission_id/reviews` requires the existing Console session and Commission access gate. The BFF forwards only `cursor` and `limit`, deriving the subject from the session. It delegates to `GET /api/v1/commissions/:commission_id/reviews` with scope `commissions:reviews:read` and operation `console.trade.commissions.reviews.list`. The ID must be a canonical positive int64 decimal. Commission retains its existing visibility checks and returns `reviews` and `next_cursor`; the BFF does not invent a total. Deploy Commission support for this delegated operation before the BFF and website changes.
