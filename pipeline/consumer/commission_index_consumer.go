@@ -53,7 +53,7 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 	if catalogue.CommissionID != event.CommissionID || catalogue.CatalogueVersion <= 0 || statistics.StatisticsVersion < 0 {
 		return HandleRetry
 	}
-	if !strings.EqualFold(catalogue.Status, "active") || (event.Topic == commissionOfflineTopic && catalogue.CatalogueVersion <= event.AggregateVersion) {
+	if !strings.EqualFold(catalogue.Status, "active") || ((event.Topic == commissionOfflineTopic || event.Topic == commissionindex.DeletedTopic) && catalogue.CatalogueVersion <= event.AggregateVersion) {
 		if err := c.store.Upsert(ctx, commissionindex.Tombstone(catalogue, statistics)); err != nil {
 			metrics.CommissionProjectionFailures.WithLabelValues("index_write").Inc()
 			return HandleRetry

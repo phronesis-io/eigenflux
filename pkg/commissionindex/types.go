@@ -10,12 +10,13 @@ import (
 const (
 	PublishedTopic  = "commission.published.v1"
 	OfflineTopic    = "commission.offline.v1"
+	DeletedTopic    = "commission.deleted.v1"
 	StatisticsTopic = "commission.statistics.changed.v1"
 )
 
 func ExpectedAggregateType(topic string) (string, bool) {
 	switch topic {
-	case PublishedTopic, OfflineTopic:
+	case PublishedTopic, OfflineTopic, DeletedTopic:
 		return "commission", true
 	case StatisticsTopic:
 		return "commission_statistics", true
