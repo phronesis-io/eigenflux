@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.0-dev.20260915"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.1-dev.20260917"`) {
 		t.Error("ef-commission version is stale")
 	}
 	commissionBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-commission/references/commission.md"))

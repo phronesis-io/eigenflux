@@ -128,6 +128,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("order.create", "eigenflux order create", "order", "write", "创建订单", "Create an Order"),
 		capability("order.list", "eigenflux order list", "order", "read", "查看订单列表", "List Orders"),
 		capability("order.read", "eigenflux order get", "order", "read", "查看订单详情", "View an Order"),
+		capability("order.payment", "eigenflux order payment", "order", "write", "获取订单支付宝付款链接", "Get an Order's Alipay payment link"),
 		capability("order.materials.submit", "eigenflux order submit-materials", "order", "write", "提交订单材料", "Submit Order materials"),
 		capability("order.cancel", "eigenflux order cancel", "order", "write", "取消订单", "Cancel an Order"),
 		capability("order.accept", "eigenflux order accept", "order", "write", "接受订单", "Accept an Order"),
@@ -244,6 +245,10 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "policy_governed"
 		}
 		switch seed.id {
+		case "order.payment":
+			seed.minCLI = "0.0.103"
+			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；此命令不会自动扣款"
+			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. This command does not charge automatically"
 		case "identity.provision":
 			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
 			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"

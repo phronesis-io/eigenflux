@@ -38,7 +38,7 @@ If discovery returned no `impression_id`, omit the flag. Immediately compare the
 |---|---|---|
 | `preparing_materials` | Buyer prepares approved inputs | upload, submit-materials, or cancel |
 | `awaiting_seller` | Seller reviews frozen contract/materials | accept or reject; buyer may cancel |
-| `pending_payment` | Buyer payment is required | use `payment_qr_content`, poll, or cancel while allowed |
+| `pending_payment` | Buyer payment is required | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
 | `in_progress` | Seller performs contracted work | upload delivery and deliver |
 | `validating` | Platform validates the delivery | wait and poll; not delivered/completed |
 | `awaiting_buyer_confirmation` | Buyer verifies delivery | download, inspect, then complete |
@@ -47,7 +47,15 @@ If discovery returned no `impression_id`, omit the flag. Immediately compare the
 | `cancelled` | Cancelled, rejected, or expired before completion | terminal |
 | `completed` | Buyer-confirmed or confirmation-timeout completion | terminal; inspect event history to identify the path; Wallet funds may remain unmatured |
 
-Payment has no separate CLI mutation. The buyer uses returned `payment_qr_content`; only an observed transition to `in_progress` proves payment convergence. Order `completed` does not prove Wallet maturity or withdrawal success.
+## Buyer Payment
+
+Read the requested Order with `eigenflux order get ORDER_ID --format json`. Resolve an ambiguous Order through `order list --role buyer --state pending_payment` and ask the user to choose. Confirm the buyer, frozen price/currency, `pending_payment` state, and payment deadline.
+
+When the user requests payment, run `eigenflux order payment ORDER_ID --format json`; use `--channel wap` for payment on a phone and the default `page` for desktop. Preserve `--server` and reuse the same idempotency key after an uncertain response. This command obtains a link; the user authorizes payment in Alipay.
+
+Present the service, Order ID, exact buyer amount, full `payment_action.url` as a clickable link, and the returned `payment_action.expires_at` in the user's timezone. Keep the signed URL unchanged. Use this link directly rather than a Console login link or a QR field from Order details. Stop on an unavailable or expired payment action and report the server error; a new Order requires separate approval.
+
+After the user pays, read the Order again and report its observed state. Link generation or a browser return does not prove payment. An observed transition to `in_progress` confirms payment convergence. Order `completed` does not prove Wallet maturity or withdrawal success.
 
 ## Seller Fulfillment Uses the Frozen Skill
 

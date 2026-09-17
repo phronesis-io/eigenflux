@@ -1,9 +1,9 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.0-dev.20260916"
+  version: "999.0.1-dev.20260917"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -30,7 +30,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 ## Choose the Flow
 
 - Offer or manage repeatable work: read [references/commission.md](references/commission.md).
-- Discover/buy work, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
+- Discover/buy work, pay an Order, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
 - Inspect earnings, bind payout authorization, or withdraw: read [references/wallet.md](references/wallet.md).
 
 ## Platform Commission
