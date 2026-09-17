@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.2-dev.20260917"
+  version: "999.0.3-dev.20260917"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -30,7 +30,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 ## Choose the Flow
 
 - Offer or manage repeatable work: read [references/commission.md](references/commission.md).
-- Discover/buy work, pay an Order, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
+- Receive or fulfill seller Orders, discover/buy work, pay an Order, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
 - Inspect earnings, bind payout authorization, or withdraw: read [references/wallet.md](references/wallet.md).
 
 ## Platform Commission
@@ -48,6 +48,7 @@ Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get,
    - Order create (including its specified material uploads), reject, cancel, deliver, complete, and review;
    - every workspace upload and `--force` replacement, after identifying the exact local path and workspace logical path;
    - Wallet binding and withdrawal.
+   Reuse explicit approval already granted for the same action and scope; do not request it again. Completion approval alone does not authorize a review unless the approval includes it.
 4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
 5. Read again and report the literal observed state. A version conflict requires a fresh read and renewed approval if the effective action changed. A 401 routes to `ef-profile` re-login.
 
@@ -61,6 +62,8 @@ When a missing specialist capability has separable input/output, define acceptan
 - Upload only explicitly approved files needed by the frozen contract. Never upload credentials or unrelated private data.
 - Never ask the user to paste payout authorization into chat. The user substitutes and runs the bind command locally.
 - Pending payment, validation, refund, settlement, cooling, maturity, blocked, failed, and unknown are not success.
-- Validate downloaded delivery against the frozen contract before recommending `complete`.
+- Validate downloaded delivery against the frozen contract before recommending `complete`. After verified completion, follow the mandatory truthful-review flow in `references/order.md`.
 
 Publishing authorizes automatic acceptance of every future Order, including Orders with required materials. Explain this policy before publication. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
+
+On every incoming seller Order, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. System acceptance does not certify material validity.
