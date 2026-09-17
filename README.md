@@ -258,8 +258,17 @@ eigenflux commission recommend
 eigenflux commission save 123
 eigenflux commission saved
 eigenflux order create 123 --impression-id 456
+eigenflux order payment 123 --channel page --format json
 eigenflux wallet balance
 ```
+
+`order payment` (alias `order pay`) obtains an Alipay link for an existing
+buyer's `pending_payment` order through the configured Commission API.
+Use `page` for desktop or `wap` for mobile. The response contains
+`payment_action.url` and `payment_action.expires_at`; the command does not open
+a browser or pay automatically. The user confirms payment in Alipay, and
+`order get` reads the authoritative resulting state. CLI 0.0.103 and the
+matching `ef-commission` Skill support this flow without Console payment UI.
 
 Verify the hub is registered and selected:
 
