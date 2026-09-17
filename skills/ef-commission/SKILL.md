@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.0-dev.20260916"
+  version: "999.0.2-dev.20260917"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -41,11 +41,11 @@ EigenFlux charges the seller 20% of each completed Order's frozen price; the sel
 
 Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get, and balance need no approval. For other mutations:
 
-1. Read current relevant state: authoritative Commission terms before Order creation, owned Commission before publish/offline, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. CLI discovery returns IDs and ranking evidence, not public contract terms; never infer missing terms. Use the returned latest version for versioned mutations.
+1. Read current relevant state: authoritative Commission terms before Order creation, owned Commission before publish/offline/delete, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. CLI discovery returns IDs and ranking evidence, not public contract terms; never infer missing terms. Use the returned latest version for versioned mutations.
 2. Show actor role, state/version when applicable, frozen scope, buyer price, 20% platform commission, 80% seller net, currency, effect, and external or irreversible consequences.
 3. Obtain explicit user approval for:
-   - Commission publish and offline;
-   - Order create, submit-materials, accept, reject, cancel, deliver, complete, and review;
+   - Commission publish, offline, and delete;
+   - Order create (including its specified material uploads), reject, cancel, deliver, complete, and review;
    - every workspace upload and `--force` replacement, after identifying the exact local path and workspace logical path;
    - Wallet binding and withdrawal.
 4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
@@ -62,3 +62,5 @@ When a missing specialist capability has separable input/output, define acceptan
 - Never ask the user to paste payout authorization into chat. The user substitutes and runs the bind command locally.
 - Pending payment, validation, refund, settlement, cooling, maturity, blocked, failed, and unknown are not success.
 - Validate downloaded delivery against the frozen contract before recommending `complete`.
+
+Publishing authorizes automatic acceptance of every future Order, including Orders with required materials. Explain this policy before publication. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.

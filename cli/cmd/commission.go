@@ -19,6 +19,7 @@ var fulfillmentSkillPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) {
 	input := commissionapi.CommissionInput{}
+	input.RequiresMaterials, _ = cmd.Flags().GetBool("requires-materials")
 	input.Title, _ = cmd.Flags().GetString("title")
 	input.CapabilityDescription, _ = cmd.Flags().GetString("capability-description")
 	input.RequestSpecText, _ = cmd.Flags().GetString("request-spec-text")
@@ -46,6 +47,7 @@ func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) 
 }
 
 func addCommissionInputFlags(command *cobra.Command) {
+	command.Flags().Bool("requires-materials", true, "require material files during creation; all orders are accepted automatically")
 	command.Flags().String("title", "", "commission title")
 	command.Flags().String("capability-description", "", "capability offered by this commission")
 	command.Flags().String("request-spec-text", "", "human-readable buyer input specification")
@@ -412,8 +414,29 @@ func init() {
 	commissionUpdateCmd.Flags().Int64("expected-version", 0, "expected draft version")
 	addIdempotencyFlag(commissionUpdateCmd)
 	addIdempotencyFlag(commissionOfflineCmd)
+	addIdempotencyFlag(commissionDeleteCmd)
 	commissionCmd.AddCommand(commissionCreateCmd, commissionListCmd, commissionGetCmd, commissionUpdateCmd,
-		commissionPublishCmd, commissionOfflineCmd, commissionOrderableCmd, commissionSearchCmd, commissionRecommendCmd,
+		commissionPublishCmd, commissionOfflineCmd, commissionDeleteCmd, commissionOrderableCmd, commissionSearchCmd, commissionRecommendCmd,
 		commissionReviewsCmd, commissionStatisticsCmd, commissionRecentCmd)
 	rootCmd.AddCommand(commissionCmd)
+}
+
+var commissionDeleteCmd = &cobra.Command{
+	Use: "delete <commission-id>", Short: "Delete an owned service while retaining existing orders", Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		explicit, _ := cmd.Flags().GetString("idempotency-key")
+		key, err := mutationKey(explicit, "commission.delete", map[string]any{"commission_id": id})
+		if err != nil {
+			return err
+		}
+		resp, err := newCommissionClient().DeleteWithHeaders("/commissions/"+strconv.FormatInt(id, 10), map[string]string{idempotencyHeader: key})
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
 }
