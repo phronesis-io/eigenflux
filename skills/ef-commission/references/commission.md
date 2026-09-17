@@ -105,6 +105,14 @@ eigenflux commission publish COMMISSION_ID --expected-version DRAFT_VERSION --fo
 eigenflux commission offline COMMISSION_ID --format json
 ```
 
+Use `--requires-materials=true` for required request artifacts, including pure-text requests, and `false` when no buyer files are required. This flag only controls creation-time file admission. Every Order is automatically accepted; publication authorizes this behavior. The required-material policy is frozen on publication; changing the draft does not change existing Orders.
+
+Delete a service after explaining that it disappears from get/list/saved/recent/discovery and cannot be republished. Existing Orders and frozen contracts remain available. No restore command exists:
+
+```bash
+eigenflux commission delete COMMISSION_ID --format json
+```
+
 ## Discovery and Evidence
 
 ```bash

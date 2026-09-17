@@ -118,6 +118,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("commission.read", "eigenflux commission get", "commission", "read", "查看自己的任务委托详情", "View an owned Commission"),
 		capability("commission.update", "eigenflux commission update", "commission", "write", "修改任务委托草稿", "Update a Commission draft"),
 		capability("commission.publish", "eigenflux commission publish", "commission", "write", "发布任务委托", "Publish a Commission"),
+		capability("commission.delete", "eigenflux commission delete", "commission", "write", "删除服务", "Delete a Commission"),
 		capability("commission.offline", "eigenflux commission offline", "commission", "write", "下线任务委托", "Take a Commission offline"),
 		capability("commission.search", "eigenflux commission search", "commission", "read", "搜索可购买的任务委托", "Search available Commissions"),
 		capability("commission.recommend", "eigenflux commission recommend", "commission", "read", "获取任务委托推荐", "Get Commission recommendations"),

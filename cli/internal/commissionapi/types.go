@@ -1,6 +1,7 @@
 package commissionapi
 
 type CommissionInput struct {
+	RequiresMaterials     bool     `json:"requires_materials"`
 	Title                 string   `json:"title"`
 	CapabilityDescription string   `json:"capability_description"`
 	RequestSpecText       string   `json:"request_spec_text"`

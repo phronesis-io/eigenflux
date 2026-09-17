@@ -22,25 +22,7 @@ var orderCreateCmd = &cobra.Command{
 	Use:   "create <commission-id>",
 	Short: "Create an order from a published commission",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		commissionID, err := numericArgument(args, "commission ID")
-		if err != nil {
-			return err
-		}
-		body := map[string]any{"commission_id": commissionID}
-		if value, _ := cmd.Flags().GetString("buyer-input"); value != "" {
-			body["buyer_input"] = value
-		}
-		if value, _ := cmd.Flags().GetString("impression-id"); value != "" {
-			body["impression_id"] = value
-		}
-		key, _ := cmd.Flags().GetString("idempotency-key")
-		resp, err := postMutation(newCommissionClient(), "/orders", "order.create", key, body)
-		if err != nil {
-			return err
-		}
-		return printResponse(resp)
-	},
+	RunE:  createOrderWithMaterials,
 }
 
 var orderListCmd = &cobra.Command{
@@ -110,6 +92,15 @@ func orderLifecycleCommand(operation string) *cobra.Command {
 			}
 			key, _ := cmd.Flags().GetString("idempotency-key")
 			path := "/orders/" + strconv.FormatInt(id, 10) + "/" + operation
+			if operation == "deliver" {
+				files, err := uploadDeliveryText(cmd, id, key)
+				if err != nil {
+					return err
+				}
+				if len(files) > 0 {
+					body["output_files"] = files
+				}
+			}
 			resp, err := postMutation(newCommissionClient(), path, "order."+operation+"."+strconv.FormatInt(id, 10), key, body)
 			if err != nil {
 				return err
@@ -123,9 +114,9 @@ func orderLifecycleCommand(operation string) *cobra.Command {
 	return command
 }
 
-var orderSubmitMaterialsCmd = orderLifecycleCommand("submit-materials")
+var orderSubmitMaterialsCmd = retiredOrderCommand("submit-materials", "materials must be uploaded with order create")
 var orderCancelCmd = orderLifecycleCommand("cancel")
-var orderAcceptCmd = orderLifecycleCommand("accept")
+var orderAcceptCmd = retiredOrderCommand("accept", "orders are accepted automatically")
 var orderRejectCmd = orderLifecycleCommand("reject")
 var orderDeliverCmd = orderLifecycleCommand("deliver")
 var orderCompleteCmd = orderLifecycleCommand("complete")
@@ -193,11 +184,13 @@ var orderUploadCmd = &cobra.Command{
 		if err := json.Unmarshal(response.Data, &data); err != nil {
 			return fmt.Errorf("parse upload grant: %w", err)
 		}
-		if data.Grant.URL == "" || data.Grant.ObjectID <= 0 {
+		if data.Grant.ObjectID <= 0 || (data.Grant.URL == "" && data.Grant.Method != "") {
 			return fmt.Errorf("upload grant is incomplete")
 		}
-		if err := commissionapi.Upload(context.Background(), client.HTTPClient, data.Grant, localPath); err != nil {
-			return err
+		if data.Grant.URL != "" {
+			if err := commissionapi.Upload(context.Background(), client.HTTPClient, data.Grant, localPath); err != nil {
+				return err
+			}
 		}
 		confirmBody := map[string]any{"object_id": data.Grant.ObjectID}
 		confirm, err := postMutation(client, basePath+"/confirm", "order.upload.confirm."+strconv.FormatInt(id, 10), key, confirmBody)
@@ -254,7 +247,12 @@ var orderDownloadCmd = &cobra.Command{
 }
 
 func init() {
-	orderCreateCmd.Flags().String("buyer-input", "", "buyer input matching the commission request specification")
+	orderCreateCmd.Flags().String("buyer-input", "", "text material saved as inputs/request.txt")
+	orderCreateCmd.Flags().String("buyer-input-file", "", "UTF-8 text material file saved as inputs/request.txt")
+	orderCreateCmd.Flags().StringArray("input-file", nil, "material LOGICAL_PATH=LOCAL_FILE (repeatable)")
+	orderCreateCmd.Flags().Int64("preparation-id", 0, "resume an existing buyer-owned preparation")
+	orderDeliverCmd.Flags().String("text", "", "text result uploaded as outputs/result.txt")
+	orderDeliverCmd.Flags().String("text-file", "", "UTF-8 result file uploaded as outputs/result.txt")
 	orderCreateCmd.Flags().String("impression-id", "", "discovery impression ID to attribute")
 	addIdempotencyFlag(orderCreateCmd)
 	orderListCmd.Flags().String("role", "", "order role filter")
@@ -275,4 +273,11 @@ func init() {
 		orderCancelCmd, orderAcceptCmd, orderRejectCmd, orderDeliverCmd, orderCompleteCmd,
 		orderReviewCmd, orderGetReviewCmd, orderUploadCmd, orderDownloadCmd)
 	rootCmd.AddCommand(orderCmd)
+}
+
+func retiredOrderCommand(operation, reason string) *cobra.Command {
+	c := orderLifecycleCommand(operation)
+	c.Deprecated = reason
+	c.RunE = func(*cobra.Command, []string) error { return fmt.Errorf("%s: %s", operation, reason) }
+	return c
 }

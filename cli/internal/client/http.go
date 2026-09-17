@@ -240,3 +240,7 @@ func (c *Client) Delete(path string) (*APIResponse, error) {
 func (c *Client) DeleteWithBody(path string, body interface{}) (*APIResponse, error) {
 	return c.do("DELETE", path, body)
 }
+
+func (c *Client) DeleteWithHeaders(path string, headers map[string]string) (*APIResponse, error) {
+	return c.doWithHeaders("DELETE", path, nil, headers)
+}
