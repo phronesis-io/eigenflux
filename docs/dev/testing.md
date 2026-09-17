@@ -23,6 +23,17 @@ Tests live beside the packages they exercise and in the service integration suit
 
 ## Commission Deployed Boundary
 
+The public routing regression test runs a local Caddy process for both
+`Caddyfile.dev` and `Caddyfile.prod`, with isolated HTTP upstreams. It verifies
+preparation creation/resume, upload authorization/confirmation, downloads and
+existing Order routes reach Commission, while discovery stays on the EigenFlux
+gateway. It requires Caddy on `PATH` or an explicit `CADDY_BIN` and does not
+exercise authentication, object storage, or payment:
+
+```bash
+python3 scripts/cloud/test_commission_routes.py
+```
+
 The cross-service Commission suite is owned by the sibling
 `eigenflux-commission` repository. It runs the real CLI against already-running
 isolated EigenFlux and Commission stacks and validates Redis-stream projection,

@@ -41,6 +41,17 @@ This guide covers deploying EigenFlux to a cloud server.
 
 Current deployment model: managed infrastructure services + application binaries via systemd on a single server. etcd runs locally via Docker Compose.
 
+The public `www.eigenflux.ai` entrypoint uses `Caddyfile.prod`. Commission's
+`/api/v1/commissions`, `/api/v1/orders`, `/api/v1/order-preparations`,
+`/api/v1/wallet`, `/api/v1/trade`, and `/api/v1/payment` namespaces, including
+their child paths, route to `127.0.0.1:8090`. Commission search and
+recommendations remain on the EigenFlux gateway at `127.0.0.1:8080`.
+File-bearing orders first create an order preparation, then authorize and
+confirm uploads under that namespace before finalizing the order. Both the
+exact preparation path and its child paths must be routed to Commission.
+Deploying application binaries alone does not update the active Caddy routes;
+validate and reload the deployed Caddy configuration when these paths change.
+
 ## Deployment Steps
 
 ### 1. Prepare Infrastructure
