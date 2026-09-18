@@ -2,13 +2,90 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/controlcontext"
+	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 )
+
+func TestFeedV2PollSupportsFeedbackAndBehaviorWithoutIDTranslation(t *testing.T) {
+	const itemID = "9007199254740993"
+	var feedback, events []map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v2/agent-context":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1,"control_context":{"context_revision":1,"intent_actions":[]}}}`))
+		case "/api/v2/runtime/heartbeat":
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		case "/api/v2/feed":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"schema_version":"feed.v2","impression_id":"imp-v2","personalization":{"mode":"intent_aligned","context_revision":1},"items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast","id":"9007199254740993"},"preview":{"text":"Useful signal"}}]}}`))
+		case "/api/v2/items/feedback", "/api/v2/items/events":
+			var body struct {
+				Items  []map[string]interface{} `json:"items"`
+				Events []map[string]interface{} `json:"events"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			feedback = append(feedback, body.Items...)
+			events = append(events, body.Events...)
+			_, _ = w.Write([]byte(`{"code":0,"data":{"accepted":1}}`))
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	_, serverName := runtimeTestConfig(t, server.URL, true)
+	oldFormat := formatFlag
+	formatFlag = "json"
+	t.Cleanup(func() { formatFlag = oldFormat })
+	if err := pollFeedV2(feedPollCmd, serverName, "20"); err != nil {
+		t.Fatal(err)
+	}
+	ledger := feedevent.NewLedger(filepath.Join(cache.ServerDataDir(serverName), "broadcasts"), serverName)
+	entry, status := ledger.Lookup(itemID, time.Now().UnixMilli())
+	if status != feedevent.StatusHit || entry.ImpressionID != "imp-v2" || entry.Title != "Useful signal" {
+		t.Fatalf("V2 poll did not seed behavior ledger: %+v %v", entry, status)
+	}
+	for _, change := range []struct {
+		flags interface {
+			Set(string, string) error
+			GetString(string) (string, error)
+		}
+		name, value string
+	}{
+		{feedFeedbackCmd.Flags(), "items", `[{"item_id":"9007199254740993","score":1}]`},
+		{feedEventRecordCmd.Flags(), "item-ids", itemID},
+		{feedEventRecordCmd.Flags(), "kind", "surface"},
+	} {
+		old, _ := change.flags.GetString(change.name)
+		if err := change.flags.Set(change.name, change.value); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = change.flags.Set(change.name, old) })
+	}
+	if err := feedFeedbackCmd.RunE(feedFeedbackCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := feedEventRecordCmd.RunE(feedEventRecordCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(feedback) != 1 || feedback[0]["item_id"] != itemID {
+		t.Fatalf("feedback lost broadcast ID: %v", feedback)
+	}
+	if len(events) != 1 || events[0]["item_id"] != itemID || events[0]["impression_id"] != "imp-v2" || events[0]["dedup_key"] == "" {
+		t.Fatalf("behavior event lost broadcast/exposure association: %v", events)
+	}
+}
 
 func TestHydrateFeedV2ControlContextFromAppliedCache(t *testing.T) {
 	t.Setenv("EIGENFLUX_HOME", t.TempDir())

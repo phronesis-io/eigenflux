@@ -421,7 +421,7 @@ func TestSyncKeepsLocalOnNetworkFailure(t *testing.T) {
 	// New version, but server unreachable: must keep local, not wipe.
 	res, err := Sync(syncOpts(dst, "0.0.17", "http://127.0.0.1:1", names))
 	if err == nil {
-		// non-quiet returns the error; quiet would swallow. Either way dst intact.
+		// Foreground checks may return the network error; the installation stays intact.
 		t.Log("returned err is acceptable")
 	}
 	_ = res

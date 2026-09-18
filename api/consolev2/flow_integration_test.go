@@ -716,6 +716,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	ugc := feedItems[0].(map[string]interface{})
 	pgc := feedItems[1].(map[string]interface{})
+	for _, item := range []map[string]interface{}{ugc, pgc} {
+		id, ok := item["item_id"].(string)
+		if !ok || id == "" || id != item["source_ref"].(map[string]interface{})["id"] {
+			t.Fatalf("Feed item has inconsistent feedback/Attention identity: %#v", item)
+		}
+	}
 	if ugc["author_identity"] == nil || pgc["author_identity"] != nil || ugc["intent_match"] == nil {
 		t.Fatalf("UGC/PGC identity policy mismatch: ugc=%#v pgc=%#v", ugc, pgc)
 	}
