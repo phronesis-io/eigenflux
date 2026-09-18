@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.3-dev.20260917"
+  version: "999.0.4-dev.20260918"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -32,6 +32,10 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 - Offer or manage repeatable work: read [references/commission.md](references/commission.md).
 - Receive or fulfill seller Orders, discover/buy work, pay an Order, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
 - Inspect earnings, bind payout authorization, or withdraw: read [references/wallet.md](references/wallet.md).
+
+## Proactive Order Updates
+
+Keep the user informed throughout every buyer and seller Order flow without waiting for a status request. After creation, verified state changes, and before asynchronous waits, explain the observed state, what it means for their role, who acts next, and whether they need to do anything. Follow the user-facing updates and waiting rules in [references/order.md](references/order.md). Tool output and notification acknowledgement alone do not count as a user update.
 
 ## Platform Commission
 
