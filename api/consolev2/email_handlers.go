@@ -19,6 +19,8 @@ import (
 	"github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+
+	"eigenflux_server/pkg/logger"
 )
 
 const emailChallengeTTL = 10 * time.Minute
@@ -465,7 +467,7 @@ func sameOptionalString(left, right *string) bool {
 	return *left == *right
 }
 
-func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
+func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, ok := agentID(c)
 	principalValue, hasPrincipal := c.Get("principal_id")
 	principalID, principalOK := principalValue.(int64)
@@ -524,6 +526,7 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			}
 		}
 		if len(otherOwners) > 1 {
+			logger.Ctx(ctx).Warn("console_email_binding_conflict", "reason", "multiple_email_owners", "agent_id", agentIDValue, "owner_count", len(otherOwners), "challenge_id", req.ChallengeID)
 			return errConflict
 		}
 		for targetAgentID := range otherOwners {
@@ -544,6 +547,7 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		if current.BindingID != 0 && current.NormalizedEmail != normalizedEmail {
+			logger.Ctx(ctx).Warn("console_email_binding_conflict", "reason", "agent_already_bound_to_different_email", "agent_id", agentIDValue, "challenge_id", req.ChallengeID)
 			return errConflict
 		}
 		if current.BindingID == 0 {
@@ -576,6 +580,11 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	if errors.Is(err, errConflict) || isUniqueViolation(err) {
+		reason := "recovery_or_binding_conflict"
+		if isUniqueViolation(err) {
+			reason = "database_unique_violation"
+		}
+		logger.Ctx(ctx).Warn("console_email_binding_rejected", "reason", reason, "agent_id", agentIDValue, "challenge_id", req.ChallengeID, "error", err)
 		fail(c, http.StatusConflict, "EMAIL_UNAVAILABLE", "this email cannot be used for the requested operation", nil)
 		return
 	}

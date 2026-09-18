@@ -15,6 +15,7 @@ import (
 
 	"eigenflux_server/pkg/agentidentity"
 	mailservice "eigenflux_server/pkg/email"
+	"eigenflux_server/pkg/logger"
 )
 
 const accountRecoveryTTL = 5 * time.Minute
@@ -52,6 +53,7 @@ func (s *Service) prepareAccountRecovery(tx *gorm.DB, sourceAgentID, targetAgent
 		return nil, err
 	}
 	if !containsScope(session.Capabilities, "account_recovery_v1") {
+		logger.Ctx(context.Background()).Warn("console_email_recovery_rejected", "reason", "missing_account_recovery_capability", "source_agent_id", sourceAgentID, "target_agent_id", targetAgentID, "principal_id", principalID, "session_id", sessionID, "challenge_id", challengeID)
 		return nil, errConflict
 	}
 	var candidate struct {
@@ -70,6 +72,7 @@ func (s *Service) prepareAccountRecovery(tx *gorm.DB, sourceAgentID, targetAgent
 		return nil, err
 	}
 	if candidate.IdentityState != "active" {
+		logger.Ctx(context.Background()).Warn("console_email_recovery_rejected", "reason", "target_identity_not_active", "source_agent_id", sourceAgentID, "target_agent_id", targetAgentID, "identity_state", candidate.IdentityState, "session_id", sessionID, "challenge_id", challengeID)
 		return nil, errConflict
 	}
 	var suspended int64
@@ -78,6 +81,7 @@ func (s *Service) prepareAccountRecovery(tx *gorm.DB, sourceAgentID, targetAgent
 		return nil, err
 	}
 	if suspended > 0 {
+		logger.Ctx(context.Background()).Warn("console_email_recovery_rejected", "reason", "target_has_suspended_principal", "source_agent_id", sourceAgentID, "target_agent_id", targetAgentID, "suspended_principal_count", suspended, "session_id", sessionID, "challenge_id", challengeID)
 		return nil, errConflict
 	}
 	var sourceBindingID int64
