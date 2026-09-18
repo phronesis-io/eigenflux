@@ -132,6 +132,10 @@ class CommissionRoutesTest(unittest.TestCase):
     def check_routes(self, filename):
         self.start_caddy(filename)
         cases = [
+            ("GET", "/api/v1/public/commissions/42", "commission"),
+            ("GET", "/api/v1/public/commissions/42/reviews?commission_version=2&cursor=next", "commission"),
+            ("GET", "/api/v1/public/unrelated", "gateway"),
+            ("GET", "/api/v1/public/commissions-other/42", "gateway"),
             ("POST", "/api/v1/order-preparations", "commission"),
             ("GET", "/api/v1/order-preparations/51", "commission"),
             ("POST", "/api/v1/order-preparations/51/uploads", "commission"),

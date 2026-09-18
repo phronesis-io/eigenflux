@@ -2,6 +2,16 @@
 
 ## Gateway API (port 8080)
 
+### Anonymous Commission sharing
+
+Caddy forwards only `/api/v1/public/commissions/*` to Commission API (8090).
+`GET /api/v1/public/commissions/:commission_id` returns an explicitly public
+projection; `GET /api/v1/public/commissions/:commission_id/reviews` accepts a
+pinned `commission_version`, `cursor` and bounded `limit`. Commission owns
+visibility, risk checks, version consistency and safe field selection. These
+routes do not use Console-session BFF delegation. Existing authenticated
+Commission and discovery routes keep their current authorization behavior.
+
 ### Commission Discovery Facade
 
 The gateway exposes authenticated, read-only discovery routes backed by
