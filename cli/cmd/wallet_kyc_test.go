@@ -3,7 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +31,7 @@ func TestWalletKYCCurrentBindingCommands(t *testing.T) {
 			t.Error("missing actor authentication")
 		}
 		if r.Method == "POST" {
-			if r.Header.Get("Idempotency-Key") != "attempt-key" {
+			if r.Header.Get("Idempotency-Key") == "" || (!strings.HasSuffix(r.URL.Path, "/authorization") && r.Header.Get("Idempotency-Key") != "attempt-key") {
 				t.Error("retry key changed")
 			}
 			var input map[string]string
@@ -44,15 +44,21 @@ func TestWalletKYCCurrentBindingCommands(t *testing.T) {
 			if _, exists := input["agent_id"]; exists {
 				t.Error("actor override")
 			}
-			if strings.HasSuffix(r.URL.Path, "/complete") {
+			if strings.HasSuffix(r.URL.Path, "/authorization") {
+				if len(input) != 1 || input["verification_id"] != "359250691924951040" {
+					t.Error("authorization must use the current verification without PII")
+				}
+			} else if strings.HasSuffix(r.URL.Path, "/complete") {
 				if input["verification_id"] != "359250691924951040" || input["authorization"] != "private-code" {
 					t.Error("invalid completion payload")
 				}
 			} else if input["user_name"] != "测试姓名" || input["cert_no"] != "110101199001010011" {
 				t.Error("invalid initiation payload")
+			} else if r.Header.Get("X-Wallet-KYC-Browser") != "1" {
+				t.Error("start must require configured browser handoff")
 			}
 		}
-		_, _ = io.WriteString(w, `{"code":0,"data":{"verification":{"verification_id":"359250691924951040","binding_id":"359250691924951041","state":"pending","verify_id":"provider-id","expires_at":123},"user_name":"private-extra"}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"data":{"verification":{"verification_id":"359250691924951040","binding_id":"359250691924951041","state":"pending","verify_id":"provider-id","expires_at":123,"authorization_expires_at":100,"authorization_url":"https://commission.example/api/v1/public/wallet/kyc/launch?ticket=%s"},"user_name":"private-extra"}}`, strings.Repeat("a", 64))
 	}))
 	defer server.Close()
 	if err := cfg.UpdateServerWithCommission(active.Name, "https://gateway.example.com", "", server.URL); err != nil {
@@ -68,12 +74,13 @@ func TestWalletKYCCurrentBindingCommands(t *testing.T) {
 		{"start", `{"user_name":"测试姓名","cert_no":"110101199001010011"}`, nil},
 		{"complete", `{"authorization":"private-code"}`, []string{"359250691924951040"}},
 		{"get", "", nil},
+		{"authorize", "", []string{"359250691924951040"}},
 	} {
 		command, _, err := newWalletKYCCmd().Find([]string{test.command})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if test.command != "get" {
+		if test.command == "start" || test.command == "complete" {
 			_ = command.Flags().Set("stdin", "true")
 			_ = command.Flags().Set("idempotency-key", "attempt-key")
 			command.SetIn(strings.NewReader(test.input))
@@ -87,15 +94,30 @@ func TestWalletKYCCurrentBindingCommands(t *testing.T) {
 				t.Error("private input leaked")
 			}
 		}
-		if test.command != "start" && strings.Contains(out, "provider-id") {
+		if test.command != "start" && test.command != "authorize" && strings.Contains(out, "provider-id") {
 			t.Error("status must not expose provider ID")
 		}
 		if test.command == "start" && !strings.Contains(out, "provider-id") {
 			t.Error("initiation must expose provider ID for fresh authorization")
 		}
+		if (test.command == "start" || test.command == "authorize") != strings.Contains(out, "https://commission.example/") {
+			t.Error("authorization link exposure does not match command")
+		}
 	}
-	if len(paths) != 3 || paths[0] != "POST /api/v1/wallet/kyc" || paths[1] != "POST /api/v1/wallet/kyc/complete" || paths[2] != "GET /api/v1/wallet/kyc" {
+	if len(paths) != 4 || paths[0] != "POST /api/v1/wallet/kyc" || paths[1] != "POST /api/v1/wallet/kyc/complete" || paths[2] != "GET /api/v1/wallet/kyc" || paths[3] != "POST /api/v1/wallet/kyc/authorization" {
 		t.Fatalf("unexpected requests: %v", paths)
+	}
+}
+
+func TestWalletKYCAuthorizationURLRejectsUnsafeDestinations(t *testing.T) {
+	valid := "https://commission.example/api/v1/public/wallet/kyc/launch?ticket=" + strings.Repeat("a", 64)
+	if !validKYCAuthorizationURL(valid) {
+		t.Fatal("valid authorization URL rejected")
+	}
+	for _, value := range []string{"javascript:alert(1)", strings.Replace(valid, "https:", "http:", 1), strings.Replace(valid, "commission.example", "user@commission.example", 1), valid + "&redirect=https://evil.example", valid + "#fragment", strings.Replace(valid, "launch?", "callback?", 1), valid + "&ticket=other"} {
+		if validKYCAuthorizationURL(value) {
+			t.Fatal("unsafe authorization URL accepted")
+		}
 	}
 }
 
