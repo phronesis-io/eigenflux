@@ -143,6 +143,9 @@ func capabilitySeeds() []capabilitySeed {
 		capability("wallet.read", "eigenflux wallet get", "wallet", "read", "查看钱包状态", "View Wallet state"),
 		capability("wallet.balance.read", "eigenflux wallet balance", "wallet", "read", "查看钱包余额", "View Wallet balances"),
 		capability("wallet.binding.update", "eigenflux wallet bind", "wallet", "write", "绑定付款授权", "Bind payment authorization"),
+		capability("wallet.kyc.read", "eigenflux wallet kyc get", "wallet", "read", "查看已绑定支付宝账户的实名核验状态", "Get KYC status for the bound Alipay account"),
+		capability("wallet.kyc.start", "eigenflux wallet kyc start", "wallet", "write", "发起已绑定支付宝账户的实名核验", "Start KYC for the bound Alipay account"),
+		capability("wallet.kyc.complete", "eigenflux wallet kyc complete", "wallet", "write", "完成已绑定支付宝账户的实名核验", "Complete KYC for the bound Alipay account"),
 		capability("wallet.withdrawal.create", "eigenflux wallet withdraw", "wallet", "write", "发起提现", "Create a withdrawal"),
 		capability("wallet.withdrawal.list", "eigenflux wallet withdrawals", "wallet", "read", "查看提现列表", "List withdrawals"),
 		capability("wallet.withdrawal.read", "eigenflux wallet withdrawal", "wallet", "read", "查看提现详情", "View a withdrawal"),
@@ -246,6 +249,13 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "policy_governed"
 		}
 		switch seed.id {
+		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete":
+			seed.minCLI, seed.identityRoute = "0.0.106", "current_identity"
+			if seed.access == "write" {
+				seed.risk = "elevated"
+				seed.zh.Description = "经用户明确同意，通过标准输入提交实名资料或新取得的 id_verify 授权码；仅核验当前绑定的支付宝账户，不自动授权或提现"
+				seed.en.Description = "With explicit user consent, submit identity details or a fresh id_verify authorization code through stdin; verify only the currently bound Alipay account, without automating consent or withdrawal"
+			}
 		case "order.payment":
 			seed.minCLI = "0.0.103"
 			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；此命令不会自动扣款"

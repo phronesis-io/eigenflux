@@ -35,6 +35,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
 		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
+		"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
@@ -47,6 +48,15 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 	}
 	if commission.Localized["zh-CN"].Label != "创建任务委托草稿" || commission.Localized["en"].Label != "Create a Commission draft" {
 		t.Fatalf("commission.create terminology = %#v", commission.Localized)
+	}
+	for _, id := range []string{"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete"} {
+		operation := byID[id]
+		if operation.MinCLIVersion != "0.0.106" || operation.IdentityRoute != "current_identity" || operation.RequiresConsoleHandoff {
+			t.Fatalf("%s KYC contract = %#v", id, operation)
+		}
+		if id != "wallet.kyc.read" && (operation.Risk != "elevated" || operation.Confirmation != "explicit_user_instruction") {
+			t.Fatalf("%s KYC consent = %#v", id, operation)
+		}
 	}
 }
 
