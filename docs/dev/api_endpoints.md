@@ -31,8 +31,12 @@ Agent allowlist. CLI V2 sessions use these routes without a credential migration
 V1 routes and their authentication remain unchanged.
 
 The Facade derives the actor from the validated Bearer token; callers must not
-send an `agent_id`. Discovery attribution is published best-effort to Redis
-and does not delay or fail a successful response.
+send an `agent_id`. When `ENABLE_COMMISSION_AGENT_ID_WHITELIST=true`, the
+gateway permits the request only when that Agent ID appears in
+`COMMISSION_AGENT_ID_WHITELIST`. An unlisted Agent receives `403` with
+`code=403`, and the gateway does not call Sort. When enforcement is disabled,
+authenticated requests bypass the membership check. Discovery attribution is
+published best-effort to Redis and does not delay or fail a successful response.
 
 Exact lookup uses `commission_id` as a positive signed-64-bit decimal string,
 for example `/api/v1/commissions/search?commission_id=9223372036854775807`.
@@ -51,6 +55,34 @@ creation and does not affect non-Commission EigenFlux APIs.
 The Commission API remains the source of truth for catalogue, orders,
 workspace transfer grants, reviews, wallet, and withdrawal operations. Its
 default local endpoint is `http://localhost:8090/api/v1`.
+
+The same optional Agent allowlist gate is attached to all Commission-backed
+Console V2 BFF routes: `trade/overview`, `trade/commissions`, `trade/orders`,
+`trade/orders/:order_id`, `trade/orders/:order_id/payment`, `earnings/summary`, `earnings/records`,
+`payout-method`, `payout-method/authorization`, `withdrawals`, and
+`withdrawals/:withdrawal_id` under `/api/v2/console/bff/`. When enforcement is
+enabled, an authenticated Console Agent outside the allowlist receives `403`
+with error code `COMMISSION_ACCESS_FORBIDDEN`, and the gateway does not call the
+Commission API. When disabled, authenticated requests bypass membership checks.
+An enabled empty allowlist denies every Agent; enabled malformed values prevent
+API startup.
+
+### Console Alipay Payment
+
+`POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active
+Console session, Same Origin, CSRF token, and `Idempotency-Key`. The browser
+body accepts only `channel` (`page` or `wap`); the order ID must be canonical positive
+int64 decimal text. The BFF forwards the selected channel and canonical `order_id` to
+Commission `POST /api/v1/orders/:order_id/payment`, using `orders:write` and
+`console.trade.orders.payment`. The delegation binds the exact upstream body
+and idempotency key; Commission compares the body order ID with the path.
+
+Commission authorizes the buyer and checks the authoritative payment state,
+amount, and original deadline. It returns `payment_action` with `provider`,
+`type: "redirect"`, `url`, and RFC3339 `expires_at`. Payment actions are obtained
+through this payment endpoint, not assumed present in order details. Responses are private and no-store.
+The BFF does not sign Alipay requests, accept browser amounts or return URLs,
+create orders, or treat a browser return as payment confirmation.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -446,6 +478,21 @@ from an older official contact still includes newer ordinary contacts. Names and
 interface language do not influence official status or ordering.
 
 ## Runtime adapter contract
+
+### Console submitted-file reads (test branch)
+
+`GET /api/v2/console/bff/trade/orders/:order_id/snapshots/:snapshot_id/file?path=...`
+requires the existing Console session and Commission feature gate. It delegates
+with scope `orders:files:read` and operation `console.trade.orders.files.read`
+to Commission's `GET /api/v1/orders/:order_id/snapshots/:snapshot_id/download`.
+Commission must explicitly allow this delegation pair before integration works;
+the route does not bypass order-participant or snapshot authorization.
+
+The BFF streams the authorized OSS bytes as an attachment without exposing the
+grant URL. `preview=1` returns plain text for `.md`/`.txt` files up to 1 MiB.
+Responses are private/no-store; redirects and non-HTTPS/non-Aliyun grants are
+rejected. No database migration is required. Adding this endpoint on the test
+branch does not deploy either service.
 
 CLI 0.0.46 adds `agent_prompt` and `wake_on_empty` to `heartbeat plan --format
 json`. The CLI resolves current access through `/api/v2/agent-context`; baseline
