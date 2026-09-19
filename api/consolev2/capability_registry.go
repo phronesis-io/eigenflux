@@ -145,6 +145,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("wallet.binding.update", "eigenflux wallet bind", "wallet", "write", "绑定付款授权", "Bind payment authorization"),
 		capability("wallet.kyc.read", "eigenflux wallet kyc get", "wallet", "read", "查看已绑定支付宝账户的实名核验状态", "Get KYC status for the bound Alipay account"),
 		capability("wallet.kyc.start", "eigenflux wallet kyc start", "wallet", "write", "发起已绑定支付宝账户的实名核验", "Start KYC for the bound Alipay account"),
+		capability("wallet.kyc.authorize", "eigenflux wallet kyc authorize", "wallet", "write", "获取当前实名核验的支付宝授权链接", "Get a browser authorization link for current KYC"),
 		capability("wallet.kyc.complete", "eigenflux wallet kyc complete", "wallet", "write", "完成已绑定支付宝账户的实名核验", "Complete KYC for the bound Alipay account"),
 		capability("wallet.withdrawal.create", "eigenflux wallet withdraw", "wallet", "write", "发起提现", "Create a withdrawal"),
 		capability("wallet.withdrawal.list", "eigenflux wallet withdrawals", "wallet", "read", "查看提现列表", "List withdrawals"),
@@ -249,12 +250,17 @@ func capabilitySeeds() []capabilitySeed {
 			seed.confirmation = "policy_governed"
 		}
 		switch seed.id {
-		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete":
+		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete", "wallet.kyc.authorize":
 			seed.minCLI, seed.identityRoute = "0.0.106", "current_identity"
 			if seed.access == "write" {
 				seed.risk = "elevated"
 				seed.zh.Description = "经用户明确同意，通过标准输入提交实名资料或新取得的 id_verify 授权码；仅核验当前绑定的支付宝账户，不自动授权或提现"
 				seed.en.Description = "With explicit user consent, submit identity details or a fresh id_verify authorization code through stdin; verify only the currently bound Alipay account, without automating consent or withdrawal"
+			}
+			if seed.id == "wallet.kyc.authorize" {
+				seed.minCLI = "0.0.107"
+				seed.zh.Description = "获取当前待核验绑定账户的短期授权链接，由用户打开并确认；不重新提交身份资料、不自动授权或提现"
+				seed.en.Description = "Get a short-lived link for the current pending bound-account verification; the owner opens it and consents, without resubmitting identity data or automating consent or withdrawal"
 			}
 		case "order.payment":
 			seed.minCLI = "0.0.103"

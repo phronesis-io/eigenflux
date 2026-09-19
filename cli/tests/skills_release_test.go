@@ -205,7 +205,7 @@ func TestConfiguredReleaseRequiresCompatibleCLI(t *testing.T) {
 	}
 	// Reject versions without signed install referrals or Wallet KYC commands
 	// before downloading a bundle that instructs agents to use those features.
-	for _, version := range []string{"0.0.42", "0.0.105"} {
+	for _, version := range []string{"0.0.42", "0.0.105", "0.0.106"} {
 		options.CLIVersion = version
 		if _, err := skills.Sync(options); err == nil || !strings.Contains(err.Error(), "upgrade the CLI") {
 			t.Fatalf("incompatible CLI %s was not rejected: %v", version, err)

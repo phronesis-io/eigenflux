@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
@@ -53,12 +55,16 @@ func validKYCNameAndID(name, id string) bool {
 	return true
 }
 
-func printWalletKYC(resp *client.APIResponse, err error, includeVerifyID bool) error {
+func printWalletKYC(resp *client.APIResponse, err error, includeAuthorization bool) error {
 	if err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) {
+			message := http.StatusText(apiErr.StatusCode)
+			if includeAuthorization && apiErr.StatusCode == http.StatusServiceUnavailable {
+				message = "KYC browser authorization unavailable; check server ALIPAY_KYC_CALLBACK_URL, Alipay settings and dependencies"
+			}
 			return &client.APIError{StatusCode: apiErr.StatusCode, Code: apiErr.Code, ErrorCode: apiErr.ErrorCode,
-				Msg: http.StatusText(apiErr.StatusCode), RetryAfterSeconds: apiErr.RetryAfterSeconds}
+				Msg: message, RetryAfterSeconds: apiErr.RetryAfterSeconds}
 		}
 		return fmt.Errorf("KYC request failed; check connectivity and query status before retrying")
 	}
@@ -67,12 +73,14 @@ func printWalletKYC(resp *client.APIResponse, err error, includeVerifyID bool) e
 	}
 	var data struct {
 		Verification *struct {
-			ID         string `json:"verification_id"`
-			BindingID  string `json:"binding_id"`
-			State      string `json:"state"`
-			ExpiresAt  int64  `json:"expires_at"`
-			VerifiedAt int64  `json:"verified_at"`
-			VerifyID   string `json:"verify_id,omitempty"`
+			ID                     string `json:"verification_id"`
+			BindingID              string `json:"binding_id"`
+			State                  string `json:"state"`
+			ExpiresAt              int64  `json:"expires_at"`
+			VerifiedAt             int64  `json:"verified_at"`
+			VerifyID               string `json:"verify_id,omitempty"`
+			AuthorizationURL       string `json:"authorization_url,omitempty"`
+			AuthorizationExpiresAt int64  `json:"authorization_expires_at,omitempty"`
 		} `json:"verification"`
 	}
 	if json.Unmarshal(resp.Data, &data) != nil || data.Verification == nil || data.Verification.BindingID == "" || data.Verification.State == "" {
@@ -88,17 +96,37 @@ func printWalletKYC(resp *client.APIResponse, err error, includeVerifyID bool) e
 	if bindingErr != nil || bindingID <= 0 || verificationErr != nil || verificationID < 0 || (verificationID == 0 && data.Verification.State != "not_assessed") {
 		return fmt.Errorf("invalid KYC response")
 	}
-	if includeVerifyID && data.Verification.State == "pending" && data.Verification.VerifyID == "" {
-		return fmt.Errorf("invalid KYC response")
+	if includeAuthorization && data.Verification.State == "pending" {
+		if data.Verification.AuthorizationURL == "" {
+			return fmt.Errorf("KYC is pending but no authorization_url was returned; upgrade/configure the Commission browser handoff, then run wallet kyc authorize %s", data.Verification.ID)
+		}
+		if !validKYCAuthorizationURL(data.Verification.AuthorizationURL) || data.Verification.AuthorizationExpiresAt <= 0 || data.Verification.AuthorizationExpiresAt > data.Verification.ExpiresAt {
+			return fmt.Errorf("invalid KYC authorization response")
+		}
 	}
-	if !includeVerifyID || data.Verification.State != "pending" {
+	if !includeAuthorization || data.Verification.State != "pending" {
 		data.Verification.VerifyID = ""
+		data.Verification.AuthorizationURL = ""
+		data.Verification.AuthorizationExpiresAt = 0
 	}
 	safe, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("invalid KYC response")
 	}
 	return printResponse(&client.APIResponse{Data: safe})
+}
+
+func validKYCAuthorizationURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.Path != "/api/v1/public/wallet/kyc/launch" || u.RawPath != "" {
+		return false
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q) != 1 || len(q["ticket"]) != 1 || len(q.Get("ticket")) != 64 {
+		return false
+	}
+	_, err = hex.DecodeString(q.Get("ticket"))
+	return err == nil
 }
 
 func newWalletKYCCmd() *cobra.Command {
@@ -119,7 +147,15 @@ func newWalletKYCCmd() *cobra.Command {
 		if !validKYCNameAndID(input.Name, input.ID) {
 			return fmt.Errorf("KYC requires user_name and an 18-character mainland cert_no")
 		}
-		resp, err := postMutation(newCommissionClient(), "/wallet/kyc", "wallet.kyc.start", key, input)
+		resp, err := newCommissionClient().PostWithHeaders("/wallet/kyc", input, map[string]string{idempotencyHeader: key, "X-Wallet-KYC-Browser": "1"})
+		return printWalletKYC(resp, err, true)
+	}}
+	authorize := &cobra.Command{Use: "authorize <verification-id>", Short: "Get a browser authorization link for existing pending KYC without resubmitting identity data", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "verification ID")
+		if err != nil {
+			return fmt.Errorf("verification ID must be a positive integer")
+		}
+		resp, err := postMutation(newCommissionClient(), "/wallet/kyc/authorization", "wallet.kyc.authorize", "", map[string]string{"verification_id": strconv.FormatInt(id, 10)})
 		return printWalletKYC(resp, err, true)
 	}}
 	complete := &cobra.Command{Use: "complete <verification-id> --stdin --idempotency-key <key>", Short: "Complete KYC using a fresh id_verify auth_code supplied as authorization on stdin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,7 +181,7 @@ func newWalletKYCCmd() *cobra.Command {
 		command.Flags().Bool("stdin", false, "read private JSON from stdin; never put identity or authorization in command arguments")
 		command.Flags().String("idempotency-key", "", "explicit retry key; use a new key for a new verification attempt")
 	}
-	root.AddCommand(get, start, complete)
+	root.AddCommand(get, start, authorize, complete)
 	return root
 }
 

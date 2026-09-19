@@ -31,7 +31,7 @@ Binding returns `cooling_until`, not proof of KYC or payout eligibility. Check K
 
 ## Verify the Bound Alipay Account
 
-Require CLI 0.0.106 or later and a Commission deployment with KYC endpoints. Read the current Wallet binding and its authoritative KYC status:
+Require CLI 0.0.107 or later and a Commission deployment with browser KYC configured. Read the current Wallet binding and its authoritative KYC status:
 
 ```bash
 eigenflux wallet get --format json
@@ -44,15 +44,16 @@ Obtain explicit consent to submit the owner's legal name and mainland identity-c
 
 ```text
 eigenflux wallet kyc start --stdin --idempotency-key START_KEY --format json
-eigenflux wallet kyc complete VERIFICATION_ID --stdin --idempotency-key COMPLETE_KEY --format json
 ```
 
-1. `start` accepts only JSON fields `user_name` and `cert_no` (18 characters, final checksum letter uppercase `X`). It returns `verification.verification_id`, `binding_id`, `state`, `expires_at`, and provider `verify_id` while pending. Keep decimal IDs as strings; timestamps are Unix milliseconds.
-2. Hand off the returned `verify_id` to the application's registered Alipay authorization flow with `scope=id_verify`, `cert_verify_id`, and a session-bound, one-use `state`. The CLI has no OAuth URL builder or callback server. If that trusted flow is unavailable, stop and report the missing integration; do not improvise a callback or claim KYC completed.
-3. After the application validates the callback state and provider verification ID, the owner supplies its fresh `auth_code` as the sole stdin field `authorization` to `complete`. Use the backend `verification_id` as the command argument, not provider `verify_id`. Never reuse a binding authorization code or call `alipay.user.info.share` as a substitute.
+1. `start` accepts only JSON fields `user_name` and `cert_no` (18 characters, final checksum letter uppercase `X`). It returns `verification.verification_id`, `binding_id`, `state`, `expires_at`, and `authorization_url` with `authorization_expires_at` while pending. Keep decimal IDs as strings; timestamps are Unix milliseconds.
+2. Give the owner the returned `authorization_url` to open privately. Do not fetch or preview it yourself: it is a one-use link, valid for at most ten minutes. Keep the entire flow in that browser; do not forward the link or callback URL. The Commission API redirects to Alipay `id_verify` and binds the callback to the original actor, verification and browser cookie.
+3. The owner authorizes the bound Alipay account. The server validates the callback, uses the fresh authorization code and completes the comparison automatically. Do not ask the owner to copy the code, reuse binding authorization, or call `alipay.user.info.share`. A generic browser completion page is not proof of a passed comparison.
 4. Read `wallet kyc get` again. Only `verified` satisfies KYC for that binding; no attempt returns `not_assessed` with verification ID `"0"`. Rebinding requires new KYC. Do not start another attempt unnecessarily: a new attempt supersedes the previous one, even if it was verified.
 
-Choose separate, non-sensitive 1–64 byte start and completion keys before submitting. For transport retries, reuse the same operation's key and exact private input. On an uncertain completion, read status first; do not blindly resubmit a one-use code. If the attempt remains pending but the code was consumed without a cached result, obtain fresh consent/code and a new completion key. Use the returned deadline; pending attempts expire after two hours.
+For an existing pending attempt whose link is missing, consumed, or expired, run `eigenflux wallet kyc authorize VERIFICATION_ID --format json` within the approved KYC scope. This returns a fresh link without resubmitting identity data or starting a new attempt. Do not keep renewing links automatically. If browser configuration is unavailable, report the server's required `ALIPAY_KYC_CALLBACK_URL`/application setup and stop; do not invent a callback URL.
+
+Choose a non-sensitive 1–64 byte start key before submitting. Retry start only with that same key and exact private input. After an uncertain callback, read status first; if still pending and unexpired, obtain a fresh link and user authorization. Use the returned deadline; pending attempts expire after two hours. Manual `wallet kyc complete VERIFICATION_ID --stdin --idempotency-key COMPLETE_KEY` remains for an explicitly selected external integration: stdin accepts only `authorization` from a fresh, validated `id_verify` callback, never from chat.
 
 - `preparing` or `pending`: not verified; inspect state before deciding whether to resume.
 - `rejected`: comparison failed; obtain corrected input locally and approval for a new attempt.

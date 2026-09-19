@@ -36,12 +36,17 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
 		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
 		"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete",
+		"wallet.kyc.authorize",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
 		}
 	}
 	commission := byID["commission.create"]
+	authorize := byID["wallet.kyc.authorize"]
+	if authorize.MinCLIVersion != "0.0.107" || authorize.IdentityRoute != "current_identity" || authorize.Confirmation != "explicit_user_instruction" || authorize.Risk != "elevated" {
+		t.Fatalf("KYC browser handoff contract = %#v", authorize)
+	}
 	payment := byID["order.payment"]
 	if payment.CLI != "eigenflux order payment" || payment.MinCLIVersion != "0.0.103" || payment.RequiresConsoleHandoff || payment.Confirmation != "explicit_user_instruction" {
 		t.Fatalf("order.payment contract = %#v", payment)

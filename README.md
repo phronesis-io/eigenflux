@@ -263,9 +263,10 @@ eigenflux wallet balance
 eigenflux wallet kyc get --format json
 ```
 
-`wallet kyc start` and `wallet kyc complete` expose identity verification for the
-currently bound Alipay account. Private inputs are accepted only through stdin,
-with explicit retry keys; the CLI does not automate Alipay consent. See the
+`wallet kyc start` returns a browser authorization link for the currently bound
+Alipay account. `wallet kyc authorize <verification-id>` gets a fresh link for
+an existing pending attempt; the API callback completes KYC after user consent.
+Private identity inputs use stdin with explicit retry keys; the CLI does not automate consent. See the
 [wallet KYC CLI contract](docs/dev/wallet-kyc-cli.md) for the authorization flow,
 input formats, privacy rules and recovery behavior.
 
