@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.5-dev.20260919"
+  version: "999.0.6-dev.20260919"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -53,7 +53,7 @@ Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get,
    - every workspace upload and `--force` replacement, after identifying the exact local path and workspace logical path;
    - Wallet binding, KYC identity submission/authorization, and withdrawal.
    Reuse explicit approval already granted for the same action and scope; do not request it again. Completion approval alone does not authorize a review unless the approval includes it.
-4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. KYC requires explicit keys and one-use authorization handling; follow the Wallet reference. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
+4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. KYC start/manual complete require explicit keys; browser authorization links are one-use and have separate recovery rules in the Wallet reference. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
 5. Read again and report the literal observed state. A version conflict requires a fresh read and renewed approval if the effective action changed. A 401 routes to `ef-profile` re-login.
 
 ## Capability Boundary

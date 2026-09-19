@@ -71,21 +71,28 @@ class CommissionRoutesTest(unittest.TestCase):
             [self.binary, "adapt", "--config", str(REPO / filename), "--adapter", "caddyfile"],
             check=True, capture_output=True, text=True,
         )
-        servers = json.loads(adapted.stdout)["apps"]["http"]["servers"]
+        adapted_config = json.loads(adapted.stdout)
+        servers = adapted_config["apps"]["http"]["servers"]
         self.assertEqual(len(servers), 1)
         server = next(iter(servers.values()))
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
-        # Preserve the adapted routing tree; isolate listeners, TLS, logs and upstreams.
+        # Preserve routing and log-skip behavior; isolate all listeners and outputs.
         server["listen"] = [f"127.0.0.1:{self.port}"]
         server["automatic_https"] = {"disable": True}
         server.pop("tls_connection_policies", None)
-        server.pop("logs", None)
+        self.access_log = self.directory / "access.log"
+        logging = adapted_config.get("logging", {})
+        for logger in logging.get("logs", {}).values():
+            writer = logger.get("writer", {})
+            if writer.get("output") == "file":
+                writer["filename"] = str(self.access_log)
         replace_dials(server, self.dials)
         config = self.directory / "caddy.json"
         config.write_text(json.dumps({
             "admin": {"disabled": True},
+            "logging": logging,
             "apps": {"http": {"servers": {"test": server}}},
         }), encoding="utf-8")
         log = (self.directory / "caddy.log").open("w+b")
@@ -132,6 +139,11 @@ class CommissionRoutesTest(unittest.TestCase):
     def check_routes(self, filename):
         self.start_caddy(filename)
         cases = [
+            ("POST", "/api/v1/wallet/kyc/authorization", "commission"),
+            ("GET", "/api/v1/public/wallet/kyc/launch?ticket=fixture", "commission"),
+            ("GET", "/api/v1/public/wallet/kyc/callback?state=fixture&auth_code=fixture", "commission"),
+            ("GET", "/api/v1/public/wallet/kyc/result", "commission"),
+            ("GET", "/api/v1/public/wallet/unrelated", "gateway"),
             ("GET", "/api/v1/public/commissions/42", "commission"),
             ("GET", "/api/v1/public/commissions/42/reviews?commission_version=2&cursor=next", "commission"),
             ("GET", "/api/v1/public/unrelated", "gateway"),
@@ -157,6 +169,21 @@ class CommissionRoutesTest(unittest.TestCase):
 
     def test_production_routes(self):
         self.check_routes("Caddyfile.prod")
+
+    def test_browser_handoff_omits_sensitive_access_logs(self):
+        self.start_caddy("Caddyfile.dev")
+        self.request("GET", "/api/v1/public/wallet/kyc/launch?ticket=private-launch-fixture")
+        self.request("GET", "/api/v1/public/wallet/kyc/callback?auth_code=private-code-fixture")
+        self.request("GET", "/api/privacy-control-fixture")
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            content = self.access_log.read_text() if self.access_log.exists() else ""
+            if "/api/privacy-control-fixture" in content:
+                break
+            time.sleep(0.05)
+        self.assertIn("/api/privacy-control-fixture", content)
+        self.assertNotIn("private-launch-fixture", content)
+        self.assertNotIn("private-code-fixture", content)
 
 
 if __name__ == "__main__":
