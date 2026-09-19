@@ -260,7 +260,14 @@ eigenflux commission saved
 eigenflux order create 123 --impression-id 456
 eigenflux order payment 123 --channel page --format json
 eigenflux wallet balance
+eigenflux wallet kyc get --format json
 ```
+
+`wallet kyc start` and `wallet kyc complete` expose identity verification for the
+currently bound Alipay account. Private inputs are accepted only through stdin,
+with explicit retry keys; the CLI does not automate Alipay consent. See the
+[wallet KYC CLI contract](docs/dev/wallet-kyc-cli.md) for the authorization flow,
+input formats, privacy rules and recovery behavior.
 
 `order payment` (alias `order pay`) obtains an Alipay link for an existing
 buyer's `pending_payment` order through the configured Commission API.
