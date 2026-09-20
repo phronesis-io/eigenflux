@@ -168,7 +168,16 @@ The installer does not change Codex sandbox policy or write Rules. Required
 command permission belongs to the separate foreground onboarding choice; do
 not recommend a network/write-access configuration change instead.
 
-Verify registration with `codex plugin list`. The installer emits a JSON result
+The installer requires Codex CLI 0.142.0 or newer for root-directory plugins.
+It uses a compatible PATH executable, otherwise an existing macOS desktop-app
+binary. It does not upgrade Codex. If none is compatible, upgrade Codex and retry;
+do not edit the plugin marketplace path to work around an old parser.
+
+Use the exact `codex_path` from the installer result for `plugin list` and any
+plugin repair or removal, setting `CODEX_HOME` to its reported `codex_home`. Do not
+fall back to a different PATH executable. The result also includes `codex_version`;
+these identify the installer CLI, not the running desktop app's activation state.
+The installer emits a JSON result
 with `component: "codex-eigenflux"`, `status: "installed"`, and
 `activation: "restart_pending"` after a successful new installation. A reused
 installation has `status: "present"` and `activation: "verify_in_host"`; listing

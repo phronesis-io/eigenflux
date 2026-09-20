@@ -502,6 +502,63 @@ provision_agent_v2() {
   ok "Agent identity provisioned. Use the returned Console link; the installer will not open a browser automatically."
 }
 
+# Codex 0.142.0 adds root-local marketplace plugins (openai/codex#28771).
+# Probe only existing executables; never upgrade Codex or change its configuration.
+select_codex_cli() {
+  CODEX_BIN=""
+  CODEX_VERSION=""
+  for ef_codex_candidate in "$@"; do
+    [ -n "$ef_codex_candidate" ] && [ -x "$ef_codex_candidate" ] || continue
+    ef_codex_version=$("$ef_codex_candidate" --version 2>/dev/null) || ef_codex_version=""
+    ef_codex_version=$(printf '%s\n' "$ef_codex_version" | awk '$1 == "codex-cli" && NF == 2 { print $2; exit }')
+    if printf '%s\n' "$ef_codex_version" | awk '
+      /^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$/ {
+        split($0, v, /[.+-]/)
+        if (v[1]+0 > 0 || v[2]+0 > 142 || (v[2]+0 == 142 && (v[3]+0 > 0 || index($0, "-") == 0))) ok=1
+      }
+      END { exit !ok }'; then
+      case "$ef_codex_candidate" in
+        /*) CODEX_BIN="$ef_codex_candidate" ;;
+        *) CODEX_BIN="$(pwd)/$ef_codex_candidate" ;;
+      esac
+      CODEX_VERSION="$ef_codex_version"
+      return 0
+    fi
+    info "Skipping incompatible Codex CLI: $ef_codex_candidate (${ef_codex_version:-unknown version}); requires >= 0.142.0."
+  done
+  err "No compatible Codex CLI found. Upgrade Codex CLI or the desktop app to >= 0.142.0, then retry. EigenFlux CLI and Skills remain installed; Codex plugin setup is incomplete."
+  codex_plugin_result failed unavailable
+  return 1
+}
+
+# Carry executable identity to verification and restart handoff, with JSON-safe paths.
+codex_plugin_result() {
+  EF_CODEX_RESULT_BIN="$CODEX_BIN" EF_CODEX_RESULT_VERSION="$CODEX_VERSION" \
+    EF_CODEX_RESULT_HOME="${CODEX_HOME:-$HOME/.codex}" \
+    awk -v status="$1" -v activation="$2" '
+      function quote(s, i, c) {
+        printf "\""
+        for (i=1; i<=length(s); i++) {
+          c=substr(s,i,1)
+          if (c == "\\" || c == "\"") printf "\\%s", c
+          else if (c == "\n") printf "\\n"
+          else if (c == "\r") printf "\\r"
+          else if (c == "\t") printf "\\t"
+          else printf "%s", c
+        }
+        printf "\""
+      }
+      BEGIN {
+        printf "{\"component\":\"codex-eigenflux\",\"status\":\"%s\",\"activation\":\"%s\",\"codex_path\":", status, activation
+        quote(ENVIRON["EF_CODEX_RESULT_BIN"])
+        printf ",\"codex_version\":"
+        quote(ENVIRON["EF_CODEX_RESULT_VERSION"])
+        printf ",\"codex_home\":"
+        quote(ENVIRON["EF_CODEX_RESULT_HOME"])
+        print "}"
+      }'
+}
+
 # ── Step 5: Detect and configure AI agents ────────────────────
 
 setup_agents() {
@@ -640,20 +697,17 @@ setup_agents() {
 
   # Codex: install the codex-eigenflux plugin (bundled stdio MCP server that
   # exposes the feed/messages as tools and guarantees skills sync on startup).
-  # ChatGPT desktop app users often have no `codex` on PATH — on macOS the CLI
-  # ships inside the app bundle (/Applications or ~/Applications), so fall
-  # back to those paths. Linux/WSL: codex only ships via PATH installs
-  # (npm/brew), no bundle fallback needed.
+  # Prefer a compatible PATH CLI, then existing user/system desktop bundles.
+  # Preserve CODEX_HOME across probes, installation, and verification.
   # Install commands / app paths / the "codex-eigenflux@eigenflux" id mirror
   # the codex-eigenflux repo (README, .agents/plugins/marketplace.json) and
   # the standalone installation entry's Codex section — keep them in sync.
   CODEX_BIN=""
-  if command -v codex >/dev/null 2>&1; then
-    CODEX_BIN="codex"
-  elif [ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
-    CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
-  elif [ -x "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
-    CODEX_BIN="$HOME/Applications/ChatGPT.app/Contents/Resources/codex"
+  CODEX_VERSION=""
+  if ef_should_setup codex; then
+    select_codex_cli "$(command -v codex 2>/dev/null || true)" \
+      "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
+      "/Applications/ChatGPT.app/Contents/Resources/codex" || true
   fi
 
   # Is the plugin actually installed? Prefer machine-readable output: the
@@ -691,7 +745,7 @@ setup_agents() {
       info "Inspect it and, if safe, remove it, then re-run the installer:"
       info "  $CODEX_BIN plugin marketplace list"
       info "  $CODEX_BIN plugin marketplace remove eigenflux"
-      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
+      codex_plugin_result failed unavailable
       return 1
     fi
     add_status=0
@@ -699,13 +753,13 @@ setup_agents() {
     # Verify the actual end state, not just the exit code.
     if [ "$add_status" = "0" ] && codex_plugin_installed; then
       ok "Codex plugin installed (user-level registration)"
-      printf '%s\n' '{"component":"codex-eigenflux","status":"installed","activation":"restart_pending"}'
+      codex_plugin_result installed restart_pending
       info "Uninstall anytime: $CODEX_BIN plugin remove codex-eigenflux@eigenflux"
     elif [ "$add_status" = "0" ]; then
       # add exited 0 but the plugin isn't listed — report that, not a bare "failed".
       info "Codex plugin add reported success but the plugin isn't listed; verify with:"
       info "  $CODEX_BIN plugin list"
-      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
+      codex_plugin_result failed unavailable
       return 1
     else
       info "Codex plugin install failed:"
@@ -713,14 +767,14 @@ setup_agents() {
       info "Run manually:"
       info "  $CODEX_BIN plugin marketplace add phronesis-io/codex-eigenflux"
       info "  $CODEX_BIN plugin add codex-eigenflux@eigenflux"
-      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
+      codex_plugin_result failed unavailable
       return 1
     fi
   }
 
   if [ -n "$CODEX_BIN" ] && ef_should_setup codex; then
     info ""
-    info "Codex environment detected."
+    info "Codex CLI selected: $CODEX_BIN ($CODEX_VERSION)"
 
     if codex_plugin_installed; then
       # Refresh the git marketplace snapshot so future installs/updates pick
@@ -730,7 +784,7 @@ setup_agents() {
       else
         info "Codex plugin already installed (snapshot refresh skipped)"
       fi
-      printf '%s\n' '{"component":"codex-eigenflux","status":"present","activation":"verify_in_host"}'
+      codex_plugin_result present verify_in_host
     else
       if ! ef_interactive; then
         info "Non-interactive shell; installing the codex-eigenflux plugin automatically"
@@ -747,7 +801,7 @@ setup_agents() {
         case "$REPLY" in
           [nN]|[nN][oO])
             info "Skipped Codex plugin installation"
-            printf '%s\n' '{"component":"codex-eigenflux","status":"skipped","activation":"unavailable"}'
+            codex_plugin_result skipped unavailable
             ;;
           *)
             install_codex_plugin || true

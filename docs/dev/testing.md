@@ -21,6 +21,20 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Codex installer compatibility
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
+for isolated full-installer selection and receipt tests. The suite preserves a
+non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
+
+For a real Codex binary, run
+`python3 scripts/tests/check-codex-marketplace.py /path/to/codex supported`.
+Use `unsupported` for Codex 0.139.0 and `supported` for the minimum 0.142.0 and
+current desktop binary. The probe registers a local root-directory marketplace
+only in a disposable Home, lists its entries, and deletes the fixture. It does
+not install a plugin, start an MCP server, or alter the user's Codex settings.
+This isolates root-plugin parser compatibility from network and model behavior.
+
 ## Commission Deployed Boundary
 
 The cross-service Commission suite is owned by the sibling
