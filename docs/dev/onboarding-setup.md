@@ -35,3 +35,16 @@ no snapshot URL, test-purpose prompt, or distribution override. A later snapshot
 must archive this source revision and preserve these rules. Verify the normal
 production distribution independently before release; never publish a snapshot
 to production aliases.
+
+## Fixed-copy output contract
+
+User-facing setup copy is owned by the templates in `ef-onboarding` references.
+Scheduling, rule consent, restart, Prefill, and refusal retain their current
+behavior and authorization scope. The change makes their wording mandatory,
+with only explicit cadence, context-source, rule-path/rule-body, and existing-rule
+substitutions. English and Chinese templates are exact; other languages preserve
+all content and structure. Native controls retain the complete body and labels.
+Failures, host approvals, and user-requested clarification remain authoritative;
+never render a success template over a failure. Validate template coverage,
+required disclosure retention, allowed substitutions, and the existing lifecycle
+contracts before generating the next immutable snapshot.

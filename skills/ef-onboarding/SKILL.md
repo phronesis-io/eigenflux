@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.0"
+  version: "0.2.1"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -27,6 +27,32 @@ established preference, the predominant language of the recent conversation,
 then the latest substantive user message. Use English only when none provides
 evidence. Examples never select the language. Do not translate commands, JSON
 keys, enum values, URLs, IDs, or exact operational identifiers.
+
+## Fixed user-facing templates
+
+For scheduling, execution-permission consent, required restart, optional Prefill,
+and refusal, use the corresponding reference template as the entire user-visible
+response. In Chinese and English, reproduce its body and choice labels verbatim,
+including every sentence and paragraph, replacing only variables or variants
+explicitly allowed by that reference. Do not paraphrase, shorten, reorder, omit,
+or add an introduction, heading, progress report, explanation, reassurance,
+summary, or next-step preview. The reference blockquote markers are documentation
+formatting; do not wrap the actual response in a quotation or code fence. Render
+only the rule itself as code where specified.
+
+When using native choice controls, put the complete template body in the prompt
+and use the exact labels; do not replace the body with a short question or send
+an additional chat summary. Without native controls, output the complete body
+and the listed labels once. These output constraints do not restrict the user's
+natural-language answers. For other languages, translate naturally while
+preserving every disclosure, paragraph, choice, and the same substitution limits.
+
+Check the rendered response against its selected template before sending it.
+Failure handling, required host approvals, a user's explicit question, and
+clarification of an ambiguous answer take precedence when applicable. Explain
+that concrete issue without claiming a template's unmet success condition; do
+not use this exception to embellish normal setup. The final Console handoff
+retains its own existing four-line output contract.
 
 ## Entry boundary
 

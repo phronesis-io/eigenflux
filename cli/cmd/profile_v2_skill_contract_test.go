@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -103,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.0"`,
+		`version: "0.2.1"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -327,6 +328,62 @@ func TestOnboardingAuthorizationAndActivationBoundaries(t *testing.T) {
 	for _, line := range strings.Split(scheduling, "\n") {
 		if strings.HasPrefix(line, ">") && (strings.Contains(line, "Rules") || strings.Contains(line, "预填") || strings.Contains(line, "许可")) {
 			t.Fatalf("scheduling question contains another permission: %s", line)
+		}
+	}
+}
+
+func TestOnboardingFixedTemplateCoverage(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := readRepoFile(t, root, "skills/ef-onboarding/SKILL.md")
+	for _, requirement := range []string{
+		"choice labels verbatim", "Do not paraphrase, shorten, reorder, omit",
+		"complete template body in the prompt", "only variables or variants",
+		"Failure handling, required host approvals", "natural-language answers",
+	} {
+		if !strings.Contains(entry, requirement) {
+			t.Errorf("missing output constraint: %s", requirement)
+		}
+	}
+	variable := regexp.MustCompile(`<[^>]+>`)
+	for _, tc := range []struct {
+		file    string
+		bodies  int
+		allowed map[string]bool
+	}{
+		{"consent.md", 8, map[string]bool{"<context-sources>": true}},
+		{"execution-permission.md", 2, map[string]bool{"<rules-file>": true, "<rule-block>": true}},
+		{"activation.md", 2, nil},
+	} {
+		body := readRepoFile(t, root, "skills/ef-onboarding/references/"+tc.file)
+		blocks := []string{}
+		current := []string{}
+		for _, line := range strings.Split(body+"\n", "\n") {
+			if strings.HasPrefix(line, ">") {
+				current = append(current, strings.TrimPrefix(line, ">"))
+			} else if len(current) > 0 {
+				blocks = append(blocks, strings.Join(current, "\n"))
+				current = nil
+			}
+		}
+		if len(blocks) != tc.bodies {
+			t.Errorf("%s: got %d localized bodies, want %d", tc.file, len(blocks), tc.bodies)
+		}
+		for _, block := range blocks {
+			for _, placeholder := range variable.FindAllString(block, -1) {
+				if !tc.allowed[placeholder] {
+					t.Errorf("%s contains an undeclared template variable %s", tc.file, placeholder)
+				}
+			}
+			if tc.file == "execution-permission.md" {
+				for placeholder := range tc.allowed {
+					if strings.Count(block, placeholder) != 1 {
+						t.Errorf("permission body must show %s once", placeholder)
+					}
+				}
+			}
 		}
 	}
 }
