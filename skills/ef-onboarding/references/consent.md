@@ -1,8 +1,8 @@
 # Separate Setup Choices
 
 Follow the main Skill's fixed user-facing template contract. Ask only the current
-choice, then wait. Use native choice controls when available; accept equivalent
-natural-language answers without requiring an exact phrase. Scheduling,
+choice, then wait. Accept equivalent natural-language answers without requiring
+an exact phrase. Scheduling,
 execution permission, and optional Prefill are separate decisions. Never
 combine them into an all-in-one agreement or infer Prefill permission from
 another choice. Preserve a user-selected cadence in every message and trigger.
