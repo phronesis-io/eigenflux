@@ -13,7 +13,12 @@ both are prepared. A verified active plugin needs no separate restart. Existing
 Rules already loaded and an active plugin need no restart merely for onboarding.
 Never restart automatically or tell the user to create a different task.
 
-When a restart is required, say in Simplified Chinese:
+When a restart is required, output only the matching template verbatim under the
+main Skill's fixed user-facing template contract. There are no variables or
+choice labels. Do not add installation details, a checklist, another restart
+instruction, or a request to open a new task.
+
+Simplified Chinese:
 
 > 运行所需的设置已经准备好了。请完全退出并重新打开 Codex，让这些设置一起生效。然后回到这段对话，告诉我「继续接入」，我会接着完成；已经确认过的选择不用重新回答。
 
