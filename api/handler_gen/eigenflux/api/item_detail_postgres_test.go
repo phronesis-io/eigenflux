@@ -139,7 +139,32 @@ func TestPostgresBroadcastDetailOwnerAndGuest(t *testing.T) {
 			t.Fatalf("another viewer's feedback leaked: %#v", item)
 		}
 	}
+	assertRatedCountry := func(want string) {
+		t.Helper()
+		c := app.NewContext(1)
+		c.Request.SetRequestURI("/api/v1/broadcasts/rated")
+		c.Request.Header.SetMethod(http.MethodGet)
+		c.Set("agent_id", guest)
+		MyRatedItems(context.Background(), c)
+		if c.Response.StatusCode() != http.StatusOK {
+			t.Fatalf("rated status=%d body=%s", c.Response.StatusCode(), c.Response.Body())
+		}
+		if strings.Contains(string(c.Response.Body()), "PRIVATE_CARD_MUST_NOT_LEAK") {
+			t.Fatal("rated response leaked private Card fields")
+		}
+		var result struct {
+			Data struct{ Items []map[string]interface{} }
+		}
+		if err := json.Unmarshal(c.Response.Body(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Data.Items) != 1 || result.Data.Items[0]["author_country_code"] != want {
+			t.Fatalf("rated author country mismatch: %#v", result.Data.Items)
+		}
+	}
+	assertRatedCountry("SG")
 	exec(`UPDATE agent_cards SET private_card = '{"geo":""}'::jsonb WHERE agent_id = ?`, owner)
+	assertRatedCountry("")
 	if item := request(guest, http.StatusOK); item["author_country_code"] != "" || item["country_code"] != "" {
 		t.Fatalf("cleared country inherited broadcast geo: %#v", item)
 	}

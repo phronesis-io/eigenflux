@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hertz-contrib/websocket"
 	"github.com/redis/go-redis/v9"
 
+	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
+	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/ws/hub"
 )
 
@@ -61,6 +65,20 @@ type PMMessageData struct {
 	// Server-verified officialness of the sender (agents.is_official),
 	// stamped by the pm service — clients must never infer it from names.
 	SenderIsOfficial bool `json:"sender_is_official,omitempty"`
+}
+
+type NotificationFetchData struct {
+	Notifications []NotificationData `json:"notifications"`
+	NextCursor    string             `json:"next_cursor,omitempty"`
+	HasMore       bool               `json:"has_more"`
+}
+
+type NotificationData struct {
+	NotificationID string          `json:"notification_id"`
+	SourceType     string          `json:"source_type"`
+	Type           string          `json:"type"`
+	CreatedAt      int64           `json:"created_at"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
 }
 
 func buildPMMessages(msgs []*pm.PMMessage) []PMMessageData {
@@ -152,13 +170,15 @@ func fetchPendingFriendRequests(ctx context.Context, pmClient pmservice.Client, 
 
 // Run is the main push loop for a single connection. It blocks until the
 // connection's Done channel is closed or the context is cancelled.
-func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn *hub.Connection) {
-	channel := fmt.Sprintf("pm:push:%d", conn.AgentID)
-	pubsub := rdb.Subscribe(ctx, channel)
+func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, notificationClient notificationservice.Client, conn *hub.Connection) {
+	pmChannel := fmt.Sprintf("pm:push:%d", conn.AgentID)
+	notificationChannel := fmt.Sprintf("notification:push:%d", conn.AgentID)
+	pubsub := rdb.Subscribe(ctx, pmChannel, notificationChannel)
 	defer pubsub.Close()
 
 	// Initial fetch on connect.
 	pushInitial(ctx, pmClient, conn)
+	pushPendingNotifications(ctx, notificationClient, conn)
 
 	ch := pubsub.Channel()
 	for {
@@ -171,9 +191,61 @@ func Run(ctx context.Context, rdb *redis.Client, pmClient pmservice.Client, conn
 			if !ok {
 				return
 			}
-			fetchAndPush(ctx, pmClient, conn, msg.Payload)
+			if msg.Channel == notificationChannel {
+				pushPendingNotifications(ctx, notificationClient, conn)
+			} else {
+				fetchAndPush(ctx, pmClient, conn, msg.Payload)
+			}
 		}
 	}
+}
+
+func pushPendingNotifications(ctx context.Context, client notificationservice.Client, conn *hub.Connection) {
+	if client == nil {
+		return
+	}
+	data, err := fetchPendingNotificationData(ctx, client, conn.AgentID)
+	if err != nil {
+		logger.Ctx(ctx).Warn("ws: ListPending notifications failed", "agentID", conn.AgentID, "err", err)
+		return
+	}
+	if len(data.Notifications) == 0 {
+		return
+	}
+	payload, err := json.Marshal(Message{Type: "notification_push", Data: data})
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: marshal notifications failed", "agentID", conn.AgentID, "err", err)
+		return
+	}
+	conn.WriteMu.Lock()
+	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
+	conn.WriteMu.Unlock()
+	if err != nil {
+		logger.Ctx(ctx).Error("ws: write notifications failed", "agentID", conn.AgentID, "err", err)
+	}
+}
+
+func fetchPendingNotificationData(ctx context.Context, client notificationservice.Client, agentID int64) (NotificationFetchData, error) {
+	limit := int32(100)
+	response, err := client.ListPending(ctx, &notificationrpc.ListPendingReq{AgentId: agentID, Limit: &limit})
+	if err != nil || response == nil || response.BaseResp == nil || response.BaseResp.Code != 0 {
+		return NotificationFetchData{}, fmt.Errorf("ListPending failed: response=%v: %w", response != nil, err)
+	}
+	data := NotificationFetchData{HasMore: response.GetHasMore(), NextCursor: response.GetNextCursor()}
+	for _, notification := range response.Notifications {
+		if notification == nil || notification.SourceType != "commission_order" || notification.PayloadJson == nil || !json.Valid([]byte(*notification.PayloadJson)) {
+			continue
+		}
+		payload, err := notificationpayload.NormalizeCommissionOrderIDs(*notification.PayloadJson)
+		if err != nil {
+			continue
+		}
+		data.Notifications = append(data.Notifications, NotificationData{
+			NotificationID: strconv.FormatInt(notification.NotificationId, 10), SourceType: notification.SourceType,
+			Type: notification.Type, CreatedAt: notification.CreatedAt, Payload: payload,
+		})
+	}
+	return data, nil
 }
 
 func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Connection) {

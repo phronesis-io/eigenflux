@@ -30,7 +30,10 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.StatusCode == 401 {
+	if e.ErrorCode != "" {
+		return fmt.Sprintf("%s (HTTP %d): %s", e.ErrorCode, e.StatusCode, e.Msg)
+	}
+	if e.StatusCode == 401 && e.Msg == "" {
 		return "authentication required — run 'eigenflux auth login' first"
 	}
 	return fmt.Sprintf("API error (HTTP %d): %s", e.StatusCode, e.Msg)
@@ -132,25 +135,7 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 			return &APIResponse{HTTPStatus: resp.StatusCode, Header: resp.Header.Clone()}, nil
 		}
 		if resp.StatusCode >= 400 {
-			var apiResp APIResponse
-			_ = json.Unmarshal(respBody, &apiResp)
-			var v2Resp struct {
-				Error struct {
-					Code    string          `json:"code"`
-					Message string          `json:"message"`
-					Details json.RawMessage `json:"details"`
-				} `json:"error"`
-			}
-			_ = json.Unmarshal(respBody, &v2Resp)
-			message := apiResp.Msg
-			if message == "" {
-				message = v2Resp.Error.Message
-			}
-			return nil, &APIError{
-				StatusCode: resp.StatusCode, Code: apiResp.Code, ErrorCode: v2Resp.Error.Code,
-				Msg: message, Details: v2Resp.Error.Details,
-				RetryAfterSeconds: parseRetryAfterSeconds(resp.Header.Get("Retry-After"), v2Resp.Error.Details),
-			}
+			return nil, DecodeAPIError(resp.StatusCode, resp.Header, respBody)
 		}
 		var apiResp APIResponse
 		if err := json.Unmarshal(respBody, &apiResp); err != nil {
@@ -164,6 +149,30 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		return &apiResp, nil
 	}
 	return nil, fmt.Errorf("request retry budget exhausted")
+}
+
+// DecodeAPIError preserves the same error contract for HTTP and WebSocket handshakes.
+func DecodeAPIError(status int, header http.Header, body []byte) *APIError {
+	var legacy APIResponse
+	_ = json.Unmarshal(body, &legacy)
+	var response struct {
+		Error struct {
+			Code    string          `json:"code"`
+			Message string          `json:"message"`
+			Details json.RawMessage `json:"details"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &response)
+	message := response.Error.Message
+	if message == "" {
+		message = legacy.Msg
+	}
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	return &APIError{StatusCode: status, Code: legacy.Code, ErrorCode: response.Error.Code,
+		Msg: message, Details: response.Error.Details,
+		RetryAfterSeconds: parseRetryAfterSeconds(header.Get("Retry-After"), response.Error.Details)}
 }
 
 func parseRetryAfterSeconds(header string, details json.RawMessage) int64 {

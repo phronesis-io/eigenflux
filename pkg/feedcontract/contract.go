@@ -1,6 +1,6 @@
 // Package feedcontract owns the binding safety/output contract included in
-// every EigenFlux Feed response. Both V1 and V2 use this single cached source
-// so host plugins never need to invent or periodically synchronize the rules.
+// every EigenFlux Feed response. Contracts are generated from the central
+// Skills and selected by mode, without host-specific business rules.
 package feedcontract
 
 import (
@@ -15,9 +15,20 @@ import (
 const DefaultPath = "static/feed_contract.md"
 
 var (
-	defaultOnce sync.Once
-	defaultText string
+	defaultOnce  sync.Once
+	defaultText  string
+	baselineOnce sync.Once
+	baselineText string
 )
+
+// ForMode selects the contract generated from the corresponding dynamic Skill.
+func ForMode(mode string) string {
+	if mode != "baseline" {
+		return Default()
+	}
+	baselineOnce.Do(func() { baselineText = Load("static/feed_baseline_contract.md") })
+	return baselineText
+}
 
 // Default returns the repository-generated contract, read once per process.
 func Default() string {
@@ -28,7 +39,7 @@ func Default() string {
 }
 
 // Load reads and trims a contract file. Missing files fail soft so clients can
-// use their bundled copy, while the server emits an actionable warning.
+// use their synchronized Skills, while the server emits an actionable warning.
 func Load(path string) string {
 	body, err := os.ReadFile(path)
 	if err != nil && !filepath.IsAbs(path) {
@@ -47,7 +58,7 @@ func Load(path string) string {
 	}
 	if err != nil {
 		logger.Default().Warn(
-			"feed output contract not loaded; clients will use their bundled copy",
+			"feed output contract not loaded; clients must resolve the current synchronized Skill",
 			"path", path, "err", err,
 		)
 		return ""

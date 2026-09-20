@@ -312,6 +312,7 @@ func TestMaybePromptUsesOneHourCooldown(t *testing.T) {
 	if settled.LastPromptedUnix != 0 {
 		t.Fatalf("completion left stale prompt stamp: %d", settled.LastPromptedUnix)
 	}
+	now = time.Now().Unix()
 	touch := maxInt64(
 		validProfileStamp(settled.LastRefreshUnix, now),
 		validProfileStamp(settled.LastCheckedUnix, now),

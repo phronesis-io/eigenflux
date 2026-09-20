@@ -2,6 +2,8 @@
 
 ## Async Messaging
 
+When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
+
 - Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`, `stream:followup:label`
 - Consumer groups: `cg:profile:update`, `cg:item:publish`, `cg:item:stats`, `cg:replay:log`, `cg:followup:label`, `cg:official:welcome`
 - `stream:profile:update` has two independent groups: `cg:profile:update` (keyword extraction) and `cg:official:welcome` (official-account onboarding welcome)
@@ -176,7 +178,7 @@ per-user-per-day (`OFFICIAL_CHAT_DAILY_PER_USER`), and a global per-minute cap
 
 Captures append-only feedback events for offline analysis and replay-log joins. Records every feedback submission that reaches the `item_stats` pipeline, without replacing the aggregate counters in `item_stats`.
 
-- **Write path**: API `POST /api/v1/items/feedback` → `stream:item:stats` (Redis Stream) → `ItemStatsConsumer` → `feedback_logs` + `item_stats` (PostgreSQL)
+- **Write path**: API `POST /api/v1/items/feedback` → `stream:item:stats` (Redis Stream) → `ItemStatsConsumer` → `feedback_logs` + `item_stats` (PostgreSQL). The gateway resolves item authors in one batched `raw_items` query and drops an author's score on their own broadcast before publishing, so self feedback never enters the stream or the aggregates
 - **Table**: `feedback_logs` — one row per feedback stream message. Stores `stream_message_id`, `impression_id`, `agent_id`, `item_id`, `score`, and event timestamps
 - **Idempotency**: `stream_message_id` is unique, so consumer retries do not duplicate feedback logs or aggregate counters
 - **Consumer ownership**: `pipeline/consumer/item_stats_consumer.go` persists feedback logs and updates `item_stats` in the same database transaction

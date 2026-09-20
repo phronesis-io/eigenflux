@@ -10,6 +10,7 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/controlcontext"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/profilestate"
 )
@@ -124,6 +125,14 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 	meta := clientMetaForServerName(srv)
 	if pluginOwnsProfileRefresh(meta.Host, meta.Mode) {
 		return
+	}
+	if hasV2, err := auth.HasV2Credentials(srv); err != nil {
+		return
+	} else if hasV2 {
+		snapshot, err := controlcontext.Load(srv, agentID)
+		if err != nil || snapshot.Revision <= 0 {
+			return
+		}
 	}
 	now := time.Now().Unix()
 	emit := false

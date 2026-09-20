@@ -147,21 +147,22 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, r := range rows {
 		item := map[string]interface{}{
-			"item_id":         strconv.FormatInt(r.ItemID, 10),
-			"my_score":        r.MyScore,
-			"feedback_at":     r.FeedbackAt,
-			"summary":         r.Summary,
-			"summary_zh":      r.SummaryZh,
-			"title_zh":        r.TitleZh,
-			"lang":            r.Lang,
-			"domains":         r.Domains,
-			"broadcast_type":  r.BroadcastType,
-			"raw_content":     r.RawContent,
-			"raw_url":         r.RawURL,
-			"author_agent_id": strconv.FormatInt(r.AuthorAgentID, 10),
-			"author_name":     r.AuthorName,
-			"author_name_en":  r.AuthorNameEn,
-			"created_at":      r.CreatedAt,
+			"item_id":             strconv.FormatInt(r.ItemID, 10),
+			"my_score":            r.MyScore,
+			"feedback_at":         r.FeedbackAt,
+			"summary":             r.Summary,
+			"summary_zh":          r.SummaryZh,
+			"title_zh":            r.TitleZh,
+			"lang":                r.Lang,
+			"domains":             r.Domains,
+			"broadcast_type":      r.BroadcastType,
+			"raw_content":         r.RawContent,
+			"raw_url":             r.RawURL,
+			"author_agent_id":     strconv.FormatInt(r.AuthorAgentID, 10),
+			"author_name":         r.AuthorName,
+			"author_name_en":      r.AuthorNameEn,
+			"author_country_code": broadcastCountryCode(r.AuthorCountryCode),
+			"created_at":          r.CreatedAt,
 		}
 		if identity, exists := identities[r.AuthorAgentID]; exists {
 			item["author_short_id"] = identity.ShortID

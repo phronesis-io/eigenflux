@@ -43,7 +43,7 @@ func LoadPrompts(dir string) (*PromptRegistry, error) {
 }
 
 // LoadDefaultPrompts finds the prompts directory by walking up from the working
-// directory (same strategy as skilldoc) and loads all templates.
+// directory and loads all templates.
 func LoadDefaultPrompts() (*PromptRegistry, error) {
 	dir, err := findPromptsDir()
 	if err != nil {

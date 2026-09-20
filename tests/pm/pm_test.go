@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +63,14 @@ func cleanRedisPattern(ctx context.Context, pattern string) {
 	}
 }
 
-// mockItem inserts a raw_item + processed_item directly in DB, bypassing the LLM pipeline.
+// mockItem inserts a completed raw_item + processed_item directly in DB, bypassing the LLM pipeline.
 func mockItem(t *testing.T, itemID, authorAgentID int64, expectedResponse string) {
+	t.Helper()
+	mockItemWithStatus(t, itemID, authorAgentID, expectedResponse, testutil.ItemStatusCompleted)
+}
+
+// mockItemWithStatus is mockItem with an explicit processed_items.status.
+func mockItemWithStatus(t *testing.T, itemID, authorAgentID int64, expectedResponse string, status int) {
 	t.Helper()
 	now := time.Now().UnixMilli()
 
@@ -84,8 +91,8 @@ func mockItem(t *testing.T, itemID, authorAgentID int64, expectedResponse string
 		expResp = &expectedResponse
 	}
 	_, err = testutil.TestDB.Exec(
-		`INSERT INTO processed_items (item_id, status, broadcast_type, expected_response, updated_at) VALUES ($1, 3, 'info', $2, $3)`,
-		itemID, expResp, now,
+		`INSERT INTO processed_items (item_id, status, broadcast_type, expected_response, updated_at) VALUES ($1, $2, 'info', $3, $4)`,
+		itemID, status, expResp, now,
 	)
 	if err != nil {
 		t.Fatalf("failed to insert mock processed_item: %v", err)
@@ -1150,5 +1157,136 @@ func TestListFriendRequests_HasMore(t *testing.T) {
 	}
 	if out2.HasMore != nil && *out2.HasMore {
 		t.Errorf("HasMore: want false (3 pending, limit 10), got true")
+	}
+}
+
+// countBroadcastConversations returns how many conversations originate from itemID.
+func countBroadcastConversations(t *testing.T, itemID int64) int {
+	t.Helper()
+	var count int
+	if err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM conversations WHERE origin_type = 'broadcast' AND origin_id = $1", itemID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count conversations for item %d: %v", itemID, err)
+	}
+	return count
+}
+
+// TestSendPM_UnavailableItemRejected verifies a deleted or discarded
+// (never-distributed) broadcast cannot open a conversation: the send is refused
+// with code 404 and ITEM_NOT_AVAILABLE, and no conversation is created. An
+// in-flight item stays reachable so replies racing the pipeline still land.
+func TestSendPM_UnavailableItemRejected(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	emails := []string{"pm_unavail_author@test.com", "pm_unavail_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "pm_unavail_author@test.com", "Unavailable Author", "bio")
+	user := testutil.RegisterAgent(t, "pm_unavail_user@test.com", "Unavailable User", "bio")
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+	userToken := user["token"].(string)
+	defer cleanPMData(t, authorID, userID)
+
+	for _, tc := range []struct {
+		name   string
+		itemID int64
+		status int
+	}{
+		{"deleted", 7770101, testutil.ItemStatusDeleted},
+		{"discarded", 7770102, testutil.ItemStatusDiscarded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockItemWithStatus(t, tc.itemID, authorID, "", tc.status)
+			defer cleanMockItems(t, tc.itemID)
+
+			resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+				"content": "Trying to open a conversation via an unavailable item " + tc.name,
+				"item_id": strconv.FormatInt(tc.itemID, 10),
+			}, userToken)
+
+			if code := int(resp["code"].(float64)); code != 404 {
+				t.Fatalf("expected code=404 for %s item, got code=%d msg=%v", tc.name, code, resp["msg"])
+			}
+			if msg, _ := resp["msg"].(string); !strings.Contains(msg, "ITEM_NOT_AVAILABLE") {
+				t.Fatalf("expected ITEM_NOT_AVAILABLE in msg, got %q", msg)
+			}
+			if got := countBroadcastConversations(t, tc.itemID); got != 0 {
+				t.Fatalf("expected no conversation for %s item, got %d", tc.name, got)
+			}
+		})
+	}
+
+	t.Run("pending stays reachable", func(t *testing.T) {
+		pendingItemID := int64(7770103)
+		mockItemWithStatus(t, pendingItemID, authorID, "", testutil.ItemStatusPending)
+		defer cleanMockItems(t, pendingItemID)
+
+		resp := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+			"content": "Replying to a broadcast that is still being processed",
+			"item_id": strconv.FormatInt(pendingItemID, 10),
+		}, userToken)
+
+		if code := int(resp["code"].(float64)); code != 0 {
+			t.Fatalf("expected in-flight item to accept a message, got code=%d msg=%v", code, resp["msg"])
+		}
+		if got := countBroadcastConversations(t, pendingItemID); got != 1 {
+			t.Fatalf("expected one conversation for the pending item, got %d", got)
+		}
+	})
+}
+
+// TestSendPM_DeletedItemStopsNewSendsButConvIDReplyContinues verifies that
+// retracting a broadcast closes the item_id entry point immediately while the
+// existing conversation stays reachable through conv_id.
+func TestSendPM_DeletedItemStopsNewSendsButConvIDReplyContinues(t *testing.T) {
+	testutil.WaitForAPI(t)
+
+	emails := []string{"pm_retract_author@test.com", "pm_retract_user@test.com"}
+	testutil.CleanupTestEmails(t, emails...)
+
+	author := testutil.RegisterAgent(t, "pm_retract_author@test.com", "Retract Author", "bio")
+	user := testutil.RegisterAgent(t, "pm_retract_user@test.com", "Retract User", "bio")
+	authorID, _ := strconv.ParseInt(author["agent_id"].(string), 10, 64)
+	userID, _ := strconv.ParseInt(user["agent_id"].(string), 10, 64)
+	userToken := user["token"].(string)
+
+	itemID := int64(7770104)
+	mockItem(t, itemID, authorID, "")
+	defer cleanMockItems(t, itemID)
+	defer cleanPMData(t, authorID, userID)
+
+	first := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "Opening a conversation while the broadcast is live",
+		"item_id": strconv.FormatInt(itemID, 10),
+	}, userToken)
+	if code := int(first["code"].(float64)); code != 0 {
+		t.Fatalf("expected success before retraction, got code=%d msg=%v", code, first["msg"])
+	}
+	convID := first["data"].(map[string]interface{})["conv_id"].(string)
+
+	// Same transition as DeleteMyItem: the processed record becomes terminal deleted.
+	if _, err := testutil.TestDB.Exec("UPDATE processed_items SET status = $1 WHERE item_id = $2", testutil.ItemStatusDeleted, itemID); err != nil {
+		t.Fatalf("mark item deleted: %v", err)
+	}
+
+	viaItem := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "Second send via the retracted broadcast",
+		"item_id": strconv.FormatInt(itemID, 10),
+	}, userToken)
+	if code := int(viaItem["code"].(float64)); code != 404 {
+		t.Fatalf("expected code=404 via retracted item, got code=%d msg=%v", code, viaItem["msg"])
+	}
+	if got := countBroadcastConversations(t, itemID); got != 1 {
+		t.Fatalf("expected the original conversation only, got %d", got)
+	}
+
+	viaConv := testutil.DoPost(t, "/api/v1/pm/send", map[string]string{
+		"content": "Second send via conv_id still works",
+		"conv_id": convID,
+	}, userToken)
+	if code := int(viaConv["code"].(float64)); code != 0 {
+		t.Fatalf("expected conv_id reply to succeed after retraction, got code=%d msg=%v", code, viaConv["msg"])
 	}
 }

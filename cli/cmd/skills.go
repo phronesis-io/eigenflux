@@ -191,8 +191,8 @@ var skillsTargetShowCmd = &cobra.Command{
 func init() {
 	skillsSyncCmd.Flags().String("into", "", "explicit skills dir (overrides host detection)")
 	skillsSyncCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")
-	skillsSyncCmd.Flags().Bool("if-stale", false, "background mode: never fail on network errors; unchanged revision skips the download")
-	skillsSyncCmd.Flags().Bool("quiet", false, "never fail (exit 0); for startup hooks")
+	skillsSyncCmd.Flags().Bool("if-stale", false, "keep intact local skills on network errors; unchanged release skips the download")
+	skillsSyncCmd.Flags().Bool("quiet", false, "keep intact local skills on network failure; report installation errors")
 
 	skillsListCmd.Flags().String("into", "", "explicit skills dir")
 	skillsListCmd.Flags().String("host", "", "openclaw|claude-code|codex|workbuddy|hermes|terminal")

@@ -23,14 +23,14 @@ func WaitForAPI(t *testing.T) {
 	t.Helper()
 	lastErr := ""
 	for i := 0; i < 60; i++ {
-		resp, err := http.Get(BaseURL + "/skill.md")
+		resp, err := http.Get(BaseURL + "/api/v1/website/stats")
 		if err != nil {
 			lastErr = err.Error()
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 		if resp.StatusCode != 200 {
-			lastErr = fmt.Sprintf("skill.md status=%d", resp.StatusCode)
+			lastErr = fmt.Sprintf("website/stats status=%d", resp.StatusCode)
 			resp.Body.Close()
 			time.Sleep(500 * time.Millisecond)
 			continue

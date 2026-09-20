@@ -70,3 +70,36 @@ still persisted and `verified_manifest` remains true.
 Production releases require the existing R2 and signing secrets plus Python 3,
 Go, GNU tar, and an AWS CLI supporting S3 conditional PutObject. Publishing
 through any other workflow is rejected before credentials are loaded.
+
+## Client synchronization and permissions
+
+Every heartbeat checks the signed remote manifest. An intact installation with
+unchanged content and sequence returns without creating directories, locks, or
+timestamps in the Skills tree. Directory and manifest checks around content
+verification detect concurrent swaps. Interrupted installations are recovered
+under a short lock before the remote request starts.
+
+Only installation, repair, or signed metadata changes acquire the update lock.
+After rereading local state and repeating rollback and freshness checks, the
+client downloads and extracts directly into the existing same-filesystem staging
+slot, then uses the existing journaled swap. Downloads and installation remain
+inside this lock. Competing writers receive a retryable error. Identical or newer
+releases found during the locked recheck are not overwritten.
+
+Read permission checks reuse manifest and official Skills verification and its
+existing ignored-file rules. They inspect necessary directory and recovery
+metadata without recursively scanning unrelated Skills. Missing paths are valid
+for first installation. File completeness and provisional status are separate:
+an intact provisional bundle remains usable offline and is refreshed online.
+
+Permission failures return nonzero even with `--quiet`. The existing command
+error output includes `SKILLS_PERMISSION_REQUIRED`, the operation and original
+filesystem error (including its path), and instructions for the Agent to explain
+the problem, request access through the host permission flow, and retry the exact
+original command after approval. A denial must be reported as incomplete sync.
+The CLI neither grants permissions nor assumes an approval remains valid.
+
+Tests cover read-only no-change checks, read and write permission failures,
+a retry after permissions are granted, concurrent CLI processes, signed sequence
+advancement, offline provisional reuse, ignored files, and recovery before remote
+requests. Agent Home writes and heartbeat freshness requirements are unchanged.

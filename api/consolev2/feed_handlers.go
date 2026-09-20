@@ -166,7 +166,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		"next_cursor": nil, "has_more": feedResp.HasMore,
 		"capabilities_applied": []string{"feed=v2", "delivery=latest", "personalization=" + mode},
 	}
-	if contract := feedcontract.Default(); contract != "" {
+	if contract := feedcontract.ForMode(mode); contract != "" {
 		response["output_contract"] = contract
 	}
 	encoded, _ := json.Marshal(response)
@@ -366,6 +366,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 		}
 		previewText, previewTruncated := truncateRunes(previewText, 800)
 		payload := map[string]interface{}{
+			"item_id":         strconv.FormatInt(item.ItemId, 10),
 			"source_ref":      map[string]interface{}{"type": "broadcast", "id": fmt.Sprintf("%d", item.ItemId)},
 			"content_class":   contentClass,
 			"author_identity": nil,
@@ -475,7 +476,10 @@ func matchFeedIntents(viewerID int64, contextRevision *int64, item *feedrpc.Feed
 		})
 	}
 	status := "unmatched"
-	reason := "no confirmed intent matched this item"
+	reason := "no confirmed intent matched this item; agent relevance assessment is required"
+	if len(intents) == 0 {
+		reason = "no confirmed intents configured; assess relevance using network_goal, user profile, and current interests"
+	}
 	if len(matchedIDs) > 0 {
 		status = "matched"
 		reason = "matched confirmed intent terms"

@@ -3,6 +3,7 @@ package feedcontract
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,5 +41,58 @@ func TestLoadFindsRelativeContractFromNestedWorkingDirectory(t *testing.T) {
 
 	if got := Load("static/feed_contract.md"); got != "nested contract" {
 		t.Fatalf("Load()=%q", got)
+	}
+}
+
+func TestForModeMatchesGeneratedSkills(t *testing.T) {
+	for _, tc := range []struct{ mode, source, generated string }{
+		{"baseline", "baseline-contract.md", "feed_baseline_contract.md"},
+		{"intent_aligned", "contract.md", "feed_contract.md"},
+		{"", "contract.md", "feed_contract.md"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "..", "skills", "ef-broadcast", "references", tc.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.TrimSpace(string(source))
+			if want == "" {
+				t.Fatal("Skill contract must not be empty")
+			}
+			if got := Load(filepath.Join("..", "..", "static", tc.generated)); got != want {
+				t.Fatalf("%s is out of sync with %s", tc.generated, tc.source)
+			}
+			if got := ForMode(tc.mode); got != want {
+				t.Fatalf("ForMode(%q) did not select %s", tc.mode, tc.source)
+			}
+		})
+	}
+}
+
+func TestBaselineContractKeepsIncompleteOnboardingReadOnly(t *testing.T) {
+	contract := ForMode("baseline")
+	for _, required := range []string{
+		"READ-ONLY OUTPUT CONTRACT",
+		"Keep the recurring heartbeat active",
+		"Surface relevant items",
+		"Use the supplied preview",
+		"NO_REPLY",
+		"skip feedback, behavior-event writes, private messages, friend operations, publishing, profile changes, and Active Attention",
+		"Feed has no delivery ACK",
+		"Upload Attention Prefill only within an explicit onboarding or upgrade flow",
+		"Continue available Feed reads",
+	} {
+		if !strings.Contains(contract, required) {
+			t.Errorf("baseline contract is missing %q", required)
+		}
+	}
+	for _, completedOnly := range []string{
+		"eigenflux feedback", "eigenflux events", "eigenflux publish", "eigenflux msg",
+		"eigenflux relation", "eigenflux profile", "eigenflux settings push",
+		"eigenflux feed get", "[PENDING TASK]", "Submit feedback", "submit feedback",
+	} {
+		if strings.Contains(contract, completedOnly) {
+			t.Errorf("baseline contract must not require completed-only work: %q", completedOnly)
+		}
 	}
 }

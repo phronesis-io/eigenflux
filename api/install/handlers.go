@@ -40,6 +40,7 @@ func Register(h *server.Hertz, baseURL string) {
 	initXAdsConfig()
 	initGoogleAdsConfig()
 	initOceanengineConfig()
+	initBilibiliConfig()
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
@@ -65,6 +66,7 @@ type mintBody struct {
 	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
 	// click_id even though both platforms use similar names in their URLs.
 	ClickID                 string `json:"click_id"`             // Xiaohongshu 聚光
+	BilibiliTrackID         string `json:"bilibili_track_id"`    // Bilibili campaign track_id
 	Twclid                  string `json:"twclid"`               // X (Twitter) Ads
 	Gclid                   string `json:"gclid"`                // Google Ads
 	XingtuClickID           string `json:"xingtu_click_id"`      // Xingtu landing URL clickid
@@ -110,6 +112,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 			return
 		}
 	}
+	bilibiliTrackID := normalizeBilibiliTrackID(body.BilibiliTrackID)
 	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
 	oceanengineClickID := normalizeOceanengineClickID(body.OceanengineClickID)
 	t := &Token{
@@ -119,9 +122,10 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		UTMCampaign:             trunc(body.UTMCampaign, 255),
 		UTMContent:              trunc(body.UTMContent, 255),
 		UTMTerm:                 trunc(body.UTMTerm, 255),
-		Channel:                 deriveChannel(body.EntryChannel, body.UTMSource, body.ClickID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
+		Channel:                 deriveChannel(body.EntryChannel, body.UTMSource, body.ClickID, bilibiliTrackID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
 		Referrer:                trunc(body.Referrer, 2048),
 		ClickID:                 trunc(body.ClickID, 128),
+		BilibiliTrackID:         bilibiliTrackID,
 		Twclid:                  trunc(body.Twclid, 128),
 		Gclid:                   trunc(body.Gclid, 512),
 		XingtuClickID:           xingtuClickID,
@@ -147,7 +151,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode)
+		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode)
 	// The token is now durably created; report this server-confirmed funnel
 	// stage to X when it came from an X ad click.
 	fireXAdsTokenCreatedCallback(t.Token)
@@ -201,6 +205,10 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	fireXHSCallback(t.Token, EventInstall)
 	fireXingtuCallback(t.Token, "1") // registration: server-confirmed first report
 	fireOceanengineCallbacks(t.Token, oceanengineEventCustomerEffective)
+	// Retry a failed copy-stage callback when a later install report arrives.
+	// The claim requires copied_at > 0 and is a no-op after a successful send.
+	fireBilibiliCallback(t.Token, bilibiliEventFormSubmit)
+	fireBilibiliCallback(t.Token, bilibiliEventClueValid)
 	fireXAdsInstallCallback(t.Token)
 	fireGoogleAdsInstallCallback(t.Token)
 	// Registration attribution: the CLI's login-time report carries agent_id,
@@ -257,6 +265,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		fireXHSCallback(t.Token, EventCopy) // shallow conversion (101)
 		fireXingtuCallback(t.Token, "0")    // activation: confirmed command copy
 		fireOceanengineCallbacks(t.Token, oceanengineEventForm)
+		fireBilibiliCallback(t.Token, bilibiliEventFormSubmit)
 		// Copy was confirmed by the server and is idempotent per ref.
 		fireXAdsCopyCommandCallback(t.Token)
 	}

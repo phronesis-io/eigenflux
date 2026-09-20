@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/milestone"
 	"eigenflux_server/pkg/recall"
 )
 
@@ -84,6 +85,9 @@ func CleanTestData(t *testing.T, emails ...string) {
 		TestDB.Exec("DELETE FROM auth_email_challenges WHERE email = $1", email)
 	}
 	resetMilestoneRules()
+	if err := milestone.PublishRuleInvalidation(ctx, rdb, ""); err != nil {
+		t.Fatalf("invalidate reset milestone rule cache: %v", err)
+	}
 	TestDB.Exec("DELETE FROM system_notifications")
 
 	// --- Redis ---

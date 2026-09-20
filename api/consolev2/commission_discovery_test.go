@@ -42,7 +42,7 @@ func TestCommissionDiscoveryV2AuthenticationAndRouting(t *testing.T) {
 		{name: "success", token: "efv2a_test", scopes: "{feed:read}", state: "completed", allowed: true, status: 200},
 		{name: "missing token", scopes: "{feed:read}", state: "completed", allowed: true, status: 401},
 		{name: "legacy token", token: "at_test", scopes: "{feed:read}", state: "completed", allowed: true, status: 401},
-		{name: "wrong scope", token: "efv2a_test", scopes: "{profile:read}", state: "completed", allowed: true, status: 401},
+		{name: "wrong scope", token: "efv2a_test", scopes: "{profile:read}", state: "completed", allowed: true, status: 403},
 		{name: "incomplete onboarding", token: "efv2a_test", scopes: "{feed:read}", state: "draft", allowed: true, status: 409},
 		{name: "not allowlisted", token: "efv2a_test", scopes: "{feed:read}", state: "completed", status: 403},
 		{name: "revoked", token: "efv2a_test", scopes: "{feed:read}", state: "completed", allowed: true, update: "UPDATE agent_credential_sessions SET revoked_at=1", status: 401},

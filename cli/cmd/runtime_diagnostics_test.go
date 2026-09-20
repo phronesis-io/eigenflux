@@ -42,7 +42,7 @@ func TestPartialRuntimeReportRemainsVisibleAfterFeedSuccess(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := "EigenFlux runtime report: " + status + " (missing: mode)"
+				want := "EigenFlux runtime report: " + status + " (missing: mode, model)"
 				if !strings.Contains(string(diagnostic), want) {
 					t.Fatalf("partial report hidden: %q, want %q", diagnostic, want)
 				}
@@ -56,9 +56,9 @@ func TestPartialRuntimeReportRemainsVisibleAfterFeedSuccess(t *testing.T) {
 
 func TestHeartbeatAgentOutputShowsPartialRuntimeIdentity(t *testing.T) {
 	for _, status := range []string{"reported", "unchanged", "failed", "missing"} {
-		plan := heartbeatPlan{RuntimeReport: runtimeReportResult{Status: status, Missing: []string{"mode"}}}
+		plan := heartbeatPlan{RuntimeReport: runtimeReportResult{Status: status, Missing: []string{"mode", "model"}}}
 		got := renderHeartbeatPlanForAgent(plan)
-		if !strings.Contains(got, "Runtime settings report: "+status+" (missing: mode)") {
+		if !strings.Contains(got, "Runtime settings report: "+status+" (missing: mode, model)") {
 			t.Fatalf("partial identity hidden: %s", got)
 		}
 	}

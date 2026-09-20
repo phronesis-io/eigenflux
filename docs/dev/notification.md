@@ -2,9 +2,18 @@
 
 Independent RPC service that aggregates and acknowledges notifications from all sources. Feed and API gateway are consumers only.
 
+## Commission Order Inbox
+
+Commission Order lifecycle notifications use PostgreSQL `notification_inbox` as the authoritative pending and acknowledgement store. Commission publishes a schema-v1 immutable fact to `stream:commission:notification`; Pipeline validates the envelope, inserts by recipient-scoped dedupe key, and only then publishes a best-effort `notification:push:{agent_id}` wake-up. Redis Pub/Sub never owns notification state.
+
+`ListPending` returns every unacknowledged Order version with `source_type=commission_order` and `payload_json`, ordered with the other sources by creation time and notification ID. Clients explicitly acknowledge after successful processing. Commission acknowledgements are Agent-scoped, transactional, idempotent, and return a non-zero response on persistence or ownership failure. Legacy Feed auto-ack excludes this source.
+
+Pending rows expire after 90 days. Acknowledged rows remain for 180 days to preserve deduplication and audit evidence.
+
 ## DAL Structure
 
-- `rpc/notification/dal/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`), constants (`SourceTypeMilestone`, `SourceTypeSystem`, `SourceTypeFriendRequest`, status codes)
+- `rpc/notification/dal/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`), source constants, and status codes
+- `rpc/notification/dal/inbox.go`: Durable Commission Order insert, pending list, delivery-error, and transactional ACK operations
 - `rpc/notification/dal/active_store.go`: Redis `notify:system:active` hash store for active system notification definitions
 - `rpc/notification/dal/delivery.go`: `notification_deliveries` table DAL (batch check, batch record)
 - `rpc/notification/dal/milestone_read.go`: Read/delete milestone notifications from Redis `milestone:notify:{agent_id}` hash, mark events notified in DB

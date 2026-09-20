@@ -51,7 +51,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.2"`) {
+	if !strings.Contains(frontmatter[1], `version: "0.9.4"`) {
 		t.Error("ef-profile version was not advanced for the lifecycle split")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
@@ -103,8 +103,12 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.1.1"`,
+		`version: "0.1.3"`,
 		"references/consent.md",
+		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
+		"Require both CLI compatibility",
+		"and current-host installation verification",
+		"Accept a supported\nbare-CLI setup",
 		"references/prefill.md",
 		"references/recurring-trigger.md",
 		"references/console-handoff.md",
@@ -281,7 +285,6 @@ func TestPublicJoinEntryPointsUseOnboardingSkill(t *testing.T) {
 		"static/install.ps1":                 {"Check ef-onboarding skill"},
 		"static/install.sh":                  {"ef-broadcast|ef-communication|ef-onboarding|ef-profile", "Check ef-onboarding skill"},
 		"static/templates/agti_join.tmpl.md": {"https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md"},
-		"static/templates/skill.tmpl.md":     {"https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md", "ef-onboarding"},
 	}
 
 	for rel, required := range requiredByFile {
@@ -314,7 +317,10 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		"Claude Code",
 		"WorkBuddy",
 		"eigenflux --homedir \"<agent-home>\" version",
-		"eigenflux --homedir \"<agent-home>\" skills path",
+		"eigenflux --homedir \"<agent-home>\" skills path --host \"<skill-host>\"",
+		"`claude-code` for the corresponding macOS/Linux integration",
+		"explicit `EIGENFLUX_SKILLS_DIR` or Home-scoped registered target",
+		"Report a required restart or\nchannel activation as pending setup",
 		"load the installed `ef-onboarding` Skill",
 		"consent question must be\n" +
 			"the entire next user-visible response",

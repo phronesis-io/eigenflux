@@ -17,6 +17,9 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
+	AgentPrompt              string              `json:"agent_prompt"`
+	WakeOnEmpty              bool                `json:"wake_on_empty"`
+	Access                   runtimeAccess       `json:"access"`
 	SchemaVersion            string              `json:"schema_version"`
 	HeartbeatContractVersion string              `json:"heartbeat_contract_version"`
 	CLIVersion               string              `json:"cli_version"`
@@ -71,6 +74,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 
 		ruleSources := []string{
+			filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "SKILL.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
@@ -82,6 +86,11 @@ var heartbeatPlanCmd = &cobra.Command{
 			if !fileExistsCLI(source) {
 				return fmt.Errorf("heartbeat plan: required rule source is missing: %s", source)
 			}
+		}
+
+		access, err := runtimeAccessForServer(activeServerName())
+		if err != nil {
+			return err
 		}
 
 		home, _ := config.HomeDirInfo()
@@ -96,7 +105,8 @@ var heartbeatPlanCmd = &cobra.Command{
 		plan := heartbeatPlan{
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
-			RuleSources: ruleSources, ExecutionOrder: []string{"commands", "feed", "attention", "communication", "publish", "settings_report"},
+			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
+			Access: access, WakeOnEmpty: access.OnboardingState == "completed",
 			CLIPrefix:         cliPrefix,
 			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForRuntime(meta.Host, meta.Mode, launcher),
 			SkillsFresh:   res.VerifiedManifest,
@@ -109,7 +119,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		// Only this cycle's verified official manifest may create Console upgrade
 		// evidence. Lock contention, an offline fallback, a rollback rejection, or
 		// a provisional local bundle can render a plan but cannot unlock V2.
-		if res.VerifiedManifest {
+		if res.VerifiedManifest && access.OnboardingState == "completed" {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
 				plan.CompatibilityError = err.Error()
 			} else {
@@ -117,13 +127,21 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
 		if resolveFormat() == "agent" {
-			fmt.Fprint(cmd.OutOrStdout(), renderHeartbeatPlanForAgent(plan))
+			fmt.Fprint(cmd.OutOrStdout(), plan.AgentPrompt)
 			return nil
 		}
 		output.PrintData(plan, resolveFormat())
 		return nil
 	},
+}
+
+func heartbeatStages(access runtimeAccess) []string {
+	if access.OnboardingState != "completed" {
+		return []string{"feed"}
+	}
+	return []string{"commands", "feed", "attention", "communication", "publish", "settings_report"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
@@ -144,18 +162,17 @@ Heartbeat compatibility reported: %t
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
 %s
-2. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-3. Execute in this exact order: Commands → Feed → Attention → Communication → Publish → Settings report.
-4. Apply the current onboarding state and confirmed security boundary. Continue safe later stages after recoverable feedback or communication errors. Stop on authentication failure.
-5. Tell the user only about relevant Feed content, private messages, friend requests, relationship changes, and completed action results. Attention upload is silent. Never expose Skill revisions, leases, ACKs, candidate counts, quotas, IDs, or internal stage results.
-6. If nothing is worth reporting, return NO_REPLY.
+2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through EIGENFLUX_MODEL for each invocation. If unavailable, keep it unset and continue permitted Feed work.
+3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull.
+5. Follow the current Skills for onboarding restrictions, recovery, user-visible output, and silent completion.
 
 SCHEDULER
 Permanent launcher: %s
 Migration: %s
 The scheduler stores only the launcher. It must not copy business rules into its own prompt.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
 		plan.SchedulerLauncher, plan.SchedulerMigration)
 }
 

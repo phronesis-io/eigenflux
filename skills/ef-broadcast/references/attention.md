@@ -16,6 +16,8 @@ Attention Prefill is a read-only Console projection. It does not authorize a res
 
 After onboarding completes, use Attention Active through `eigenflux attention publish --stdin --format json`. Apply the latest owner-confirmed control context and the full contract below.
 
+For Feed judgments, complete scoring and submit feedback under `feed.md` before uploading qualified items. Apply the same fallback scoring when confirmed intents are empty. Require user value, not an Intent keyword match, for Feed Attention.
+
 ## Publish Conditions
 
 Publish a `participation` item when human authorization, selection, or calibration is required:

@@ -26,6 +26,9 @@ type cachedResponse struct {
 	Items        []struct {
 		ItemID  string `json:"item_id"`
 		Summary string `json:"summary"`
+		Preview struct {
+			Text string `json:"text"`
+		} `json:"preview"`
 	} `json:"items"`
 }
 
@@ -88,6 +91,9 @@ func (l *Ledger) absorb(path, serverID string) {
 		}
 		if _, seen := l.entries[it.ItemID]; seen {
 			continue // newest response already recorded this item
+		}
+		if it.Summary == "" {
+			it.Summary = it.Preview.Text
 		}
 		l.entries[it.ItemID] = Entry{
 			ImpressionID: resp.ImpressionID,

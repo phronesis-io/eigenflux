@@ -310,6 +310,21 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			t.Fatalf("baseline item leaked intent data: %#v", item)
 		}
 	}
+	for _, restricted := range []struct{ method, path string }{
+		{"GET", "/api/v2/pm/fetch"},
+		{"POST", "/api/v2/items/feedback"},
+	} {
+		status, payload, _ := performJSON(t, h, restricted.method, restricted.path, nil,
+			ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "ONBOARDING_REQUIRED" {
+			t.Fatalf("pre-onboarding restriction %s status=%d payload=%#v", restricted.path, status, payload)
+		}
+	}
+	status, feedAfterRestriction, _ := performJSON(t, h, "POST", "/api/v2/feed", retryRequest,
+		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
+	if status != http.StatusOK || responseData(t, feedAfterRestriction)["personalization"].(map[string]interface{})["mode"] != "baseline" {
+		t.Fatalf("restricted operations disrupted baseline Feed: status=%d payload=%#v", status, feedAfterRestriction)
+	}
 	prefillRequest := validAttentionPrefillBatch(time.Now().UnixMilli())
 	prefillRequest.Items[0].SourceRef.ID = fmt.Sprintf("%d", fakeFeed.ugcItemID())
 	status, prefillPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/prefill", prefillRequest,
@@ -320,7 +335,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	status, activeBeforeOnboardingPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items:publish", prefillRequest,
 		ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken})
-	if status != http.StatusUnauthorized || responseErrorCode(t, activeBeforeOnboardingPayload) != "AGENT_AUTH_INVALID" {
+	if status != http.StatusConflict || responseErrorCode(t, activeBeforeOnboardingPayload) != "ONBOARDING_REQUIRED" {
 		t.Fatalf("Active Attention was not blocked before onboarding: status=%d payload=%#v", status, activeBeforeOnboardingPayload)
 	}
 	status, challengePayload, _ := performJSON(t, h, "POST", "/api/v2/agent-sessions/refresh-challenges", refreshChallengeRequest{
@@ -526,7 +541,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	status, completedPrefillPayload, _ := performJSON(t, h, "POST", "/api/v2/agent-attention-items/prefill", prefillRequest,
 		ut.Header{Key: "Authorization", Value: "Bearer " + completedProvision["access_token"].(string)})
-	if status != http.StatusUnauthorized || responseErrorCode(t, completedPrefillPayload) != "AGENT_AUTH_INVALID" {
+	if status != http.StatusForbidden || responseErrorCode(t, completedPrefillPayload) != "AGENT_SCOPE_REQUIRED" {
 		t.Fatalf("completed Agent could still upload Attention Prefill: status=%d payload=%#v", status, completedPrefillPayload)
 	}
 	status, prefillListPayload, _ := performJSON(t, h, "GET", "/api/v2/console/attention-items", map[string]interface{}{},
@@ -701,6 +716,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	ugc := feedItems[0].(map[string]interface{})
 	pgc := feedItems[1].(map[string]interface{})
+	for _, item := range []map[string]interface{}{ugc, pgc} {
+		id, ok := item["item_id"].(string)
+		if !ok || id == "" || id != item["source_ref"].(map[string]interface{})["id"] {
+			t.Fatalf("Feed item has inconsistent feedback/Attention identity: %#v", item)
+		}
+	}
 	if ugc["author_identity"] == nil || pgc["author_identity"] != nil || ugc["intent_match"] == nil {
 		t.Fatalf("UGC/PGC identity policy mismatch: ugc=%#v pgc=%#v", ugc, pgc)
 	}

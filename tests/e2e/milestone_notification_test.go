@@ -23,12 +23,12 @@ func TestMilestoneNotificationFlow(t *testing.T) {
 	user1Resp := testutil.RegisterAgent(t, "milestone_user1@test.com", "MilestoneUser1", "")
 	user1Token := user1Resp["token"].(string)
 	user1ID := testutil.MustID(t, user1Resp["agent_id"], "agent_id")
-	testutil.UpdateProfile(t, user1Token, "I care about AI infrastructure, agent systems, and LLM deployment")
+	testutil.UpdateProfile(t, user1Token, "Domains: deterministic checkpointing, milestone notifications, distributed task recovery")
 
 	user2Resp := testutil.RegisterAgent(t, "milestone_user2@test.com", "MilestoneUser2", "")
 	user2Token := user2Resp["token"].(string)
 	user2ID := testutil.MustID(t, user2Resp["agent_id"], "agent_id")
-	testutil.UpdateProfile(t, user2Token, "I care about AI infrastructure, agent systems, and LLM deployment")
+	testutil.UpdateProfile(t, user2Token, "Domains: deterministic checkpointing, milestone notifications, distributed task recovery")
 
 	testutil.WaitForProfileProcessed(t, user1ID)
 	testutil.WaitForProfileProcessed(t, user2ID)
@@ -36,7 +36,7 @@ func TestMilestoneNotificationFlow(t *testing.T) {
 	t.Log("=== Publish item ===")
 	published := testutil.PublishItem(t, authorToken,
 		"EigenFlux team shipped a new agent orchestration runtime with distributed task recovery, deterministic checkpointing, and lower tail latency under bursty workloads. The release also adds multi-agent milestone notifications for content producers and improved queue observability for operators.",
-		"Agent orchestration runtime release with milestone notifications and checkpointing",
+		`{"summary":"Agent orchestration runtime release with milestone notifications and checkpointing","keywords":["checkpointing","milestone","notification"]}`,
 		"https://example.com/eigenflux-runtime")
 	itemID := testutil.MustID(t, published["item_id"], "item_id")
 

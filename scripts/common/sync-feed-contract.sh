@@ -3,8 +3,8 @@
 # API static assets. The backend reads static/feed_contract.md at runtime and
 # delivers it in the feed response (output_contract), so every client — the
 # bare CLI, the OpenClaw plugin, and the Claude Code plugin — inherits it from
-# one source. Keep skills/ef-broadcast/references/contract.md as the only
-# hand-edited copy; this file is generated.
+# central Skills. Edit contract.md and baseline-contract.md only under
+# skills/ef-broadcast/references/; the static copies are generated.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,3 +18,5 @@ fi
 
 cp "$src" "$dst"
 echo "sync-feed-contract: $src -> $dst"
+
+cp "$repo_root/skills/ef-broadcast/references/baseline-contract.md" "$repo_root/static/feed_baseline_contract.md"

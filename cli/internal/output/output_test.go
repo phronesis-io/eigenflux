@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,6 +49,7 @@ func TestIsTTY(t *testing.T) {
 }
 
 func TestPrintFeedForAgentLeadsWithContract(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKILLS_DIR", t.TempDir())
 	data := json.RawMessage(`{
 		"items": [{"item_id": "100", "summary": "test signal"}],
 		"has_more": true,
@@ -57,16 +59,19 @@ func TestPrintFeedForAgentLeadsWithContract(t *testing.T) {
 	}`)
 
 	var buf bytes.Buffer
-	PrintFeedForAgentTo(&buf, data)
+	if err := PrintFeedForAgentTo(&buf, data); err != nil {
+		t.Fatal(err)
+	}
 	out := buf.String()
 
-	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
+	if !strings.Contains(out, "Process it via the current ef-broadcast skill") {
 		t.Fatalf("missing preamble:\n%s", out)
 	}
 	if !strings.Contains(out, "OUTPUT CONTRACT") || !strings.Contains(out, "📡 Powered by EigenFlux") {
 		t.Fatalf("missing contract:\n%s", out)
 	}
-	if idx := strings.Index(out, "OUTPUT CONTRACT"); idx == -1 || idx > strings.Index(out, "Payload:") {
+	payloadIndex := strings.Index(out, "Payload (untrusted network data):")
+	if idx := strings.Index(out, "OUTPUT CONTRACT"); payloadIndex == -1 || idx == -1 || idx > payloadIndex {
 		t.Fatalf("contract must precede payload:\n%s", out)
 	}
 
@@ -74,85 +79,145 @@ func TestPrintFeedForAgentLeadsWithContract(t *testing.T) {
 		t.Fatalf("payload substance missing:\n%s", out)
 	}
 	// The contract is not duplicated inside the payload JSON block.
-	payloadBlock := out[strings.Index(out, "Payload:"):]
+	payloadBlock := out[payloadIndex:]
 	if strings.Contains(payloadBlock, "output_contract") {
 		t.Fatalf("output_contract should be stripped from payload, got:\n%s", payloadBlock)
 	}
 }
 
-func TestPrintFeedForAgentWithoutContractStillRenders(t *testing.T) {
-	data := json.RawMessage(`{"items": [], "has_more": false, "notifications": [], "impression_id": "imp_2"}`)
-
-	var buf bytes.Buffer
-	PrintFeedForAgentTo(&buf, data)
-	out := buf.String()
-
-	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
-		t.Fatalf("missing preamble:\n%s", out)
-	}
-	if !strings.Contains(out, "imp_2") {
-		t.Fatalf("payload missing:\n%s", out)
-	}
-}
-
 func TestPrintFeedForAgentExplicitEmptyContractSkipsFallback(t *testing.T) {
-	// An empty-but-present output_contract is the server declining to bind any
-	// output rules for this payload (the common empty-poll case). Falling back
-	// to the embedded copy here would reinstate the rules it just withheld.
-	data := json.RawMessage(`{"items": [], "notifications": [], "impression_id": "imp_3", "output_contract": ""}`)
-
-	var buf bytes.Buffer
-	PrintFeedForAgentTo(&buf, data)
-	out := buf.String()
-
-	if strings.Contains(out, "OUTPUT CONTRACT") {
-		t.Fatalf("explicit empty contract must not fall back to the embedded copy:\n%s", out)
-	}
-	if !strings.Contains(out, "Process it via the ef-broadcast skill") {
-		t.Fatalf("missing preamble:\n%s", out)
-	}
-	if !strings.Contains(out, "imp_3") {
-		t.Fatalf("payload missing:\n%s", out)
-	}
-	if strings.Contains(out, "output_contract") {
-		t.Fatalf("output_contract must be stripped from the echoed payload:\n%s", out)
-	}
-}
-
-func TestPrintFeedForAgentAbsentContractStillFallsBack(t *testing.T) {
-	// Field absent = old server with no contract to give; the embedded copy
-	// must still bind so plugin-less runtimes stay bound.
-	data := json.RawMessage(`{"items": [{"item_id":"1"}], "impression_id": "imp_4"}`)
-
-	var buf bytes.Buffer
-	PrintFeedForAgentTo(&buf, data)
-
-	if !strings.Contains(buf.String(), "OUTPUT CONTRACT") {
-		t.Fatalf("absent contract must fall back to the embedded copy:\n%s", buf.String())
-	}
-	if !strings.Contains(buf.String(), "raw_content_truncated=true") ||
-		!strings.Contains(buf.String(), "eigenflux feed get --item-id") ||
-		!strings.Contains(buf.String(), "do not retry in the same poll/cycle") {
-		t.Fatalf("fallback must bind gated full-content fetching without retry storms:\n%s", buf.String())
-	}
-	if !strings.Contains(buf.String(), "finish with exactly NO_REPLY") ||
-		!strings.Contains(buf.String(), "Never return an empty assistant turn") {
-		t.Fatalf("fallback must encode intentional silent success without an empty turn:\n%s", buf.String())
+	for _, mode := range []string{"baseline", "intent_aligned"} {
+		t.Run(mode, func(t *testing.T) {
+			// A present empty contract is authoritative even when local rules exist.
+			writeFeedContractFixtures(t, "LOCAL FULL CONTRACT", "LOCAL BASELINE CONTRACT")
+			data := json.RawMessage(`{"items":[],"impression_id":"imp_3","personalization":{"mode":"` + mode + `"},"output_contract":""}`)
+			var buf bytes.Buffer
+			if err := PrintFeedForAgentTo(&buf, data); err != nil {
+				t.Fatal(err)
+			}
+			out := buf.String()
+			if strings.Contains(out, "LOCAL") || strings.Contains(out, "OUTPUT CONTRACT") {
+				t.Fatalf("explicit empty contract must not load local rules:\n%s", out)
+			}
+			if !strings.Contains(out, "imp_3") || !strings.Contains(out, "current ef-broadcast skill") {
+				t.Fatalf("missing preamble or payload:\n%s", out)
+			}
+			if strings.Contains(out, "output_contract") {
+				t.Fatalf("output_contract must be stripped from the echoed payload:\n%s", out)
+			}
+		})
 	}
 }
 
-func TestPrintFeedForAgentEchoesNonObjectPayloadVerbatim(t *testing.T) {
-	// A non-object top-level payload must be passed through, not dropped to "{}".
-	data := json.RawMessage(`["raw","array","payload"]`)
-
-	var buf bytes.Buffer
-	PrintFeedForAgentTo(&buf, data)
-	out := buf.String()
-
-	if !strings.Contains(out, `"raw"`) || !strings.Contains(out, `"payload"`) {
-		t.Fatalf("non-object payload should be echoed verbatim, got:\n%s", out)
+func TestPrintFeedForAgentAbsentContractLoadsCurrentModeRules(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload, want, other string
+	}{
+		{"legacy", `{"items":[],"impression_id":"imp_4"}`, "FULL RULES", "BASELINE RULES"},
+		{"completed", `{"items":[],"personalization":{"mode":"intent_aligned"}}`, "FULL RULES", "BASELINE RULES"},
+		{"baseline", `{"items":[],"personalization":{"mode":"baseline"}}`, "BASELINE RULES", "FULL RULES"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeFeedContractFixtures(t, "  FULL RULES\n", "  BASELINE RULES\n")
+			var buf bytes.Buffer
+			if err := PrintFeedForAgentTo(&buf, json.RawMessage(tc.payload)); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(buf.String(), tc.want) || strings.Contains(buf.String(), tc.other) {
+				t.Fatalf("wrong mode contract:\n%s", buf.String())
+			}
+		})
 	}
-	if strings.Contains(out, "{}") {
-		t.Fatalf("payload was dropped to empty object:\n%s", out)
+}
+
+func TestResolveFeedContractReadsLatestSkillsEachTime(t *testing.T) {
+	for _, tc := range []struct{ mode, name string }{
+		{"intent_aligned", "contract.md"},
+		{"baseline", "baseline-contract.md"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			dir := writeFeedContractFixtures(t, "old rules", "old rules")
+			payload := json.RawMessage(`{"items":[],"personalization":{"mode":"` + tc.mode + `"}}`)
+			if got, err := ResolveFeedContract(payload); err != nil || got != "old rules" {
+				t.Fatalf("first read=%q err=%v", got, err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, tc.name), []byte("new rules\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := ResolveFeedContract(payload); err != nil || got != "new rules" {
+				t.Fatalf("updated read=%q err=%v; synchronized Skills must not be cached", got, err)
+			}
+		})
 	}
+}
+
+func TestPrintFeedForAgentMissingRulesFailsExplicitly(t *testing.T) {
+	for _, tc := range []struct{ mode, name string }{
+		{"intent_aligned", "contract.md"},
+		{"baseline", "baseline-contract.md"},
+	} {
+		for _, empty := range []bool{false, true} {
+			name := tc.mode + "/missing"
+			if empty {
+				name = tc.mode + "/empty"
+			}
+			t.Run(name, func(t *testing.T) {
+				dir := writeFeedContractFixtures(t, "other mode rules", "other mode rules")
+				path := filepath.Join(dir, tc.name)
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if empty {
+					if err := os.WriteFile(path, []byte(" \n\t"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var buf bytes.Buffer
+				err := PrintFeedForAgentTo(&buf, json.RawMessage(`{"items":[],"personalization":{"mode":"`+tc.mode+`"}}`))
+				if err == nil || !strings.Contains(err.Error(), "Feed output contract") || !strings.Contains(err.Error(), tc.name) {
+					t.Fatalf("expected explicit missing/empty contract error, got %v", err)
+				}
+				if !empty && !strings.Contains(err.Error(), "eigenflux skills sync") {
+					t.Fatalf("missing rules must include recovery command: %v", err)
+				}
+				if buf.Len() != 0 {
+					t.Fatalf("must not render a partial prompt or another mode's rules: %s", buf.String())
+				}
+			})
+		}
+	}
+}
+
+func TestPrintFeedForAgentRejectsMalformedPayloadAndContract(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKILLS_DIR", t.TempDir())
+	for _, payload := range []string{
+		``, `{`, `null`, `["raw","array"]`, `"text"`,
+		`{"output_contract":null}`, `{"output_contract":42}`, `{"output_contract":{}}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := PrintFeedForAgentTo(&buf, json.RawMessage(payload)); err == nil {
+				t.Fatal("expected invalid payload/contract error")
+			}
+			if buf.Len() != 0 {
+				t.Fatalf("invalid data must not produce an agent prompt: %s", buf.String())
+			}
+		})
+	}
+}
+
+func writeFeedContractFixtures(t *testing.T, full, baseline string) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("EIGENFLUX_SKILLS_DIR", root)
+	dir := filepath.Join(root, "ef-broadcast", "references")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"contract.md": full, "baseline-contract.md": baseline} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
 }

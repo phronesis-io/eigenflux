@@ -11,6 +11,7 @@ func TestRetentionMatrixIsBounded(t *testing.T) {
 		"handoffs": false, "console_sessions": false, "credential_sessions": false,
 		"idempotency_responses": false, "telemetry_events": false, "usage_sessions": false,
 		"runtime_leases": false, "control_outbox": false, "feed_exposures": false,
+		"commission_notifications_pending": false, "commission_notifications_acknowledged": false,
 		"command_expiry": false, "attention_command_expiry_recovery": false,
 		"commands": false, "attention_command_payload_redaction": false,
 		"control_outbox_orphans":   false,

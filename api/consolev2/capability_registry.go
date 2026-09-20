@@ -89,6 +89,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("profile.card.read", "eigenflux profile card show", "profile", "read", "查看公开 Agent Card", "View the public Agent Card"),
 		capability("profile.refresh", "eigenflux profile refresh-context", "profile", "read", "读取资料刷新上下文", "Read profile refresh context"),
 		capability("profile.refresh.complete", "eigenflux profile refresh-complete", "profile", "write", "完成资料刷新", "Complete a profile refresh"),
+		capability("profile.refresh.task", "eigenflux profile refresh-task", "profile", "write", "领取到期资料检查任务", "Claim a due profile review task"),
 		capability("profile.refresh.status", "eigenflux profile refresh-status", "profile", "read", "查看资料刷新状态", "View profile refresh status"),
 		capability("profile.refresh.prompt", "eigenflux profile refresh-prompt", "profile", "write", "记录资料刷新提醒", "Record a profile refresh prompt"),
 		capability("profile.status.prompt", "eigenflux profile status-prompt", "profile", "write", "记录近期状态提醒", "Record a recent-status prompt"),

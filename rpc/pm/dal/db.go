@@ -491,6 +491,21 @@ func GetItemExpectedResponse(db *gorm.DB, itemID int64) (string, error) {
 	return result.ExpectedResponse, nil
 }
 
+// GetItemStatus retrieves the processing status of an item
+func GetItemStatus(db *gorm.DB, itemID int64) (int16, error) {
+	var result struct {
+		Status int16
+	}
+	err := db.Table("processed_items").
+		Select("status").
+		Where("item_id = ?", itemID).
+		First(&result).Error
+	if err != nil {
+		return 0, err
+	}
+	return result.Status, nil
+}
+
 // CloseConversation sets conversation status to closed (status=2)
 func CloseConversation(db *gorm.DB, convID int64) error {
 	result := db.Model(Conversation{}).

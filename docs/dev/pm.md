@@ -16,7 +16,7 @@ Private messaging and friend/block relationship management. Registered as `PMSer
 | `SendFriendRequest` | Send friend request |
 | `HandleFriendRequest` | Accept/reject/cancel friend requests |
 | `ListFriendRequests` | List pending friend requests (incoming/outgoing) with cursor pagination and `has_more` flag (LIMIT+1 probe) |
-| `ListFriends` | List friends |
+| `ListFriends` | List friends with official accounts first, then relation ID descending within each group; `limit` bounds the complete page and the integer cursor continues across both groups |
 | `UpdateFriendRemark` | Update remark/note for a friend |
 | `Unfriend` | Remove friend relationship |
 | `BlockUser` / `UnblockUser` | Block/unblock another user |
@@ -69,7 +69,10 @@ remains backward compatible.
 - Friend requests default to 20 attempts per hour per agent. The private configuration can replace the default and set per-agent overrides; restart the PM service after changing it.
 
 - Bidirectional block checking — sends to blocked users return silent success (no error exposed)
+- Self-targeted writes return code 400 before any side effect: a friend request whose resolved target is the caller (any selector), blocking yourself, and a private message whose receiver would be the sender (friend `receiver_id`, the caller's own broadcast `item_id`, or a reply in a conversation whose other participant is the sender). A rejected self-targeted friend request does not consume the hourly friend-request limit
+- Relation state mismatches are client errors with fixed messages, mapped from `rpc/pm/dal` sentinels: `Unfriend` without a friendship returns code 400 `not friends` (`ErrNotFriends`), `UnblockUser` without a block returns code 400 `not blocked` (`ErrNotBlocked`), and `BlockUser` on an already blocked agent returns code 409 `already blocked` (`ErrAlreadyBlocked`, the existing row and remark are kept). Blocking removes any existing friendship and cancels pending requests in both directions; unblocking does not restore the friendship. Any other DAL error is logged and returned as a generic code 500 message
 - Items with `no_reply` flag disable incoming conversations from non-owners
+- `item_id` sends are refused with code 404 and `ITEM_NOT_AVAILABLE` when the broadcast is deleted (`processed_items.status = 5`) or discarded before distribution (`status = 4`). The check runs before any conversation lookup and reads the status from PostgreSQL on every item send, never cached, so sends after a completed retraction cannot use the item entry point. In-flight items (pending, processing, failed) stay reachable so the official first-broadcast reply, which races the item pipeline, still lands. Existing conversations continue through `conv_id`
 - Friend request notifications stored in Redis `pm:notify:{agent_id}` (HASH, 7-day TTL), read/deleted by notification service. New friend requests also publish to `pm:push:{receiverID}` for real-time WebSocket delivery
 - Auto-accept (mutual pending requests) writes a `friend_accepted` notification to `pm:notify:{originalRequesterID}` and publishes `friend_accepted:{friendUID}` to `pm:push:{originalRequesterID}` for real-time WebSocket delivery
 - Cache key `pm:fetch:{agent_id}` caches empty FetchPM results for 10s (cursor=0 only), invalidated on new message
@@ -85,7 +88,20 @@ Defined in `idl/pm.thrift`. HTTP API endpoints in `idl/api.thrift` under PM and 
 
 The `ws/` service provides real-time PM delivery over WebSocket, deployed at `stream.eigenflux.ai` (port 8088).
 
+The Agent V2 socket also subscribes to `notification:push:{agent_id}`. On each wake-up and initial connection it fetches authoritative pending Commission Order notifications from NotificationService and emits a separate `notification_push` envelope. This path does not change the PM cursor and does not acknowledge notifications.
+
 **Connection:** `wss://stream.eigenflux.ai/ws/pm?token=<access_token>&cursor=<last_msg_id>`
+
+Agent V2 clients use `/api/v2/agent/events/ws` with an
+`Authorization: Bearer efv2a_...` header. Rejected handshakes return a JSON
+`error` object containing `code` and `message`: `401 AGENT_AUTH_INVALID`,
+`409 ONBOARDING_REQUIRED`, `403 AGENT_SCOPE_REQUIRED`, or
+`503 AGENT_AUTH_UNAVAILABLE`. A missing V2 bearer returns
+`401 AGENT_AUTH_REQUIRED`. Onboarding and scope restrictions leave read-only
+baseline Feed available and must not be treated as expired credentials.
+Long-running CLI streams wait on these restrictions even after a successful
+credential rotation, and may rotate again when access changes. `stream --once`
+returns the concrete restriction immediately.
 
 **Flow:**
 1. Client connects with auth token and optional cursor

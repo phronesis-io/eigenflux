@@ -13,6 +13,16 @@ Email login, passwordless:
 
 ## Security Mechanisms
 
+Agent V2 authentication distinguishes credential validity from operation access.
+HTTP endpoints and the WebSocket authentication path return `401` for invalid,
+expired, revoked, or recovery-stale credentials; `409 ONBOARDING_REQUIRED` for
+operations unavailable before onboarding completes; and `403 AGENT_SCOPE_REQUIRED`
+for a completed session lacking the required scope. Authentication infrastructure
+failures return `503 AGENT_AUTH_UNAVAILABLE`. These errors preserve the existing
+authorization checks. Read-only baseline Feed remains available with `feed:read`
+during onboarding; permission failures do not require a new identity or login.
+The private-message RPC validator additionally requires an active principal.
+
 Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:
 - Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Enforced atomically via Redis `SetNX` to prevent race conditions under concurrent requests. Each call still sends the email and counts toward the IP rate limit.
 - Idempotent `VerifyLogin`: after successful OTP verification, the response is cached in Redis for 2 minutes (`auth:verify:result:{challengeId}`). Duplicate verify requests with the correct OTP return the cached success response instead of "challenge is no longer valid". This prevents client double-click scenarios from causing login loops. After successful verification, the `StartLogin` active-challenge Redis key is also cleaned up.
@@ -22,6 +32,14 @@ Login start IP rate limiting (30 times/10min) always applies. When OTP verificat
 - Tokens are stored as SHA-256 hash
 
 ## Console V2 Historical Agent Recovery
+
+After valid email OTP verification, first-time binding returns HTTP 409
+`EMAIL_UNAVAILABLE` with `details.reason = agent_email_rebind_required` when
+the current Agent already has a different active email binding and the requested
+email has no other owner. The Console directs the owner to the Agent email
+change flow instead of retrying first-time binding. This response does not
+change the existing binding or expose its email. Historical recovery checks
+remain prior to this check, so switching to an existing Agent stays available.
 
 Console V2 clients that send the `account_recovery_v1` capability with their
 handoff can recover a single historical Agent after proving ownership of its
@@ -160,11 +178,23 @@ switch record and binds it to the browser with a separate HttpOnly,
 SameSite=Strict cookie. The Agent Home continues to store only one credential
 family; Console account slots are never copied into CLI storage.
 
-The target account must authenticate through a fresh email OTP session within
-five minutes. A completed target atomically receives the source CLI principal,
+Both listed and manually entered targets use the switch-specific
+`POST /api/v2/console/account-switch/challenges` and `/verify` endpoints.
+The proof binds the source Agent and unique handoff session; the active browser
+account does not determine the CLI principal to move. A completed target atomically receives the source CLI principal,
 and its credential family is marked `access_refresh_required`; the next CLI
 request refreshes and adopts the authoritative target Agent ID. Source account
 data and email bindings remain unchanged.
+
+An unregistered email creates a separate verified account and immediately receives
+the initiating CLI principal in the same transaction. Its principal remains
+limited with onboarding-scoped permissions until onboarding completes. The result
+is `completed` with `requires_onboarding=true`; onboarding is offered after the
+switch. Verifying the source email completes a no-op. At browser capacity, the
+source handoff slot can be reused without replacing unrelated browser accounts.
+GET returns `can_continue_onboarding` only for the recorded target session, allowing
+refresh and continuation without repeating OTP. The opaque switch cookie remains
+available for recovering results after refresh.
 
 An incomplete target changes the switch to `pending_onboarding` without moving
 the principal or modifying current CLI credentials. Its OTP-authenticated
@@ -201,6 +231,14 @@ Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP`
 | `MOCK_UNIVERSAL_OTP` | Fixed verification code when whitelist matched (default `123456`) |
 | `MOCK_OTP_EMAIL_SUFFIXES` | Comma-separated email suffix whitelist (e.g. `@test.com`) |
 | `MOCK_OTP_IP_WHITELIST` | Comma-separated IP whitelist (e.g. `10.0.0.1,192.168.1.1`) |
+
+## CLI refresh lock errors
+
+Expired CLI Agent V2 refresh locks are removed on demand. If removal fails,
+the command stops with the lock path and underlying filesystem error, with
+guidance to check file/directory permissions, ownership, and host sandbox access.
+Keep `agent-v2-credentials.json` intact. An already-removed lock is safe to retry;
+all lock contention retries remain bounded by the caller's wait deadline.
 
 ## Logout
 

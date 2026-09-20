@@ -2,14 +2,20 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 
 	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 )
 
 type scriptedStreamDialer struct {
@@ -98,5 +104,86 @@ func TestStreamHandshakeKeepsCursorWhenRefreshStaysOnTheSameAgent(t *testing.T) 
 	}
 	if !strings.Contains(dialer.urls[1], "cursor=same-agent-cursor") {
 		t.Fatalf("ordinary token rotation dropped a valid cursor: %q", dialer.urls[1])
+	}
+}
+
+func TestStreamRefreshRestrictionWaitsAndCanRefreshAfterAccessChanges(t *testing.T) {
+	for _, restriction := range []struct {
+		status int
+		code   string
+	}{
+		{http.StatusConflict, "ONBOARDING_REQUIRED"},
+		{http.StatusForbidden, "AGENT_SCOPE_REQUIRED"},
+	} {
+		for _, once := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/once=%t", restriction.code, once), func(t *testing.T) {
+				var dials, refreshes atomic.Int32
+				upgrader := websocket.Upgrader{}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/v2/agents/me":
+						fmt.Fprint(w, `{"code":0,"data":{"profile":{"agent_id":"agent-1"}}}`)
+					case "/api/v2/agent-sessions/refresh-challenges":
+						fmt.Fprint(w, `{"data":{"nonce":"fixture-nonce","issued_at":1}}`)
+					case "/api/v2/agent-sessions/refresh":
+						count := refreshes.Add(1)
+						fmt.Fprintf(w, `{"data":{"agent_id":"agent-1","access_token":"fresh-%d","refresh_token":"refresh-%d","expires_at":%d}}`, count, count, time.Now().Add(time.Hour).UnixMilli())
+					case "/api/v2/agent/events/ws":
+						switch attempt := dials.Add(1); attempt {
+						case 1, 3:
+							w.WriteHeader(http.StatusUnauthorized)
+							fmt.Fprint(w, `{"error":{"code":"AGENT_AUTH_INVALID","message":"rotate the fixture credential"}}`)
+						case 2:
+							if r.Header.Get("Authorization") != "Bearer fresh-1" {
+								t.Error("restricted retry did not use the refreshed credential")
+							}
+							w.WriteHeader(restriction.status)
+							fmt.Fprintf(w, `{"error":{"code":%q,"message":"baseline Feed remains available"}}`, restriction.code)
+						case 4:
+							if r.Header.Get("Authorization") != "Bearer fresh-2" {
+								t.Error("access recovery did not rotate credentials again")
+							}
+							conn, err := upgrader.Upgrade(w, r, nil)
+							if err != nil {
+								t.Error(err)
+								return
+							}
+							defer conn.Close()
+							_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "fixture complete"), time.Now().Add(time.Second))
+						default:
+							t.Errorf("unexpected dial %d", attempt)
+							w.WriteHeader(http.StatusUnauthorized)
+						}
+					default:
+						t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer server.Close()
+				cfg, serverName := runtimeTestConfig(t, server.URL, true)
+				if err := cfg.UpdateServer(serverName, server.URL, "ws"+strings.TrimPrefix(server.URL, "http")); err != nil {
+					t.Fatal(err)
+				}
+				oldDelay := streamAccessRetryDelay
+				streamAccessRetryDelay = time.Millisecond
+				t.Cleanup(func() { streamAccessRetryDelay = oldDelay })
+				command := &cobra.Command{}
+				command.Flags().String("cursor", "", "")
+				command.Flags().Bool("once", once, "")
+				err := streamCmd.RunE(command, nil)
+				if once {
+					var apiErr *client.APIError
+					if !errors.As(err, &apiErr) || apiErr.StatusCode != restriction.status || apiErr.ErrorCode != restriction.code ||
+						strings.Contains(err.Error(), "credential refresh failed") {
+						t.Fatalf("one-shot restriction was misclassified: %v", err)
+					}
+					if dials.Load() != 2 || refreshes.Load() != 1 {
+						t.Fatalf("one-shot retried after restriction: dials=%d refreshes=%d", dials.Load(), refreshes.Load())
+					}
+				} else if err != nil || dials.Load() != 4 || refreshes.Load() != 2 {
+					t.Fatalf("stream did not recover after access changed: err=%v dials=%d refreshes=%d", err, dials.Load(), refreshes.Load())
+				}
+			})
+		}
 	}
 }

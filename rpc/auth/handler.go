@@ -29,18 +29,19 @@ var emailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA
 
 const sessionDurationMs = int64(30 * 24 * time.Hour / time.Millisecond)
 
-const agentV2SessionValidationSQL = `SELECT principal.agent_id
+const agentV2SessionValidationSQL = `SELECT principal.agent_id,
+	(principal.status = 'active') AS principal_active,
+	COALESCE(onboarding.state = 'completed', FALSE) AS onboarding_completed,
+	('communication:read' = ANY(session.scopes)) AS communication_allowed
 	FROM agent_credential_sessions session
 	JOIN agent_principals principal ON principal.principal_id = session.principal_id
 	JOIN agents agent ON agent.agent_id = principal.agent_id
-	JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = principal.agent_id
+	LEFT JOIN agent_onboarding_v2 onboarding ON onboarding.agent_id = principal.agent_id
 	WHERE session.access_token_hash = ? AND session.audience = 'agent_v2'
 	  AND session.revoked_at IS NULL AND session.expires_at > ?
 	  AND session.access_refresh_required = FALSE
-	  AND principal.revoked_at IS NULL AND principal.status = 'active'
-	  AND agent.identity_state = 'active'
-	  AND onboarding.state = 'completed'
-	  AND 'communication:read' = ANY(session.scopes)`
+	  AND principal.revoked_at IS NULL AND principal.status IN ('limited', 'active')
+	  AND agent.identity_state = 'active'`
 
 // AuthServiceImpl implements the kitex-generated AuthService interface.
 type AuthServiceImpl struct {
@@ -620,12 +621,24 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 	tokenHash := sha256Hex(req.AccessToken)
 	if strings.HasPrefix(req.AccessToken, "efv2a_") {
 		var session struct {
-			AgentID int64 `gorm:"column:agent_id"`
+			AgentID              int64 `gorm:"column:agent_id"`
+			PrincipalActive      bool  `gorm:"column:principal_active"`
+			OnboardingCompleted  bool  `gorm:"column:onboarding_completed"`
+			CommunicationAllowed bool  `gorm:"column:communication_allowed"`
 		}
 		now := time.Now().UnixMilli()
 		err := db.DB.Raw(agentV2SessionValidationSQL, tokenHash, now).Scan(&session).Error
-		if err != nil || session.AgentID <= 0 {
+		if err != nil {
+			return &auth.ValidateSessionResp{BaseResp: &base.BaseResp{Code: 503, Msg: "Agent V2 authentication is temporarily unavailable"}}, nil
+		}
+		if session.AgentID <= 0 {
 			return &auth.ValidateSessionResp{BaseResp: &base.BaseResp{Code: 401, Msg: "invalid or expired Agent V2 session"}}, nil
+		}
+		if !session.OnboardingCompleted {
+			return &auth.ValidateSessionResp{BaseResp: &base.BaseResp{Code: 409, Msg: "ONBOARDING_REQUIRED"}}, nil
+		}
+		if !session.PrincipalActive || !session.CommunicationAllowed {
+			return &auth.ValidateSessionResp{BaseResp: &base.BaseResp{Code: 403, Msg: "AGENT_SCOPE_REQUIRED"}}, nil
 		}
 		return &auth.ValidateSessionResp{
 			AgentId:  session.AgentID,

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
 
@@ -32,8 +34,25 @@ const (
 
 var errStreamUnauthorized = errors.New("stream authentication rejected")
 
+var streamAccessRetryDelay = reconnectMax
+
 type streamDialer interface {
 	Dial(string, http.Header) (*websocket.Conn, *http.Response, error)
+}
+
+func streamHandshakeError(response *http.Response, fallback error) error {
+	if response == nil {
+		return fallback
+	}
+	var body []byte
+	if response.Body != nil {
+		body, _ = io.ReadAll(io.LimitReader(response.Body, 16<<10))
+		_ = response.Body.Close()
+	}
+	if response.StatusCode >= 400 {
+		return client.DecodeAPIError(response.StatusCode, response.Header, body)
+	}
+	return fallback
 }
 
 func dialStreamWithCredentialRefresh(dialer streamDialer, rawURL string, headers http.Header, currentAgentID string, refresh func() (*auth.V2Credentials, error)) (*websocket.Conn, *auth.V2Credentials, bool, error) {
@@ -42,14 +61,12 @@ func dialStreamWithCredentialRefresh(dialer streamDialer, rawURL string, headers
 		return conn, nil, false, nil
 	}
 	unauthorized := response != nil && response.StatusCode == http.StatusUnauthorized
-	if response != nil && response.Body != nil {
-		_ = response.Body.Close()
-	}
+	err = streamHandshakeError(response, err)
 	if !unauthorized {
 		return nil, nil, false, err
 	}
 	if refresh == nil {
-		return nil, nil, false, fmt.Errorf("%w: %v", errStreamUnauthorized, err)
+		return nil, nil, false, fmt.Errorf("%w: %w", errStreamUnauthorized, err)
 	}
 	credentials, refreshErr := refresh()
 	if refreshErr != nil {
@@ -70,11 +87,11 @@ func dialStreamWithCredentialRefresh(dialer streamDialer, rawURL string, headers
 		}
 	}
 	conn, response, err = dialer.Dial(retryURL, retryHeaders)
-	if response != nil && response.Body != nil {
-		_ = response.Body.Close()
+	if err != nil {
+		err = streamHandshakeError(response, err)
 	}
 	if err != nil && response != nil && response.StatusCode == http.StatusUnauthorized {
-		return nil, credentials, true, fmt.Errorf("%w after credential refresh: %v", errStreamUnauthorized, err)
+		return nil, credentials, true, fmt.Errorf("%w after credential refresh: %w", errStreamUnauthorized, err)
 	}
 	return conn, credentials, true, err
 }
@@ -208,6 +225,23 @@ Examples:
 				myAgentID = refreshedCredentials.AgentID
 			}
 			if dialErr != nil {
+				var apiErr *client.APIError
+				if errors.As(dialErr, &apiErr) &&
+					((apiErr.StatusCode == http.StatusConflict && apiErr.ErrorCode == "ONBOARDING_REQUIRED") ||
+						(apiErr.StatusCode == http.StatusForbidden && apiErr.ErrorCode == "AGENT_SCOPE_REQUIRED")) {
+					if once {
+						return fmt.Errorf("connect failed: %w", dialErr)
+					}
+					// A restriction confirms valid credentials. A later access change
+					// may require another rotation before this stream can connect.
+					allowCredentialRefresh = hasV2
+					select {
+					case <-time.After(streamAccessRetryDelay):
+						continue
+					case <-interrupt:
+						return nil
+					}
+				}
 				if refreshAttempted {
 					return fmt.Errorf("Agent V2 stream credential refresh failed: %w", dialErr)
 				}

@@ -57,10 +57,10 @@ fi
 
 echo ""
 echo "==> quick endpoints"
-if curl -fsS "http://127.0.0.1:${API_PORT:-8080}/skill.md" >/dev/null 2>&1; then
-  echo "[OK]   api /skill.md"
+if curl -fsS "http://127.0.0.1:${API_PORT:-8080}/api/v1/website/stats" >/dev/null 2>&1; then
+  echo "[OK]   api /api/v1/website/stats"
 else
-  echo "[FAIL] api /skill.md"
+  echo "[FAIL] api /api/v1/website/stats"
   status=1
 fi
 

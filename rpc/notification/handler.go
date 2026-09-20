@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -32,11 +35,22 @@ func NewNotificationServiceImpl(db *gorm.DB, rdb *redis.Client) *NotificationSer
 }
 
 func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notificationrpc.ListPendingReq) (*notificationrpc.ListPendingResp, error) {
-	if req == nil {
+	if req == nil || req.GetAgentId() <= 0 {
 		return &notificationrpc.ListPendingResp{
 			Notifications: []*notificationrpc.PendingNotification{},
-			BaseResp:      &base.BaseResp{Code: 400, Msg: "nil request"},
+			BaseResp:      &base.BaseResp{Code: 400, Msg: "invalid request"},
 		}, nil
+	}
+	limit := 0
+	if req.IsSetLimit() {
+		limit = int(req.GetLimit())
+		if limit <= 0 || limit > 100 {
+			return listPendingError(400, "limit must be between 1 and 100"), nil
+		}
+	}
+	cursor, err := decodePendingCursor(req.GetCursor())
+	if err != nil {
+		return listPendingError(400, "invalid cursor"), nil
 	}
 	logger.Ctx(ctx).Debug("ListPending called", "agentID", req.GetAgentId())
 
@@ -107,22 +121,106 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		}
 	}
 
+	// 4. Durable Commission Order notifications from PostgreSQL.
+	inboxNotifications, err := dal.ListInboxNotifications(ctx, s.db, req.AgentId, time.Now().UnixMilli())
+	if err != nil {
+		logger.Ctx(ctx).Error("failed to list Commission Order notifications", "agentID", req.AgentId, "err", err)
+		return listPendingError(500, "failed to list durable notifications"), nil
+	}
+	for i := range inboxNotifications {
+		row := &inboxNotifications[i]
+		payloadJSON := row.PayloadJSON
+		all = append(all, &notificationrpc.PendingNotification{
+			NotificationId: row.NotificationID,
+			SourceType:     dal.SourceTypeCommissionOrder,
+			Type:           row.EventKind,
+			Content:        "",
+			CreatedAt:      row.OccurredAt,
+			PayloadJson:    &payloadJSON,
+		})
+	}
+
 	// Sort by created_at ASC, notification_id ASC
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].CreatedAt != all[j].CreatedAt {
 			return all[i].CreatedAt < all[j].CreatedAt
 		}
-		return all[i].NotificationId < all[j].NotificationId
+		if all[i].NotificationId != all[j].NotificationId {
+			return all[i].NotificationId < all[j].NotificationId
+		}
+		return all[i].SourceType < all[j].SourceType
 	})
+	if cursor != nil {
+		filtered := all[:0]
+		for _, notification := range all {
+			if pendingAfterCursor(notification, *cursor) {
+				filtered = append(filtered, notification)
+			}
+		}
+		all = filtered
+	}
+	hasMore := false
+	if limit > 0 && len(all) > limit {
+		hasMore = true
+		all = all[:limit]
+	}
 
 	if all == nil {
 		all = []*notificationrpc.PendingNotification{}
 	}
 
-	return &notificationrpc.ListPendingResp{
+	response := &notificationrpc.ListPendingResp{
 		Notifications: all,
 		BaseResp:      &base.BaseResp{Code: 0, Msg: "success"},
-	}, nil
+	}
+	if req.IsSetLimit() {
+		response.HasMore = &hasMore
+		if len(all) > 0 {
+			nextCursor := encodePendingCursor(all[len(all)-1])
+			response.NextCursor = &nextCursor
+		}
+	}
+	return response, nil
+}
+
+type pendingCursor struct {
+	CreatedAt      int64  `json:"created_at"`
+	NotificationID int64  `json:"notification_id"`
+	SourceType     string `json:"source_type"`
+}
+
+func listPendingError(code int32, message string) *notificationrpc.ListPendingResp {
+	return &notificationrpc.ListPendingResp{Notifications: []*notificationrpc.PendingNotification{}, BaseResp: &base.BaseResp{Code: code, Msg: message}}
+}
+
+func decodePendingCursor(value string) (*pendingCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var cursor pendingCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil || cursor.CreatedAt <= 0 || cursor.NotificationID <= 0 || cursor.SourceType == "" {
+		return nil, fmt.Errorf("invalid pending cursor")
+	}
+	return &cursor, nil
+}
+
+func encodePendingCursor(notification *notificationrpc.PendingNotification) string {
+	raw, _ := json.Marshal(pendingCursor{CreatedAt: notification.CreatedAt, NotificationID: notification.NotificationId, SourceType: notification.SourceType})
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func pendingAfterCursor(notification *notificationrpc.PendingNotification, cursor pendingCursor) bool {
+	if notification.CreatedAt != cursor.CreatedAt {
+		return notification.CreatedAt > cursor.CreatedAt
+	}
+	if notification.NotificationId != cursor.NotificationID {
+		return notification.NotificationId > cursor.NotificationID
+	}
+	return notification.SourceType > cursor.SourceType
 }
 
 func optionalString(value string) *string {
@@ -155,6 +253,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	var milestoneIDs []int64
 	var systemItems []dal.NotificationDelivery
 	var pmIDs []int64
+	var commissionOrderIDs []int64
 	now := time.Now().UnixMilli()
 
 	for _, item := range req.Items {
@@ -173,8 +272,19 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 			})
 		case dal.SourceTypeFriendRequest:
 			pmIDs = append(pmIDs, item.NotificationId)
+		case dal.SourceTypeCommissionOrder:
+			commissionOrderIDs = append(commissionOrderIDs, item.NotificationId)
 		default:
 			logger.Ctx(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
+		}
+	}
+
+	// Durable business notifications use strong acknowledgement semantics.
+	// Validate ownership and persist them before applying legacy best-effort ACKs.
+	if len(commissionOrderIDs) > 0 {
+		if err := dal.AckInboxNotifications(ctx, s.db, req.AgentId, commissionOrderIDs, now); err != nil {
+			logger.Ctx(ctx).Error("failed to acknowledge Commission Order notifications", "agentID", req.AgentId, "err", err)
+			return &notificationrpc.AckNotificationsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to acknowledge durable notifications"}}, nil
 		}
 	}
 
