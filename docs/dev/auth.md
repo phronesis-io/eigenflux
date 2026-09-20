@@ -33,6 +33,14 @@ Login start IP rate limiting (30 times/10min) always applies. When OTP verificat
 
 ## Console V2 Historical Agent Recovery
 
+After valid email OTP verification, first-time binding returns HTTP 409
+`EMAIL_UNAVAILABLE` with `details.reason = agent_email_rebind_required` when
+the current Agent already has a different active email binding and the requested
+email has no other owner. The Console directs the owner to the Agent email
+change flow instead of retrying first-time binding. This response does not
+change the existing binding or expose its email. Historical recovery checks
+remain prior to this check, so switching to an existing Agent stays available.
+
 Console V2 clients that send the `account_recovery_v1` capability with their
 handoff can recover a single historical Agent after proving ownership of its
 email. Explicit recovery provisioning handoffs additionally send

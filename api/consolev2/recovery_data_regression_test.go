@@ -236,6 +236,35 @@ func TestHistoricalRecoveryPreservesBoundSourceAgent(t *testing.T) {
 
 	staleNonce := strings.Repeat("s", 32)
 	staleTicket, _ := createHandoff(staleNonce)
+	t.Run("bound Agent requires email change for an unowned email", func(t *testing.T) {
+		newEmail := fmt.Sprintf("rebind-%d@example.test", sourceID)
+		status, payload, _ := performJSON(t, h, http.MethodPost, "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
+			Email: newEmail,
+		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+		if status != http.StatusAccepted {
+			t.Fatalf("challenge status=%d payload=%#v", status, payload)
+		}
+		var mail capturedEmail
+		select {
+		case mail = <-mailbox:
+		case <-time.After(2 * time.Second):
+			t.Fatal("email OTP not captured")
+		}
+		status, payload, _ = performJSON(t, h, http.MethodPost, "/api/v2/account-email-bindings/verify", verifyEmailRequest{
+			ChallengeID: responseData(t, payload)["challenge_id"].(string), Email: newEmail, OTP: mail.otp,
+		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "EMAIL_UNAVAILABLE" {
+			t.Fatalf("expected email change conflict, status=%d payload=%#v", status, payload)
+		}
+		details := payload["error"].(map[string]interface{})["details"].(map[string]interface{})
+		if details["reason"] != "agent_email_rebind_required" {
+			t.Fatalf("unexpected conflict details: %#v", details)
+		}
+		var count int64
+		if err := gdb.Raw(`SELECT count(*) FROM agent_email_bindings WHERE agent_id = ? AND normalized_email = ? AND status = 'active'`, sourceID, newEmail).Scan(&count).Error; err != nil || count != 0 {
+			t.Fatalf("new email unexpectedly bound: count=%d err=%v", count, err)
+		}
+	})
 	status, challengePayload, _ := performJSON(t, h, http.MethodPost, "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
 		Email: historicalEmail,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
