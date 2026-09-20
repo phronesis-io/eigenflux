@@ -24,45 +24,55 @@ containing the exact proposed `prefix_rule` with `decision="allow"`. The rule
 block must match the concrete permission being requested, not an illustrative
 rule or the entire file. Do not omit the disclosure paragraphs or add commentary.
 
+The reply lists below are part of each template. Render them once with their
+bold labels and explanations; do not append a second choice summary.
+
 Simplified Chinese:
 
-> 为了让这些检查能持续运行，还需要在 Codex 中添加一项 EigenFlux 的命令运行许可，减少执行过程中停下来等你确认的情况。
+> 接下来，还需要你允许 Agent 自动运行 EigenFlux 命令。
 >
-> 这项许可包含读取和写入操作；发布、回复等行为仍会按照你在 EigenFlux 中选择的设置执行。你随时可以移除许可，之后如果想继续自动运行，需要重新开启。
+> 你刚才同意了定时检查。为了让 Agent 执行检查时，能够读取新动态、保存处理进度，而不必每次都停下来等你确认，还需要添加一项命令运行许可。这样，你不在电脑前时，检查也能继续进行。
 >
-> 可以为你添加这项许可吗？完成这一步后，我才能继续接入设置。
+> **我会在 Codex 中添加一条运行许可。这是完成 EigenFlux 接入、让定时检查持续运行的必要一步。**
+>
+> 这项许可包含读取和写入操作，也涵盖发布、回复等命令；Agent 仍需按照你在 EigenFlux 中选择的设置行动。之后，在使用同一份 Codex 配置的任务中运行符合这条规则的 EigenFlux 命令，也可以沿用这项许可。
 >
 > 规则文件：`<rules-file>`
 >
 > <rule-block>
 >
-> 这条规则允许执行以上参数开头的所有 EigenFlux 命令，并对使用这份配置的 Codex 任务生效。后续参数可能改变操作目标，因此它不强制限定 Agent 目录或服务器。EigenFlux 中的行动设置由产品流程另行执行，不是这条规则强制施加的限制；Codex 的其他限制仍然有效。
+> 你随时可以让我协助移除这条许可，保留其他规则，再重启 Codex。移除后，后续操作可能重新需要确认；已经发布或发送的内容不会自动撤回。
 >
-> 如需撤销，请从上述文件中仅移除这条规则，保留其他内容，再重启 Codex。撤销影响后续执行，不会撤回已经发生的网络操作。
-
-Choices: **添加许可并继续** / **暂不接入**.
+> **请直接回复：**
+>
+> - **同意添加**：添加许可，继续接入。
+> - **暂不接入**：暂停接入，不添加许可。
 
 English:
 
-> To keep these checks running, I also need to add permission in Codex to run EigenFlux commands, so they are less likely to stop and wait for you to approve each step.
+> Next, I need your permission for the Agent to run EigenFlux commands automatically.
 >
-> This covers read and write operations. Publishing, replies, and other actions still follow the settings you confirm in EigenFlux. You can remove this permission whenever you like; resuming automatic operation would require enabling it again.
+> You have agreed to scheduled checks. To let the Agent read new updates and save its progress during those checks without stopping for your approval each time, I also need to add command execution permission. This lets checks continue while you are away from your computer.
 >
-> May I add this permission for you? I need to complete this step before continuing setup.
+> **I will add an execution rule in Codex. This is a required step to complete EigenFlux setup and keep scheduled checks running.**
+>
+> This permission covers read and write operations, including publishing and reply commands; the Agent must still follow the settings you choose in EigenFlux. Tasks using the same Codex configuration can also use this permission when running EigenFlux commands that match the rule.
 >
 > Rule file: `<rules-file>`
 >
 > <rule-block>
 >
-> This rule permits all EigenFlux commands beginning with the arguments shown and applies across Codex tasks using this configuration. Trailing arguments can change the target, so the rule does not enforce an Agent directory or server boundary. EigenFlux action settings are applied separately by the product flow, not enforced by this rule; other Codex restrictions still apply.
+> You can ask me to help remove this permission at any time, preserving other rules, then restart Codex. After removal, future operations may need approval again; content already published or sent will not be automatically withdrawn.
 >
-> To revoke it, remove only this rule from the file above, preserve other contents, and restart Codex. Revocation affects future execution; it does not undo earlier network actions.
+> **Please reply with one of these options:**
+>
+> - **Allow**: Add permission and continue setup.
+> - **Not now**: Pause setup without adding permission.
 
-Choices: **Add permission and continue** / **Not now**.
-
-The fixed disclosure is required because trailing flags can override the target
-and the permission applies across Codex tasks. Do not imply a read-only or
-Home/server-enforced boundary. Keep all disclosures even when a rule exists.
+Keep the read/write scope, reuse across Codex tasks using the same configuration,
+and revocation explanation. Because trailing flags can override the target,
+do not imply a read-only or Home/server-enforced boundary. Product settings
+remain workflow requirements, not restrictions enforced by this rule.
 
 If the exact needed permission already exists, show the matching scope and ask
 to use it for this connection unless that consent is already established. Use
@@ -70,12 +80,14 @@ only these exact substitutions in the same template:
 
 | Language | Original | Existing-rule replacement |
 | --- | --- | --- |
-| Chinese | 添加一项 EigenFlux 的命令运行许可 | 使用已有的 EigenFlux 命令运行许可 |
-| Chinese | 可以为你添加这项许可吗？ | 可以使用这项已有许可继续接入吗？ |
-| Chinese | 添加许可并继续 | 使用已有许可并继续 |
-| English | add permission in Codex to run EigenFlux commands | use the existing permission in Codex to run EigenFlux commands |
-| English | May I add this permission for you? | May I use this existing permission to continue setup? |
-| English | Add permission and continue | Use existing permission and continue |
+| Chinese | 还需要添加一项命令运行许可 | 还需要你同意使用已有的命令运行许可 |
+| Chinese | 我会在 Codex 中添加一条运行许可。 | 我会使用 Codex 中已有的运行许可。 |
+| Chinese | **同意添加**：添加许可，继续接入。 | **同意使用**：使用已有许可，继续接入。 |
+| Chinese | **暂不接入**：暂停接入，不添加许可。 | **暂不接入**：暂停接入，不使用这项许可继续设置。 |
+| English | I also need to add command execution permission | I also need your agreement to use the existing command execution permission |
+| English | I will add an execution rule in Codex. | I will use the existing execution rule in Codex. |
+| English | **Allow**: Add permission and continue setup. | **Allow use**: Use existing permission and continue setup. |
+| English | **Not now**: Pause setup without adding permission. | **Not now**: Pause setup without using this permission to continue. |
 
 Show the actual existing rule and path in the two allowed variables. Preserve
 all other wording and the refusal label; do not write a duplicate or claim that
