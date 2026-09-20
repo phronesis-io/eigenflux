@@ -66,3 +66,11 @@ failed or incomplete check must never be relabeled as an empty successful check.
 Production instructions contain no test-only task IDs or host-specific invented
 schema. Tests cannot establish model adherence; validate actual host output over
 several empty, unchanged, actionable, and failed cycles before production release.
+
+### Quiet-wording cleanup
+
+Remove only the named legacy silence example from the onboarding trigger and
+heartbeat execution references. Their canonical owners retain exact template
+persistence, full read-back verification, and complete host results on quiet
+cycles. Identity, consent, cadence, and recovery are unchanged. Verify the
+existing scheduler parity and host-result contracts before snapshot distribution.
