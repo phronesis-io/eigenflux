@@ -1,6 +1,6 @@
 # Immutable installation snapshot contract
 
-Source under evaluation: `8a4c1791da838b567a21b1cbc796695b4465a6b0`.
+Source under evaluation: `1065a631cfe595af912ecf5969a16406f1e7c8b8`.
 This branch contains distribution scaffolding only. It must never be published
 to the production `cli/latest`, `skills/latest`, or installer objects.
 
