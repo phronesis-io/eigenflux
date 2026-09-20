@@ -103,6 +103,10 @@ func (s *Service) proxy(ctx context.Context, c *app.RequestContext, scope, opera
 	}
 	data, err := s.fetch(ctx, identifier, scope, operation, method, path, query, body, key, bindMutation)
 	if err != nil {
+		if strings.HasPrefix(operation, "wallet.withdrawals.") {
+			replyWalletError(c, err)
+			return
+		}
 		status := upstreamStatus(err)
 		replyError(c, status, "COMMISSION_REQUEST_FAILED", http.StatusText(status))
 		return

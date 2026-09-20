@@ -1,5 +1,22 @@
 # API Endpoints
 
+## Console payout KYC
+
+The commission-gated Console BFF exposes `GET /api/v2/console/bff/payout-method/kyc`,
+`POST /api/v2/console/bff/payout-method/kyc` (user_name, cert_no), and
+`POST /api/v2/console/bff/payout-method/kyc/authorization` (verification_id).
+Writes require Console CSRF and Idempotency-Key; the session supplies the actor.
+They delegate wallet.kyc.read/start/authorize to Commission with exact body/key
+binding. Delegated start cannot issue a completion grant; authorization is separate.
+Responses project status metadata only, plus the authorization link exclusively
+on the authorization route. Provider verify IDs and identity inputs are not returned.
+Never log request bodies or authorization URLs. Browser callback completion stays
+in Commission; this BFF does not create a second callback or complete KYC itself.
+
+Withdrawal/KYC errors preserve recognized safe Wallet error codes with fixed
+messages, not provider diagnostics. The payout binding response preserves an
+optional server-owned cooling_applies boolean; absent values do not imply exemption.
+
 ## Gateway API (port 8080)
 
 ### Anonymous Commission sharing
