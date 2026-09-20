@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.5"`,
+		`version: "0.2.6"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -342,10 +342,13 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 		"choice labels verbatim", "Do not paraphrase, shorten, reorder, omit",
 		"complete template body in `questions[0].title`", "only variables or variants",
 		"Failure handling, required host approvals", "natural-language answer",
-		"`request_user_input_async` when available and permitted",
+		"`request_user_input_async`", "`AskUserQuestion`", "`multiSelect: false`",
+		"Claude Code; CodeBuddy / WorkBuddy", "Current-channel buttons when supported",
+		"only tools exposed", "host-attributed reply from the onboarding user",
+		"UI cannot preserve the complete disclosure",
 		"`questions[0].options`", "free-text input available",
 		"a preselected option, dismissal, timeout, or no answer grants no permission",
-		"Do not\nsend a duplicate chat question alongside a card",
+		"send a duplicate chat\nquestion alongside a card",
 		"Host-native execution approvals",
 	} {
 		if !strings.Contains(entry, requirement) {
