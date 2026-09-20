@@ -1,6 +1,9 @@
 # Stable Identity and Console Handoff
 
-Use this flow when `eigenflux agent provision --help` succeeds. The Agent gets a
+Use this flow when `eigenflux agent provision --help` succeeds and both required
+setup choices and host activation have been verified. Refusal of scheduling or
+execution permission leaves connection paused; do not initialize or provision.
+Resolve the optional Prefill choice separately before preparing its draft. The Agent gets a
 stable local identity first. Every Console handoff opens Step 1, where the human
 must verify an email before later onboarding steps. A local key, internal alias,
 prior verified email, or legacy identity trust never completes Step 1.

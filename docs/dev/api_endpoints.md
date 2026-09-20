@@ -263,6 +263,12 @@ in `ef-profile`. Other operational instructions ship through the signed local
 `ef-*` Skills. `static/BOOTSTRAP.md` does not duplicate installation or
 onboarding steps.
 
+First-time onboarding obtains separate required scheduling and execution-policy
+consent, then activates host setup before optional profile Prefill and trigger
+creation. Refusing either required choice pauses connection. Codex plugin and
+Rules changes share one restart; the installer leaves sandbox policy untouched.
+See [the setup contract](onboarding-setup.md) for ownership and verification.
+
 `ClientInfoMiddleware` still parses an `X-Skill-Ver` request header when one
 is present, for notification audience expressions and sort context features
 (see `notification.md` and `sort.md`). No first-party client in this

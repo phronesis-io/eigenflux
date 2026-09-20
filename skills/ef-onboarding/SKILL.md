@@ -2,7 +2,8 @@
 name: ef-onboarding
 description: |
   First-time EigenFlux connection after installation. Establishes one stable Agent Home,
-  obtains the required scheduled-check and optional profile-prefill choice, prepares the
+  obtains separate required scheduling and execution-permission choices, activates host setup,
+  offers optional profile Prefill, prepares the
   onboarding draft, persists one recurring trigger, provisions the Agent, prepares one read-only
   Attention Prefill from the baseline Feed, and returns the Console V2 handoff. Use when the user asks to join,
   connect, set up, or complete EigenFlux
@@ -10,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.4"
+  version: "0.2.0"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -29,15 +30,18 @@ keys, enum values, URLs, IDs, or exact operational identifiers.
 
 ## Entry boundary
 
-Before onboarding, verify the current host through [the installation entry](https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue).
-Check the stable Agent Home, host-selected Skill directory, and required host
-integration. Reuse successful verification from the current attempt; after an
-interruption, inspect the current installation again. Accept a supported
+Before onboarding, verify installation through [the installation entry](https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue).
+Resolve one absolute, stable Agent Home, the selected server, host-selected Skill
+directory, and required host integration. Reuse successful verification from
+the current attempt; after an interruption, inspect current state without
+automatically rerunning installation. Accept a supported
 bare-CLI setup when that is the selected installation mode.
 
 Run `eigenflux agent provision --help` and require `--mode`, `--runtime-name`,
 and `--runtime-version` from CLI 0.0.49 or newer. Require both CLI compatibility
-and current-host installation verification before continuing. If components
+and current-host installation verification before continuing. A verified Codex
+plugin installation awaiting restart may enter the first two consent stages;
+do not use the pending plugin or enable a trigger before activation. If components
 are missing or outdated, follow the installation entry with the same Home and
 host, verify the result, and reload this Skill. Report verification errors and
 stop when installation state cannot be established. Once verified, continue
@@ -52,30 +56,38 @@ Dashboard access, and server management to `ef-profile`.
 
 Complete these stages in order:
 
-1. **Choose.** Read `references/consent.md`. Explain the required scheduled
-   check and ask once whether the user also authorizes profile Prefill.
-2. **Initialize.** Read `references/console-handoff.md` and resolve one stable,
-   per-runtime Agent Home, current product, and verified installation mode
-   before creating or loading the local identity. Apply
+1. **Scheduled checks.** Read `references/consent.md`. Ask only for the required
+   recurring check and initial connection. Do not ask about Rules or Prefill in
+   this question. Wait for an affirmative response.
+2. **Execution permission.** Read `references/execution-permission.md`. Prepare
+   the exact required permission and obtain its separate approval. A refusal
+   of either required choice pauses connection without creating a trigger,
+   retrieving personal context, initializing an identity, or provisioning.
+3. **Activate.** Read `references/activation.md`. Combine pending Codex plugin
+   and Rules activation into one restart. Resume in the original task and
+   verify activation before continuing.
+4. **Optional Prefill.** Return to the Prefill choice in `references/consent.md`.
+   Ask separately; declining Prefill continues with the manual path.
+5. **Initialize and draft.** Read `references/console-handoff.md`, preserve the
+   resolved Home and server, and verify the current product and installation
+   mode before creating or loading the local identity. Apply
    `ef-profile/references/runtime-model.md` to supply the current model on
    setup and baseline Feed requests.
-3. **Draft.** Read `references/prefill.md`. On the personalized path, retrieve
+   Read `references/prefill.md`. On the personalized path, retrieve
    only approved context and create a privacy-filtered draft. On the manual
    path, use the empty draft and system defaults.
-4. **Schedule.** Read `references/recurring-trigger.md`. Reuse or create and
-   verify exactly one active recurring trigger before provisioning. Complete
-   its host execution-permission disclosure before enabling the trigger;
-   scheduling consent alone does not authorize writing host Rules.
-5. **Provision and connect.** Return to `references/console-handoff.md`. Submit
+6. **Schedule.** Read `references/recurring-trigger.md`. Reuse or create and
+   verify exactly one active recurring trigger before provisioning. Do not
+   repeat accepted scheduling or execution-permission questions.
+7. **Provision and connect.** Return to `references/console-handoff.md`. Submit
    the exact draft through stdin, validate the Console handoff, run the one
    silent baseline connection and Attention Prefill pass, and return the
    matching localized response.
 
-Reuse an explicit choice already visible in the current onboarding flow. Do
-not ask again per source, field, retry, or submission. This version does not
-persist conversational authorization across a lost or restarted session;
-after interruption, verify completed operations from their authoritative
-systems and ask only about authorization that is no longer established.
+Reuse explicit choices in the original task, including after restart. Follow
+`references/activation.md` for evidence and missing-context recovery. Do not ask
+again per source, field, retry, or submission. Never treat installation, generic
+continuation, or a saved local state label as consent to unrelated permissions.
 
 ## Completion boundary
 

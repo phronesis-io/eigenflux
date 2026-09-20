@@ -103,7 +103,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.1.4"`,
+		`version: "0.2.0"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -113,7 +113,9 @@ func TestOnboardingSkillContract(t *testing.T) {
 		"references/recurring-trigger.md",
 		"references/console-handoff.md",
 		"do not ask for installation consent again",
-		"does not\npersist conversational authorization",
+		"Reuse explicit choices in the original task",
+		"references/execution-permission.md",
+		"references/activation.md",
 		"do not invoke\n`ef-broadcast` as a whole",
 	} {
 		if !strings.Contains(entry, required) {
@@ -123,12 +125,12 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	consent := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/consent.md")
 	for _, required := range []string{
-		"EigenFlux 需要设置定时检查，并完成一次只读的初次网络检查；检查结果只会显示在你的 Console 中。你还可以允许我读取近期相关工作上下文，生成隐私过滤后的预填资料，并提交到 EigenFlux Console 供你审核。",
-		"请回复「同意并预填」或「仅设置定时检查」。",
 		"one read-only initial network check",
-		"Agree and prefill",
-		"Only set up scheduled checks",
-		"do not infer Prefill permission",
+		"do not create the trigger yet",
+		"both required choices and host activation succeed",
+		"Scheduling,\nexecution permission, and optional Prefill are separate decisions",
+		"before personal-context retrieval, identity initialization",
+		"never count as Prefill approval",
 	} {
 		if !strings.Contains(consent, required) {
 			t.Errorf("onboarding consent contract is missing %q", required)
@@ -209,7 +211,7 @@ func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	if !strings.HasPrefix(launcher, "eigenflux --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
 		t.Fatalf("launcher is not a direct, mode-explicit CLI call: %s", launcher)
 	}
-	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger", "Write\nonly after approval"} {
+	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger"} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("scheduler contract missing %q", required)
 		}
@@ -266,15 +268,65 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		"eigenflux --homedir \"<agent-home>\" skills path --host \"<skill-host>\"",
 		"`claude-code` for the corresponding macOS/Linux integration",
 		"explicit `EIGENFLUX_SKILLS_DIR` or Home-scoped registered target",
-		"Report a required restart or\nchannel activation as pending setup",
+		"A successfully installed Codex plugin awaiting activation may continue",
 		"load the installed `ef-onboarding` Skill",
-		"consent question must be\n" +
-			"the entire next user-visible response",
+		"scheduled-check question must\nbe the entire next user-visible response",
 		"Keep successful CLI, Skill, plugin,\n" +
 			"version, and Home verification details internal",
 	} {
 		if !strings.Contains(entry, required) {
 			t.Errorf("standalone install entry is missing %q", required)
+		}
+	}
+}
+
+func TestOnboardingAuthorizationAndActivationBoundaries(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
+	stages := []string{"**Scheduled checks.**", "**Execution permission.**", "**Activate.**", "**Optional Prefill.**", "**Initialize and draft.**", "**Schedule.**", "**Provision and connect.**"}
+	previous := -1
+	for _, stage := range stages {
+		index := strings.Index(entry, stage)
+		if index <= previous {
+			t.Fatalf("setup stage missing or out of order: %s", stage)
+		}
+		previous = index
+	}
+	requiredByFile := map[string][]string{
+		"skills/ef-onboarding/references/execution-permission.md": {
+			"Refusal pauses first-time connection", "Write\nonly after approval",
+			"trailing flags can override the target", "across Codex tasks",
+			"never replace a conflicting", "do not write a duplicate",
+			"an offline match proves the running host loaded the rule",
+		},
+		"skills/ef-onboarding/references/activation.md": {
+			"one full quit and reopen", "original task's confirmed tool history",
+			"grants no missing Rules or Prefill permission", "history is unavailable",
+			"Home, server,\nor permission scope changed", "A user-disabled trigger is not missing",
+			"An offline rule check alone is insufficient",
+		},
+		"skills/ef-onboarding/references/recurring-trigger.md": {
+			"separate required scheduling", "execution-permission choices and host activation",
+			"explicit server selection", "Read back the trigger",
+		},
+	}
+	for file, fragments := range requiredByFile {
+		body := readRepoFile(t, repoRoot, file)
+		for _, fragment := range fragments {
+			if !strings.Contains(body, fragment) {
+				t.Errorf("%s is missing boundary %q", file, fragment)
+			}
+		}
+	}
+	consent := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/consent.md")
+	// User-facing scheduling copy must not acquire either unrelated permission.
+	scheduling := strings.SplitN(consent, "## Optional profile Prefill", 2)[0]
+	for _, line := range strings.Split(scheduling, "\n") {
+		if strings.HasPrefix(line, ">") && (strings.Contains(line, "Rules") || strings.Contains(line, "预填") || strings.Contains(line, "许可")) {
+			t.Fatalf("scheduling question contains another permission: %s", line)
 		}
 	}
 }

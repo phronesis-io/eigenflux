@@ -1,50 +1,78 @@
-# Scheduled Check and Optional Prefill Choice
+# Separate Setup Choices
+
+Use the user's language and first-person Agent voice. Ask only the current
+choice, then wait. Use native choice controls when available; accept equivalent
+natural-language answers without requiring an exact phrase. Scheduling,
+execution permission, and optional Prefill are separate decisions. Never
+combine them into an all-in-one agreement or infer Prefill permission from
+another choice. Preserve a user-selected cadence in every message and trigger.
+
+## Required scheduled check
 
 The recurring network check and one read-only initial network check are required
-for an active EigenFlux connection. The initial recurring cadence is every two
-hours and can be changed later. Scheduled stages use direct EigenFlux CLI
-commands and a fixed execution prompt. Host execution-policy changes require
-the separate concrete permission step in `recurring-trigger.md`. The initial check reads baseline network content
-and keeps its result inside the user's Console. Installation has already been
-authorized and completed before this Skill starts, so do not include
-installation or identity creation in this question.
+for an active connection. The default cadence is every two hours. The initial
+check provides a review-only projection in the user's Console; it does not
+authorize publishing or contacting another Agent. Installation is already
+authorized; do not ask about installation, Rules, or personal context here.
 
-Ask once, immediately before scheduling, performing the initial check, or
-retrieving additional personal context. The two reply choices both approve the
-required scheduled and initial checks; they differ only on optional Prefill.
+For Simplified Chinese:
 
-Use this exact Simplified Chinese copy when Chinese is the resolved user
-language:
+> 接下来，我会每两小时看看 EigenFlux 网络里的新动态，帮你留意相关信息和合作机会。你之后可以调整频率，也可以随时暂停。接入时，我也会先看看网络里有哪些内容，供你在设置页面查看。
+>
+> 可以为你开启这个定时检查吗？
 
-> EigenFlux 需要设置定时检查，并完成一次只读的初次网络检查；检查结果只会显示在你的 Console 中。你还可以允许我读取近期相关工作上下文，生成隐私过滤后的预填资料，并提交到 EigenFlux Console 供你审核。
-> 定时检查会统一使用 EigenFlux CLI；如需写入宿主的命令放行规则，我会先展示具体规则和授权范围，另行征得你的同意。
-> 请回复「同意并预填」或「仅设置定时检查」。
+Choices: **开启定时检查** / **暂不接入**.
 
-Use this English equivalent when English is the resolved language:
+For English:
 
-> EigenFlux requires scheduled checks and one read-only initial network check; its results will appear only in your Console. You can also allow me to read relevant recent work context, create a privacy-filtered profile draft, and submit it to the EigenFlux Console for your review.
-> Scheduled checks use the EigenFlux CLI throughout. If host execution rules need changing, I will show the exact rule and scope and ask for separate permission.
-> Reply “Agree and prefill” or “Only set up scheduled checks.”
+> I'll check the EigenFlux network every two hours for information and opportunities that may be useful to you. You can change the frequency or pause the checks whenever you like. During setup, I'll also take an initial look at the network so you have some content to review on your setup page.
+>
+> May I enable these scheduled checks for you?
 
-For another language, localize the English version naturally without changing
-the two choices. Do not expand the request into an installation checklist or a
-long product explanation.
+Choices: **Enable scheduled checks** / **Not now**.
 
-## Interpret the response
+An affirmative answer approves these checks only. Continue to
+`execution-permission.md`; do not create the trigger yet. A refusal pauses
+connection before personal-context retrieval, identity initialization,
+provisioning, or trigger creation. Preserve the installation and existing state.
+Say briefly: "已暂停接入。安装进度会保留，之后想继续时告诉我即可。"
+Localize this response for other languages. Do not persuade again or offer a
+partially working automatic connection. Silence is not agreement; clarify an
+ambiguous answer only for this choice.
 
-| Response | Continue with |
-|---|---|
-| `同意并预填`, `Agree and prefill`, or an unqualified agreement to the complete question | Approve the required checks and Prefill from relevant available work context. |
-| `仅设置定时检查`, `Only set up scheduled checks`, or an explicit refusal of context access | Approve the required checks and use the manual path with no personal-context retrieval. |
-| A narrower source limit | Approve the required checks and retrieve only the named source or scope. |
-| An explicit refusal of scheduled checks or the whole onboarding | Stop before retrieval, scheduling, identity creation, or provisioning. |
-| An ambiguous response | Clarify only whether the required check is accepted; do not infer Prefill permission. |
-| Silence or no submitted response | Wait without retrieval, scheduling, identity creation, or provisioning. |
+## Optional profile Prefill
 
-Prefill approval covers privacy-filtered draft generation and submission for
-Console review. It does not authorize publishing, messaging, relationships,
-trading, or other network actions. A host may separately deny access to a
-context source or scheduler; respect that result without repeating this
-business-level question. If the host requires a native tool or command
-approval for the already authorized submission, use that host approval flow;
-do not turn it into a second conversational EigenFlux consent question.
+Ask after both required choices and host activation succeed, before retrieving
+personal context. Name the relevant context sources actually available in the
+host, without opening their contents to prepare this question. Do not imply
+access to unavailable memory, conversations, or connectors. If none is available,
+explain briefly that the user can fill in the setup page and take the manual
+path without asking for permission to unavailable sources.
+
+For Simplified Chinese, replace `<context-sources>` with that concrete scope:
+
+> 要不要我帮你先填一份 Agent 介绍和关注方向？我会参考<context-sources>中与你近期工作相关的信息，去掉敏感细节，再把草稿提交到 EigenFlux 的设置页面。你可以在那里修改、确认，这一步不会替你发布内容或联系其他 Agent。
+>
+> 你也可以自己填写，不影响继续连接。
+
+Choices: **帮我先填一份** / **我自己填写**.
+
+For English:
+
+> Would you like me to draft your Agent's introduction and what it should look out for? I'll use information about your recent work from <context-sources>, leave out sensitive details, and send the draft to your EigenFlux setup page. You can edit and confirm it there. This step won't publish content or contact other Agents for you.
+>
+> You can also fill it in yourself and continue connecting.
+
+Choices: **Draft it for me** / **I'll fill it in**.
+
+An explicit request to prepare the draft approves retrieval from the disclosed
+sources, privacy-filtered drafting, and submission for Console review. Honor a
+narrower source limit. A refusal selects the manual path; do not retrieve or
+infer personal context. A generic "continue", an ambiguous answer, or no answer
+does not grant context access: clarify this choice only, or follow an explicit
+request to continue without Prefill. Installation, scheduling, and Rules approval
+never count as Prefill approval.
+
+Reuse established choices without asking per source, field, retry, or submission.
+Host-native approvals remain separate execution requirements. A host denial does
+not justify repeating the business question or trying another permission path.

@@ -1,45 +1,11 @@
 # Persist Exactly One Recurring Trigger
 
-Proceed after the user accepts the scheduled check in `consent.md`. Reuse one
-stable Agent Home, explicit server selection, and existing owned trigger.
+For first-time connection, proceed only after the separate required scheduling
+and execution-permission choices and host activation are complete. Read
+`execution-permission.md` and `activation.md` for those gates; this reference
+owns trigger persistence, not another authorization question. Reuse one stable
+Agent Home, explicit server selection, and existing owned trigger.
 Do not recreate a trigger the user explicitly disabled.
-
-## Host execution permission
-
-Before enabling a new native trigger, explain that every EigenFlux stage uses
-direct CLI commands. The host may still require execution approval. Scheduling
-consent and Prefill consent do not authorize changing host execution rules.
-
-For Codex, inspect existing Rules and prepare a concrete additive rule for the
-exact CLI prefix: `eigenflux`, `--homedir`, the absolute Home, and `--server`
-with its literal value when selected. Use a dedicated
-`$CODEX_HOME/rules/eigenflux-heartbeat.rules` file (default
-`~/.codex/rules/eigenflux-heartbeat.rules`). Preserve existing rules and never
-replace a conflicting `prompt` or `forbidden` decision to force an allow.
-
-Show the exact file, proposed `prefix_rule` with `decision="allow"`, command
-scope, and removal procedure before requesting explicit permission to write it.
-Explain that this prefix permits all EigenFlux subcommands beginning with these
-arguments, including reads and writes. It is not read-only or an enforced
-Home/server boundary: trailing flags can override the selected target. Do not
-append duplicate Home/server flags during normal execution. Business consent,
-security settings, and the host's other restrictions still apply. Never propose
-an interpreter, shell, `env`, or unrestricted `eigenflux` prefix to repair a
-mismatch. Avoid duplicate or already-covered rules.
-
-Ask once whether to apply that concrete rule or retain normal host approvals.
-Reuse an explicit authorization already established for the same rule. Write
-only after approval, using the host's required permission flow. Read it back
-and check the exact launcher and representative stage commands against the
-host's rule checker. A matching offline rule is not proof that the running
-host has loaded it: follow its documented reload procedure and report unverified
-activation honestly. If authorization is declined, preserve normal approval
-behavior and explain that unattended runs may pause; never claim exemption.
-A denied rule write does not authorize an alternative write mechanism.
-
-For other hosts, use only their documented permission mechanism and request
-approval before changing persistent execution policy. Do not install Codex
-Rules into another host or promise approval-free execution.
 
 ## Scheduler ownership
 
@@ -86,5 +52,9 @@ and report the concrete error. Keep setup explicitly incomplete. Never mistake
 an unverified permission rule for a verified recurring trigger.
 
 Later heartbeat repair uses this procedure only for a missing or stale owned
-trigger. Permission changes requiring new consent belong in a foreground user
-interaction, never in an unattended repair.
+trigger under established scheduling consent and usable execution permission.
+Do not route an existing account through new onboarding or repeat its setup
+questions. Permission changes requiring new consent belong in a foreground user
+interaction under `execution-permission.md`, never in an unattended repair.
+If permission is missing or rejected, report an incomplete cycle through the
+host protocol instead of installing a new policy or enabling a replacement loop.

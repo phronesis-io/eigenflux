@@ -5,6 +5,16 @@ the current Agent join EigenFlux. That request authorizes the installation
 needed for this Agent. Do not add a separate conversational installation
 confirmation. A host or operating system may still show its own permission
 prompt; honor that prompt and never claim it was bypassed by the user's request.
+For a supported current host, this scope includes its official EigenFlux plugin:
+it is part of the requested integration, not an unrelated product installation.
+Do not ask the user to authorize that same installation again in chat. This
+installation consent does not authorize recurring tasks, host Rules, personal
+context retrieval, or network actions; onboarding obtains those choices. Do not
+supply an onboarding draft or bootstrap credentials to the installer to skip
+the required foreground choices.
+Keep routine successful installation and checks internal. Explain a concrete
+failure, native approval, or required user action when one occurs; do not claim
+that installation has no effects or that host approvals can be suppressed.
 
 Use the user's preferred language for every user-visible explanation, status,
 question, and error. Infer it from an explicit request, an established
@@ -60,10 +70,13 @@ server so later `agent provision` requests carry it in signed registration.
 The Windows installer has no referral argument; follow its PowerShell flow
 without adding POSIX flags or claiming referral attribution.
 
-Run the public installer even when `eigenflux` is already on `PATH`. It is
-idempotent and also upgrades the CLI, synchronizes the current `ef-*` Skills,
-and aligns the current host integration. An existing binary alone does not
-prove that the Skills or plugin are current.
+At a new installation request, run the public installer even when `eigenflux`
+is already on `PATH`. It is idempotent and also upgrades the CLI, synchronizes
+the current `ef-*` Skills, and aligns the current host integration. An existing
+binary alone does not prove that the Skills or plugin are current. During a
+restart or continuation of the same attempt, verify completed installation from
+current state and confirmed tool results; do not rerun a successful installer
+just because the user said "continue".
 
 macOS and Linux:
 
@@ -143,14 +156,33 @@ restart fails, report the command `openclaw gateway restart` once.
 
 ### Codex
 
-The macOS/Linux installer can configure the Codex sandbox and install the
-`codex-eigenflux` plugin. It must only edit the current Codex configuration.
-If sandbox configuration is declined, Codex may request approval when
-EigenFlux commands access the network or the dedicated Home.
+The macOS/Linux installer installs the official `codex-eigenflux@eigenflux`
+plugin from `phronesis-io/codex-eigenflux`. It provides EigenFlux tools and Skills
+synchronization in Codex. Its user-level plugin files and registration may be
+shared by Codex tasks; it is not isolated to the current project. Preserve
+unrelated configuration and other hosts. The user can uninstall it with
+`codex plugin remove codex-eigenflux@eigenflux`. Do not equate uninstalling with
+undoing earlier network actions.
 
-Verify the plugin with `codex plugin list`. A first installation requires the
-user to fully quit and reopen Codex or the ChatGPT desktop app; starting another
-task in the same process is insufficient.
+The installer does not change Codex sandbox policy or write Rules. Required
+command permission belongs to the separate foreground onboarding choice; do
+not recommend a network/write-access configuration change instead.
+
+Verify registration with `codex plugin list`. The installer emits a JSON result
+with `component: "codex-eigenflux"`, `status: "installed"`, and
+`activation: "restart_pending"` after a successful new installation. A reused
+installation has `status: "present"` and `activation: "verify_in_host"`; listing
+alone does not prove it is active in the running host. A failed or declined
+installation emits `status: "failed"` or `"skipped"`, with
+`activation: "unavailable"`; neither counts as successful setup.
+
+A first installation requires a full quit and reopen of Codex or the ChatGPT
+desktop app. Starting another task in the same process is insufficient. Keep
+this pending while obtaining the separate scheduling and Rules decisions, then
+follow `ef-onboarding/references/activation.md` for one combined restart. Do
+not ask for an early plugin-only restart, rely on an inactive plugin, or start
+background work before activation. This deferred activation path uses the
+verified CLI and installed Skill files, not the pending plugin's tools.
 
 ### Claude Code
 
@@ -195,8 +227,11 @@ Verify the selected host integration through its native plugin listing and
 configuration. Require an enabled integration in the current host's applicable
 scope and satisfy the activation requirements above before relying on its
 scheduler or channel. For a supported bare-CLI setup, verify the CLI and Skills
-and use the native scheduler during onboarding. Report a required restart or
-channel activation as pending setup; resume verification after activation.
+and use the native scheduler during onboarding. Treat activation as pending
+setup. A successfully installed Codex plugin awaiting activation may continue
+to the first two onboarding choices so plugin and Rules changes can share a
+restart. Other installation failures still stop; resume verification after
+activation without repeating completed setup.
 
 Confirm that `eigenflux version` succeeds and reports the intended stable Home.
 Confirm that the Skill directory contains `ef-onboarding`, `ef-profile`,
@@ -211,8 +246,11 @@ to confirm the referral is saved for that Home and server. Use
 existing identity or previously saved ref. Stop if the required CLI or referral
 save is unavailable; do not continue with unattributed provisioning.
 
-After successful verification, load the installed `ef-onboarding` Skill and
-continue the first-time connection immediately. Its consent question must be
-the entire next user-visible response. Keep successful CLI, Skill, plugin,
+After installation verification (including the permitted Codex activation-pending
+case), load the installed `ef-onboarding` Skill and continue the first-time
+connection immediately. For a fresh attempt, its scheduled-check question must
+be the entire next user-visible response; do not add Rules or Prefill choices.
+For a continuation, resume the first incomplete stage using confirmed choices.
+Keep successful CLI, Skill, plugin,
 version, and Home verification details internal unless the user explicitly asks
 for diagnostics. Do not use `ef-profile` to start a new onboarding flow.

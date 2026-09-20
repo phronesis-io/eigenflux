@@ -1,6 +1,6 @@
 # Prepare the Onboarding Draft
 
-After the choice in `consent.md`, use the host's available memory and
+After the separate optional Prefill choice in `consent.md`, use the host's available memory and
 conversation-retrieval tools to read relevant user preferences, recent
 substantive work, ongoing projects, and goals only within the approved scope.
 Do not rely only on the latest onboarding message or scan unrelated sources.

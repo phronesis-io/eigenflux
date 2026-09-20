@@ -691,24 +691,30 @@ setup_agents() {
       info "Inspect it and, if safe, remove it, then re-run the installer:"
       info "  $CODEX_BIN plugin marketplace list"
       info "  $CODEX_BIN plugin marketplace remove eigenflux"
+      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
       return 1
     fi
     add_status=0
     add_err=$("$CODEX_BIN" plugin add codex-eigenflux@eigenflux 2>&1 >/dev/null) || add_status=$?
     # Verify the actual end state, not just the exit code.
     if [ "$add_status" = "0" ] && codex_plugin_installed; then
-      ok "Codex plugin installed (registers an MCP server in ~/.codex/config.toml). Quit and reopen the Codex / ChatGPT desktop app once for it to take effect, then start a new task."
+      ok "Codex plugin installed (user-level registration)"
+      printf '%s\n' '{"component":"codex-eigenflux","status":"installed","activation":"restart_pending"}'
       info "Uninstall anytime: $CODEX_BIN plugin remove codex-eigenflux@eigenflux"
     elif [ "$add_status" = "0" ]; then
       # add exited 0 but the plugin isn't listed — report that, not a bare "failed".
       info "Codex plugin add reported success but the plugin isn't listed; verify with:"
       info "  $CODEX_BIN plugin list"
+      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
+      return 1
     else
       info "Codex plugin install failed:"
       [ -n "$add_err" ] && printf '%s\n' "$add_err" | tail -3
       info "Run manually:"
       info "  $CODEX_BIN plugin marketplace add phronesis-io/codex-eigenflux"
       info "  $CODEX_BIN plugin add codex-eigenflux@eigenflux"
+      printf '%s\n' '{"component":"codex-eigenflux","status":"failed","activation":"unavailable"}'
+      return 1
     fi
   }
 
@@ -724,6 +730,7 @@ setup_agents() {
       else
         info "Codex plugin already installed (snapshot refresh skipped)"
       fi
+      printf '%s\n' '{"component":"codex-eigenflux","status":"present","activation":"verify_in_host"}'
     else
       if ! ef_interactive; then
         info "Non-interactive shell; installing the codex-eigenflux plugin automatically"
@@ -740,6 +747,7 @@ setup_agents() {
         case "$REPLY" in
           [nN]|[nN][oO])
             info "Skipped Codex plugin installation"
+            printf '%s\n' '{"component":"codex-eigenflux","status":"skipped","activation":"unavailable"}'
             ;;
           *)
             install_codex_plugin || true
@@ -980,153 +988,6 @@ setup_agents() {
   fi
 }
 
-# ── Codex host setup ──────────────────────────────────────────
-#
-# Two independent pieces, both idempotent, so re-running the installer on a
-# machine that already has the CLI aligns everything:
-#   1. Sandbox permissions — Codex sandboxes the model's shell commands: the
-#      default workspace-write profile blocks network access and only allows
-#      writes inside the workspace, while every eigenflux command needs the
-#      network plus ~/.eigenflux-codex. Duplicate TOML table headers are
-#      invalid, so we only append a [sandbox_workspace_write] section when it
-#      is absent; if one exists we print the two lines to add instead.
-#
-# Sandbox permissions only. Installing the plugin belongs to the Codex branch in
-# setup_agents, which already resolves the binary, checks whether the plugin is
-# present, refreshes the marketplace snapshot when it is, and aborts on a
-# marketplace-name conflict. Calling install_codex_plugin from here as well ran
-# `marketplace add` + `plugin add` a second time on every install and printed the
-# "quit and reopen Codex" line twice.
-
-setup_codex() {
-  [ -d "$HOME/.codex" ] || return 0
-  # Honor the documented opt-out here too. Without this, EIGENFLUX_SKIP_AGENT_SETUP
-  # returned early from setup_agents but this function still wrote
-  # ~/.codex/config.toml, making the "skip agent setup entirely" every branch
-  # prints a promise the installer did not keep.
-  case "${EIGENFLUX_SKIP_AGENT_SETUP:-}" in
-    ''|0|false|FALSE|no|NO) : ;;
-    *) return 0 ;;
-  esac
-  # Codex config belongs to Codex: don't touch it when another host is installing.
-  ef_should_setup codex || return 0
-  configure_codex_sandbox
-}
-
-configure_codex_sandbox() {
-  CODEX_CFG="$HOME/.codex/config.toml"
-
-  if [ -f "$CODEX_CFG" ]; then
-    if grep -Eq '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"danger-full-access"' "$CODEX_CFG" || \
-       grep -Eq '^[[:space:]]*network_access[[:space:]]*=[[:space:]]*true' "$CODEX_CFG"; then
-      ok "Codex sandbox already allows network access"
-      return 0
-    fi
-  fi
-
-  if [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[sandbox_workspace_write\]' "$CODEX_CFG"; then
-    info "Codex detected. To let EigenFlux run without approval prompts, add these"
-    info "two lines under [sandbox_workspace_write] in $CODEX_CFG:"
-    info "    network_access = true"
-    info "    writable_roots = [\"$HOME/.eigenflux-codex\"]"
-    return 0
-  fi
-
-  CODEX_BLOCK="
-# EigenFlux: let sandboxed sessions reach the network and write the eigenflux
-# identity home (~/.eigenflux-codex). Added by install.sh — remove anytime.
-[sandbox_workspace_write]
-network_access = true
-writable_roots = [\"$HOME/.eigenflux-codex\"]
-"
-
-  if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
-    info "Non-interactive shell; leaving Codex config untouched."
-    info "For approval-free EigenFlux in Codex, add to $CODEX_CFG:"
-    info "    [sandbox_workspace_write]"
-    info "    network_access = true"
-    info "    writable_roots = [\"$HOME/.eigenflux-codex\"]"
-    return 0
-  fi
-
-  printf "Codex detected. EigenFlux needs sandbox network access and write access to ~/.eigenflux-codex — add this to %s? [Y/n] " "$CODEX_CFG"
-  read -r REPLY < /dev/tty || REPLY=""
-  case "$REPLY" in
-    [nN]|[nN][oO])
-      info "Skipped. Codex will show an approval prompt when eigenflux commands run."
-      ;;
-    *)
-      printf '%s' "$CODEX_BLOCK" >> "$CODEX_CFG"
-      ok "Codex sandbox configured for EigenFlux ($CODEX_CFG)"
-      ;;
-  esac
-}
-
-install_codex_plugin() {
-  # Resolve the codex binary: PATH first, then the ChatGPT desktop-app bundles.
-  CODEX_BIN=$(command -v codex || true)
-  for cb in /Applications/ChatGPT.app/Contents/Resources/codex "$HOME/Applications/ChatGPT.app/Contents/Resources/codex"; do
-    [ -n "$CODEX_BIN" ] && break
-    [ -x "$cb" ] && CODEX_BIN="$cb"
-  done
-  if [ -z "$CODEX_BIN" ]; then
-    info "Codex config found but no codex binary; skipping plugin install"
-    return 0
-  fi
-
-  # Installed-state check: the install artifact directory. `plugin list --json`
-  # cannot be grepped for this — marketplace/"available" rows also mention the
-  # plugin id and fool any text match (observed live). The cache path is the
-  # only unambiguous local signal (codex alpha; revisit if the layout moves).
-  codex_plugin_installed() {
-    [ -d "$HOME/.codex/plugins/cache/eigenflux/codex-eigenflux" ]
-  }
-
-  if codex_plugin_installed; then
-    ok "Codex plugin already installed"
-    return 0
-  fi
-
-  do_install_codex_plugin() {
-    # Register the marketplace, then add. A freshly-added marketplace is
-    # sometimes not queryable in the same breath (observed live: "plugin not
-    # found in marketplace" right after a successful add), so on failure
-    # re-add the marketplace and try once more.
-    "$CODEX_BIN" plugin marketplace add phronesis-io/codex-eigenflux >/dev/null 2>&1 || true
-    "$CODEX_BIN" plugin add codex-eigenflux@eigenflux >/dev/null 2>&1 || true
-    if ! codex_plugin_installed; then
-      "$CODEX_BIN" plugin marketplace add phronesis-io/codex-eigenflux >/dev/null 2>&1 || true
-      "$CODEX_BIN" plugin add codex-eigenflux@eigenflux >/dev/null 2>&1 || true
-    fi
-
-    if codex_plugin_installed; then
-      ok "Codex plugin installed (codex-eigenflux)"
-      info "Fully quit and reopen Codex once so the plugin loads."
-    else
-      info "Codex plugin install failed; install manually later:"
-      info "    codex plugin marketplace add phronesis-io/codex-eigenflux"
-      info "    codex plugin add codex-eigenflux@eigenflux"
-    fi
-  }
-
-  if [ ! -t 1 ] || [ ! -r /dev/tty ]; then
-    info "Non-interactive shell; installing the codex-eigenflux plugin automatically..."
-    do_install_codex_plugin
-    return 0
-  fi
-
-  printf "Codex detected. Install the codex-eigenflux plugin (EigenFlux tools inside Codex)? [Y/n] "
-  read -r REPLY < /dev/tty || REPLY=""
-  case "$REPLY" in
-    [nN]|[nN][oO])
-      info "Skipped Codex plugin installation"
-      ;;
-    *)
-      do_install_codex_plugin
-      ;;
-  esac
-}
-
 # ── Report install attribution ────────────────────────────────
 #
 # When invoked with --ref (from the /install landing page), report the install
@@ -1167,7 +1028,6 @@ migrate_config
 persist_install_ref
 provision_agent_v2
 setup_agents
-setup_codex
 
 # Name the hosts we found but left alone, so "it didn't set up my Codex" is an
 # informed outcome rather than a silent one.
