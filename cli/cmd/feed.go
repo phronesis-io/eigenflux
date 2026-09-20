@@ -87,7 +87,9 @@ Examples:
 			return fmt.Errorf("%s", resp.Msg)
 		}
 		if resolveFormat() == "agent" {
-			output.PrintFeedForAgent(json.RawMessage(resp.Data))
+			if err := output.PrintFeedForAgent(json.RawMessage(resp.Data)); err != nil {
+				return err
+			}
 		} else {
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		}
@@ -425,15 +427,27 @@ func pushEvents(events []map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	creds, err := auth.LoadCredentials(srv.Name)
+	var c *client.Client
+	hasV2, err := auth.HasV2Credentials(srv.Name)
 	if err != nil {
-		return fmt.Errorf("not logged in to server %q", srv.Name)
+		return err
 	}
-	if creds.IsExpired() {
-		return fmt.Errorf("token expired for server %q", srv.Name)
+	if hasV2 {
+		c, _, err = newV2ClientForServer(srv.Name, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		creds, err := auth.LoadCredentials(srv.Name)
+		if err != nil {
+			return fmt.Errorf("not logged in to server %q", srv.Name)
+		}
+		if creds.IsExpired() {
+			return fmt.Errorf("token expired for server %q", srv.Name)
+		}
+		baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+		c = client.New(baseURL, creds.AccessToken, version, clientMetaForServer(srv))
 	}
-	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
-	c := client.New(baseURL, creds.AccessToken, version, clientMetaForServer(srv))
 	resp, err := c.Post("/items/events", map[string]interface{}{"events": events})
 	if err != nil {
 		return err

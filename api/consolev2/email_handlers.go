@@ -19,6 +19,8 @@ import (
 	"github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+
+	"eigenflux_server/pkg/logger"
 )
 
 const emailChallengeTTL = 10 * time.Minute
@@ -465,7 +467,7 @@ func sameOptionalString(left, right *string) bool {
 	return *left == *right
 }
 
-func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
+func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, ok := agentID(c)
 	principalValue, hasPrincipal := c.Get("principal_id")
 	principalID, principalOK := principalValue.(int64)
@@ -488,6 +490,7 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 	now := time.Now().UnixMilli()
 	validOTP := false
 	var recoveryDetails map[string]interface{}
+	rebindRequired := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		_, valid, checkErr := s.lockAndCheckEmailChallenge(tx, req, normalizedEmail, "bind", &agentIDValue, &sessionID, now)
 		if checkErr != nil || !valid {
@@ -524,6 +527,7 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			}
 		}
 		if len(otherOwners) > 1 {
+			logger.Ctx(ctx).Warn("console_email_binding_conflict", "reason", "multiple_email_owners", "agent_id", agentIDValue, "owner_count", len(otherOwners), "challenge_id", req.ChallengeID)
 			return errConflict
 		}
 		for targetAgentID := range otherOwners {
@@ -544,6 +548,8 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		if current.BindingID != 0 && current.NormalizedEmail != normalizedEmail {
+			rebindRequired = true
+			logger.Ctx(ctx).Warn("console_email_binding_conflict", "reason", "agent_already_bound_to_different_email", "agent_id", agentIDValue, "challenge_id", req.ChallengeID)
 			return errConflict
 		}
 		if current.BindingID == 0 {
@@ -575,7 +581,18 @@ func (s *Service) verifyEmailBinding(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusConflict, "EMAIL_UNAVAILABLE", "this email belongs to a recoverable historical Agent", recoveryDetails)
 		return
 	}
+	if rebindRequired && errors.Is(err, errConflict) {
+		fail(c, http.StatusConflict, "EMAIL_UNAVAILABLE", "this Agent already has a bound email; use the Agent email change flow instead of first-time binding", map[string]interface{}{
+			"reason": "agent_email_rebind_required",
+		})
+		return
+	}
 	if errors.Is(err, errConflict) || isUniqueViolation(err) {
+		reason := "recovery_or_binding_conflict"
+		if isUniqueViolation(err) {
+			reason = "database_unique_violation"
+		}
+		logger.Ctx(ctx).Warn("console_email_binding_rejected", "reason", reason, "agent_id", agentIDValue, "challenge_id", req.ChallengeID, "error", err)
 		fail(c, http.StatusConflict, "EMAIL_UNAVAILABLE", "this email cannot be used for the requested operation", nil)
 		return
 	}
@@ -838,7 +855,7 @@ func historicalList(field string, sources ...map[string]interface{}) ([]string, 
 	return nil, false
 }
 
-func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
+func (s *Service) verifyEmailLogin(ctx context.Context, c *app.RequestContext) {
 	var req verifyEmailRequest
 	if err := decodeBody(c, &req); err != nil || req.ChallengeID == "" || req.OTP == "" {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "challenge_id, email, otp, and purpose are required", nil)
@@ -866,6 +883,7 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 	csrfSecret, _ := randomToken("efcsrf_", 24)
 	now := time.Now().UnixMilli()
 	validOTP := false
+	failureReason := ""
 	var recoveredAgentID int64
 	selectedSlot := 0
 	replacedSessionID := ""
@@ -878,10 +896,16 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		if challenge.SubjectAgentID == nil {
+			failureReason = "challenge_missing_or_unbound"
 			return errUnauthorized
 		}
 		checked, valid, checkErr := s.lockAndCheckEmailChallenge(tx, req, normalizedEmail, req.Purpose, challenge.SubjectAgentID, nil, now)
 		if checkErr != nil || !valid {
+			if checkErr != nil {
+				failureReason = "challenge_invalid_or_mismatched"
+			} else {
+				failureReason = "otp_mismatch"
+			}
 			validOTP = false
 			return checkErr
 		}
@@ -902,6 +926,7 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		}
 		if binding.BindingID == 0 || binding.AgentID != recoveredAgentID ||
 			(binding.VerificationState != "verified" && binding.VerificationState != "legacy_unverified") {
+			failureReason = "email_binding_missing_or_mismatched"
 			return errUnauthorized
 		}
 		if binding.VerificationState == "legacy_unverified" {
@@ -954,6 +979,7 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 		consume := tx.Exec(`UPDATE v2_email_challenges SET status = 'consumed', consumed_at = ?
 			WHERE challenge_id = ? AND status = 'pending'`, now, req.ChallengeID)
 		if consume.Error != nil || consume.RowsAffected != 1 {
+			failureReason = "challenge_already_consumed"
 			return errUnauthorized
 		}
 		if replacedSessionID != "" {
@@ -972,6 +998,17 @@ func (s *Service) verifyEmailLogin(_ context.Context, c *app.RequestContext) {
 			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now, now).Error
 	})
 	if errors.Is(err, errUnauthorized) || (!validOTP && err == nil) {
+		if failureReason == "" {
+			failureReason = "unauthorized"
+		}
+		logger.Ctx(ctx).Warn("console_email_login_rejected",
+			"reason", failureReason,
+			"challenge_id", req.ChallengeID,
+			"email_hash", keyedHash(s.otpPepper, normalizedEmail),
+			"purpose", req.Purpose,
+			"add_account", req.AddAccount,
+			"error", err,
+		)
 		fail(c, http.StatusUnauthorized, "OTP_INVALID", "verification code is invalid or expired", nil)
 		return
 	}

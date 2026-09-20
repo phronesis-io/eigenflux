@@ -134,6 +134,17 @@ func TestServiceListConsistency(t *testing.T) {
 		}
 	}
 
+	// Replay is an independently started offline service, not part of the
+	// local/cloud core service loop. Its separate launcher must use the built binary.
+	if !buildServices["replay"] {
+		t.Fatal("replay must remain in the core build output")
+	}
+	replayLauncher := readFile(t, root+"/replay/scripts/start.sh")
+	if !strings.Contains(replayLauncher, "./build/replay") {
+		t.Fatal("standalone replay launcher must start build/replay")
+	}
+	delete(buildServices, "replay")
+
 	// Check: build.sh vs start_local.sh
 	if missing := diff(buildServices, localServices); len(missing) > 0 {
 		t.Errorf("services in build.sh but missing from start_local.sh SERVICE_MAP: %v", sorted(missing))

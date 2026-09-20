@@ -139,6 +139,91 @@ func TestRuntimeObservationPostgresHTTP(t *testing.T) {
 		})
 	}
 
+	t.Run("settings reads persisted model from header reports", func(t *testing.T) {
+		previousAuth := clients.AuthClient
+		clients.AuthClient = &runtimeAuthClient{agentID: id}
+		defer func() { clients.AuthClient = previousAuth }()
+		h.GET("/api/v1/agents/me/settings", middleware.AuthMiddleware(), apihandler.GetMySettings)
+		h.PUT("/api/v1/agents/me/settings", middleware.ClientInfoMiddleware(), middleware.AuthMiddleware(), apihandler.PutMySettings)
+		for _, path := range []string{"/api/v1/agents/me/settings", "/api/v2/agent-settings", "/api/v2/agents/me/settings"} {
+			t.Run(path, func(t *testing.T) {
+				if err := database.Model(&dal.AgentSettings{}).Where("agent_id = ?", id).UpdateColumns(map[string]interface{}{"runtime_reported_at": 0, "model": ""}).Error; err != nil {
+					t.Fatal(err)
+				}
+				const reportedModel = "claude-opus-4-8"
+				status, payload := call(http.MethodPut, path, map[string]interface{}{"mode": "plugin", "model": "ignored-json-model"}, ut.Header{Key: "X-Client-Model", Value: reportedModel})
+				if status != http.StatusOK {
+					t.Fatalf("report status=%d payload=%+v", status, payload)
+				}
+				assertModel := func() {
+					t.Helper()
+					status, payload := call(http.MethodGet, path, nil, ut.Header{Key: "X-Client-Model", Value: "read-only-model"})
+					if status != http.StatusOK {
+						t.Fatalf("read status=%d payload=%+v", status, payload)
+					}
+					if model, ok := responseData(t, payload)["model"].(string); !ok || model != reportedModel {
+						t.Fatalf("settings must return the persisted model: %+v", payload)
+					}
+					if row := read(); row.Model != reportedModel {
+						t.Fatalf("model header was not persisted or GET changed it: %+v", row)
+					}
+				}
+				assertModel()
+				status, payload = call(http.MethodPut, path, map[string]interface{}{"mode": "plugin", "model": "ignored-json-model"})
+				if status != http.StatusOK {
+					t.Fatalf("report without model header status=%d payload=%+v", status, payload)
+				}
+				assertModel()
+			})
+		}
+	})
+
+	t.Run("baseline Feed records model without settings permission", func(t *testing.T) {
+		if err := database.Exec(`UPDATE agent_onboarding_v2 SET state='in_progress', current_step=2,
+			active_context_revision=NULL, completed_at=NULL WHERE agent_id=?`, id).Error; err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := database.Exec(`UPDATE agent_onboarding_v2 SET state='completed', current_step=5,
+				active_context_revision=1, completed_at=? WHERE agent_id=?`, now, id).Error; err != nil {
+				t.Error(err)
+			}
+			if err := database.Exec(`UPDATE agent_principals SET status='active' WHERE principal_id=?`, principalID).Error; err != nil {
+				t.Error(err)
+			}
+			if err := database.Exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read','commands:claim','settings:read','settings:write'] WHERE principal_id=?`, principalID).Error; err != nil {
+				t.Error(err)
+			}
+		})
+		if err := database.Exec(`UPDATE agent_principals SET status='limited' WHERE principal_id=?`, principalID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.Exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=?`, principalID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.Model(&dal.AgentSettings{}).Where("agent_id = ?", id).UpdateColumns(map[string]interface{}{"runtime_reported_at": 0, "model": ""}).Error; err != nil {
+			t.Fatal(err)
+		}
+		status, payload := call(http.MethodPost, "/api/v2/feed", map[string]interface{}{}, ut.Header{Key: "X-Client-Model", Value: "gpt-5.6"})
+		if status != http.StatusOK || responseData(t, payload)["personalization"].(map[string]interface{})["mode"] != "baseline" {
+			t.Fatalf("baseline Feed status=%d payload=%+v", status, payload)
+		}
+		if row := read(); row.Model != "gpt-5.6" {
+			t.Fatalf("baseline Feed did not persist model: %+v", row)
+		}
+		status, payload = call(http.MethodGet, "/api/v2/agent-settings", nil)
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "ONBOARDING_REQUIRED" {
+			t.Fatalf("baseline settings permission changed: status=%d payload=%+v", status, payload)
+		}
+		status, payload = call(http.MethodPost, "/api/v2/feed", map[string]interface{}{})
+		if status != http.StatusOK {
+			t.Fatalf("headerless baseline Feed status=%d payload=%+v", status, payload)
+		}
+		if row := read(); row.Model != "gpt-5.6" {
+			t.Fatalf("missing model header cleared the stored model: %+v", row)
+		}
+	})
+
 	t.Run("authenticated command claim and completion templates", func(t *testing.T) {
 		if err := database.Exec("UPDATE agent_runtime_leases SET context_revision_applied=1 WHERE agent_id=?", id).Error; err != nil {
 			t.Fatal(err)

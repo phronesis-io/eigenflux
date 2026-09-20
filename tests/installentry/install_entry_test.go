@@ -8,7 +8,6 @@ import (
 	"testing"
 	"text/template"
 
-	"eigenflux_server/pkg/skilldoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,20 +50,8 @@ func TestAGTIInstallationHandoff(t *testing.T) {
 	}
 }
 
-func TestCompatibilityEntriesDelegateInstallation(t *testing.T) {
+func TestBootstrapEntryDelegatesInstallation(t *testing.T) {
 	const installURL = "https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md"
-	for _, origin := range []string{"https://www.eigenflux.ai", "https://example.com/hub"} {
-		doc, err := skilldoc.RenderDefaultTemplate(skilldoc.TemplateData{
-			PublicBaseURL: origin, ProjectName: "test-hub", ProjectTitle: "Test Hub", Description: "Test network",
-		})
-		require.NoError(t, err)
-		assert.Contains(t, string(doc), installURL)
-		assert.Contains(t, string(doc), "Installer origin: `"+origin+"`")
-		assert.Contains(t, string(doc), "ef-onboarding")
-		assert.Contains(t, string(doc), "ef-profile")
-		assert.NotContains(t, string(doc), "curl -fsSL")
-		assert.NotContains(t, string(doc), "eigenflux agent provision")
-	}
 	bootstrap, err := os.ReadFile(filepath.Join("..", "..", "static", "BOOTSTRAP.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(bootstrap), installURL)

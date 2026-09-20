@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,14 +40,14 @@ func TestPromptLineMatchesSkills(t *testing.T) {
 	}
 }
 
-// Same contract, the copy that ships inside the binary for hosts whose backend
-// does not inject one.
-func TestPromptLineInBuiltinContract(t *testing.T) {
-	if !strings.Contains(output.FeedContractForTest(), output.ProfileRefreshPromptLine) {
-		t.Error("built-in fallback contract does not quote the prompt line verbatim")
+// A missing server contract resolves through this checkout's synchronized Skills.
+func TestPromptLineInDynamicContract(t *testing.T) {
+	contract := resolveRepositoryFeedContract(t, "intent_aligned")
+	if !strings.Contains(contract, output.ProfileRefreshPromptLine) {
+		t.Error("dynamic contract does not quote the prompt line verbatim")
 	}
-	if !strings.Contains(output.FeedContractForTest(), "profile refresh-complete --expected-version <N>") {
-		t.Error("built-in fallback contract does not describe no-change completion")
+	if !strings.Contains(contract, "profile refresh-complete --expected-version <N>") {
+		t.Error("dynamic contract does not describe no-change completion")
 	}
 }
 
@@ -59,6 +60,8 @@ func TestSilentReplySentinelMatchesContracts(t *testing.T) {
 		"skills/ef-broadcast/references/contract.md",
 		"skills/ef-broadcast/references/feed.md",
 		"static/feed_contract.md",
+		"skills/ef-broadcast/references/baseline-contract.md",
+		"static/feed_baseline_contract.md",
 	} {
 		body, err := os.ReadFile(filepath.Join(repoRoot, rel))
 		if err != nil {
@@ -71,9 +74,25 @@ func TestSilentReplySentinelMatchesContracts(t *testing.T) {
 		}
 	}
 
-	fallback := output.FeedContractForTest()
-	if !strings.Contains(fallback, "NO_REPLY") ||
-		!strings.Contains(strings.ToLower(fallback), "never return an empty assistant turn") {
-		t.Error("built-in fallback does not encode intentional silent success with NO_REPLY")
+	for _, mode := range []string{"intent_aligned", "baseline"} {
+		contract := resolveRepositoryFeedContract(t, mode)
+		if !strings.Contains(contract, "NO_REPLY") ||
+			!strings.Contains(strings.ToLower(contract), "never return an empty assistant turn") {
+			t.Errorf("%s dynamic contract does not encode intentional silent success with NO_REPLY", mode)
+		}
 	}
+}
+
+func resolveRepositoryFeedContract(t *testing.T, mode string) string {
+	t.Helper()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EIGENFLUX_SKILLS_DIR", filepath.Join(repoRoot, "skills"))
+	contract, err := output.ResolveFeedContract(json.RawMessage(`{"personalization":{"mode":"` + mode + `"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract
 }

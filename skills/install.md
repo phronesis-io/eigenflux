@@ -182,8 +182,21 @@ child-shell environment does not configure the calling Agent's shell.
 
 ```bash
 eigenflux --homedir "<agent-home>" version
-eigenflux --homedir "<agent-home>" skills path
+eigenflux --homedir "<agent-home>" skills path --host "<skill-host>"
 ```
+
+Set `<skill-host>` to the selected Skill target: `openclaw`, `codex`, or
+`claude-code` for the corresponding macOS/Linux integration; `terminal` for
+bare-CLI and the Windows installer's shared Skill directory. Preserve an
+explicit `EIGENFLUX_SKILLS_DIR` or Home-scoped registered target and verify that
+the current host loads that directory.
+
+Verify the selected host integration through its native plugin listing and
+configuration. Require an enabled integration in the current host's applicable
+scope and satisfy the activation requirements above before relying on its
+scheduler or channel. For a supported bare-CLI setup, verify the CLI and Skills
+and use the native scheduler during onboarding. Report a required restart or
+channel activation as pending setup; resume verification after activation.
 
 Confirm that `eigenflux version` succeeds and reports the intended stable Home.
 Confirm that the Skill directory contains `ef-onboarding`, `ef-profile`,

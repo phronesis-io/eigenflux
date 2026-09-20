@@ -1157,21 +1157,22 @@ func LatestCompletedBroadcastsByAuthors(db *gorm.DB, authorIDs []int64) (map[int
 // RatedItem is a broadcast the caller has scored, with the caller's own score
 // and enough item content to render a card.
 type RatedItem struct {
-	ItemID        int64  `gorm:"column:item_id"`
-	MyScore       int16  `gorm:"column:my_score"`
-	FeedbackAt    int64  `gorm:"column:feedback_at"`
-	Summary       string `gorm:"column:summary"`
-	SummaryZh     string `gorm:"column:summary_zh"`
-	TitleZh       string `gorm:"column:title_zh"`
-	Lang          string `gorm:"column:lang"`
-	Domains       string `gorm:"column:domains"`
-	BroadcastType string `gorm:"column:broadcast_type"`
-	RawContent    string `gorm:"column:raw_content"`
-	RawURL        string `gorm:"column:raw_url"`
-	AuthorAgentID int64  `gorm:"column:author_agent_id"`
-	AuthorName    string `gorm:"column:author_name"`
-	AuthorNameEn  string `gorm:"column:author_name_en"`
-	CreatedAt     int64  `gorm:"column:created_at"`
+	ItemID            int64  `gorm:"column:item_id"`
+	MyScore           int16  `gorm:"column:my_score"`
+	FeedbackAt        int64  `gorm:"column:feedback_at"`
+	Summary           string `gorm:"column:summary"`
+	SummaryZh         string `gorm:"column:summary_zh"`
+	TitleZh           string `gorm:"column:title_zh"`
+	Lang              string `gorm:"column:lang"`
+	Domains           string `gorm:"column:domains"`
+	BroadcastType     string `gorm:"column:broadcast_type"`
+	RawContent        string `gorm:"column:raw_content"`
+	RawURL            string `gorm:"column:raw_url"`
+	AuthorAgentID     int64  `gorm:"column:author_agent_id"`
+	AuthorName        string `gorm:"column:author_name"`
+	AuthorNameEn      string `gorm:"column:author_name_en"`
+	AuthorCountryCode string `gorm:"column:author_country_code"`
+	CreatedAt         int64  `gorm:"column:created_at"`
 }
 
 // ListRatedItems returns broadcasts the caller has given feedback to, newest
@@ -1191,11 +1192,13 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 		           COALESCE(p.broadcast_type, '') AS broadcast_type,
 		           r.raw_content, r.raw_url, r.author_agent_id,
 		           COALESCE(a.agent_name, '')  AS author_name,
-		           COALESCE(a.agent_name_en, '') AS author_name_en, r.created_at
+		           COALESCE(a.agent_name_en, '') AS author_name_en, r.created_at,
+		           COALESCE(card.private_card->>'geo', '') AS author_country_code
 		      FROM feedback_logs f
 		      JOIN raw_items r            ON r.item_id = f.item_id
 		      LEFT JOIN processed_items p ON p.item_id = f.item_id
 		      LEFT JOIN agents a          ON a.agent_id = r.author_agent_id
+		      LEFT JOIN agent_cards card ON card.agent_id = r.author_agent_id
 		     WHERE f.agent_id = ?
 		     ORDER BY f.item_id, f.feedback_at DESC
 		) x

@@ -9,6 +9,7 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/auth/authservice"
+	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
@@ -64,9 +65,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create pm client: %v", err)
 	}
+	notificationClient, err := notificationservice.NewClient("NotificationService", rpcx.ClientOptions(resolver)...)
+	if err != nil {
+		log.Fatalf("failed to create notification client: %v", err)
+	}
 
 	// Hertz HTTP server with WS route.
-	wsHandler := handler.New(authClient, pmClient, db.RDB)
+	wsHandler := handler.New(authClient, pmClient, db.RDB, notificationClient)
 
 	listenAddr := cfg.ListenAddr(cfg.WSPort)
 	h := server.Default(server.WithHostPorts(listenAddr))

@@ -94,6 +94,9 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 	}
 
 	targetKind, targetID := sendTarget(req)
+	if targetKind == "friend" && targetID == req.SenderId {
+		return selfTargetPMResp(), nil
+	}
 	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.Fingerprint(req.SenderId, targetKind, targetID, req.Content))
 	if errors.Is(err, sendguard.ErrInProgress) {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
@@ -130,6 +133,13 @@ func sendTarget(req *pm.SendPMReq) (string, int64) {
 	return "friend", req.ReceiverId
 }
 
+// selfTargetPMResp rejects a message whose receiver would be the sender. The
+// check runs before the block check so a self-block cannot turn a self-message
+// into a silent "success" with zero IDs.
+func selfTargetPMResp() *pm.SendPMResp {
+	return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot send a private message to yourself"}}
+}
+
 func (s *PMServiceImpl) sendPM(ctx context.Context, req *pm.SendPMReq) (*pm.SendPMResp, error) {
 	// Case 1: New conversation (item_id provided)
 	if req.ItemId != nil && *req.ItemId > 0 {
@@ -161,6 +171,22 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	if err != nil {
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()},
+		}, nil
+	}
+	if receiverID == req.SenderId {
+		return selfTargetPMResp(), nil
+	}
+
+	// A deleted or undistributed broadcast is no longer an entry point for contact.
+	if err := s.validator.ValidateItemAvailable(ctx, itemID); err != nil {
+		if errors.Is(err, validator.ErrItemNotAvailable) {
+			return &pm.SendPMResp{
+				BaseResp: &base.BaseResp{Code: 404, Msg: err.Error()},
+			}, nil
+		}
+		logger.Ctx(ctx).Error("SendPM item availability check failed", "senderID", req.SenderId, "itemID", itemID, "err", err)
+		return &pm.SendPMResp{
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to check item availability"},
 		}, nil
 	}
 
@@ -291,6 +317,9 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 403, Msg: err.Error()},
 		}, nil
+	}
+	if receiverID == req.SenderId {
+		return selfTargetPMResp(), nil
 	}
 
 	// Block check - silent success if blocked
@@ -836,6 +865,11 @@ func (s *PMServiceImpl) CloseConv(ctx context.Context, req *pm.CloseConvReq) (*p
 func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFriendRequestReq) (*pm.SendFriendRequestResp, error) {
 	logger.Ctx(ctx).Info("SendFriendRequest", "fromUID", req.FromUid, "toUID", req.ToUid)
 
+	if req.FromUid == req.ToUid {
+		logger.Ctx(ctx).Info("SendFriendRequest rejected (self target)", "fromUID", req.FromUid)
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot send a friend request to yourself"}}, nil
+	}
+
 	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
 	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
 	if err == nil {
@@ -1170,7 +1204,11 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 			Update("status", dal.RequestStatusUnfriended).Error
 	})
 	if err != nil {
-		return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrNotFriends) {
+			return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("Unfriend failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.UnfriendResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to unfriend"}}, nil
 	}
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
@@ -1182,6 +1220,11 @@ func (s *PMServiceImpl) Unfriend(ctx context.Context, req *pm.UnfriendReq) (*pm.
 
 func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*pm.BlockUserResp, error) {
 	logger.Ctx(ctx).Info("BlockUser", "fromUID", req.FromUid, "toUID", req.ToUid)
+
+	if req.FromUid == req.ToUid {
+		logger.Ctx(ctx).Info("BlockUser rejected (self target)", "fromUID", req.FromUid)
+		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot block yourself"}}, nil
+	}
 
 	remark := ""
 	if req.Remark != nil {
@@ -1228,7 +1271,11 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 		return nil
 	})
 	if err != nil {
-		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrAlreadyBlocked) {
+			return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("BlockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to block"}}, nil
 	}
 	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
@@ -1254,7 +1301,11 @@ func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq)
 			Update("status", dal.RequestStatusCancelled).Error
 	})
 	if err != nil {
-		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()}}, nil
+		if errors.Is(err, dal.ErrNotBlocked) {
+			return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+		}
+		logger.Ctx(ctx).Error("UnblockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
+		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to unblock"}}, nil
 	}
 	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
 	logger.Ctx(ctx).Info("UnblockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)

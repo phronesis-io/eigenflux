@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // TestSyncedSettingsBody_FeedPollIntentGuard verifies that feed_poll_interval is
@@ -258,6 +260,9 @@ func TestPushReportedSupportsV2OnlyCredentials(t *testing.T) {
 		if got := r.Header.Get("X-Client-Host"); got != "workbuddy/5.3.14" {
 			t.Errorf("X-Client-Host = %q", got)
 		}
+		if got := r.Header.Get("X-Client-Model"); got != "gpt-5.6" {
+			t.Errorf("X-Client-Model = %q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":null}`))
 	}))
@@ -348,5 +353,83 @@ func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
 	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0")
 	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
 		t.Fatalf("cached snapshot = %q; want %q", got, want)
+	}
+}
+
+func TestRuntimeReportDoesNotReuseSyncedModel(t *testing.T) {
+	gets, puts := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/agents/me/settings" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if model := r.Header.Get("X-Client-Model"); model != "" {
+			t.Errorf("synced model reused as current metadata: %q", model)
+		}
+		if r.Method == http.MethodGet {
+			gets++
+			_, _ = w.Write([]byte(`{"code":0,"data":{"model":"previous-model"}}`))
+			return
+		}
+		puts++
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if _, present := body["model"]; present {
+			t.Errorf("synced model echoed in settings body: %v", body)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+	cfg, _ := runtimeTestConfig(t, server.URL, true)
+	if err := SyncSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetKV("model"); got != "previous-model" {
+		t.Fatalf("server model lost during settings sync: %q", got)
+	}
+	for _, status := range []string{"reported", "unchanged"} {
+		result, err := reportRuntimeSettings(cfg, "plugin", "", "codex", "", false)
+		if err != nil || result.Status != status || !reflect.DeepEqual(result.Missing, []string{"model"}) {
+			t.Fatalf("current model missing should remain visible: %+v, err=%v", result, err)
+		}
+	}
+	if gets != 1 || puts != 1 {
+		t.Fatalf("unexpected requests: gets=%d puts=%d", gets, puts)
+	}
+}
+
+func TestSettingsPushModelFlagOverridesCurrentEnvironment(t *testing.T) {
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		puts++
+		if r.Method != http.MethodPut || r.URL.Path != "/api/v2/agents/me/settings" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("X-Client-Model"); got != "explicit-model" {
+			t.Errorf("X-Client-Model = %q, want explicit-model", got)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+	cfg, _ := runtimeTestConfig(t, server.URL, true)
+	clientMeta.Model = "environment-model"
+	command := &cobra.Command{}
+	for _, name := range []string{"mode", "model", "runtime-name", "runtime-version"} {
+		command.Flags().String(name, "", "")
+	}
+	command.Flags().Bool("force", false, "")
+	if err := command.Flags().Parse([]string{"--mode", "plugin", "--runtime-name", "codex", "--model", "explicit-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := settingsPushCmd.RunE(command, nil); err != nil {
+		t.Fatal(err)
+	}
+	result, err := reportRuntimeSettings(cfg, "", "explicit-model", "", "", false)
+	if err != nil || result.Status != "unchanged" || len(result.Missing) != 0 {
+		t.Fatalf("explicit current model reported missing: %+v, err=%v", result, err)
+	}
+	if puts != 1 || clientMeta.Model != "environment-model" {
+		t.Fatalf("explicit model must report once without changing process metadata: puts=%d model=%q", puts, clientMeta.Model)
 	}
 }

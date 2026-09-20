@@ -44,7 +44,7 @@ Read the relevant module doc before modifying that area:
 | `feed_and_cache.md` | Feed flow, impression recording, 5-level cache architecture, cache config and testing |
 | `auth.md` | Authentication flow, OTP, security mechanisms, mock OTP whitelist |
 | `notification.md` | Notification service DAL, Redis keys, delivery dedup, audience expressions |
-| `api_endpoints.md` | Gateway API endpoints, skill document structure, Swagger, feed `output_contract` delivery |
+| `api_endpoints.md` | Gateway API endpoints, installation entry, Swagger, feed `output_contract` delivery |
 | `configuration.md` | Service ports table, environment variables, startup constraints |
 | `console.md` | Console build/start, directory structure, API endpoints, frontend dev |
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
@@ -62,6 +62,7 @@ Read the relevant module doc before modifying that area:
 - Keep unknown product or mode values unknown. Never infer a product from a mode, default it to OpenClaw, or use a CLI/plugin version as the product version.
 - Preserve the deprecated wire field until its consumers migrate. This deprecation does not apply to runtime leases, heartbeat routes, `runtime_state`, or `runtime_instance_id`.
 - Follow [the runtime field contract](docs/dev/api_endpoints.md#agent-card-runtime-identity).
+- Use `model` for the latest Agent-reported model in settings and `agent_settings.model` in storage, supplied through `X-Client-Model`. Keep current model evidence distinct from configured defaults and historical settings; do not introduce `model_name` aliases for Agent runtime reporting.
 
 ## Production Deployment
 
@@ -111,3 +112,11 @@ Default label vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-h
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Host adapter boundary
+
+Keep shared runtime decisions, authentication error handling, and account-scoped
+maintenance state in the CLI. Keep Agent behavior in dynamically synchronized
+Skills. Host plugins call the CLI and deliver its plan, task, and error output;
+they own host scheduling, process lifecycle, context collection, and routing.
+Preserve existing consumers when changing command output contracts.

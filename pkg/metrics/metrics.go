@@ -109,6 +109,17 @@ var (
 		Name: "commission_projection_failures_total",
 		Help: "Commission projection failures by dependency.",
 	}, []string{"dependency"})
+
+	CommissionNotificationDeliveryTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "commission_notification_delivery_total",
+		Help: "Commission Order notification ingestion outcomes.",
+	}, []string{"result"})
+
+	CommissionNotificationDeliveryLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "commission_notification_delivery_latency_seconds",
+		Help:    "Time from the Commission Order event to durable inbox insertion.",
+		Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 300},
+	})
 )
 
 // Pipeline processing metrics.
@@ -241,5 +252,6 @@ func init() {
 		AgentShortIDGenerationFailureTotal, AgentShortIDLookupTotal,
 		AgentShortIDLookupRateLimitedTotal, LegacyPersonalInviteResolutionTotal,
 		FriendNotificationIdentityMissingTotal,
+		CommissionNotificationDeliveryTotal, CommissionNotificationDeliveryLatency,
 	)
 }

@@ -33,7 +33,7 @@ func TestFeedbackFlow(t *testing.T) {
 
 	// Step 2: Register User Agent
 	t.Log("=== Step 2: Register User Agent ===")
-	userResp := testutil.RegisterAgent(t, "user@test.com", "UserBot", "I am interested in AI")
+	userResp := testutil.RegisterAgent(t, "user@test.com", "UserBot", "Domains: chain-of-thought reasoning, mathematical problem-solving. Looking for: chain-of-thought benchmark improvements.")
 	userToken := userResp["token"].(string)
 	userIDStr := userResp["agent_id"].(string)
 	var userID int64
@@ -48,7 +48,7 @@ func TestFeedbackFlow(t *testing.T) {
 	t.Log("=== Step 4: Author publishes items ===")
 	item1 := testutil.PublishItem(t, authorToken,
 		"Researchers at DeepMind published a new paper on chain-of-thought reasoning in large language models. The study demonstrates that structured prompting techniques can improve mathematical problem-solving accuracy by 40% compared to standard approaches. The team evaluated their method across multiple benchmarks including GSM8K and MATH.",
-		"Significant advancement in LLM reasoning capabilities with real benchmark improvements",
+		`{"summary":"Significant advancement in LLM reasoning capabilities with real benchmark improvements","keywords":["chain-of-thought"]}`,
 		"https://example.com/ai-reasoning-paper")
 	item1IDStr := item1["item_id"].(string)
 	var item1ID int64
@@ -203,4 +203,70 @@ func getMyItems(t *testing.T, token string, limit int) map[string]interface{} {
 		t.Fatalf("get my items failed: %v", result["msg"])
 	}
 	return result["data"].(map[string]interface{})
+}
+
+// TestFeedbackOnOwnItemSkipped verifies an author's score on their own
+// broadcast is reported as skipped and never reaches feedback_logs, item_stats,
+// or the author's influence metrics, while another agent's score still counts.
+func TestFeedbackOnOwnItemSkipped(t *testing.T) {
+	testutil.WaitForAPI(t)
+	testutil.CleanTestData(t)
+
+	author := testutil.RegisterAgent(t, "self_feedback_author@test.com", "SelfFeedbackAuthor", "I publish")
+	authorToken := author["token"].(string)
+	authorID := testutil.MustID(t, author["agent_id"], "agent_id")
+	reader := testutil.RegisterAgent(t, "self_feedback_reader@test.com", "SelfFeedbackReader", "I read")
+	readerToken := reader["token"].(string)
+
+	published := testutil.PublishItem(t, authorToken,
+		"An author-scored broadcast used to verify that self feedback is skipped by the server.",
+		"self feedback guard", "")
+	itemIDStr := published["item_id"].(string)
+	itemID := testutil.MustID(t, published["item_id"], "item_id")
+
+	own := testutil.SubmitFeedback(t, authorToken, map[string]interface{}{
+		"items": []map[string]interface{}{{"item_id": itemIDStr, "score": 1}},
+	})
+	if got := int(own["processed_count"].(float64)); got != 0 {
+		t.Fatalf("author self feedback processed_count=%d, want 0", got)
+	}
+	if got := int(own["skipped_count"].(float64)); got != 1 {
+		t.Fatalf("author self feedback skipped_count=%d, want 1", got)
+	}
+	reasons, _ := own["skipped_reasons"].([]interface{})
+	if len(reasons) != 1 || reasons[0] != "own item "+itemIDStr {
+		t.Fatalf("skipped_reasons=%v, want [own item %s]", own["skipped_reasons"], itemIDStr)
+	}
+
+	other := testutil.SubmitFeedback(t, readerToken, map[string]interface{}{
+		"items": []map[string]interface{}{{"item_id": itemIDStr, "score": 2}},
+	})
+	if got := int(other["processed_count"].(float64)); got != 1 {
+		t.Fatalf("reader feedback processed_count=%d, want 1", got)
+	}
+
+	snapshot := testutil.WaitForItemStats(t, itemID, 20*time.Second, func(stats testutil.ItemStatsSnapshot) bool {
+		return stats.Score2Count == 1
+	})
+	if snapshot.Score1Count != 0 || snapshot.TotalScore != 2 {
+		t.Fatalf("item_stats counted author feedback: score_1_count=%d total_score=%d, want 0 and 2", snapshot.Score1Count, snapshot.TotalScore)
+	}
+
+	var authorLogs int
+	if err := testutil.TestDB.QueryRow(
+		"SELECT COUNT(*) FROM feedback_logs WHERE item_id = $1 AND agent_id = $2", itemID, authorID,
+	).Scan(&authorLogs); err != nil {
+		t.Fatalf("count author feedback_logs: %v", err)
+	}
+	if authorLogs != 0 {
+		t.Fatalf("feedback_logs has %d author rows for item %d, want 0", authorLogs, itemID)
+	}
+
+	influence := testutil.GetAgent(t, authorToken)["influence"].(map[string]interface{})
+	if got := int64(influence["total_scored_1"].(float64)); got != 0 {
+		t.Fatalf("author influence total_scored_1=%d counts self feedback, want 0", got)
+	}
+	if got := int64(influence["total_scored_2"].(float64)); got != 1 {
+		t.Fatalf("author influence total_scored_2=%d, want 1 from the reader", got)
+	}
 }

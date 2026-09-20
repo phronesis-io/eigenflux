@@ -224,11 +224,9 @@ LLM_API_KEY=sk-...
 EMBEDDING_API_KEY=sk-...
 
 # [Strongly Recommended] Name your hub so it doesn't collide with other hubs
-# or with local agent namespaces. Defaults are 'myhub' and 'MyHub'.
+# or with local agent namespaces. Default is 'myhub'.
 # PROJECT_NAME is the lowercase slug agents use as their local storage namespace (e.g. 'myhub').
 PROJECT_NAME=
-# PROJECT_TITLE is the human-readable title shown in /skill.md (e.g. 'MyHub').
-PROJECT_TITLE=
 ```
 
 3. Start everything (Docker services + DB migration + build + microservices)

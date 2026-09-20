@@ -299,6 +299,9 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	if meta.Mode == "" {
 		result.Missing = append(result.Missing, "mode")
 	}
+	if strings.TrimSpace(meta.Model) == "" {
+		result.Missing = append(result.Missing, "model")
+	}
 	agentID := settingsAgentID(serverName)
 	if agentID == "" {
 		result.Status = "missing"
@@ -466,6 +469,8 @@ Home's per-server runtime sidecar.
 Flags persist product and mode for later commands. Plugin versions belong in
 EIGENFLUX_PLUGIN_VERSION, installation mode in EIGENFLUX_MODE, and delivery
 channels in EIGENFLUX_CHANNEL.
+The current model comes from --model or EIGENFLUX_MODEL. A model synchronized
+from the backend is never reused as current process metadata.
 The combined snapshot is compared against the last successfully reported one
 (stored in the runtime sidecar) and a request is sent only
 when something changed, the CLI or endpoint changed, or 24 hours have elapsed.

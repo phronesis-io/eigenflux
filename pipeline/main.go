@@ -89,6 +89,11 @@ func main() {
 		commissionIndexConsumer = consumer.NewCommissionIndexConsumer(cfg, commissionsource.Adapter{Commission: commissionClient, Order: orderClient}, store, embedder)
 		log.Println("Commission index consumer initialized")
 	}
+	var commissionNotificationConsumer *consumer.CommissionOrderNotificationConsumer
+	if cfg.EnableCommissionOrderNotifications {
+		commissionNotificationConsumer = consumer.NewCommissionOrderNotificationConsumer(cfg, db.DB, mq.RDB)
+		log.Println("Commission Order notification consumer initialized")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -224,6 +229,9 @@ func main() {
 	if commissionIndexConsumer != nil {
 		go commissionIndexConsumer.Start(ctx)
 	}
+	if commissionNotificationConsumer != nil {
+		go commissionNotificationConsumer.Start(ctx)
+	}
 
 	lagGroups := []metrics.StreamGroup{
 		{Stream: "stream:profile:update", Group: "cg:profile:update"},
@@ -242,6 +250,9 @@ func main() {
 	}
 	if commissionIndexConsumer != nil {
 		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: cfg.CommissionStream, Group: cfg.CommissionConsumerGroup})
+	}
+	if commissionNotificationConsumer != nil {
+		lagGroups = append(lagGroups, metrics.StreamGroup{Stream: cfg.CommissionNotificationStream, Group: cfg.CommissionNotificationConsumerGroup})
 	}
 	go metrics.StartLagPoller(ctx, mq.RDB, lagGroups, 10*time.Second)
 

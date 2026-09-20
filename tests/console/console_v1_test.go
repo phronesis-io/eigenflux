@@ -263,25 +263,70 @@ func TestConsoleActivityCalendarReturnsCalendar(t *testing.T) {
 
 func TestConsoleHighlightsReturnsItems(t *testing.T) {
 	testutil.WaitForAPI(t)
-	token, _, _ := testutil.LoginAndGetToken(t, testEmail)
-
-	result := testutil.DoGet(t, "/api/v1/console/highlights?limit=5", token)
-	assertCode(t, result, 0)
-
-	data := result["data"].(map[string]interface{})
-	highlights, ok := data["highlights"].([]interface{})
-	if !ok {
-		t.Fatal("expected highlights array")
-	}
-	// impression_id lives on each highlight (per-delivery), not at the top level.
-	for i, h := range highlights {
-		hl := h.(map[string]interface{})
-		requireKey(t, hl, "item_id")
-		requireKey(t, hl, "impression_id")
-		if i >= 2 {
-			break
+	email := fmt.Sprintf("console-highlights-%d@test.com", time.Now().UnixNano())
+	token, agentID, _ := testutil.LoginAndGetToken(t, email)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+	readHighlights := func(t *testing.T) []interface{} {
+		t.Helper()
+		result := testutil.DoGet(t, "/api/v1/console/highlights?limit=5&lang=en", token)
+		assertCode(t, result, 0)
+		data := result["data"].(map[string]interface{})
+		highlights, ok := data["highlights"].([]interface{})
+		if !ok {
+			t.Fatal("expected highlights array")
 		}
+		return highlights
 	}
+	t.Run("daily picks without deliveries", func(t *testing.T) {
+		highlights := readHighlights(t)
+		if len(highlights) != 3 {
+			t.Fatalf("expected three daily picks, got %d", len(highlights))
+		}
+		for _, h := range highlights {
+			hl := h.(map[string]interface{})
+			if hl["global_pick"] != true || hl["source"] != "EigenFlux" {
+				t.Fatalf("expected global daily pick: %v", hl)
+			}
+			for _, key := range []string{"content", "summary"} {
+				if value, _ := hl[key].(string); value == "" {
+					t.Fatalf("daily pick missing %s: %v", key, hl)
+				}
+			}
+		}
+	})
+	t.Run("delivered broadcast", func(t *testing.T) {
+		authorEmail := fmt.Sprintf("console-highlight-author-%d@test.com", time.Now().UnixNano())
+		_, authorID, _ := testutil.LoginAndGetToken(t, authorEmail)
+		t.Cleanup(func() { testutil.CleanupTestEmails(t, authorEmail) })
+		itemID := time.Now().UnixNano()
+		now := time.Now().UnixMilli()
+		impressionID := fmt.Sprintf("console-highlight-%d", itemID)
+		t.Cleanup(func() {
+			testutil.TestDB.Exec("DELETE FROM replay_logs WHERE item_id = $1", itemID)
+			testutil.TestDB.Exec("DELETE FROM processed_items WHERE item_id = $1", itemID)
+			testutil.TestDB.Exec("DELETE FROM raw_items WHERE item_id = $1", itemID)
+		})
+		if _, err := testutil.TestDB.Exec(`INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at) VALUES ($1, $2, 'Delivered highlight fixture', $3)`, itemID, authorID, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := testutil.TestDB.Exec(`INSERT INTO processed_items (item_id, status, broadcast_type, summary, updated_at) VALUES ($1, 3, 'info', 'Delivered summary', $2)`, itemID, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := testutil.TestDB.Exec(`INSERT INTO replay_logs (id, impression_id, agent_id, item_id, item_score, served_at, created_at, delivered) VALUES ($1,$2,$3,$1,1,$4,$4,true)`, itemID, impressionID, agentID, now); err != nil {
+			t.Fatal(err)
+		}
+		highlights := readHighlights(t)
+		if len(highlights) != 1 {
+			t.Fatalf("expected one delivered broadcast, got %d", len(highlights))
+		}
+		hl := highlights[0].(map[string]interface{})
+		if testutil.MustID(t, hl["item_id"], "item_id") != itemID || hl["impression_id"] != impressionID {
+			t.Fatalf("highlight must preserve delivery identity: %v", hl)
+		}
+		if hl["summary"] != "Delivered summary" || hl["global_pick"] == true {
+			t.Fatalf("expected the delivered broadcast content: %v", hl)
+		}
+	})
 }
 
 // ---------- Highlight Feedback ----------

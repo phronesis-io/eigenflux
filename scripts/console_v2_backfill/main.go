@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	_ "github.com/lib/pq"
 )
@@ -37,10 +38,15 @@ type legacyAgent struct {
 func main() {
 	apply := flag.Bool("apply", false, "write the backfill; without this flag the command is read-only")
 	batchSize := flag.Int("batch-size", 500, "agents per transaction (1-5000)")
+	repairGoals := flag.Bool("repair-goals", false, "repair unchanged legacy goal templates instead of backfilling accounts")
+	agentID := flag.Int64("agent-id", 0, "restrict --repair-goals to one agent; zero scans all legacy drafts")
 	flag.Parse()
 
 	if *batchSize < 1 || *batchSize > 5000 {
 		log.Fatal("--batch-size must be between 1 and 5000")
+	}
+	if *agentID < 0 || (*agentID != 0 && !*repairGoals) {
+		log.Fatal("--agent-id requires --repair-goals and a non-negative ID")
 	}
 	dsn := os.Getenv("PG_DSN")
 	if dsn == "" {
@@ -61,6 +67,12 @@ func main() {
 		log.Fatalf("ping database: %v", err)
 	}
 	cancel()
+	if *repairGoals {
+		if err := repairLegacyGoals(db, *apply, *batchSize, *agentID); err != nil {
+			log.Fatalf("repair legacy goals: %v", err)
+		}
+		return
+	}
 
 	duplicateCount, invalidCount, reservedCount, eligibleCount, err := inspect(db)
 	if err != nil {
@@ -258,6 +270,21 @@ type legacyBackfillRow struct {
 }
 
 func legacyNetworkGoal(agent legacyAgent) string {
+	// Change only the injected prefix; preserve the original body and limit.
+	bio := strings.TrimSpace(agent.bio)
+	if bio == "" {
+		return "Continue existing EigenFlux network activities and collaboration."
+	}
+	goal := originalLegacyNetworkGoal(agent)
+	if strings.ContainsFunc(bio, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
+		return goal
+	}
+	return strings.TrimPrefix(goal, "延续现有 Agent 方向：")
+}
+
+// originalLegacyNetworkGoal identifies only the historical template. Repair
+// must use the archived biography, never the Agent's potentially updated bio.
+func originalLegacyNetworkGoal(agent legacyAgent) string {
 	bio := strings.TrimSpace(agent.bio)
 	if bio == "" {
 		return "延续现有 EigenFlux 网络活动与合作"

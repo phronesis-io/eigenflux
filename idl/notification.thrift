@@ -11,6 +11,7 @@ struct PendingNotification {
     6: optional string peer_short_id
     7: optional string peer_display_name
     8: optional i64 friend_uid
+    9: optional string payload_json
 }
 
 struct AckNotificationItem {
@@ -20,10 +21,14 @@ struct AckNotificationItem {
 
 struct ListPendingReq {
     1: required i64 agent_id
+    2: optional string cursor
+    3: optional i32 limit
 }
 
 struct ListPendingResp {
     1: required list<PendingNotification> notifications
+    2: optional string next_cursor
+    3: optional bool has_more
     255: required base.BaseResp base_resp
 }
 

@@ -280,3 +280,46 @@ func setOceanengineCallbackCode(db *gorm.DB, ref, destination, eventType string,
 	codeCol, _ := oceanengineCallbackCols(destination, eventType)
 	return db.Model(&Token{}).Where("token = ?", ref).Update(codeCol, code).Error
 }
+
+const bilibiliCallbackLease = time.Minute
+
+func bilibiliCallbackCols(eventType string) (codeCol, sentCol string) {
+	if eventType == bilibiliEventClueValid {
+		return "bilibili_clue_valid_code", "bilibili_clue_valid_sent_at"
+	}
+	return "bilibili_form_submit_code", "bilibili_form_submit_sent_at"
+}
+
+func bilibiliCallbackSignalCol(eventType string) string {
+	if eventType == bilibiliEventClueValid {
+		return "reported_at"
+	}
+	return "copied_at"
+}
+
+func bilibiliCallbackClaimable(sentAt, now int64) bool {
+	return sentAt == 0 || sentAt < now-bilibiliCallbackLease.Milliseconds()
+}
+
+func claimBilibiliCallback(db *gorm.DB, ref, eventType string) (bool, *Token, error) {
+	codeCol, sentCol := bilibiliCallbackCols(eventType)
+	signalCol := bilibiliCallbackSignalCol(eventType)
+	now := time.Now().UnixMilli()
+	cutoff := now - bilibiliCallbackLease.Milliseconds()
+	res := db.Model(&Token{}).
+		Where(fmt.Sprintf("token = ? AND %s <> 0 AND bilibili_track_id <> '' AND %s > 0 AND (%s = 0 OR %s < ?)", codeCol, signalCol, sentCol, sentCol), ref, cutoff).
+		Update(sentCol, now)
+	if res.Error != nil || res.RowsAffected == 0 {
+		return false, nil, res.Error
+	}
+	var tok Token
+	if err := db.Where("token = ?", ref).First(&tok).Error; err != nil {
+		return false, nil, err
+	}
+	return true, &tok, nil
+}
+
+func setBilibiliCallbackCode(db *gorm.DB, ref, eventType string, code int) error {
+	codeCol, _ := bilibiliCallbackCols(eventType)
+	return db.Model(&Token{}).Where("token = ?", ref).Update(codeCol, code).Error
+}

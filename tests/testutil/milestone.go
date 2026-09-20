@@ -1,9 +1,12 @@
 package testutil
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"eigenflux_server/pkg/milestone"
 )
 
 func ConfigureMilestoneRuleForTest(t *testing.T, metricKey string, threshold int64, contentTemplate string) {
@@ -31,6 +34,9 @@ func ConfigureMilestoneRuleForTest(t *testing.T, metricKey string, threshold int
 			updated_at = EXCLUDED.updated_at
 	`, metricKey, threshold, contentTemplate, now); err != nil {
 		t.Fatalf("upsert milestone rule failed for metric %s threshold %d: %v", metricKey, threshold, err)
+	}
+	if err := milestone.PublishRuleInvalidation(context.Background(), GetTestRedis(), metricKey); err != nil {
+		t.Fatalf("invalidate milestone rule cache for metric %s: %v", metricKey, err)
 	}
 }
 

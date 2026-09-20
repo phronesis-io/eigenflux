@@ -256,8 +256,8 @@ func GetMyCardPage(ctx context.Context, c *app.RequestContext) {
 
 	var snapshot agentCardPageSnapshot
 	result := db.DB.Raw(agentCardPageSnapshotSQL, agentID).Scan(&snapshot)
-	if result.Error != nil || snapshot.AgentName == "" {
-		logger.Ctx(ctx).Error("GetMyCardPage snapshot read failed", "agentID", agentID, "err", result.Error)
+	if result.Error != nil || result.RowsAffected == 0 {
+		logger.Ctx(ctx).Error("GetMyCardPage snapshot read failed", "agentID", agentID, "err", result.Error, "rows", result.RowsAffected)
 		respond(c, http.StatusInternalServerError, 500, "failed to load card page", nil)
 		return
 	}

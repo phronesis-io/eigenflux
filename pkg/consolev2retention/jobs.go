@@ -31,6 +31,8 @@ func Jobs() []Job {
 		{"runtime_leases", boundedDelete("agent_runtime_leases", "lease_until < clock_ms() - day_ms()")},
 		{"control_outbox", boundedDelete("control_wakeup_outbox", "status IN ('delivered','dead') AND created_at < clock_ms() - 7*day_ms()")},
 		{"feed_exposures", boundedDelete("agent_feed_exposures", "last_seen_at < clock_ms() - 30*day_ms()")},
+		{"commission_notifications_pending", boundedDelete("notification_inbox", "acknowledged_at IS NULL AND expires_at < clock_ms()")},
+		{"commission_notifications_acknowledged", boundedDelete("notification_inbox", "acknowledged_at IS NOT NULL AND acknowledged_at < clock_ms() - 180*day_ms()")},
 		{"command_expiry", `WITH constants AS (
 			SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint AS clock_ms
 		), target AS (
