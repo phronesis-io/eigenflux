@@ -15,7 +15,7 @@ class CodexInstallation(unittest.TestCase):
         self.home = Path(self.temp.name)
         self.bin = self.home / "test bin"
         self.bin.mkdir()
-        self.config = self.home / ".codex/config.toml"
+        self.config = self.home / "custom codex/config.toml"
         self.config.parent.mkdir()
         self.original_config = b'model = "existing-model"\n[sandbox_workspace_write]\nnetwork_access = false\nwritable_roots = ["/existing/path"]\n'
         self.config.write_bytes(self.original_config)
@@ -24,7 +24,7 @@ class CodexInstallation(unittest.TestCase):
         self.rules.write_bytes(b'prefix_rule(pattern=["other"], decision="prompt")\n')
         self.log = self.home / "calls"
         self.env = {
-            "HOME": str(self.home), "PATH": str(self.bin) + ":/usr/bin:/bin",
+            "HOME": str(self.home), "CODEX_HOME": str(self.config.parent), "PATH": str(self.bin) + ":/usr/bin:/bin",
             "EIGENFLUX_HOME": str(self.home / "explicit agent/.eigenflux"),
             "EIGENFLUX_CDN_URL": "https://cdn.invalid",
             "EIGENFLUX_INSTALL_DIR": str(self.bin),
@@ -40,6 +40,7 @@ esac''')
 if [ "${1:-}" = version ]; then echo 99.0.0; fi''')
         self.stub("codex", '''printf 'codex %s\\n' "$*" >> "$TEST_CALLS"
 case "$*" in
+  '--version') echo "codex-cli ${TEST_CODEX_VERSION:-0.142.0}" ;;
   'plugin list --json')
     if [ -f "$TEST_PLUGIN" ]; then echo '[{"id":"codex-eigenflux@eigenflux"}]'; else echo '[]'; fi ;;
   'plugin marketplace add phronesis-io/codex-eigenflux')
@@ -81,6 +82,15 @@ esac''')
         self.assertIn("explicit agent/.eigenflux", calls)
         receipts = [json.loads(line) for line in result.stdout.splitlines()
                     if line.startswith('{"component":"codex-eigenflux"')]
+        self.last_output = result.stdout + result.stderr
+        for receipt in receipts:
+            self.assertEqual(receipt["codex_path"], str(getattr(self, "expected_codex", self.bin / "codex")))
+            self.assertEqual(receipt["codex_version"], getattr(self, "expected_version", "0.142.0"))
+            self.assertEqual(receipt["codex_home"], str(self.config.parent))
+            del receipt["codex_home"]
+            # Existing status/activation contract remains unchanged.
+            del receipt["codex_path"]
+            del receipt["codex_version"]
         return receipts, calls
 
     def test_fresh_install_reports_pending_activation_without_early_restart(self):
@@ -115,6 +125,69 @@ esac''')
         receipts, calls = self.install()
         self.assertEqual(receipts, [])
         self.assertNotIn("codex ", calls)
+
+    def test_old_path_falls_back_to_compatible_app_with_same_host_home(self):
+        app = self.home / 'Applications/ChatGPT.app/Contents/Resources/codex'
+        app.parent.mkdir(parents=True)
+        app.write_text((self.bin / "codex").read_text().replace(
+            "case \"$*\" in", 'test "$CODEX_HOME" = "${HOME}/custom codex" || exit 99\ncase "$*" in', 1))
+        app.chmod(0o755)
+        self.stub("codex", 'printf "old-codex %s\\n" "$*" >> "$TEST_CALLS"\nif [ "$*" = --version ]; then echo "codex-cli 0.139.0"; else exit 98; fi')
+        self.expected_codex = app
+        receipts, calls = self.install()
+        self.assertEqual(receipts[0]["status"], "installed")
+        self.assertIn("old-codex --version", calls)
+        self.assertNotIn("old-codex plugin", calls)
+        self.assertEqual(calls.count("codex plugin add codex-eigenflux@eigenflux\n"), 1)
+        self.assertIn("Skipping incompatible Codex CLI", self.last_output)
+
+    def selection(self, *candidates):
+        # Invoke the production selector in isolation from machine-wide app paths.
+        source = (ROOT / "static/install.sh").read_text()
+        helpers = source[source.index("select_codex_cli() {"):source.index("setup_agents() {")]
+        harness = self.home / "selection.sh"
+        harness.write_text('info() { printf "%s\\n" "$1"; }\nerr() { printf "%s\\n" "$1" >&2; }\n' + helpers +
+                           '\nselect_codex_cli "$@" || exit $?\ncodex_plugin_result installed restart_pending\n')
+        return subprocess.run(["sh", str(harness), *map(str, candidates)], env=self.env,
+                              cwd=self.home, capture_output=True, text=True, timeout=10)
+
+    def test_only_old_unknown_or_failed_cli_reports_upgrade_without_plugin_calls(self):
+        for version in ("0.139.0", "0.141.0", "0.142.0-alpha.1", "not-a-version"):
+            with self.subTest(version=version):
+                self.env["TEST_CODEX_VERSION"] = version
+                result = self.selection(self.bin / "codex")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Upgrade Codex CLI or the desktop app", result.stderr)
+                receipt = json.loads(result.stdout.splitlines()[-1])
+                self.assertEqual(receipt["status"], "failed")
+                self.assertEqual(receipt["codex_path"], "")
+                self.assertEqual(receipt["activation"], "unavailable")
+        self.stub("codex", 'exit 1')
+        self.assertNotEqual(self.selection(self.bin / "codex").returncode, 0)
+        self.assertNotIn("codex plugin", self.log.read_text())
+
+    def test_compatible_path_is_preferred_and_receipt_escapes_path(self):
+        for version in ("0.142.0", "0.155.0-alpha.9.2", "1.0.0"):
+            with self.subTest(version=version):
+                self.env["TEST_CODEX_VERSION"] = version
+                binary = self.bin / 'codex "quoted"'
+                binary.write_bytes((self.bin / "codex").read_bytes())
+                binary.chmod(0o755)
+                result = self.selection(binary, "/does/not/exist")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout.splitlines()[-1])
+                self.assertEqual(receipt["codex_path"], str(binary))
+                self.assertEqual(receipt["codex_version"], version)
+
+    def test_non_codex_host_does_not_probe_codex_version(self):
+        self.env["EIGENFLUX_SETUP_HOSTS"] = "terminal"
+        # Explicit invoking host remains authoritative; test selector gating by
+        # running the installer as a terminal, where Codex is unrelated.
+        result = subprocess.run(["sh", str(ROOT / "static/install.sh"), "--host", "terminal"],
+                                env=self.env, cwd=self.home, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("codex ", self.log.read_text())
 
 
 if __name__ == "__main__":

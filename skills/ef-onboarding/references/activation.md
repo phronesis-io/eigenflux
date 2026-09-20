@@ -33,7 +33,8 @@ separate user decisions, and completed operations. Do not rely on an installer's
 subprocess environment, editable task title, or an invented boolean consent file.
 
 After the user returns, inspect the same Home, server, installed CLI and Skills,
-plugin listing and current host availability, plus the unchanged Rules and
+plugin listing through the installer-reported `codex_path` with
+`CODEX_HOME` set to its reported `codex_home`, and current host availability, plus the unchanged Rules and
 checker results. Use the documented fresh-process reload and any host activation
 evidence available. An offline rule check alone is insufficient. If activation
 cannot be established, report the specific pending requirement and stop; do not
