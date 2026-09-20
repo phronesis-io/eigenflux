@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tarfile
 
-SOURCE = "643000d227e3f95c389d84d792f7d86d140fe1b2"
+SOURCE = "1b4b337678cfbe706aa9e2519db49ac8a129790f"
 
 
 def run(args, **kw):
@@ -83,7 +83,7 @@ verify_snapshot_cli() {
 '''
     text = replace_once(text, '# ── Step 2: Install skills', helper + '\n# ── Step 2: Install skills')
     text = replace_once(text, '\ninstall_cli\nreport_attribution', '\ninstall_cli\nverify_snapshot_cli\nreport_attribution')
-    text = replace_once(text, '\nsetup_codex\n', '\nsetup_codex\nverify_snapshot_cli\ninstall_skills\n')
+    text = replace_once(text, '\nsetup_agents\n', '\nsetup_agents\nverify_snapshot_cli\ninstall_skills\n')
     return text.replace('https://www.eigenflux.ai/install.sh', base + '/install.sh')
 
 
@@ -122,7 +122,7 @@ def make(build_dir, base, platforms):
     onboarding = stage / "ef-onboarding/SKILL.md"
     original = onboarding.read_text()
     amended = replace_once(original, "https://cdn.eigenflux.ai/skills/latest/install.md", base + "/install.md")
-    amended = replace_once(amended, 'version: "0.1.4"', 'version: "0.1.5"')
+    amended = replace_once(amended, 'version: "0.2.0"', 'version: "0.2.1"')
     onboarding.write_text(amended)
     (audit / "skills.patch").write_text("".join(difflib.unified_diff(original.splitlines(True), amended.splitlines(True), fromfile="source/ef-onboarding/SKILL.md", tofile="snapshot/ef-onboarding/SKILL.md")))
     archive_path = public / "skills/latest/skills.tar.gz"

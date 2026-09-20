@@ -2,7 +2,7 @@ name: Publish immutable installation snapshot
 
 on:
   push:
-    branches: [codex/heartbeat-pinned-install]
+    branches: [codex/onboarding-consent-snapshot]
     paths:
       - scripts/snapshots/**
       - .github/workflows/release-snapshot.yml
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   snapshot:
-    if: github.ref == 'refs/heads/codex/heartbeat-pinned-install'
+    if: github.ref == 'refs/heads/codex/onboarding-consent-snapshot'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +29,10 @@ jobs:
           cache-dependency-path: cli/go.sum
       - name: Verify distribution contract
         run: python3 scripts/snapshots/test_contract.py
+      - name: Verify installer and setup handoffs
+        run: |
+          python3 -m unittest discover -s tests/cli_release -p 'test_*install*.py'
+          go test ./tests/installhome ./tests/installentry ./tests/installv2
       - name: Verify original CLI behavior
         working-directory: cli
         run: go test ./...

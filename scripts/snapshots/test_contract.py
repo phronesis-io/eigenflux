@@ -31,7 +31,7 @@ class Contract(unittest.TestCase):
         self.assertIn('return 1\n}', text)
         # The entire host/account setup region remains unchanged.
         start = "# ── Step 3: Migrate legacy config"
-        tail = text[text.index(start):].replace('\ninstall_cli\nverify_snapshot_cli\n', '\ninstall_cli\n').replace('\nsetup_codex\nverify_snapshot_cli\ninstall_skills\n', '\nsetup_codex\n')
+        tail = text[text.index(start):].replace('\ninstall_cli\nverify_snapshot_cli\n', '\ninstall_cli\n').replace('\nsetup_agents\nverify_snapshot_cli\ninstall_skills\n', '\nsetup_agents\n')
         self.assertEqual(original[original.index(start):], tail)
 
     def test_patch_refuses_changed_source_contract(self):
