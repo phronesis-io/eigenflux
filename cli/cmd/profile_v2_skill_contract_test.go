@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.3"`,
+		`version: "0.2.4"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -395,11 +395,11 @@ func TestHeartbeatQuietResultsPreserveHostProtocol(t *testing.T) {
 	}
 	reference := readRepoFile(t, repoRoot, "skills/ef-broadcast/references/heartbeat-execution.md")
 	for _, required := range []string{
-		"Never return an empty message in place of that response",
-		"If the current host requires XML",
+		"an empty message or silence token in place of required output",
+		"host requires XML",
 		"for other hosts use their actual schema",
 		"Do not invent tags, identifiers, or a fallback schema",
-		"not be\nclassified as successful no-update checks",
+		"not successful no-update handling",
 	} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("host-result contract missing %q", required)
@@ -410,7 +410,7 @@ func TestHeartbeatQuietResultsPreserveHostProtocol(t *testing.T) {
 	if !strings.Contains(prompt, "Execute directly: "+launcher+".") {
 		t.Fatal("scheduler prompt changed explicit identity or server")
 	}
-	if strings.Contains(prompt, "Stay quiet") || !strings.Contains(prompt, "never replace it with an empty message") {
+	if !strings.Contains(prompt, "never an empty message or silence token") {
 		t.Fatal("scheduler prompt does not preserve required quiet host output")
 	}
 }

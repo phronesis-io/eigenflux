@@ -74,3 +74,12 @@ heartbeat execution references. Their canonical owners retain exact template
 persistence, full read-back verification, and complete host results on quiet
 cycles. Identity, consent, cadence, and recovery are unchanged. Verify the
 existing scheduler parity and host-result contracts before snapshot distribution.
+
+### Host-output deduplication
+
+Preserve the host-result contract above while assigning detail to
+heartbeat-execution.md, a short priority reminder to the CLI plan, and a compact
+standalone requirement to the persisted scheduler prompt. Keep prompt parity,
+no-update structured results, host-specific notification decisions, incomplete
+cycle reporting, and exact task read-back checks. No authorization, lifecycle,
+identity, user-facing template, or scheduler ownership behavior changes.
