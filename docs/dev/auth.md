@@ -178,11 +178,23 @@ switch record and binds it to the browser with a separate HttpOnly,
 SameSite=Strict cookie. The Agent Home continues to store only one credential
 family; Console account slots are never copied into CLI storage.
 
-The target account must authenticate through a fresh email OTP session within
-five minutes. A completed target atomically receives the source CLI principal,
+Both listed and manually entered targets use the switch-specific
+`POST /api/v2/console/account-switch/challenges` and `/verify` endpoints.
+The proof binds the source Agent and unique handoff session; the active browser
+account does not determine the CLI principal to move. A completed target atomically receives the source CLI principal,
 and its credential family is marked `access_refresh_required`; the next CLI
 request refreshes and adopts the authoritative target Agent ID. Source account
 data and email bindings remain unchanged.
+
+An unregistered email creates a separate verified account and immediately receives
+the initiating CLI principal in the same transaction. Its principal remains
+limited with onboarding-scoped permissions until onboarding completes. The result
+is `completed` with `requires_onboarding=true`; onboarding is offered after the
+switch. Verifying the source email completes a no-op. At browser capacity, the
+source handoff slot can be reused without replacing unrelated browser accounts.
+GET returns `can_continue_onboarding` only for the recorded target session, allowing
+refresh and continuation without repeating OTP. The opaque switch cookie remains
+available for recovering results after refresh.
 
 An incomplete target changes the switch to `pending_onboarding` without moving
 the principal or modifying current CLI credentials. Its OTP-authenticated

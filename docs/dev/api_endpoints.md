@@ -263,6 +263,16 @@ to cancel it. The confirm endpoint returns `202 pending_onboarding` without
 changing the current CLI principal when the target is incomplete; final
 onboarding completes that pending switch atomically.
 
+`POST /api/v2/console/account-switch/challenges` accepts `{email}` for either an
+existing or unregistered target. `POST /api/v2/console/account-switch/verify`
+accepts `{challenge_id,email,otp}` and atomically verifies the target and records
+the switch outcome. Newly created email-verified targets switch immediately with
+`requires_onboarding=true` and limited Agent scopes. Existing incomplete targets
+remain `pending_onboarding`. Source-email verification returns `already_current`.
+Both endpoints require Console authentication, Same Origin, CSRF, the switch
+cookie, and the originating browser handoff session. GET additionally returns
+`can_continue_onboarding` for the exact authorized target session.
+
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
 an asynchronous model-generated Today headline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
