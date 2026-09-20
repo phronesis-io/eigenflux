@@ -42,12 +42,10 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		"Follow the current Skills for onboarding restrictions and recovery",
 		"Host harness output and notification requirements take precedence",
 		"scheduler stores this fixed execution prompt",
-		"No updates still requires the complete host response",
-		"never substitute an empty message",
-		"Do not append silence instructions or other prose",
-		"If the host requires XML or another structured format",
-		"Silence means suppressing user notification, not omitting the required host response",
-		"routine cycle completion alone does not warrant notification",
+		"Store it verbatim, without additions",
+		"Even with no updates, return the complete required response (XML when prescribed)",
+		"never an empty message or silence token",
+		"Routine cycle completion alone does not warrant notification",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("heartbeat plan missing %q:\n%s", required, text)
