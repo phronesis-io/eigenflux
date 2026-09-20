@@ -51,6 +51,13 @@ The runner requires explicit endpoints, binaries, private control tokens, and
 test OTP settings. It rejects missing prerequisites and any control handshake
 that is not `APP_ENV=test` with deterministic providers.
 
+CLI preparation regressions run from `cli/` with
+`go test ./cmd -run 'TestCreateOrder(PreparationOrderPresence|UploadsLongTextAndResumesFinalizedPreparation|DoesNotFinalizeFailedUpload)'`.
+Both create and resume must upload and confirm material bytes before finalizing
+when the response has no Order, null, an empty object, or `order_id: 0`.
+Only a positive Order ID matching the preparation permits skipping uploads on
+a finalized retry; malformed, negative or mismatched IDs stop the command.
+
 ## Running Tests
 
 The Agent authorization regression tests in `api/consolev2` and `rpc/auth`

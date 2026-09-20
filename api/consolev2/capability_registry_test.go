@@ -17,11 +17,13 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		t.Fatalf("operations = %T/%d, want a populated registry", registry["operations"], len(operations))
 	}
 	seen := make(map[string]bool, len(operations))
+	byID := make(map[string]capabilityOperation, len(operations))
 	for _, operation := range operations {
 		if operation.OperationID == "" || operation.CLI == "" || seen[operation.OperationID] {
 			t.Fatalf("invalid or duplicate operation: %#v", operation)
 		}
 		seen[operation.OperationID] = true
+		byID[operation.OperationID] = operation
 		for _, language := range []string{"zh-CN", "en"} {
 			text := operation.Localized[language]
 			if text.Label == "" || text.Description == "" {
@@ -32,9 +34,33 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 	for _, required := range []string{
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
+		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
+		"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete",
+		"wallet.kyc.authorize",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
+		}
+	}
+	commission := byID["commission.create"]
+	authorize := byID["wallet.kyc.authorize"]
+	if authorize.MinCLIVersion != "0.0.107" || authorize.IdentityRoute != "current_identity" || authorize.Confirmation != "explicit_user_instruction" || authorize.Risk != "elevated" {
+		t.Fatalf("KYC browser handoff contract = %#v", authorize)
+	}
+	payment := byID["order.payment"]
+	if payment.CLI != "eigenflux order payment" || payment.MinCLIVersion != "0.0.103" || payment.RequiresConsoleHandoff || payment.Confirmation != "explicit_user_instruction" {
+		t.Fatalf("order.payment contract = %#v", payment)
+	}
+	if commission.Localized["zh-CN"].Label != "创建任务委托草稿" || commission.Localized["en"].Label != "Create a Commission draft" {
+		t.Fatalf("commission.create terminology = %#v", commission.Localized)
+	}
+	for _, id := range []string{"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete"} {
+		operation := byID[id]
+		if operation.MinCLIVersion != "0.0.106" || operation.IdentityRoute != "current_identity" || operation.RequiresConsoleHandoff {
+			t.Fatalf("%s KYC contract = %#v", id, operation)
+		}
+		if id != "wallet.kyc.read" && (operation.Risk != "elevated" || operation.Confirmation != "explicit_user_instruction") {
+			t.Fatalf("%s KYC consent = %#v", id, operation)
 		}
 	}
 }
