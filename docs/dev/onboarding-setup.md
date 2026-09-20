@@ -48,3 +48,21 @@ Failures, host approvals, and user-requested clarification remain authoritative;
 never render a success template over a failure. Validate template coverage,
 required disclosure retention, allowed substitutions, and the existing lifecycle
 contracts before generating the next immutable snapshot.
+
+## Heartbeat host-result contract
+
+Before changing the scheduler prompt, preserve these boundaries:
+
+| Invariant | Current source / final owner | Boundary | Verification | Intentional change |
+| --- | --- | --- | --- | --- |
+| Required host output survives empty, unchanged, and non-actionable results | heartbeat-execution.md and CLI plan / same owners | Skill result to host final response | CLI render and Skill contract tests; manual injected XML and non-XML host checks | Explicitly forbid empty output in place of required structure |
+| Notification suppression does not suppress the host result | Host-injected schema / host schema plus execution reference | Final response to user notification | Manual no-update DONT_NOTIFY and actionable NOTIFY cycles | Clarify routine completion alone does not warrant notification |
+| Native scheduler prompt is canonical | CLI heartbeatSchedulerPrompt and recurring-trigger.md / same owners | CLI or Skill to persisted task | Prompt parity and read-back contract; non-default Home/server fixture | Prohibit appended silence prose; repair the same owned task |
+| Identity, authorization, cadence, recovery and single-trigger ownership persist | Existing onboarding and heartbeat contracts / unchanged | Setup, scheduler, CLI, network | Existing CLI suite and manual task read-back | None |
+
+The host remains authoritative for schema, required fields, identifiers, and
+notification decisions. XML is conditional on the actual injected schema. A
+failed or incomplete check must never be relabeled as an empty successful check.
+Production instructions contain no test-only task IDs or host-specific invented
+schema. Tests cannot establish model adherence; validate actual host output over
+several empty, unchanged, actionable, and failed cycles before production release.

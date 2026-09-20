@@ -42,6 +42,17 @@ Follow the current host harness's required final-response schema, notification
 decision, and progress-message rules before any Skill silence or formatting
 convention. Apply this priority to Feed contracts and Communication results too.
 
+No updates, an empty Feed, unchanged state, and no actionable messages still
+require the host's complete final response whenever the host prescribes one.
+Silence suppresses user notification; it does not suppress the required host
+response. Never return an empty message in place of that response, even if a
+stored task says "Stay quiet". If the current host requires XML, emit its exact
+XML structure with every required field; for other hosts use their actual schema.
+Do not invent tags, identifiers, or a fallback schema. Routine cycle completion
+alone does not warrant notification under a quiet-monitoring policy. Failed or
+incomplete checks must follow the host's failure reporting requirements, not be
+classified as successful no-update checks.
+
 For a Codex native heartbeat, use the host-required heartbeat block with the
 actual automation ID, decision, and message. Use `DONT_NOTIFY` for unchanged,
 non-actionable results and `NOTIFY` for meaningful changes, failure, or required
