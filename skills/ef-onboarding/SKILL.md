@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.4"
+  version: "0.2.5"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -40,12 +40,23 @@ summary, or next-step preview. The reference blockquote markers are documentatio
 formatting; do not wrap the actual response in a quotation or code fence. Render
 only the rule itself as code where specified.
 
-When using native choice controls, put the complete template body in the prompt
-and use the exact labels; do not replace the body with a short question or send
-an additional chat summary. Without native controls, output the complete body
-and the listed labels once. These output constraints do not restrict the user's
-natural-language answers. For other languages, translate naturally while
-preserving every disclosure, paragraph, choice, and the same substitution limits.
+For each scheduling, execution-permission, or Prefill choice, prefer
+`request_user_input_async` when available and permitted: send one question with
+the complete template body in `questions[0].title` and the exact choice labels
+in `questions[0].options`. Keep the tool's free-text input available; do not add
+an extra option for it. Use the same card mechanism for necessary clarification,
+with a concise question and options appropriate to the missing information.
+Otherwise use an equivalent permitted native choice tool. If none is
+available, output the complete template body and labels once in chat. Do not
+send a duplicate chat question alongside a card. Host-native execution approvals
+remain separate and must use the host's required approval mechanism.
+
+An async tool call returning does not mean the user answered. Wait for the user's
+submitted choice or explicit natural-language answer before dependent actions;
+a preselected option, dismissal, timeout, or no answer grants no permission.
+Keep only the current choice pending and preserve established choices on resume.
+For other languages, translate naturally while preserving every disclosure,
+paragraph, choice, and the same substitution limits.
 
 Check the rendered response against its selected template before sending it.
 Failure handling, required host approvals, a user's explicit question, and
