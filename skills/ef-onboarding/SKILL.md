@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.7"
+  version: "0.2.8"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -40,32 +40,14 @@ summary, or next-step preview. The reference blockquote markers are documentatio
 formatting; do not wrap the actual response in a quotation or code fence. Render
 only the rule itself as code where specified.
 
-For each scheduling, execution-permission, or Prefill choice, use one native
-question with the complete template and exact labels. Select only tools exposed
-and permitted in the current session; the host name alone does not prove support.
-
-| Host | Preferred available interaction |
-| --- | --- |
-| Codex | `request_user_input_async`: complete template body in `questions[0].title`, labels in `questions[0].options`. |
-| Claude Code; CodeBuddy / WorkBuddy | `AskUserQuestion`: complete body in `questions[0].question`, labels in `options[].label`, `multiSelect: false`. |
-| OpenClaw | Current-channel buttons when supported; keep the full body in that message and accept only a host-attributed reply from the onboarding user for the pending choice. Otherwise use chat. |
-| Other hosts, or preferred tool unavailable | Equivalent permitted native choice tool, otherwise the complete body and labels once in chat. |
-
-Follow the exposed tool schema. Required short headers or option descriptions
-may neutrally restate the choice; they must not replace or expand the consent
-body. Keep free-text input available where supported and accept explicit chat
-answers. Do not duplicate a built-in free-text option or send a duplicate chat
-question alongside a card. If the UI cannot preserve the complete disclosure,
-use chat. Use the same mechanism for necessary clarification, with a concise
-question and relevant options. Host-native execution approvals remain separate
-and must use the host's required approval mechanism.
-
-An async tool call returning does not mean the user answered. Wait for the user's
-submitted choice or explicit natural-language answer before dependent actions;
-a preselected option, dismissal, timeout, or no answer grants no permission.
+For each scheduling, execution-permission, or Prefill choice, send the complete
+template body and exact choice labels once, directly in chat. Wait for the user's
+explicit reply before dependent actions; accept equivalent natural-language
+answers without requiring an exact phrase. No answer grants no permission.
 Keep only the current choice pending and preserve established choices on resume.
-For other languages, translate naturally while preserving every disclosure,
-paragraph, choice, and the same substitution limits.
+Host-native execution approvals remain separate and must use the host's required
+approval mechanism. For other languages, translate naturally while preserving
+every disclosure, paragraph, choice, and the same substitution limits.
 
 Check the rendered response against its selected template before sending it.
 Failure handling, required host approvals, a user's explicit question, and
