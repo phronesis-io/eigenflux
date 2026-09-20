@@ -9,7 +9,7 @@ the CLI and server retain identity, authorization, and network-state ownership.
 | Install only the invoking host; preserve other hosts, existing configuration, and explicit opt-outs | `skills/install.md`, `static/install.sh` | Installer to host plugin | Isolated installer tests with a non-default Home, installed/missing/failed plugin, and opt-out | Explain official plugin scope; no additional conversational install consent |
 | Plugin installation uses a compatible Codex executable consistently | `static/install.sh`, `skills/install.md` | PATH / app bundle discovery to install receipt and verification | Isolated installer tests: old PATH plus compatible app, compatible PATH only, unsupported / unknown versions; real CLI root-marketplace probe | Require Codex >= 0.142.0; fall back to existing app binaries without upgrading Codex or changing PATH permanently; receipt carries selected path/version |
 | Preserve exact Home, selected server, identity, referral, and existing accounts | Installation entry, CLI auth/config, Console handoff | Install, restart, scheduler, provision | Existing Home/referral integration tests and CLI suite | None |
-| Choice presentation preserves explicit consent and full disclosure | Main onboarding Skill template contract / same owner | Native question tool to submitted user answer | Existing template and authorization contracts; manual Codex, AskUserQuestion, channel-button, dismissal, free-text, and unavailable-tool checks | Select only exposed and permitted host tools; preserve complete disclosures, one pending decision, and explicit user submission |
+| Choice presentation preserves explicit consent and full disclosure | Main onboarding Skill template contract / same owner | Complete chat template to explicit user reply | Template and authorization contracts; manual affirmative, refusal, ambiguous-answer, no-answer, and resume checks | Present each choice directly in chat; preserve complete disclosures, one pending decision, and explicit user consent; host execution approvals remain separate |
 | Scheduling consent is distinct from command-rule consent | `ef-onboarding/references/consent.md`, `execution-permission.md` | User choice to host mutation | Skill contract tests and manual refusal scenarios | Two separate required decisions; either refusal pauses new onboarding |
 | Prefill context access remains optional, bounded, and independently authorized | `consent.md`, `prefill.md` | Context retrieval to review-only Console draft | Existing draft/provenance tests; manual opt-out and ambiguous-answer scenarios | Ask after required setup activation; generic continuation never grants Prefill |
 | Rule writes preserve other rules and require approval for the concrete scope | `execution-permission.md` | User consent to host execution policy | Rule checker with non-default Home/server; conflict and write-denial scenarios | Refusal, conflict, or unverified activation blocks new connection; no sandbox-policy fallback |
@@ -45,7 +45,11 @@ Scheduling, rule consent, restart, Prefill, and refusal retain their current
 behavior and authorization scope. The change makes their wording mandatory,
 with only explicit cadence, context-source, rule-path/rule-body, and existing-rule
 substitutions. English and Chinese templates are exact; other languages preserve
-all content and structure. Native controls retain the complete body and labels.
+all content and structure. Present the complete body and labels directly in chat
+and wait for an explicit reply before dependent actions. No answer grants no
+permission; preserve confirmed choices on resume. Only the presentation changes:
+identity, storage, consent scope, stage order, and native execution approvals
+retain the owners and checks in the table above.
 Failures, host approvals, and user-requested clarification remain authoritative;
 never render a success template over a failure. Validate template coverage,
 required disclosure retention, allowed substitutions, and the existing lifecycle
