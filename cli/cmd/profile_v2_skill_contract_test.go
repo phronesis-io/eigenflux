@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.1"`,
+		`version: "0.2.2"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -212,7 +212,7 @@ func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	if !strings.HasPrefix(launcher, "eigenflux --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
 		t.Fatalf("launcher is not a direct, mode-explicit CLI call: %s", launcher)
 	}
-	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger"} {
+	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger", "Compare the full stored prompt", "Do not paraphrase, shorten, prepend, or append", "update the same"} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("scheduler contract missing %q", required)
 		}
@@ -385,5 +385,32 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestHeartbeatQuietResultsPreserveHostProtocol(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := readRepoFile(t, repoRoot, "skills/ef-broadcast/references/heartbeat-execution.md")
+	for _, required := range []string{
+		"Never return an empty message in place of that response",
+		"If the current host requires XML",
+		"for other hosts use their actual schema",
+		"Do not invent tags, identifiers, or a fallback schema",
+		"not be\nclassified as successful no-update checks",
+	} {
+		if !strings.Contains(reference, required) {
+			t.Errorf("host-result contract missing %q", required)
+		}
+	}
+	launcher := "eigenflux --homedir '/tmp/nondefault home' --server 'staging-network' --runtime-mode skill heartbeat plan --format agent"
+	prompt := heartbeatSchedulerPrompt(launcher)
+	if !strings.Contains(prompt, "Execute directly: "+launcher+".") {
+		t.Fatal("scheduler prompt changed explicit identity or server")
+	}
+	if strings.Contains(prompt, "Stay quiet") || !strings.Contains(prompt, "never replace it with an empty message") {
+		t.Fatal("scheduler prompt does not preserve required quiet host output")
 	}
 }

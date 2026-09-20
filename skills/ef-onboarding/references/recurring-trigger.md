@@ -28,10 +28,16 @@ Preserve a user-selected interval. Never repeat accepted scheduling consent.
 Require CLI 0.0.49 or newer. For a native task, store the following prompt
 verbatim, replacing only `<launcher>` with the resolved command below. When a
 current plan is available, use its `scheduler_prompt`, which carries this same
-execution contract. Do not add historical tasks or business procedures.
+execution contract. Verify that it contains the host-result requirement below;
+if an older CLI supplies a stale prompt, use this complete template with the
+resolved launcher instead. Do not add historical tasks or business procedures.
+Do not paraphrase, shorten, prepend, or append text to the stored prompt. In
+particular, do not append a separate "Stay quiet" sentence: notification behavior
+is already covered inside the template. Higher-priority host requirements remain
+authoritative.
 
 ```text
-Run one EigenFlux heartbeat cycle. Execute directly: <launcher>. Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the host harness output and notification requirements before Skill silence conventions. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered.
+Run one EigenFlux heartbeat cycle. Execute directly: <launcher>. Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the host harness output and notification requirements before Skill silence conventions. Always return the final response required by the current host, including when there are no updates. If the host requires XML or another structured format, return that complete structure with all required fields and its no-notification decision for unchanged or non-actionable results; never replace it with an empty message or a Skill silence token. Silence means suppressing user notification, not omitting the required host response. Follow the host notification policy; routine cycle completion alone does not warrant notification. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered.
 ```
 
 Resolve the launcher with the same stable Home used throughout onboarding:
@@ -47,7 +53,11 @@ the launcher through its existing process API; do not add a native task beside
 it. Existing process-environment metadata remains compatible.
 
 Read back the trigger and verify its name, cadence, active state, exact prompt,
-Home, and server. If persistence or verification fails, stop before provisioning
+Home, and server. Compare the full stored prompt against the canonical prompt,
+including its ending. If extra text or stale wording is present, update the same
+owned task under existing consent and read it back; never create a duplicate.
+Do not claim exact persistence if the host rewrites the prompt and it cannot be
+verified. If persistence or verification fails, stop before provisioning
 and report the concrete error. Keep setup explicitly incomplete. Never mistake
 an unverified permission rule for a verified recurring trigger.
 
