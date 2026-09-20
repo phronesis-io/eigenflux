@@ -40,6 +40,15 @@ to production aliases.
 
 ## Fixed-copy output contract
 
+Execution-permission copy uses the reviewed product explanation and a distinct
+reply list. The reference owns both localized templates and existing-rule
+substitutions; the main Skill owns exact rendering. Only wording and choice
+labels change. Keep explicit consent, read/write scope, reuse across the same
+Codex configuration, revocation, and all rule-write and activation boundaries.
+Verify template coverage and existing-rule substitutions with non-default paths;
+manually review readability. CLI, installer, identity, and scheduler behavior
+remain unchanged. Snapshot packaging is separate distribution scaffolding.
+
 User-facing setup copy is owned by the templates in `ef-onboarding` references.
 Scheduling, rule consent, restart, Prefill, and refusal retain their current
 behavior and authorization scope. The change makes their wording mandatory,

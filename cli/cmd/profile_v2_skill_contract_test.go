@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.8"`,
+		`version: "0.2.9"`,
 		"references/consent.md",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
@@ -388,6 +388,53 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func TestExecutionPermissionExistingRuleVariants(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readRepoFile(t, root, "skills/ef-onboarding/references/execution-permission.md")
+	localized := map[string]string{}
+	for _, tc := range []struct{ language, start, end string }{
+		{"Chinese", "Simplified Chinese:", "English:"},
+		{"English", "English:", "Keep the read/write scope"},
+	} {
+		section := strings.SplitN(strings.SplitN(body, tc.start, 2)[1], tc.end, 2)[0]
+		localized[tc.language] = strings.ReplaceAll(strings.ReplaceAll(section,
+			"<rules-file>", "/tmp/nondefault codex/rules/eigenflux.rules"),
+			"<rule-block>", `prefix_rule(pattern=["eigenflux", "--homedir", "/tmp/agent home/.eigenflux", "--server", "staging"], decision="allow")`)
+	}
+	counts := map[string]int{}
+	for _, line := range strings.Split(body, "\n") {
+		cols := strings.Split(line, "|")
+		if len(cols) != 5 {
+			continue
+		}
+		lang := strings.TrimSpace(cols[1])
+		rendered, ok := localized[lang]
+		if !ok {
+			continue
+		}
+		original, replacement := strings.TrimSpace(cols[2]), strings.TrimSpace(cols[3])
+		if strings.Count(rendered, original) != 1 {
+			t.Fatalf("%s variant does not match exactly once: %s", lang, original)
+		}
+		localized[lang] = strings.Replace(rendered, original, replacement, 1)
+		counts[lang]++
+	}
+	for lang, rendered := range localized {
+		if counts[lang] != 4 {
+			t.Errorf("%s: incomplete existing-rule substitutions", lang)
+		}
+		if strings.Count(rendered, "> - **") != 2 {
+			t.Errorf("%s: choices must remain distinct", lang)
+		}
+		if !strings.Contains(rendered, "/tmp/nondefault codex/rules/eigenflux.rules") || !strings.Contains(rendered, `"--server", "staging"`) {
+			t.Errorf("%s: rule identity changed during substitution", lang)
 		}
 	}
 }
