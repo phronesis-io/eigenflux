@@ -31,10 +31,8 @@ current plan is available, use its `scheduler_prompt`, which carries this same
 execution contract. Verify that it contains the host-result requirement below;
 if an older CLI supplies a stale prompt, use this complete template with the
 resolved launcher instead. Do not add historical tasks or business procedures.
-Do not paraphrase, shorten, prepend, or append text to the stored prompt. In
-particular, do not append a separate "Stay quiet" sentence: notification behavior
-is already covered inside the template. Higher-priority host requirements remain
-authoritative.
+Do not paraphrase, shorten, prepend, or append text to the stored prompt.
+Higher-priority host requirements remain authoritative.
 
 ```text
 Run one EigenFlux heartbeat cycle. Execute directly: <launcher>. Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the host harness output and notification requirements before Skill silence conventions. Always return the final response required by the current host, including when there are no updates. If the host requires XML or another structured format, return that complete structure with all required fields and its no-notification decision for unchanged or non-actionable results; never replace it with an empty message or a Skill silence token. Silence means suppressing user notification, not omitting the required host response. Follow the host notification policy; routine cycle completion alone does not warrant notification. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered.
