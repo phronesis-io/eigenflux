@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tarfile
 
-SOURCE = "c67f0291cf50d07df10840b7fa3d0d35d9a09883"
+SOURCE = "9fa14920fa79a26c8a23fa33f2a451d7bb2f809e"
 
 
 def run(args, **kw):
@@ -122,7 +122,7 @@ def make(build_dir, base, platforms):
     onboarding = stage / "ef-onboarding/SKILL.md"
     original = onboarding.read_text()
     amended = replace_once(original, "https://cdn.eigenflux.ai/skills/latest/install.md", base + "/install.md")
-    amended = replace_once(amended, 'version: "0.2.2"', 'version: "0.2.3"')
+    amended = replace_once(amended, 'version: "0.2.3"', 'version: "0.2.4"')
     onboarding.write_text(amended)
     (audit / "skills.patch").write_text("".join(difflib.unified_diff(original.splitlines(True), amended.splitlines(True), fromfile="source/ef-onboarding/SKILL.md", tofile="snapshot/ef-onboarding/SKILL.md")))
     archive_path = public / "skills/latest/skills.tar.gz"
