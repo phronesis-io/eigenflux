@@ -266,12 +266,52 @@ func TestSyncMinCLIVersionGuard(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// CLI 0.0.16 < min 9.9.9: must NOT install (no local copy) and error/keep.
-	_, err := Sync(syncOpts(dst, "0.0.16", srv.URL, names))
+	res, err := Sync(syncOpts(dst, "0.0.16", srv.URL, names))
 	if err == nil {
 		t.Fatal("expected min-cli-version guard to refuse install on old CLI")
 	}
+	if res == nil || res.RequiredCLIVersion != "9.9.9" {
+		t.Fatalf("expected required CLI version for automatic upgrade, got %+v", res)
+	}
 	if dirExists(filepath.Join(dst, "ef-broadcast")) {
 		t.Fatal("must not install skills requiring a newer CLI")
+	}
+}
+
+func TestSyncDecisionUpgradeHintPreservesIntegrityAndRollbackGuards(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		intact    bool
+		sequence  uint64
+		revision  string
+		wantError bool
+		wantHint  string
+	}{
+		{"intact update", true, 11, "new", false, "2.0.0"},
+		{"damaged update", false, 11, "new", true, "2.0.0"},
+		{"intact rollback", true, 9, "old", false, ""},
+		{"damaged rollback", false, 9, "old", true, ""},
+		{"intact reused sequence", true, 10, "new", false, ""},
+		{"damaged reused sequence", false, 10, "new", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			local := &Manifest{Sequence: 10, Revision: "current", CLIVersion: "1.0.0"}
+			remote := &Manifest{Sequence: tc.sequence, Revision: tc.revision, MinCLIVersion: "2.0.0"}
+			res, err := syncDecision(SyncOptions{CLIVersion: "1.0.0"}, t.TempDir(), &syncSnapshot{manifest: local, intact: tc.intact}, remote)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("error = %v, wantError = %v", err, tc.wantError)
+			}
+			hint := ""
+			if res != nil {
+				hint = res.RequiredCLIVersion
+				if !tc.intact && (res.Source == "local" || res.VerifiedManifest) {
+					t.Fatalf("damaged installation reported usable: %+v", res)
+				}
+			}
+			if hint != tc.wantHint {
+				t.Fatalf("upgrade hint = %q, want %q", hint, tc.wantHint)
+			}
+		})
 	}
 }
 
