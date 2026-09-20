@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tarfile
 
-SOURCE = "1249770ccdb05b93f1ba4905ed8ece2e7622a56f"
+SOURCE = "1f899ee751c808c110d704e697a33c96c99a3b99"
 
 
 def run(args, **kw):
@@ -122,7 +122,7 @@ def make(build_dir, base, platforms):
     onboarding = stage / "ef-onboarding/SKILL.md"
     original = onboarding.read_text()
     amended = replace_once(original, "https://cdn.eigenflux.ai/skills/latest/install.md", base + "/install.md")
-    amended = replace_once(amended, 'version: "0.2.9"', 'version: "0.2.10"')
+    amended = replace_once(amended, 'version: "0.2.10"', 'version: "0.2.11"')
     onboarding.write_text(amended)
     (audit / "skills.patch").write_text("".join(difflib.unified_diff(original.splitlines(True), amended.splitlines(True), fromfile="source/ef-onboarding/SKILL.md", tofile="snapshot/ef-onboarding/SKILL.md")))
     archive_path = public / "skills/latest/skills.tar.gz"
@@ -169,24 +169,24 @@ def make(build_dir, base, platforms):
 }'''
     patch("cmd/skills.go", replace_once(original, body, 'func cdnBase() string {\n\treturn ' + json.dumps(base) + '\n}').replace('\n\t"os"', ""))
     original = (cli / "internal/skills/sync.go").read_text()
-    postcondition = '''func Sync(opts SyncOptions) (result *SyncResult, syncErr error) {
+    postcondition = '''func Sync(opts SyncOptions) (result *SyncResult, err error) {
     defer func() {
-        if syncErr != nil || result == nil { return }
-        installed, err := ReadLocalManifest(result.SkillsDir)
-        if err != nil || installed == nil || installed.Revision != "__REVISION__" {
+        if err != nil || result == nil { return }
+        installed, verifyErr := ReadLocalManifest(result.SkillsDir)
+        if verifyErr != nil || installed == nil || installed.Revision != "__REVISION__" {
             result = nil
-            syncErr = fmt.Errorf("installed Skills do not match this CLI distribution")
+            err = fmt.Errorf("installed Skills do not match this CLI distribution")
             return
         }
-        if err := verifyManifestSignature(installed); err != nil {
-            result = nil; syncErr = err; return
+        if verifyErr := verifyManifestSignature(installed); verifyErr != nil {
+            result = nil; err = verifyErr; return
         }
-        if err := verifyInstalledSkills(result.SkillsDir, installed); err != nil {
-            result = nil; syncErr = err
+        if verifyErr := verifyInstalledSkills(result.SkillsDir, installed); verifyErr != nil {
+            result = nil; err = verifyErr
         }
     }()
 '''.replace("__REVISION__", revision)
-    patch("internal/skills/sync.go", replace_once(original, "func Sync(opts SyncOptions) (*SyncResult, error) {", postcondition))
+    patch("internal/skills/sync.go", replace_once(original, "func Sync(opts SyncOptions) (result *SyncResult, err error) {", postcondition))
     patch("cmd/doctor.go", (cli / "cmd/doctor.go").read_text().replace("https://www.eigenflux.ai/install.sh", base + "/install.sh"))
     overlay_file = overlay / "overlay.json"
     overlay_file.write_text(json.dumps({"Replace": replacements}, indent=2))

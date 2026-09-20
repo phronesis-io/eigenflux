@@ -1,6 +1,33 @@
 # API Endpoints
 
+## Console payout KYC
+
+The commission-gated Console BFF exposes `GET /api/v2/console/bff/payout-method/kyc`,
+`POST /api/v2/console/bff/payout-method/kyc` (user_name, cert_no), and
+`POST /api/v2/console/bff/payout-method/kyc/authorization` (verification_id).
+Writes require Console CSRF and Idempotency-Key; the session supplies the actor.
+They delegate wallet.kyc.read/start/authorize to Commission with exact body/key
+binding. Delegated start cannot issue a completion grant; authorization is separate.
+Responses project status metadata only, plus the authorization link exclusively
+on the authorization route. Provider verify IDs and identity inputs are not returned.
+Never log request bodies or authorization URLs. Browser callback completion stays
+in Commission; this BFF does not create a second callback or complete KYC itself.
+
+Withdrawal/KYC errors preserve recognized safe Wallet error codes with fixed
+messages, not provider diagnostics. The payout binding response preserves an
+optional server-owned cooling_applies boolean; absent values do not imply exemption.
+
 ## Gateway API (port 8080)
+
+### Anonymous Commission sharing
+
+Caddy forwards only `/api/v1/public/commissions/*` to Commission API (8090).
+`GET /api/v1/public/commissions/:commission_id` returns an explicitly public
+projection; `GET /api/v1/public/commissions/:commission_id/reviews` accepts a
+pinned `commission_version`, `cursor` and bounded `limit`. Commission owns
+visibility, risk checks, version consistency and safe field selection. These
+routes do not use Console-session BFF delegation. Existing authenticated
+Commission and discovery routes keep their current authorization behavior.
 
 ### Commission Discovery Facade
 
@@ -221,6 +248,16 @@ to cancel it. The confirm endpoint returns `202 pending_onboarding` without
 changing the current CLI principal when the target is incomplete; final
 onboarding completes that pending switch atomically.
 
+`POST /api/v2/console/account-switch/challenges` accepts `{email}` for either an
+existing or unregistered target. `POST /api/v2/console/account-switch/verify`
+accepts `{challenge_id,email,otp}` and atomically verifies the target and records
+the switch outcome. Newly created email-verified targets switch immediately with
+`requires_onboarding=true` and limited Agent scopes. Existing incomplete targets
+remain `pending_onboarding`. Source-email verification returns `already_current`.
+Both endpoints require Console authentication, Same Origin, CSRF, the switch
+cookie, and the originating browser handoff session. GET additionally returns
+`can_continue_onboarding` for the exact authorized target session.
+
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
 an asynchronous model-generated Today headline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
@@ -356,6 +393,20 @@ The editable name remains empty, while public `display_name` uses the standard
 short-ID fallback. Snapshot existence is determined by the returned row count;
 missing records and database failures remain errors.
 
+### Commission submitted-file BFF
+
+`GET /api/v2/console/bff/trade/orders/:order_id/snapshots/:snapshot_id/file?path=...`
+uses the existing Console session. It delegates to Commission's exact snapshot
+download route with scope `orders:files:read` and operation
+`console.trade.orders.files.read`; Commission retains participant and snapshot
+authorization. It never reads the mutable current workspace instead.
+
+The default response downloads the original bytes as an attachment. `preview=1`
+returns plain text for `.md` and `.txt` files up to 1 MiB. Responses are private,
+no-store and nosniff. The BFF accepts only unexpired HTTPS Aliyun OSS grants,
+does not follow redirects, and does not forward Console credentials to storage.
+No database migration or RPC rollout is required.
+
 ### Commission payment BFF
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` uses the Console
@@ -440,7 +491,7 @@ rule source for both baseline and completed access. Agents read it before
 subsequent CLI calls and pass available current-model evidence per invocation.
 Unknown models do not block Feed; permanent launchers do not pin a model.
 
-CLI 0.0.49 adds global `--runtime-mode` and `--runtime-model` arguments, which
+CLI 0.0.52 adds global `--runtime-mode` and `--runtime-model` arguments, which
 override their corresponding environment values for that invocation. Existing
 plugin process environments remain supported. Native scheduled commands start
 directly with `eigenflux --homedir ...`, preserving the selected server and
@@ -471,3 +522,26 @@ Baseline Feed uses `static/feed_baseline_contract.md`; completed Feed uses
 `static/feed_contract.md`. Both are generated from the central Skills. A CLI
 without a server contract reads the corresponding current synchronized Skill
 and reports missing rules instead of using a compiled business-policy copy.
+
+## Console Commission reviews
+
+`GET /api/v2/console/bff/trade/commissions/:commission_id/reviews` requires the existing Console session and Commission access gate. The BFF forwards only `cursor` and `limit`, deriving the subject from the session. It delegates to `GET /api/v1/commissions/:commission_id/reviews` with scope `commissions:reviews:read` and operation `console.trade.commissions.reviews.list`. The ID must be a canonical positive int64 decimal. Commission retains its existing visibility checks and returns `reviews` and `next_cursor`; the BFF does not invent a total. Deploy Commission support for this delegated operation before the BFF and website changes.
+
+## Console V2 Attention Prefill Actions
+
+`attention_phase: "prefill"` records onboarding provenance and remains unchanged
+when onboarding completes. Prefill publication remains restricted to baseline
+Feed broadcasts, the permitted preset actions, and an empty context reference.
+
+Before onboarding completes, Console action routes return `ONBOARDING_REQUIRED`;
+the Attention response and dismissal handlers additionally enforce
+`ATTENTION_ONBOARDING_REQUIRED`. After completion, unexpired open Prefill items
+support their uploaded actions and dismissal when a valid active context exists.
+A missing active context returns `ATTENTION_CONTEXT_STALE`.
+
+Responses preserve the existing item-revision check, per-Agent idempotency,
+command snapshot, runtime claim, and completion receipt. The command binds to the
+active context at selection time. Repeated requests with the same idempotency key
+return the current command and item state, including after completion; a different
+key cannot select another terminal action while the item is pending or acted.
+No migration or conversion of existing Prefill rows to `active` is required.

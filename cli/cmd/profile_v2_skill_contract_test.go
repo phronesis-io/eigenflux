@@ -52,7 +52,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.5"`) {
+	if !strings.Contains(frontmatter[1], `version: "0.9.6"`) {
 		t.Error("ef-profile version was not advanced for the lifecycle split")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
@@ -104,8 +104,10 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.9"`,
+		`version: "0.2.10"`,
 		"references/consent.md",
+		"Treat incomplete V2 setup as existing-account maintenance",
+		"only when the user explicitly requests it",
 		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
 		"Require both CLI compatibility",
 		"and current-host installation verification",
@@ -270,10 +272,11 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		"`claude-code` for the corresponding macOS/Linux integration",
 		"explicit `EIGENFLUX_SKILLS_DIR` or Home-scoped registered target",
 		"A successfully installed Codex plugin awaiting activation may continue",
-		"load the installed `ef-onboarding` Skill",
+		"Load the installed `ef-onboarding` Skill",
 		"scheduled-check question must\nbe the entire next user-visible response",
-		"Keep successful CLI, Skill, plugin,\n" +
-			"version, and Home verification details internal",
+		"Keep successful CLI, Skill, plugin, version, and Home verification details",
+		"check the current account in the same Home and server",
+		"first incomplete stage using confirmed choices",
 	} {
 		if !strings.Contains(entry, required) {
 			t.Errorf("standalone install entry is missing %q", required)

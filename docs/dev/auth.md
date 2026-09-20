@@ -33,6 +33,14 @@ Login start IP rate limiting (30 times/10min) always applies. When OTP verificat
 
 ## Console V2 Historical Agent Recovery
 
+After valid email OTP verification, first-time binding returns HTTP 409
+`EMAIL_UNAVAILABLE` with `details.reason = agent_email_rebind_required` when
+the current Agent already has a different active email binding and the requested
+email has no other owner. The Console directs the owner to the Agent email
+change flow instead of retrying first-time binding. This response does not
+change the existing binding or expose its email. Historical recovery checks
+remain prior to this check, so switching to an existing Agent stays available.
+
 Console V2 clients that send the `account_recovery_v1` capability with their
 handoff can recover a single historical Agent after proving ownership of its
 email. Explicit recovery provisioning handoffs additionally send
@@ -170,11 +178,23 @@ switch record and binds it to the browser with a separate HttpOnly,
 SameSite=Strict cookie. The Agent Home continues to store only one credential
 family; Console account slots are never copied into CLI storage.
 
-The target account must authenticate through a fresh email OTP session within
-five minutes. A completed target atomically receives the source CLI principal,
+Both listed and manually entered targets use the switch-specific
+`POST /api/v2/console/account-switch/challenges` and `/verify` endpoints.
+The proof binds the source Agent and unique handoff session; the active browser
+account does not determine the CLI principal to move. A completed target atomically receives the source CLI principal,
 and its credential family is marked `access_refresh_required`; the next CLI
 request refreshes and adopts the authoritative target Agent ID. Source account
 data and email bindings remain unchanged.
+
+An unregistered email creates a separate verified account and immediately receives
+the initiating CLI principal in the same transaction. Its principal remains
+limited with onboarding-scoped permissions until onboarding completes. The result
+is `completed` with `requires_onboarding=true`; onboarding is offered after the
+switch. Verifying the source email completes a no-op. At browser capacity, the
+source handoff slot can be reused without replacing unrelated browser accounts.
+GET returns `can_continue_onboarding` only for the recorded target session, allowing
+refresh and continuation without repeating OTP. The opaque switch cookie remains
+available for recovering results after refresh.
 
 An incomplete target changes the switch to `pending_onboarding` without moving
 the principal or modifying current CLI credentials. Its OTP-authenticated
@@ -199,7 +219,7 @@ After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests 
 
 ## Test Accounts (fixed OTP, no IP whitelist)
 
-Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP` in both V1 login and Console V2 email binding/login challenges: no email is sent and **no IP whitelist is required**. Console V2 still enforces challenge purpose, Agent/session binding, expiration, attempt limits, and request rate limits. Entries starting with `@` match by domain suffix. Other entries match the entire address and support shell-style glob syntax: `*`, `?`, and character classes such as `[0-9]`. The pair `kairui[0-9]@pgc.eigenflux.one,kairui[1-9][0-9]@pgc.eigenflux.one` allows the numeric suffixes 0 through 99 without leading zeroes. Repeat that pair for each permitted account-name prefix. Invalid glob patterns match nothing. Both variables default to empty, which disables the path entirely — real values live only in the deployment's `.env`, never in code. ⚠️ This is a sign-in backdoor for the matched accounts — use the narrowest practical patterns on a domain you control, and disable it for a full GA.
+Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP` in both V1 login and Console V2 email binding/login challenges: no email is sent and **no IP whitelist is required**. Console V2 still enforces challenge purpose, Agent/session binding, expiration, attempt limits, and request rate limits. Entries starting with `@` match by domain suffix. Other entries match the entire address and support shell-style glob syntax: `*`, `?`, and character classes such as `[0-9]`. The pair `kairui[0-9]@pgc.eigenflux.one,kairui[1-9][0-9]@pgc.eigenflux.one` allows the numeric suffixes 0 through 99 without leading zeroes. Repeat that pair for each permitted account-name prefix. Invalid glob patterns match nothing. Both variables default to empty, which disables the path entirely — real values live only in the deployment's `.env`, never in code. ⚠️ This is a sign-in backdoor for the matched accounts — use the narrowest practical patterns on a domain you control, and disable it for a full GA. To return a used test account to a never-registered state, run `scripts/test_account_reset` (see `scripts/README.md`); it accepts only addresses matched by a full-address entry of this list.
 
 ## Configuration
 

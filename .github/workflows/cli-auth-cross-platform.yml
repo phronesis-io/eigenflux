@@ -10,6 +10,11 @@ on:
       - 'cli/cmd/**'
       - 'cli/.cli.config'
       - 'skills/**'
+      - 'static/install.sh'
+      - 'tests/cli_release/**'
+      - 'tests/installhome/**'
+      - 'tests/installentry/**'
+      - 'cli/tests/**'
       - 'cli/go.mod'
       - 'cli/go.sum'
       - '.github/workflows/cli-auth-cross-platform.yml'
@@ -23,6 +28,11 @@ on:
       - 'cli/cmd/**'
       - 'cli/.cli.config'
       - 'skills/**'
+      - 'static/install.sh'
+      - 'tests/cli_release/**'
+      - 'tests/installhome/**'
+      - 'tests/installentry/**'
+      - 'cli/tests/**'
       - 'cli/go.mod'
       - 'cli/go.sum'
       - '.github/workflows/cli-auth-cross-platform.yml'
@@ -51,6 +61,15 @@ jobs:
         run: go test ./internal/auth -count=1
       - name: Test runtime identity persistence and automatic reporting
         run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
+      - name: Test signed Skills installation and upgrade compatibility
+        if: runner.os == 'Linux'
+        run: go test ./tests
+      - name: Test installer and installation entry
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
+          go test ./tests/installhome ./tests/installentry ./api/install
       - name: Build Windows test binary
         if: runner.os == 'Windows'
         run: |

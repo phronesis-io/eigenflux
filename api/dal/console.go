@@ -276,11 +276,11 @@ type DateCount struct {
 }
 
 // activityLogLiveSinceMs marks when gateway-side activity logging went live in
-// production (2026-06-04). agent_activity_log has no rows before that moment,
+// production (2026-06-22 16:32 Asia/Shanghai). agent_activity_log has no rows before that moment,
 // so older days inside the calendar window are reconstructed from the
 // historical action tables (feedback_logs / item_stats / private_messages);
 // the cutoff keeps the two sources from double-counting the same actions.
-const activityLogLiveSinceMs int64 = 1780545300000
+const activityLogLiveSinceMs int64 = 1782131520000
 
 func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount, error) {
 	var results []DateCount

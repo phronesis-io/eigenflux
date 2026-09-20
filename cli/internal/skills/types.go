@@ -103,7 +103,7 @@ type SyncOptions struct {
 	CLIVersion   string       // current binary version, supplied by the cmd layer
 	CDNBase      string       // default CDNDefault
 	IfStale      bool         // background mode: keep local silently on fetch failure (revision match always short-circuits the download)
-	Quiet        bool         // never return an error (exit 0); for startup hooks
+	Quiet        bool         // allow intact local fallback on network failure; never hide IO errors
 	FromBundle   bool         // offline-first-install: fall back to BundleDir
 	BundleDir    string       // local skills dir for InstallFromBundle / fallback
 	ForceManaged bool         // replace edited managed skills; local development installs only

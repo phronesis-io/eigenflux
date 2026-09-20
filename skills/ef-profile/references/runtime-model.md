@@ -5,7 +5,7 @@ explicit current-process model value before EigenFlux operations. Re-evaluate
 it when the active model changes.
 
 Pass `--runtime-model` with that identifier on each direct CLI invocation.
-Require CLI 0.0.49 or newer. Existing host adapters may continue supplying
+Require CLI 0.0.52 or newer. Existing host adapters may continue supplying
 `EIGENFLUX_MODEL` through their process environment; do not prepend an
 environment assignment to a scheduled shell command. An explicit CLI flag
 overrides the environment value. If the host exposes no current model, leave

@@ -25,7 +25,7 @@ Preserve a user-selected interval. Never repeat accepted scheduling consent.
 
 ## Fixed execution prompt
 
-Require CLI 0.0.49 or newer. For a native task, store the following prompt
+Require CLI 0.0.52 or newer. For a native task, store the following prompt
 verbatim, replacing only `<launcher>` with the resolved command below. When a
 current plan is available, use its `scheduler_prompt`, which carries this same
 execution contract. Verify that it contains the host-result requirement below;

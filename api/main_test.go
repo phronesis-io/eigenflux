@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/api/consolev2"
 	"errors"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/ut"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -119,5 +123,23 @@ func TestRunSupervisedStopsBothServersOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("supervisor did not stop")
+	}
+}
+
+func TestWalletKYCRoutesRequireConsoleAuthentication(t *testing.T) {
+	h := server.New()
+	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{})
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodGet, "/api/v2/console/bff/payout-method/kyc", http.StatusUnauthorized},
+		{http.MethodPost, "/api/v2/console/bff/payout-method/kyc", http.StatusForbidden},
+		{http.MethodPost, "/api/v2/console/bff/payout-method/kyc/authorization", http.StatusForbidden},
+	} {
+		response := ut.PerformRequest(h.Engine, tc.method, tc.path, nil).Result()
+		if response.StatusCode() != tc.status {
+			t.Fatalf("%s %s: got %d want %d", tc.method, tc.path, response.StatusCode(), tc.status)
+		}
 	}
 }

@@ -103,6 +103,10 @@ func (s *Service) proxy(ctx context.Context, c *app.RequestContext, scope, opera
 	}
 	data, err := s.fetch(ctx, identifier, scope, operation, method, path, query, body, key, bindMutation)
 	if err != nil {
+		if strings.HasPrefix(operation, "wallet.withdrawals.") {
+			replyWalletError(c, err)
+			return
+		}
 		status := upstreamStatus(err)
 		replyError(c, status, "COMMISSION_REQUEST_FAILED", http.StatusText(status))
 		return
@@ -150,6 +154,17 @@ func (s *Service) TradeOverview(ctx context.Context, c *app.RequestContext) {
 
 func (s *Service) TradeCommissions(ctx context.Context, c *app.RequestContext) {
 	s.proxy(ctx, c, "commissions:mine:read", "console.trade.commissions.list", http.MethodGet, "/api/v2/console/trade/commissions", selectedQuery(c, "status", "cursor", "limit"), nil, false)
+}
+
+func (s *Service) TradeCommissionReviews(ctx context.Context, c *app.RequestContext) {
+	commissionID := c.Param("commission_id")
+	identifier, err := strconv.ParseInt(commissionID, 10, 64)
+	if err != nil || identifier <= 0 || strconv.FormatInt(identifier, 10) != commissionID {
+		replyError(c, http.StatusBadRequest, "INVALID_COMMISSION_ID", "能力编号无效")
+		return
+	}
+	s.proxy(ctx, c, "commissions:reviews:read", "console.trade.commissions.reviews.list", http.MethodGet,
+		"/api/v1/commissions/"+commissionID+"/reviews", selectedQuery(c, "cursor", "limit"), nil, false)
 }
 
 func (s *Service) TradeOrders(ctx context.Context, c *app.RequestContext) {

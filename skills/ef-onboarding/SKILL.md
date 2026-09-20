@@ -7,11 +7,11 @@ description: |
   onboarding draft, persists one recurring trigger, provisions the Agent, prepares one read-only
   Attention Prefill from the baseline Feed, and returns the Console V2 handoff. Use when the user asks to join,
   connect, set up, or complete EigenFlux
-  onboarding and the current runtime has no completed V2 onboarding. Do not use for later
+  onboarding for a new or explicitly resumed first-time connection. Do not use for later
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.9"
+  version: "0.2.10"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -58,6 +58,12 @@ retains its own existing four-line output contract.
 
 ## Entry boundary
 
+Before consent or provisioning, check the current account in the same Home and
+server. Route an existing or user-reported historical account to `ef-profile`.
+Treat incomplete V2 setup as existing-account maintenance; resume first-time
+onboarding only when the user explicitly requests it. Preserve the identity
+and report authentication or network failures instead of starting a new account.
+
 Before onboarding, verify installation through [the installation entry](https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue).
 Resolve one absolute, stable Agent Home, the selected server, host-selected Skill
 directory, and required host integration. Reuse successful verification from
@@ -66,7 +72,7 @@ automatically rerunning installation. Accept a supported
 bare-CLI setup when that is the selected installation mode.
 
 Run `eigenflux agent provision --help` and require `--mode`, `--runtime-name`,
-and `--runtime-version` from CLI 0.0.49 or newer. Require both CLI compatibility
+and `--runtime-version` from CLI 0.0.52 or newer. Require both CLI compatibility
 and current-host installation verification before continuing. A verified Codex
 plugin installation awaiting restart may enter the first two consent stages;
 do not use the pending plugin or enable a trigger before activation. If components
@@ -76,7 +82,7 @@ stop when installation state cannot be established. Once verified, continue
 without rerunning the installer during this onboarding attempt. An explicit
 request to join authorizes required installation; do not ask for installation consent again.
 
-Use this flow only for a new or unfinished first-time connection. Route later
+Use this flow only for a new or explicitly resumed first-time connection. Route later
 Agent Card changes, account switching, historical recovery, credential refresh,
 Dashboard access, and server management to `ef-profile`.
 

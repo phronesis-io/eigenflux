@@ -186,6 +186,17 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	svc.SetNotificationClient(fakeNotifications)
 	h := server.New(server.WithHostPorts("127.0.0.1:0"))
 	svc.Register(h)
+	for _, operation := range []string{"respond", "dismiss"} {
+		h.POST("/test/prefill/:agent_id/:attention_id/"+operation, func(ctx context.Context, c *app.RequestContext) {
+			id, _ := strconv.ParseInt(c.Param("agent_id"), 10, 64)
+			c.Set("agent_id", id)
+			if operation == "respond" {
+				svc.respondAttentionItem(ctx, c)
+			} else {
+				svc.dismissAttentionItem(ctx, c)
+			}
+		})
+	}
 	h.POST("/api/v1/test/legacy-agent-upgrade/:agent_id", func(ctx context.Context, c *app.RequestContext) {
 		id, parseErr := strconv.ParseInt(c.Param("agent_id"), 10, 64)
 		if parseErr != nil || id <= 0 {
@@ -424,6 +435,20 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("exchange did not set both cookies: %q", setCookies)
 	}
 	cookieHeader := consoleCookie + "; " + csrfCookie
+	beforePrefillID := responseData(t, prefillPayload)["items"].([]interface{})[0].(map[string]interface{})["attention_id"].(string)
+	for _, suffix := range []string{"respond", "dismiss"} {
+		status, payload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+beforePrefillID+"/"+suffix,
+			respondAttentionRequest{ActionKey: "skip", ExpectedItemRevision: 1, IdempotencyKey: "before-prefill-" + agentID},
+			ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "ONBOARDING_REQUIRED" {
+			t.Fatalf("prefill %s before onboarding status=%d payload=%#v", suffix, status, payload)
+		}
+		status, payload, _ = performJSON(t, h, "POST", "/test/prefill/"+agentID+"/"+beforePrefillID+"/"+suffix,
+			respondAttentionRequest{ActionKey: "skip", ExpectedItemRevision: 1, IdempotencyKey: "before-direct-" + agentID})
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "ATTENTION_ONBOARDING_REQUIRED" {
+			t.Fatalf("direct prefill %s before onboarding status=%d payload=%#v", suffix, status, payload)
+		}
+	}
 
 	status, unboundSessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
 		ut.Header{Key: "Cookie", Value: cookieHeader})
@@ -555,18 +580,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	prefillItem := prefillItems[0].(map[string]interface{})
 	prefillID := prefillItem["attention_id"].(string)
-	status, prefillResponsePayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+prefillID+"/respond", respondAttentionRequest{
-		ActionKey: "skip", ExpectedItemRevision: int64(prefillItem["item_revision"].(float64)),
-		IdempotencyKey: "prefill-response-" + agentID,
-	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusConflict || responseErrorCode(t, prefillResponsePayload) != "ATTENTION_RESPONSE_CONFLICT" {
-		t.Fatalf("read-only Attention Prefill accepted a response: status=%d payload=%#v", status, prefillResponsePayload)
-	}
-	status, prefillDismissPayload, _ := performJSON(t, h, "POST", "/api/v2/console/attention-items/"+prefillID+"/dismiss", map[string]interface{}{},
-		ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusConflict || responseErrorCode(t, prefillDismissPayload) != "ATTENTION_NOT_OPEN" {
-		t.Fatalf("read-only Attention Prefill was dismissed: status=%d payload=%#v", status, prefillDismissPayload)
-	}
+	testPrefillActions(t, gdb, h, idgen, agentIDInt, prefillID, accessToken, cookieHeader, csrf)
 	testCommunicationProjection(t, gdb, h, idgen, agentIDInt, cookieHeader)
 	testTelemetryAggregation(t, gdb, h, agentIDInt, cookieHeader, csrf)
 	testActivityCursorReset(t, gdb, h, idgen, agentIDInt, cookieHeader)
@@ -716,6 +730,12 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	ugc := feedItems[0].(map[string]interface{})
 	pgc := feedItems[1].(map[string]interface{})
+	for _, item := range []map[string]interface{}{ugc, pgc} {
+		id, ok := item["item_id"].(string)
+		if !ok || id == "" || id != item["source_ref"].(map[string]interface{})["id"] {
+			t.Fatalf("Feed item has inconsistent feedback/Attention identity: %#v", item)
+		}
+	}
 	if ugc["author_identity"] == nil || pgc["author_identity"] != nil || ugc["intent_match"] == nil {
 		t.Fatalf("UGC/PGC identity policy mismatch: ugc=%#v pgc=%#v", ugc, pgc)
 	}

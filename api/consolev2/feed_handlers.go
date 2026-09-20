@@ -366,6 +366,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 		}
 		previewText, previewTruncated := truncateRunes(previewText, 800)
 		payload := map[string]interface{}{
+			"item_id":         strconv.FormatInt(item.ItemId, 10),
 			"source_ref":      map[string]interface{}{"type": "broadcast", "id": fmt.Sprintf("%d", item.ItemId)},
 			"content_class":   contentClass,
 			"author_identity": nil,

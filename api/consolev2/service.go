@@ -357,6 +357,8 @@ func (s *Service) Register(h *server.Hertz) {
 	h.DELETE("/api/v2/console/accounts/:agent_id", s.consoleAuth(true), s.removeConsoleAccount)
 	h.GET("/api/v2/console/account-switch", s.consoleAuth(false), s.getCLIAccountSwitch)
 	h.POST("/api/v2/console/account-switch/confirm", s.consoleAuth(true), s.confirmCLIAccountSwitch)
+	h.POST("/api/v2/console/account-switch/challenges", s.consoleAuth(true), s.createCLIAccountSwitchChallenge)
+	h.POST("/api/v2/console/account-switch/verify", s.consoleAuth(true), s.verifyCLIAccountSwitchEmail)
 	h.DELETE("/api/v2/console/account-switch", s.consoleAuth(true), s.cancelCLIAccountSwitch)
 	h.PUT("/api/v2/agents/me/onboarding-draft", s.agentAuth("onboarding:write"), s.putOnboardingDraft)
 	h.PUT("/api/v2/console/onboarding-draft", s.consoleAuth(true), s.putOnboardingDraft)

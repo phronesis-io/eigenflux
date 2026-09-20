@@ -17,6 +17,9 @@ on:
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
+      - 'pkg/testaccountreset/**'
+      - 'pkg/config/**'
+      - 'scripts/test_account_reset/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   push:
@@ -36,6 +39,9 @@ on:
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
+      - 'pkg/testaccountreset/**'
+      - 'pkg/config/**'
+      - 'scripts/test_account_reset/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   workflow_dispatch:
@@ -74,6 +80,8 @@ jobs:
         run: go test -count=1 ./migrations
       - name: Verify PostgreSQL retention and identity semantics
         run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
+      - name: Verify the test-account reset covers every agent-scoped table
+        run: go test -count=1 ./pkg/testaccountreset && go vet ./scripts/test_account_reset
       - name: Verify runtime observation and request identity
         run: go test -count=1 ./api/dal ./api/middleware ./pkg/reqinfo ./pkg/runtimeidentity
       - name: Verify short-ID install attribution

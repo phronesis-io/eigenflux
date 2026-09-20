@@ -7,7 +7,7 @@ the CLI and server retain identity, authorization, and network-state ownership.
 | Invariant | Source / final owner | Boundary | Verification | Intentional change |
 | --- | --- | --- | --- | --- |
 | Install only the invoking host; preserve other hosts, existing configuration, and explicit opt-outs | `skills/install.md`, `static/install.sh` | Installer to host plugin | Isolated installer tests with a non-default Home, installed/missing/failed plugin, and opt-out | Explain official plugin scope; no additional conversational install consent |
-| Plugin installation uses a compatible Codex executable consistently | `static/install.sh`, `skills/install.md` | PATH / app bundle discovery to install receipt and verification | Isolated installer tests: old PATH plus compatible app, compatible PATH only, unsupported / unknown versions; real CLI root-marketplace probe | Require Codex >= 0.142.0; fall back to existing app binaries without upgrading Codex or changing PATH permanently; receipt carries selected path/version |
+| Plugin installation uses a compatible Codex executable consistently | `static/install.sh`, `skills/install.md` | PATH / app bundle discovery to install receipt and verification | Isolated installer tests: old PATH plus compatible app, compatible PATH only, unsupported / unknown versions | Require Codex >= 0.142.0; fall back to existing app binaries without upgrading Codex or changing PATH permanently; receipt carries selected path/version |
 | Preserve exact Home, selected server, identity, referral, and existing accounts | Installation entry, CLI auth/config, Console handoff | Install, restart, scheduler, provision | Existing Home/referral integration tests and CLI suite | None |
 | Choice presentation preserves explicit consent and full disclosure | Main onboarding Skill template contract / same owner | Complete chat template to explicit user reply | Template and authorization contracts; manual affirmative, refusal, ambiguous-answer, no-answer, and resume checks | Present each choice directly in chat; preserve complete disclosures, one pending decision, and explicit user consent; host execution approvals remain separate |
 | Scheduling consent is distinct from command-rule consent | `ef-onboarding/references/consent.md`, `execution-permission.md` | User choice to host mutation | Skill contract tests and manual refusal scenarios | Two separate required decisions; either refusal pauses new onboarding |
@@ -19,11 +19,6 @@ the CLI and server retain identity, authorization, and network-state ownership.
 | Exactly one verified active trigger precedes provision | `recurring-trigger.md` | Activated setup to scheduler to CLI | Existing scheduler prompt parity and CLI integration tests; manual persistence checks | Move trigger creation after both required gates and activation; preserve disabled triggers |
 | Baseline, privacy limits, Console confirmation, output language, and external-action restrictions | Existing `prefill.md`, `console-handoff.md`, CLI/server | Setup to live network and human Console | Existing CLI contract/integration suite | None |
 
-The removed installer sandbox helper has no remaining production responsibility:
-explicit command permission lives in the foreground onboarding reference. Its
-unused duplicate plugin installer is removed; the verified official-marketplace
-implementation in `setup_agents` remains the sole installer.
-
 Manual acceptance covers: refusing either required choice; accepting each then
 declining Prefill; approving scoped Prefill; one combined restart after a fresh
 plugin install; Rules-only restart for an already active plugin; already active
@@ -32,26 +27,11 @@ evidence; host rejection and conflicting rules; and repeated setup without a
 second identity or recurring trigger. Check language and actual approval behavior
 in Codex; static Skill checks do not establish model adherence or loaded policy.
 
-Snapshot distribution is separate test scaffolding. Production sources contain
-no snapshot URL, test-purpose prompt, or distribution override. A later snapshot
-must archive this source revision and preserve these rules. Verify the normal
-production distribution independently before release; never publish a snapshot
-to production aliases.
-
 ## Fixed-copy output contract
-
-Execution-permission copy uses the reviewed product explanation and a distinct
-reply list. The reference owns both localized templates and existing-rule
-substitutions; the main Skill owns exact rendering. Only wording and choice
-labels change. Keep explicit consent, read/write scope, reuse across the same
-Codex configuration, revocation, and all rule-write and activation boundaries.
-Verify template coverage and existing-rule substitutions with non-default paths;
-manually review readability. CLI, installer, identity, and scheduler behavior
-remain unchanged. Snapshot packaging is separate distribution scaffolding.
 
 User-facing setup copy is owned by the templates in `ef-onboarding` references.
 Scheduling, rule consent, restart, Prefill, and refusal retain their current
-behavior and authorization scope. The change makes their wording mandatory,
+behavior and authorization scope. Their wording is mandatory,
 with only explicit cadence, context-source, rule-path/rule-body, and existing-rule
 substitutions. English and Chinese templates are exact; other languages preserve
 all content and structure. Present the complete body and labels directly in chat
@@ -62,7 +42,8 @@ retain the owners and checks in the table above.
 Failures, host approvals, and user-requested clarification remain authoritative;
 never render a success template over a failure. Validate template coverage,
 required disclosure retention, allowed substitutions, and the existing lifecycle
-contracts before generating the next immutable snapshot.
+contracts before release. The permission reference owns the reply lists and
+existing-rule substitutions; render the choices once.
 
 ## Heartbeat host-result contract
 
@@ -82,19 +63,22 @@ Production instructions contain no test-only task IDs or host-specific invented
 schema. Tests cannot establish model adherence; validate actual host output over
 several empty, unchanged, actionable, and failed cycles before production release.
 
-### Quiet-wording cleanup
+## Release and installation compatibility
 
-Remove only the named legacy silence example from the onboarding trigger and
-heartbeat execution references. Their canonical owners retain exact template
-persistence, full read-back verification, and complete host results on quiet
-cycles. Identity, consent, cadence, and recovery are unchanged. Verify the
-existing scheduler parity and host-result contracts before snapshot distribution.
+CLI 0.0.52 introduces the direct runtime flags and Attention JSON arguments.
+The Skills bundle requires CLI 0.0.52 so released 0.0.49–0.0.51 clients cannot
+adopt instructions for unsupported commands. Environment metadata and stdin
+remain supported for existing integrations. New native tasks use direct flags.
 
-### Host-output deduplication
+After review and merge, publish CLI 0.0.52 from main with the normal Release CLI
+workflow, verify its public version and command flags, and verify the signed
+Skills release and normal installation entry. The Release Skills workflow also
+runs on merge; its minimum-version gate protects older clients while the binary
+release is pending. Complete public installation verification only after both
+artifacts are available. Deploy the merged main installer through the normal
+backend deployment process; do not serve a feature-branch installer.
 
-Preserve the host-result contract above while assigning detail to
-heartbeat-execution.md, a short priority reminder to the CLI plan, and a compact
-standalone requirement to the persisted scheduler prompt. Keep prompt parity,
-no-update structured results, host-specific notification decisions, incomplete
-cycle reporting, and exact task read-back checks. No authorization, lifecycle,
-identity, user-facing template, or scheduler ownership behavior changes.
+Release checks use the normal CLI build, signed Skills synchronization tests,
+and installer integration tests. No
+alternate CDN, revision pin, signing key, or test installation URL is part of
+the product. Disposable fixture keys and loopback endpoints stay in tests.

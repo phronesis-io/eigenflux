@@ -130,7 +130,7 @@ func validateNoopPrincipalBinding(tx *gorm.DB, record cliAccountSwitchRecord) er
 	return nil
 }
 
-func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64) error {
+func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now int64, verifiedNewAccount ...bool) error {
 	if record.SwitchIDHash == "" || record.SourceAgentID <= 0 || record.PrincipalID <= 0 ||
 		record.TargetAgentID == nil || *record.TargetAgentID <= 0 || *record.TargetAgentID == record.SourceAgentID ||
 		record.TargetConsoleSession == "" ||
@@ -159,7 +159,8 @@ func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now in
 		WHERE agents.agent_id = ? FOR UPDATE OF agents, onboarding`, *record.TargetAgentID).Scan(&target).Error; err != nil {
 		return err
 	}
-	if target.IdentityState != "active" || target.OnboardingState != "completed" {
+	newAccount := len(verifiedNewAccount) == 1 && verifiedNewAccount[0]
+	if target.IdentityState != "active" || (target.OnboardingState != "completed" && !newAccount) {
 		return errOnboardingRequired
 	}
 	var activeCredentials int64
@@ -170,8 +171,12 @@ func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now in
 	if activeCredentials == 0 {
 		return errConflict
 	}
-	res := tx.Exec(`UPDATE agent_principals SET agent_id = ?, status = 'active', last_seen_at = ?
-		WHERE principal_id = ? AND agent_id = ? AND revoked_at IS NULL`, *record.TargetAgentID, now,
+	principalStatus := "active"
+	if target.OnboardingState != "completed" {
+		principalStatus = "limited"
+	}
+	res := tx.Exec(`UPDATE agent_principals SET agent_id = ?, status = ?, last_seen_at = ?
+		WHERE principal_id = ? AND agent_id = ? AND revoked_at IS NULL`, *record.TargetAgentID, principalStatus, now,
 		record.PrincipalID, record.SourceAgentID)
 	if res.Error != nil {
 		return res.Error
@@ -180,7 +185,7 @@ func finalizeCLIAccountSwitch(tx *gorm.DB, record cliAccountSwitchRecord, now in
 		return errConflict
 	}
 	if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?, access_refresh_required = TRUE
-		WHERE principal_id = ? AND revoked_at IS NULL`, pq.Array(principalScopesForOnboarding("completed")), record.PrincipalID).Error; err != nil {
+		WHERE principal_id = ? AND revoked_at IS NULL`, pq.Array(principalScopesForOnboarding(target.OnboardingState)), record.PrincipalID).Error; err != nil {
 		return err
 	}
 	// Persist the verified target binding and the terminal state in one
@@ -243,8 +248,22 @@ func (s *Service) getCLIAccountSwitch(_ context.Context, c *app.RequestContext) 
 	if alreadyCurrent {
 		responseStatus = "completed"
 	}
+	requiresOnboarding, canContinue := false, false
+	if record.TargetAgentID != nil {
+		var onboarding string
+		if err := s.db.Raw(`SELECT state FROM agent_onboarding_v2 WHERE agent_id = ?`, *record.TargetAgentID).Scan(&onboarding).Error; err != nil {
+			fail(c, 500, "ACCOUNT_SWITCH_FAILED", "could not read target onboarding", nil)
+			return
+		}
+		requiresOnboarding = onboarding != "completed"
+		currentID, _ := agentID(c)
+		session, _ := c.Get("console_session_id")
+		canContinue = currentID == *record.TargetAgentID && session == record.TargetConsoleSession &&
+			(record.Status == "completed" || record.Status == "pending_onboarding")
+	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"status": responseStatus, "source_agent_id": fmt.Sprintf("%d", record.SourceAgentID),
+		"requires_onboarding": requiresOnboarding, "can_continue_onboarding": canContinue,
 		"already_current": alreadyCurrent,
 		"target_agent_id": func() string {
 			if record.TargetAgentID == nil {

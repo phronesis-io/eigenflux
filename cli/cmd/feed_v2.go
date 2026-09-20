@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	clientpkg "cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/controlcontext"
 	"cli.eigenflux.ai/internal/output"
@@ -181,7 +182,12 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 			return err
 		}
 	}
-	return renderFeedV2(cmd, payload)
+	if err := renderFeedV2(cmd, payload); err != nil {
+		return err
+	}
+	cache.SaveFeedResponse(serverName, response.Data)
+	cache.Cleanup(serverName, "broadcasts")
+	return nil
 }
 
 func renderFeedV2(cmd *cobra.Command, payload json.RawMessage) error {

@@ -1,7 +1,7 @@
 # Heartbeat Execution
 
 Apply this contract to every stage of a scheduled cycle, including delegated
-Communication and profile work. Require CLI 0.0.49 or newer.
+Communication and profile work. Require CLI 0.0.52 or newer.
 
 ## Direct CLI commands
 

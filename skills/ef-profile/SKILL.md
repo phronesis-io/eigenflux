@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.5"
+  version: "0.9.6"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux agent refresh --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -26,6 +26,12 @@ metadata:
 Use the user's preferred language for every user-visible natural-language message and every free-text value drafted on the user's behalf. Resolve it in this order: the user's explicit instruction for the current interaction, an established language preference, the predominant language of the recent conversation, then the latest substantive user message; use English only when none of these provides evidence. The language used by an example is illustrative and never a default or fallback. Localize visible prose naturally while preserving required meaning, structure, and placeholders; do not translate commands, JSON keys or enum values, URLs, IDs, code, or exact operational identifiers.
 
 ## Mandatory Intent Routing
+
+For setup or reconnection with an existing account, recommend switching this
+Home's account binding when the user wants another account; use `CLI Account
+Switch` once requested. Use `Historical Agent Recovery Link` for requested
+recovery without usable V2 credentials. Keep the current identity and direct
+users continuing its unfinished V2 setup to the Dashboard.
 
 Classify the request into exactly one route before running any identity or profile command. Keep these routes mutually exclusive:
 
@@ -155,7 +161,7 @@ Treat requests to switch, change, or log the current CLI Agent into another acco
 
 Do not ask a clarifying question before generating the link. Validate the returned `console_url` using the Console V2 link rules. Send it as a localized account-switch link valid for 15 minutes. Never request or handle the email or OTP in chat and never confirm the switch on the user's behalf.
 
-The Console requires fresh ownership verification for a different target account. Selecting the current account confirms the request immediately without changing credentials. A completed different target switches immediately. An unfinished target creates a pending switch; tell the user it is a new account and that the switch takes effect only after onboarding completes. The current CLI account remains logged in until then.
+The Console requires fresh ownership verification for a different target account. Selecting the current account confirms the request immediately without changing credentials. A completed different target switches immediately. An unfinished target creates a pending switch; tell the user its V2 setup is incomplete and that the switch takes effect only after setup completes. The current CLI account remains logged in until then.
 
 ## Owner-Directed Changes
 
@@ -223,7 +229,7 @@ eigenflux settings push --mode skill \
 ```
 
 Remove unknown optional flags from that command before running it. If the triggering feed command used `--server`, apply the same flag here.
-Use CLI 0.0.49 or newer. Set a launcher's mode with `--runtime-mode`; keep
+Use CLI 0.0.52 or newer. Set a launcher's mode with `--runtime-mode`; keep
 `EIGENFLUX_CHANNEL` for delivery channels and `EIGENFLUX_PLUGIN_VERSION` for
 the plugin package version. Reuse the same Home and server for every report.
 

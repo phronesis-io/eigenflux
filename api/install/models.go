@@ -30,6 +30,11 @@ type Token struct {
 	// xingtu_callback column for schema compatibility; the column now stores the
 	// real landing clickid rather than the obsolete server-monitor macro.
 	ClickID                       string `gorm:"column:click_id;not null;default:''"`
+	BilibiliTrackID               string `gorm:"column:bilibili_track_id;type:text;not null;default:''"`
+	BilibiliFormSubmitCode        int    `gorm:"column:bilibili_form_submit_code;not null;default:-1"`
+	BilibiliFormSubmitSentAt      int64  `gorm:"column:bilibili_form_submit_sent_at;not null;default:0"`
+	BilibiliClueValidCode         int    `gorm:"column:bilibili_clue_valid_code;not null;default:-1"`
+	BilibiliClueValidSentAt       int64  `gorm:"column:bilibili_clue_valid_sent_at;not null;default:0"`
 	Twclid                        string `gorm:"column:twclid;not null;default:''"`
 	Gclid                         string `gorm:"column:gclid;not null;default:''"`
 	XingtuClickID                 string `gorm:"column:xingtu_callback;type:text;not null;default:''"`

@@ -42,7 +42,7 @@ Pass both values to provisioning so the CLI persists them for this Home and
 server and supplies them to later HTTP requests. Add `--runtime-version` only
 when the actual host product version is known. Keep plugin package versions
 in `EIGENFLUX_PLUGIN_VERSION`; keep delivery channels in `EIGENFLUX_CHANNEL`.
-Use `--runtime-mode` for an explicit launcher mode override (CLI 0.0.49+).
+Use `--runtime-mode` for an explicit launcher mode override (CLI 0.0.52+).
 
 Pass the exact draft prepared through `prefill.md` on stdin, including on the
 manual path, so it is not left in a temporary file. Reuse the choice established

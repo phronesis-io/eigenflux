@@ -84,7 +84,7 @@ def main():
             bindir.mkdir()
             binary = bindir / "eigenflux"
             # Regression: same semver, wrong bytes must still be replaced.
-            binary.write_text("#!/bin/sh\nprintf '0.0.49\\n'\n")
+            binary.write_text("#!/bin/sh\nprintf '" + proof["cli_version"] + "\\n'\n")
             binary.chmod(0o755)
             installer = root / "installer-functions.sh"
             installer.write_text((public / "install.sh").read_text().split("# ── Main ──", 1)[0])
@@ -93,7 +93,7 @@ def main():
                                EIGENFLUX_INSTALL_DIR=str(bindir), EIGENFLUX_CDN_URL="http://127.0.0.1:1/incorrect")
             subprocess.run(["sh", "-c", '. "$1"; install_cli; verify_snapshot_cli; install_skills', "snapshot-installer", str(installer)],
                            env=install_env, check=True, capture_output=True, text=True)
-            expected_binary = public / "cli/0.0.49" / ("eigenflux-" + target_os + "-" + arch)
+            expected_binary = public / "cli" / proof["cli_version"] / ("eigenflux-" + target_os + "-" + arch)
             assert builder.digest(binary) == builder.digest(expected_binary), "same-version installer failed to replace binary"
             def call(*args, success=True, extra=None, agent_home=home):
                 result = subprocess.run([str(binary), "--homedir", str(agent_home), *args],

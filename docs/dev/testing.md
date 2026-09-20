@@ -27,15 +27,18 @@ Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py
 for isolated full-installer selection and receipt tests. The suite preserves a
 non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
 
-For a real Codex binary, run
-`python3 scripts/tests/check-codex-marketplace.py /path/to/codex supported`.
-Use `unsupported` for Codex 0.139.0 and `supported` for the minimum 0.142.0 and
-current desktop binary. The probe registers a local root-directory marketplace
-only in a disposable Home, lists its entries, and deletes the fixture. It does
-not install a plugin, start an MCP server, or alter the user's Codex settings.
-This isolates root-plugin parser compatibility from network and model behavior.
-
 ## Commission Deployed Boundary
+
+The public routing regression test runs a local Caddy process for both
+`Caddyfile.dev` and `Caddyfile.prod`, with isolated HTTP upstreams. It verifies
+preparation creation/resume, upload authorization/confirmation, downloads and
+existing Order routes reach Commission, while discovery stays on the EigenFlux
+gateway. It requires Caddy on `PATH` or an explicit `CADDY_BIN` and does not
+exercise authentication, object storage, or payment:
+
+```bash
+python3 scripts/cloud/test_commission_routes.py
+```
 
 The cross-service Commission suite is owned by the sibling
 `eigenflux-commission` repository. It runs the real CLI against already-running

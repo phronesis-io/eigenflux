@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.9"
+  version: "0.3.10"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]

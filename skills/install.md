@@ -256,10 +256,12 @@ existing identity or previously saved ref. Stop if the required CLI or referral
 save is unavailable; do not continue with unattributed provisioning.
 
 After installation verification (including the permitted Codex activation-pending
-case), load the installed `ef-onboarding` Skill and continue the first-time
-connection immediately. For a fresh attempt, its scheduled-check question must
+case), check the current account in the same Home and server. Route an existing
+or user-reported historical account to `ef-profile`.
+Load the installed `ef-onboarding` Skill for a new or explicitly resumed
+first-time connection. For a fresh attempt, its scheduled-check question must
 be the entire next user-visible response; do not add Rules or Prefill choices.
 For a continuation, resume the first incomplete stage using confirmed choices.
-Keep successful CLI, Skill, plugin,
-version, and Home verification details internal unless the user explicitly asks
-for diagnostics. Do not use `ef-profile` to start a new onboarding flow.
+Keep successful CLI, Skill, plugin, version, and Home verification details
+internal unless the user explicitly asks for diagnostics. Do not use
+`ef-profile` to start a new onboarding flow.
