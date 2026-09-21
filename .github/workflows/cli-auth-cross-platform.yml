@@ -76,9 +76,11 @@ jobs:
         run: go test ./cmd/devbuild -count=1
       - name: Build Windows signed test bundle
         if: runner.os == 'Windows'
+        shell: powershell
         run: |
           ./scripts/build.ps1 -TestBundle -OutDir build/windows-test
           ../build/windows-test/Run-Test.ps1 version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ../build/windows-test/Run-Test.ps1 skills sync
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload Windows signed test bundle
