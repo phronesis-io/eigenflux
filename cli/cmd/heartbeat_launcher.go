@@ -20,15 +20,15 @@ func nativeHeartbeatLauncher(home, server, mode, shellName string) (string, erro
 	return renderHeartbeatLauncher(bin, home, server, mode, shellName)
 }
 
-func nativeHeartbeatCLIPrefix(home, server, shellName string) (string, error) {
+func nativeHeartbeatCLIPrefix(home, server, shellName string, mode ...string) (string, error) {
 	bin, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	return renderHeartbeatCLIPrefix(bin, home, server, shellName)
+	return renderHeartbeatCLIPrefix(bin, home, server, shellName, mode...)
 }
 
-func renderHeartbeatCLIPrefix(bin, home, server, shellName string) (string, error) {
+func renderHeartbeatCLIPrefix(bin, home, server, shellName string, mode ...string) (string, error) {
 	if shellName == "" || shellName == "auto" {
 		shellName = "posix"
 		if runtime.GOOS == "windows" {
@@ -39,6 +39,9 @@ func renderHeartbeatCLIPrefix(bin, home, server, shellName string) (string, erro
 		return "", fmt.Errorf("absolute Home and explicit server required")
 	}
 	args := []string{bin, "--homedir", home, "--server", server}
+	if len(mode) > 0 && mode[0] != "" {
+		args = append(args, "--runtime-mode", mode[0])
+	}
 	switch shellName {
 	case "posix":
 		for i := range args {
@@ -73,19 +76,19 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 	if server == "" || !filepath.IsAbs(home) {
 		return "", fmt.Errorf("absolute Home and explicit server required")
 	}
-	args := []string{bin, "--homedir", home, "--server", server, "heartbeat", "plan", "--shell", shellName, "--format", "agent"}
+	args := []string{bin, "--homedir", home, "--server", server, "--runtime-mode", mode, "heartbeat", "plan", "--shell", shellName, "--format", "agent"}
 	switch shellName {
 	case "posix":
 		for i := range args {
 			args[i] = shellQuote(args[i])
 		}
-		return "EIGENFLUX_MODE=" + shellQuote(mode) + " " + strings.Join(args, " "), nil
+		return strings.Join(args, " "), nil
 	case "powershell":
 		quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 		for i := range args {
 			args[i] = quote(args[i])
 		}
-		return "$env:EIGENFLUX_MODE=" + quote(mode) + "; & " + strings.Join(args, " "), nil
+		return "& " + strings.Join(args, " "), nil
 	case "cmd":
 		for _, arg := range append(append([]string{}, args...), mode) {
 			if strings.ContainsAny(arg, "\r\n\"%!^&|<>") {
@@ -95,7 +98,7 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 		for i := range args {
 			args[i] = "\"" + args[i] + "\""
 		}
-		return "set \"EIGENFLUX_MODE=" + mode + "\" && " + strings.Join(args, " "), nil
+		return strings.Join(args, " "), nil
 	default:
 		return "", fmt.Errorf("unsupported scheduler shell %q", shellName)
 	}

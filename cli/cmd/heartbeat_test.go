@@ -357,7 +357,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, _ := config.HomeDirInfo()
-			for _, part := range []string{"--homedir " + shellQuote(home), "--server " + shellQuote(serverName), "--runtime-mode " + shellQuote(mode)} {
+			for _, part := range []string{shellQuote("--homedir") + " " + shellQuote(home), shellQuote("--server") + " " + shellQuote(serverName), shellQuote("--runtime-mode") + " " + shellQuote(mode)} {
 				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}
