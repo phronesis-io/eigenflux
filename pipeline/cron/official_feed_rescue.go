@@ -151,7 +151,7 @@ func agentRecentDomains(agentID int64) []string {
 	var raw string
 	err := db.DB.Raw(
 		`SELECT COALESCE(agent_features->'domains','[]')::text
-		   FROM replay_logs WHERE agent_id = ? ORDER BY served_at DESC LIMIT 1`,
+		   FROM replay_logs WHERE pipeline_version='legacy_feed_v1' AND agent_id = ? ORDER BY served_at DESC LIMIT 1`,
 		agentID,
 	).Scan(&raw).Error
 	if err != nil || raw == "" {
@@ -181,7 +181,7 @@ func deliveredCountInDomains(agentID, sinceMs int64, domains []string) (int, err
 	// []string (which gorm would expand into multiple placeholders).
 	err := db.DB.Raw(
 		`SELECT count(DISTINCT item_id) FROM replay_logs
-		  WHERE agent_id = ? AND served_at >= ? AND delivered IS DISTINCT FROM FALSE
+		  WHERE pipeline_version='legacy_feed_v1' AND agent_id = ? AND served_at >= ? AND delivered IS DISTINCT FROM FALSE
 		    AND jsonb_exists_any(item_features->'domains', ?::text[])`,
 		agentID, sinceMs, pgTextArray(domains),
 	).Scan(&n).Error

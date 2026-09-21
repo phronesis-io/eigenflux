@@ -95,6 +95,16 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
 		return
 	}
+	var discoveryMeta map[string]any
+	if feedResp.DiscoveryMetadata != nil {
+		if err := json.Unmarshal([]byte(*feedResp.DiscoveryMetadata), &discoveryMeta); err != nil {
+			fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "invalid discovery metadata", nil)
+			return
+		}
+		if discoveryMeta["input_origin"] == "baseline" {
+			mode = "baseline"
+		}
+	}
 	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, mode,
 		onboarding.ContextRevision, feedResp.Items, req.KnownCardVersions)
 	if encodeErr != nil {
@@ -165,6 +175,9 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		"items": items, "notifications": []interface{}{},
 		"next_cursor": nil, "has_more": feedResp.HasMore,
 		"capabilities_applied": []string{"feed=v2", "delivery=latest", "personalization=" + mode},
+	}
+	if discoveryMeta != nil {
+		response["discovery"] = discoveryMeta
 	}
 	if contract := feedcontract.ForMode(mode); contract != "" {
 		response["output_contract"] = contract

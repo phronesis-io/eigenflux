@@ -102,6 +102,9 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 
 	logger.Ctx(ctx).Info("FetchFeed called", "agentID", req.AgentId, "action", action, "limit", limit)
 
+	if s.config != nil && s.config.EnableNeedSearch {
+		return s.fetchDiscoveryFeed(ctx, req.AgentId, action)
+	}
 	switch action {
 	case "refresh":
 		return s.handleRefresh(ctx, req.AgentId, limit)

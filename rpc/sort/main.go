@@ -124,6 +124,11 @@ func main() {
 		}
 	}
 
+	closeDiscovery, err := initDiscovery(context.Background())
+	if err != nil {
+		log.Fatalf("failed to initialize discovery: %v", err)
+	}
+	defer closeDiscovery()
 	r, err := etcd.NewEtcdRegistry([]string{cfg.EtcdAddr})
 	if err != nil {
 		log.Fatalf("failed to create etcd registry: %v", err)

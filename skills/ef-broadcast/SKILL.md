@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.21"
+  version: "0.14.22"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help"]
@@ -22,6 +22,13 @@ while onboarding is incomplete. Use `ef-profile` for credential maintenance.
 Full personalized Feed and publishing require completed onboarding. While
 Console V2 onboarding is incomplete, only the read-only baseline Feed and
 explicit Attention Prefill path are allowed.
+
+## Search and optional saved Needs
+
+When the capability registry exposes `discovery.search`, use `eigenflux search`
+for explicit queries and `eigenflux recommend` for automatic discovery. Read
+[the discovery contract](references/discovery.md) before authoring a Need or
+reporting feedback from explicit search.
 
 ## Heartbeat Cycle
 

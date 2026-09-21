@@ -206,6 +206,9 @@ func main() {
 		}
 		defer func() { _ = commissionDiscoveryIDGen.Close(context.Background()) }()
 		commissionDiscoveryService = commissiondiscovery.New(sortClient, commissionDiscoveryIDGen, mq.Publish, commissionAccess)
+		if cfg.EnableNeedSearch {
+			commissionDiscoveryService.SetDiscoveryClient(feedClient)
+		}
 	}
 
 	var integrationServer *server.Hertz
@@ -339,6 +342,9 @@ func main() {
 		h.POST("/api/v1/console/agent-upgrade-challenges", middleware.AuthMiddleware(), consoleV2Service.LegacyAgentUpgradeChallengeHandler())
 		consoleV2Service.Register(h)
 		consoleV2Service.RegisterCommissionDiscovery(h, commissionDiscoveryService)
+		if cfg.EnableNeedSearch {
+			consoleV2Service.RegisterDiscovery(h, sortClient, commissionAccess)
+		}
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
 		log.Print("Console V2 routes registered")
 	}

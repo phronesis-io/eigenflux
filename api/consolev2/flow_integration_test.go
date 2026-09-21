@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -44,6 +45,7 @@ type captureEmailSender struct {
 }
 
 type fakeFeedClient struct {
+	feedservice.Client
 	authorID int64
 	failNext atomic.Bool
 }

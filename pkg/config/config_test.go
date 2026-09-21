@@ -473,3 +473,19 @@ func TestConsoleAllowedOriginsConfiguration(t *testing.T) {
 		t.Fatal("additional origins should default to empty")
 	}
 }
+
+func TestNeedSearchRequiresLegacyGatesAndSamples(t *testing.T) {
+	c := &Config{EnableNeedSearch: true, EnableCommissionIndex: true, CommissionDiscoveryEnabled: true, EnableReplayLog: true}
+	if err := c.ValidateCommissionDiscoveryConfiguration(); err != nil {
+		t.Fatal(err)
+	}
+	c.CommissionDiscoveryEnabled = false
+	if c.ValidateCommissionDiscoveryConfiguration() == nil {
+		t.Fatal("commission access feature bypass")
+	}
+	c.CommissionDiscoveryEnabled = true
+	c.EnableReplayLog = false
+	if c.ValidateCommissionDiscoveryConfiguration() == nil {
+		t.Fatal("samples disabled at cutover")
+	}
+}

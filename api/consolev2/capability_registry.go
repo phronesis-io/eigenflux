@@ -77,6 +77,16 @@ func capabilitySeeds() []capabilitySeed {
 		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
 		capability("need.input.get", "eigenflux need input get", "need", "read", "读取需求输入", "Read an owned NeedInput"),
 		capability("need.input.list", "eigenflux need input list", "need", "read", "列出需求输入", "List owned NeedInputs"),
+		capability("discovery.search", "eigenflux search", "discovery", "read", "Search all source kinds", "Search all source kinds"),
+		capability("discovery.recommend", "eigenflux recommend", "discovery", "read", "Find an automatic discovery result", "Find an automatic discovery result"),
+		capability("discovery.taxonomy", "eigenflux taxonomy search", "discovery", "read", "Look up canonical intents", "Look up canonical intents"),
+		capability("discovery.need.create", "eigenflux need create", "discovery", "write", "Manage saved Needs: create", "Manage saved Needs: create"),
+		capability("discovery.need.update", "eigenflux need update", "discovery", "write", "Manage saved Needs: update", "Manage saved Needs: update"),
+		capability("discovery.need.get", "eigenflux need get", "discovery", "read", "Manage saved Needs: get", "Manage saved Needs: get"),
+		capability("discovery.need.list", "eigenflux need list", "discovery", "read", "Manage saved Needs: list", "Manage saved Needs: list"),
+		capability("discovery.need.pause", "eigenflux need pause", "discovery", "write", "Manage saved Needs: pause", "Manage saved Needs: pause"),
+		capability("discovery.need.resume", "eigenflux need resume", "discovery", "write", "Manage saved Needs: resume", "Manage saved Needs: resume"),
+		capability("discovery.need.close", "eigenflux need close", "discovery", "write", "Manage saved Needs: close", "Manage saved Needs: close"),
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
 		capability("identity.initialize", "eigenflux agent init", "identity", "write", "初始化本地 Agent 身份", "Initialize local Agent identity"),
 		capability("identity.provision", "eigenflux agent provision", "identity", "write", "创建或认领 Agent", "Provision or claim an Agent"),
@@ -174,6 +184,9 @@ func capabilitySeeds() []capabilitySeed {
 			if seed.access == "write" {
 				seed.confirmation = "linked_confirmed_intent"
 			}
+		}
+		if strings.HasPrefix(seed.id, "discovery.") {
+			seed.minCLI = "0.0.53"
 		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {
@@ -334,6 +347,16 @@ func buildAgentCapabilityRegistry(language string, controlEnabled, attentionEnab
 
 func (s *Service) getAgentCapabilities(_ context.Context, c *app.RequestContext) {
 	registry := buildAgentCapabilityRegistry(string(c.Query("lang")), s.enableControl, s.enableAttentionV1)
+	if !s.enableDiscovery {
+		ops := registry["operations"].([]capabilityOperation)
+		filtered := ops[:0]
+		for _, op := range ops {
+			if !strings.HasPrefix(op.OperationID, "discovery.") {
+				filtered = append(filtered, op)
+			}
+		}
+		registry["operations"] = filtered
+	}
 	payload, err := json.Marshal(map[string]interface{}{"data": registry})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "CAPABILITY_REGISTRY_FAILED", "could not build capability registry", nil)

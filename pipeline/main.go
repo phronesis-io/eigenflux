@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/taxonomy"
 	"log"
 	"os"
 	"os/signal"
@@ -138,6 +140,19 @@ func main() {
 
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	agentCardConsumer := consumer.NewAgentCardConsumer()
+	if cfg.EnableNeedSearch {
+		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+			log.Fatalf("discovery taxonomy: %v", err)
+		}
+		if err := es.EnsureRetrievalSlots(context.Background(), es.ReadIndexPattern, cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
+			log.Fatalf("discovery slot mappings: %v", err)
+		}
+		if err := agentindex.Ensure(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
+			log.Fatalf("Agent index: %v", err)
+		}
+		projector := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		agentCardConsumer.Project = projector.Project
+	}
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
 

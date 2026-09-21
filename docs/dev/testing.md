@@ -126,3 +126,11 @@ CLI integration subprocesses isolate `HOME`, `EIGENFLUX_HOME`, and
 `EIGENFLUX_SKILLS_DIR` in their temporary fixture directory. Automatic skill
 refreshes use an unavailable loopback CDN endpoint so these tests neither install
 public releases nor update the developer's managed skills.
+
+## Search and recommendation discovery
+
+Run `go test ./pkg/discovery ./pkg/discoveryserve ./pkg/taxonomy ./pkg/replaylog ./api/consolev2 ./rpc/sort/... ./rpc/feed/... ./pipeline/consumer` for contract, ownership, page, idempotency and replay checks.
+
+Real-store tests require `DISCOVERY_TEST_DSN` (an isolated migrated PostgreSQL database), `DISCOVERY_TEST_ES` (isolated Elasticsearch URL), and `DISCOVERY_TEST_REDIS` (isolated Redis address). Run `go test ./rpc/sort/discoverydb ./rpc/sort/discoverysource ./pipeline/consumer -run 'TestPostgres|TestDiscoveryReplayPostgres' -count=1`. These tests use temporary schemas/indices and fixture rows; do not point them at production or run alongside integration suites that reset the same database. The commission authority is a deterministic contract fixture; validating the remote commission service remains a cutover check.
+
+CLI checks run in the independent `cli` module: `go test ./cmd ./internal/client ./internal/cache ./internal/feedevent`. Signed release builds still use the existing signing workflow; a local compilation uses `go build -o ../build/eigenflux-cli .`.

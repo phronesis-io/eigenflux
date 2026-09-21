@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/taxonomy"
 	"errors"
 	"fmt"
 	"log"
@@ -24,6 +25,11 @@ var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE
 
 func main() {
 	cfg := config.Load()
+	if cfg.EnableNeedSearch {
+		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if err := validateConfiguration(cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -45,6 +51,11 @@ func main() {
 	store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 	if err := store.Ensure(context.Background()); err != nil {
 		log.Fatal(err)
+	}
+	if cfg.EnableNeedSearch {
+		if err := es.EnsureRetrievalSlots(context.Background(), cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
+			log.Fatal(err)
+		}
 	}
 	source := commissionsource.Adapter{Commission: commissionClient, Order: orderClient}
 	embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)

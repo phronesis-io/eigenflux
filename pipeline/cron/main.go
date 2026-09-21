@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pipeline/embedding"
+	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/taxonomy"
+	"eigenflux_server/rpc/sort/discoverydb"
 	"log"
 	"os"
 	"os/signal"
@@ -88,6 +92,30 @@ func main() {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if cfg.EnableNeedSearch {
+		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+			log.Fatalf("discovery taxonomy: %v", err)
+		}
+		projector := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		projectDiscoveryAgent = projector.Project
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					pruneCtx, pruneCancel := context.WithTimeout(ctx, 5*time.Minute)
+					err := (discoverydb.Store{DB: db.DB}).Prune(pruneCtx, time.Now().UnixMilli())
+					pruneCancel()
+					if err != nil {
+						logger.Default().Warn("discovery context retention failed", "err", err)
+					}
+				}
+			}
+		}()
+	}
 
 	// Start cron jobs
 	go StartAgentCountUpdater(ctx, cfg, mq.RDB)

@@ -26,7 +26,8 @@ func agentActivityRoute(method, path string) bool {
 		}
 	case http.MethodPost:
 		switch path {
-		case "/api/v2/need-inputs", "/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
+		case "/api/v2/need-inputs", "/api/v2/discovery/search", "/api/v2/discovery/recommendations", "/api/v2/needs", "/api/v2/needs/:id/state",
+			"/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
 			"/api/v1/pm/send", "/api/v1/pm/close", "/api/v1/pm/topic-status",
 			"/api/v1/relations/apply", "/api/v1/relations/handle", "/api/v1/relations/unfriend", "/api/v1/relations/block", "/api/v1/relations/unblock", "/api/v1/relations/remark",
 			"/api/v2/feed", "/api/v2/feed/feedback", "/api/v2/feed/events:batch", "/api/v2/runtime/heartbeat", "/api/v2/notifications/ack",
@@ -45,7 +46,7 @@ func agentActivityRoute(method, path string) bool {
 		}
 	case http.MethodPut:
 		switch path {
-		case "/api/v2/agent-settings/heartbeat-compatibility", "/api/v1/agents/profile", "/api/v1/agents/me/profile/fields", "/api/v2/agent-profile/fields",
+		case "/api/v2/needs/:id", "/api/v2/agent-settings/heartbeat-compatibility", "/api/v1/agents/profile", "/api/v1/agents/me/profile/fields", "/api/v2/agent-profile/fields",
 			"/api/v2/agent-context/network-goal", "/api/v2/agent-context/intent-actions/:intent_id", "/api/v2/agent-context/security-boundary":
 			return true
 		}

@@ -374,7 +374,7 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		      JOIN processed_items p ON p.item_id = rl.item_id
 		      JOIN raw_items r       ON r.item_id = rl.item_id
 		      LEFT JOIN feedback_logs f ON f.agent_id = rl.agent_id AND f.item_id = rl.item_id
-		     WHERE rl.agent_id = ? AND rl.served_at >= ?
+		     WHERE rl.source_kind='broadcast' AND rl.request_mode IN ('feed','recommendation') AND rl.agent_id = ? AND rl.served_at >= ?
 	       AND rl.delivered IS DISTINCT FROM FALSE AND p.status <> 5
 		     ORDER BY rl.item_id, rl.item_score DESC, f.score DESC NULLS LAST
 		) x
@@ -452,7 +452,7 @@ func ListUntranslatedTopItems(db *gorm.DB, sinceMs int64, topN, limit int) ([]Un
 		    SELECT rl.agent_id, rl.item_id,
 		           dense_rank() OVER (PARTITION BY rl.agent_id ORDER BY rl.item_score DESC) AS rnk
 		      FROM replay_logs rl
-		     WHERE rl.served_at >= ?
+		     WHERE rl.source_kind='broadcast' AND rl.request_mode IN ('feed','recommendation') AND rl.served_at >= ?
 		)
 		SELECT DISTINCT p.item_id,
 		       COALESCE(p.summary, '')    AS summary,
@@ -772,7 +772,7 @@ func ListDeliveredItemTags(db *gorm.DB, agentID int64, sinceMs int64) ([]BeatIte
 		`SELECT pi.keywords, pi.domains, r.item_id
 		 FROM replay_logs r
 		 JOIN processed_items pi ON r.item_id = pi.item_id
-		 WHERE r.agent_id = ? AND r.served_at >= ? AND r.delivered = TRUE`,
+		 WHERE r.source_kind='broadcast' AND r.request_mode IN ('feed','recommendation') AND r.agent_id = ? AND r.served_at >= ? AND r.delivered = TRUE`,
 		agentID, sinceMs,
 	).Scan(&rows).Error; err != nil {
 		return nil, err
