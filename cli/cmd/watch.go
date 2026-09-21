@@ -24,6 +24,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/controlcontext"
+	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/profilestate"
 	watchstate "cli.eigenflux.ai/internal/watch"
@@ -34,9 +35,10 @@ import (
 var errWatchIdentity = errors.New("watch identity_changed: restart explicitly after account switching")
 var errWatchConfiguration = errors.New("watch configuration_changed: restart explicitly after changing the server")
 var errWatchOwnerReplaced = errors.New("watch owner_replaced: another owner is active")
+var errWatchDispatchJournal = errors.New("watch dispatch journal unavailable: reception stopped before advancing cursor")
 
 func isWatchTerminal(err error) bool {
-	return errors.Is(err, errWatchIdentity) || errors.Is(err, errWatchConfiguration) || errors.Is(err, errWatchOwnerReplaced)
+	return errors.Is(err, errWatchIdentity) || errors.Is(err, errWatchConfiguration) || errors.Is(err, errWatchOwnerReplaced) || errors.Is(err, errWatchDispatchJournal)
 }
 
 type watchEvent struct {
@@ -57,6 +59,9 @@ type accountWatch struct {
 	ready         atomic.Bool
 	adopted       atomic.Bool
 	wake          chan struct{}
+	binding       *dispatch.Binding
+	journal       *dispatch.Journal
+	runAgent      func(context.Context, dispatch.Request) (dispatch.Result, error)
 }
 
 var watchCmd = &cobra.Command{
@@ -91,6 +96,11 @@ var watchCmd = &cobra.Command{
 		}
 		w := &accountWatch{home: home, server: *server, identity: *credentials, wake: make(chan struct{}, 1)}
 		w.scope = watchstate.Scope(home, server.Name, credentials.AgentID, credentials.PrincipalID)
+		if enabled, _ := cmd.Flags().GetBool("dispatch"); enabled {
+			if err := w.enableDispatch(); err != nil {
+				return err
+			}
+		}
 		return w.run(ctx, cmd.OutOrStdout())
 	},
 }
@@ -117,6 +127,16 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		cancel()
 	}
 	w.emit = func(kind string, data interface{}) error {
+		if w.journal != nil && w.binding.Handles(kind) && kind != "pm_push" {
+			raw, err := json.Marshal(data)
+			if err == nil {
+				err = w.journal.AddHint(kind, raw)
+			}
+			if err != nil {
+				fail(err)
+				return err
+			}
+		}
 		var id [16]byte
 		if _, err := rand.Read(id[:]); err != nil {
 			fail(err)
@@ -152,7 +172,11 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		return err
 	}
 	var workers sync.WaitGroup
-	for _, run := range []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop} {
+	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop}
+	if w.journal != nil {
+		runners = append(runners, w.dispatchLoop)
+	}
+	for _, run := range runners {
 		workers.Add(1)
 		go func(run func(context.Context) error) {
 			defer workers.Done()
@@ -237,6 +261,8 @@ func (w *accountWatch) diagnostic(area string, err error) error {
 		code = "configuration_changed"
 	} else if errors.Is(err, errWatchOwnerReplaced) {
 		code = "owner_replaced"
+	} else if errors.Is(err, errWatchDispatchJournal) {
+		code = "dispatch_journal_unavailable"
 	}
 	var api *client.APIError
 	if errors.As(err, &api) && api.ErrorCode != "" {
@@ -300,12 +326,12 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 							NextCursor string `json:"next_cursor"`
 						}
 						_ = json.Unmarshal(event.Data, &data)
-						if data.NextCursor != "" {
-							cursor = data.NextCursor
-						}
 						if emitErr := w.deliverPM(ctx, event.Type, event.Data); emitErr != nil {
 							err = emitErr
 							break
+						}
+						if data.NextCursor != "" {
+							cursor = data.NextCursor
 						}
 					}
 					stop()
@@ -344,6 +370,11 @@ func (w *accountWatch) deliverPM(ctx context.Context, kind string, data json.Raw
 		}
 		if !w.identityOK(credentials) {
 			return errWatchIdentity
+		}
+		if w.journal != nil && kind == "pm_push" && w.binding.Handles(kind) {
+			if err := w.journal.AddMessages(data); err != nil {
+				return errors.Join(errWatchDispatchJournal, err)
+			}
 		}
 		cacheMessagesForServer(data, w.server.Name)
 		return w.emit(kind, data)
