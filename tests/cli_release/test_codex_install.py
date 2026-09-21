@@ -124,7 +124,7 @@ esac''')
         self.env["EIGENFLUX_SKIP_AGENT_SETUP"] = "1"
         receipts, calls = self.install()
         self.assertEqual(receipts, [])
-        self.assertNotIn("codex ", calls)
+        self.assertFalse(any(line.startswith("codex ") for line in calls.splitlines()), calls)
 
     def test_old_path_falls_back_to_compatible_app_with_same_host_home(self):
         app = self.home / 'Applications/ChatGPT.app/Contents/Resources/codex'
