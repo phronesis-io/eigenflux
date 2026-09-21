@@ -653,7 +653,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			SELECT 1 FROM agent_cli_account_switches switches
 			WHERE switches.target_console_session_id = ?
 			  AND switches.target_agent_id = ?
-			  AND switches.status = 'pending_onboarding'
+			  AND switches.status IN ('pending_onboarding', 'completed')
 			  AND switches.ownership_verified_at IS NOT NULL
 			  AND switches.expires_at >= ?
 		)`, sessionID, id, sessionID, id, sessionID, id, now).Scan(&emailVerifiedForSession).Error; err != nil {

@@ -173,7 +173,7 @@ SCHEDULER
 Permanent launcher: %s
 Migration: %s
 Native task prompt: %s
-The scheduler stores this fixed execution prompt. Store it verbatim, without additions. Verified plugin loops execute the permanent launcher through their existing process API.
+For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
 		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
 		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
@@ -184,6 +184,10 @@ func heartbeatSchedulerPrompt(launcher string) string {
 }
 
 func schedulerMigrationForRuntime(host, mode, launcher string) string {
+	return "Reuse working existing triggers; legacy EIGENFLUX_MODE is compatible. Do not rewrite a task solely to match this prompt. Follow recurring-trigger.md for confirmed repairs and preserve identity, Home, server, cadence, and paused state. Only for creation or confirmed repair: " + schedulerMigrationTargetForRuntime(host, mode, launcher)
+}
+
+func schedulerMigrationTargetForRuntime(host, mode, launcher string) string {
 	if mode == "plugin" {
 		return "The verified Agent plugin owns scheduling; do not create a second heartbeat. The plugin must invoke: " + launcher
 	}

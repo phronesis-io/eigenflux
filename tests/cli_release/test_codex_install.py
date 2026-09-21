@@ -151,6 +151,44 @@ esac''')
         return subprocess.run(["sh", str(harness), *map(str, candidates)], env=self.env,
                               cwd=self.home, capture_output=True, text=True, timeout=10)
 
+    def test_optional_codex_discovery_preserves_explicit_requests(self):
+        source = (ROOT / "static/install.sh").read_text()
+        gate = source[source.index("note_skipped_host() {"):source.index("# ── Step 1:")]
+        helpers = source[source.index("setup_codex_cli() {"):source.index("setup_agents() {")]
+        harness = self.home / "discovery.sh"
+        harness.write_text('set -eu\ninfo() { printf "%s\\n" "$1"; }\n'
+                           'err() { printf "%s\\n" "$1" >&2; }\n' + gate + helpers +
+                           '\nINVOKING_HOST="$1"; EIGENFLUX_SETUP_HOSTS="$2"; SKIPPED_HOSTS=""\n'
+                           'shift 2\nsetup_codex_cli "$@" || exit $?\n'
+                           'if [ -n "$CODEX_BIN" ]; then codex_plugin_result selected verify_in_host; fi\n')
+        absent = self.home / "absent codex"
+        cases = [
+            ("", "", absent, "skip"),
+            ("", "all", absent, "skip"),
+            ("", "ALL", absent, "skip"),
+            ("codex", "", absent, "failed"),
+            ("", "claude-code,codex", absent, "failed"),
+            ("claude-code", "", self.bin / "codex", "skip"),
+            ("", "", self.bin / "codex", "selected"),
+        ]
+        for host, scope, candidate, expected in cases:
+            with self.subTest(host=host, scope=scope, expected=expected):
+                result = subprocess.run(["sh", str(harness), host, scope, "", str(candidate)],
+                                        env=self.env, capture_output=True, text=True, timeout=10)
+                if expected == "skip":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout + result.stderr, "")
+                else:
+                    self.assertEqual(result.returncode, 1 if expected == "failed" else 0)
+                    receipt = json.loads(result.stdout.splitlines()[-1])
+                    self.assertEqual(receipt["status"], expected)
+                    self.assertEqual(receipt["codex_home"], str(self.config.parent))
+        self.env["TEST_CODEX_VERSION"] = "0.139.0"
+        result = subprocess.run(["sh", str(harness), "", "", str(self.bin / "codex")],
+                                env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Upgrade Codex CLI", result.stderr)
+
     def test_only_old_unknown_or_failed_cli_reports_upgrade_without_plugin_calls(self):
         for version in ("0.139.0", "0.141.0", "0.142.0-alpha.1", "not-a-version"):
             with self.subTest(version=version):

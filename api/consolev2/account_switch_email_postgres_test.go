@@ -191,6 +191,7 @@ func TestPostgresCLIAccountSwitchEmail(t *testing.T) {
 				if actual != source || status != "pending_onboarding" {
 					t.Fatal("existing incomplete target switched early")
 				}
+				testSwitchOnboardingContinuation(t, s, token, principal)
 				return
 			}
 			if scenario == "self" {
@@ -218,6 +219,9 @@ func TestPostgresCLIAccountSwitchEmail(t *testing.T) {
 				if principalStatus != "limited" {
 					t.Fatal("new account inherited source privileges")
 				}
+			}
+			if scenario == "new" {
+				testSwitchOnboardingContinuation(t, s, token, principal)
 			}
 			if scenario == "replayed" {
 				again := request(map[string]string{"email": email, "challenge_id": envelope.Data.ChallengeID, "otp": code})

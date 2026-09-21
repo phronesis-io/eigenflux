@@ -111,12 +111,16 @@ func readProvisionDraft(path string) (json.RawMessage, map[string]string, error)
 	if err != nil {
 		return nil, nil, err
 	}
+	return parseProvisionDraft(data)
+}
+
+func parseProvisionDraft(data []byte) (json.RawMessage, map[string]string, error) {
 	if len(data) > 64<<10 {
 		return nil, nil, fmt.Errorf("onboarding draft must not exceed 64KB")
 	}
 	var object map[string]interface{}
-	if json.Unmarshal(data, &object) != nil {
-		return nil, nil, fmt.Errorf("--draft-file must contain a JSON object")
+	if json.Unmarshal(data, &object) != nil || object == nil {
+		return nil, nil, fmt.Errorf("onboarding draft must contain a JSON object")
 	}
 	supplied := map[string]string{}
 	if raw, ok := object["field_provenance"]; ok {
@@ -135,6 +139,26 @@ func readProvisionDraft(path string) (json.RawMessage, map[string]string, error)
 		return nil, nil, err
 	}
 	return normalized, provenance, nil
+}
+
+// Resolve draft input before local identity writes or registration requests.
+func provisionDraftInput(cmd *cobra.Command) (json.RawMessage, map[string]string, error) {
+	if cmd.Flags().Changed("draft-json") && cmd.Flags().Changed("draft-file") {
+		return nil, nil, fmt.Errorf("--draft-json and --draft-file are mutually exclusive")
+	}
+	if cmd.Flags().Changed("draft-json") {
+		payload, _ := cmd.Flags().GetString("draft-json")
+		return parseProvisionDraft([]byte(payload))
+	}
+	path, _ := cmd.Flags().GetString("draft-file")
+	if path != "" {
+		return readProvisionDraft(path)
+	}
+	name, _ := cmd.Flags().GetString("agent-name")
+	if strings.TrimSpace(name) == "" {
+		name = "EigenFlux Agent"
+	}
+	return parseProvisionDraft(defaultProvisionDraft(name))
 }
 
 var agentV2InitCmd = &cobra.Command{
@@ -310,7 +334,10 @@ var agentV2ProvisionCmd = &cobra.Command{
 			return fmt.Errorf("--bootstrap-grant and --nonce must be provided together")
 		}
 		agentName, _ := cmd.Flags().GetString("agent-name")
-		draftFile, _ := cmd.Flags().GetString("draft-file")
+		draft, fieldProvenance, err := provisionDraftInput(cmd)
+		if err != nil {
+			return err
+		}
 		noHandoff, _ := cmd.Flags().GetBool("no-handoff")
 		recoverAccount, _ := cmd.Flags().GetBool("recover-account")
 		requireExistingAgent, _ := cmd.Flags().GetBool("require-existing-agent")
@@ -404,19 +431,6 @@ var agentV2ProvisionCmd = &cobra.Command{
 		} else if preserveExistingIdentity && expectedAgentID == "" {
 			return fmt.Errorf("cannot prove the existing Agent ID with an explicit bootstrap grant; use automatic in-place upgrade")
 		}
-		draft := defaultProvisionDraft(agentName)
-		var draftObject map[string]interface{}
-		_ = json.Unmarshal(draft, &draftObject)
-		fieldProvenance, err := deriveProvisionFieldProvenance(draftObject, nil)
-		if err != nil {
-			return err
-		}
-		if draftFile != "" {
-			draft, fieldProvenance, err = readProvisionDraft(draftFile)
-			if err != nil {
-				return err
-			}
-		}
 		request := provisionV2Request{
 			BootstrapGrant: grant, Nonce: nonce,
 			IdempotencyKey: fmt.Sprintf("provision-%x", sha256.Sum256([]byte(grant))),
@@ -503,6 +517,7 @@ func init() {
 	agentV2ProvisionCmd.Flags().String("bootstrap-grant", "", "optional short-lived controlled-channel grant (automatic registration is used when omitted)")
 	agentV2ProvisionCmd.Flags().String("nonce", "", "single-use proof nonce paired with --bootstrap-grant")
 	agentV2ProvisionCmd.Flags().String("agent-name", "EigenFlux Agent", "Agent name used to prefill onboarding")
+	agentV2ProvisionCmd.Flags().String("draft-json", "", "optional onboarding draft JSON as a literal argument (exclusive with --draft-file)")
 	agentV2ProvisionCmd.Flags().String("draft-file", "", "optional onboarding draft JSON file ('-' reads stdin)")
 	agentV2ProvisionCmd.Flags().String("ref", "", "install referral for a new Agent (defaults to the first referral saved in this Home for this server)")
 	agentV2ProvisionCmd.Flags().Bool("no-handoff", false, "provision without creating a Console V2 link")

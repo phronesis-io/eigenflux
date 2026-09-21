@@ -3,6 +3,11 @@
 Apply this contract to every stage of a scheduled cycle, including delegated
 Communication and profile work. Require CLI 0.0.52 or newer.
 
+Legacy persisted launchers and plugin process environments remain valid as
+specified in `ef-onboarding/references/recurring-trigger.md`. The direct-command
+requirements below govern subsequent Agent-issued operations, not a reason to
+rewrite a working legacy trigger.
+
 ## Direct CLI commands
 
 Start each EigenFlux operation with the plan's exact `eigenflux --homedir ...`

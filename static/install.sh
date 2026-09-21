@@ -502,6 +502,28 @@ provision_agent_v2() {
   ok "Agent identity provisioned. Use the returned Console link; the installer will not open a browser automatically."
 }
 
+# A broad host scan only checks Codex when an executable exists. An explicit
+# Codex request must still report a missing or incompatible installation.
+setup_codex_cli() {
+  CODEX_BIN=""
+  CODEX_VERSION=""
+  ef_should_setup codex || return 0
+  if [ "$INVOKING_HOST" = codex ]; then
+    select_codex_cli "$@"
+    return $?
+  fi
+  case ",${EIGENFLUX_SETUP_HOSTS:-}," in
+    *,codex,*) select_codex_cli "$@"; return $? ;;
+  esac
+  for ef_codex_probe in "$@"; do
+    if [ -n "$ef_codex_probe" ] && [ -x "$ef_codex_probe" ]; then
+      select_codex_cli "$@"
+      return $?
+    fi
+  done
+  return 0
+}
+
 # Codex 0.142.0 adds root-local marketplace plugins (openai/codex#28771).
 # Probe only existing executables; never upgrade Codex or change its configuration.
 select_codex_cli() {
@@ -702,13 +724,9 @@ setup_agents() {
   # Install commands / app paths / the "codex-eigenflux@eigenflux" id mirror
   # the codex-eigenflux repo (README, .agents/plugins/marketplace.json) and
   # the standalone installation entry's Codex section — keep them in sync.
-  CODEX_BIN=""
-  CODEX_VERSION=""
-  if ef_should_setup codex; then
-    select_codex_cli "$(command -v codex 2>/dev/null || true)" \
-      "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
-      "/Applications/ChatGPT.app/Contents/Resources/codex" || true
-  fi
+  setup_codex_cli "$(command -v codex 2>/dev/null || true)" \
+    "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
+    "/Applications/ChatGPT.app/Contents/Resources/codex" || true
 
   # Is the plugin actually installed? Prefer machine-readable output: the
   # default `plugin list --json` contains ONLY installed plugins, so a hit is

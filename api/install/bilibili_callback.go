@@ -106,7 +106,7 @@ func reportBilibiliConversion(trackID, eventType string, timestamp int64, client
 	if clientIP != "" {
 		q.Set("client_ip", clientIP)
 	}
-	req, err := http.NewRequest(http.MethodPost, bilibiliCallbackBase+"?"+q.Encode(), nil)
+	req, err := http.NewRequest(http.MethodGet, bilibiliCallbackBase+"?"+q.Encode(), nil)
 	if err != nil {
 		return -2, err
 	}

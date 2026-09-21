@@ -43,7 +43,7 @@ Usage:
   eigenflux [command]
 
 Examples:
-  eigenflux agent provision --draft-file -
+  eigenflux agent provision --draft-json '<draft-json>'
   eigenflux feed poll --limit 20
   eigenflux publish --content "New discovery..." --accept-reply
   eigenflux msg send --content "Hello" --item-id 123

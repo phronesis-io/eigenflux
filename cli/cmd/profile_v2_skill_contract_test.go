@@ -52,7 +52,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.6"`) {
+	if !strings.Contains(frontmatter[1], `version: "0.9.7"`) {
 		t.Error("ef-profile version was not advanced for the lifecycle split")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.10"`,
+		`version: "0.2.12"`,
 		"references/consent.md",
 		"Treat incomplete V2 setup as existing-account maintenance",
 		"only when the user explicitly requests it",
@@ -161,7 +161,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 	handoff := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/console-handoff.md")
 	for _, required := range []string{
 		"eigenflux --homedir \"<agent-home>\" agent init --format json",
-		"eigenflux --homedir \"<agent-home>\" agent provision --mode \"<installation-mode>\" --runtime-name \"<known-product>\" --draft-file -",
+		"eigenflux --homedir \"<agent-home>\" agent provision --mode \"<installation-mode>\" --runtime-name \"<known-product>\" --draft-json '<draft-json>'",
 		"a non-empty `ticket` query parameter",
 		"a non-empty `nonce` URL fragment",
 		"[【点击此处，以人类伙伴身份继续 →】](<console_url>)",
@@ -173,7 +173,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 		"`schema_version: feed.v2`",
 		"`personalization.mode: baseline`",
 		"ef-broadcast/references/attention.md",
-		"eigenflux --homedir \"<agent-home>\" attention prefill --stdin --format json",
+		"eigenflux --homedir \"<agent-home>\" attention prefill --json '<batch>' --format json",
 		"Do not load `ef-broadcast` as a whole",
 		"does not\npublish Active Attention",
 		"zero qualified items skips the upload and is a valid",
@@ -214,7 +214,7 @@ func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	if !strings.HasPrefix(launcher, "eigenflux --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
 		t.Fatalf("launcher is not a direct, mode-explicit CLI call: %s", launcher)
 	}
-	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "Read back the trigger", "Compare the full stored prompt", "Do not paraphrase, shorten, prepend, or append", "update the same"} {
+	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "read back the trigger", "Compare the full stored prompt", "Do not paraphrase, shorten, prepend, or append", "update the same"} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("scheduler contract missing %q", required)
 		}
@@ -228,7 +228,7 @@ func TestPublicJoinEntryPointsUseOnboardingSkill(t *testing.T) {
 	}
 
 	requiredByFile := map[string][]string{
-		"cli/cmd/root.go":                    {"eigenflux agent provision --draft-file -"},
+		"cli/cmd/root.go":                    {"eigenflux agent provision --draft-json '<draft-json>'"},
 		"cli/cmd/auth.go":                    {"Legacy email authentication commands", "New Agents must use eigenflux agent provision"},
 		"cli/scripts/install-local.sh":       {"Read ef-onboarding skill"},
 		"skills/ef-broadcast/SKILL.md":       {"ef-onboarding/references/recurring-trigger.md"},
@@ -314,7 +314,7 @@ func TestOnboardingAuthorizationAndActivationBoundaries(t *testing.T) {
 		},
 		"skills/ef-onboarding/references/recurring-trigger.md": {
 			"separate required scheduling", "execution-permission choices and host activation",
-			"explicit server selection", "Read back the trigger",
+			"explicit server selection", "read back the trigger",
 		},
 	}
 	for file, fragments := range requiredByFile {
@@ -466,5 +466,22 @@ func TestHeartbeatQuietResultsPreserveHostProtocol(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "never an empty message or silence token") {
 		t.Fatal("scheduler prompt does not preserve required quiet host output")
+	}
+}
+
+func TestExistingSchedulerCompatibilityContract(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := readRepoFile(t, root, "skills/ef-onboarding/references/recurring-trigger.md")
+	for _, required := range []string{"Reuse a verified working trigger", "legacy `EIGENFLUX_MODE`", "not a repair reason", "confirmed execution incompatibility", "Preserve task identity, thread, Home", "enabled/paused state", "Do not guess missing or conflicting modes", "Respect host approval requirements", "retain the original task", "Never restart onboarding"} {
+		if !strings.Contains(reference, required) {
+			t.Errorf("missing compatibility boundary %q", required)
+		}
+	}
+	broadcast := readRepoFile(t, root, "skills/ef-broadcast/SKILL.md")
+	if !strings.Contains(broadcast, "effective mode supplied by `--runtime-mode` or legacy") || strings.Contains(broadcast, "server, and explicit `--runtime-mode`") {
+		t.Fatal("legacy modes must satisfy trigger validation")
 	}
 }

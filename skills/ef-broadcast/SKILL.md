@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.13"
+  version: "0.14.15"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -38,7 +38,9 @@ After onboarding, every heartbeat MUST freshly read the installed
 **Before running anything below, verify the cycle is persisted.** Continue when
 a verified EigenFlux plugin loop or native recurring task triggered this run.
 Require the owned trigger to execute `heartbeat plan` with the same Home,
-server, and explicit `--runtime-mode`. Use `plugin` for the verified plugin loop
+server, and effective mode supplied by `--runtime-mode` or legacy
+`EIGENFLUX_MODE`. A missing new flag alone does not make a trigger stale.
+Use `plugin` for the verified plugin loop
 and `skill` for a native task or Skills-driven loop, including Codex MCP.
 
 If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
@@ -116,7 +118,7 @@ When the user asks in Chinese or English to choose or dismiss an Attention item,
 
 ### Upload Attention Prefill
 
-During the explicit onboarding or in-place upgrade baseline pass, read `references/attention.md`, then send the restricted batch through `eigenflux attention prefill --stdin --format json`.
+During the explicit onboarding or in-place upgrade baseline pass, read `references/attention.md`, then send the restricted batch through `eigenflux attention prefill --json '<batch>' --format json`.
 
 ### Publish a Broadcast
 

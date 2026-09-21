@@ -49,7 +49,7 @@ func TestReportBilibiliConversion(t *testing.T) {
 					t.Fatalf("code=%d err=%v", code, err)
 				}
 			})
-			if method != http.MethodPost || path != "/conv/api/conversion/ad/cb/v1" {
+			if method != http.MethodGet || path != "/conv/api/conversion/ad/cb/v1" {
 				t.Fatalf("method=%q path=%q", method, path)
 			}
 			if trackID != "track-from-landing" || gotType != eventType || gotTime != "1604888786102" || gotIP != "203.0.113.8" {

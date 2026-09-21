@@ -7,6 +7,27 @@ owns trigger persistence, not another authorization question. Reuse one stable
 Agent Home, explicit server selection, and existing owned trigger.
 Do not recreate a trigger the user explicitly disabled.
 
+## Existing users
+
+Reuse a verified working trigger, including a legacy `EIGENFLUX_MODE` launcher
+or plugin process environment. Check effective mode, Home, server, and ownership;
+missing `--runtime-mode` or wording different from the new template alone is
+not a repair reason. Use the current plan's CLI prefix for subsequent operations;
+receiving a new plan does not require rewriting the stored task.
+
+Only when a confirmed execution incompatibility requires conversion, update the same
+owned task through the host API: replace the legacy mode assignment with the
+equivalent `--runtime-mode` argument. Preserve task identity, thread, Home,
+server, cadence, enabled/paused state, and unrelated instructions. Read it back.
+Do not guess missing or conflicting modes. Respect host approval requirements;
+if update is blocked, retain the original task and report the limitation.
+Never restart onboarding, repeat accepted consent or Prefill, create a duplicate,
+or reactivate a user-paused task. Handle actual host-output conflicts separately
+with a targeted correction, not a blanket template replacement.
+
+The creation procedure below applies to new tasks and confirmed missing triggers,
+not routine checks of working existing tasks.
+
 ## Scheduler ownership
 
 Inspect available scheduler channels and reuse the owned EigenFlux trigger.
@@ -25,7 +46,7 @@ Preserve a user-selected interval. Never repeat accepted scheduling consent.
 
 ## Fixed execution prompt
 
-Require CLI 0.0.52 or newer. For a native task, store the following prompt
+Require CLI 0.0.52 or newer. When creating a native task, store the following prompt
 verbatim, replacing only `<launcher>` with the resolved command below. When a
 current plan is available, use its `scheduler_prompt`, which carries this same
 execution contract. Verify that it contains the host-result requirement below;
@@ -50,7 +71,7 @@ the prompt. A verified plugin loop uses `--runtime-mode plugin` and executes
 the launcher through its existing process API; do not add a native task beside
 it. Existing process-environment metadata remains compatible.
 
-Read back the trigger and verify its name, cadence, active state, exact prompt,
+After creating a trigger, read back the trigger and verify its name, cadence, active state, exact prompt,
 Home, and server. Compare the full stored prompt against the canonical prompt.
 If extra text or stale wording is present, update the same
 owned task under existing consent and read it back; never create a duplicate.

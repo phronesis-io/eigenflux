@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.10"
+  version: "0.2.12"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -72,7 +72,7 @@ automatically rerunning installation. Accept a supported
 bare-CLI setup when that is the selected installation mode.
 
 Run `eigenflux agent provision --help` and require `--mode`, `--runtime-name`,
-and `--runtime-version` from CLI 0.0.52 or newer. Require both CLI compatibility
+and `--runtime-version` from CLI 0.0.53 or newer. Require both CLI compatibility
 and current-host installation verification before continuing. A verified Codex
 plugin installation awaiting restart may enter the first two consent stages;
 do not use the pending plugin or enable a trigger before activation. If components

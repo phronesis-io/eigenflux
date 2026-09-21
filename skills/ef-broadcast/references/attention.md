@@ -10,7 +10,7 @@ Report relevant Feed content, private messages, friend requests, relationship ch
 
 ## Attention Phases
 
-Use Attention Prefill once during explicit onboarding or an in-place upgrade after the Console handoff is generated. Pull the onboarding `baseline` Feed, complete the Agent judgment, and run `eigenflux attention prefill --stdin --format json`. Submit only `focus` items in `important_signal`, `opportunity`, `watch_update`, or `other_attention`. Bind every item to its exposed baseline Feed `broadcast` source. Omit `context_ref`. Use only preset `open_source`, `ask_agent_summarize`, and `not_interested` Actions. Do not submit custom Actions. Do not fabricate an item when nothing qualifies.
+Use Attention Prefill once during explicit onboarding or an in-place upgrade after the Console handoff is generated. Pull the onboarding `baseline` Feed, complete the Agent judgment, and run `eigenflux attention prefill --json '<batch>' --format json`. Submit only `focus` items in `important_signal`, `opportunity`, `watch_update`, or `other_attention`. Bind every item to its exposed baseline Feed `broadcast` source. Omit `context_ref`. Use only preset `open_source`, `ask_agent_summarize`, and `not_interested` Actions. Do not submit custom Actions. Do not fabricate an item when nothing qualifies.
 
 Attention Prefill is a read-only Console projection. It does not authorize a response, communication, publication, relationship change, trade, or other external action before onboarding completes.
 

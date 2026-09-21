@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -249,5 +250,43 @@ func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 func TestHeartbeatCommandsAreRegistered(t *testing.T) {
 	if heartbeatPlanCmd.Parent() != heartbeatCmd || heartbeatCmd.Parent() != rootCmd {
 		t.Fatal("heartbeat plan command is not registered under the root command")
+	}
+}
+
+func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
+	for _, mode := range []string{"plugin", "skill"} {
+		t.Run(mode, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
+			}))
+			defer server.Close()
+			_, serverName := runtimeTestConfig(t, server.URL, true)
+			installHeartbeatTestRules(t)
+			t.Setenv("EIGENFLUX_MODE", mode)
+			oldFormat, oldMeta := formatFlag, clientMeta
+			t.Cleanup(func() { formatFlag, clientMeta = oldFormat, oldMeta })
+			formatFlag = "json"
+			command := &cobra.Command{}
+			if err := rootCmd.PersistentPreRunE(command, nil); err != nil {
+				t.Fatal(err)
+			}
+			text, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(command, nil) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan heartbeatPlan
+			if err := json.Unmarshal([]byte(text), &plan); err != nil {
+				t.Fatal(err)
+			}
+			home, _ := config.HomeDirInfo()
+			for _, part := range []string{"--homedir " + shellQuote(home), "--server " + shellQuote(serverName), "--runtime-mode " + shellQuote(mode)} {
+				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
+					t.Fatalf("legacy identity lost %q: %+v", part, plan)
+				}
+			}
+			if !strings.Contains(plan.SchedulerMigration, "Reuse working existing triggers") || !strings.Contains(plan.AgentPrompt, "including legacy EIGENFLUX_MODE launchers") {
+				t.Fatal("missing existing-user compatibility guidance")
+			}
+		})
 	}
 }

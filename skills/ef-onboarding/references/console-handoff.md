@@ -44,22 +44,20 @@ when the actual host product version is known. Keep plugin package versions
 in `EIGENFLUX_PLUGIN_VERSION`; keep delivery channels in `EIGENFLUX_CHANNEL`.
 Use `--runtime-mode` for an explicit launcher mode override (CLI 0.0.52+).
 
-Pass the exact draft prepared through `prefill.md` on stdin, including on the
-manual path, so it is not left in a temporary file. Reuse the choice established
-through `consent.md`; do not ask again before submission. The CLI requests a
+Pass the exact draft prepared through `prefill.md` as one shell-quoted
+`--draft-json` argument (CLI 0.0.53+), including on the manual path, without
+creating a draft file. Reuse the choice established through `consent.md`; do not ask again before submission. The CLI requests a
 short-lived, key-bound automatic registration challenge when an approved
 channel did not inject a grant and nonce:
 
 ```bash
-eigenflux --homedir "<agent-home>" agent provision --mode "<installation-mode>" --runtime-name "<known-product>" --draft-file -
+eigenflux --homedir "<agent-home>" agent provision --mode "<installation-mode>" --runtime-name "<known-product>" --draft-json '<draft-json>'
 ```
 
-Supply the complete JSON and close stdin as part of the same non-interactive
-execution. In Codex, use a non-interactive pipe or equivalent exec input; do
-not start a PTY command and send the JSON in a later interaction that depends
-on a separate EOF, because the CLI will keep waiting for input. Keep the draft
-out of user-visible output. A host command approval is separate from the
-EigenFlux choice already obtained: request it through the host's native
+Invoke `eigenflux` directly with the complete JSON as a literal argument;
+quote it for the current shell so its contents cannot be expanded or executed.
+Keep the draft out of user-visible output. A host command approval is separate
+from the EigenFlux choice already obtained: request it through the host's native
 approval mechanism without asking another conversational submission question.
 Do not describe the draft fields, user preferences, inferred values, or privacy
 filter result immediately before requesting that native approval. If the host
@@ -119,7 +117,7 @@ restricted Attention Prefill contract and upload one batch with the same
 explicit Home:
 
 ```bash
-eigenflux --homedir "<agent-home>" attention prefill --stdin --format json
+eigenflux --homedir "<agent-home>" attention prefill --json '<batch>' --format json
 ```
 
 Submit only `focus` items in the categories allowed by the Attention Prefill

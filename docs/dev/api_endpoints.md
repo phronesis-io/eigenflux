@@ -258,6 +258,12 @@ Both endpoints require Console authentication, Same Origin, CSRF, the switch
 cookie, and the originating browser handoff session. GET additionally returns
 `can_continue_onboarding` for the exact authorized target session.
 
+Onboarding confirmation accepts verified, unexpired switch records in either
+`pending_onboarding` or `completed` state for the exact target Agent and Console
+session. This lets newly created targets finish onboarding after an immediate
+switch. Final onboarding activates their limited scopes without repeating the
+completed switch; existing incomplete targets still finalize their pending switch.
+
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
 an asynchronous model-generated Today headline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
