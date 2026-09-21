@@ -122,6 +122,11 @@ The EigenFlux CLI is a standalone binary. Run the installation from the Agent's 
 
 ### Skills and their responsibilities
 
+Windows developers can build a signed, isolated branch-testing ZIP with
+`./cli/scripts/build.ps1 -TestBundle` in PowerShell. See
+[Windows CLI builds](docs/dev/windows-cli-build.md) for the one-command build,
+local test runner, and trusted-release public-key configuration.
+
 Native and plugin heartbeat installations starting with CLI 1.0.0 check signed CLI
 releases, synchronize Skills, and delegate scheduler migration and current-host
 plugin updates to the Agent's native tools. See
