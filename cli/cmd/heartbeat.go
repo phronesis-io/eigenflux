@@ -22,6 +22,7 @@ const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
 	WatchManaged             bool                `json:"watch_managed,omitempty"`
+	DispatchOwned            []string            `json:"dispatch_owned,omitempty"`
 	SkillsReadReceipt        *maintenance.Event  `json:"skills_read_receipt,omitempty"`
 	PlanMode                 string              `json:"plan_mode,omitempty"`
 	PluginMaintenance        pluginMaintenance   `json:"plugin_maintenance"`
@@ -66,12 +67,27 @@ var heartbeatPlanCmd = &cobra.Command{
 		controlOnly, _ := cmd.Flags().GetBool("control-only")
 		watchManaged, _ := cmd.Flags().GetBool("watch-managed")
 		watchManaged = watchManaged && !maintenanceOnly && !controlOnly
+		watchOwnershipRequested := watchManaged
 		if maintenanceOnly && controlOnly {
 			return fmt.Errorf("--maintenance-only and --control-only are mutually exclusive")
 		}
 		cfg, err := config.Load()
 		if err != nil {
 			return err
+		}
+		if watchOwnershipRequested {
+			ownership := heartbeatPlan{}
+			if err := applyDispatchOwnership(&ownership); err != nil {
+				return err
+			}
+			if len(ownership.DispatchOwned) > 0 {
+				watchManaged = false
+				for _, event := range ownership.DispatchOwned {
+					if event == "maintenance_due" {
+						watchManaged = true
+					}
+				}
+			}
 		}
 		cliUpdate := selfupdate.Result{Status: "skipped", Version: version}
 		var restarted bool
@@ -175,6 +191,9 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if watchOwnershipRequested {
+			launcher += " --watch-managed"
+		}
 		pluginMaintenance := pluginMaintenance{Status: "not_applicable"}
 		if !controlOnly && !watchManaged {
 			pluginMaintenance = pluginMaintenanceForHost(meta.Host, meta.Mode, cfg)
@@ -196,6 +215,12 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 		if watchManaged {
 			plan.SchedulerMigration = ""
+		}
+		if watchOwnershipRequested {
+			plan.SchedulerMigration = ""
+			if err := applyDispatchOwnership(&plan); err != nil {
+				return err
+			}
 		}
 		if maintenanceOnly {
 			plan.ExecutionOrder = []string{"maintenance"}
@@ -275,6 +300,9 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := ""
 	if plan.WatchManaged {
 		receiptText = "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
+	}
+	if len(plan.DispatchOwned) > 0 {
+		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process.\n"
 	}
 	if plan.SkillsReadReceipt != nil {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)

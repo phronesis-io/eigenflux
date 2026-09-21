@@ -21,6 +21,17 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Local Agent dispatch
+
+From `cli/`, run `go test ./...` and
+`go test -race ./internal/dispatch ./cmd -run 'Test.*(Dispatch|Binding|Decision|Journal|Runner|ACP|Watch)'`.
+The dispatch tests use isolated Homes, signed Skills fixtures, local WebSocket
+and HTTP servers, and fake subprocess Agents. They cover socket/poll deduplication,
+fixed account routing, permission revocation, uncertain sends, crash recovery,
+and ACP session/permission/cancellation behavior without contacting real users
+or model providers. See [Local Agent Dispatch](agent-dispatch.md) for binding,
+Windows packaging, manual acceptance, and unsupported-host boundaries.
+
 ## Codex installer compatibility
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`

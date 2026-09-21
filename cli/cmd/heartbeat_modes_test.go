@@ -13,6 +13,7 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
@@ -309,5 +310,34 @@ func TestFullPlanCannotSuppressIndependentMaintenanceAndSlowRulesReceipt(t *test
 	}
 	if maintenanceDue(name, time.Now()) {
 		t.Fatal("dedicated maintenance did not throttle repeat triggers")
+	}
+	credentials, _ := auth.LoadV2Credentials(name)
+	credentials.PrincipalID = "principal-1"
+	if err := auth.SaveV2Credentials(name, credentials); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := watchBindingIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.Revision = strings.Repeat("a", 32)
+	binding.Events = []string{"pm_push"}
+	if err := dispatch.WriteJSON(dispatch.BindingPath(binding.Home, binding.Server), binding); err != nil {
+		t.Fatal(err)
+	}
+	pmManaged := run(managedCommand)
+	if pmManaged.WatchManaged || pmManaged.PluginMaintenance.Status == "not_applicable" || strings.Contains(strings.Join(pmManaged.ExecutionOrder, ","), "communication") {
+		t.Fatalf("PM-only ownership suppressed maintenance or duplicated PM: %+v", pmManaged)
+	}
+	if !strings.Contains(pmManaged.SchedulerLauncher, "--watch-managed") || pmManaged.SchedulerMigration != "" {
+		t.Fatal("companion launcher lost ownership")
+	}
+	binding.Events = []string{"pm_push", "maintenance_due", "control_pending"}
+	if err := dispatch.WriteJSON(dispatch.BindingPath(binding.Home, binding.Server), binding); err != nil {
+		t.Fatal(err)
+	}
+	allManaged := run(managedCommand)
+	if !allManaged.WatchManaged || allManaged.PluginMaintenance.Status != "not_applicable" || strings.Contains(strings.Join(allManaged.ExecutionOrder, ","), "commands") {
+		t.Fatal("explicit maintenance/control ownership was lost")
 	}
 }

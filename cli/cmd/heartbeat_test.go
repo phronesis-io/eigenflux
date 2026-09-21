@@ -261,6 +261,13 @@ func installHeartbeatTestRules(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	dispatchRule := filepath.Join(dir, "ef-communication", "references", "dispatch.md")
+	if err := os.MkdirAll(filepath.Dir(dispatchRule), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatchRule, []byte("Return the fixed request decision. CLI owns replies.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
 		t.Fatal(err)

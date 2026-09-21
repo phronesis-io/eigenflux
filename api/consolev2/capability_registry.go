@@ -154,6 +154,11 @@ func capabilitySeeds() []capabilitySeed {
 		capability("skills.target.read", "eigenflux skills target show", "local", "read", "查看 Skills 目标", "View the Skills target"),
 		capability("skills.target.update", "eigenflux skills target set", "local", "write", "修改 Skills 目标", "Update the Skills target"),
 		capability("watch.run", "eigenflux watch", "runtime", "read", "运行账号外循环", "Run one account loop"),
+		capability("watch.bind", "eigenflux watch bind", "runtime", "write", "绑定本地智能体", "Bind a local Agent"),
+		capability("watch.status", "eigenflux watch status", "runtime", "read", "查看执行状态", "Read dispatch status"),
+		capability("watch.doctor", "eigenflux watch doctor", "runtime", "read", "检查本地绑定", "Check local binding"),
+		capability("watch.retry", "eigenflux watch retry", "runtime", "write", "重试已确认失败的任务", "Retry an eligible dispatch job"),
+		capability("watch.reconcile", "eigenflux watch reconcile", "runtime", "write", "记录核实后的执行结果", "Reconcile a verified dispatch outcome"),
 		capability("installation.record", "eigenflux installation record", "local", "write", "记录安装范围", "Record an installation"),
 		capability("installation.uninstall", "eigenflux uninstall", "local", "write", "卸载登记的安装", "Remove a registered installation"),
 		capability("skills.uninstall", "eigenflux skills uninstall", "local", "write", "卸载未修改的托管Skills", "Remove unchanged managed Skills"),
@@ -176,6 +181,9 @@ func capabilitySeeds() []capabilitySeed {
 		seed := &seeds[index]
 		if strings.HasPrefix(seed.id, "heartbeat.migrate.") || seed.id == "heartbeat.plugin_check" {
 			seed.minCLI, seed.confirmation = "0.0.48", "policy_governed"
+		}
+		if strings.HasPrefix(seed.id, "watch.") {
+			seed.minCLI = "1.0.0"
 		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {
@@ -220,6 +228,9 @@ func capabilitySeeds() []capabilitySeed {
 			seed.id == "skills.sync" || strings.HasPrefix(seed.id, "feed.event.") || seed.id == "feed.feedback" ||
 			seed.id == "attention.publish" || seed.id == "attention.prefill" {
 			seed.confirmation = "policy_governed"
+		}
+		if seed.id == "watch.bind" || seed.id == "watch.retry" || seed.id == "watch.reconcile" {
+			seed.confirmation = "explicit_user_instruction"
 		}
 		switch seed.id {
 		case "identity.provision":

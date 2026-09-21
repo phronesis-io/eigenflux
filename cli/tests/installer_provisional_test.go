@@ -48,6 +48,13 @@ func TestInstallerProvisionalSkillsRemainOutsideAutomaticRemoval(t *testing.T) {
 			}
 			gz := gzip.NewWriter(f)
 			tw := tar.NewWriter(gz)
+			compatibility := "CLI_VERSION=1.0.0\nSKILLS_MIN_CLI_VERSION=1.0.0\n"
+			if err := tw.WriteHeader(&tar.Header{Name: "eigenflux-main/cli/.cli.config", Mode: 0600, Size: int64(len(compatibility))}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tw.Write([]byte(compatibility)); err != nil {
+				t.Fatal(err)
+			}
 			for _, skill := range []string{"ef-broadcast", "ef-uninstall", "ef-localdev"} {
 				body := "fixture " + skill
 				if err := tw.WriteHeader(&tar.Header{Name: "eigenflux-main/skills/" + skill + "/SKILL.md", Mode: 0600, Size: int64(len(body))}); err != nil {
@@ -63,7 +70,7 @@ func TestInstallerProvisionalSkillsRemainOutsideAutomaticRemoval(t *testing.T) {
 				}
 			}
 			stubs := map[string]string{
-				"eigenflux": "#!/bin/sh\ncase \"$1 $2\" in\n 'skills path') printf '%s\\n' \"$FIXTURE_TARGET\" ;;\n *) exit 1 ;;\nesac\n",
+				"eigenflux": "#!/bin/sh\ncase \"$1 $2\" in\n 'skills path') printf '%s\\n' \"$FIXTURE_TARGET\" ;;\n 'version --short') printf '1.0.0\\n' ;;\n *) exit 1 ;;\nesac\n",
 				"curl":      "#!/bin/sh\ncat \"$FIXTURE_ARCHIVE\"\n",
 			}
 			for name, body := range stubs {
