@@ -8,6 +8,7 @@ on:
       - 'cli/internal/client/**'
       - 'cli/internal/config/**'
       - 'cli/cmd/**'
+      - 'cli/scripts/build.ps1'
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
@@ -26,6 +27,7 @@ on:
       - 'cli/internal/client/**'
       - 'cli/internal/config/**'
       - 'cli/cmd/**'
+      - 'cli/scripts/build.ps1'
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
@@ -70,14 +72,18 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           go test ./tests/installhome ./tests/installentry ./api/install
-      - name: Build Windows test binary
+      - name: Test portable signed test packaging
+        run: go test ./cmd/devbuild -count=1
+      - name: Build Windows signed test bundle
         if: runner.os == 'Windows'
         run: |
-          New-Item -ItemType Directory -Force ../build | Out-Null
-          go build -o ../build/eigenflux.exe .
-      - name: Upload Windows test binary
+          ./scripts/build.ps1 -TestBundle -OutDir build/windows-test
+          ../build/windows-test/Run-Test.ps1 version
+          ../build/windows-test/Run-Test.ps1 skills sync
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows signed test bundle
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: eigenflux-windows-identity-fix
-          path: build/eigenflux.exe
+          name: eigenflux-windows-signed-test
+          path: build/windows-test.zip

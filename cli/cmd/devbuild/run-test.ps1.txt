@@ -1,0 +1,34 @@
+# Run from the extracted TEST bundle. Pass ordinary eigenflux CLI arguments.
+# This wrapper changes only its child-process environment and package-local state.
+$ErrorActionPreference = 'Stop'
+$cliArgs = @($args)
+if ($cliArgs.Count -eq 0) { $cliArgs = @('version') }
+$stateDir = Join-Path $PSScriptRoot '.test-state'
+New-Item -ItemType Directory -Force $stateDir | Out-Null
+$readyFile = Join-Path $stateDir ([guid]::NewGuid().ToString() + '.url')
+$source = $null
+$exitCode = 1
+$savedEnv = @{}
+foreach ($key in @('EIGENFLUX_HOME', 'EIGENFLUX_SKILLS_DIR', 'EIGENFLUX_CDN_URL')) {
+    $savedEnv[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+}
+try {
+    $sourceArgs = '-serve "' + (Join-Path $PSScriptRoot 'cdn') + '" -ready-file "' + $readyFile + '"'
+    $source = Start-Process -FilePath (Join-Path $PSScriptRoot 'test-source.exe') -ArgumentList $sourceArgs -PassThru -WindowStyle Hidden
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (!(Test-Path $readyFile)) {
+        if ($source.HasExited) { throw 'Local test source exited before startup.' }
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'Local test source startup timed out.' }
+        Start-Sleep -Milliseconds 100
+    }
+    $env:EIGENFLUX_CDN_URL = (Get-Content -Raw $readyFile).Trim()
+    $env:EIGENFLUX_HOME = Join-Path $stateDir '.eigenflux'
+    $env:EIGENFLUX_SKILLS_DIR = Join-Path $stateDir 'skills'
+    & (Join-Path $PSScriptRoot 'eigenflux.exe') @cliArgs
+    $exitCode = $LASTEXITCODE
+} finally {
+    if ($source -and !$source.HasExited) { Stop-Process -Id $source.Id -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $readyFile -ErrorAction SilentlyContinue
+    foreach ($key in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($key, $savedEnv[$key], 'Process') }
+}
+exit $exitCode
