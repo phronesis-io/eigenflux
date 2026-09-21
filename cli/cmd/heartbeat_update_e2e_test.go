@@ -139,7 +139,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if !strings.Contains(plan.SchedulerLauncher, config.HomeDir()) || !strings.Contains(plan.SchedulerLauncher, server) {
 				t.Fatal("stable Home/server lost after reexec")
 			}
-			if !strings.Contains(plan.SchedulerLauncher, "EIGENFLUX_MODE="+shellQuote(tc.mode)) {
+			if !strings.Contains(plan.SchedulerLauncher, shellQuote("--runtime-mode")+" "+shellQuote(tc.mode)) {
 				t.Fatal("integration mode changed after upgrade")
 			}
 			if plan.PluginMaintenance.Host != tc.host || !plan.PluginMaintenance.Due || !strings.Contains(plan.AgentPrompt, `"plugin_id":"`+heartbeatPluginID(tc.host)+`"`) {

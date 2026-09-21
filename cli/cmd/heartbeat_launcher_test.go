@@ -12,7 +12,7 @@ import (
 func TestNativeLauncherQuoting(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "user's home")
 	ps, err := renderHeartbeatLauncher("C:\\Program Files\\eigenflux.exe", home, "server's name", "skill", "powershell")
-	if err != nil || !strings.Contains(ps, "$env:EIGENFLUX_MODE='skill'; & '") || !strings.Contains(ps, "server''s name") {
+	if err != nil || !strings.HasPrefix(ps, "& '") || !strings.Contains(ps, "'--runtime-mode' 'skill'") || !strings.Contains(ps, "server''s name") {
 		t.Fatalf("%q %v", ps, err)
 	}
 	if _, err := renderHeartbeatLauncher("cli", home, "%PATH%", "skill", "cmd"); err == nil {
@@ -33,7 +33,7 @@ func TestNativeLauncherQuoting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "skill\n--homedir\n" + home + "\n--server\nserver '$HOME'\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
+	want := os.Getenv("EIGENFLUX_MODE") + "\n--homedir\n" + home + "\n--server\nserver '$HOME'\n--runtime-mode\nskill\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
 	if string(result) != want {
 		t.Fatalf("got %q want %q", result, want)
 	}

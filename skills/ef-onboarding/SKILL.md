@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.13"
+  version: "0.2.14"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]

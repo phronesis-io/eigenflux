@@ -167,7 +167,7 @@ var heartbeatPlanCmd = &cobra.Command{
 
 		home, _ := config.HomeDirInfo()
 		shellName, _ := cmd.Flags().GetString("shell")
-		cliPrefix, err := nativeHeartbeatCLIPrefix(home, activeServerName(), shellName)
+		cliPrefix, err := nativeHeartbeatCLIPrefix(home, activeServerName(), shellName, meta.Mode)
 		if err != nil {
 			return err
 		}
