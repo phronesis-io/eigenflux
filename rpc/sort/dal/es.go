@@ -3,9 +3,9 @@ package dal
 import (
 	"bytes"
 	"context"
-	"eigenflux_server/pkg/discovery"
 	"eigenflux_server/pkg/json"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"fmt"
 	"io"
 	"strconv"
@@ -17,7 +17,7 @@ import (
 
 // Item represents the item document in Elasticsearch
 type Item struct {
-	RetrievalSlots   discovery.Slots        `json:"retrieval_slots,omitempty"`
+	RetrievalSlots   searchindex.Slots      `json:"retrieval_slots,omitempty"`
 	ID               int64                  `json:"id"`
 	AuthorAgentID    int64                  `json:"author_agent_id,omitempty"`
 	Content          string                 `json:"content"`
@@ -44,12 +44,12 @@ type Item struct {
 
 // IndexItem indexes an item document in Elasticsearch
 func IndexItem(ctx context.Context, item *Item) error {
-	if v := taxonomy.Current(); v != nil {
+	if v := searchindex.Current(); v != nil {
 		languages := []string{}
 		if item.Lang != "" {
 			languages = []string{item.Lang}
 		}
-		item.RetrievalSlots = discovery.ContentSlots(v, append(append([]string{}, item.Domains...), item.Keywords...), languages)
+		item.RetrievalSlots = searchindex.ContentSlots(v, append(append([]string{}, item.Domains...), item.Keywords...), languages)
 	}
 	body, err := json.Marshal(item)
 	if err != nil {

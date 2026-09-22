@@ -5,13 +5,14 @@ import (
 	"eigenflux_server/api/commissionaccess"
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/discoveryrpc"
+	"eigenflux_server/rpc/sort/discovery"
+	"eigenflux_server/rpc/sort/discovery/transport"
 	"encoding/json"
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/app/server"
 	"net/http"
 	"strconv"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
 func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Client, access *commissionaccess.Allowlist) {
@@ -38,7 +39,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 				if v := c.Query("limit"); v != "" {
 					n, e := strconv.Atoi(v)
 					if e != nil {
-						discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Invalid("limit", "invalid")))
+						discoveryHTTP(c, transport.Response(nil, discovery.Invalid("limit", "invalid")))
 						return
 					}
 					p["limit"] = n
@@ -50,7 +51,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 				if v := c.Query("limit"); v != "" {
 					n, e := strconv.Atoi(v)
 					if e != nil {
-						discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Invalid("limit", "invalid")))
+						discoveryHTTP(c, transport.Response(nil, discovery.Invalid("limit", "invalid")))
 						return
 					}
 					p["limit"] = n
@@ -62,7 +63,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 				var e error
 				id, e = strconv.ParseInt(v, 10, 64)
 				if e != nil || id <= 0 {
-					discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Invalid("id", "invalid")))
+					discoveryHTTP(c, transport.Response(nil, discovery.Invalid("id", "invalid")))
 					return
 				}
 			}
@@ -70,7 +71,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 			if serving {
 				r, err := discovery.Decode[discovery.Request](raw)
 				if err != nil {
-					discoveryHTTP(c, discoveryrpc.Response(nil, err))
+					discoveryHTTP(c, transport.Response(nil, err))
 					return
 				}
 				commissionScope := len(r.SourceKinds) == 0
@@ -81,7 +82,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 					commissionScope = discovery.NeedKind(r.Need.NeedType) == discovery.Commission
 				}
 				if commissionScope && !access.Allows(owner) {
-					discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Failure(403, "commission_access_denied")))
+					discoveryHTTP(c, transport.Response(nil, discovery.Failure(403, "commission_access_denied")))
 					return
 				}
 			}
@@ -95,16 +96,16 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 				resp, err = sortClient.Discovery(ctx, req)
 			}
 			if err != nil || resp == nil {
-				discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Failure(503, "discovery_unavailable")))
+				discoveryHTTP(c, transport.Response(nil, discovery.Failure(503, "discovery_unavailable")))
 				return
 			}
 			if serving && resp.BaseResp != nil && resp.BaseResp.Code == 0 {
 				var result discovery.Response
 				if err := json.Unmarshal([]byte(resp.Payload), &result); err != nil {
-					discoveryHTTP(c, discoveryrpc.Response(nil, discovery.Failure(503, "invalid_discovery_response")))
+					discoveryHTTP(c, transport.Response(nil, discovery.Failure(503, "invalid_discovery_response")))
 					return
 				}
-				resp = discoveryrpc.Response(discovery.PublicResponse(result), nil)
+				resp = transport.Response(discovery.PublicResponse(result), nil)
 			}
 			discoveryHTTP(c, resp)
 		}

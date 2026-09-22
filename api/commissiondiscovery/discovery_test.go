@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/discoveryrpc"
+	"eigenflux_server/rpc/sort/discovery"
+	"eigenflux_server/rpc/sort/discovery/transport"
+
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/kitex/client/callopt"
@@ -17,7 +18,7 @@ type discoveryStub struct{ last *sortapi.DiscoveryReq }
 
 func (f *discoveryStub) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
 	f.last = r
-	return discoveryrpc.Response(discovery.Response{ImpressionID: "new-42", Items: []discovery.ResultItem{{Ref: discovery.SourceRef{Type: discovery.Commission, ID: 42}, Match: map[string]any{"score": .8, "scorer_version": "commission_rules_v1"}}}}, nil), nil
+	return transport.Response(discovery.Response{ImpressionID: "new-42", Items: []discovery.ResultItem{{Ref: discovery.SourceRef{Type: discovery.Commission, ID: 42}, Match: map[string]any{"score": .8, "scorer_version": "commission_rules_v1"}}}}, nil), nil
 }
 func TestLegacyCommissionCutoverPreservesExactLookupAndCurrency(t *testing.T) {
 	old := &fakeSort{}

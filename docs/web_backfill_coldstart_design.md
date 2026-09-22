@@ -18,7 +18,7 @@ KPI. The soft quality signal is the receiving user's own agent scoring each push
 and deciding whether to surface it to the human.
 
 **Position in architecture:**
-- **Trigger source**: Sort Service recall/threshold result (`rpc/sort/handler.go`)
+- **Trigger source**: Sort Service recall/threshold result (`rpc/sort/legacy/pipeline.go`)
 - **New component**: Web Backfill worker (LLM search agent + admission gate)
 - **Delivery**: Notification Service (direct push to the triggering user)
 - **Pool ingestion**: Item publish path (`ItemService.PublishItem` + `stream:item:publish`)
@@ -51,7 +51,7 @@ These were settled during design review. Recording them so the "why" survives.
 
 Reuses the existing relevance threshold in the Sort ranker. Today the served set
 is split at `MinRelevanceScore` (`rpc/sort/ranker/config.go:25`,
-`rpc/sort/handler.go:543-552`): items scoring below it are dropped from delivery.
+`rpc/sort/legacy/pipeline.go`): items scoring below it are dropped from delivery.
 
 A cold-start coverage gap is detected when, for a new user:
 - the count of above-threshold ranked items is below a floor `K`, or

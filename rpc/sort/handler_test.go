@@ -2,140 +2,59 @@ package main
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"encoding/json"
 	"testing"
-	"time"
 
-	"eigenflux_server/pkg/recallsource"
-	sortDal "eigenflux_server/rpc/sort/dal"
-	"eigenflux_server/rpc/sort/ranker"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
+	"eigenflux_server/rpc/sort/discovery"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
 )
 
-func TestCollapseRankedByGroup_KeepsBestPerGroup(t *testing.T) {
-	ranked := []ranker.RankedItem{
-		{ItemID: 11, Score: 0.91},
-		{ItemID: 12, Score: 0.85},
-		{ItemID: 21, Score: 0.80},
-		{ItemID: 31, Score: 0.77},
-	}
-	itemMap := map[int64]sortDal.Item{
-		11: {ID: 11, GroupID: 1001},
-		12: {ID: 12, GroupID: 1001},
-		21: {ID: 21, GroupID: 2002},
-		31: {ID: 31, GroupID: 0},
-	}
+type handlerEmbedder struct{}
 
-	collapsed, filtered := collapseRankedByGroup(ranked, itemMap)
-
-	assert.Equal(t, 1, filtered)
-	assert.Len(t, collapsed, 3)
-	assert.Equal(t, int64(11), collapsed[0].ItemID)
-	assert.Equal(t, int64(21), collapsed[1].ItemID)
-	assert.Equal(t, int64(31), collapsed[2].ItemID)
+func (handlerEmbedder) GetEmbedding(context.Context, string) ([]float32, error) {
+	return []float32{1, 0}, nil
 }
 
-func TestCollapseRankedByGroup_AllowsUngroupedItems(t *testing.T) {
-	ranked := []ranker.RankedItem{
-		{ItemID: 1, Score: 0.7},
-		{ItemID: 2, Score: 0.6},
+func TestDiscoveryHandlerGuardsAndWireErrors(t *testing.T) {
+	disabled := &SortServiceESImpl{}
+	for _, tc := range []struct {
+		req    *sortapi.DiscoveryReq
+		code   int32
+		reason string
+	}{
+		{nil, 401, "unauthorized"},
+		{&sortapi.DiscoveryReq{AgentId: 1, Operation: "search", Payload: `{"query":"design"}`}, 503, "discovery_disabled"},
+	} {
+		out, err := disabled.Discovery(context.Background(), tc.req)
+		if err != nil || out.BaseResp.Code != tc.code || out.BaseResp.Msg != tc.reason {
+			t.Fatal(out, err)
+		}
 	}
-	itemMap := map[int64]sortDal.Item{
-		1: {ID: 1, GroupID: 0},
-		2: {ID: 2, GroupID: 0},
+	enabled := &SortServiceESImpl{discovery: &discovery.Service{}}
+	out, err := enabled.Discovery(context.Background(), &sortapi.DiscoveryReq{AgentId: 1, Operation: "unknown", Payload: "{}"})
+	if err != nil || out.BaseResp.Code != 400 {
+		t.Fatal(out, err)
 	}
-
-	collapsed, filtered := collapseRankedByGroup(ranked, itemMap)
-
-	assert.Equal(t, 0, filtered)
-	assert.Len(t, collapsed, 2)
-	assert.Equal(t, int64(1), collapsed[0].ItemID)
-	assert.Equal(t, int64(2), collapsed[1].ItemID)
+	var problem discovery.Error
+	if err := json.Unmarshal([]byte(out.Payload), &problem); err != nil || problem.Code != 400 {
+		t.Fatal(problem, err)
+	}
 }
 
-func TestApplyItemRerankPolicies_FiltersStaleAlerts(t *testing.T) {
-	now := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
-	items := []sortDal.Item{
-		{ID: 1, Type: "alert", UpdatedAt: now.Add(-5 * time.Hour)},
-		{ID: 2, Type: "alert", UpdatedAt: now.Add(-7 * time.Hour)},
-		{ID: 3, Type: "info", UpdatedAt: now.Add(-7 * time.Hour)},
+func TestDiscoveryHandlerForwardsTaxonomyContract(t *testing.T) {
+	handler := &SortServiceESImpl{discovery: &discovery.Service{Engine: &discovery.Engine{Compiler: &discovery.Compiler{
+		Taxonomy: &searchindex.Vocabulary{Version: "fixture", Intents: []searchindex.Node{{ID: "design", Name: "design", Vector: []float32{1, 0}}}}, Embedder: handlerEmbedder{},
+	}}}}
+	out, err := handler.Discovery(context.Background(), &sortapi.DiscoveryReq{AgentId: 1, Operation: "taxonomy", Payload: `{"query":"design","limit":1}`})
+	if err != nil || out.BaseResp.Code != 0 {
+		t.Fatal(out, err)
 	}
-	sourceMap := map[int64]recallsource.Source{
-		1: recallsource.Keyword,
-		2: recallsource.Keyword,
-		3: recallsource.Keyword,
+	var result struct {
+		Version string              `json:"taxonomy_version"`
+		Matches []searchindex.Match `json:"matches"`
 	}
-	path := filepath.Join(t.TempDir(), "rerank.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-policies:
-  - name: freshness
-    item_rules:
-      - broadcast_type: alert
-        max_age: 6h
-        action: drop
-`), 0o644))
-
-	prev := itemRerankPolicies
-	itemRerankPolicies = loadRerankPolicySet(context.Background(), path, func() time.Time { return now })
-	t.Cleanup(func() { itemRerankPolicies = prev })
-
-	filtered := applyItemRerankPolicies(context.Background(), items, sourceMap)
-
-	assert.Len(t, filtered, 2)
-	assert.Equal(t, int64(1), filtered[0].ID)
-	assert.Equal(t, int64(3), filtered[1].ID)
-	_, staleSourceKept := sourceMap[2]
-	assert.False(t, staleSourceKept)
-}
-
-func TestApplyPostRankBoost_ItemWhitelistOverridesAttributeBoost(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "rerank.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-policies:
-  - name: boost
-    item_boosts:
-      - item_id: 2
-        weight: 2
-    boost_rules:
-      - field: type
-        values: [supply]
-        weight: 3
-`), 0o644))
-
-	prev := itemRerankPolicies
-	itemRerankPolicies = loadRerankPolicySet(context.Background(), path, time.Now)
-	t.Cleanup(func() { itemRerankPolicies = prev })
-
-	ranked := []ranker.RankedItem{
-		{ItemID: 1, Score: 0.3},
-		{ItemID: 2, Score: 0.6},
+	if err := json.Unmarshal([]byte(out.Payload), &result); err != nil || result.Version != "fixture" || len(result.Matches) != 1 || result.Matches[0].ID != "design" {
+		t.Fatal(result, err)
 	}
-	itemMap := map[int64]sortDal.Item{
-		1: {ID: 1, Type: "supply"},
-		2: {ID: 2, Type: "supply"},
-	}
-
-	out := applyPostRankBoost(context.Background(), ranked, itemMap, nil)
-
-	require.Len(t, out, 2)
-	assert.Equal(t, int64(2), out[0].ItemID)
-	assert.InDelta(t, 1.2, out[0].Score, 1e-9)
-	assert.Equal(t, int64(1), out[1].ItemID)
-	assert.InDelta(t, 0.9, out[1].Score, 1e-9)
-}
-
-func TestLoadRerankPolicySet_BadConfigDisablesPolicies(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "rerank.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(`
-policies:
-  - name: unknown
-`), 0o644))
-
-	policySet := loadRerankPolicySet(context.Background(), path, time.Now)
-
-	assert.Empty(t, policySet.PreRankPolicies())
-	assert.Empty(t, policySet.PostRankPolicies())
 }

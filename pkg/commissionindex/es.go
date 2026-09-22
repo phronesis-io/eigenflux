@@ -3,9 +3,9 @@ package commissionindex
 import (
 	"bytes"
 	"context"
-	"eigenflux_server/pkg/discovery"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/json"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"errors"
 	"fmt"
 	"io"
@@ -241,7 +241,7 @@ func (s ESStore) PromoteAlias(ctx context.Context) error {
 
 func Mapping(dims int) map[string]any {
 	return map[string]any{"properties": map[string]any{
-		"retrieval_slots": discovery.SlotsMapping(),
+		"retrieval_slots": searchindex.SlotsMapping(),
 		"commission_id":   map[string]any{"type": "long"}, "seller_agent_id": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"},
 		"catalogue_version": map[string]any{"type": "long"}, "statistics_version": map[string]any{"type": "long"}, "title": map[string]any{"type": "text"},
 		"capability_description": map[string]any{"type": "text"}, "request_spec_text": map[string]any{"type": "text"}, "delivery_spec_text": map[string]any{"type": "text"},

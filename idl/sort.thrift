@@ -57,7 +57,7 @@ struct RecommendCommissionsResp {
     255: required base.BaseResp base_resp
 }
 
-// Payloads are versioned strict JSON contracts in pkg/discovery. Ownership and
+// Payloads are versioned strict JSON contracts in rpc/sort/discovery. Ownership and
 // operation remain typed, authenticated RPC fields rather than payload fields.
 struct DiscoveryReq {
     1: required i64 agent_id

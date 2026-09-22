@@ -3,10 +3,11 @@ package commissiondiscovery
 import (
 	"context"
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/discoveryrpc"
+	"eigenflux_server/rpc/sort/discovery"
+	"eigenflux_server/rpc/sort/discovery/transport"
 	"encoding/json"
 	"fmt"
+
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/kitex/client/callopt"
 )
@@ -30,7 +31,7 @@ func (s *Service) serveDiscovery(ctx context.Context, c *app.RequestContext, mod
 	key := string(c.GetHeader("Idempotency-Key"))
 	resp, err := s.discoveryClient.Discovery(ctx, &sortapi.DiscoveryReq{AgentId: owner, Operation: mode, Payload: string(raw), IdempotencyKey: &key})
 	var out discovery.Response
-	if err = discoveryrpc.DecodeResponse(resp, err, &out); err != nil {
+	if err = transport.DecodeResponse(resp, err, &out); err != nil {
 		if e, ok := err.(*discovery.Error); ok {
 			respond(c, e.Code, e.Code, e.Reason, map[string]any{})
 			return

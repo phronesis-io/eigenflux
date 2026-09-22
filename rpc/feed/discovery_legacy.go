@@ -6,8 +6,8 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/kitex_gen/eigenflux/item"
 	"eigenflux_server/pkg/db"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/discoveryserve"
+	"eigenflux_server/rpc/feed/delivery"
+	"eigenflux_server/rpc/sort/discovery"
 	"encoding/json"
 )
 
@@ -50,7 +50,7 @@ func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, a
 		}
 		return nil
 	}
-	service := discoveryserve.Service{Redis: db.RDB, IDs: s.impressionIDGen, Executor: sortExecutor{}, StreamMaxLen: s.config.MqStreamMaxLen, DisableDedup: s.config.ShouldDisableDedup()}
+	service := delivery.Service{Redis: db.RDB, IDs: s.impressionIDGen, Executor: sortExecutor{}, StreamMaxLen: s.config.MqStreamMaxLen, DisableDedup: s.config.ShouldDisableDedup()}
 	r, hasMore, err := service.ServePage(ctx, owner, action, prepare)
 	if err != nil {
 		out.Items = []*feed.FeedItem{}

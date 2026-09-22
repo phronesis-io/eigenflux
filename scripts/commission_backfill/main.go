@@ -3,7 +3,8 @@ package main
 
 import (
 	"context"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"errors"
 	"fmt"
 	"log"
@@ -26,7 +27,7 @@ var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE
 func main() {
 	cfg := config.Load()
 	if cfg.EnableNeedSearch {
-		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
 			log.Fatal(err)
 		}
 	}

@@ -29,14 +29,14 @@ Implementation contract and operation: [Search and Recommendation MVP](../../dev
 - Final middleware tests passed for discovery activity, Need writes, metadata reads and failed requests.
 - Delivery simplification regression checks passed: history/sample failures are independent, slow recording does not block return, request cancellation does not cancel background writes, cached responses do not revalidate, new requests observe closed Needs/blocks, missing page details are skipped, and page positions remain delivery-only.
 - The simplified delivery code passed core build, race checks, vet, real PostgreSQL/ES/Redis integration, the Sort integration suite and full E2E.
+- Package organization passed the core build, affected unit tests, Sort/delivery race checks, vet, real PostgreSQL/ES/Redis integration, Sort and Auth integration suites, full E2E (216.207 seconds), and Website (60.454 seconds). New tests cover RPC guards/response encoding and independent per-service model selection. Backfill command packages also compile and pass their tests.
 
-The extended Pipeline suite is not green. Existing model-dependent keyword
-extraction returned generic banned keywords and 13 terms where the fixture
-allows at most 10. One existing placeholder-content fixture received literal
-`{{title}}` instead of JSON. The tested prompt/LLM implementation is unchanged
-by this task; these failures are recorded, not masked. Other distribution,
-misjudged-content and safety fixtures completed, with the detailed local run in
-`build/test-final-pipeline.log`.
+The extended Pipeline suite is not green. Its latest run failed two existing
+keyword-extraction cases: the model returned the rejected generic keyword
+`market-signals`, and returned 13 terms where the fixture allows at most 10.
+The prompt/LLM implementation and these fixtures are unchanged. The remaining
+Pipeline cases passed, including distribution, misjudged-content, and safety
+checks. Full local results are in `build/test-sort-layout-pipeline.log`.
 
 Two stale regression assumptions were corrected: runtime mode now requires
 explicit `X-Client-Mode`, verifies separate product fields, and preserves identity
@@ -45,6 +45,7 @@ use `testutil.BaseURL` instead of a hardcoded 8080 instance.
 
 ## Implementation choices
 
+- Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context store and candidate sources; its `index` leaf package shares vocabulary and slot projections with index writers. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
 - Use existing process boundaries, DB, ES cluster and Redis; no new deployed microservice.
 - Keep frozen executable context in one JSONB record with a separate vector payload; no separate Need history product.
 - Taxonomy lookup is bounded in memory. No additional compiled-plan or taxonomy-result cache is included. Agent-context fallback can embed up to five clauses per request; measure this path explicitly before accepting the latency gate.

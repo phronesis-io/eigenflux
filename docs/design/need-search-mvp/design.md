@@ -47,9 +47,9 @@ Reverse matching, offline production pipelines, training/calibration/serving, ne
 
 | Current code | Reuse / gap |
 |---|---|
-| `rpc/sort/handler.go`, `rpc/sort/dal/es_query.go` | Reuse query primitives, not the old profile/LR orchestration; add context-based execution |
+| `rpc/sort/legacy/pipeline.go`, `rpc/sort/dal/es_query.go` | Reuse query primitives, not the old profile/LR orchestration; add context-based execution |
 | `pkg/es/mapping.go` | Add canonical slots to existing broadcast indices and templates; preserve text/vector/group/expiry fields |
-| `pkg/commissionindex/{types,es}.go`, `rpc/sort/commission.go` | Reuse commission index, active/tombstone contract, price/currency/duration/statistics, exact-ID lookup |
+| `pkg/commissionindex/{types,es}.go`, `rpc/sort/legacy/commission.go` | Reuse commission index, active/tombstone contract, price/currency/duration/statistics, exact-ID lookup |
 | `pkg/agentcard/builder.go`, `api/consolev2/feed_handlers.go` | Current Card projections and frozen `agent_context_revisions` supply authenticated owner context; Agent candidates use public Card fields only |
 | `pkg/recallsource`, `pkg/recall` | Reuse current versioned hot/new/UGC lists and reader patterns; Need-seeded Swing remains disabled |
 | `rpc/sort/rank`, `rpc/sort/rerank` | Reuse pure policy transforms through kind-aware adapters |
@@ -232,7 +232,7 @@ Saved/inline Need input retains the explicit field layout below; examples use il
 
 Generative `server_fallback` is not implemented. `compiled_by` is `agent` for submitted structured Needs or `rules` for query/Agent normalization; `input_origin` carries the semantic distinction. Request-time context snapshots and concurrency revisions do not add the deferred authority engine or user-facing revision-history product.
 
-**Taxonomy.** Shared `pkg/taxonomy` loads a reviewed immutable JSON asset containing canonical nodes, parents, aliases, descriptions, and frozen term embeddings. Bounded in-memory cosine lookup is sufficient initially; Redis caches by vocabulary/embedding version. No new taxonomy vector DB or monthly builder. Preserve misses in context/Need text and counters/logs, no separate miss workflow/table. Activate a taxonomy version only when compatible content projections are ready; explicit stale IDs error, and inferred matches from incompatible versions cannot become hard filters. Bootstrap artifact ownership and readiness remain launch dependencies.
+**Taxonomy.** Shared `rpc/sort/discovery/index` loads a reviewed immutable JSON asset containing canonical nodes, parents, aliases, descriptions, and frozen term embeddings. Bounded in-memory cosine lookup is sufficient initially; Redis caches by vocabulary/embedding version. No new taxonomy vector DB or monthly builder. Preserve misses in context/Need text and counters/logs, no separate miss workflow/table. Activate a taxonomy version only when compatible content projections are ready; explicit stale IDs error, and inferred matches from incompatible versions cannot become hard filters. Bootstrap artifact ownership and readiness remain launch dependencies.
 
 ### 3.2 Need lifecycle
 

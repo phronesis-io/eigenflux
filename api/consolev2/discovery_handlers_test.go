@@ -6,15 +6,16 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
-	"eigenflux_server/pkg/discoveryrpc"
+	"eigenflux_server/rpc/sort/discovery/transport"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"strings"
-	"testing"
-	"time"
 )
 
 type discoveryFeedFake struct {
@@ -24,7 +25,7 @@ type discoveryFeedFake struct {
 
 func (f *discoveryFeedFake) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
 	f.last = r
-	return discoveryrpc.Response(map[string]any{"items": []any{map[string]any{"source_ref": map[string]any{"type": "agent", "id": "9007199254740993"}, "context_id": "1", "match": map[string]any{"score": .8, "scorer_version": "test"}}}}, nil), nil
+	return transport.Response(map[string]any{"items": []any{map[string]any{"source_ref": map[string]any{"type": "agent", "id": "9007199254740993"}, "context_id": "1", "match": map[string]any{"score": .8, "scorer_version": "test"}}}}, nil), nil
 }
 
 type discoverySortFake struct {
@@ -34,7 +35,7 @@ type discoverySortFake struct {
 
 func (f *discoverySortFake) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
 	f.last = r
-	return discoveryrpc.Response(map[string]any{"context_id": "9007199254740993"}, nil), nil
+	return transport.Response(map[string]any{"context_id": "9007199254740993"}, nil), nil
 }
 func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

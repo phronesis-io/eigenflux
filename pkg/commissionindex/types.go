@@ -3,8 +3,8 @@ package commissionindex
 
 import (
 	"context"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"strings"
 	"time"
 )
@@ -65,36 +65,36 @@ type Source interface {
 }
 
 type Document struct {
-	RetrievalSlots        discovery.Slots `json:"retrieval_slots,omitempty"`
-	CommissionID          int64           `json:"commission_id"`
-	SellerAgentID         int64           `json:"seller_agent_id,omitempty"`
-	Active                bool            `json:"active"`
-	CatalogueVersion      int64           `json:"catalogue_version"`
-	StatisticsVersion     int64           `json:"statistics_version"`
-	Title                 string          `json:"title,omitempty"`
-	CapabilityDescription string          `json:"capability_description,omitempty"`
-	RequestSpecText       string          `json:"request_spec_text,omitempty"`
-	DeliverySpecText      string          `json:"delivery_spec_text,omitempty"`
-	Tags                  []string        `json:"tags,omitempty"`
-	PriceFen              int64           `json:"price_fen"`
-	Currency              string          `json:"currency,omitempty"`
-	PromisedDeliveryMS    int64           `json:"promised_delivery_ms"`
-	CompletedCount        int64           `json:"completed_count,omitempty"`
-	RefundedCount         int64           `json:"refunded_count,omitempty"`
-	CompletionRateBPS     int32           `json:"completion_rate_bps,omitempty"`
-	AverageRatingMilli    int32           `json:"average_rating_milli,omitempty"`
-	HasRating             bool            `json:"has_rating"`
-	AverageDeliveryMS     int64           `json:"average_delivery_ms,omitempty"`
-	SearchText            string          `json:"search_text,omitempty"`
-	Embedding             []float32       `json:"embedding,omitempty"`
-	UpdatedAt             time.Time       `json:"updated_at"`
+	RetrievalSlots        searchindex.Slots `json:"retrieval_slots,omitempty"`
+	CommissionID          int64             `json:"commission_id"`
+	SellerAgentID         int64             `json:"seller_agent_id,omitempty"`
+	Active                bool              `json:"active"`
+	CatalogueVersion      int64             `json:"catalogue_version"`
+	StatisticsVersion     int64             `json:"statistics_version"`
+	Title                 string            `json:"title,omitempty"`
+	CapabilityDescription string            `json:"capability_description,omitempty"`
+	RequestSpecText       string            `json:"request_spec_text,omitempty"`
+	DeliverySpecText      string            `json:"delivery_spec_text,omitempty"`
+	Tags                  []string          `json:"tags,omitempty"`
+	PriceFen              int64             `json:"price_fen"`
+	Currency              string            `json:"currency,omitempty"`
+	PromisedDeliveryMS    int64             `json:"promised_delivery_ms"`
+	CompletedCount        int64             `json:"completed_count,omitempty"`
+	RefundedCount         int64             `json:"refunded_count,omitempty"`
+	CompletionRateBPS     int32             `json:"completion_rate_bps,omitempty"`
+	AverageRatingMilli    int32             `json:"average_rating_milli,omitempty"`
+	HasRating             bool              `json:"has_rating"`
+	AverageDeliveryMS     int64             `json:"average_delivery_ms,omitempty"`
+	SearchText            string            `json:"search_text,omitempty"`
+	Embedding             []float32         `json:"embedding,omitempty"`
+	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
 func BuildDocument(c CatalogueSnapshot, s StatisticsSnapshot, embedding []float32) Document {
 	tags := append([]string(nil), c.Tags...)
 	parts := []string{c.Title, c.CapabilityDescription, c.RequestSpecText, c.DeliverySpecText, strings.Join(tags, " ")}
 	return Document{
-		RetrievalSlots: discovery.ContentSlots(taxonomy.Current(), c.Tags, nil),
+		RetrievalSlots: searchindex.ContentSlots(searchindex.Current(), c.Tags, nil),
 		CommissionID:   c.CommissionID, SellerAgentID: c.SellerAgentID,
 		Active: strings.EqualFold(c.Status, "active"), CatalogueVersion: c.CatalogueVersion,
 		StatisticsVersion: s.StatisticsVersion, Title: c.Title, CapabilityDescription: c.CapabilityDescription,

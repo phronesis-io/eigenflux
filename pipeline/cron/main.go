@@ -4,8 +4,9 @@ import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pkg/agentindex"
-	"eigenflux_server/pkg/taxonomy"
-	"eigenflux_server/rpc/sort/discoverydb"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
+	"eigenflux_server/rpc/sort/discovery"
 	"log"
 	"os"
 	"os/signal"
@@ -93,7 +94,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if cfg.EnableNeedSearch {
-		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
 			log.Fatalf("discovery taxonomy: %v", err)
 		}
 		projector := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
@@ -107,7 +108,7 @@ func main() {
 					return
 				case <-ticker.C:
 					pruneCtx, pruneCancel := context.WithTimeout(ctx, 5*time.Minute)
-					err := (discoverydb.Store{DB: db.DB}).Prune(pruneCtx, time.Now().UnixMilli())
+					err := (discovery.Store{DB: db.DB}).Prune(pruneCtx, time.Now().UnixMilli())
 					pruneCancel()
 					if err != nil {
 						logger.Default().Warn("discovery context retention failed", "err", err)

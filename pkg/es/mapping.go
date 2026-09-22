@@ -1,12 +1,12 @@
 package es
 
-import "eigenflux_server/pkg/discovery"
+import searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 // BuildIndexMapping returns the Elasticsearch mapping for the item index.
 func BuildIndexMapping(embeddingDims int) map[string]interface{} {
 	return map[string]interface{}{
 		"properties": map[string]interface{}{
-			"retrieval_slots": discovery.SlotsMapping(),
+			"retrieval_slots": searchindex.SlotsMapping(),
 			"id": map[string]interface{}{
 				"type": "long",
 			},

@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"eigenflux_server/pkg/agentindex"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"log"
 	"os"
 	"os/signal"
@@ -141,7 +142,7 @@ func main() {
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	agentCardConsumer := consumer.NewAgentCardConsumer()
 	if cfg.EnableNeedSearch {
-		if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
 			log.Fatalf("discovery taxonomy: %v", err)
 		}
 		if err := es.EnsureRetrievalSlots(context.Background(), es.ReadIndexPattern, cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {

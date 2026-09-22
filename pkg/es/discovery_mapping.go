@@ -3,10 +3,9 @@ package es
 import (
 	"bytes"
 	"context"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"encoding/json"
 	"fmt"
-
-	"eigenflux_server/pkg/discovery"
 )
 
 // EnsureRetrievalSlots upgrades existing backing indices before any projector
@@ -15,7 +14,7 @@ func EnsureRetrievalSlots(ctx context.Context, indices ...string) error {
 	if Client == nil {
 		return fmt.Errorf("Elasticsearch client unavailable")
 	}
-	body, err := json.Marshal(map[string]any{"properties": map[string]any{"retrieval_slots": discovery.SlotsMapping()}})
+	body, err := json.Marshal(map[string]any{"properties": map[string]any{"retrieval_slots": searchindex.SlotsMapping()}})
 	if err != nil {
 		return err
 	}

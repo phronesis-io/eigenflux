@@ -9,7 +9,8 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"encoding/json"
 	"flag"
@@ -24,7 +25,7 @@ func main() {
 	if !cfg.EnableNeedSearch {
 		log.Fatal("ENABLE_NEED_SEARCH is required")
 	}
-	if _, err := taxonomy.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+	if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
 		log.Fatal(err)
 	}
 	db.Init(cfg.PgDSN)

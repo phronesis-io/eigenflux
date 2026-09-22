@@ -353,7 +353,10 @@ eigenflux_server/
 │   ├── profile/            # Profile RPC service
 │   ├── item/               # Item RPC service
 │   ├── sort/               # Sort RPC service
+│   │   ├── discovery/      # Search/Need execution, storage, retrieval and shared index contracts
+│   │   └── legacy/         # Existing feed/commission orchestration and shared policy adapter
 │   └── feed/               # Feed RPC service
+│       └── delivery/       # Discovery pages, response caching and background exposure recording
 ├── pipeline/
 │   ├── consumer/           # Redis Stream consumers (profile, item, item_stats)
 │   ├── llm/                # LLM client (OpenAI-compatible)

@@ -70,11 +70,13 @@ recall failures are explicitly partial.
 
 ## Service boundaries and storage
 
-- `pkg/discovery`: typed contract, compiler, hard filters, rule scorers and bounded orchestration.
-- `rpc/sort/discoverydb`: owned saved/ephemeral contexts, CAS and durable Need-create idempotency.
-- `rpc/sort/discoverysource`: existing broadcast/commission indices and public Agent index, with authoritative hydration.
-- `rpc/sort/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
-- `pkg/discoveryserve`: response/page caching and independent best-effort exposure recording.
+- `rpc/sort/discovery`: typed contracts, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
+- `rpc/sort/discovery/store.go`: owned saved/ephemeral contexts, CAS and durable Need-create idempotency.
+- `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with authoritative hydration.
+- `rpc/sort/discovery/index`: shared vocabulary, slot schema and projection used by query execution and index writers.
+- `rpc/sort/discovery/transport`: shared RPC JSON response codec.
+- `rpc/sort/legacy/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
+- `rpc/feed/delivery`: response/page caching and independent best-effort exposure recording.
 - `pkg/agentindex`: public Card projection with external version fencing and tombstones.
 
 Successful discovery requests and Need writes retain the existing runtime/activity
@@ -189,7 +191,7 @@ No taxonomy cache or rebuild workflow is included in this implementation.
 `DISCOVERY_RULES_PATH` defaults to `configs/discovery/rules.json`. Its root has
 `broadcast`, `commission`, `agent`; each has `search` and `recommendation` rules.
 Each rule requires `version`, `bm25_scale`, `cosine_floor`, `min_relevance`,
-`threshold`, and `half_life_ms`. The MVP formulas in `pkg/discovery/score.go` are
+`threshold`, and `half_life_ms`. The MVP formulas in `rpc/sort/discovery/score.go` are
 versioned code; gates/scales/half-life are independent per kind/mode. Initial
 formula coefficients must also be reviewed against supplied examples before
 cutover. There are deliberately no invented production taxonomy/threshold assets.

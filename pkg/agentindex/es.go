@@ -3,19 +3,20 @@ package agentindex
 import (
 	"bytes"
 	"context"
-	"eigenflux_server/pkg/discovery"
 	"eigenflux_server/pkg/es"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"encoding/json"
 	"fmt"
-	"gorm.io/gorm"
 	"strconv"
+
+	"gorm.io/gorm"
 )
 
 func Ensure(ctx context.Context, index string, dims int) error {
 	if index == "" || dims < 1 {
 		return fmt.Errorf("invalid Agent index configuration")
 	}
-	properties := map[string]any{"agent_id": map[string]any{"type": "long"}, "version": map[string]any{"type": "long"}, "projection_version": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"}, "search_text": map[string]any{"type": "text"}, "display_name": map[string]any{"type": "text"}, "retrieval_slots": discovery.SlotsMapping(), "activity_at": map[string]any{"type": "long"}, "updated_at": map[string]any{"type": "long"}, "embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"}}
+	properties := map[string]any{"agent_id": map[string]any{"type": "long"}, "version": map[string]any{"type": "long"}, "projection_version": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"}, "search_text": map[string]any{"type": "text"}, "display_name": map[string]any{"type": "text"}, "retrieval_slots": searchindex.SlotsMapping(), "activity_at": map[string]any{"type": "long"}, "updated_at": map[string]any{"type": "long"}, "embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"}}
 	resp, err := es.Client.Indices.Exists([]string{index}, es.Client.Indices.Exists.WithContext(ctx))
 	if err != nil {
 		return err
@@ -58,7 +59,9 @@ func Ensure(ctx context.Context, index string, dims int) error {
 type Projector struct {
 	DB       *gorm.DB
 	Index    string
-	Embedder discovery.Embedder
+	Embedder interface {
+		GetEmbedding(context.Context, string) ([]float32, error)
+	}
 }
 
 func (p Projector) Project(ctx context.Context, id int64) error {

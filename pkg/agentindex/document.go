@@ -3,26 +3,26 @@ package agentindex
 
 import (
 	"context"
-	"eigenflux_server/pkg/discovery"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"encoding/json"
 	"fmt"
-	"gorm.io/gorm"
-	"strconv"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 type Document struct {
-	ProjectionVersion int64           `json:"projection_version"`
-	AgentID           int64           `json:"agent_id"`
-	Version           int64           `json:"version"`
-	Active            bool            `json:"active"`
-	SearchText        string          `json:"search_text"`
-	DisplayName       string          `json:"display_name"`
-	Slots             discovery.Slots `json:"retrieval_slots"`
-	Embedding         []float32       `json:"embedding,omitempty"`
-	ActivityAt        int64           `json:"activity_at"`
-	UpdatedAt         int64           `json:"updated_at"`
+	ProjectionVersion int64             `json:"projection_version"`
+	AgentID           int64             `json:"agent_id"`
+	Version           int64             `json:"version"`
+	Active            bool              `json:"active"`
+	SearchText        string            `json:"search_text"`
+	DisplayName       string            `json:"display_name"`
+	Slots             searchindex.Slots `json:"retrieval_slots"`
+	Embedding         []float32         `json:"embedding,omitempty"`
+	ActivityAt        int64             `json:"activity_at"`
+	UpdatedAt         int64             `json:"updated_at"`
 }
 type publicCard struct {
 	DisplayName      string   `json:"display_name"`
@@ -60,10 +60,7 @@ func Load(ctx context.Context, db *gorm.DB, ids []int64) ([]Document, error) {
 			return nil, err
 		}
 		parts := []string{p.DisplayName, p.AgentDescription, p.HumanDescription, strings.Join(p.Offering, " "), strings.Join(p.Seeking, " ")}
-		out = append(out, Document{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: strings.Join(parts, "\n"), DisplayName: p.DisplayName, Slots: discovery.ContentSlots(taxonomy.Current(), append(append([]string{}, p.Offering...), p.Seeking...), p.Languages), ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
+		out = append(out, Document{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: strings.Join(parts, "\n"), DisplayName: p.DisplayName, Slots: searchindex.ContentSlots(searchindex.Current(), append(append([]string{}, p.Offering...), p.Seeking...), p.Languages), ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
-}
-func (d Document) Candidate() discovery.Document {
-	return discovery.Document{Ref: discovery.SourceRef{Type: discovery.Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, Vector: d.Embedding, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
 }

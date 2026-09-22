@@ -2,9 +2,9 @@ package consumer
 
 import (
 	"context"
-	"eigenflux_server/pkg/discovery"
 	"eigenflux_server/pkg/json"
-	"eigenflux_server/pkg/taxonomy"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"fmt"
 	"strconv"
 	"strings"
@@ -391,8 +391,8 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		UpdatedAt:        time.Now(),
 	}
 
-	if v := taxonomy.Current(); v != nil {
-		slots, err := json.Marshal(discovery.ContentSlots(v, append(append([]string{}, esItem.Domains...), esItem.Keywords...), []string{esItem.Lang}))
+	if v := searchindex.Current(); v != nil {
+		slots, err := json.Marshal(searchindex.ContentSlots(v, append(append([]string{}, esItem.Domains...), esItem.Keywords...), []string{esItem.Lang}))
 		if err != nil {
 			return HandleRetry
 		}
