@@ -236,7 +236,7 @@ func TestWatchBindingOwnershipRemovesOnlyEnabledStages(t *testing.T) {
 }
 
 func TestWatchBindingReconcileOptionalEvent(t *testing.T) {
-	for _, source := range []string{"running", "needs_user"} {
+	for _, source := range []string{"running", "failed", "needs_user"} {
 		for _, outcome := range []string{"completed", "failed"} {
 			t.Run(source+"/"+outcome, func(t *testing.T) {
 				f := newDispatchWatchFixture(t, "")
@@ -256,7 +256,7 @@ func TestWatchBindingReconcileOptionalEvent(t *testing.T) {
 				if err != nil || !ok {
 					t.Fatalf("next: %v %v", ok, err)
 				}
-				if source == "needs_user" {
+				if source != "running" {
 					if err = q.Update(job.ID, source, "business_unconfirmed", "", ""); err != nil {
 						t.Fatal(err)
 					}
@@ -283,6 +283,58 @@ func TestWatchBindingReconcileOptionalEvent(t *testing.T) {
 				}
 				if _, ok, err = q.Next(); ok || err != nil {
 					t.Fatalf("reconciliation scheduled automatic retry: %v %v", ok, err)
+				}
+			})
+		}
+	}
+}
+
+func TestWatchBindingReconcilesManuallyHandledPMBeforeRebind(t *testing.T) {
+	for _, source := range []string{"failed", "needs_user"} {
+		for _, outcome := range []string{"replied", "no_reply"} {
+			t.Run(source+"/"+outcome, func(t *testing.T) {
+				f := newDispatchWatchFixture(t, "")
+				w := f.watch
+				job := dispatchTestNext(t, w)
+				if err := w.journal.Update(job.ID, source, "manual_review", "", ""); err != nil {
+					t.Fatal(err)
+				}
+				cmd, _ := bindingTestCommand()
+				cmd.Flags().Bool("verified", false, "")
+				cmd.Flags().String("outcome", outcome, "")
+				replyID := ""
+				if outcome == "replied" {
+					replyID = "human-reply-receipt"
+				}
+				cmd.Flags().String("reply-id", replyID, "")
+				if err := watchReconcileCmd.RunE(cmd, []string{job.ID}); err == nil {
+					t.Fatal("unverified manual resolution accepted")
+				}
+				if err := cmd.Flags().Set("verified", "true"); err != nil {
+					t.Fatal(err)
+				}
+				if err := watchReconcileCmd.RunE(cmd, []string{job.ID}); err != nil {
+					t.Fatal(err)
+				}
+				q, err := dispatch.OpenJournal(*w.binding)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok, err := q.Next(); ok || err != nil {
+					t.Fatalf("manual resolution reran Agent: %v %v", ok, err)
+				}
+				jobs := q.Snapshot()
+				if len(jobs) != 1 || jobs[0].Status != outcome || jobs[0].ReplyID != replyID {
+					t.Fatalf("manual outcome was not persisted: %+v", jobs)
+				}
+				configFile := filepath.Join(t.TempDir(), "binding.json")
+				if err := dispatch.WriteJSON(configFile, *w.binding); err != nil {
+					t.Fatal(err)
+				}
+				cmd, _ = bindingTestCommand()
+				cmd.Flags().String("config", configFile, "")
+				if err := watchBindCmd.RunE(cmd, nil); err != nil {
+					t.Fatalf("resolved PM blocked configuration repair: %v", err)
 				}
 			})
 		}

@@ -228,7 +228,7 @@ var watchRetryCmd = &cobra.Command{
 }
 
 var watchReconcileCmd = &cobra.Command{
-	Use: "reconcile JOB_ID", Short: "Record an operator-verified outcome for unknown work or an optional event needing review", Args: cobra.ExactArgs(1),
+	Use: "reconcile JOB_ID", Short: "Record an operator-verified outcome for unknown, failed or needs-user work", Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		verified, _ := cmd.Flags().GetBool("verified")
 		if !verified {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -574,5 +575,41 @@ func TestWatchDispatchCommandLineLimitNeedsConfiguration(t *testing.T) {
 	state := dispatchTestStatus(t, f.watch, job.ID)
 	if state.Status != "needs_user" || state.Code != "windows_command_line_too_long" || f.sends.Load() != 0 {
 		t.Fatalf("command-line preflight must remain recoverable: %+v", state)
+	}
+}
+
+func TestDispatchProfileExplicitRetryBypassesItsOwnCooldown(t *testing.T) {
+	home, server := profileTaskFixture(t, false)
+	before := profilestate.State{LastCheckedUnix: time.Now().Add(-48 * time.Hour).Unix()}
+	if err := profilestate.Save(home, server, "agent-1", before); err != nil {
+		t.Fatal(err)
+	}
+	var first bytes.Buffer
+	if err := runProfileTask(&first, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if first.Len() == 0 {
+		t.Fatal("due profile task did not return a prompt")
+	}
+	// Preparing the first task claims its cooldown; no Agent completion follows.
+	for _, code := range []string{"", "operator_retry"} {
+		args, err := dispatchTaskArgs(dispatch.Job{Kind: "profile_review_due", Code: code})
+		if err != nil {
+			t.Fatal(err)
+		}
+		force := false
+		for _, arg := range args {
+			force = force || arg == "--force"
+		}
+		var out bytes.Buffer
+		if err := runProfileTask(&out, nil, nil, force); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := out.Len() > 0, code == "operator_retry"; got != want {
+			t.Fatalf("code=%q received prompt=%t, want %t", code, got, want)
+		}
+		if got := profilestate.Load(home, server, "agent-1").LastCheckedUnix; got != before.LastCheckedUnix {
+			t.Fatal("claim incorrectly recorded profile completion")
+		}
 	}
 }

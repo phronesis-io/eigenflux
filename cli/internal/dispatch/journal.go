@@ -503,7 +503,7 @@ func (j *Journal) Retry(id string) error {
 			return errors.New("job_not_safe_to_retry")
 		}
 		job.Status = "pending"
-		job.Code = ""
+		job.Code = "operator_retry"
 		if err := j.save(next); err != nil {
 			return err
 		}
@@ -527,7 +527,7 @@ func (j *Journal) Reconcile(id, action, replyID string) error {
 		if job.ID != id {
 			continue
 		}
-		if job.Status != "unknown" && !(job.Kind != "pm_push" && job.Status == "needs_user") {
+		if job.Status != "unknown" && job.Status != "failed" && job.Status != "needs_user" {
 			return errors.New("job_not_reconcilable")
 		}
 		if (job.Kind == "pm_push") != (action == "no_reply" || action == "replied") {

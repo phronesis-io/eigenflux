@@ -551,3 +551,55 @@ func TestJournalReconcileOptionalCrashRequiresExplicitOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestJournalReconciliationRejectsActiveAndCompletedJobs(t *testing.T) {
+	for _, state := range []string{"pending", "running", "sending", "replied", "no_reply"} {
+		t.Run(state, func(t *testing.T) {
+			j := mustJournal(t, journalBinding(t))
+			mustAdd(t, j, "pm")
+			id := j.Snapshot()[0].ID
+			if state != "pending" {
+				mustNext(t, j)
+				if state != "running" {
+					if err := j.Update(id, state, "", "", "receipt"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			before := j.Snapshot()
+			if err := j.Reconcile(id, "no_reply", ""); err == nil {
+				t.Fatal("reconciliation accepted active or completed work")
+			}
+			if !reflect.DeepEqual(before, j.Snapshot()) {
+				t.Fatal("rejected reconciliation changed journal")
+			}
+		})
+	}
+}
+
+func TestJournalRetryPersistsOperatorIntent(t *testing.T) {
+	b := journalBinding(t)
+	j := mustJournal(t, b)
+	if err := j.AddHint("profile_review_due", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	job := mustNext(t, j)
+	if job.Code != "" {
+		t.Fatal("new periodic job was marked as an operator retry")
+	}
+	if err := j.Update(job.ID, "needs_user", "business_unconfirmed", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Retry(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	j = mustJournal(t, b)
+	pending := j.Snapshot()[0]
+	if pending.Status != "pending" || pending.Code != "operator_retry" {
+		t.Fatalf("retry intent not persisted: %+v", pending)
+	}
+	next := mustNext(t, j)
+	if next.ID != job.ID || next.Code != "operator_retry" {
+		t.Fatalf("execution lost retry intent: %+v", next)
+	}
+}

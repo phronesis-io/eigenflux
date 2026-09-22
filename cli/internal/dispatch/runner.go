@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -168,18 +169,7 @@ func (r Runner) command(args []string) (*exec.Cmd, error) {
 	}
 	cmd.Dir = r.Binding.WorkDir
 	cmd.WaitDelay = 2 * time.Second
-	env := map[string]string{}
-	for _, v := range os.Environ() {
-		k, x, ok := strings.Cut(v, "=")
-		if ok && !strings.HasPrefix(strings.ToUpper(k), "EIGENFLUX_") {
-			env[k] = x
-		}
-	}
-	for k, v := range r.Binding.Env {
-		if !strings.HasPrefix(strings.ToUpper(k), "EIGENFLUX_") {
-			env[k] = v
-		}
-	}
+	env := mergeRunnerEnvironment(os.Environ(), r.Binding.Env, runtime.GOOS == "windows")
 	env["EIGENFLUX_HOME"] = r.Binding.Home
 	env["EIGENFLUX_SERVER"] = r.Binding.Server
 	if r.Binding.Host != "" {
@@ -202,6 +192,29 @@ func (r Runner) command(args []string) (*exec.Cmd, error) {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}
 	return cmd, nil
+}
+
+func environmentKey(key string, caseInsensitive bool) string {
+	if caseInsensitive {
+		return strings.ToUpper(key)
+	}
+	return key
+}
+
+func mergeRunnerEnvironment(inherited []string, configured map[string]string, caseInsensitive bool) map[string]string {
+	env := map[string]string{}
+	for _, v := range inherited {
+		k, x, ok := strings.Cut(v, "=")
+		if ok && !strings.HasPrefix(strings.ToUpper(k), "EIGENFLUX_") {
+			env[environmentKey(k, caseInsensitive)] = x
+		}
+	}
+	for k, v := range configured {
+		if !strings.HasPrefix(strings.ToUpper(k), "EIGENFLUX_") {
+			env[environmentKey(k, caseInsensitive)] = v
+		}
+	}
+	return env
 }
 
 type boundedOutput struct {

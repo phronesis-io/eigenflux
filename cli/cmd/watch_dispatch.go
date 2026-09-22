@@ -351,17 +351,11 @@ func (w *accountWatch) dispatchPrompt(ctx context.Context, job dispatch.Job) (st
 	if err != nil {
 		return "", err
 	}
-	args := []string{exe, "--homedir", b.Home, "--server", b.Server, "--format", "json"}
-	switch job.Kind {
-	case "profile_review_due":
-		args = append(args, "profile", "refresh-task")
-	case "maintenance_due":
-		args = append(args, "heartbeat", "plan", "--maintenance-only")
-	case "control_pending":
-		args = append(args, "heartbeat", "plan", "--control-only")
-	default:
-		return "", errors.New("unsupported_dispatch_job") // TODO: delegated-task trigger and handler.
+	taskArgs, err := dispatchTaskArgs(job)
+	if err != nil {
+		return "", err
 	}
+	args := append([]string{exe, "--homedir", b.Home, "--server", b.Server, "--format", "json"}, taskArgs...)
 	raw, err := dispatch.RunCommand(ctx, b, args, "")
 	if err != nil {
 		return "", err
@@ -381,4 +375,21 @@ func (w *accountWatch) dispatchPrompt(ctx context.Context, job dispatch.Job) (st
 		return "", nil
 	}
 	return fmt.Sprintf("%s\nDispatch request: %s. Event data: %s\n", plan.AgentPrompt, job.ID, job.Data), nil
+}
+
+func dispatchTaskArgs(job dispatch.Job) ([]string, error) {
+	switch job.Kind {
+	case "profile_review_due":
+		args := []string{"profile", "refresh-task"}
+		if job.Code == "operator_retry" {
+			args = append(args, "--force")
+		}
+		return args, nil
+	case "maintenance_due":
+		return []string{"heartbeat", "plan", "--maintenance-only"}, nil
+	case "control_pending":
+		return []string{"heartbeat", "plan", "--control-only"}, nil
+	default:
+		return nil, errors.New("unsupported_dispatch_job") // TODO: delegated-task trigger and handler.
+	}
 }
