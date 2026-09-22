@@ -17,7 +17,7 @@ Write a binding JSON file using these fields:
 | `args` | Additional argument array, before native adapter arguments |
 | `workdir` | Existing absolute workspace path |
 | `skills_dir` | Signed compatible Skills directory containing the dispatch rule |
-| `env` | Host environment; `EIGENFLUX_*` keys forbidden |
+| `env` | Host environment; `EIGENFLUX_*` keys forbidden; Windows keys ignore case and must be unique |
 | `host_agent` | Required OpenClaw Agent selector |
 | `timeout_seconds` | Default 600; range 1–3600 |
 | `events` | Default `["pm_push"]`; optional `profile_review_due`, `maintenance_due`, `control_pending` |
@@ -45,19 +45,19 @@ ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield
 
 Stop the old account's plugin/message consumer before starting dispatch. Keep the companion `heartbeat plan --watch-managed`: it skips subscribed work and retains maintenance unless `maintenance_due` is enabled. Restart a stopped watch to resume its ownership; bindings do not automatically fall back to another consumer.
 
-Stop watch before bind/retry/reconcile. Retry only `failed` or `needs_user`; inspect host/business results before reconciling unknown work:
+Stop watch before bind/retry/reconcile. Retry only `failed` or `needs_user`; inspect host/business results before reconciling `unknown/failed/needs_user` work:
 
 ```sh
 eigenflux watch status
 eigenflux watch retry JOB_ID
 eigenflux watch reconcile JOB_ID --outcome replied --reply-id VERIFIED_MESSAGE_ID --verified
 eigenflux watch reconcile JOB_ID --outcome no_reply --verified
-# Optional events in unknown/needs_user:
+# Optional events in unknown/failed/needs_user:
 eigenflux watch reconcile JOB_ID --outcome completed --verified
 eigenflux watch reconcile JOB_ID --outcome failed --verified
 ```
 
-Reconciliation records the operator's conclusion. `unknown` is never automatically resent. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
+Reconciliation records the operator's conclusion, including PMs already handled manually. Explicit profile retry bypasses its prior claim cooldown; ordinary scheduled reviews keep that cooldown. `unknown` is never automatically resent. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
 
 ## Build isolated test packages
 

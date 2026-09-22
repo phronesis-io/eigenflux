@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -250,6 +251,45 @@ func TestRunnerEnvironmentBoundaryAndCurrentCLI(t *testing.T) {
 				t.Fatal("bound host or account routing was not preserved")
 			}
 		})
+	}
+}
+
+func TestRunnerEnvironmentCaseSemantics(t *testing.T) {
+	inherited := []string{"Path=inherited", "OTHER=keep", "EigenFlux_Token=secret"}
+	configured := map[string]string{"PATH": "configured", "eigenflux_token": "also-secret"}
+	for _, windows := range []bool{false, true} {
+		env := mergeRunnerEnvironment(inherited, configured, windows)
+		if env["PATH"] != "configured" || env["OTHER"] != "keep" {
+			t.Fatalf("explicit environment not retained: %#v", env)
+		}
+		if _, found := env["Path"]; found == windows {
+			t.Fatalf("wrong platform case semantics, windows=%v: %#v", windows, env)
+		}
+		for key := range env {
+			if strings.HasPrefix(strings.ToUpper(key), "EIGENFLUX_") {
+				t.Fatal("EigenFlux routing crossed environment boundary")
+			}
+		}
+	}
+
+	// Exercise command wiring with a host variable unrelated to the test runner's PATH.
+	t.Setenv("Ef_Host_Config", "inherited")
+	b := fixtureBinding(t, "command", "echo")
+	b.Env["EF_HOST_CONFIG"] = "configured"
+	cmd, err := (Runner{Binding: b}).command(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, entry := range cmd.Env {
+		key, value, _ := strings.Cut(entry, "=")
+		values[key] = value
+	}
+	if values["EF_HOST_CONFIG"] != "configured" {
+		t.Fatal("configured environment missing")
+	}
+	if _, found := values["Ef_Host_Config"]; found == (runtime.GOOS == "windows") {
+		t.Fatal("command did not apply platform case semantics")
 	}
 }
 
