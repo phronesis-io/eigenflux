@@ -103,15 +103,15 @@ Before modifying any file under `skills/`, read and follow [skills/AGENTS.md](sk
 
 ### Issue tracker
 
-Issues tracked in GitHub Issues (`phronesis-io/eigenflux`) via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues tracked in GitHub Issues (`phronesis-io/eigenflux`) via the `gh` CLI; external PRs are not a triage surface. Follow [Issue Reporting](CONTRIBUTING.md#issue-reporting) for report contents and security reporting.
 
 ### Triage labels
 
-Default label vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+Default label vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix.
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Use [Architecture Overview](docs/architecture_overview.md) for system context and the relevant `docs/dev/` entry in Module Documentation above for area-specific contracts and workflows.
 
 ## Host adapter boundary
 
