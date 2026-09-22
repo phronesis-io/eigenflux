@@ -93,17 +93,11 @@ After each code change, check if documentation needs updating, especially README
 
 ### CLI Agent dispatch: required implementation documentation
 
-Before changing the CLI outer loop or Agent dispatch behavior, read
-[the implementation map](cli/internal/dispatch/README.md). This covers
-`cli/internal/dispatch/`, `cli/cmd/watch*.go`, dispatch ownership in heartbeat
-planning, and the associated Skills and capability contracts.
-
-Every logic change in this scope must update the relevant sections of that
-README in the same change, including internal behavior changes with no public
-API change. Keep entry points, call flow, state transitions, limits, platform
-behavior, and test references accurate. Update `docs/dev/agent-dispatch.md` when
-operator behavior changes, and synchronized Skills when Agent behavior changes.
-Treat a logic change without its implementation-document update as incomplete.
+Read [the implementation map](cli/internal/dispatch/README.md) before changing
+`cli/internal/dispatch/`, `cli/cmd/watch*.go`, heartbeat dispatch ownership, or
+associated Skills/capability logic. Update its affected sections in the same
+change; missing documentation makes the change incomplete. Update the operator
+guide and synchronized Skills when their respective behavior changes.
 
 ## Code Cleanup
 
