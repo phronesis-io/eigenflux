@@ -4,13 +4,28 @@ package dispatch
 
 import (
 	"errors"
+	"fmt"
 	"golang.org/x/sys/windows"
 	"os/exec"
+	"strings"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 )
 
 type processGuard struct{ job windows.Handle }
+
+func validateCommandLine(cmd *exec.Cmd) error {
+	args := make([]string, len(cmd.Args))
+	for i, arg := range cmd.Args {
+		args[i] = syscall.EscapeArg(arg)
+	}
+	// CreateProcessW allows 32767 UTF-16 units including the terminating NUL.
+	if len(utf16.Encode([]rune(strings.Join(args, " ")))) >= 32767 {
+		return fmt.Errorf("%w: %w; use ACP or a command entry with stdin", ErrNeedsUser, ErrCommandLineTooLong)
+	}
+	return nil
+}
 
 func startManaged(cmd *exec.Cmd) (*processGuard, error) {
 	job, err := windows.CreateJobObject(nil, nil)

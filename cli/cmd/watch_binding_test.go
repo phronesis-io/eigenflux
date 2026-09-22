@@ -234,3 +234,57 @@ func TestWatchBindingOwnershipRemovesOnlyEnabledStages(t *testing.T) {
 		}
 	})
 }
+
+func TestWatchBindingReconcileOptionalEvent(t *testing.T) {
+	for _, source := range []string{"running", "needs_user"} {
+		for _, outcome := range []string{"completed", "failed"} {
+			t.Run(source+"/"+outcome, func(t *testing.T) {
+				f := newDispatchWatchFixture(t, "")
+				b := *f.watch.binding
+				b.Events = append(b.Events, "maintenance_due")
+				if err := dispatch.WriteJSON(dispatch.BindingPath(b.Home, b.Server), b); err != nil {
+					t.Fatal(err)
+				}
+				q, err := dispatch.OpenJournal(b)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = q.AddHint("maintenance_due", json.RawMessage(`{}`)); err != nil {
+					t.Fatal(err)
+				}
+				job, ok, err := q.Next()
+				if err != nil || !ok {
+					t.Fatalf("next: %v %v", ok, err)
+				}
+				if source == "needs_user" {
+					if err = q.Update(job.ID, source, "business_unconfirmed", "", ""); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cmd, out := bindingTestCommand()
+				cmd.Flags().Bool("verified", false, "")
+				cmd.Flags().String("outcome", outcome, "")
+				cmd.Flags().String("reply-id", "", "")
+				if err = watchReconcileCmd.RunE(cmd, []string{job.ID}); err == nil {
+					t.Fatal("reconciliation did not require verification")
+				}
+				if err = cmd.Flags().Set("verified", "true"); err != nil {
+					t.Fatal(err)
+				}
+				if err = watchReconcileCmd.RunE(cmd, []string{job.ID}); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(out.String(), `"status":"`+outcome+`"`) {
+					t.Fatalf("wrong reconciliation: %s", out)
+				}
+				q, err = dispatch.OpenJournal(b)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok, err = q.Next(); ok || err != nil {
+					t.Fatalf("reconciliation scheduled automatic retry: %v %v", ok, err)
+				}
+			})
+		}
+	}
+}

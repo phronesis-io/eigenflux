@@ -119,6 +119,13 @@ func init() {
 		if err != nil {
 			return err
 		}
+		ownership := heartbeatPlan{}
+		if err := applyDispatchOwnership(&ownership); err != nil {
+			return err
+		}
+		if len(ownership.DispatchOwned) > 0 {
+			launcher += " --watch-managed"
+		}
 		p, err := heartbeatmigration.Build(in, home, server, launcher)
 		if err != nil {
 			return err

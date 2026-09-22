@@ -43,9 +43,16 @@ func (w *accountWatch) enableDispatch() error {
 	return nil
 }
 
+func (w *accountWatch) receivesPM() bool {
+	return w.binding == nil || w.binding.Handles("pm_push")
+}
+
 // The one-minute poll complements the socket, including when a proxy silently
 // loses push notifications. Both paths enter the same durable deduplication set.
 func (w *accountWatch) pmFallbackLoop(ctx context.Context) error {
+	if !w.receivesPM() {
+		return nil
+	}
 	for watchPause(ctx, time.Minute) {
 		if err := w.pollPM(ctx); err != nil {
 			if fatal := w.diagnostic("pm_poll", err); fatal != nil {
@@ -57,6 +64,9 @@ func (w *accountWatch) pmFallbackLoop(ctx context.Context) error {
 }
 
 func (w *accountWatch) pollPM(ctx context.Context) error {
+	if !w.receivesPM() {
+		return nil
+	}
 	cursor := ""
 	for page := 0; page < 32; page++ {
 		if w.journal != nil && !w.journal.HasCapacity() {
@@ -210,6 +220,9 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		if errors.Is(runErr, dispatch.ErrNeedsUser) {
 			status, code = "needs_user", "agent_permission_required"
 		}
+		if errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
+			status, code = "needs_user", "windows_command_line_too_long"
+		}
 		return w.finishDispatch(job, status, code, result.SessionID, "")
 	}
 	if err = w.dispatchIdentityOK(); err != nil {
@@ -219,14 +232,7 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		return err
 	}
 	if job.Kind != "pm_push" {
-		status, code := "accepted", "agent_completed_business_unconfirmed"
-		if job.Kind == "profile_review_due" {
-			state := profilestate.Load(w.home, w.server.Name, w.identity.AgentID)
-			if maxInt64(state.LastCheckedUnix, state.LastRefreshUnix) >= started {
-				status, code = "completed", "profile_state_confirmed"
-			}
-		}
-		return w.finishDispatch(job, status, code, result.SessionID, "")
+		return w.finishOptionalDispatch(job, started, result.SessionID)
 	}
 	decision, err := dispatch.ParseDecision(result.Text, job.ID)
 	if err != nil {
@@ -239,6 +245,19 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		return w.finishDispatch(job, "failed", "invalid_reply_content", result.SessionID, "")
 	}
 	return w.sendDispatchReply(parent, job, decision.ReplyText, result.SessionID)
+}
+
+func (w *accountWatch) finishOptionalDispatch(job dispatch.Job, started int64, session string) error {
+	// A successful Agent process is not a business receipt. Keep unverified work
+	// recoverable by explicit retry or operator reconciliation.
+	status, code := "needs_user", "agent_completed_business_unconfirmed"
+	if job.Kind == "profile_review_due" {
+		state := profilestate.Load(w.home, w.server.Name, w.identity.AgentID)
+		if maxInt64(state.LastCheckedUnix, state.LastRefreshUnix) >= started {
+			status, code = "completed", "profile_state_confirmed"
+		}
+	}
+	return w.finishDispatch(job, status, code, session, "")
 }
 
 func (w *accountWatch) sendDispatchReply(ctx context.Context, job dispatch.Job, text, session string) error {
