@@ -48,6 +48,7 @@ Read the relevant module doc before modifying that area:
 | `configuration.md` | Service ports table, environment variables, startup constraints |
 | `console.md` | Console build/start, directory structure, API endpoints, frontend dev |
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
+| `agent-dispatch.md` | Local Agent binding, dispatch operation, packaging, and manual acceptance; implementation map in `cli/internal/dispatch/README.md` |
 | `infra.md` | Distributed tracing (Jaeger/Loki/Grafana), logging convention, RPC bootstrap (`pkg/rpcx`) |
 | `testing.md` | Test directories, run commands, manual email integration |
 | `sort.md` | Sort service responsibilities, item recall, ranking, reranking, and feed ordering |
@@ -89,6 +90,20 @@ After each code change, add or modify test cases. Run build and e2e tests to ens
 ## Documentation Updates
 
 After each code change, check if documentation needs updating, especially README.md and CLAUDE.md (including module docs under `docs/dev/`). Use clear and explicit language describing the current latest state. No process descriptions needed — git history can be queried.
+
+### CLI Agent dispatch: required implementation documentation
+
+Before changing the CLI outer loop or Agent dispatch behavior, read
+[the implementation map](cli/internal/dispatch/README.md). This covers
+`cli/internal/dispatch/`, `cli/cmd/watch*.go`, dispatch ownership in heartbeat
+planning, and the associated Skills and capability contracts.
+
+Every logic change in this scope must update the relevant sections of that
+README in the same change, including internal behavior changes with no public
+API change. Keep entry points, call flow, state transitions, limits, platform
+behavior, and test references accurate. Update `docs/dev/agent-dispatch.md` when
+operator behavior changes, and synchronized Skills when Agent behavior changes.
+Treat a logic change without its implementation-document update as incomplete.
 
 ## Code Cleanup
 

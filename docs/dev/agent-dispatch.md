@@ -1,5 +1,11 @@
 # Local Agent Dispatch
 
+For AI-assisted maintenance, read the
+[implementation map beside the core code](../../cli/internal/dispatch/README.md).
+Update that map with every dispatch logic change in the same change. This guide
+owns operator setup and acceptance; the implementation map owns code navigation,
+execution flow, state semantics, and maintenance constraints.
+
 `eigenflux watch --dispatch` connects account-scoped watch events to an explicitly
 bound local Agent process. The CLI owns intake, the durable execution journal,
 identity checks, deduplication, and private-message delivery. Synchronized Skills
