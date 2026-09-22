@@ -85,7 +85,7 @@ func TestArguments(t *testing.T) {
 	}{
 		{"codex", []string{"fixed", "exec", "--json", "resume", "session-1", "-"}, req.Prompt},
 		{"claude-code", []string{"fixed", "--print", "--output-format", "json", "--resume", "session-1"}, req.Prompt},
-		{"openclaw", []string{"fixed", "agent", "--agent", "bound", "--json", "--session-id", "session-1", "--message", req.Prompt}, ""},
+		{"openclaw", []string{"fixed", "agent", "--local", "--agent", "bound", "--json", "--session-id", "session-1", "--message", req.Prompt}, ""},
 		{"hermes", []string{"fixed", "chat", "--quiet", "--resume", "session-1", "-q", req.Prompt}, ""},
 	}
 	for _, tc := range cases {
@@ -109,8 +109,13 @@ func TestNativeResults(t *testing.T) {
 		{"claude-code", `{"type":"result","subtype":"success","is_error":false,"result":"answer","session_id":"c2"}`, "answer", "c2", false},
 		{"claude-code", `{"type":"result","subtype":"success","is_error":true,"result":"API error"}`, "", "", true},
 		{"claude-code", `{"type":"result","subtype":"success","permission_denials":[{}],"result":"answer"}`, "", "", true},
-		{"openclaw", `{"status":"ok","runId":"r1","result":{"payloads":[{"text":"answer"}],"meta":{"agentMeta":{"sessionId":"o1"}}}}`, "answer", "o1", false},
+		{"openclaw", `{"payloads":[{"text":"answer"}],"meta":{"agentMeta":{"sessionId":"o1"}}}`, "answer", "o1", false},
 		{"openclaw", `{"status":"accepted","runId":"r1","result":{"payloads":[{"text":"not final"}]}}`, "", "", true},
+		{"openclaw", `{"payloads":[{"text":"partial"}],"meta":{"aborted":true,"agentMeta":{"sessionId":"o1"}}}`, "", "", true},
+		{"openclaw", `{"payloads":[{"text":"partial"}],"meta":{"yielded":true,"agentMeta":{"sessionId":"o1"}}}`, "", "", true},
+		{"openclaw", `{"payloads":[{"text":"failure","isError":true}],"meta":{"agentMeta":{"sessionId":"o1"}}}`, "", "", true},
+		{"openclaw", `{"payloads":[{"text":"failure"}],"meta":{"error":{"message":"failed"},"agentMeta":{"sessionId":"o1"}}}`, "", "", true},
+		{"openclaw", `{"payloads":[{"text":"answer"}],"meta":{}}`, "", "", true},
 		{"hermes", "answer\n", "answer", "h1", false},
 	}
 	for i, tc := range cases {
@@ -123,6 +128,25 @@ func TestNativeResults(t *testing.T) {
 				t.Fatalf("result %#v", got)
 			}
 		})
+	}
+}
+
+func TestOpenClawNewSessionsAreExplicitAndDistinct(t *testing.T) {
+	r := Runner{Binding: Binding{Mode: "native", Host: "openclaw", HostAgent: "bound"}}
+	sessions := map[string]bool{}
+	for range 2 {
+		args, _, err := r.arguments(Request{Prompt: "message"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(args) != 9 || !reflect.DeepEqual(args[:6], []string{"agent", "--local", "--agent", "bound", "--json", "--session-id"}) {
+			t.Fatalf("must use owned local execution and an explicit session: %q", args)
+		}
+		id := args[6]
+		if len(id) != 36 || id[14] != '4' || sessions[id] {
+			t.Fatalf("missing unique conversation session: %q", id)
+		}
+		sessions[id] = true
 	}
 }
 func TestCommandIsolationAndFailures(t *testing.T) {

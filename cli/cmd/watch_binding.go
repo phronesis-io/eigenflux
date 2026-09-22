@@ -228,11 +228,11 @@ var watchRetryCmd = &cobra.Command{
 }
 
 var watchReconcileCmd = &cobra.Command{
-	Use: "reconcile JOB_ID", Short: "Record an operator-verified outcome for an unknown private-message job", Args: cobra.ExactArgs(1),
+	Use: "reconcile JOB_ID", Short: "Record an operator-verified outcome for unknown work or an optional event needing review", Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		verified, _ := cmd.Flags().GetBool("verified")
 		if !verified {
-			return errors.New("inspect the conversation and Agent execution first, then pass --verified")
+			return errors.New("inspect the Agent execution and business outcome first, then pass --verified; failed confirms optional work did not complete and may be retried")
 		}
 		expected, err := watchBindingIdentity()
 		if err != nil {
@@ -254,15 +254,6 @@ var watchReconcileCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		found := false
-		for _, j := range q.Snapshot() {
-			if j.ID == args[0] && j.Kind == "pm_push" {
-				found = true
-			}
-		}
-		if !found {
-			return errors.New("private-message job not found")
-		}
 		action, _ := cmd.Flags().GetString("outcome")
 		reply, _ := cmd.Flags().GetString("reply-id")
 		if err = q.Reconcile(args[0], action, reply); err != nil {
@@ -275,8 +266,8 @@ var watchReconcileCmd = &cobra.Command{
 func init() {
 	watchCmd.Flags().Bool("dispatch", false, "Execute events using this account's local Agent binding (replaces plugin consumption)")
 	watchBindCmd.Flags().String("config", "", "local Agent binding JSON file; identity is pinned from this account")
-	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected the conversation and Agent execution")
-	watchReconcileCmd.Flags().String("outcome", "", "verified outcome: replied or no_reply")
+	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected Agent execution and the business outcome")
+	watchReconcileCmd.Flags().String("outcome", "", "verified outcome: PM replied/no_reply; optional event completed/failed (confirmed incomplete, explicit retry allowed)")
 	watchReconcileCmd.Flags().String("reply-id", "", "confirmed server message ID; required for replied")
 	watchCmd.AddCommand(watchBindCmd, watchStatusCmd, watchDoctorCmd, watchRetryCmd, watchReconcileCmd)
 }

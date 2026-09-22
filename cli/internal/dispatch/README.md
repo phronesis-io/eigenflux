@@ -22,7 +22,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 ## PM flow and invariants
 
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
-2. WS and minute-spaced HTTP polls enter `deliverPM`; each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
+2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
 4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Reuse sessions only within their binding and conversation.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
@@ -37,29 +37,31 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | `pending` → `running` → `sending` | Persist before execution and before POST; recover interrupted `running`/`sending` as `unknown` |
 | `replied`, `no_reply` | Confirmed receipt/Agent decision, or explicit operator reconciliation |
 | `failed`, `needs_user` | Preflight/decision failure or permission/input required; explicit retry allowed |
-| `unknown` | Uncertain execution/send; ordinary retry forbidden; operator-verified PM reconciliation only |
-| `completed`, `accepted` | Optional event not due/profile stamp confirmed; or Agent finished but business completion unverified |
+| `unknown` | Uncertain execution/send; ordinary retry forbidden; operator-verified reconciliation only; PM: `replied/no_reply`; optional event: `completed/failed` |
+| `completed`, `accepted` | Optional event not due/profile stamp confirmed/operator verified; `accepted` is a legacy unverified terminal state |
+
+Unverified optional-event results remain `needs_user`; they allow verified reconciliation or explicit retry. Reconciliation to `failed` requires confirmation that work did not complete; it never queues a retry.
 
 `OpenJournal` recovers state; `ReadJournalStatus` is read-only. Persist before changing memory; roll back failed saves. Rebinding rejects unresolved jobs. Stop watch before binding/retry/reconcile; they share its lock.
 
-Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (including `accepted`); binding 64 KiB; prompt/output 1 MiB; rule/history each 64 KiB; timeout 600s by default, configurable 1–3600s. Deduplication covers retained jobs. Status omits message content and event data.
+Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (including `accepted`); binding 64 KiB; prompt/output 1 MiB; rule/history each 64 KiB; timeout 600s by default, configurable 1–3600s. Completed jobs drop message content/event data on save, including legacy records; deduplication keys and receipts remain. Status omits payloads.
 
 ## Runners and ownership
 
-- Native: Codex exec, Claude Code print, explicit OpenClaw `host_agent`, Hermes quiet chat. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter.
+- Native: Codex exec, Claude Code print, OpenClaw `--local` with fixed `host_agent` and a fresh UUID session for first use, Hermes quiet chat. OpenClaw local JSON is parsed directly; aborted/yielded/error results fail. An active Gateway sharing its state directory must be stopped or isolated. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter; oversized command lines yield `needs_user` before launch (use ACP/command stdin).
 - ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.
 - Strip inherited `EIGENFLUX_*`; rebuild bound Home/server/host/Skills. Only `RunCommand` targeting the verified current CLI may retain the CDN URL. Never copy ambient EigenFlux tokens/model/mode. Host authentication remains host-owned.
 - Default event: `pm_push`. Optional profile/maintenance/control events reuse `profile refresh-task`, maintenance-only/control-only heartbeat plans. Control hints deduplicate by command ID; unresolved periodic hints coalesce.
-- Companion `heartbeat plan --watch-managed` skips subscribed work. PM-only bindings retain heartbeat maintenance. Persisted bindings keep ownership while watch is stopped; stop competing plugin consumers before handoff.
+- Companion `heartbeat plan --watch-managed` skips subscribed work; scheduler migration preserves this flag for a bound account. PM-only bindings retain heartbeat maintenance. Persisted bindings keep ownership while watch is stopped; stop competing plugin consumers before handoff.
 
 ## Regression map
 
 | Area | Tests |
 |---|---|
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
-| Host / ACP / cancellation | `runner_test.go`, `acp_test.go` |
+| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
-| Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/capability_registry_contract_test.go` |
+| Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
 

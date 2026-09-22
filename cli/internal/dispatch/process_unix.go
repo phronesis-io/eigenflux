@@ -9,6 +9,8 @@ import (
 
 type processGuard struct{ cmd *exec.Cmd }
 
+func validateCommandLine(cmd *exec.Cmd) error { return nil }
+
 func startManaged(cmd *exec.Cmd) (*processGuard, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {

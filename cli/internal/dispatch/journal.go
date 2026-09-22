@@ -97,7 +97,7 @@ func readJournal(b Binding) (journalState, bool, error) {
 				return journalState{}, false, errors.New("invalid_journal_message")
 			}
 		case "control_pending", "profile_review_due", "maintenance_due":
-			if job.Message != nil || !json.Valid(job.Data) {
+			if job.Message != nil || (!json.Valid(job.Data) && !(completedStatus(job.Status) && len(job.Data) == 0)) {
 				return journalState{}, false, errors.New("invalid_journal_hint")
 			}
 		default:
@@ -146,6 +146,18 @@ func ReadJournalStatus(b Binding) ([]Job, error) {
 }
 
 func (j *Journal) save(next journalState) error {
+	// Clone before compacting: completed messages may still share pointers with
+	// current state, which must remain unchanged if persistence fails.
+	next = cloneJournal(next)
+	for i := range next.Jobs {
+		if completedStatus(next.Jobs[i].Status) {
+			next.Jobs[i] = cloneJob(next.Jobs[i])
+			next.Jobs[i].Data = nil
+			if next.Jobs[i].Message != nil {
+				next.Jobs[i].Message.Content = ""
+			}
+		}
+	}
 	trimCompleted(&next)
 	if unresolvedCount(next) > journalMaxPending {
 		return errors.New("journal_capacity_exceeded")
@@ -504,7 +516,7 @@ func (j *Journal) Retry(id string) error {
 // Reconcile records the operator's verified outcome. Callers must obtain explicit
 // evidence before using this method; unknown jobs are never automatically retried.
 func (j *Journal) Reconcile(id, action, replyID string) error {
-	if (action != "no_reply" && action != "replied") || (action == "replied" && replyID == "") || (action == "no_reply" && replyID != "") {
+	if (action != "no_reply" && action != "replied" && action != "completed" && action != "failed") || (action == "replied" && replyID == "") || (action != "replied" && replyID != "") {
 		return errors.New("invalid_reconciliation")
 	}
 	j.mu.Lock()
@@ -515,13 +527,18 @@ func (j *Journal) Reconcile(id, action, replyID string) error {
 		if job.ID != id {
 			continue
 		}
-		if job.Status != "unknown" {
-			return errors.New("job_not_unknown")
+		if job.Status != "unknown" && !(job.Kind != "pm_push" && job.Status == "needs_user") {
+			return errors.New("job_not_reconcilable")
+		}
+		if (job.Kind == "pm_push") != (action == "no_reply" || action == "replied") {
+			return errors.New("reconciliation_outcome_does_not_match_job_kind")
 		}
 		job.Status = action
 		job.Code = "operator_verified"
 		job.ReplyID = replyID
-		moveCompletedLast(&next, i)
+		if completedStatus(action) {
+			moveCompletedLast(&next, i)
+		}
 		return j.save(next)
 	}
 	return errors.New("job_not_found")

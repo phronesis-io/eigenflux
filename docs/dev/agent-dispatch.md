@@ -39,22 +39,25 @@ eigenflux watch --dispatch
 
 `doctor` checks configuration only; `status` shows redacted execution state. Neither proves live Agent execution. CLI checks fresh `auto_reply_pm` before invoking the Agent and before sending; disabled permission yields `needs_user`.
 
-ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield `needs_user`. Command mode reads the prompt from stdin and returns the [decision contract](../../skills/ef-communication/references/dispatch.md) on stdout. Use fixed argv, not a shell string. Windows `.cmd`, `.bat`, `.ps1` executables require an explicit interpreter/entry point.
+ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield `needs_user`. Command mode reads the prompt from stdin and returns the [decision contract](../../skills/ef-communication/references/dispatch.md) on stdout. Use fixed argv, not a shell string. Windows `.cmd`, `.bat`, `.ps1` executables require an explicit interpreter/entry point. Oversized native command lines yield `needs_user`; use ACP/command stdin for large prompts. OpenClaw uses `--local` with isolated sessions: stop the Gateway sharing its state directory or configure a separate local state directory. If an earlier dispatch build used OpenClaw, resolve outstanding jobs and rebind before restarting to discard shared main-session references.
 
 ## Ownership and recovery
 
 Stop the old account's plugin/message consumer before starting dispatch. Keep the companion `heartbeat plan --watch-managed`: it skips subscribed work and retains maintenance unless `maintenance_due` is enabled. Restart a stopped watch to resume its ownership; bindings do not automatically fall back to another consumer.
 
-Stop watch before bind/retry/reconcile. Retry only `failed` or `needs_user`; inspect conversation and host results before reconciling an unknown PM:
+Stop watch before bind/retry/reconcile. Retry only `failed` or `needs_user`; inspect host/business results before reconciling unknown work:
 
 ```sh
 eigenflux watch status
 eigenflux watch retry JOB_ID
 eigenflux watch reconcile JOB_ID --outcome replied --reply-id VERIFIED_MESSAGE_ID --verified
 eigenflux watch reconcile JOB_ID --outcome no_reply --verified
+# Optional events in unknown/needs_user:
+eigenflux watch reconcile JOB_ID --outcome completed --verified
+eigenflux watch reconcile JOB_ID --outcome failed --verified
 ```
 
-Reconciliation records the operator's conclusion. `unknown` is never automatically resent. Optional-event `accepted` means the Agent finished, not that business completion was verified.
+Reconciliation records the operator's conclusion. `unknown` is never automatically resent. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
 
 ## Build isolated test packages
 
@@ -88,7 +91,7 @@ For each OS/host, record version, account, workspace, message/session IDs and re
 3. Two accounts stay isolated; switching during history/model work prevents the old reply.
 4. Permission revocation, denied host permission and send timeout yield `needs_user`/`unknown`, without automatic resend.
 5. Restart/retry/reconcile preserve recorded outcomes; test spaces in paths, missing executables, workspace permissions, descendant cancellation and Windows shims.
-6. Explicit profile/control/maintenance subscriptions produce the actual Card/command/receipt; `accepted` alone fails acceptance.
+6. Explicit profile/control/maintenance subscriptions produce the actual Card/command/receipt; process exit alone fails acceptance. Check migration preserves `--watch-managed` and non-PM bindings leave messages unread.
 
 Server fetch marks messages read before local persistence: crashes/write failures in that window can lose jobs. Exactly-once/lossless delivery is not guaranteed.
 

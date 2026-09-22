@@ -430,3 +430,124 @@ func TestJournalSizeLimitAndReconcileRollback(t *testing.T) {
 		t.Fatal("reconcile failed to roll back")
 	}
 }
+
+func TestJournalCompactsCompletedPayloadsAndKeepsDeduplication(t *testing.T) {
+	b := journalBinding(t)
+	j := mustJournal(t, b)
+	// Legacy completed rows must be compacted before the byte limit is checked.
+	legacy := cloneJournal(j.state)
+	for i := 0; i < 800; i++ {
+		m := &Message{ID: fmt.Sprint(i), Conversation: "c", Sender: "peer", Receiver: "self", Content: strings.Repeat("x", 20<<10)}
+		legacy.Jobs = append(legacy.Jobs, Job{ID: journalID(b.Scope, b.Revision, m.Conversation, m.ID), Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: m, Status: "no_reply"})
+	}
+	if err := WriteJSON(j.path, legacy); err != nil {
+		t.Fatal(err)
+	}
+	j = mustJournal(t, b)
+	newMessage := Message{ID: "fresh", Conversation: "new", Sender: "peer", Receiver: "self", Content: strings.Repeat("y", 64<<10)}
+	raw, _ := json.Marshal(map[string]any{"messages": []Message{newMessage}})
+	if err := j.AddMessages(raw); err != nil {
+		t.Fatalf("completed bodies blocked intake: %v", err)
+	}
+	if len(j.state.Jobs) != 801 || j.state.Jobs[0].Message.Content != "" {
+		t.Fatal("compaction must preserve completed deduplication keys")
+	}
+	job := mustNext(t, j)
+	if job.Message.Content != newMessage.Content {
+		t.Fatal("pending payload was lost")
+	}
+	if err := j.Update(job.ID, "replied", "", "session", "receipt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.AddHint("control_pending", json.RawMessage(`{"command_ids":["control"],"context":"private"}`)); err != nil {
+		t.Fatal(err)
+	}
+	hint := mustNext(t, j)
+	if err := j.Update(hint.ID, "accepted", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	j = mustJournal(t, b)
+	if j.Session("new") != "session" {
+		t.Fatal("compaction lost conversation session")
+	}
+	for _, saved := range j.state.Jobs {
+		if saved.Message != nil && saved.Message.Content != "" || len(saved.Data) != 0 {
+			t.Fatal("completed payload retained")
+		}
+		if saved.ID == job.ID && saved.ReplyID != "receipt" {
+			t.Fatal("compaction lost reply receipt")
+		}
+	}
+	if err := j.AddMessages(raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := j.Next(); ok || err != nil {
+		t.Fatalf("compaction caused duplicate execution: %v %v", ok, err)
+	}
+}
+
+func TestJournalCompactionFailurePreservesMemory(t *testing.T) {
+	j := mustJournal(t, journalBinding(t))
+	mustAdd(t, j, "legacy")
+	job := mustNext(t, j)
+	// Simulate a legacy completed payload still held by the in-memory snapshot.
+	j.state.Jobs[0].Status = "no_reply"
+	j.path = filepath.Join(j.path, "blocked")
+	before := j.state.Jobs[0].Message.Content
+	if err := j.AddMessages(inboundBatch("new")); err == nil {
+		t.Fatal("expected disk failure")
+	}
+	if j.state.Jobs[0].Message.Content != before || len(j.state.Jobs) != 1 || j.state.Jobs[0].ID != job.ID {
+		t.Fatal("failed compaction mutated shared state")
+	}
+}
+
+func TestJournalReconcileOptionalCrashRequiresExplicitOutcome(t *testing.T) {
+	for _, kind := range []string{"control_pending", "profile_review_due", "maintenance_due"} {
+		for _, outcome := range []string{"completed", "failed"} {
+			t.Run(kind+"/"+outcome, func(t *testing.T) {
+				b := journalBinding(t)
+				j := mustJournal(t, b)
+				if err := j.AddHint(kind, json.RawMessage(`{"command_ids":["command"]}`)); err != nil {
+					t.Fatal(err)
+				}
+				job := mustNext(t, j)
+				j = mustJournal(t, b)
+				if err := j.Retry(job.ID); err == nil {
+					t.Fatal("unknown retried without reconciliation")
+				}
+				if err := j.Reconcile(job.ID, "no_reply", ""); err == nil {
+					t.Fatal("optional event accepted PM outcome")
+				}
+				if err := j.Reconcile(job.ID, outcome, ""); err != nil {
+					t.Fatal(err)
+				}
+				j = mustJournal(t, b)
+				if _, ok, err := j.Next(); ok || err != nil {
+					t.Fatalf("reconciliation automatically reran work: %v %v", ok, err)
+				}
+				if err := j.Retry(job.ID); outcome == "failed" {
+					if err != nil {
+						t.Fatal(err)
+					}
+					if next := mustNext(t, j); next.ID != job.ID || !json.Valid(next.Data) {
+						t.Fatal("explicit retry lost optional event payload")
+					}
+				} else if err == nil {
+					t.Fatal("completed optional event retried")
+				}
+			})
+		}
+	}
+	j := mustJournal(t, journalBinding(t))
+	mustAdd(t, j, "pm")
+	job := mustNext(t, j)
+	if err := j.Update(job.ID, "unknown", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"completed", "failed"} {
+		if err := j.Reconcile(job.ID, action, ""); err == nil {
+			t.Fatal("PM accepted optional event outcome")
+		}
+	}
+}

@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +21,7 @@ import (
 const maxRunnerOutput = 1 << 20
 
 var ErrNeedsUser = errors.New("needs_user")
+var ErrCommandLineTooLong = errors.New("windows_command_line_too_long")
 var errOutputLimit = errors.New("runner_output_too_large")
 
 type Runner struct {
@@ -118,10 +121,19 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 		if r.Binding.HostAgent == "" {
 			return nil, "", errors.New("openclaw_agent_required")
 		}
-		args = append(args, "agent", "--agent", r.Binding.HostAgent, "--json")
-		if req.SessionID != "" {
-			args = append(args, "--session-id", req.SessionID)
+		session := req.SessionID
+		if session == "" {
+			var id [16]byte
+			if _, err := rand.Read(id[:]); err != nil {
+				return nil, "", err
+			}
+			id[6] = (id[6] & 0x0f) | 0x40
+			id[8] = (id[8] & 0x3f) | 0x80
+			session = fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
 		}
+		// A gateway run outlives this process tree. Local execution and an explicit
+		// session keep cancellation and conversation state owned by this invocation.
+		args = append(args, "agent", "--local", "--agent", r.Binding.HostAgent, "--json", "--session-id", session)
 		args = append(args, "--message", req.Prompt)
 		return args, "", nil
 	case "hermes":
@@ -147,6 +159,9 @@ func (r Runner) command(args []string) (*exec.Cmd, error) {
 	}
 	full := append(append([]string{}, r.Binding.Command[1:]...), args...)
 	cmd := exec.Command(executable, full...)
+	if err := validateCommandLine(cmd); err != nil {
+		return nil, err
+	}
 	resolvedExt := strings.ToLower(filepath.Ext(cmd.Path))
 	if resolvedExt == ".cmd" || resolvedExt == ".bat" {
 		return nil, errors.New("npm_shim_requires_explicit_node_executable_and_script")
@@ -277,36 +292,38 @@ func parseNative(host string, data, stderr []byte) (Result, error) {
 		result.SessionID = v.SessionID
 	case "openclaw":
 		type payload struct {
-			Text string `json:"text"`
+			Text    string `json:"text"`
+			IsError bool   `json:"isError"`
 		}
 		type body struct {
 			Payloads []payload `json:"payloads"`
 			Meta     struct {
+				Aborted   bool            `json:"aborted"`
+				Yielded   bool            `json:"yielded"`
+				Error     json.RawMessage `json:"error"`
 				AgentMeta struct {
 					SessionID string `json:"sessionId"`
 				} `json:"agentMeta"`
 			} `json:"meta"`
 		}
-		var v struct {
-			Status string `json:"status"`
-			RunID  string `json:"runId"`
-			Result body   `json:"result"`
-		}
+		var v body
 		if json.Unmarshal(data, &v) != nil {
 			return result, errors.New("invalid_native_result")
 		}
-		if v.Status != "ok" && v.Status != "completed" {
+		if v.Meta.Aborted || v.Meta.Yielded || (len(v.Meta.Error) > 0 && string(v.Meta.Error) != "null") || v.Meta.AgentMeta.SessionID == "" {
 			return result, errors.New("native_agent_failed")
 		}
 		var texts []string
-		for _, p := range v.Result.Payloads {
+		for _, p := range v.Payloads {
+			if p.IsError {
+				return Result{}, errors.New("native_agent_failed")
+			}
 			if p.Text != "" {
 				texts = append(texts, p.Text)
 			}
 		}
 		result.Text = strings.Join(texts, "\n")
-		result.SessionID = v.Result.Meta.AgentMeta.SessionID
-		result.RunID = v.RunID
+		result.SessionID = v.Meta.AgentMeta.SessionID
 	case "hermes":
 		result.Text = strings.TrimSpace(string(data))
 		// Hermes quiet mode emits only the final response to stdout and this metadata to stderr.

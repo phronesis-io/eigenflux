@@ -211,7 +211,7 @@ func (w *accountWatch) runtimeData() map[string]interface{} {
 	return map[string]interface{}{"cli_version": version, "home": w.home, "server": w.server.Name, "agent_id": w.identity.AgentID, "principal_id": w.identity.PrincipalID, "pm_connected": w.wsOnline.Load(), "runtime_connected": w.runtimeOnline.Load()}
 }
 func (w *accountWatch) reportReady() {
-	if w.wsOnline.Load() && w.runtimeOnline.Load() && w.ready.CompareAndSwap(false, true) {
+	if (!w.receivesPM() || w.wsOnline.Load()) && w.runtimeOnline.Load() && w.ready.CompareAndSwap(false, true) {
 		_ = w.emit("runtime_ready", w.runtimeData())
 		if w.adopted.CompareAndSwap(false, true) {
 			event := maintenance.NewEvent(maintenance.NewID(), "cli", "adoption", "adoption", "runtime_ready")
@@ -278,6 +278,9 @@ func (w *accountWatch) diagnostic(area string, err error) error {
 // Reuse stream's refresh/handshake classification and cursor wire format. The
 // watch transport adds cancellation and a bounded event sink, not a subprocess.
 func (w *accountWatch) pmLoop(ctx context.Context) error {
+	if !w.receivesPM() {
+		return nil
+	}
 	cursor := ""
 	backoff := reconnectMin
 	for ctx.Err() == nil {
