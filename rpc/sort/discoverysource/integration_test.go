@@ -175,7 +175,12 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 	if err = db.Exec("INSERT INTO user_relations(from_uid,to_uid,rel_type,created_at) VALUES(?,?,2,?)", owner, author, now).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err = serve.Serve(ctx, owner, request, discovery.Search, "integration"); err == nil {
-		t.Fatal("blocked cached result replayed")
+	cached, err := serve.Serve(ctx, owner, request, discovery.Search, "integration")
+	if err != nil || cached.ImpressionID != response.ImpressionID || len(cached.Items) != 3 {
+		t.Fatal("frozen cache retry", cached, err)
+	}
+	fresh, err := serve.Serve(ctx, owner, request, discovery.Search, "fresh-after-block")
+	if err != nil || len(fresh.Items) != 0 {
+		t.Fatal("new request ignored current block", fresh, err)
 	}
 }

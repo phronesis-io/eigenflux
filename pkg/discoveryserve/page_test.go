@@ -10,12 +10,7 @@ import (
 	"eigenflux_server/pkg/replaylog"
 )
 
-func (e *executor) RefreshPage(ctx context.Context, owner int64, x discovery.Execution, now int64) (discovery.Execution, error) {
-	x.Mode = discovery.Recommendation
-	return x, e.Revalidate(ctx, owner, x, now)
-}
-
-func TestLegacyPagesCommitOnlyDeliveredRows(t *testing.T) {
+func TestLegacyPagesRecordOnlyDeliveredRows(t *testing.T) {
 	s, e, r := setup(t)
 	ctx := context.Background()
 	base := e.x.Candidates[0]
@@ -39,6 +34,7 @@ func TestLegacyPagesCommitOnlyDeliveredRows(t *testing.T) {
 		if out.ImpressionID != impression {
 			t.Fatal("impression changed across pages")
 		}
+		await(t, func() bool { return r.XLen(ctx, replaylog.StreamName).Val() == int64(pos+1) })
 		rows, err := r.XRange(ctx, replaylog.StreamName, "-", "+").Result()
 		if err != nil || len(rows) != pos+1 {
 			t.Fatalf("prefetched sample recorded: %d %v", len(rows), err)
@@ -68,17 +64,63 @@ func TestLegacyPagePreparationFailureDoesNotAdvance(t *testing.T) {
 		t.Fatal("failed page was committed")
 	}
 }
-func TestLegacyPageInvalidatesChangedContext(t *testing.T) {
+func TestLegacyPageUsesFrozenContextAndSkipsMissingDetails(t *testing.T) {
 	s, e, r := setup(t)
 	ctx := context.Background()
-	if _, _, err := s.ServePage(ctx, 1, "refresh", nil); err != nil {
-		t.Fatal(err)
+	base := e.x.Candidates[0]
+	e.x.Candidates = nil
+	for i := int64(0); i < 3; i++ {
+		c := base
+		c.Document.Ref.ID += i
+		e.x.Candidates = append(e.x.Candidates, c)
 	}
-	e.stale = true
-	if _, _, err := s.ServePage(ctx, 1, "load_more", nil); err == nil {
-		t.Fatal("changed context accepted")
+	first, more, err := s.ServePage(ctx, 1, "refresh", nil)
+	if err != nil || !more {
+		t.Fatal(first, more, err)
 	}
-	if r.Exists(ctx, "discovery:feed:1:page").Val() != 0 || r.XLen(ctx, replaylog.StreamName).Val() != 1 {
-		t.Fatal("stale page advanced")
+	// Changed source state cannot cause a Sort call for the frozen page.
+	e.err = discovery.Failure(409, "context_changed")
+	prepared := 0
+	next, more, err := s.ServePage(ctx, 1, "load_more", func(_ context.Context, x *discovery.Execution) error {
+		prepared++
+		if x.Candidates[0].Document.Ref.ID == 78 {
+			x.Candidates = nil
+		}
+		return nil
+	})
+	if err != nil || more || len(next.Items) != 1 || next.Items[0].Ref.ID != 79 || e.calls != 1 || prepared != 2 {
+		t.Fatal(next, more, err, e.calls, prepared)
 	}
+	await(t, func() bool { return r.XLen(ctx, replaylog.StreamName).Val() == 2 })
+	entries := r.XRange(ctx, replaylog.StreamName, "-", "+").Val()
+	for _, entry := range entries {
+		var rows []replaylog.ServedItem
+		if err := json.Unmarshal([]byte(entry.Values["items"].(string)), &rows); err != nil {
+			t.Fatal(err)
+		}
+		if rows[0].SourceID == 78 {
+			t.Fatal("missing candidate was recorded")
+		}
+		if rows[0].SourceID == 79 && rows[0].Position != 1 {
+			t.Fatal("skipped candidate left a position gap")
+		}
+	}
+}
+
+func TestLegacyPageRecordingFailureDoesNotStopPagination(t *testing.T) {
+	s, e, r := setup(t)
+	ctx := context.Background()
+	r.Set(ctx, replaylog.StreamName, "wrong", 0)
+	before := recordingFailures("sample")
+	first, more, err := s.ServePage(ctx, 1, "refresh", nil)
+	if err != nil || !more {
+		t.Fatal(first, more, err)
+	}
+	next, _, err := s.ServePage(ctx, 1, "load_more", nil)
+	if err != nil || next.ImpressionID != first.ImpressionID || next.Items[0].Ref.Type == first.Items[0].Ref.Type || e.calls != 1 {
+		t.Fatal(next, err)
+	}
+	await(t, func() bool {
+		return recordingFailures("sample") >= before+2 && r.SIsMember(ctx, "impr:agent:1:items", "77").Val() && r.SIsMember(ctx, "impr:discovery:agent:1:items", "commission:77").Val()
+	})
 }

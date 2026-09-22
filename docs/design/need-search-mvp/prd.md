@@ -1,7 +1,7 @@
 # Search and Recommendation MVP — PRD
 
-Status: Revision 2, incorporating all Owner answers and the clarification that all three source kinds launch in the MVP. Implementation and validation are tracked in [implement.md](implement.md); production cutover remains gated.
-Date: 2026-09-21. Repository baseline: `origin/main` at `9a532e79`.
+Status: Revision 3, incorporating all Owner answers and the clarification that all three source kinds launch in the MVP. Implementation and validation are tracked in [implement.md](implement.md); production cutover remains gated.
+Date: 2026-09-22. Repository baseline: `origin/main` at `9a532e79`.
 Companions: [Technical design](design.md), [Owner decisions and remaining dependencies](questions.md).
 
 ## 1. Objective and scope
@@ -22,7 +22,7 @@ The reference is [the architecture proposal](https://pcnlty6lw65j.feishu.cn/docx
 | 3.2 State | Explicit active/paused/completed/expired Needs; no dialogue or authority engine |
 | 3.3 Planner | Deterministic per-kind templates, bounded fan-out, shared hard-filter semantics |
 | 3.4 Retrieval | Forward lexical/dense/structured retrieval; reuse DB/ES/Redis and current recall producers |
-| 3.5 Hard filter | Pushdown, shared deterministic evaluator, final authoritative state/permission recheck |
+| 3.5 Hard filter | Pushdown, source hydration and shared deterministic state/permission evaluator |
 | 3.6 Rank | All three kinds use rules this release; future model adoption, size, versions, and rollback are independent by kind |
 | 3.7–3.9 | Migrate applicable existing policies, delivery primitives, feedback API, and CLI events; only necessary adapters |
 | Samples | Same replay table/stream; delivered-only records; explicit generation, input, mode, and per-kind scorer metadata |
@@ -97,7 +97,7 @@ Broadcast feedback keeps existing event meanings and queue behavior. Preserve ex
 | F09 | Independent scorer versions | Each source kind carries its own scorer type/version; no mixed-kind score comparison |
 | F10 | Meaningful empty/error distinction | No match, baseline fallback, partial retrieval, and required-backend failure are distinguishable |
 | F11 | Identity and dedup | Typed source IDs do not collide; query dedups within request only; automatic mode retains history |
-| F12 | Consistent final result | Closed Needs, changed price/state, blocked Agents, and deleted content are rechecked before serving |
+| F12 | Request snapshot and assembly | Validate Need at execution start and source facts during hydration; reuse assembled responses without revalidation; subsequent requests observe changes |
 | F13 | Sample compatibility | Same replay table/stream, explicit old/new markers, delivered-only semantics, compatible old decoding |
 | F14 | Exact attribution | Selected Need/context and actual scorer are frozen with the delivered row; no reconstruction from mutable current data |
 | F15 | Replacement compatibility | Existing routes invoke the new engine with their kind/auth/envelope; no stale legacy cached pages cross cutover |
@@ -142,7 +142,7 @@ Implementations can be validated in slices, but the confirmed MVP launch scope i
 6. Unknown provider region is rejected when explicitly required; owner-private geography is never used as public provider evidence.
 7. Price/currency and absolute-deadline-versus-duration comparisons remain correct, including known zero price.
 8. An injected UGC candidate still passes hard constraints and the relevance gate; baseline has explicitly different, unpersonalized eligibility semantics.
-9. Closing a Need or blocking a person during retrieval prevents a stale result from serving.
+9. Each new request observes current Need/source state during context loading and hydration. In-flight executions and assembled response retries use their snapshot; recording failures do not fail delivery.
 10. The same query may return the same result tomorrow; daily automatic search retains deduplication across calls.
 11. Returned broadcast feedback joins the original impression/context; commission/Agent IDs never become broadcast IDs.
 12. Old and new producers share the replay stream after consumer upgrade; replay retains delivered-only granularity and exact kind/scorer markers.

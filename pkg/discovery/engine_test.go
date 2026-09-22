@@ -33,12 +33,14 @@ type countIDs int64
 func (i *countIDs) NextID() (int64, error) { *i++; return int64(*i), nil }
 
 type sourceFake struct {
-	mu        sync.Mutex
-	docs      []Document
-	owner     OwnerContext
-	seen      map[string]bool
-	seenCalls int
-	fail      bool
+	mu           sync.Mutex
+	docs         []Document
+	owner        OwnerContext
+	seen         map[string]bool
+	seenCalls    int
+	hydrateCalls int
+	onHydrate    func()
+	fail         bool
 }
 
 func (s *sourceFake) Owner(context.Context, int64) (OwnerContext, error) { return s.owner, nil }
@@ -55,6 +57,10 @@ func (s *sourceFake) Recall(_ context.Context, _ Context, k Kind, ch string, _ i
 	return out, nil
 }
 func (s *sourceFake) Hydrate(_ context.Context, _ int64, _ Mode, docs []Document) ([]Document, error) {
+	s.hydrateCalls++
+	if s.onHydrate != nil {
+		s.onHydrate()
+	}
 	return docs, nil
 }
 func (s *sourceFake) Seen(context.Context, int64, []Document) (map[string]bool, error) {
@@ -143,5 +149,20 @@ func TestEmptyStatusesRemainDistinct(t *testing.T) {
 	x, err = e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 100)
 	if err != nil || x.Status != "exhausted" {
 		t.Fatal(x, err)
+	}
+}
+
+func TestNeedSnapshotIsNotRecheckedAfterHydration(t *testing.T) {
+	e, source, store := engineFixture()
+	need := Context{ID: 7, OwnerID: 1, State: "active", Revision: 1, Kinds: []Kind{Broadcast}, Persistence: "saved", TaxonomyVersion: "v1"}
+	store.rows[7] = need
+	source.docs = []Document{{Ref: SourceRef{Broadcast, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10}}
+	source.onHydrate = func() { closed := need; closed.State = "closed"; closed.Revision++; store.rows[7] = closed }
+	x, err := e.Execute(context.Background(), 1, Request{NeedID: 7}, Search, 100)
+	if err != nil || len(x.Candidates) != 1 || x.Candidates[0].Context.Revision != 1 || source.hydrateCalls != 1 {
+		t.Fatal(x, err, source.hydrateCalls)
+	}
+	if _, err := e.Execute(context.Background(), 1, Request{NeedID: 7}, Search, 100); err == nil {
+		t.Fatal("next request accepted a closed Need")
 	}
 }

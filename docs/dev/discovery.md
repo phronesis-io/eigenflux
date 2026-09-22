@@ -74,7 +74,7 @@ recall failures are explicitly partial.
 - `rpc/sort/discoverydb`: owned saved/ephemeral contexts, CAS and durable Need-create idempotency.
 - `rpc/sort/discoverysource`: existing broadcast/commission indices and public Agent index, with authoritative hydration.
 - `rpc/sort/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
-- `pkg/discoveryserve`: final validation plus atomic Redis history/sample/idempotency commits.
+- `pkg/discoveryserve`: response/page caching and independent best-effort exposure recording.
 - `pkg/agentindex`: public Card projection with external version fencing and tombstones.
 
 Successful discovery requests and Need writes retain the existing runtime/activity
@@ -83,7 +83,7 @@ observation behavior. Need/taxonomy reads and failures do not refresh activity.
 `SortService.Discovery` handles contexts, ranking, validation and taxonomy.
 `FeedService.Discovery` owns delivery. Their Thrift envelopes carry strictly
 decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
-`idl/feed.thrift`. Internal legacy-prefetch/page operations are not HTTP operations.
+`idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
 
 Migration 105 adds `discovery_contexts` and `processed_items.retrieval_slots`.
 Saved Needs and temporary searches share the context table. Vectors are stored
@@ -96,7 +96,7 @@ uses its own configured versioned index (default `agent_discovery_v1`) in the
 existing cluster, not a separate search service. Startup verifies its mapping
 and embedding dimensions. Projection reads public Card fields only. Public Card
 updates and the existing maintenance rebuild path update the index; authority
-hydration prevents deleted, blocked or inactive Agents from being returned even
+hydration excludes deleted, blocked or inactive Agents from new executions even
 if an index update is delayed. Automatic people discovery excludes existing
 friends and nonempty PM conversations. Query people search retains those contacts.
 
@@ -120,20 +120,35 @@ broadcast discovery retains existing item/group/URL impression keys, rolling
 Bloom history and injection claims. Other automatic kinds use typed membership
 in `impr:discovery:agent:<id>:items`.
 
-Unified serving keys have a 24-hour TTL and are scoped by owner plus a hashed
-`Idempotency-Key`. A matching retry returns the same impression after current
-context/authority revalidation; changed payloads or stale results return 409.
-A Redis Lua commit atomically writes history, delivered stream entries and the
-response. Wrong history/stream types or lost locks prevent delivery.
+Requests with an `Idempotency-Key` cache the assembled response for 24 hours,
+scoped by owner plus a hashed key. Matching retries return that response and
+impression without querying Sort or checking mutable Need/source state again;
+changed payloads return 409. Requests without a key do not create a response
+cache. Cache failures remain errors when the caller requested idempotency.
+
+Needs and rules use the execution snapshot. Sort hydrates authoritative source
+facts once per context before filtering and scoring; it performs no extra
+post-ranking hydration or `Revalidate` RPC. Later Need/source changes affect new
+requests. Assembled response caches may remain stale for their TTL.
+
+History/claim updates and delivered sample publication run independently in the
+background, each with a two-second timeout detached from request cancellation.
+They do not share a transaction with response/page caches and cannot fail the
+response. Failures emit logs and `discovery_recording_failures_total{stage}`.
+No durable retry/outbox is added: transient history gaps may permit repeated
+recommendations, and missing samples may cause feedback joins to miss. Cached
+response retries do not publish another exposure or repair missing samples.
 
 Legacy Feed keeps `refresh`, `load_more`, `has_more`, the existing item DTO and
 an additive `discovery` metadata object. Its separate
 `discovery:feed:<owner>:page` cache retains at most 20 frozen candidates for 30
 minutes. Each page returns at most one item, with one shared impression ID and
-absolute sample position. Pages recheck current context, source facts and history;
-changed contexts invalidate the page. Cursor advancement and delivered-only
-sample recording share the Redis commit. Prefetched candidates are not exposures.
-Old-generation feed caches are not read by the new adapter.
+absolute sample position. Page assembly calls the existing item detail lookup;
+missing/non-completed items are skipped and the next cached candidate is tried.
+Need/context changes do not invalidate a frozen page. Cursor advancement is
+saved before best-effort recording and is independent of its success. Prefetched
+or skipped candidates are not exposures. Old-generation feed caches are not
+read by the new adapter.
 
 Migration 106 extends the same `replay_logs` table and Redis stream:
 

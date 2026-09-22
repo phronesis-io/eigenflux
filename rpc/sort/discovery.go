@@ -119,18 +119,6 @@ func discoveryOperation(ctx context.Context, r *sortapi.DiscoveryReq, now int64)
 			mode = discovery.Recommendation
 		}
 		return e.Execute(ctx, r.AgentId, in, mode, now)
-	case "refresh_page":
-		var x discovery.Execution
-		if err := json.Unmarshal([]byte(r.Payload), &x); err != nil {
-			return nil, err
-		}
-		return e.RefreshPage(ctx, r.AgentId, x, now)
-	case "revalidate":
-		var x discovery.Execution
-		if err := json.Unmarshal([]byte(r.Payload), &x); err != nil {
-			return nil, err
-		}
-		return x, e.Revalidate(ctx, r.AgentId, x, now)
 	case "need_create", "need_update":
 		input, err := discovery.Decode[discovery.NeedInput]([]byte(r.Payload))
 		if err != nil {

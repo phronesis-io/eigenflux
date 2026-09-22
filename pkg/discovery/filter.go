@@ -58,8 +58,7 @@ func hasKind(a []Kind, k Kind) bool {
 	return false
 }
 
-// Check is the authoritative pure evaluator used after every recall channel
-// and again with freshly hydrated source facts before serving.
+// Check evaluates the request snapshot against hydrated source facts.
 func Check(c Context, d Document, mode Mode, now int64) string {
 	if !c.Active(now) {
 		return "inactive_context"

@@ -33,9 +33,17 @@ func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, a
 		for _, p := range r.Items {
 			m[p.ItemId] = p
 		}
-		if len(m) != len(ids) {
-			return discovery.Failure(409, "stale_result")
+		// BatchGetItems returns only completed content. Missing candidates are
+		// skipped while assembling this page, without another Sort round trip.
+		candidates := x.Candidates[:0]
+		ids = ids[:0]
+		for _, c := range x.Candidates {
+			if _, ok := m[c.Document.Ref.ID]; ok {
+				candidates = append(candidates, c)
+				ids = append(ids, c.Document.Ref.ID)
+			}
 		}
+		x.Candidates = candidates
 		out.Items = s.buildFeedItems(ctx, owner, ids, m)
 		if len(out.Items) != len(ids) {
 			return discovery.Failure(503, "item_hydration_failed")

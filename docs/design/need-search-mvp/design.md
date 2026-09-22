@@ -1,7 +1,7 @@
 # Search and Recommendation MVP — Technical Design
 
-Status: Revision 2, reconciled with D01–D14 and the explicit all-three-kinds clarification.
-Date: 2026-09-21. Code baseline: `origin/main` at `9a532e79`.
+Status: Revision 3, incorporating D01–D14, all three source kinds, and the Owner-approved delivery simplification.
+Date: 2026-09-22. Code baseline: `origin/main` at `9a532e79`.
 
 Implementation is based on `340417c6`. See [implementation tracking](implement.md) and the [executable contract](../../dev/discovery.md) for final API/storage names, bounded execution choices, validation evidence and outstanding cutover gates. The architecture below retains the reviewed design context.
 Companions: [PRD](prd.md), [Decision record](questions.md).
@@ -9,7 +9,7 @@ Reference: [architecture proposal, revision 83](https://pcnlty6lw65j.feishu.cn/d
 
 ## 1. Architecture and fixed boundaries
 
-The logical service runs inside existing Gateway, Sort, and Feed deployments. Sort owns context compilation, optional saved Needs, planning, retrieval, hard filtering, and scoring. Feed owns typed hydration/serving, impression identity, and recording. Gateway owns auth and old/new HTTP adapters. No new service process or infrastructure cluster is required.
+The logical service runs inside existing Gateway, Sort, and Feed deployments. Sort owns context compilation, optional saved Needs, planning, retrieval, hard filtering, and scoring. Feed owns response assembly/caching, impression identity, and best-effort recording. Gateway owns auth and old/new HTTP adapters. No new service process or infrastructure cluster is required.
 
 There are two public modes: **query search** and **automatic search**. Structured Needs are an optional input/control mechanism, not a required onboarding step. The first release supports `broadcast`, `commission`, and `agent`. All three use rules; later model development, parameter count, version, and rollout are independent per kind. Section 3.6 defines the extension contract without implementing model serving.
 
@@ -27,14 +27,16 @@ flowchart TD
     B --> EI[(Existing item ES indices and Redis lists)]
     S --> EC[(Existing commission ES index)]
     R --> EA[(Public Agent index in existing ES)]
-    B --> H[Hard constraint evaluator]
-    S --> H
-    R --> H
+    B --> HY[Sort: authoritative source hydration]
+    S --> HY
+    R --> HY
+    HY --> H[Hard constraint evaluator]
     H --> U[Independent rule scorers by kind]
     U --> Y[Existing policy adapters and deterministic merge]
-    Y --> F[Feed: hydrate and recheck current authority]
+    Y --> F[Feed: assemble response and cache if requested]
     F --> O[Query list or automatic zero/one result]
-    O --> L[Existing replay stream and typed-aware consumer]
+    F -.-> HR[Background history and claim writes]
+    F -.-> L[Background replay stream publication and typed-aware consumer]
     L --> DB[(Same replay_logs table)]
     O --> FB[Existing CLI feedback/event flow]
 ```
@@ -75,7 +77,7 @@ HTTP IDs are decimal strings; internal IDs are `i64/BIGINT`; stored timestamps a
 
 These names are implementation proposals; the two-mode and three-kind semantics are confirmed. Reject client-written vectors, compiled filters, scorer versions, DSL, and ownership fields. Cross-owner IDs use non-disclosing not-found behavior. Unknown input fields and mutually exclusive inputs produce structured field errors.
 
-Serving/create calls accept owner-scoped `Idempotency-Key`: same key/body returns the same IDs for 24 hours; different body conflicts. Recheck current eligibility before replaying a result; if it changed, return a stale-result error requiring a new key, not a new result under the old impression. Need create idempotency is durable; serving idempotency is Redis-backed and errors retriably if that guarantee cannot be maintained.
+Serving/create calls accept owner-scoped `Idempotency-Key`: same key/body returns the same IDs for 24 hours; different body conflicts. Replay the assembled response without rechecking Need/source state; new requests observe current state. Need create idempotency is durable; serving idempotency is Redis-backed and errors retriably if that guarantee cannot be maintained.
 
 ### 2.2 Query search
 
@@ -168,7 +170,7 @@ At cutover all affected discovery routes call the new execution path by default;
 
 Old commission `min/max_price_fen` and duration-range arguments compile into optional inclusive range predicates and intersect with any relevant hard constraint. Preserve zero versus absence and reject contradictory bounds. Duration ranges remain durations; a new absolute deadline adds `now+duration<=deadline`, not a reinterpretation of an old parameter. Keep existing parameter acceptance where possible; unified search caps at 50, existing commission search keeps its documented limit up to 100 in the adapter with a separately bounded candidate/hydration budget.
 
-Preserve legacy Feed cursor/`has_more`/`load_more` semantics using a new pipeline-namespaced bounded cache of ranked candidates and frozen context references. Each automatic response returns at most one discovery item; remaining prefetched eligible candidates may form later pages. Every page rechecks Need/context state, authorization, mutable fields, dedup, and score-snapshot consistency. Record only returned items, with the original impression and absolute positions across that page lifecycle. Invalidate stale pages on close/edit/context revision change. Clear or isolate old pipeline pages at cutover; never mix generations within one impression. Unified APIs do not expose this compatibility-only pagination.
+Preserve legacy Feed cursor/`has_more`/`load_more` semantics using a new pipeline-namespaced bounded cache of ranked candidates and frozen context references. Each automatic response returns at most one discovery item; remaining prefetched eligible candidates may form later pages. Pages retain their Need/ranking snapshot and use the existing item detail lookup during assembly; skip missing/non-completed candidates without an extra Sort validation RPC. Record only returned items, with the original impression and absolute positions across that page lifecycle. Need edits/closure affect new executions rather than invalidating frozen pages. Clear or isolate old pipeline pages at cutover; never mix generations within one impression. Unified APIs do not expose this compatibility-only pagination.
 
 A server-controlled rollback switch can restore old route implementations operationally; it is not the normal fallback policy and must report actual pipeline/scorer versions. No production action is performed by this document task.
 
@@ -226,7 +228,7 @@ Saved/inline Need input retains the explicit field layout below; examples use il
 3. Apply only agreed defaults: always self-exclude, language only on explicit Card-default opt-in, no owner-geo/provider-location inheritance, no automatic hard negatives from interests/offering. Record `explicit`, `card_default`, or `system` origin and source Card revision.
 4. Embed structured Need `outcome + original wording + preferences`; embed raw query as query; embed each bounded Agent clause separately. Do not append Agent profile/history to explicit query or Need text. Record model/version/dimensions, normalization and template version. Existing embedding client only, no generative compilation.
 5. For saved/inline structured Needs, validate/map/embed before committing a complete row; failure leaves the old revision intact or new object absent. For raw/Agent search, embedding failure may execute a documented lexical-only partial context with vector-missing evidence. It must not masquerade as a fully compiled saved Need.
-6. Commit source snapshot and compiled context; use expected revision for Need writes. Invalidate derived caches after commit. Verify authoritative Need state/revision before execution and final delivery, so stale Redis cannot revive a closed Need.
+6. Commit source snapshot and compiled context; use expected revision for Need writes. Verify authoritative Need state/revision when starting a new execution. In-flight execution and assembled response/page snapshots remain usable until cache expiry.
 
 Generative `server_fallback` is not implemented. `compiled_by` is `agent` for submitted structured Needs or `rules` for query/Agent normalization; `input_origin` carries the semantic distinction. Request-time context snapshots and concurrency revisions do not add the deferred authority engine or user-facing revision-history product.
 
@@ -259,7 +261,7 @@ Automatic merging: choose qualifying context winners by saved-Need priority; at 
 | Hot/new/UGC | Current Redis versioned lists/producers | Automatic only; ES `ids` + common filters and relevance recheck except explicitly unpersonalized baseline |
 | Swing | Existing neighbor storage remains available | New context/Need path disabled; `surface` is not adoption |
 | Friend | Existing separate friend/relationship entry | Not a relevance-bypass source in the new engine |
-| Commission | Existing index/alias, `search_text`, vector, catalogue/statistics fields | Context query/filter adapters; authority recheck; preserve exact-ID path |
+| Commission | Existing index/alias, `search_text`, vector, catalogue/statistics fields | Context query/filter adapters; source hydration; preserve exact-ID path |
 | Agent | Current public Card/domain truth and existing ES cluster | Add a small public discovery index with lexical/dense/slot adapters; no reuse of deprecated profile embeddings |
 
 **Broadcast/commission additive fields:** `slots.category/subtype/intents` and `taxonomy_version`; verified `slots.provider_region`, normalized `slots.lang`; broadcast `state` and `state_updated_at`. Use keyword fields for normalized IDs/codes and date for state time. Preserve all current text, vectors, group IDs, expiry, and source metadata. Commission already has integer price/currency/duration: no generic floating-point price fields are needed. Candidate kind comes from the adapter.
@@ -296,7 +298,7 @@ Missing required category, price, currency, language, or region rejects. Known z
 
 Use one Unicode normalization/case-folding contract for literal exclude phrases, with token boundaries for space-delimited text and normalized substring semantics for CJK. This is lexical exclusion, not inferred semantic negation. ES pushdown only when equivalent; final evaluator covers the full bounded field set. Regional/language code expansion must be explicit and versioned.
 
-Before serving, hydrate a reserve of up to 3× result limit (cap 150 for unified query, cap 300 for the legacy commission limit-100 adapter; automatic has a small configured reserve). Read current Need/context validity, source visibility/status, mutable prices/promises, public Card/relationship state, and evidence versions. Rerun the same checks. If source evidence changed, rescore under the frozen rule/config or drop it, then take the next candidate within the cap. Do not substitute a different group member without its own checks/features. Mandatory authority failure errors; genuine removed/changed candidates can be skipped. The guarantee is eligibility at the last authoritative snapshot, not atomic protection against changes after response.
+Hydrate the merged candidates once per context from authoritative sources before hard filters and rule scoring. This supplies source visibility/status, mutable prices/promises, public Card/relationship state and evidence versions. Mandatory authority failure errors; removed or index-version-mismatched candidates can be skipped. Do not reread Need state or hydrate the ranked output again. Need/rule state is frozen for the execution. Legacy Feed assembly already fetches item details and skips missing/non-completed items. Assembled responses and idempotent retries do not call `Revalidate`; short-lived inconsistency with later source changes is accepted.
 
 ### 3.6 Per-kind rules now; independently evolving scorers later
 
@@ -325,7 +327,7 @@ Freeze features, contributions, missing flags, unboosted/final scores, threshold
 
 ### 3.7–3.9 Reuse with necessary adapters
 
-Normal path: recall → hard check → rule scoring → relevance eligibility → applicable existing boost/freshness/group/injection policies → dedup/source limits → final hydration/recheck → response. Existing friend/UGC threshold bypass and exploration append cannot bypass context constraints/relevance. Injection sees only eligible candidates; empty reserved slots stay empty. Baseline's separate eligibility is explicit and cannot be reached to evade a failed Need.
+Normal path: recall → authoritative hydration → hard check → rule scoring → relevance eligibility → applicable existing boost/freshness/group/injection policies → dedup/source limits → response assembly/cache → independent background recording. Existing friend/UGC threshold bypass and exploration append cannot bypass context constraints/relevance. Injection sees only eligible candidates; empty reserved slots stay empty. Baseline's separate eligibility is explicit and cannot be reached to evade a failed Need.
 
 Reuse broadcast group collapse/Bloom and UGC claim behavior in automatic mode. Nonbroadcast identity is `(kind,id)` and has no invented broadcast group. Extend the same automatic dedup adapter with separate typed served-ID keys for commission/Agent, matching the existing recommendation history window; never collide IDs or put them in broadcast feedback sets. Final multi-context merge returns a source only once with one primary context and optional secondary matches.
 
@@ -341,7 +343,7 @@ Use a single proposed PostgreSQL `discovery_contexts` table for saved Needs and 
 
 For `persistence=saved`, public `need_id` equals `context_id` and strict Need invariants apply. Raw query/Agent/baseline rows are ephemeral contexts, have no public Need identity, and never appear in Need lists/active limits. Inline structured Need is an ephemeral Need with typed input provenance. Preserve snapshots for 30 days, covering the eight-day CLI ledger. Replay copies the necessary immutable snapshot so later context cleanup cannot alter historical attribution. A reused cached Agent context gets a new request/impression, not a false new user-authored Need.
 
-Indexes: owner/state/priority/context for saved active selection, owner/update/context for listing, expiry for bounded maintenance, and owner/idempotency uniqueness. No general JSON scanning in the hot path. Owner-scoped transaction checks enforce ten active Needs. Saved Need state/revision is authoritative; Agent context verifies current source revision before final delivery or retries compilation once within deadline. Ephemeral query intent itself is immutable, while content authority remains live. Existing account deletion/reset must include contexts and caches.
+Indexes: owner/state/priority/context for saved active selection, owner/update/context for listing, expiry for bounded maintenance, and owner/idempotency uniqueness. No general JSON scanning in the hot path. Owner-scoped transaction checks enforce ten active Needs. Saved Need state/revision and Agent source context are read when execution starts, then frozen for that execution. Source facts are hydrated once before filtering/scoring. New requests observe changes; cached assembled responses do not revalidate them. Existing account deletion/reset must include contexts and caches.
 
 ### 4.2 Redis namespaces
 
@@ -351,7 +353,7 @@ Indexes: owner/state/priority/context for saved active selection, owner/update/c
 | `discovery:context:<id>:<revision>` | Immutable compiled snapshot; owner checked separately |
 | `discovery:emb:<owner>:<spec_hash>:<embedding_version>` | Need/query/Agent-clause vector reuse, never profile-vector substitution |
 | `discovery:plan:<owner>:<context>:<revision>:<mode>:<config>` | Include taxonomy/embedding/source/kind versions in config hash; evaluate time bounds at request time |
-| `discovery:candidates:<owner>:<input_hash>:<filters_hash>:<versions>:<kind>:<channel>:<time_bucket>` | Short-lived raw candidate cache, final checks mandatory |
+| `discovery:candidates:<owner>:<input_hash>:<filters_hash>:<versions>:<kind>:<channel>:<time_bucket>` | Short-lived raw candidate cache, source hydration before scoring |
 | `discovery:idempotency:<owner>:<key_hash>` | Response/impression/body binding |
 | `discovery:feed:<pipeline>:<owner>:<impression>` | Compatibility-only legacy pages with absolute positions and frozen contexts |
 | `discovery:seen:<owner>:<kind>` | Automatic-only nonbroadcast served IDs; current recommendation-history TTL |
@@ -380,6 +382,8 @@ Keep broadcast `item_id` correct. Allow it to be NULL for commission/Agent and r
 Old producer events decode to old defaults. New engine always sends explicit pipeline/mode/schema fields, including Agent-context and baseline fallback; it is never mislabeled legacy merely because it reused a recall list. An operational rollback running old code reports legacy metadata and the actual legacy scorer. Consumer-first rollout is mandatory: old consumers discard unknown fields and cannot safely decode nullable nonbroadcast IDs. Drain/replace all old consumers before new producers publish.
 
 ### 5.2 Frozen context, kind, and scorer evidence
+
+History/claim updates and sample publication are independent best-effort background writes, each bounded to two seconds and detached from request cancellation. Neither is atomic with response/page caching; failures emit logs/counters and do not fail the response. Accept temporary duplicate recommendations, lost samples and feedback join misses; no durable outbox or repair-on-retry is required. Consumers retain `(impression_id,position)` deduplication. Idempotent cache replay does not create another exposure.
 
 Preserve legacy JSON keys consumed by current readers. Add `agent_features.search_context` containing immutable input/compiled context, origin, optional Need reference, source Card/context revisions, effective filters/default origins, taxonomy/embedding/compiler versions, mode, request time, and fallback reason. For a query list the context is shared; multi-context automatic delivery has one selected context plus compact secondary matches. Public responses never expose private input snapshots.
 
@@ -411,7 +415,7 @@ Cutover sequence: additive storage/mappings → verified three-kind projections 
 | Retrieval | Same hard filters per channel; lexical hit requirement; unconstrained legacy-document compatibility; strict explicit slot evidence; bounded union/three-kind merge |
 | People | Public-only index; visibility/delete revision; self/block checks; automatic known-contact suppression; query rediscovery; no PM/friend side effects |
 | Rules | Reviewed fixtures for every kind/mode; no legacy LR invocation; missing features; separate baseline/exact score kinds; per-kind independent versions |
-| Policies/history | No relevance bypass; query only within-request dedup; preserved automatic history; nonbroadcast IDs isolated; legacy page final checks |
+| Policies/history | No relevance bypass; query only within-request dedup; preserved automatic history; nonbroadcast IDs isolated; legacy page detail assembly |
 | Samples/CLI | Same stream/table; old/new decoding; nullable typed identity; consumer-first gate; exact context joins; old labels preserved; no rows for rejected/empty results |
 | Replacement | Existing routes/auth/range/exact-lookup contracts; old CLI compatibility; maximum-one automatic delivery; cursor/absolute positions preserved; no stale pre-cutover pages |
 | Load/failure | Warm/cold embeddings, maximum contexts/kinds/candidates, source authority failure, partial channels, cancellations, bounded retries and hydration |

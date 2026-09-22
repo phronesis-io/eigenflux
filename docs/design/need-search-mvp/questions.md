@@ -28,7 +28,7 @@ Owner answer: 是的, 但是不需要统一模型的发展进度,规模/version.
 
 Owner answer: default answer is fine
 
-**Resolution:** Query search defaults to 20 results, at most 50 on the unified API; automatic search returns zero or one across kinds. Unified APIs have no pagination. Existing Feed pagination is retained through a compatibility adapter with context snapshots and final rechecks, while every automatic response has at most one discovery item.
+**Resolution:** Query search defaults to 20 results, at most 50 on the unified API; automatic search returns zero or one across kinds. Unified APIs have no pagination. Existing Feed pagination is retained through a compatibility adapter with frozen context snapshots and item-detail assembly, while every automatic response has at most one discovery item.
 
 ## D03 Entry point and no-Need behavior
 
@@ -192,3 +192,17 @@ These items do not reopen answered product decisions or require another full que
 | Workload sizing | Agreed test concurrency/index size and measured cold/warm latency against accepted targets |
 
 Revision 2 adds a concrete fallback matrix, old-route replacement adapters, three-kind query merging, and per-kind scorer metadata to make the accepted answers implementable. These are reviewable design details rather than additional owner statements.
+
+## Delivery simplification confirmed during code review
+
+The Owner accepts best-effort, independent history and sample writes. Do not
+couple them to response/page caching with an atomic Redis commit. Recording
+failures may produce temporary duplicate recommendations or missing sample joins,
+but must not fail a valid result. Preserve necessary request idempotency and
+consumer-side sample deduplication.
+
+The Owner also confirms that normal source/detail hydration is sufficient.
+Remove additional `Revalidate` calls and post-ranking source/context rereads.
+Need changes apply to new executions; assembled response retries use the cached
+snapshot. Legacy pages fetch item details when assembling a page and skip missing
+items without invalidating the entire frozen ranking.
