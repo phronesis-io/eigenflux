@@ -1,160 +1,66 @@
-# Agent Dispatch Implementation Map
+# Agent Dispatch: Implementation
 
-Read this file before changing CLI outer-loop or local Agent dispatch logic.
-Update its affected sections with every logic change in the same change,
-including changes that preserve the public API. Keep this document about the
-current implementation; use Git history for historical behavior.
+Read before changing dispatch logic. Update affected sections in the same change.
+CLI owns routing, execution state and delivery; synchronized Skills own Agent decisions.
 
-## Responsibilities and source map
+## Code map
 
-The CLI owns account routing, intake, durable execution state, host invocation,
-and reply delivery. Synchronized Skills own Agent decisions. This package is
-part of the independent CLI Go module and does not import server packages.
-
-| File | Main symbols and responsibility |
+| File | Entry points / responsibility |
 |---|---|
-| [../../cmd/watch.go](../../cmd/watch.go) | `watchCmd`, `accountWatch.run`, `pmLoop`, `deliverPM`, `controlLoop`, `runtimeLoop`, `checkLoop`: account lock, socket/SSE intake, heartbeat, event emission and lifecycle |
-| [../../cmd/watch_binding.go](../../cmd/watch_binding.go) | `watchBindingIdentity`, `sameBindingIdentity`, `applyDispatchOwnership`, bind/doctor/status/retry/reconcile commands |
-| [../../cmd/watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply`: intake-to-Agent-to-reply orchestration |
-| [binding.go](binding.go) | `Binding.Validate`, `ReadBinding`, `WriteJSON`: strict configuration, identity scope, executable resolution and atomic persistence |
-| [types.go](types.go) | Binding/message/job/request/result types; `ParseDecision` validates the Agent's private-message decision |
-| [journal.go](journal.go) | `OpenJournal`, `AddMessages`, `AddHint`, `Next`, `Update`, `Retry`, `Reconcile`: durable jobs, deduplication, sessions and recovery |
-| [runner.go](runner.go) | `Runner.Run`, `arguments`, `parseNative`, `RunCommand`: native and command entry points, host output, environment and timeout boundaries |
-| [acp.go](acp.go) | `runACP`, `acpClient.call`: ACP v1 stdio initialization, sessions, current-turn output and permission handling |
-| [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Child-process lifecycle: Unix process group or Windows Job Object |
-| [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement for bindings and journal state |
-| [../../cmd/heartbeat.go](../../cmd/heartbeat.go) | Companion heartbeat ownership, selected stages and preservation of `--watch-managed` in its launcher |
-| [../../../skills/ef-communication/references/dispatch.md](../../../skills/ef-communication/references/dispatch.md) | Dynamically synchronized private-message decision and authorization rules |
+| [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
+| [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
+| [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
+| [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
+| [journal.go](journal.go) | `AddMessages`, `AddHint`, `Next`, `Update`: persistence, deduplication, sessions, recovery |
+| [runner.go](runner.go), [acp.go](acp.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution and result parsing |
+| [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
+| [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
+| [heartbeat.go](../../cmd/heartbeat.go) | Companion stages and `--watch-managed` launcher |
+| [dispatch Skill](../../../skills/ef-communication/references/dispatch.md) | Agent decision rules |
+| [capability registry](../../../api/consolev2/capability_registry.go) | Command discovery |
 
-The Agent decision contract is
-[skills/ef-communication/references/dispatch.md](../../../skills/ef-communication/references/dispatch.md).
-Command discovery is registered in
-[api/consolev2/capability_registry.go](../../../api/consolev2/capability_registry.go).
-Use [the operator guide](../../../docs/dev/agent-dispatch.md) for configuration,
-packaging and manual acceptance, and [testing.md](../../../docs/dev/testing.md)
-for repository test conventions.
+## PM flow and invariants
 
-## Private-message execution flow
+1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
+2. WS and minute-spaced HTTP polls enter `deliverPM`; each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
+3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Reuse sessions only within their binding and conversation.
+5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
+6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
+7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
+8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with the original quote ID; disable POST refresh/replay. Record `replied` only with a valid matching receipt; emit redacted status.
 
-1. `watch bind` pins the current canonical Home, server, endpoint, Agent ID,
-   principal ID, scope and a fresh revision. Configuration cannot select another
-   EigenFlux identity. Bindings are stored under Home's `watch/` directory.
-2. `watch --dispatch` holds the Home/server account lock, validates the binding
-   and signed local Skills, opens the journal, and starts one dispatch worker.
-   Plain `watch` keeps event delivery without running an Agent.
-3. WebSocket `pm_push` and `pmFallbackLoop` converge on `deliverPM`. The fallback
-   waits one minute between poll passes; each pass pulls at most 32 pages with
-   `limit=1`. Credential validation and durable message registration happen
-   under the credential lock. The socket cursor advances after delivery succeeds.
-4. `AddMessages` accepts only messages addressed to the bound Agent from another
-   sender. It ignores `history_messages` and deduplicates by scope, binding
-   revision, conversation ID and message ID. Cache storage remains separate.
-5. `Next` persists `running` before execution. One binding executes serially;
-   pending PM jobs take priority over pending optional events. Existing host
-   plugin scheduling is outside this worker.
-6. `dispatchPrompt` verifies current signed Skills, reads the dispatch rule,
-   checks fresh `auto_reply_pm`, and loads up to 10 conversation-history rows.
-   The prompt carries request ID, Agent ID, message and history. It does not
-   carry the full control context or credentials. Message/history content is
-   untrusted data, not a source of command arguments or authorization.
-7. `dispatchJob` monitors identity while preparing and running the task, checks
-   again before invoking the Agent and after its result, and reuses only the
-   journal session for that conversation. The model runs outside credential locks.
-8. `ParseDecision` requires one UTF-8 JSON object containing `version=1`, the
-   matching `request_id`, `action` and `reply_text`. Allowed actions are `reply`,
-   `no_reply` and `needs_user`. Unknown/duplicate fields and trailing output fail.
-9. For `reply`, validate message content and persist `sending`. Under the
-   credential lock, recheck identity and fresh automatic-reply permission, then
-   POST to the original `conv_id` with the original `quote_msg_id`. Disable
-   credential-refresh replay for this POST. Record `replied` only after a valid
-   message ID and matching conversation receipt. Emit redacted dispatch status.
+## State and limits
 
-## State, persistence and recovery
-
-| State | Meaning and next action |
+| State | Meaning / recovery |
 |---|---|
-| `pending` | Persisted intake; eligible for the serial worker |
-| `running` | Claimed before prompt/model work; recovery changes it to `unknown` |
-| `sending` | Reply intent persisted before POST; recovery changes it to `unknown` |
-| `replied` | Reply receipt confirmed, or operator explicitly reconciled its ID |
-| `no_reply` | Agent decided no response is needed, or operator reconciled that outcome |
-| `needs_user` | Automatic replies disabled, permission denied, or Agent requested owner input; explicit retry allowed |
-| `failed` | Recorded preflight/decision failure; explicit retry allowed |
-| `unknown` | Execution/send outcome uncertain; never automatically replay or allow ordinary retry |
-| `completed` | Optional event was not due, or a profile completion stamp confirmed its outcome |
-| `accepted` | Optional-event Agent turn finished without independently verified business completion |
+| `pending` → `running` → `sending` | Persist before execution and before POST; recover interrupted `running`/`sending` as `unknown` |
+| `replied`, `no_reply` | Confirmed receipt/Agent decision, or explicit operator reconciliation |
+| `failed`, `needs_user` | Preflight/decision failure or permission/input required; explicit retry allowed |
+| `unknown` | Uncertain execution/send; ordinary retry forbidden; operator-verified PM reconciliation only |
+| `completed`, `accepted` | Optional event not due/profile stamp confirmed; or Agent finished but business completion unverified |
 
-`OpenJournal` performs crash recovery; `ReadJournalStatus` never rewrites state.
-`watch reconcile` requires `--verified` and handles unknown PM jobs only, with
-`replied` plus a reply ID or `no_reply`. It records the operator's conclusion;
-it does not independently prove the remote outcome. Stop watch before mutation
-commands acquire its account lock. Rebinding rejects unresolved old jobs.
+`OpenJournal` recovers state; `ReadJournalStatus` is read-only. Persist before changing memory; roll back failed saves. Rebinding rejects unresolved jobs. Stop watch before binding/retry/reconcile; they share its lock.
 
-The journal is limited to 16 MiB, 256 unresolved jobs and the latest 1024
-completed jobs. Completed outcomes include `accepted`; deduplication retains all
-unresolved jobs and that completed window. Mutations atomically persist before
-updating in-memory state; save failures roll back. Status hides message content
-and event data. Dispatch intake persistence failure terminates reception rather
-than advancing the socket cursor and continuing silently.
+Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (including `accepted`); binding 64 KiB; prompt/output 1 MiB; rule/history each 64 KiB; timeout 600s by default, configurable 1–3600s. Deduplication covers retained jobs. Status omits message content and event data.
 
-## Hosts, protocol and environment
+## Runners and ownership
 
-Native adapters invoke Codex `exec`, Claude Code print mode, OpenClaw's explicit
-`host_agent`, or Hermes quiet chat. ACP and command modes require explicit local
-argv; the runner never derives an executable or recipient from a PM. Command
-mode uses stdin for the prompt and stdout for the decision. Windows shell shims
-must be replaced by an explicitly configured executable/interpreter and script.
+- Native: Codex exec, Claude Code print, explicit OpenClaw `host_agent`, Hermes quiet chat. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter.
+- ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.
+- Strip inherited `EIGENFLUX_*`; rebuild bound Home/server/host/Skills. Only `RunCommand` targeting the verified current CLI may retain the CDN URL. Never copy ambient EigenFlux tokens/model/mode. Host authentication remains host-owned.
+- Default event: `pm_push`. Optional profile/maintenance/control events reuse `profile refresh-task`, maintenance-only/control-only heartbeat plans. Control hints deduplicate by command ID; unresolved periodic hints coalesce.
+- Companion `heartbeat plan --watch-managed` skips subscribed work. PM-only bindings retain heartbeat maintenance. Persisted bindings keep ownership while watch is stopped; stop competing plugin consumers before handoff.
 
-ACP v1 uses newline-delimited JSON-RPC: initialize, load a supported prior
-session or create a session, then prompt. Ignore history replay during load;
-collect only current-session `agent_message_chunk` text during prompt and require
-`end_turn`. Do not advertise filesystem/terminal RPC capabilities. Cancel
-permission requests and return `ErrNeedsUser`; reject unknown RPC requests.
+## Regression map
 
-Binding JSON is limited to 64 KiB. Prompt/output limits are 1 MiB; the dispatch
-rule and history response each have a 64 KiB limit. The default bound timeout is
-600 seconds, configurable from 1 to 3600. Cancellation terminates the managed
-process group/Job Object. Windows process behavior still needs native acceptance.
-
-Remove inherited `EIGENFLUX_*` and rebuild only bound Home/server/host/Skills
-values. Binding environment cannot override EigenFlux variables. `RunCommand`
-may additionally retain the CDN URL only after verifying the executable is the
-current CLI. Do not copy ambient tokens, model or mode into the child environment.
-The host's own authentication/permission configuration remains its responsibility.
-
-## Optional events and ownership
-
-Only PM is subscribed by default. Explicit subscriptions reuse existing CLI
-plans: `profile_review_due` calls `profile refresh-task`; `maintenance_due` calls
-`heartbeat plan --maintenance-only`; `control_pending` calls the control-only
-plan. Control hints use command IDs; unresolved periodic hints coalesce.
-
-The companion `heartbeat plan --watch-managed` skips only subscribed dispatch
-work. A PM-only binding leaves maintenance on heartbeat; subscribing maintenance
-moves that work to dispatch. A persisted binding retains ownership when its
-foreground process is down. Stop competing plugin consumers before handoff.
-Agent-turn completion alone must not be reported as business completion.
-
-## Regression map and remaining boundaries
-
-| Change area | Relevant tests |
+| Area | Tests |
 |---|---|
-| Binding, strict JSON and decision identity | `binding_test.go`, `types_test.go`, `../../cmd/watch_binding_test.go` |
-| Persistence, crash recovery, deduplication, limits and sessions | `journal_test.go` |
-| Host invocation, environment and descendant cancellation | `runner_test.go` |
-| ACP sessions, permissions, framing, limits and cancellation | `acp_test.go` |
-| Socket + poll + Agent + reply, identity switch and permission revocation | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
-| Heartbeat ownership and compatibility | `../../cmd/heartbeat_modes_test.go`, `../../cmd/capability_registry_contract_test.go` |
+| Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
+| Host / ACP / cancellation | `runner_test.go`, `acp_test.go` |
+| Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
+| Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
-Run relevant tests from `cli/`; include race checks for lifecycle/concurrency
-changes and Mac/Windows builds for process or filesystem changes. Keep operator
-instructions, Skills contracts and capability registration synchronized when
-their behavior changes. Link moved symbols and new regressions here in the same
-change; do not treat documentation updates as a later task.
+Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
 
-The server marks fetched messages read before local journal persistence. The
-crash/write-failure window is not closed by this implementation; it is not a
-transactional inbox or an exactly-once guarantee. WorkBuddy local identity is
-unverified and its cloud API is excluded. Task delegation remains TODO. Fixture
-tests and cross-compilation do not establish live-model, Windows-machine or
-Computer Use acceptance. See the operator guide for the manual verification scope.
+Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Task delegation remains TODO; A2A is excluded.
