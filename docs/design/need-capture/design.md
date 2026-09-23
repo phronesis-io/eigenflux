@@ -22,7 +22,7 @@ onboarding suggestions do not qualify until the owner confirms them.
 ## Storage
 
 Migration `000105_need_inputs_normalized.sql` creates two tables and one view.
-Migration `000106_need_online_normalization.sql` adds vocabulary coverage state.
+Vocabulary coverage state and its index are included in the same migration.
 New IDs are server-generated Snowflake int64 values serialized as strings in JSON.
 Times and deadlines are Unix milliseconds. Intent versions are positive integers.
 

@@ -40,6 +40,8 @@ CREATE TABLE normalized_needs (
     normalized JSONB NOT NULL CHECK (jsonb_typeof(normalized) = 'object'),
     normalizer_version TEXT NOT NULL CHECK (length(trim(normalizer_version)) > 0),
     taxonomy_version TEXT NOT NULL DEFAULT '',
+    mapping_status TEXT NOT NULL DEFAULT 'unmapped'
+        CHECK (mapping_status IN ('unmapped', 'partial', 'mapped')),
     status TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'superseded', 'rejected')),
     created_at BIGINT NOT NULL,
@@ -59,7 +61,10 @@ CREATE INDEX idx_normalized_needs_active
     ON normalized_needs(agent_id, need_type, status, updated_at DESC);
 CREATE INDEX idx_normalized_needs_intent
     ON normalized_needs(agent_id, intent_id, intent_version, status);
+CREATE INDEX idx_normalized_needs_mapping
+    ON normalized_needs(mapping_status, normalized_need_id) WHERE status = 'active';
 -- Eligibility follows the current human-managed intent, without rewriting history.
+-- Vocabulary coverage and offline processing never gate eligibility.
 CREATE VIEW current_normalized_needs AS
 SELECT n.* FROM normalized_needs n
 JOIN need_inputs i ON i.need_input_id = n.need_input_id

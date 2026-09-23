@@ -135,7 +135,7 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 source FK and at most one active projection per input. `current_normalized_needs`
 joins source status and current Intent version to exclude obsolete projections.
 Capture writes a deterministic basic projection in the input transaction.
-Migration 000106 adds `mapping_status` (`unmapped`, `partial`, `mapped`) independently
+Migration 000105 includes `mapping_status` (`unmapped`, `partial`, `mapped`) independently
 of input processing state. Offline publication atomically replaces projection
 rows; current eligibility never requires vocabulary coverage. See the
 [design](../design/need-capture/design.md) and [schemas](../../contracts/need_input.v1.schema.json).

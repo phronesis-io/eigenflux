@@ -23,7 +23,7 @@ separate work. No production operations are part of this increment.
 ## Passed (2026-09-23)
 
 - `bash scripts/common/build.sh`: all 12 core binaries compiled.
-- `./scripts/local/start_local.sh`: migration 106 and all local services started
+- `./scripts/local/start_local.sh`: migration 105 and all local services started
   on the isolated `ef-need-capture-test` stack. The gateway was also restarted
   with Console V2/control enabled for actual gateway tests.
 - `go test ./pkg/need ./api/consolev2 ./api/middleware`: passed.
@@ -41,6 +41,9 @@ separate work. No production operations are part of this increment.
   'Test(PushFeedEvents|SettingsRampUserSetSemantics)$'`: both passed.
 - `go vet ./pkg/need ./api/consolev2 ./api/middleware ./tests/needs`: passed.
 - `git diff --check`: passed.
+- Consolidated migration 105: up from 104, down to 104 (both tables and the
+  view removed), and up again passed. All nine Need integration tests passed
+  against the consolidated schema.
 
 Earlier capture validation also passed the complete PostgreSQL Console V2 suite,
 auth suite, native CLI build, and all CLI module tests. The broader failures below
