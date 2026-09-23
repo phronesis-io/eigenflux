@@ -334,6 +334,11 @@ func TestNeedInputRevisedFields(t *testing.T) {
 	} {
 		h.request(t, "POST", "/need-inputs", h.token, fmt.Sprintf("bad-fields-%d", i), bad, 400)
 	}
+	for i, currency := range []string{"USD", "EUR", "", "cny"} {
+		bad := strings.Replace(raw, `"broadcast"`, `"commission"`, 1)
+		bad = strings.Replace(bad, `"lang":["zh"]`, `"currency":"`+currency+`"`, 1)
+		h.request(t, "POST", "/need-inputs", h.token, fmt.Sprintf("bad-currency-%d", i), bad, 400)
+	}
 }
 
 func TestNeedInputCLI(t *testing.T) {
@@ -342,7 +347,29 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Skip("EIGENFLUX_TEST_CLI required")
 	}
 	h := setup(t)
-	original := strings.Replace(original, "INTENT_ID", fmt.Sprint(h.intent), 1)
+	// Exercise the complete Skill example through the actual CLI and gateway.
+	guide, err := os.ReadFile("../../skills/ef-broadcast/references/needs.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, example, found := strings.Cut(string(guide), "```json\n")
+	if !found {
+		t.Fatal("Skill is missing the complete NeedInput example")
+	}
+	example, _, found = strings.Cut(example, "\n```")
+	if !found {
+		t.Fatal("Skill example has no closing fence")
+	}
+	in, err := need.Decode([]byte(example))
+	if err != nil {
+		t.Fatal("Skill example violates the input contract", err)
+	}
+	in.IntentID = h.intent
+	encoded, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := string(encoded)
 	home := filepath.Join(t.TempDir(), ".eigenflux")
 	dir := filepath.Join(home, "servers", "eigenflux")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -382,8 +409,13 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Fatal("CLI retry was duplicated")
 	}
 	got := run("need", "input", "get", id)
-	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["candidate_needs"].([]any)[1] != "数据库性能" {
+	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["candidate_needs"].([]any)[1] != "database performance optimization" {
 		t.Fatal(got)
+	}
+	normalized := got["need_input"].(map[string]any)["normalized_need"].(map[string]any)["normalized"].(map[string]any)
+	constraints := normalized["constraints"].(map[string]any)
+	if constraints["currency"] != "CNY" || constraints["budget_max_fen"] != float64(50000) {
+		t.Fatal("Skill budget did not round-trip through normalization", constraints)
 	}
 	if len(run("need", "input", "list")["need_inputs"].([]any)) != 1 {
 		t.Fatal("CLI list mismatch")

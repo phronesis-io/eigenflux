@@ -40,6 +40,9 @@ separate work. No production operations are part of this increment.
   retry preservation, legacy pending upgrade, ownership and Intent invalidation.
   Revised fields are validated across HTTP/CLI. Three retained projections remain
   linked to the unchanged input and Intent snapshot after the Intent advances.
+  The CLI test submits the complete Skill JSON example and verifies its CNY
+  budget survives normalization. Unit/schema/HTTP cases reject unsupported or
+  explicitly empty currencies; CNY amounts remain integer fen.
 - `./tests/run.sh --skip-start e2e --case
   'Test(PushFeedEvents|SettingsRampUserSetSemantics)$'`: both passed.
 - `go vet ./pkg/need ./api/consolev2 ./api/middleware ./tests/needs`: passed.

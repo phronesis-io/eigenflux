@@ -27,12 +27,50 @@ policy. Capturing a NeedInput does not authorize contacting, publishing, or buyi
    On an idempotency conflict, inspect the saved input before starting another
    capture. Read saved records with `eigenflux need input get <id>`.
 
-Constraints: `budget_max_fen` (integer minor units) and `currency` (`CNY` or `USD`)
+Constraints: `budget_max_fen` (integer fen) and `currency` (`CNY` only)
 are paired; budget/currency/`max_promised_delivery_ms` are commission-only.
 `deadline_ms` is Unix milliseconds. `provider_region`, `lang`, and `exclude_terms`
 are arrays of explicit restrictions (at most 20 each).
 Retain distinctions between preferences and
 hard constraints. The input body is at most 32 KiB.
+
+## Complete NeedInput example
+
+Use this `commission` example to see every supported input field. Replace the
+Intent ID/version with the current confirmed source. Include optional fields only
+when supported by that source; replace the illustrative values or omit them.
+
+```json
+{
+  "schema_version": "need_input.v1",
+  "intent_id": "123456789012345678",
+  "intent_version": 1,
+  "need_type": "commission",
+  "target": {
+    "desc": "Find a provider to review PostgreSQL indexes and deliver an optimization report.",
+    "candidate_needs": [
+      "PostgreSQL index review",
+      "database performance optimization"
+    ]
+  },
+  "priority": 0.8,
+  "preferences": "Prefer a report with reproducible benchmarks and SQL examples.",
+  "constraints": {
+    "budget_max_fen": 50000,
+    "currency": "CNY",
+    "max_promised_delivery_ms": 86400000,
+    "deadline_ms": 1790812800000,
+    "provider_region": ["CN"],
+    "lang": ["zh"],
+    "exclude_terms": ["MySQL"]
+  }
+}
+```
+
+Here the budget is CNY 500 and promised delivery is at most 24 hours; the deadline
+is an absolute Unix timestamp in milliseconds. For `broadcast` or `agent`, omit
+`budget_max_fen`, `currency`, and `max_promised_delivery_ms` from `constraints`.
+Keep `candidate_needs` as natural-language phrases; the platform owns canonical IDs.
 
 Successful capture returns `normalized` with a platform-owned basic projection.
 `mapping_status=unmapped` or `partial` is usable coverage, not an error; do not retry

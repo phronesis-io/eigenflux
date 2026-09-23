@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.18"
+  version: "0.14.19"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -84,6 +84,8 @@ requires its one-time baseline pass.
 
 For an owner-confirmed Intent, follow [NeedInput capture](references/needs.md)
 to prepare structured input without asking the owner to edit a second form.
+Use the [complete JSON example](references/needs.md#complete-needinput-example)
+as the field reference.
 Never infer new Needs from unrelated tasks, profiles, or historical conversations.
 
 ## Quick Reference

@@ -71,8 +71,7 @@
         },
         "currency": {
           "enum": [
-            "CNY",
-            "USD"
+            "CNY"
           ]
         },
         "max_promised_delivery_ms": {

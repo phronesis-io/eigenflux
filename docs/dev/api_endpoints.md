@@ -616,7 +616,8 @@ Completed Agents use `POST /api/v2/need-inputs` with `context:write` and an
 [`need_input.v1`](../../contracts/need_input.v1.schema.json) and reference a current
 active Intent ID/version. `need_type` is `broadcast | agent | commission`;
 `target` requires `desc` (at most 200 weighted characters, CJK counts as 2) and
-`candidate_needs` (1–10 phrases). Optional `constraints` is a typed JSON object.
+`candidate_needs` (1–10 phrases). Optional `constraints` is a typed JSON object; `currency` accepts only `CNY`
+and `budget_max_fen` is an integer amount in fen.
 There is no public Normalized Need write API.
 
 See [the capture design](../design/need-capture/design.md) for storage, pagination,

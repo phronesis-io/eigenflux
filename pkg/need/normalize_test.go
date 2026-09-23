@@ -64,18 +64,23 @@ func TestBasicNormalizationRetainsExplicitZeroAndDeadline(t *testing.T) {
 	in, _ := Decode([]byte(validInput))
 	in.NeedType = "commission"
 	zero, deadline := int64(0), int64(1)
-	in.Constraints = Constraints{BudgetMaxFen: &zero, Currency: "USD", MaxDurationMS: &zero, DeadlineMS: &deadline}
+	in.Constraints = Constraints{BudgetMaxFen: &zero, Currency: "CNY", MaxDurationMS: &zero, DeadlineMS: &deadline}
 	n, err := NormalizeBasic(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Constraints.BudgetMaxFen == nil || *n.Constraints.BudgetMaxFen != 0 || n.Constraints.Currency != "USD" || *n.Constraints.DeadlineMS != 1 {
+	if n.Constraints.BudgetMaxFen == nil || *n.Constraints.BudgetMaxFen != 0 || n.Constraints.Currency != "CNY" || *n.Constraints.DeadlineMS != 1 {
 		t.Fatal(n)
 	}
 	*n.Constraints.BudgetMaxFen = 2
 	if *in.Constraints.BudgetMaxFen != 0 {
 		t.Fatal("aliased source constraint")
 	}
+	in.Constraints.Currency = "USD"
+	if _, err := NormalizeBasic(in); err == nil {
+		t.Fatal("unsupported currency bypassed normalization validation")
+	}
+	in.Constraints.Currency = "CNY"
 	in.NeedType = "broadcast"
 	if _, err := NormalizeBasic(in); err == nil {
 		t.Fatal("invalid constraints bypassed validation")

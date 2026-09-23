@@ -31,6 +31,10 @@ func TestContract(t *testing.T) {
 		{"noncanonical id", strings.Replace(validInput, `"123"`, `"0123"`, 1), false},
 		{"numeric id", strings.Replace(validInput, `"intent_id":"123"`, `"intent_id":123`, 1), false},
 		{"zero budget", strings.Replace(add(`"constraints":{"budget_max_fen":0,"currency":"CNY"}`), `"broadcast"`, `"commission"`, 1), true},
+		{"USD rejected", strings.Replace(add(`"constraints":{"budget_max_fen":10,"currency":"USD"}`), `"broadcast"`, `"commission"`, 1), false},
+		{"EUR rejected", strings.Replace(add(`"constraints":{"currency":"EUR"}`), `"broadcast"`, `"commission"`, 1), false},
+		{"empty currency rejected", strings.Replace(add(`"constraints":{"currency":""}`), `"broadcast"`, `"commission"`, 1), false},
+		{"lowercase currency rejected", strings.Replace(add(`"constraints":{"currency":"cny"}`), `"broadcast"`, `"commission"`, 1), false},
 		{"missing intent link", strings.Replace(validInput, `"intent_id":"123",`, "", 1), false},
 		{"bad version", strings.Replace(validInput, `"intent_version":1`, `"intent_version":0`, 1), false},
 		{"canonical field", strings.Replace(validInput, `"desc":`, `"category":"design","desc":`, 1), false},
@@ -139,5 +143,10 @@ func TestNormalizedProjectionSchema(t *testing.T) {
 	result, err := schema.Validate(gojsonschema.NewStringLoader(bad))
 	if err != nil || result.Valid() {
 		t.Fatalf("removed constraint accepted: %v", err)
+	}
+	bad = strings.Replace(string(encoded), `"constraints":{}`, `"constraints":{"budget_max_fen":10,"currency":"USD"}`, 1)
+	result, err = schema.Validate(gojsonschema.NewStringLoader(bad))
+	if err != nil || result.Valid() {
+		t.Fatalf("unsupported normalized currency accepted: %v", err)
 	}
 }

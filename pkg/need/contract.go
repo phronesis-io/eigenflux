@@ -112,10 +112,16 @@ func Decode(raw []byte) (Input, error) {
 		return in, invalid("body", "invalid_fields_or_types")
 	}
 	var link struct {
-		IntentID string `json:"intent_id"`
+		IntentID    string `json:"intent_id"`
+		Constraints struct {
+			Currency *string `json:"currency"`
+		} `json:"constraints"`
 	}
 	if err := json.Unmarshal(raw, &link); err != nil || link.IntentID != strconv.FormatInt(in.IntentID, 10) {
 		return in, invalid("intent_id", "canonical_positive_int64_required")
+	}
+	if currency := link.Constraints.Currency; currency != nil && *currency != "CNY" {
+		return in, invalid("constraints.currency", "unsupported")
 	}
 	return in, Validate(in)
 }
@@ -200,7 +206,7 @@ func Validate(in Input) error {
 	if c.BudgetMaxFen != nil && (*c.BudgetMaxFen < 0 || c.Currency == "") {
 		return invalid("constraints.budget_max_fen", "nonnegative_amount_and_currency_required")
 	}
-	if c.Currency != "" && c.Currency != "CNY" && c.Currency != "USD" {
+	if c.Currency != "" && c.Currency != "CNY" {
 		return invalid("constraints.currency", "unsupported")
 	}
 	if c.MaxDurationMS != nil && *c.MaxDurationMS < 0 {

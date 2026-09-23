@@ -70,9 +70,10 @@ The API does not expose input update/delete or platform projection writes.
 
 Only explicit constraints belong in `constraints`. Omitted values remain unknown.
 `priority` is optional in the input and must not be mechanically copied from the
-Intent's different numeric priority scale. `budget_max_fen` is integer minor units
-(cents for USD, fen for CNY), paired with currency. Past deadlines can be captured
-for faithful source preservation; they do not authorize current matching.
+Intent's different numeric priority scale. `budget_max_fen` is an integer amount
+in fen, paired with `currency: "CNY"`; no other currency is supported. Past
+deadlines can be captured for faithful source preservation; they do not authorize
+current matching.
 
 ## Input and derived fields
 
