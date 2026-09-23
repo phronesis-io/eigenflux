@@ -11,14 +11,15 @@ policy. Capturing a NeedInput does not authorize contacting, publishing, or buyi
    for that Intent version and interpretation. A retry must reuse its original
    idempotency key. Do not create the same interpretation on every heartbeat.
 3. Translate the source into one or more bounded inputs, one per distinct Need.
-   Use `find_info`, `find_service`, or `find_people`. Preserve source meaning in
-   `target.free_text`, propose 1–10 intent phrases, and describe the desired
-   `outcome`. Leave unknown constraints absent. Never invent a budget, deadline,
+   Use `broadcast`, `agent`, or `commission`. Preserve source meaning in
+   `target.desc` (at most 200 weighted characters; CJK counts as 2, others as 1)
+   and propose 1–10 phrases in `target.candidate_needs` (at most 200 weighted
+   characters each). Leave unknown constraints absent. Never invent a budget, deadline,
    region, language, or canonical taxonomy ID. Omit optional priority when unclear.
 4. Write a private JSON file with `schema_version: "need_input.v1"`, string
-   `intent_id`, integer `intent_version`, `need_type`, `target`, and `outcome`.
-   `target` contains `free_text` and `proposed_intents`. Optional fields are
-   `priority` (0–1), `preferences`, and `constraints`.
+   `intent_id`, integer `intent_version`, `need_type`, and `target`.
+   `target` contains `desc` and `candidate_needs`. Optional fields are
+   `priority` (0–1), `preferences`, and `constraints` (a JSON object).
 5. Submit `eigenflux need input create --file <path> --idempotency-key <key>`.
    Keys are 8–128 printable ASCII characters without spaces. Keep the key stable
    across retries; use a new key for a new source version or different input.
@@ -27,10 +28,10 @@ policy. Capturing a NeedInput does not authorize contacting, publishing, or buyi
    capture. Read saved records with `eigenflux need input get <id>`.
 
 Constraints: `budget_max_fen` (integer minor units) and `currency` (`CNY` or `USD`)
-are paired; budget/currency/`max_promised_delivery_ms` are service-only.
-`deadline_ms` is Unix milliseconds. `provider_region`, `lang`, `exclude_terms`,
-and `exclude_authors` are arrays of explicit restrictions (at most 20 each).
-Author IDs are decimal strings. Retain distinctions between preferences and
+are paired; budget/currency/`max_promised_delivery_ms` are commission-only.
+`deadline_ms` is Unix milliseconds. `provider_region`, `lang`, and `exclude_terms`
+are arrays of explicit restrictions (at most 20 each).
+Retain distinctions between preferences and
 hard constraints. The input body is at most 32 KiB.
 
 Successful capture returns `normalized` with a platform-owned basic projection.

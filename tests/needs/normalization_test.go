@@ -2,6 +2,7 @@ package needs_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -69,7 +70,7 @@ func TestOfflinePublicationCoverageAndCAS(t *testing.T) {
 	store := need.Store{DB: h.db, IDs: h.ids}
 	ctx := context.Background()
 	baseID := r.NormalizedNeed.NormalizedNeedID
-	partial := need.Vocabulary{Version: "v1", Intents: map[string]string{"PostgreSQL 索引": "database.index"}}
+	partial := need.Vocabulary{Version: "v1", Needs: map[string]string{"PostgreSQL 索引": "database.index"}}
 	p, err := store.Enrich(ctx, h.owner, r.NeedInputID, baseID, partial, 2)
 	if err != nil || !p.Eligible || p.MappingStatus != need.MappingPartial {
 		t.Fatalf("%+v %v", p, err)
@@ -78,11 +79,11 @@ func TestOfflinePublicationCoverageAndCAS(t *testing.T) {
 	if err != nil || replayed.NormalizedNeedID != p.NormalizedNeedID {
 		t.Fatal("enrichment retry duplicated", err)
 	}
-	changed := need.Vocabulary{Version: "v1", Intents: map[string]string{"PostgreSQL 索引": "different.id"}}
+	changed := need.Vocabulary{Version: "v1", Needs: map[string]string{"PostgreSQL 索引": "different.id"}}
 	if _, err := store.Enrich(ctx, h.owner, r.NeedInputID, p.NormalizedNeedID, changed, 4); !errors.Is(err, need.ErrProjectionConflict) {
 		t.Fatal("mutable vocabulary version accepted", err)
 	}
-	full := need.Vocabulary{Version: "v2", Intents: map[string]string{"PostgreSQL 索引": "database.index", "数据库性能": "database.performance"}}
+	full := need.Vocabulary{Version: "v2", Needs: map[string]string{"PostgreSQL 索引": "database.index", "数据库性能": "database.performance"}}
 	if _, err := store.Enrich(ctx, h.owner, r.NeedInputID, baseID, full, 4); !errors.Is(err, need.ErrProjectionConflict) {
 		t.Fatal("stale publisher overwrote current result", err)
 	}
@@ -106,6 +107,35 @@ func TestOfflinePublicationCoverageAndCAS(t *testing.T) {
 	got, err = store.Get(ctx, h.owner, r.NeedInputID)
 	if err != nil || got.NormalizedNeed.Eligible {
 		t.Fatal("obsolete intent remained eligible", err)
+	}
+	// Reconstruct versioned samples after the mutable Intent has advanced.
+	var history []need.Projection
+	if err := h.db.Where("need_input_id = ?", r.NeedInputID).Order("created_at").Find(&history).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("lost normalization history: %d revisions", len(history))
+	}
+	if string(got.Input) != string(r.Input) || string(got.IntentSnapshot) != string(r.IntentSnapshot) {
+		t.Fatal("historical sample source changed with Intent")
+	}
+	for i, revision := range history {
+		if revision.NeedInputID != r.NeedInputID || revision.AgentID != h.owner || revision.IntentID != h.intent || revision.IntentVersion != 1 {
+			t.Fatal("historical revision lost exact source link", revision)
+		}
+		var n need.Normalized
+		if err := json.Unmarshal(revision.Normalized, &n); err != nil {
+			t.Fatal(err)
+		}
+		if len(n.CandidateNeeds) != 2 || len(n.MappedNeeds) != i || n.Desc != "请帮我记录这个需求：寻找 PostgreSQL 索引资料。 保留格式。" {
+			t.Fatal("historical sample contents lost or overwritten", n)
+		}
+		if revision.TaxonomyVersion != []string{"", "v1", "v2"}[i] || revision.Status != []string{"superseded", "superseded", "active"}[i] {
+			t.Fatal("historical sample metadata lost", revision)
+		}
+		if i > 0 && n.MappedNeeds["PostgreSQL 索引"] != "database.index" || i == 2 && n.MappedNeeds["数据库性能"] != "database.performance" {
+			t.Fatal("historical mapping changed", n)
+		}
 	}
 }
 
@@ -135,7 +165,7 @@ func TestNormalizationAndEnrichmentAreAtomic(t *testing.T) {
 	}
 	r := createNormalized(t, h, "atomic-enrichment")
 	store.IDs = &failingIDs{source: h.ids}
-	v := need.Vocabulary{Version: "v1", Intents: map[string]string{"PostgreSQL 索引": "database.index"}}
+	v := need.Vocabulary{Version: "v1", Needs: map[string]string{"PostgreSQL 索引": "database.index"}}
 	if _, err := store.Enrich(context.Background(), h.owner, r.NeedInputID, r.NormalizedNeed.NormalizedNeedID, v, 2); err == nil {
 		t.Fatal("injected publication failure ignored")
 	}
@@ -158,7 +188,7 @@ func TestConcurrentOfflinePublishersAndOnlineRetries(t *testing.T) {
 		wg.Add(1)
 		go func(version string) {
 			defer wg.Done()
-			_, err := store.Enrich(context.Background(), h.owner, r.NeedInputID, r.NormalizedNeed.NormalizedNeedID, need.Vocabulary{Version: version, Intents: map[string]string{"PostgreSQL 索引": "database.index"}}, 2)
+			_, err := store.Enrich(context.Background(), h.owner, r.NeedInputID, r.NormalizedNeed.NormalizedNeedID, need.Vocabulary{Version: version, Needs: map[string]string{"PostgreSQL 索引": "database.index"}}, 2)
 			results <- err
 		}(version)
 	}

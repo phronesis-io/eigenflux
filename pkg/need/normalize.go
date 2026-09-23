@@ -21,26 +21,22 @@ func NormalizeBasic(in Input) (Normalized, error) {
 	if err := Validate(in); err != nil {
 		return Normalized{}, err
 	}
-	phrases := cleanDistinct(in.Target.ProposedIntents)
+	phrases := cleanDistinct(in.Target.CandidateNeeds)
 	c := in.Constraints
 	c.BudgetMaxFen = copyNumber(c.BudgetMaxFen)
 	c.MaxDurationMS = copyNumber(c.MaxDurationMS)
 	c.DeadlineMS = copyNumber(c.DeadlineMS)
 	c.ExcludeTerms = cleanDistinct(c.ExcludeTerms)
-	c.ExcludeAuthors = cleanDistinct(c.ExcludeAuthors)
 	var unresolved UnresolvedConstraints
 	c.Lang, unresolved.Lang = normalizeAlternatives(c.Lang, normalizeLanguage)
 	c.ProviderRegion, unresolved.ProviderRegion = normalizeAlternatives(c.ProviderRegion, normalizeRegion)
 	return Normalized{
-		SchemaVersion: NormalizedSchemaVersion, NeedType: in.NeedType,
-		QueryText: cleanText(in.Target.FreeText), Outcome: cleanText(in.Outcome),
-		Priority: copyNumber(in.Priority), Preferences: cleanText(in.Preferences),
-		Constraints: c, IntentPhrases: phrases, UnmappedIntents: append([]string{}, phrases...),
-		MappingStatus: MappingUnmapped, UnresolvedConstraints: unresolved,
+		Desc: cleanText(in.Target.Desc), CandidateNeeds: phrases,
+		Constraints: c, UnresolvedConstraints: unresolved,
 	}, nil
 }
 
-func copyNumber[T int64 | float64](value *T) *T {
+func copyNumber(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}
@@ -108,10 +104,10 @@ func normalizeRegion(value string) (string, bool) {
 // Building, fetching and scheduling these snapshots is outside the online path.
 type Vocabulary struct {
 	Version string
-	Intents map[string]string
+	Needs   map[string]string
 }
 
-var canonicalIntentID = regexp.MustCompile(`^[a-z0-9][a-z0-9._:-]{0,127}$`)
+var canonicalNeedID = regexp.MustCompile(`^[a-z0-9][a-z0-9._:-]{0,127}$`)
 
 // NormalizeWithVocabulary supplements the basic representation. Unknown phrases
 // remain available to text retrieval; no hard constraint is inferred or changed.
@@ -123,10 +119,10 @@ func NormalizeWithVocabulary(in Input, vocabulary Vocabulary) (Normalized, error
 	if !textValid(vocabulary.Version, 128, true) || strings.TrimSpace(vocabulary.Version) != vocabulary.Version {
 		return Normalized{}, invalid("taxonomy_version", "required_version")
 	}
-	entries := make(map[string]string, len(vocabulary.Intents))
-	for phrase, id := range vocabulary.Intents {
+	entries := make(map[string]string, len(vocabulary.Needs))
+	for phrase, id := range vocabulary.Needs {
 		key := cleanText(phrase)
-		if !textValid(key, 200, true) || !canonicalIntentID.MatchString(id) {
+		if !textValid(key, 200, true) || !canonicalNeedID.MatchString(id) {
 			return Normalized{}, invalid("vocabulary", "invalid_mapping")
 		}
 		if previous, ok := entries[key]; ok && previous != id {
@@ -134,19 +130,10 @@ func NormalizeWithVocabulary(in Input, vocabulary Vocabulary) (Normalized, error
 		}
 		entries[key] = id
 	}
-	n.UnmappedIntents = []string{}
-	for _, phrase := range n.IntentPhrases {
+	n.MappedNeeds = map[string]string{}
+	for _, phrase := range n.CandidateNeeds {
 		if id, ok := entries[phrase]; ok {
-			n.Intents = append(n.Intents, id)
-		} else {
-			n.UnmappedIntents = append(n.UnmappedIntents, phrase)
-		}
-	}
-	n.Intents = cleanDistinct(n.Intents)
-	if len(n.Intents) > 0 {
-		n.MappingStatus = MappingPartial
-		if len(n.UnmappedIntents) == 0 {
-			n.MappingStatus = MappingMapped
+			n.MappedNeeds[phrase] = id
 		}
 	}
 	return n, nil

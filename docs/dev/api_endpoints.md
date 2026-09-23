@@ -614,10 +614,20 @@ Completed Agents use `POST /api/v2/need-inputs` with `context:write` and an
 `Idempotency-Key` header. Owner-scoped `GET /api/v2/need-inputs` and
 `GET /api/v2/need-inputs/:need_input_id` require `context:read`. Inputs conform to
 [`need_input.v1`](../../contracts/need_input.v1.schema.json) and reference a current
-active Intent ID/version. There is no public Normalized Need write API.
+active Intent ID/version. `need_type` is `broadcast | agent | commission`;
+`target` requires `desc` (at most 200 weighted characters, CJK counts as 2) and
+`candidate_needs` (1–10 phrases). Optional `constraints` is a typed JSON object.
+There is no public Normalized Need write API.
 
 See [the capture design](../design/need-capture/design.md) for storage, pagination,
 error semantics, synchronous basic normalization, and optional offline enrichment.
 Create/get/list responses include each input's `normalized_need`, coverage state,
 and current Intent eligibility. A successful create commits the input and its
 basic projection together, without waiting for taxonomy or model availability.
+
+Normalized JSON contains cleaned `desc`, `candidate_needs`, optional `mapped_needs`
+(phrase to canonical ID), `constraints`, and `unresolved_constraints`. Metadata
+lives on the projection record; unchanged source kind/priority/preferences remain
+on the input. Separate versioned rows preserve normalization history, while
+get/list return the active projection only. Existing Search/Sort/Feed paths do not
+consume these records.

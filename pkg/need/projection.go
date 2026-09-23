@@ -13,11 +13,10 @@ var ErrProjectionConflict = errors.New("normalized_need_revision_conflict")
 
 type Projection struct {
 	NormalizedNeedID  int64           `gorm:"primaryKey" json:"normalized_need_id,string"`
-	NeedInputID       int64           `json:"need_input_id,string"`
-	AgentID           int64           `json:"agent_id,string"`
-	IntentID          int64           `json:"intent_id,string"`
-	IntentVersion     int64           `json:"intent_version"`
-	NeedType          string          `json:"need_type"`
+	NeedInputID       int64           `json:"-"`
+	AgentID           int64           `json:"-"`
+	IntentID          int64           `json:"-"`
+	IntentVersion     int64           `json:"-"`
 	SchemaVersion     string          `json:"schema_version"`
 	Normalized        json.RawMessage `gorm:"type:jsonb" json:"normalized"`
 	NormalizerVersion string          `json:"normalizer_version"`
@@ -42,9 +41,9 @@ func (s Store) insertProjection(tx *gorm.DB, input row, n Normalized, normalizer
 	}
 	p := Projection{
 		NormalizedNeedID: id, NeedInputID: input.NeedInputID, AgentID: input.AgentID,
-		IntentID: input.IntentID, IntentVersion: input.IntentVersion, NeedType: n.NeedType,
-		SchemaVersion: n.SchemaVersion, Normalized: raw, NormalizerVersion: normalizer,
-		TaxonomyVersion: taxonomy, MappingStatus: n.MappingStatus, Status: "active",
+		IntentID: input.IntentID, IntentVersion: input.IntentVersion,
+		SchemaVersion: NormalizedSchemaVersion, Normalized: raw, NormalizerVersion: normalizer,
+		TaxonomyVersion: taxonomy, MappingStatus: n.MappingStatus(), Status: "active",
 		CreatedAt: now, UpdatedAt: now,
 	}
 	err = tx.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}).Create(&p).Error

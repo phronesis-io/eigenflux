@@ -32,7 +32,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const original = `{"schema_version":"need_input.v1","intent_id":"INTENT_ID","intent_version":1,"need_type":"find_info","target":{"free_text":"  请帮我记录这个需求：寻找 PostgreSQL 索引资料。\n保留格式。 ","proposed_intents":["PostgreSQL 索引","数据库性能"]},"outcome":"学习索引原理","constraints":{"lang":["zh"]}}`
+const original = `{"schema_version":"need_input.v1","intent_id":"INTENT_ID","intent_version":1,"need_type":"broadcast","target":{"desc":"  请帮我记录这个需求：寻找 PostgreSQL 索引资料。\n保留格式。 ","candidate_needs":["PostgreSQL 索引","数据库性能"]},"constraints":{"lang":["zh"]}}`
 
 type ids struct{ n atomic.Int64 }
 
@@ -178,7 +178,7 @@ func TestNeedInputHTTPAndPostgres(t *testing.T) {
 	h.request(t, "POST", "/need-inputs", "", "capture-test-1", original, 401)
 	h.request(t, "POST", "/need-inputs", h.token, "", original, 400)
 	h.request(t, "POST", "/need-inputs", h.token, "capture-bad-1", strings.Replace(original, "need_input.v1", "need_input.v2", 1), 400)
-	h.request(t, "POST", "/need-inputs", h.token, "capture-bad-2", strings.Replace(original, `"outcome":`, `"agent_id":"42","outcome":`, 1), 400)
+	h.request(t, "POST", "/need-inputs", h.token, "capture-bad-2", strings.Replace(original, `"target":`, `"agent_id":"42","target":`, 1), 400)
 	h.request(t, "POST", "/need-inputs", h.token, "capture-bad-3", original+`{}`, 400)
 	h.request(t, "POST", "/need-inputs", h.token, "capture-bad-4", strings.Repeat("x", 32769), 413)
 	if err := h.db.Exec("UPDATE agent_onboarding_v2 SET state='in_progress',completed_at=NULL WHERE agent_id=?", h.other).Error; err != nil {
@@ -204,7 +204,7 @@ func TestNeedInputHTTPAndPostgres(t *testing.T) {
 	if projection["eligible"] != true || projection["mapping_status"] != "unmapped" || projection["taxonomy_version"] != "" || projection["normalizer_version"] != need.BasicNormalizerVersion {
 		t.Fatal(projection)
 	}
-	if projection["normalized"].(map[string]any)["query_text"] == "" {
+	if projection["normalized"].(map[string]any)["desc"] == "" {
 		t.Fatal("missing baseline retrieval text")
 	}
 	snapshot := record["intent_snapshot"].(map[string]any)
@@ -212,14 +212,14 @@ func TestNeedInputHTTPAndPostgres(t *testing.T) {
 		t.Fatal(snapshot)
 	}
 	raw := record["input"].(map[string]any)
-	if raw["target"].(map[string]any)["free_text"] != "  请帮我记录这个需求：寻找 PostgreSQL 索引资料。\n保留格式。 " {
+	if raw["target"].(map[string]any)["desc"] != "  请帮我记录这个需求：寻找 PostgreSQL 索引资料。\n保留格式。 " {
 		t.Fatal("original wording changed")
 	}
 	retry := h.request(t, "POST", "/need-inputs", h.token, "capture-test-1", original, 200)
 	if retry["need_input"].(map[string]any)["need_input_id"] != id || retry["replayed"] != true {
 		t.Fatal(retry)
 	}
-	h.request(t, "POST", "/need-inputs", h.token, "capture-test-1", strings.Replace(original, "学习索引原理", "学习 SQL", 1), 409)
+	h.request(t, "POST", "/need-inputs", h.token, "capture-test-1", strings.Replace(original, "数据库性能", "SQL 优化", 1), 409)
 	h.request(t, "GET", "/need-inputs/"+id, h.otherToken, "", "", 404)
 	h.request(t, "GET", "/need-inputs/"+id, h.token, "", "", 200)
 	other := h.request(t, "POST", "/need-inputs", h.otherToken, "capture-test-1", strings.Replace(original, fmt.Sprintf(`"intent_id":"%d"`, h.intent), fmt.Sprintf(`"intent_id":"%d"`, h.otherIntent), 1), 201)
@@ -297,6 +297,45 @@ func TestNeedInputHTTPAndPostgres(t *testing.T) {
 	}
 }
 
+func TestNeedInputRevisedFields(t *testing.T) {
+	h := setup(t)
+	raw := strings.Replace(original, "INTENT_ID", fmt.Sprint(h.intent), 1)
+	for _, kind := range []string{"broadcast", "agent", "commission"} {
+		payload := strings.Replace(raw, `"broadcast"`, `"`+kind+`"`, 1)
+		created := h.request(t, "POST", "/need-inputs", h.token, "fields-"+kind, payload, 201)
+		record := created["need_input"].(map[string]any)
+		if record["input"].(map[string]any)["need_type"] != kind {
+			t.Fatal("lost source kind", record)
+		}
+		p := record["normalized_need"].(map[string]any)
+		for _, duplicate := range []string{"need_input_id", "agent_id", "intent_id", "intent_version", "need_type"} {
+			if _, exists := p[duplicate]; exists {
+				t.Fatal("duplicated parent source field", duplicate)
+			}
+		}
+		n := p["normalized"].(map[string]any)
+		for _, duplicate := range []string{"schema_version", "mapping_status", "need_type", "priority", "preferences", "outcome"} {
+			if _, exists := n[duplicate]; exists {
+				t.Fatal("duplicated original or metadata field", duplicate)
+			}
+		}
+		if n["desc"] == "" || len(n["candidate_needs"].([]any)) != 2 {
+			t.Fatal("missing derived content", n)
+		}
+	}
+	for i, bad := range []string{
+		strings.Replace(raw, `"broadcast"`, `"find_info"`, 1),
+		strings.Replace(raw, `"desc"`, `"free_text"`, 1),
+		strings.Replace(raw, `"candidate_needs"`, `"proposed_intents"`, 1),
+		strings.Replace(raw, `"target":`, `"outcome":"obsolete","target":`, 1),
+		strings.Replace(raw, `"lang":["zh"]`, `"exclude_authors":["123"]`, 1),
+		strings.Replace(raw, `{"lang":["zh"]}`, `"{}"`, 1),
+		strings.Replace(raw, `"desc":"`, `"desc":"`+strings.Repeat("a", 201), 1),
+	} {
+		h.request(t, "POST", "/need-inputs", h.token, fmt.Sprintf("bad-fields-%d", i), bad, 400)
+	}
+}
+
 func TestNeedInputCLI(t *testing.T) {
 	binary := os.Getenv("EIGENFLUX_TEST_CLI")
 	if binary == "" {
@@ -343,7 +382,7 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Fatal("CLI retry was duplicated")
 	}
 	got := run("need", "input", "get", id)
-	if got["need_input"].(map[string]any)["input"].(map[string]any)["outcome"] != "学习索引原理" {
+	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["candidate_needs"].([]any)[1] != "数据库性能" {
 		t.Fatal(got)
 	}
 	if len(run("need", "input", "list")["need_inputs"].([]any)) != 1 {
@@ -359,10 +398,10 @@ func TestNormalizedNeedIntegrityAndEligibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection := `{"schema_version":"normalized_need.v1","need_type":"find_info","query_text":"PostgreSQL indexes","outcome":"Learn indexing"}`
+	projection := `{"desc":"PostgreSQL indexes","candidate_needs":["indexes"],"constraints":{}}`
 	insert := func(owner, version int64, normalizer string) error {
 		id, _ := h.ids.NextID()
-		return h.db.Exec(`INSERT INTO normalized_needs(normalized_need_id,need_input_id,agent_id,intent_id,intent_version,need_type,schema_version,normalized,normalizer_version,created_at,updated_at) VALUES (?,?,?,?,?,'find_info','normalized_need.v1',?::jsonb,?,1,1)`, id, r.NeedInputID, owner, h.intent, version, projection, normalizer).Error
+		return h.db.Exec(`INSERT INTO normalized_needs(normalized_need_id,need_input_id,agent_id,intent_id,intent_version,schema_version,normalized,normalizer_version,created_at,updated_at) VALUES (?,?,?,?,?,'normalized_need.v1',?::jsonb,?,1,1)`, id, r.NeedInputID, owner, h.intent, version, projection, normalizer).Error
 	}
 	if insert(h.other, 1, "v1") == nil {
 		t.Fatal("cross-owner projection accepted")

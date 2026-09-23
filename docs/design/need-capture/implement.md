@@ -29,20 +29,24 @@ separate work. No production operations are part of this increment.
 - `go test ./pkg/need ./api/consolev2 ./api/middleware`: passed.
 - `go test -race ./pkg/need`: passed. Covers missing/empty/incomplete vocabulary,
   aliases, unresolved alternatives, source preservation, zero-valued constraints,
+  description length boundaries, removed-field rejection, many-to-one mappings,
   invalid inputs/vocabulary, and normalized JSON Schema parity.
 - `./tests/run.sh --skip-start needs` with the native CLI in
-  `EIGENFLUX_TEST_CLI`: all nine PostgreSQL/HTTP/CLI tests passed.
-- The same nine tests with `NEED_TEST_API_URL=http://127.0.0.1:18083` passed
+  `EIGENFLUX_TEST_CLI`: all ten PostgreSQL/HTTP/CLI tests passed.
+- The same ten tests with `NEED_TEST_API_URL=http://127.0.0.1:18083` passed
   against the actual gateway and local stack. Tests verify immediate baseline
   availability, stalled/failed offline publication isolation, atomic rollback,
   partial/full coverage, immutable taxonomy versions, concurrent publisher CAS,
   retry preservation, legacy pending upgrade, ownership and Intent invalidation.
+  Revised fields are validated across HTTP/CLI. Three retained projections remain
+  linked to the unchanged input and Intent snapshot after the Intent advances.
 - `./tests/run.sh --skip-start e2e --case
   'Test(PushFeedEvents|SettingsRampUserSetSemantics)$'`: both passed.
 - `go vet ./pkg/need ./api/consolev2 ./api/middleware ./tests/needs`: passed.
+- All CLI module tests and the native CLI build: passed.
 - `git diff --check`: passed.
 - Consolidated migration 105: up from 104, down to 104 (both tables and the
-  view removed), and up again passed. All nine Need integration tests passed
+  view removed), and up again passed. All ten Need integration tests passed
   against the consolidated schema.
 
 Earlier capture validation also passed the complete PostgreSQL Console V2 suite,
@@ -53,6 +57,13 @@ whose external prerequisites are still absent.
 The isolated test services/containers are stopped after validation. Test-created
 NeedInput and Normalized Need rows are removed; the local containers remain
 available for inspection and restart.
+
+## Local execution constraint
+
+The execution tool reclaims background service processes when their parent session
+is collected. An initial separate-session gateway/E2E attempt failed with connection
+refused. Running startup and both test suites within one session passed, without
+application changes or test fallbacks.
 
 ## Broader regression limits
 

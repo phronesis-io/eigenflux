@@ -1,56 +1,39 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Platform Normalized Need v1",
+  "title": "Platform Normalized Need v1 derived content",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "normalized_need.v1"
-    },
-    "need_type": {
-      "enum": [
-        "find_info",
-        "find_service",
-        "find_people"
-      ]
-    },
-    "category": {
+    "desc": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 200,
+      "x-max-weighted-length": 200
     },
-    "subtype": {
-      "type": "string",
-      "minLength": 1
-    },
-    "intents": {
+    "candidate_needs": {
       "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "maxLength": 200,
+        "x-max-weighted-length": 200
       },
       "uniqueItems": true
     },
-    "query_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000,
-      "x-max-weighted-length": 2000
-    },
-    "outcome": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 500,
-      "x-max-weighted-length": 500
-    },
-    "priority": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
-    },
-    "preferences": {
-      "type": "string",
-      "maxLength": 500,
-      "x-max-weighted-length": 500
+    "mapped_needs": {
+      "type": "object",
+      "maxProperties": 10,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+      }
     },
     "constraints": {
       "type": "object",
@@ -106,14 +89,6 @@
             "maxLength": 100,
             "x-max-weighted-length": 100
           }
-        },
-        "exclude_authors": {
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "string",
-            "pattern": "^[1-9][0-9]{0,18}$"
-          }
         }
       },
       "dependencies": {
@@ -121,37 +96,6 @@
           "currency"
         ]
       }
-    },
-    "intent_phrases": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 10,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 200,
-        "x-max-weighted-length": 200
-      }
-    },
-    "unmapped_intents": {
-      "type": "array",
-      "minItems": 0,
-      "maxItems": 10,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 200,
-        "x-max-weighted-length": 200
-      }
-    },
-    "mapping_status": {
-      "enum": [
-        "unmapped",
-        "partial",
-        "mapped"
-      ]
     },
     "unresolved_constraints": {
       "type": "object",
@@ -181,58 +125,14 @@
     }
   },
   "required": [
-    "schema_version",
-    "need_type",
-    "query_text",
-    "outcome",
-    "intent_phrases",
-    "unmapped_intents",
-    "mapping_status"
-  ],
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "need_type": {
-            "enum": [
-              "find_info",
-              "find_people"
-            ]
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "constraints": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "budget_max_fen"
-                  ]
-                },
-                {
-                  "required": [
-                    "currency"
-                  ]
-                },
-                {
-                  "required": [
-                    "max_promised_delivery_ms"
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      }
-    }
+    "desc",
+    "candidate_needs"
   ],
   "x-eigenflux-contract": {
-    "vocabulary": "category, subtype and intents contain canonical identifiers in the row taxonomy_version; omit unresolved values. Inferred categories are ranking features, not hard constraints.",
-    "constraints": "Only explicit source constraints may become hard filters. Do not invent budget, deadline, region or language requirements.",
-    "writer": "Platform only. Synchronous basic normalization has no vocabulary, LLM, embedding or queue dependency; offline enrichment publishes a replacement revision.",
-    "unresolved_constraints": "If an alternative in lang/provider_region cannot be resolved, retain the whole dimension here. Do not apply a narrowed hard filter or claim these restrictions are satisfied; preserve them in contextual matching.",
-    "mapping_status": "Vocabulary coverage only. unmapped and partial projections remain eligible. Canonical intent IDs are soft retrieval/ranking features; always retain intent_phrases and query_text."
+    "source": "need_type, priority, preferences and exact source text remain on NeedInput. This object contains only derived fields; schema version and mapping_status are recorded on the parent projection.",
+    "mappings": "mapped_needs maps cleaned candidate phrases to canonical need IDs; keys must belong to candidate_needs. Missing keys are unresolved; no separate duplicate unmapped list is stored.",
+    "constraints": "Only explicit source constraints may become hard filters. Budget, currency and delivery are allowed only when the source need_type is commission. NormalizeBasic enforces this via source validation.",
+    "unresolved_constraints": "Preserve the entire alternative list when any lang/provider_region value cannot be resolved; do not apply a narrower hard filter.",
+    "writer": "Platform only. Online basic normalization has no vocabulary, model or queue dependency. Offline enrichment publishes a new projection; superseded projections remain available for sample reconstruction."
   }
 }

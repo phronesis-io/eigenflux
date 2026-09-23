@@ -14,8 +14,8 @@ func TestBasicNormalizationWithoutVocabulary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in.Target.ProposedIntents = []string{" Agent  memory ", "Agent memory", "新术语"}
-	in.Target.FreeText = "  国内可落地的\n低成本 Agent 记忆方案  "
+	in.Target.CandidateNeeds = []string{" Agent  memory ", "Agent memory", "新术语"}
+	in.Target.Desc = "  国内可落地的\n低成本 Agent 记忆方案  "
 	in.Constraints.Lang = []string{" English ", "en", "zh_CN"}
 	in.Constraints.ProviderRegion = []string{"中国", "cn", "US"}
 	in.Preferences = " 低成本 "
@@ -24,16 +24,16 @@ func TestBasicNormalizationWithoutVocabulary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.MappingStatus != MappingUnmapped || len(n.Intents) != 0 || n.Category != "" || n.QueryText != "国内可落地的 低成本 Agent 记忆方案" {
+	if n.MappingStatus() != MappingUnmapped || len(n.MappedNeeds) != 0 || n.Desc != "国内可落地的 低成本 Agent 记忆方案" {
 		t.Fatalf("%+v", n)
 	}
-	if !reflect.DeepEqual(n.IntentPhrases, []string{"Agent memory", "新术语"}) || !reflect.DeepEqual(n.UnmappedIntents, n.IntentPhrases) {
+	if !reflect.DeepEqual(n.CandidateNeeds, []string{"Agent memory", "新术语"}) {
 		t.Fatal(n)
 	}
 	if !reflect.DeepEqual(n.Constraints.Lang, []string{"en", "zh-CN"}) || !reflect.DeepEqual(n.Constraints.ProviderRegion, []string{"CN", "US"}) {
 		t.Fatal(n.Constraints)
 	}
-	if n.Constraints.BudgetMaxFen != nil || n.Constraints.DeadlineMS != nil || n.Priority != nil {
+	if n.Constraints.BudgetMaxFen != nil || n.Constraints.DeadlineMS != nil {
 		t.Fatal("invented hard constraints", n)
 	}
 	after, _ := json.Marshal(in)
@@ -62,7 +62,7 @@ func TestUnknownConstraintAlternativesAreNotNarrowed(t *testing.T) {
 
 func TestBasicNormalizationRetainsExplicitZeroAndDeadline(t *testing.T) {
 	in, _ := Decode([]byte(validInput))
-	in.NeedType = "find_service"
+	in.NeedType = "commission"
 	zero, deadline := int64(0), int64(1)
 	in.Constraints = Constraints{BudgetMaxFen: &zero, Currency: "USD", MaxDurationMS: &zero, DeadlineMS: &deadline}
 	n, err := NormalizeBasic(in)
@@ -76,7 +76,7 @@ func TestBasicNormalizationRetainsExplicitZeroAndDeadline(t *testing.T) {
 	if *in.Constraints.BudgetMaxFen != 0 {
 		t.Fatal("aliased source constraint")
 	}
-	in.NeedType = "find_info"
+	in.NeedType = "broadcast"
 	if _, err := NormalizeBasic(in); err == nil {
 		t.Fatal("invalid constraints bypassed validation")
 	}
@@ -94,13 +94,14 @@ func TestVocabularyCoverageOnlyAddsSemanticMappings(t *testing.T) {
 		{"unknown", MappingUnmapped, map[string]string{"other": "unrelated"}, 2},
 		{"partial", MappingPartial, map[string]string{"数据库": "database"}, 1},
 		{"mapped", MappingMapped, map[string]string{"数据库": "database", "Go 教程": "golang.tutorial"}, 0},
+		{"many-to-one", MappingMapped, map[string]string{"数据库": "technology", "Go 教程": "technology"}, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			n, err := NormalizeWithVocabulary(in, Vocabulary{Version: "taxonomy.v1", Intents: test.terms})
-			if err != nil || n.MappingStatus != test.want || len(n.UnmappedIntents) != test.remaining {
+			n, err := NormalizeWithVocabulary(in, Vocabulary{Version: "taxonomy.v1", Needs: test.terms})
+			if err != nil || n.MappingStatus() != test.want || len(n.CandidateNeeds)-len(n.MappedNeeds) != test.remaining {
 				t.Fatalf("%+v %v", n, err)
 			}
-			if n.QueryText != base.QueryText || n.Outcome != base.Outcome || !reflect.DeepEqual(n.Constraints, base.Constraints) || !reflect.DeepEqual(n.IntentPhrases, base.IntentPhrases) {
+			if n.Desc != base.Desc || !reflect.DeepEqual(n.Constraints, base.Constraints) || !reflect.DeepEqual(n.CandidateNeeds, base.CandidateNeeds) {
 				t.Fatal("enrichment changed basic meaning or filters")
 			}
 			assertNormalizedSchema(t, n)
@@ -108,8 +109,8 @@ func TestVocabularyCoverageOnlyAddsSemanticMappings(t *testing.T) {
 	}
 	for _, v := range []Vocabulary{
 		{},
-		{Version: "v1", Intents: map[string]string{"数据库": "not a canonical id"}},
-		{Version: "v1", Intents: map[string]string{"数据库": "database", " 数据库 ": "other"}},
+		{Version: "v1", Needs: map[string]string{"数据库": "not a canonical id"}},
+		{Version: "v1", Needs: map[string]string{"数据库": "database", " 数据库 ": "other"}},
 	} {
 		if _, err := NormalizeWithVocabulary(in, v); err == nil {
 			t.Fatal("bad vocabulary accepted")

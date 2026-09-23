@@ -64,6 +64,10 @@ func newNeedCommand() *cobra.Command {
 		response, err := cli.PostWithHeaders("/need-inputs", raw, map[string]string{"Idempotency-Key": key})
 		return printNeedResponse(response, err)
 	}}
+	create.Long = "Save a need_input.v1 JSON object linked to an active confirmed Intent ID/version. " +
+		"Use need_type broadcast, agent, or commission; target.desc (at most 200 weighted characters, CJK counts as 2); " +
+		"and target.candidate_needs (1 to 10 phrases). Optional constraints must be a JSON object. " +
+		"The platform saves a basic normalized projection and retains normalization history."
 	create.Flags().String("file", "", "NeedInput JSON file (need_input.v1)")
 	create.Flags().String("idempotency-key", "", "Stable retry key for this intent interpretation")
 	group.AddCommand(create)

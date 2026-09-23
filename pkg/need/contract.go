@@ -21,8 +21,8 @@ const (
 )
 
 type Target struct {
-	FreeText        string   `json:"free_text"`
-	ProposedIntents []string `json:"proposed_intents"`
+	Desc           string   `json:"desc"`
+	CandidateNeeds []string `json:"candidate_needs"`
 }
 
 type Constraints struct {
@@ -33,7 +33,6 @@ type Constraints struct {
 	ProviderRegion []string `json:"provider_region,omitempty"`
 	Lang           []string `json:"lang,omitempty"`
 	ExcludeTerms   []string `json:"exclude_terms,omitempty"`
-	ExcludeAuthors []string `json:"exclude_authors,omitempty"`
 }
 
 // Input is the Agent's structured interpretation of one confirmed intent
@@ -44,29 +43,37 @@ type Input struct {
 	IntentVersion int64       `json:"intent_version"`
 	NeedType      string      `json:"need_type"`
 	Target        Target      `json:"target"`
-	Outcome       string      `json:"outcome"`
 	Priority      *float64    `json:"priority,omitempty"`
 	Preferences   string      `json:"preferences,omitempty"`
 	Constraints   Constraints `json:"constraints,omitempty"`
 }
 
-// Normalized is a versioned platform projection. It can be regenerated from
-// Input when vocabulary or normalizer versions change.
+// Normalized contains only derived content. Source kind, priority and preferences
+// remain in Input; schema and coverage metadata live on the projection record.
+// Historical projections retain these derived values for offline evaluation.
 type Normalized struct {
-	SchemaVersion         string                `json:"schema_version"`
-	NeedType              string                `json:"need_type"`
-	Category              string                `json:"category,omitempty"`
-	Subtype               string                `json:"subtype,omitempty"`
-	Intents               []string              `json:"intents,omitempty"`
-	QueryText             string                `json:"query_text"`
-	Outcome               string                `json:"outcome"`
-	Priority              *float64              `json:"priority,omitempty"`
-	Preferences           string                `json:"preferences,omitempty"`
+	Desc                  string                `json:"desc"`
+	CandidateNeeds        []string              `json:"candidate_needs"`
+	MappedNeeds           map[string]string     `json:"mapped_needs,omitempty"`
 	Constraints           Constraints           `json:"constraints,omitempty"`
-	IntentPhrases         []string              `json:"intent_phrases"`
-	UnmappedIntents       []string              `json:"unmapped_intents"`
-	MappingStatus         string                `json:"mapping_status"`
 	UnresolvedConstraints UnresolvedConstraints `json:"unresolved_constraints,omitempty"`
+}
+
+// MappingStatus measures vocabulary coverage, independently of eligibility.
+func (n Normalized) MappingStatus() string {
+	matched := 0
+	for _, phrase := range n.CandidateNeeds {
+		if n.MappedNeeds[phrase] != "" {
+			matched++
+		}
+	}
+	if matched == 0 {
+		return MappingUnmapped
+	}
+	if matched == len(n.CandidateNeeds) {
+		return MappingMapped
+	}
+	return MappingPartial
 }
 
 // Unresolved constraints retain explicit restrictions that cannot safely become
@@ -164,24 +171,21 @@ func Validate(in Input) error {
 	if in.IntentID <= 0 || in.IntentVersion <= 0 {
 		return invalid("intent", "positive_intent_id_and_version_required")
 	}
-	if in.NeedType != "find_info" && in.NeedType != "find_service" && in.NeedType != "find_people" {
+	if in.NeedType != "broadcast" && in.NeedType != "commission" && in.NeedType != "agent" {
 		return invalid("need_type", "unsupported")
 	}
-	if !textValid(in.Target.FreeText, 2000, true) {
-		return invalid("target.free_text", "required_or_too_long")
-	}
-	if !textValid(in.Outcome, 500, true) {
-		return invalid("outcome", "required_or_too_long")
+	if !textValid(in.Target.Desc, 200, true) {
+		return invalid("target.desc", "required_or_too_long")
 	}
 	if !textValid(in.Preferences, 500, false) {
 		return invalid("preferences", "too_long")
 	}
-	if len(in.Target.ProposedIntents) < 1 || len(in.Target.ProposedIntents) > 10 {
-		return invalid("target.proposed_intents", "require_1_to_10")
+	if len(in.Target.CandidateNeeds) < 1 || len(in.Target.CandidateNeeds) > 10 {
+		return invalid("target.candidate_needs", "require_1_to_10")
 	}
-	for _, phrase := range in.Target.ProposedIntents {
+	for _, phrase := range in.Target.CandidateNeeds {
 		if !textValid(phrase, 200, true) {
-			return invalid("target.proposed_intents", "invalid_phrase")
+			return invalid("target.candidate_needs", "invalid_phrase")
 		}
 	}
 	if in.Priority != nil && (math.IsNaN(*in.Priority) || math.IsInf(*in.Priority, 0) || *in.Priority < 0 || *in.Priority > 1) {
@@ -189,8 +193,8 @@ func Validate(in Input) error {
 	}
 	c := in.Constraints
 	if c.BudgetMaxFen != nil || c.Currency != "" || c.MaxDurationMS != nil {
-		if in.NeedType != "find_service" {
-			return invalid("constraints", "service_only_price_and_delivery")
+		if in.NeedType != "commission" {
+			return invalid("constraints", "commission_only_price_and_delivery")
 		}
 	}
 	if c.BudgetMaxFen != nil && (*c.BudgetMaxFen < 0 || c.Currency == "") {
@@ -208,7 +212,7 @@ func Validate(in Input) error {
 	for _, field := range []struct {
 		name   string
 		values []string
-	}{{"lang", c.Lang}, {"provider_region", c.ProviderRegion}, {"exclude_terms", c.ExcludeTerms}, {"exclude_authors", c.ExcludeAuthors}} {
+	}{{"lang", c.Lang}, {"provider_region", c.ProviderRegion}, {"exclude_terms", c.ExcludeTerms}} {
 		if len(field.values) > 20 {
 			return invalid("constraints."+field.name, "too_many")
 		}
@@ -216,12 +220,7 @@ func Validate(in Input) error {
 			if !textValid(value, 100, true) {
 				return invalid("constraints."+field.name, "invalid_value")
 			}
-			if field.name == "exclude_authors" {
-				id, err := strconv.ParseInt(value, 10, 64)
-				if err != nil || id <= 0 || strconv.FormatInt(id, 10) != value {
-					return invalid("constraints.exclude_authors", "invalid_id")
-				}
-			}
+
 		}
 	}
 	return nil

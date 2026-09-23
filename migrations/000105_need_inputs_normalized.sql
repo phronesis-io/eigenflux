@@ -22,7 +22,8 @@ CREATE TABLE need_inputs (
     CONSTRAINT uq_need_inputs_owner_id UNIQUE (agent_id, need_input_id, intent_id, intent_version),
     CONSTRAINT chk_need_inputs_link CHECK ((input->>'schema_version' = schema_version
         AND input->>'intent_id' = intent_id::text
-        AND input->>'intent_version' = intent_version::text) IS TRUE)
+        AND input->>'intent_version' = intent_version::text
+        AND input->>'need_type' IN ('broadcast', 'agent', 'commission')) IS TRUE)
 );
 CREATE INDEX idx_need_inputs_intent_version
     ON need_inputs(agent_id, intent_id, intent_version, need_input_id DESC);
@@ -35,7 +36,6 @@ CREATE TABLE normalized_needs (
     agent_id BIGINT NOT NULL,
     intent_id BIGINT NOT NULL,
     intent_version BIGINT NOT NULL CHECK (intent_version > 0),
-    need_type TEXT NOT NULL CHECK (need_type IN ('find_info', 'find_service', 'find_people')),
     schema_version TEXT NOT NULL CHECK (schema_version = 'normalized_need.v1'),
     normalized JSONB NOT NULL CHECK (jsonb_typeof(normalized) = 'object'),
     normalizer_version TEXT NOT NULL CHECK (length(trim(normalizer_version)) > 0),
@@ -52,13 +52,13 @@ CREATE TABLE normalized_needs (
         ON DELETE CASCADE,
     CONSTRAINT uq_normalized_needs_revision
         UNIQUE (need_input_id, normalizer_version, taxonomy_version),
-    CONSTRAINT chk_normalized_needs_payload CHECK ((normalized->>'schema_version' = schema_version
-        AND normalized->>'need_type' = need_type) IS TRUE)
+    CONSTRAINT chk_normalized_needs_payload CHECK ((jsonb_typeof(normalized->'desc') = 'string'
+        AND jsonb_typeof(normalized->'candidate_needs') = 'array') IS TRUE)
 );
 CREATE UNIQUE INDEX uq_normalized_needs_active_input
     ON normalized_needs(need_input_id) WHERE status = 'active';
 CREATE INDEX idx_normalized_needs_active
-    ON normalized_needs(agent_id, need_type, status, updated_at DESC);
+    ON normalized_needs(agent_id, status, updated_at DESC);
 CREATE INDEX idx_normalized_needs_intent
     ON normalized_needs(agent_id, intent_id, intent_version, status);
 CREATE INDEX idx_normalized_needs_mapping

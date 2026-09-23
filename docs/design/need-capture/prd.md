@@ -15,8 +15,10 @@ for future search and recommendations. Humans do not edit a separate Need form.
 - Link each input to its owner, Intent ID, and exact Intent version. Retain the
   source snapshot and submitted field values for offline analysis and reprocessing.
 - Allow several inputs per Intent, such as separate information and service Needs.
+- Use `broadcast | agent | commission`, `target.desc` (200 weighted characters),
+  and `target.candidate_needs` (1–10 phrases). Constraints are a typed JSON object.
 - Store platform normalization separately, including schema, normalizer, and
-  taxonomy versions. An Agent cannot submit a canonical normalization result.
+  taxonomy versions and retained historical outputs for sample reconstruction. An Agent cannot submit a canonical normalization result.
 - Keep authorization to capture distinct from permission to contact someone,
   publish, buy, or change the Intent's action policy.
 
@@ -36,7 +38,7 @@ for future search and recommendations. Humans do not edit a separate Need form.
 8. Successful online capture atomically creates an immediately usable basic
    projection with no taxonomy, offline corpus, LLM, embedding, or queue dependency.
 9. Unknown vocabulary produces `unmapped` or `partial` coverage, never failed
-   capture. Keep retrieval text and original intent phrases at every coverage level.
+   capture. Keep retrieval text and original candidate Need phrases at every coverage level.
 10. Failed or stalled offline enrichment leaves the previous projection readable.
     Concurrent publishers use compare-and-swap to avoid overwriting newer results.
 
