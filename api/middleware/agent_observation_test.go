@@ -16,6 +16,10 @@ func TestAgentObservationSuccessAndReadBoundaries(t *testing.T) {
 		status                                int
 		legacy, want                          bool
 	}{
+		{name: "Need create", method: "POST", path: "/api/v2/need-inputs", body: `{"code":0,"data":{}}`, status: 201, want: true},
+		{name: "Need read", method: "GET", path: "/api/v2/need-inputs/:need_input_id", body: `{"data":{}}`, status: 200},
+		{name: "Need list", method: "GET", path: "/api/v2/need-inputs", body: `{"data":{}}`, status: 200},
+		{name: "Need invalid", method: "POST", path: "/api/v2/need-inputs", body: `{"error":{}}`, status: 400},
 		{name: "V2 feed", method: "POST", path: "/api/v2/feed", body: `{"data":{"items":[]}}`, status: 200, want: true},
 		{name: "heartbeat", method: "POST", path: "/api/v2/runtime/heartbeat", body: `{"data":{}}`, status: 200, want: true},
 		{name: "broadcast", method: "POST", path: "/api/v2/broadcasts", body: `{"code":0}`, status: 200, want: true},

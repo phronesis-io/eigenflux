@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -439,4 +440,36 @@ func (s *Service) putProfileFields(ctx context.Context, c *app.RequestContext) {
 		agentcard.PublishRebuild(ctx, id, "console_v2_profile_update")
 	}
 	reply(c, http.StatusOK, map[string]interface{}{"updated_at": now})
+}
+
+type intentContext struct {
+	Version           int64  `gorm:"column:version" json:"version"`
+	IntentID          int64  `gorm:"column:intent_id" json:"intent_id,string"`
+	WatchFor          string `gorm:"column:watch_for" json:"watch_for"`
+	TriggerWhen       string `gorm:"column:trigger_when" json:"trigger_when"`
+	ActionInstruction string `gorm:"column:action_instruction" json:"then"`
+	ActionPolicy      string `gorm:"column:action_policy" json:"action_policy"`
+	Priority          int16  `gorm:"column:priority" json:"priority"`
+	Source            string `gorm:"column:source" json:"source"`
+	Status            string `gorm:"column:status" json:"status"`
+}
+
+// listIntentActions reads authoritative versions even for contexts compiled before
+// intent versions were included in snapshots. It does not rewrite old revisions.
+func (s *Service) listIntentActions(ctx context.Context, c *app.RequestContext) {
+	owner, _ := agentID(c)
+	intents := []intentContext{}
+	var revision int64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(`SELECT active_revision FROM agent_context_heads WHERE agent_id = ?`, owner).Scan(&revision).Error; err != nil {
+			return err
+		}
+		return tx.Raw(`SELECT intent_id, version, watch_for, trigger_when, action_instruction, action_policy, priority, source, status FROM agent_intent_actions WHERE agent_id = ? AND status = 'active' ORDER BY priority DESC, intent_id`, owner).Scan(&intents).Error
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		logger.Ctx(ctx).Error("intent_list_failed")
+		fail(c, http.StatusInternalServerError, "INTENT_READ_FAILED", "could not read intents", nil)
+		return
+	}
+	reply(c, http.StatusOK, map[string]interface{}{"context_revision": revision, "intent_actions": intents})
 }

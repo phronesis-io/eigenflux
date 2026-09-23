@@ -602,3 +602,22 @@ active context at selection time. Repeated requests with the same idempotency ke
 return the current command and item state, including after completion; a different
 key cannot select another terminal action while the item is pending or acted.
 No migration or conversion of existing Prefill rows to `active` is required.
+
+## Intent-linked NeedInput capture
+
+The human Intent write contract is unchanged. `GET /api/v2/agent-context/intent-actions`
+returns current owner-confirmed active Intents with exact `version` values, also
+exposed by `eigenflux context intent list`. New compiled contexts include this
+additive version field; existing stored revisions remain unchanged.
+
+Completed Agents use `POST /api/v2/need-inputs` with `context:write` and an
+`Idempotency-Key` header. Owner-scoped `GET /api/v2/need-inputs` and
+`GET /api/v2/need-inputs/:need_input_id` require `context:read`. Inputs conform to
+[`need_input.v1`](../../contracts/need_input.v1.schema.json) and reference a current
+active Intent ID/version. There is no public Normalized Need write API.
+
+See [the capture design](../design/need-capture/design.md) for storage, pagination,
+error semantics, synchronous basic normalization, and optional offline enrichment.
+Create/get/list responses include each input's `normalized_need`, coverage state,
+and current Intent eligibility. A successful create commits the input and its
+basic projection together, without waiting for taxonomy or model availability.

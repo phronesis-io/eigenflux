@@ -386,12 +386,14 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me/onboarding-draft", s.consoleAuth(false), s.getOnboardingDraft)
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
+	s.registerNeeds(h)
 	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-capabilities", s.agentAuth("context:read"), s.getAgentCapabilities)
 	// context:write is delegated owner authority. These routes persist
 	// owner-confirmed control state; CLI confirmation flags are conversational
 	// safeguards, not protection against compromise of an Agent credential.
 	h.PUT("/api/v2/agent-context/network-goal", s.agentAuth("context:write"), s.requireCompleted, s.putNetworkGoal)
+	h.GET("/api/v2/agent-context/intent-actions", s.agentAuth("context:read"), s.requireCompleted, s.listIntentActions)
 	h.POST("/api/v2/agent-context/intent-actions", s.agentAuth("context:write"), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.updateIntentAction)
 	h.DELETE("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.deleteIntentAction)

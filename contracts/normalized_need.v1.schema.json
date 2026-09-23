@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Platform Normalized Need v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "normalized_need.v1"
+    },
+    "need_type": {
+      "enum": [
+        "find_info",
+        "find_service",
+        "find_people"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subtype": {
+      "type": "string",
+      "minLength": 1
+    },
+    "intents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "query_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "x-max-weighted-length": 2000
+    },
+    "outcome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "x-max-weighted-length": 500
+    },
+    "priority": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "preferences": {
+      "type": "string",
+      "maxLength": 500,
+      "x-max-weighted-length": 500
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budget_max_fen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "currency": {
+          "enum": [
+            "CNY",
+            "USD"
+          ]
+        },
+        "max_promised_delivery_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "provider_region": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "lang": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "exclude_terms": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "exclude_authors": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      },
+      "dependencies": {
+        "budget_max_fen": [
+          "currency"
+        ]
+      }
+    },
+    "intent_phrases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "x-max-weighted-length": 200
+      }
+    },
+    "unmapped_intents": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "x-max-weighted-length": 200
+      }
+    },
+    "mapping_status": {
+      "enum": [
+        "unmapped",
+        "partial",
+        "mapped"
+      ]
+    },
+    "unresolved_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lang": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "provider_region": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "need_type",
+    "query_text",
+    "outcome",
+    "intent_phrases",
+    "unmapped_intents",
+    "mapping_status"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "need_type": {
+            "enum": [
+              "find_info",
+              "find_people"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "constraints": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "budget_max_fen"
+                  ]
+                },
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_promised_delivery_ms"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "x-eigenflux-contract": {
+    "vocabulary": "category, subtype and intents contain canonical identifiers in the row taxonomy_version; omit unresolved values. Inferred categories are ranking features, not hard constraints.",
+    "constraints": "Only explicit source constraints may become hard filters. Do not invent budget, deadline, region or language requirements.",
+    "writer": "Platform only. Synchronous basic normalization has no vocabulary, LLM, embedding or queue dependency; offline enrichment publishes a replacement revision.",
+    "unresolved_constraints": "If an alternative in lang/provider_region cannot be resolved, retain the whole dimension here. Do not apply a narrowed hard filter or claim these restrictions are satisfied; preserve them in contextual matching.",
+    "mapping_status": "Vocabulary coverage only. unmapped and partial projections remain eligible. Canonical intent IDs are soft retrieval/ranking features; always retain intent_phrases and query_text."
+  }
+}

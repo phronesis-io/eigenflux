@@ -30,6 +30,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
+		"need.input.create", "need.input.get", "need.input.list",
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
 	} {
@@ -162,4 +163,16 @@ func TestAgentAttentionDismissRequiresRevisionButConsoleRemainsCompatible(t *tes
 	if attentionDismissRevisionRequired(consoleRequest) {
 		t.Fatal("Console dismissal unexpectedly required a revision")
 	}
+}
+
+func TestNeedInputCapabilityUsesLinkedIntentAuthority(t *testing.T) {
+	for _, operation := range buildAgentCapabilityRegistry("en", true, true)["operations"].([]capabilityOperation) {
+		if operation.OperationID == "need.input.create" {
+			if operation.Confirmation != "linked_confirmed_intent" || operation.MinCLIVersion != "0.0.54" || operation.CLI != "eigenflux need input create" {
+				t.Fatalf("incorrect input capability: %#v", operation)
+			}
+			return
+		}
+	}
+	t.Fatal("missing NeedInput create capability")
 }

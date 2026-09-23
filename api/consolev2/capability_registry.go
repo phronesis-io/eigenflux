@@ -74,6 +74,9 @@ func capability(id, cli, category, access, zhLabel, enLabel string) capabilitySe
 
 func capabilitySeeds() []capabilitySeed {
 	seeds := []capabilitySeed{
+		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
+		capability("need.input.get", "eigenflux need input get", "need", "read", "读取需求输入", "Read an owned NeedInput"),
+		capability("need.input.list", "eigenflux need input list", "need", "read", "列出需求输入", "List owned NeedInputs"),
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
 		capability("identity.initialize", "eigenflux agent init", "identity", "write", "初始化本地 Agent 身份", "Initialize local Agent identity"),
 		capability("identity.provision", "eigenflux agent provision", "identity", "write", "创建或认领 Agent", "Provision or claim an Agent"),
@@ -165,6 +168,13 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if seed.category == "need" {
+			seed.minCLI = "0.0.54"
+			seed.identityRoute = "current_identity"
+			if seed.access == "write" {
+				seed.confirmation = "linked_confirmed_intent"
+			}
+		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {
 			seed.minCLI = "0.0.38"

@@ -26,7 +26,7 @@ func agentActivityRoute(method, path string) bool {
 		}
 	case http.MethodPost:
 		switch path {
-		case "/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
+		case "/api/v2/need-inputs", "/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
 			"/api/v1/pm/send", "/api/v1/pm/close", "/api/v1/pm/topic-status",
 			"/api/v1/relations/apply", "/api/v1/relations/handle", "/api/v1/relations/unfriend", "/api/v1/relations/block", "/api/v1/relations/unblock", "/api/v1/relations/remark",
 			"/api/v2/feed", "/api/v2/feed/feedback", "/api/v2/feed/events:batch", "/api/v2/runtime/heartbeat", "/api/v2/notifications/ack",

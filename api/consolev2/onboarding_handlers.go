@@ -939,17 +939,8 @@ func compileAndActivateContext(tx *gorm.DB, agentID, now int64) (json.RawMessage
 		WHERE agent_id = ? AND status = 'active'`, agentID).Scan(&goal).Error; err != nil {
 		return nil, 0, err
 	}
-	var intents []struct {
-		IntentID          int64  `gorm:"column:intent_id" json:"intent_id,string"`
-		WatchFor          string `gorm:"column:watch_for" json:"watch_for"`
-		TriggerWhen       string `gorm:"column:trigger_when" json:"trigger_when"`
-		ActionInstruction string `gorm:"column:action_instruction" json:"then"`
-		ActionPolicy      string `gorm:"column:action_policy" json:"action_policy"`
-		Priority          int16  `gorm:"column:priority" json:"priority"`
-		Source            string `gorm:"column:source" json:"source"`
-		Status            string `gorm:"column:status" json:"status"`
-	}
-	if err := tx.Raw(`SELECT intent_id, watch_for, trigger_when, action_instruction,
+	var intents []intentContext
+	if err := tx.Raw(`SELECT intent_id, version, watch_for, trigger_when, action_instruction,
 			action_policy, priority, source, status FROM agent_intent_actions
 		WHERE agent_id = ? AND status = 'active' ORDER BY priority DESC, intent_id`, agentID).Scan(&intents).Error; err != nil {
 		return nil, 0, err

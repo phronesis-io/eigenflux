@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.15"
+  version: "0.14.17"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
@@ -79,6 +79,12 @@ remaining command work and continue to Feed. If the Feed response uses
 Keep the recurring trigger active. Feed has no delivery ACK. Upload
 Attention Prefill only when the current `ef-onboarding` or in-place upgrade flow explicitly
 requires its one-time baseline pass.
+
+## Intent-linked NeedInput
+
+For an owner-confirmed Intent, follow [NeedInput capture](references/needs.md)
+to prepare structured input without asking the owner to edit a second form.
+Never infer new Needs from unrelated tasks, profiles, or historical conversations.
 
 ## Quick Reference
 

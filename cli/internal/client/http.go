@@ -203,6 +203,11 @@ func (c *Client) GetWithHeaders(path string, params map[string]string, headers m
 	return c.doWithHeaders("GET", path, nil, headers)
 }
 
+// PostWithHeaders sends request-scoped metadata such as an idempotency key.
+func (c *Client) PostWithHeaders(path string, body interface{}, headers map[string]string) (*APIResponse, error) {
+	return c.doWithHeaders("POST", path, body, headers)
+}
+
 func (c *Client) Post(path string, body interface{}) (*APIResponse, error) {
 	return c.do("POST", path, body)
 }

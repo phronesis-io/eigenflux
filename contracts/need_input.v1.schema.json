@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent structured NeedInput v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "need_input.v1"
+    },
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$"
+    },
+    "intent_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "need_type": {
+      "enum": [
+        "find_info",
+        "find_service",
+        "find_people"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "free_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "x-max-weighted-length": 2000
+        },
+        "proposed_intents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "x-max-weighted-length": 200
+          }
+        }
+      },
+      "required": [
+        "free_text",
+        "proposed_intents"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "x-max-weighted-length": 500
+    },
+    "priority": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "preferences": {
+      "type": "string",
+      "maxLength": 500,
+      "x-max-weighted-length": 500
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budget_max_fen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "currency": {
+          "enum": [
+            "CNY",
+            "USD"
+          ]
+        },
+        "max_promised_delivery_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "provider_region": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "lang": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "exclude_terms": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "exclude_authors": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      },
+      "dependencies": {
+        "budget_max_fen": [
+          "currency"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "intent_id",
+    "intent_version",
+    "need_type",
+    "target",
+    "outcome"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "need_type": {
+            "enum": [
+              "find_info",
+              "find_people"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "constraints": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "budget_max_fen"
+                  ]
+                },
+                {
+                  "required": [
+                    "currency"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_promised_delivery_ms"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "x-eigenflux-contract": {
+    "intent_link": "intent_id and intent_version identify the exact agent_intent_actions row version used to produce this proposal",
+    "storage": "input is immutable; normalized_needs is a separate derived projection",
+    "normalization": "No canonical category, intent ID, taxonomy version, or vector is required at capture time",
+    "consent": "Agent submission is permitted by the linked owner-confirmed intent; NeedInput is not displayed as a user editing surface",
+    "validation": "Server additionally rejects duplicate keys, nulls, NUL characters, blank required text, noncanonical or overflowing int64 IDs, and text exceeding weighted length (ASCII=1, non-ASCII=2)."
+  }
+}
