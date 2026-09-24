@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 
 	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
 	for _, required := range []string{
-		`version: "0.2.14"`,
+		`version: "0.2.15"`,
 		"references/consent.md",
 		"Treat incomplete V2 setup as existing-account maintenance",
 		"only when the user explicitly requests it",

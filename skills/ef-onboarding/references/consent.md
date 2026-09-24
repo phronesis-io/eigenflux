@@ -58,12 +58,26 @@ ambiguous answer only for this choice.
 
 ## Optional profile Prefill
 
-Ask after both required choices and host activation succeed, before retrieving
-personal context. Name the relevant context sources actually available in the
-host, without opening their contents to prepare this question. Do not imply
-access to unavailable memory, conversations, or connectors. If none is available,
-take the manual path without asking for permission to unavailable sources. Use
-only this fixed notice, then continue the authorized setup:
+After both required choices and host activation succeed, inspect the host's
+tool declarations and use tool discovery, when needed, to identify supported
+memory, conversation-history, workspace, and connected-context sources. On
+Codex, check for `list_threads` and `read_thread` or equivalent history tools.
+Do not invoke content-bearing tools, including task listings that return titles
+or summaries, or open personal files to prepare the consent question.
+
+A new conversation, absent project, or empty working directory does not establish
+that host conversation history is unavailable. Do not restrict source discovery
+to the current workspace. An exposed retrieval capability is sufficient to offer
+that source for Prefill; relevant content is established only after consent.
+Name only supported sources in `<context-sources>`, without claiming they contain
+useful history or guaranteeing access. Preserve the disclosed sources and any
+user-approved narrowing for retrieval in `prefill.md`.
+
+Use the no-context branch only after capability discovery establishes that no
+supported source is available. Treat failed or unresolved discovery as unknown,
+not as an empty result; report the concrete limitation without claiming that no
+work context exists. If no source is available, take the manual path with only
+this fixed notice, then continue the authorized setup:
 
 Chinese:
 
