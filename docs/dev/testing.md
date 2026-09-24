@@ -129,6 +129,14 @@ public releases nor update the developer's managed skills.
 
 ## Search and recommendation discovery
 
+The opt-in [process E2E suite](../../tests/discoverye2e/README.md) starts actual
+API/Feed/Sort/Item binaries and verifies the enabled online pipeline through HTTP,
+real stores and replay consumption. Build first, then run
+`DISCOVERY_E2E=1 ./tests/run.sh --skip-start discoverye2e -count=1` against isolated,
+migrated infrastructure with no other RPC services registered in its etcd.
+It owns service startup; do not run `start_local.sh` for this suite. Embedding and
+external commission/order RPCs use deterministic fixtures.
+
 Run `go test ./rpc/sort/... ./rpc/feed/... ./pkg/replaylog ./api/consolev2 ./pipeline/consumer` for contract, ownership, page, idempotency and replay checks.
 
 Real-store tests require `DISCOVERY_TEST_DSN` (an isolated migrated PostgreSQL database), `DISCOVERY_TEST_ES` (isolated Elasticsearch URL), and `DISCOVERY_TEST_REDIS` (isolated Redis address). Run `go test ./rpc/sort/discovery ./pipeline/consumer -run 'TestPostgres|TestDiscoveryReplayPostgres' -count=1`. These tests use temporary schemas/indices and fixture rows; do not point them at production or run alongside integration suites that reset the same database. The commission authority is a deterministic contract fixture; validating the remote commission service remains a cutover check.
