@@ -11,7 +11,7 @@ description: |
   profile changes, account switching, historical recovery, feed operations, or messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.2.14"
+  version: "0.2.15"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -101,7 +101,8 @@ Complete these stages in order:
    and Rules activation into one restart. Resume in the original task and
    verify activation before continuing.
 4. **Optional Prefill.** Return to the Prefill choice in `references/consent.md`.
-   Ask separately; declining Prefill continues with the manual path.
+   Complete its host context-source discovery before choosing the Prefill or
+   no-context branch. Ask separately; declining Prefill continues with the manual path.
 5. **Initialize and draft.** Read `references/console-handoff.md`, preserve the
    resolved Home and server, and verify the current product and installation
    mode before creating or loading the local identity. Apply

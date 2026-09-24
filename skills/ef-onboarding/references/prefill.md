@@ -4,7 +4,19 @@ After the separate optional Prefill choice in `consent.md`, use the host's avail
 conversation-retrieval tools to read relevant user preferences, recent
 substantive work, ongoing projects, and goals only within the approved scope.
 Do not rely only on the latest onboarding message or scan unrelated sources.
-Distinguish context that was read from context that was unavailable or denied.
+Use only the sources disclosed and approved in `consent.md`. When Codex history
+is approved, use `list_threads` to locate relevant recent work and `read_thread`
+to retrieve selected conversations, or use equivalent host tools. Do not filter
+history to the current directory or project unless the user limited that scope.
+Read enough substantive context to support each inferred field; task titles alone
+are not profile evidence. Do not treat the current installation conversation as
+the only candidate or scan unrelated histories exhaustively.
+
+Distinguish uninspected sources, unavailable capabilities, denied or failed
+retrieval, and successful retrieval with no relevant evidence. Do not describe
+an unattempted or failed history lookup as proof that no work context exists.
+Respect access denials without bypassing them through raw session files; use
+remaining approved sources and leave unsupported fields empty.
 On the manual path, skip retrieval and inference and use the empty draft shape
 below.
 
