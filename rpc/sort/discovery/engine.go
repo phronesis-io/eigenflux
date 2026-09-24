@@ -288,6 +288,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				continue
 			}
 			channels := []string{"lexical"}
+			if c.QueryAnalysis != nil && len(c.QueryAnalysis.Expansions) > 0 {
+				channels = append(channels, "synonym")
+			}
 			if len(c.Vector) > 0 {
 				channels = append(channels, "dense")
 			}
@@ -315,7 +318,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						return
 					}
 					limit := 80
-					if channel == "structured" {
+					if channel == "structured" || channel == "synonym" {
 						limit = 40
 					}
 					if strings.HasSuffix(channel, "recall") {
@@ -471,7 +474,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	return x, nil
 }
 func channelOrder(c string) int {
-	for i, s := range []string{"lexical", "dense", "structured", "hot_recall", "new_recall", "new_ugc_recall"} {
+	for i, s := range []string{"lexical", "dense", "structured", "synonym", "hot_recall", "new_recall", "new_ugc_recall"} {
 		if s == c {
 			return i
 		}

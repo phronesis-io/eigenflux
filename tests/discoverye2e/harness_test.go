@@ -97,11 +97,24 @@ func startStack(t *testing.T) *stack {
 			http.NotFound(w, r)
 			return
 		}
+		var input struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "invalid embedding input", http.StatusBadRequest)
+			return
+		}
+		// Exercise dictionary-only search while the existing optional embedding
+		// dependency is unavailable; no generative model participates in this path.
+		if input.Input == "著陸頁" {
+			http.Error(w, "fixture embedding unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"index": 0, "embedding": s.vector}}, "model": "discovery-e2e", "usage": map[string]int{"total_tokens": 1}})
 	}))
 	t.Cleanup(embedding.Close)
-	vocab := searchindex.Vocabulary{Version: s.category, EmbeddingVersion: "discovery-e2e", Categories: []searchindex.Node{{ID: s.category, Name: "Design"}}, Intents: []searchindex.Node{{ID: "landing-page", Name: "Landing page design", Category: s.category, Aliases: []string{"landing page"}, Vector: s.vector}}}
+	vocab := searchindex.Vocabulary{Version: s.category, EmbeddingVersion: "discovery-e2e", Categories: []searchindex.Node{{ID: s.category, Name: "Design"}}, Intents: []searchindex.Node{{ID: "landing-page", Name: "Landing page design", Category: s.category, Aliases: []string{"landing page", "着陆页", "著陸頁", "LP"}, Vector: s.vector}}}
 	taxPath := filepath.Join(s.logs, "taxonomy.json")
 	writeJSON(t, taxPath, vocab)
 	_, err = searchindex.Configure(taxPath)

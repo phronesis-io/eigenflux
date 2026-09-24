@@ -186,3 +186,84 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 		t.Fatal("new request ignored current block", fresh, err)
 	}
 }
+
+func TestESChinesePhraseBoost(t *testing.T) {
+	url := os.Getenv("DISCOVERY_TEST_ES")
+	if url == "" {
+		t.Skip("isolated DISCOVERY_TEST_ES required")
+	}
+	t.Setenv("ES_URL", url)
+	if err := es.InitClient(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	index := fmt.Sprintf("discovery-phrase-%d", time.Now().UnixNano())
+	if err := agentindex.Ensure(ctx, index, 2); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		response, err := es.Client.Indices.Delete([]string{index})
+		if err == nil {
+			response.Body.Close()
+		}
+	}()
+	for i, text := range []string{"人工智能", "人工 系统 智能", "ＡＩ", "AI"} {
+		doc := agentindex.Document{AgentID: int64(i + 1), Version: 1, ProjectionVersion: 1, Active: true, SearchText: text}
+		raw, _ := json.Marshal(doc.SearchFields())
+		response, err := es.Client.Index(index, bytes.NewReader(raw), es.Client.Index.WithDocumentID(fmt.Sprint(i+1)), es.Client.Index.WithRefresh("true"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.IsError() {
+			t.Fatal(response.StatusCode)
+		}
+	}
+	compiler := discovery.Compiler{Taxonomy: &searchindex.Vocabulary{Version: "phrase-fixture", Categories: []searchindex.Node{{ID: "tech", Name: "Technology"}}}, Embedder: integrationEmbedding{}}
+	compiled, err := compiler.Query(ctx, 99, 100, time.Now().UnixMilli(), discovery.Request{Query: "人工智能", SourceKinds: []discovery.Kind{discovery.Agent}}, "query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &discovery.Source{AgentIndex: index}
+	boosted, err := source.Recall(ctx, compiled, discovery.Agent, "lexical", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled.QueryAnalysis = nil
+	plain, err := source.Recall(ctx, compiled, discovery.Agent, "lexical", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boosted) != 2 || len(plain) != 2 {
+		t.Fatalf("unexpected recall sizes: boosted=%d plain=%d", len(boosted), len(plain))
+	}
+	scores := map[int64]float64{}
+	for _, d := range plain {
+		scores[d.Ref.ID] = d.Lexical
+	}
+	for _, d := range boosted {
+		if d.Ref.ID == 1 && d.Lexical <= scores[1] {
+			t.Fatal("continuous Chinese phrase did not receive a boost")
+		}
+		if d.Ref.ID == 2 && d.Lexical != scores[2] {
+			t.Fatal("separated Chinese terms incorrectly received a phrase boost")
+		}
+	}
+	compiled, err = compiler.Query(ctx, 99, 101, time.Now().UnixMilli(), discovery.Request{Query: "ＡＩ", SourceKinds: []discovery.Kind{discovery.Agent}}, "query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	variants, err := source.Recall(ctx, compiled, discovery.Agent, "lexical", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(variants) != 2 {
+		t.Fatalf("normalization must retain full-width documents and add ASCII matches: %+v", variants)
+	}
+	for _, d := range variants {
+		if d.Ref.ID != 3 && d.Ref.ID != 4 {
+			t.Fatalf("unexpected normalization match: %+v", d.Ref)
+		}
+	}
+
+}

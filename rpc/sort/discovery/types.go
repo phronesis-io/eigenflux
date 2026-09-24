@@ -113,6 +113,7 @@ type Request struct {
 	Defaults          Defaults   `json:"defaults,omitempty"`
 }
 type Context struct {
+	QueryAnalysis      *QueryAnalysis    `json:"query_analysis,omitempty"`
 	SourceNeedID       int64             `json:"source_need_id,string,omitempty"`
 	SourceNeedRevision int64             `json:"source_need_revision,omitempty"`
 	ID                 int64             `json:"context_id,string"`
@@ -265,6 +266,7 @@ func PublicItem(c Candidate) ResultItem {
 	}
 	sort.Strings(fields)
 	r.Match["fields"] = fields
+	r.Match["match_types"] = matchTypes(c.Document.Channels)
 	return r
 }
 

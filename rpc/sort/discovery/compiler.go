@@ -216,8 +216,9 @@ func hashContext(c Context) string {
 		Kinds                         []Kind
 		Filters                       Filters
 		Need                          *NeedInput
+		QueryAnalysis                 *QueryAnalysis
 		Taxonomy, Embedding, Compiler string
-	}{c.Query, c.Kinds, c.Filters, c.Need, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
+	}{c.Query, c.Kinds, c.Filters, c.Need, c.QueryAnalysis, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -232,7 +233,7 @@ func (cc *Compiler) embed(ctx context.Context, c *Context, strict bool) error {
 		}
 		c.Warnings = append(c.Warnings, "embedding_unavailable")
 	} else {
-		v, err := cc.Embedder.GetEmbedding(ctx, c.Query)
+		v, err := cc.Embedder.GetEmbedding(ctx, c.lexicalQuery())
 		if err != nil || len(v) == 0 {
 			if strict {
 				return Failure(503, "embedding_unavailable")
@@ -261,6 +262,11 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if err != nil {
 		return c, err
 	}
+	if origin == "query" {
+		c.QueryAnalysis = analyzeQuery(r.Query, cc.Taxonomy, c.Filters, r.agentExact || decimalAgentQuery(r.Query))
+		c.CompilerVersion = "context_rules_v2"
+		c.SoftIntents = append(c.SoftIntents, c.QueryAnalysis.Intents...)
+	}
 	if r.InheritedLanguage {
 		c.Origins["lang"] = "card_default"
 	}
@@ -271,8 +277,16 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if err = cc.embed(ctx, &c, false); err != nil {
 		return c, err
 	}
-	for _, m := range cc.Taxonomy.Search(r.Query, r.Filters.Category, r.Filters.Subtype, c.Vector, .80, 5) {
-		c.SoftIntents = append(c.SoftIntents, m.ID)
+	// Ambiguous dictionary terms are left to semantic document retrieval, not
+	// promoted to structured intent matches through exact alias equality.
+	matches := []searchindex.Match{}
+	if c.QueryAnalysis == nil || len(c.QueryAnalysis.Ambiguous) == 0 {
+		matches = cc.Taxonomy.Search(c.lexicalQuery(), r.Filters.Category, r.Filters.Subtype, c.Vector, .80, 5)
+	}
+	for _, m := range matches {
+		if len(c.SoftIntents) < 5 {
+			c.SoftIntents = appendUnique(c.SoftIntents, m.ID)
+		}
 	}
 	if len(c.SoftIntents) == 0 && origin != "baseline" {
 		metrics.DiscoveryTaxonomyMisses.WithLabelValues(origin).Inc()

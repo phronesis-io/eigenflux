@@ -163,6 +163,41 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "feed", old.RequestMode)
 		require.Equal(t, 1, old.SampleSchemaVersion)
 	})
+	t.Run("QueryNormalizationAndCrossLanguageAliases", func(t *testing.T) {
+		for _, query := range []string{"  ＬＰ  ", "着陆页", "著陸頁", "帮我做LP"} {
+			t.Run(query, func(t *testing.T) {
+				result := s.search(t, discovery.Request{Query: query}, "")
+				require.Len(t, result.Items, 3)
+				for _, item := range result.Items {
+					require.Contains(t, item.Match["match_types"], "synonym")
+					require.NotContains(t, item.Match["match_types"], "keyword", "fixture content has no query alias")
+				}
+				if query == "著陸頁" {
+					require.True(t, result.Partial)
+					require.Contains(t, result.Reasons, "embedding_unavailable")
+				}
+				s.waitSamples(t, result.ImpressionID, 3)
+				var raw string
+				require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", result.ImpressionID).Limit(1).Scan(&raw).Error)
+				sample := decode[struct {
+					Search struct {
+						Contexts []discovery.Context `json:"contexts"`
+					} `json:"search_context"`
+				}](t, []byte(raw))
+				require.Len(t, sample.Search.Contexts, 1)
+				compiled := sample.Search.Contexts[0]
+				require.Equal(t, strings.TrimSpace(query), compiled.Query)
+				require.Equal(t, "query_rules_v1", compiled.QueryAnalysis.Version)
+				require.NotEmpty(t, compiled.QueryAnalysis.Expansions)
+				require.Empty(t, compiled.Filters.Category, "recognized phrase must not become a hard category")
+				if query == "  ＬＰ  " {
+					require.Equal(t, "lp", compiled.QueryAnalysis.Normalized)
+				}
+			})
+		}
+		filtered := s.search(t, discovery.Request{Query: "着陆页", Filters: discovery.Filters{Lang: []string{"zh"}}}, "")
+		require.Empty(t, filtered.Items, "cross-language expansion must not weaken explicit language filters")
+	})
 	t.Run("RedisForwardSuppliesRankingFeatures", func(t *testing.T) {
 		agentRows, err := agentindex.ReadForward(ctx, mq.RDB, s.agentIndex, []int64{s.author})
 		require.NoError(t, err)

@@ -19,6 +19,7 @@ the external boundaries.
 | [discovery/service.go](discovery/service.go) | Operation dispatch, Need CRUD and context selection. |
 | [discovery/types.go](discovery/types.go) | Typed requests, contexts, candidates and results. |
 | [discovery/compiler.go](discovery/compiler.go) | Compile input into executable constraints. |
+| [discovery/query.go](discovery/query.go) | Query normalization, script-aware phrase matching, bounded taxonomy alias expansion and retrieval provenance. |
 | [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration. |
 | [discovery/intersect.go](discovery/intersect.go), [filter.go](discovery/filter.go), [score.go](discovery/score.go) | Constraint intersection, eligibility and rule scoring. |
 | [discovery/store.go](discovery/store.go) | PostgreSQL context ownership, revisions and idempotency. |

@@ -148,7 +148,35 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	}
 	switch channel {
 	case "lexical":
-		boolq["must"] = []any{map[string]any{"multi_match": map[string]any{"query": c.Query, "fields": textFields}}}
+		original := []any{map[string]any{"multi_match": map[string]any{"query": c.lexicalQuery(), "fields": textFields}}}
+		// Existing analyzers need not fold width/Unicode identically. Retain the
+		// caller's text as a parallel lexical clause until those indices migrate.
+		if c.lexicalQuery() != c.Query {
+			original = append(original, map[string]any{"multi_match": map[string]any{"query": c.Query, "fields": textFields}})
+		}
+		boolq["must"] = []any{map[string]any{"dis_max": map[string]any{"queries": original, "tie_breaker": 0}}}
+		if c.QueryAnalysis != nil && len(c.QueryAnalysis.Phrases) > 0 {
+			phrases := []any{}
+			for _, phrase := range c.QueryAnalysis.Phrases {
+				phrases = append(phrases, map[string]any{"multi_match": map[string]any{"query": phrase, "fields": textFields, "type": "phrase", "boost": 1.5}})
+			}
+			boolq["should"] = []any{map[string]any{"dis_max": map[string]any{"queries": phrases, "tie_breaker": 0}}}
+		}
+		body["query"] = map[string]any{"bool": boolq}
+	case "synonym":
+		if c.QueryAnalysis == nil || len(c.QueryAnalysis.Expansions) == 0 || len(c.QueryAnalysis.Expansions) > maxQueryExpansions {
+			return nil, fmt.Errorf("missing or excessive query expansions")
+		}
+		variants := []any{}
+		for _, expansion := range c.QueryAnalysis.Expansions {
+			variants = append(variants, map[string]any{"bool": map[string]any{
+				"must":   []any{map[string]any{"multi_match": map[string]any{"query": expansion.Query, "fields": textFields}}},
+				"filter": []any{map[string]any{"multi_match": map[string]any{"query": expansion.To, "fields": textFields, "type": "phrase"}}},
+				"boost":  0.5,
+			}})
+		}
+		// dis_max prevents overlapping aliases from accumulating a score bonus.
+		boolq["must"] = []any{map[string]any{"dis_max": map[string]any{"queries": variants, "tie_breaker": 0}}}
 		body["query"] = map[string]any{"bool": boolq}
 	case "dense":
 		if len(c.Vector) == 0 {
@@ -246,7 +274,7 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 			}
 			d.SourceIndex = h.Index
 		}
-		if channel == "lexical" {
+		if channel == "lexical" || channel == "synonym" {
 			d.Lexical = h.Score
 		}
 		out = append(out, d)

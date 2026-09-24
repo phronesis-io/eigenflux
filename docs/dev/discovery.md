@@ -75,6 +75,66 @@ Agent previews also use the current public display name. This lookup reuses the
 existing database and needs no new schema, ES mapping or backfill. Saved/inline
 Needs and automatic recommendations retain their existing matching behavior.
 
+### Deterministic query processing
+
+Explicit text queries compile with `context_rules_v2` and a frozen
+`query_analysis` (`query_rules_v1`). The context retains the original wording
+(with surrounding whitespace trimmed), the normalized retrieval text, script
+classification, matched intent IDs, ambiguous labels, phrase boosts, and each
+expansion's source, target and substituted query. Analysis and the taxonomy
+version participate in the context hash and existing replay sample snapshots.
+Saved/inline Needs and automatic Agent contexts retain their existing compiler
+behavior. Existing contexts without analysis remain readable.
+
+Identity resolution runs first using the original input. Exact Agent names and
+IDs are protected from case folding and expansion. An unmatched bare five-letter
+word retains the existing natural-language fallback; its shape alone does not
+make it an explicit short-ID request.
+
+Natural-language text uses NFKC, Unicode case folding and whitespace collapse.
+Lexical retrieval keeps both original and normalized clauses in a zero-tie
+`dis_max`, preserving matches in existing indices whose analyzers do not apply
+the same Unicode normalization.
+English aliases require word boundaries (`art` does not match `partial`). CJK
+aliases match phrases without spaces; Latin aliases can touch CJK text
+(`擅长k8s运维` matches `k8s`), while mixed aliases still protect Latin edges
+(`AI设计` does not match inside `OpenAI设计`). CJK-only queries up to 12 code points
+without spaces, and recognized CJK/mixed dictionary phrases, receive optional
+ES phrase boosts. English-only queries retain token matching. Script detection
+never creates a language filter.
+
+Expansion uses reviewed intent names and aliases from the existing taxonomy,
+scoped by explicit category/subtype. Treat those aliases as equivalent search
+expressions, not merely related topics. A label belonging to multiple intents
+within that scope is ambiguous: it is not expanded or promoted through exact
+alias equality to a structured intent; semantic document retrieval remains
+available. Longer overlapping phrases take precedence. At most five dictionary
+intents/phrases and eight distinct variants are retained. Each variant makes one
+substitution and preserves all remaining words; expansion is not recursive.
+Simplified/traditional pairs, bilingual terms and English inflections require
+explicit aliases. No transliteration, implicit stemming, spell correction,
+generative rewriting, translation, new analyzer plugin or index rebuild is
+introduced. The broad legacy `DomainSynonyms` list is not imported into this
+query dictionary.
+
+The original lexical, dense and structured channels remain. When variants exist,
+a separate `synonym` channel retrieves up to 40 candidates per kind under the
+same hard filters and existing six-request concurrency limit. Each variant must
+match its expanded target phrase, uses a 0.5 lexical boost, and combines through
+`dis_max` with zero tie-breaker to avoid accumulating duplicate alias scores.
+CJK phrase boosts use 1.5; these rule constants are part of `query_rules_v1`.
+Embeddings use the normalized original query once, never a concatenation of
+synonyms. Dictionary expansion still works when the optional query embedding is
+unavailable, with the existing partial-result marker. There is no automatic
+retry with weaker constraints or generic content.
+
+Public `match.match_types` is an additive, deduplicated list of retrieval paths:
+`exact`, `keyword`, `synonym`, `semantic`, `structured`, or `recall`. Multiple paths
+may contribute to one result; these labels are not confidence probabilities or
+claims of literal token equality. Query text, expansion details and vectors are
+not copied into result cards. Ranking still hydrates Agent/Commission features
+from Redis and uses the existing rule scorers.
+
 Responses include `pipeline_version`, `input_origin`, `context_id`,
 `effective_filters`, `constraint_mode`, `result_status`, partial/fallback reasons,
 and typed `source_ref` results. Only broadcasts include `item_id`. Per-result
