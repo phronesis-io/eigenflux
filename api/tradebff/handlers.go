@@ -10,9 +10,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"eigenflux_server/pkg/agentidentity"
 	"github.com/cloudwego/hertz/pkg/app"
+	"gorm.io/gorm"
 )
 
 const unavailableReason = "Commission 交易服务尚未配置可信主体委托"
@@ -21,11 +24,13 @@ type Config struct {
 	Endpoint             string
 	DelegationKeyID      string
 	DelegationPrivateKey string
+	DB                   *gorm.DB
 }
 
 type Service struct {
 	client    *CommissionClient
 	delegator *Delegator
+	db        *gorm.DB
 	reason    string
 }
 
@@ -38,7 +43,7 @@ func New(config Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{client: client, delegator: delegator}, nil
+	return &Service{client: client, delegator: delegator, db: config.DB}, nil
 }
 
 func NewUnavailable(reason string) *Service {
@@ -156,6 +161,73 @@ func (s *Service) TradeCommissions(ctx context.Context, c *app.RequestContext) {
 	s.proxy(ctx, c, "commissions:mine:read", "console.trade.commissions.list", http.MethodGet, "/api/v2/console/trade/commissions", selectedQuery(c, "status", "cursor", "limit"), nil, false)
 }
 
+func (s *Service) TradeRecentCommissions(ctx context.Context, c *app.RequestContext) {
+	viewerID, ok := agentID(c)
+	if !ok {
+		replyError(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console Session 无效")
+		return
+	}
+	if s == nil || s.client == nil || s.delegator == nil {
+		s.unavailable(c)
+		return
+	}
+	data, err := s.fetch(ctx, viewerID, "commissions:recent:read", "console.trade.commissions.recent.list", http.MethodGet, "/api/v1/commissions/recent", selectedQuery(c, "cursor", "limit"), nil, "", false)
+	if err != nil {
+		status := upstreamStatus(err)
+		replyError(c, status, "COMMISSION_REQUEST_FAILED", http.StatusText(status))
+		return
+	}
+	enriched, err := s.enrichRecentReviews(ctx, viewerID, data)
+	if err != nil {
+		replyError(c, http.StatusBadGateway, "COMMISSION_RECENT_INVALID", "最近使用的能力数据无效")
+		return
+	}
+	reply(c, http.StatusOK, enriched)
+}
+
+func (s *Service) enrichRecentReviews(ctx context.Context, viewerID int64, data json.RawMessage) (map[string]json.RawMessage, error) {
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(data, &page); err != nil {
+		return nil, err
+	}
+	var items []map[string]json.RawMessage
+	if raw := page["recent_commissions"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, err
+		}
+	}
+	semaphore := make(chan struct{}, 6)
+	var group sync.WaitGroup
+	for _, item := range items {
+		item := item
+		orderID, ok := rawPositiveInt64(item["latest_order_id"])
+		if !ok {
+			continue
+		}
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			reviewData, err := s.fetch(ctx, viewerID, "orders:reviews:read", "console.trade.orders.review.get", http.MethodGet, "/api/v1/orders/"+strconv.FormatInt(orderID, 10)+"/review", nil, nil, "", false)
+			if err != nil {
+				return
+			}
+			var response map[string]json.RawMessage
+			if json.Unmarshal(reviewData, &response) == nil && len(response["review"]) > 0 && string(response["review"]) != "null" {
+				item["latest_review"] = response["review"]
+			}
+		}()
+	}
+	group.Wait()
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+	page["recent_commissions"] = encoded
+	return page, nil
+}
+
 func (s *Service) TradeCommissionReviews(ctx context.Context, c *app.RequestContext) {
 	commissionID := c.Param("commission_id")
 	identifier, err := strconv.ParseInt(commissionID, 10, 64)
@@ -163,8 +235,92 @@ func (s *Service) TradeCommissionReviews(ctx context.Context, c *app.RequestCont
 		replyError(c, http.StatusBadRequest, "INVALID_COMMISSION_ID", "能力编号无效")
 		return
 	}
-	s.proxy(ctx, c, "commissions:reviews:read", "console.trade.commissions.reviews.list", http.MethodGet,
-		"/api/v1/commissions/"+commissionID+"/reviews", selectedQuery(c, "cursor", "limit"), nil, false)
+	viewerID, ok := agentID(c)
+	if !ok {
+		replyError(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console Session 无效")
+		return
+	}
+	if s == nil || s.client == nil || s.delegator == nil {
+		s.unavailable(c)
+		return
+	}
+	data, err := s.fetch(ctx, viewerID, "commissions:reviews:read", "console.trade.commissions.reviews.list", http.MethodGet,
+		"/api/v1/commissions/"+commissionID+"/reviews", selectedQuery(c, "cursor", "limit"), nil, "", false)
+	if err != nil {
+		status := upstreamStatus(err)
+		replyError(c, status, "COMMISSION_REQUEST_FAILED", http.StatusText(status))
+		return
+	}
+	enriched, err := s.enrichReviewBuyers(ctx, data)
+	if err != nil {
+		replyError(c, http.StatusServiceUnavailable, "COMMISSION_REVIEW_IDENTITIES_UNAVAILABLE", "评价 Agent 身份暂不可用")
+		return
+	}
+	reply(c, http.StatusOK, enriched)
+}
+
+func (s *Service) enrichReviewBuyers(ctx context.Context, data json.RawMessage) (map[string]json.RawMessage, error) {
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(data, &page); err != nil {
+		return nil, err
+	}
+	var reviews []map[string]json.RawMessage
+	if raw := page["reviews"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &reviews); err != nil {
+			return nil, err
+		}
+	}
+	ids := make([]int64, 0, len(reviews))
+	seen := make(map[int64]struct{}, len(reviews))
+	for _, review := range reviews {
+		id, ok := rawPositiveInt64(review["buyer_agent_id"])
+		if ok {
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	identities := make(map[int64]agentidentity.PublicIdentity, len(ids))
+	if len(ids) > 0 {
+		if s.db == nil {
+			return nil, fmt.Errorf("identity database is not configured")
+		}
+		var err error
+		identities, err = agentidentity.GetBatch(ctx, s.db, ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, review := range reviews {
+		id, ok := rawPositiveInt64(review["buyer_agent_id"])
+		identity, exists := identities[id]
+		if !ok || !exists {
+			continue
+		}
+		buyer, err := json.Marshal(map[string]any{
+			"agent_id":        identity.AgentID,
+			"display_name":    identity.DisplayName,
+			"display_name_en": identity.DisplayNameEn,
+			"short_id":        identity.ShortID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		review["buyer"] = buyer
+	}
+	reviewJSON, err := json.Marshal(reviews)
+	if err != nil {
+		return nil, err
+	}
+	page["reviews"] = reviewJSON
+	return page, nil
+}
+
+func rawPositiveInt64(raw json.RawMessage) (int64, bool) {
+	value := strings.Trim(string(raw), `"`)
+	id, err := strconv.ParseInt(value, 10, 64)
+	return id, err == nil && id > 0
 }
 
 func (s *Service) TradeOrders(ctx context.Context, c *app.RequestContext) {
@@ -178,6 +334,15 @@ func (s *Service) TradeOrder(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	s.proxy(ctx, c, "orders:read", "console.trade.orders.get", http.MethodGet, "/api/v2/console/trade/orders/"+url.PathEscape(orderID), nil, nil, false)
+}
+
+func (s *Service) TradeOrderReview(ctx context.Context, c *app.RequestContext) {
+	orderID := string(c.Param("order_id"))
+	if !positiveDecimal(orderID) {
+		replyError(c, http.StatusBadRequest, "INVALID_ORDER_ID", "订单号无效")
+		return
+	}
+	s.proxy(ctx, c, "orders:reviews:read", "console.trade.orders.review.get", http.MethodGet, "/api/v1/orders/"+url.PathEscape(orderID)+"/review", nil, nil, false)
 }
 
 // TradeOrderPayment delegates only a channel selection. Commission owns the
