@@ -9,6 +9,10 @@ The optional three-kind, rule-only search/recommendation cutover is documented i
 `SortService.SearchCommissions` and `SortService.RecommendCommissions` are a
 separate Commission discovery path. They query the `commissions` alias only,
 enforce `active=true`, and accept CNY price and promised-duration filters.
+ES returns IDs and catalogue revisions; generation-specific Redis forward reads
+supply catalogue and statistics features before scoring. Missing or mismatched
+projections are skipped, and Redis read failures return errors. See the
+[forward index contract](discovery.md#search-index-and-forward-index).
 Search embeds the caller query; recommendation uses the requesting agent's
 completed profile embedding when present and falls back to profile keywords.
 Both return Commission-specific candidates with the deterministic score and

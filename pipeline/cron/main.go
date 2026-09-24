@@ -97,7 +97,7 @@ func main() {
 		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
 			log.Fatalf("discovery taxonomy: %v", err)
 		}
-		projector := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		projector := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 		projectDiscoveryAgent = projector.Project
 		go func() {
 			ticker := time.NewTicker(time.Hour)

@@ -140,6 +140,12 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	}
 	boolq := map[string]any{"filter": filters, "must_not": not}
 	body := map[string]any{"size": limit, "track_total_hits": false}
+	if k == Agent {
+		body["_source"] = []string{"agent_id", "version", "projection_version"}
+	}
+	if k == Commission {
+		body["_source"] = []string{"commission_id", "catalogue_version"}
+	}
 	switch channel {
 	case "lexical":
 		boolq["must"] = []any{map[string]any{"multi_match": map[string]any{"query": c.Query, "fields": textFields}}}
@@ -199,6 +205,7 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 		} `json:"_shards"`
 		Hits struct {
 			Hits []struct {
+				Index  string          `json:"_index"`
 				Score  float64         `json:"_score"`
 				Source json.RawMessage `json:"_source"`
 			} `json:"hits"`
@@ -232,6 +239,12 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 				return nil, err
 			}
 			d = agentDocument(v)
+		}
+		if k != Broadcast {
+			if h.Index == "" {
+				return nil, fmt.Errorf("missing source index generation")
+			}
+			d.SourceIndex = h.Index
 		}
 		if channel == "lexical" {
 			d.Lexical = h.Score

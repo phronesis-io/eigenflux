@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/mq"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	sortdal "eigenflux_server/rpc/sort/dal"
@@ -35,12 +36,16 @@ func main() {
 	if *kind != "agent" && *kind != "broadcast" {
 		log.Fatal("unsupported kind")
 	}
+	if *kind == "agent" {
+		mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+		defer mq.RDB.Close()
+	}
 	if *kind == "broadcast" {
 		if err := es.EnsureRetrievalSlots(context.Background(), es.ReadIndexPattern); err != nil {
 			log.Fatal(err)
 		}
 	}
-	p := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+	p := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 	if *kind == "agent" {
 		if err := agentindex.Ensure(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
 			log.Fatal(err)

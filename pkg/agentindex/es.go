@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -16,7 +17,7 @@ func Ensure(ctx context.Context, index string, dims int) error {
 	if index == "" || dims < 1 {
 		return fmt.Errorf("invalid Agent index configuration")
 	}
-	properties := map[string]any{"agent_id": map[string]any{"type": "long"}, "version": map[string]any{"type": "long"}, "projection_version": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"}, "search_text": map[string]any{"type": "text"}, "display_name": map[string]any{"type": "text"}, "retrieval_slots": searchindex.SlotsMapping(), "activity_at": map[string]any{"type": "long"}, "updated_at": map[string]any{"type": "long"}, "embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"}}
+	properties := map[string]any{"agent_id": map[string]any{"type": "long"}, "version": map[string]any{"type": "long"}, "projection_version": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"}, "search_text": map[string]any{"type": "text"}, "display_name": map[string]any{"type": "text"}, "retrieval_slots": searchindex.SlotsMapping(), "embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"}}
 	resp, err := es.Client.Indices.Exists([]string{index}, es.Client.Indices.Exists.WithContext(ctx))
 	if err != nil {
 		return err
@@ -57,6 +58,7 @@ func Ensure(ctx context.Context, index string, dims int) error {
 }
 
 type Projector struct {
+	Redis    *redis.Client
 	DB       *gorm.DB
 	Index    string
 	Embedder interface {
@@ -91,7 +93,10 @@ func (p Projector) Project(ctx context.Context, id int64) error {
 			}
 		}
 	}
-	b, err := json.Marshal(d)
+	if err := WriteForward(ctx, p.Redis, p.Index, d); err != nil {
+		return err
+	}
+	b, err := json.Marshal(d.SearchFields())
 	if err != nil {
 		return err
 	}

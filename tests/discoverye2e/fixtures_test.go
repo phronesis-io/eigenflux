@@ -56,7 +56,7 @@ func (s *stack) seed(t *testing.T) {
 		require.NoError(t, err)
 		_ = resp.Body.Close()
 		require.False(t, resp.IsError())
-		for _, id := range owners {
+		for _, id := range append(append([]int64{}, owners...), s.item) {
 			keys, err := mq.RDB.Keys(context.Background(), fmt.Sprintf("*:%d:*", id)).Result()
 			require.NoError(t, err)
 			if len(keys) > 0 {
@@ -92,13 +92,19 @@ func (s *stack) seed(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.False(t, resp.IsError())
-	s.index(t, s.commissionIndex, s.item, commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, s.vector))
+	doc := commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, s.vector)
+	require.NoError(t, (commissionindex.ESStore{Redis: mq.RDB, Index: s.commissionIndex}).Upsert(context.Background(), doc))
+	response, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(s.commissionIndex))
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.False(t, response.IsError())
 	require.NoError(t, agentindex.Ensure(context.Background(), s.agentIndex, len(s.vector)))
 	docs, err := agentindex.Load(context.Background(), s.db, []int64{s.author})
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
 	docs[0].Embedding = s.vector
-	s.index(t, s.agentIndex, s.author, docs[0])
+	require.NoError(t, agentindex.WriteForward(context.Background(), mq.RDB, s.agentIndex, docs[0]))
+	s.index(t, s.agentIndex, s.author, docs[0].SearchFields())
 }
 
 func (s *stack) seedSession(t *testing.T, owner int64, scopes string) string {

@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recall"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
@@ -19,14 +20,12 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
 
 type Source struct {
 	DB                                                           *gorm.DB
 	Redis                                                        *redis.Client
-	Commission                                                   commissionindex.Source
 	BroadcastIndex, CommissionIndex, AgentIndex, RecallNamespace string
 	BlockedAuthorEmails                                          []string
 	DisableDedup                                                 bool
@@ -110,7 +109,7 @@ func broadcast(d sortdal.Item) Document {
 }
 func commission(d commissionindex.Document) Document {
 	p, dur := d.PriceFen, d.PromisedDeliveryMS
-	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Vector: d.Embedding, Slots: d.RetrievalSlots}
+	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), StatisticsVersion: d.StatisticsVersion, Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Vector: d.Embedding, Slots: d.RetrievalSlots}
 }
 func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, limit int) ([]Document, error) {
 	if channel == "exact" {
@@ -189,50 +188,68 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 			out = append(out, d)
 		}
 	}
-	if ids := byKind[Agent]; len(ids) > 0 {
-		rows, err := agentindex.Load(ctx, s.DB, ids)
+	// Ranking data comes only from the generation-specific forward projection.
+	// Exact Agent identity lookups do not rank by features and retain DB hydration.
+	exactIDs := []int64{}
+	groups := map[Kind]map[string][]int64{Agent: {}, Commission: {}}
+	prior := map[string]Document{}
+	for _, d := range docs {
+		prior[d.Ref.Key()] = d
+		if d.Ref.Type == Agent && d.ExactMatch != "" {
+			exactIDs = append(exactIDs, d.Ref.ID)
+			continue
+		}
+		if d.Ref.Type != Agent && d.Ref.Type != Commission {
+			continue
+		}
+		if d.SourceIndex == "" {
+			return nil, fmt.Errorf("missing forward index generation")
+		}
+		groups[d.Ref.Type][d.SourceIndex] = append(groups[d.Ref.Type][d.SourceIndex], d.Ref.ID)
+	}
+	if len(exactIDs) > 0 {
+		rows, err := agentindex.Load(ctx, s.DB, exactIDs)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range rows {
-			out = append(out, agentDocument(r))
+		for _, row := range rows {
+			out = append(out, agentDocument(row))
 		}
 	}
-	if ids := byKind[Commission]; len(ids) > 0 {
-		if s.Commission == nil {
-			return nil, Failure(503, "commission_authority_unavailable")
+	add := func(d Document, index string) {
+		before := prior[d.Ref.Key()]
+		if before.Version != d.Version || d.Ref.Type == Agent && before.ProjectionVersion != d.ProjectionVersion {
+			metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "forward_version").Inc()
+			return
 		}
-		// Catalogue currently offers only single-ID snapshots. Bound both total work
-		// and concurrency; do not scan the catalogue or treat an RPC failure as absence.
-		if len(ids) > 100 {
-			return nil, fmt.Errorf("commission hydration bound exceeded")
-		}
-		values := make([]Document, len(ids))
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(8)
-		stats, err := s.Commission.BatchGetStatistics(ctx, ids)
+		d.SourceIndex = index
+		out = append(out, d)
+	}
+	for index, ids := range groups[Agent] {
+		rows, err := agentindex.ReadForward(ctx, s.Redis, index, ids)
 		if err != nil {
 			return nil, err
 		}
-		sm := map[int64]commissionindex.StatisticsSnapshot{}
-		for _, v := range stats {
-			sm[v.CommissionID] = v
+		for _, id := range ids {
+			if d, ok := rows[id]; ok {
+				add(agentDocument(d), index)
+			} else {
+				metrics.DiscoveryRejected.WithLabelValues("agent", "forward_missing").Inc()
+			}
 		}
-		for i, id := range ids {
-			i, id := i, id
-			g.Go(func() error {
-				v, err := s.Commission.GetIndexSnapshot(gctx, id)
-				if err != nil {
-					return err
-				}
-				values[i] = commission(commissionindex.BuildDocument(v, sm[id], nil))
-				return nil
-			})
-		}
-		if err = g.Wait(); err != nil {
+	}
+	for index, ids := range groups[Commission] {
+		rows, err := commissionindex.ReadForward(ctx, s.Redis, index, ids)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, values...)
+		for _, id := range ids {
+			if d, ok := rows[id]; ok {
+				add(commission(d), index)
+			} else {
+				metrics.DiscoveryRejected.WithLabelValues("commission", "forward_missing").Inc()
+			}
+		}
 	}
 	authors := []int64{}
 	for _, d := range out {
@@ -243,14 +260,16 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 	}
 	var authorsNow []struct {
 		AgentID              int64
+		ProfileCompletedAt   int64
 		Email, IdentityState string
 		AgentName, ShortID   string
 	}
-	if err := s.DB.WithContext(ctx).Table("agents").Select("agent_id,email,identity_state,agent_name,short_id").Where("agent_id IN ?", authors).Scan(&authorsNow).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Table("agents").Select("agent_id,email,identity_state,agent_name,short_id,profile_completed_at").Where("agent_id IN ?", authors).Scan(&authorsNow).Error; err != nil {
 		return nil, err
 	}
 	visible := map[int64]bool{}
 	names := map[int64]string{}
+	profileReady := map[int64]bool{}
 	for _, a := range authorsNow {
 		allowed := a.IdentityState == "active"
 		for _, email := range s.BlockedAuthorEmails {
@@ -260,11 +279,13 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 		}
 		visible[a.AgentID] = allowed
 		names[a.AgentID] = agentidentity.DisplayName(a.AgentName, a.ShortID)
+		profileReady[a.AgentID] = a.ProfileCompletedAt > 0
 	}
 	for i := range out {
 		out[i].Visible = out[i].Visible && visible[out[i].AuthorID]
 		if out[i].Ref.Type == Agent {
 			out[i].Preview = names[out[i].Ref.ID]
+			out[i].Visible = out[i].Visible && profileReady[out[i].Ref.ID]
 		}
 	}
 	var relations []struct {
@@ -363,5 +384,5 @@ func broadcastVersion(d Document) string {
 }
 
 func agentDocument(d agentindex.Document) Document {
-	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, Vector: d.Embedding, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
+	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), ProjectionVersion: d.ProjectionVersion, Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, Vector: d.Embedding, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
 }

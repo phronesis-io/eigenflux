@@ -10,8 +10,12 @@ import (
 	"testing"
 
 	sortmodel "eigenflux_server/kitex_gen/eigenflux/sort"
+	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 
 	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 )
@@ -23,7 +27,11 @@ func (f commissionSearchRoundTripFunc) RoundTrip(req *http.Request) (*http.Respo
 }
 
 func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
-	s := &Service{}
+	s := &Service{redis: redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})}
+	t.Cleanup(func() { s.redis.Close() })
+	if err := commissionindex.WriteForward(context.Background(), s.redis, "commissions-v1", commissionindex.Document{CommissionID: 42, CatalogueVersion: 1, Active: true}); err != nil {
+		t.Fatal(err)
+	}
 
 	var embeddingCalls atomic.Int32
 	embeddingServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -48,7 +56,7 @@ func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
 		if !strings.Contains(string(body), `"commission_id":42`) || strings.Contains(string(body), `"knn"`) {
 			t.Fatalf("unexpected exact search request: %s", body)
 		}
-		response := `{"hits":{"hits":[{"_score":1,"_source":{"commission_id":42,"active":true}}]}}`
+		response := `{"hits":{"hits":[{"_index":"commissions-v1","_score":1,"_source":{"commission_id":42,"catalogue_version":1}}]}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
 	})})
 	if err != nil {

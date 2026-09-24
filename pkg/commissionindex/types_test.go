@@ -11,8 +11,24 @@ import (
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/json"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+
 	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 )
+
+func forwardRedis(t *testing.T) *redis.Client {
+	t.Helper()
+	r := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	t.Cleanup(func() { _ = r.Close() })
+	return r
+}
+func seedForward(t *testing.T, r *redis.Client, index string, d Document) {
+	t.Helper()
+	if err := WriteForward(context.Background(), r, index, d); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestBuildDocumentUsesIndependentVersionsAndNormalizedText(t *testing.T) {
 	doc := BuildDocument(CatalogueSnapshot{CommissionID: 1, SellerAgentID: 2, Status: "active", CatalogueVersion: 4, Title: "  Build  API ", Tags: []string{"Go", "API"}}, StatisticsSnapshot{CommissionID: 1, StatisticsVersion: 7, CompletedCount: 2}, []float32{1})
@@ -22,8 +38,8 @@ func TestBuildDocumentUsesIndependentVersionsAndNormalizedText(t *testing.T) {
 }
 
 func TestTombstoneRetainsVersion(t *testing.T) {
-	doc := Tombstone(CatalogueSnapshot{CommissionID: 1, CatalogueVersion: 3}, StatisticsSnapshot{StatisticsVersion: 4})
-	if doc.Active || doc.CatalogueVersion != 3 || doc.StatisticsVersion != 4 {
+	doc := Tombstone(CatalogueSnapshot{CommissionID: 1, CatalogueVersion: 3, Status: "active"}, StatisticsSnapshot{StatisticsVersion: 4, CompletedCount: 2, CompletionRateBPS: 8000})
+	if doc.Active || doc.CatalogueVersion != 3 || doc.StatisticsVersion != 4 || doc.CompletedCount != 2 || doc.CompletionRateBPS != 8000 {
 		t.Fatalf("unexpected tombstone: %#v", doc)
 	}
 }
@@ -56,18 +72,20 @@ func withCommissionESTransport(t *testing.T, roundTrip commissionRoundTripFunc) 
 }
 
 func TestESStoreGetUsesReadAliasAndExactInt64ID(t *testing.T) {
+	r := forwardRedis(t)
+	seedForward(t, r, "commissions-v1", Document{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 12, StatisticsVersion: 13})
 	body := &closeTrackingBody{Reader: strings.NewReader(`{"_index":"commissions-v1","_id":"9223372036854775807","found":true,"_source":{"commission_id":9223372036854775807,"active":true,"catalogue_version":12,"statistics_version":13,"title":"` + strings.Repeat("irrelevant", 1000) + `","embedding":[1,2,3]}}`)}
 	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodGet || req.URL.EscapedPath() != "/commissions/_doc/9223372036854775807" {
 			t.Fatalf("request=%s %s", req.Method, req.URL.EscapedPath())
 		}
-		if got := req.URL.Query().Get("_source_includes"); got != "commission_id,active,catalogue_version,statistics_version" {
+		if got := req.URL.Query().Get("_source_includes"); got != "commission_id,active,catalogue_version" {
 			t.Fatalf("_source_includes=%q", got)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: body}, nil
 	})
 
-	doc, found, err := (ESStore{Index: "commissions-v1", Alias: "commissions"}).Get(context.Background(), 9223372036854775807)
+	doc, found, err := (ESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Get(context.Background(), 9223372036854775807)
 	if err != nil || !found {
 		t.Fatalf("Get() found=%v error=%v", found, err)
 	}
@@ -202,7 +220,7 @@ func TestESStoreSearchSetsJSONContentType(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, field := range []string{"commission_id", "completion_rate_bps", "average_rating_milli", "has_rating", "completed_count"} {
+		for _, field := range []string{"commission_id", "catalogue_version"} {
 			if !strings.Contains(string(body), `"`+field+`"`) {
 				t.Fatalf("search request omitted required source field %q: %s", field, body)
 			}
@@ -218,6 +236,8 @@ func TestESStoreSearchSetsJSONContentType(t *testing.T) {
 }
 
 func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
+	r := forwardRedis(t)
+	seedForward(t, r, "commissions-v1", Document{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 1})
 	const commissionID = int64(9223372036854775807)
 	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
 		body, err := io.ReadAll(req.Body)
@@ -256,11 +276,11 @@ func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
 				t.Fatalf("filters omitted %s: %s", expected, filterText)
 			}
 		}
-		response := `{"hits":{"hits":[{"_score":1,"_source":{"commission_id":9223372036854775807,"active":true}}]}}`
+		response := `{"hits":{"hits":[{"_index":"commissions-v1","_score":1,"_source":{"commission_id":9223372036854775807,"catalogue_version":1}}]}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
 	})
 
-	hits, err := (ESStore{Alias: "commissions"}).Search(context.Background(), SearchRequest{
+	hits, err := (ESStore{Redis: r, Alias: "commissions"}).Search(context.Background(), SearchRequest{
 		CommissionID: commissionID,
 		Embedding:    []float32{1, 2, 3},
 		MinPriceFen:  10,
@@ -285,6 +305,7 @@ func TestESStoreSearchRejectsMissingOrConflictingMode(t *testing.T) {
 }
 
 func TestESStoreUpsertSetsJSONContentType(t *testing.T) {
+	r := forwardRedis(t)
 	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
 		if got := req.Header.Get("Content-Type"); got != "application/json" {
 			t.Fatalf("Content-Type=%q", got)
@@ -294,7 +315,7 @@ func TestESStoreUpsertSetsJSONContentType(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(`{"result":"updated"}`))}, nil
 	})
-	if err := (ESStore{Alias: "commissions"}).Upsert(context.Background(), Document{CommissionID: 1}); err != nil {
+	if err := (ESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Upsert(context.Background(), Document{CommissionID: 1, CatalogueVersion: 1}); err != nil {
 		t.Fatalf("Upsert() error=%v", err)
 	}
 }

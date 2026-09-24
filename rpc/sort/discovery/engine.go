@@ -421,7 +421,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			d.Lexical = prior.Lexical
 			d.Channels = prior.Channels
 			d.ExactMatch = prior.ExactMatch
-			d.Vector = prior.Vector
+			if d.Ref.Type == Broadcast {
+				d.Vector = prior.Vector
+			}
 			if seen[d.Ref.Key()] {
 				exhausted = true
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "seen").Inc()

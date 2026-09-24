@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/impr"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/replaylog"
@@ -160,6 +163,81 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "feed", old.RequestMode)
 		require.Equal(t, 1, old.SampleSchemaVersion)
 	})
+	t.Run("RedisForwardSuppliesRankingFeatures", func(t *testing.T) {
+		agentRows, err := agentindex.ReadForward(ctx, mq.RDB, s.agentIndex, []int64{s.author})
+		require.NoError(t, err)
+		a := agentRows[s.author]
+		a.ActivityAt = 0 // The DB public Card still has a recent last_active_at.
+		require.NoError(t, agentindex.WriteForward(ctx, mq.RDB, s.agentIndex, a))
+		result := s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Agent}}, "")
+		require.Len(t, result.Items, 1)
+		s.waitSamples(t, result.ImpressionID, 1)
+		var raw string
+		require.NoError(t, s.db.Table("replay_logs").Select("item_features").Where("impression_id=?", result.ImpressionID).Scan(&raw).Error)
+		sample := decode[struct {
+			Search discovery.Candidate `json:"search"`
+		}](t, []byte(raw))
+		require.Zero(t, sample.Search.Score.Features["activity_freshness"])
+		require.InDelta(t, 1, sample.Search.Score.Features["cosine"], 0.00001, "cosine must use the vector from Redis, not the ES response")
+		before := s.esDocument(t, s.commissionIndex, s.item)
+		require.NoError(t, commissionindex.WriteStatistics(ctx, mq.RDB, s.commissionIndex, commissionindex.StatisticsSnapshot{CommissionID: s.item, StatisticsVersion: 7, CompletionRateBPS: 8000}))
+		result = s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}}, "")
+		require.Len(t, result.Items, 1)
+		s.waitSamples(t, result.ImpressionID, 1)
+		require.NoError(t, s.db.Table("replay_logs").Select("item_features").Where("impression_id=?", result.ImpressionID).Scan(&raw).Error)
+		sample = decode[struct {
+			Search discovery.Candidate `json:"search"`
+		}](t, []byte(raw))
+		require.InDelta(t, .8, sample.Search.Score.Features["fulfillment"], .00001)
+		require.EqualValues(t, 7, sample.Search.Document.StatisticsVersion)
+		after := s.esDocument(t, s.commissionIndex, s.item)
+		require.Equal(t, before["_version"], after["_version"], "statistics updates must not rewrite ES")
+		for _, tc := range []struct {
+			index     string
+			id        int64
+			forbidden []string
+		}{
+			{s.agentIndex, s.author, []string{"activity_at", "updated_at"}},
+			{s.commissionIndex, s.item, []string{"completion_rate_bps", "average_rating_milli", "statistics_version", "updated_at"}},
+		} {
+			source := s.esDocument(t, tc.index, tc.id)["_source"].(map[string]any)
+			for _, field := range tc.forbidden {
+				require.NotContains(t, source, field)
+			}
+		}
+	})
+	t.Run("ForwardMissVersionGapAndReadFailure", func(t *testing.T) {
+		for _, kind := range []discovery.Kind{discovery.Agent, discovery.Commission} {
+			t.Run(string(kind), func(t *testing.T) {
+				key, versionField := agentindex.Forward(mq.RDB, s.agentIndex).Key(s.author, "card"), "projection_version"
+				if kind == discovery.Commission {
+					key, versionField = commissionindex.Forward(mq.RDB, s.commissionIndex).Key(s.item, "catalogue"), "catalogue_version"
+				}
+				original, err := mq.RDB.HGetAll(ctx, key).Result()
+				require.NoError(t, err)
+				require.NotEmpty(t, original)
+				t.Cleanup(func() {
+					require.NoError(t, mq.RDB.Del(ctx, key).Err())
+					require.NoError(t, mq.RDB.HSet(ctx, key, original).Err())
+				})
+				r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{kind}}
+				require.NoError(t, mq.RDB.Del(ctx, key).Err())
+				require.Empty(t, s.search(t, r, "").Items)
+				if kind == discovery.Agent {
+					require.Len(t, s.search(t, discovery.Request{Query: fmt.Sprint(s.author), SourceKinds: []discovery.Kind{kind}}, "").Items, 1)
+				}
+				data := decode[map[string]json.RawMessage](t, []byte(original["data"]))
+				data[versionField] = json.RawMessage(`999`)
+				b, err := json.Marshal(data)
+				require.NoError(t, err)
+				require.NoError(t, mq.RDB.HSet(ctx, key, "version", "999", "data", string(b)).Err())
+				require.Empty(t, s.search(t, r, "").Items, "ES and forward generations must join")
+				require.NoError(t, mq.RDB.Del(ctx, key).Err())
+				require.NoError(t, mq.RDB.Set(ctx, key, "wrong type", 0).Err())
+				s.call(t, "POST", "/api/v2/discovery/search", s.token, "", r, 503)
+			})
+		}
+	})
 	t.Run("ExactAgentIdentityAndNames", func(t *testing.T) {
 		for _, id := range []int64{s.author, s.other} {
 			// The second Agent has no ES document. Exact lookup must still work.
@@ -227,6 +305,15 @@ func TestDiscoveryE2E(t *testing.T) {
 		var savedCount int64
 		require.NoError(t, s.db.Table("discovery_contexts").Where("agent_id=? AND persistence='saved'", s.owner).Count(&savedCount).Error)
 		require.Zero(t, savedCount)
+	})
+	t.Run("CurrentAgentAccountStateOverridesForwardProjection", func(t *testing.T) {
+		var completed int64
+		require.NoError(t, s.db.Table("agents").Select("profile_completed_at").Where("agent_id=?", s.author).Scan(&completed).Error)
+		require.Positive(t, completed)
+		s.sql(t, "UPDATE agents SET profile_completed_at=0 WHERE agent_id=?", s.author)
+		defer s.sql(t, "UPDATE agents SET profile_completed_at=? WHERE agent_id=?", completed, s.author)
+		r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Agent}}
+		require.Empty(t, s.search(t, r, "").Items)
 	})
 	t.Run("KnownAgentRemainsSearchableButIsNotRecommended", func(t *testing.T) {
 		need := s.saved(t, "find_people")
@@ -305,13 +392,24 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, before, s.search(t, r, "before-block"))
 		require.Empty(t, s.search(t, r, "after-block").Items)
 	})
-	t.Run("CatalogueFailureIsNotAnEmptySuccess", func(t *testing.T) {
+	t.Run("OnlineRankingDoesNotCallCatalogueRPC", func(t *testing.T) {
 		r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}, Filters: discovery.Filters{Category: s.category}}
 		require.Len(t, s.search(t, r, "").Items, 1)
 		s.catalogue.mu.Lock()
 		s.catalogue.fail = true
 		s.catalogue.mu.Unlock()
 		defer func() { s.catalogue.mu.Lock(); s.catalogue.fail = false; s.catalogue.mu.Unlock() }()
-		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", r, 503)
+		require.Len(t, s.search(t, r, "").Items, 1)
 	})
+}
+
+func (s *stack) esDocument(t *testing.T, index string, id int64) map[string]any {
+	t.Helper()
+	response, err := es.Client.Get(index, fmt.Sprint(id))
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.False(t, response.IsError())
+	var value map[string]any
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&value))
+	return value
 }

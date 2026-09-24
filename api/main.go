@@ -229,7 +229,7 @@ func main() {
 			log.Fatal("initialize Commission projection diagnostics")
 		}
 		source := commissionsource.Adapter{Commission: commissionSourceClient, Order: orderSourceClient}
-		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		store := commissionindex.ESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 		embeddingClient := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
 		diagnostics, err := commissionintegration.NewService(projection, source, store, commissionintegration.NewEmbeddingProbe(embeddingmeta.NormalizeProvider(cfg.EmbeddingProvider), cfg.EmbeddingDimensions, embeddingClient))
 		if err != nil {

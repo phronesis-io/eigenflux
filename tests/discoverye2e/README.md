@@ -55,8 +55,10 @@ integration suites' PostgreSQL advisory lock is respected.
   markers, nullable broadcast IDs for other kinds, and legacy event compatibility
   in the same replay table. Checks poll eventual state rather than requiring an
   atomic delivery/history/sample transaction.
-- Catalogue authority failures surface as errors after a successful baseline
-  request, rather than appearing as a successful empty result.
+- Redis forward features drive recorded scores; statistics-only updates leave ES
+  unchanged. ES documents exclude ranking-only fields. Missing/mismatched
+  projections skip candidates, corrupt Redis types error, and catalogue RPC
+  failures do not affect online ranking.
 
 ## Boundaries
 

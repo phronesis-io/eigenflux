@@ -84,7 +84,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to create Commission order source client: %v", err)
 		}
-		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		store := commissionindex.ESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 		if err := store.Ensure(context.Background()); err != nil {
 			log.Fatalf("failed to bootstrap Commission index: %v", err)
 		}
@@ -151,7 +151,7 @@ func main() {
 		if err := agentindex.Ensure(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
 			log.Fatalf("Agent index: %v", err)
 		}
-		projector := agentindex.Projector{DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		projector := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 		agentCardConsumer.Project = projector.Project
 	}
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)

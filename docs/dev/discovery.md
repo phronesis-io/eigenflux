@@ -95,12 +95,14 @@ recall failures are explicitly partial.
 
 - `rpc/sort/discovery`: typed contracts, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
 - `rpc/sort/discovery/store.go`: owned saved/ephemeral contexts, CAS and durable Need-create idempotency.
-- `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with authoritative hydration.
+- `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with broadcast DB hydration and Agent/commission Redis forward projections.
 - `rpc/sort/discovery/index`: shared vocabulary, slot schema and projection used by query execution and index writers.
 - `rpc/sort/discovery/transport`: shared RPC JSON response codec.
 - `rpc/sort/legacy/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
 - `rpc/feed/delivery`: response/page caching and independent best-effort exposure recording.
-- `pkg/agentindex`: public Card projection with external version fencing and tombstones.
+- `pkg/agentindex`: public Card search/forward projections with version fencing and tombstones.
+- `pkg/commissionindex`: catalogue search projection and independent catalogue/statistics forward components.
+- `rpc/sort/discovery/index/forward.go`: bounded Redis batch reads and monotonic component writes shared by projection owners.
 
 Successful discovery requests and Need writes retain the existing runtime/activity
 observation behavior. Need/taxonomy reads and failures do not refresh activity.
@@ -120,9 +122,8 @@ and reviewed canonical aliases populate known fields. Public Agent projection
 uses its own configured versioned index (default `agent_discovery_v1`) in the
 existing cluster, not a separate search service. Startup verifies its mapping
 and embedding dimensions. Projection reads public Card fields only. Public Card
-updates and the existing maintenance rebuild path update the index; authority
-hydration excludes deleted, blocked or inactive Agents from new executions even
-if an index update is delayed. Automatic people discovery excludes existing
+updates and the existing maintenance rebuild path update the index; Redis tombstones exclude unavailable Cards even while ES catches up; current
+account and block checks remain database-backed. Automatic people discovery excludes existing
 friends and nonempty PM conversations. Query people search retains those contacts.
 
 Commission provider-region/language evidence is currently unavailable at its
@@ -130,11 +131,55 @@ source boundary and stays unknown. Region constraints therefore reject those
 rows; no location is inferred from the owner. Broadcast/Agent provider region
 also remains unknown without a separately approved public source field.
 
+### Search index and forward index
+
+For Agent and Commission, ES stores only fields used for retrieval/filtering,
+plus IDs and version metadata required to join projections. Agent ES keeps
+public search text/name, active state, slots and embedding; activity/edit times
+are not in ES. Commission ES keeps weighted searchable text, active state,
+seller ID, slots, price/currency/promised duration and embedding. Fulfillment,
+ratings, counts, statistics revision and update time are not in ES. Price and
+embedding intentionally exist in both stores because they serve retrieval and
+scoring. Broadcast storage and scoring reads are unchanged.
+
+ES responses return only candidate IDs, source revisions, `_index` and channel
+scores. Sort then batches Redis forward reads for the deduplicated candidates:
+
+| Key | Contents and revision |
+|---|---|
+| `discovery:forward:agent:<concrete-index>:<id>:card` | Public Card projection, vector, slots, activity time; Card rebuild fence |
+| `discovery:forward:commission:<concrete-index>:<id>:catalogue` | Catalogue projection, vector, slots, budget/duration evidence, update time; catalogue revision |
+| `discovery:forward:commission:<concrete-index>:<id>:statistics` | Completion/rating/count/delivery features; independent statistics revision |
+
+These are reconstructible projections without TTL, not cache-aside entries.
+Namespaces use concrete ES generations so staged backfills cannot change the
+currently served generation. Missing components and revision mismatches skip the
+candidate and increment `discovery_rejected_total` with `forward_missing` or
+`forward_version`; Redis errors and corrupt components fail the request. No
+online DB/RPC fallback fills missing ranking features with defaults. Existing
+account/block/contact checks and current public display names still come from
+bounded DB queries. Exact Agent identity lookup retains its DB-only path because
+it does not rank by activity or semantic features.
+
+Existing Card writers and commission consumers/backfills write the forward
+projection before the ES document. The stores are eventually consistent; there
+is no cross-store transaction. Version guards reject older writes, including
+older tombstones. Commission statistics events update only the statistics
+component, without catalogue RPC, embedding or ES writes. Failed writes retain
+the existing consumer retry behavior. New online commission ranking no longer
+calls catalogue/statistics RPCs per request. Its availability and price snapshot
+follows projection updates; irreversible transaction validation remains with the
+owning service. Samples retain the concrete source index and feature revisions.
+Legacy commission search/exact-ID adapters also read statistics from Redis.
+Before deploying these readers, deploy the projection writers and backfill the
+forward components for their served ES generation. This prerequisite applies
+even when `ENABLE_NEED_SEARCH=false`; changing the route switch does not restore
+the old ES-feature storage contract.
+
 Recall uses lexical/dense/structured channels and existing hot/new/new-UGC Redis
 lists where enabled. No Swing lane or learned scorer is called by this engine.
 Fan-out is bounded to six concurrent channels, 200 merged documents per context,
-100 commission/Agent candidates per kind, and at most five contexts. Authority
-hydration uses bounded batches/concurrency. Rule features, gates, configuration
+100 commission/Agent candidates per kind, and at most five contexts. Forward reads and current account/relationship checks use bounded batches. Rule features, gates, configuration
 hash, request time, contributions and final policy score are frozen in samples.
 
 ## Delivery, pagination and samples
@@ -151,8 +196,8 @@ impression without querying Sort or checking mutable Need/source state again;
 changed payloads return 409. Requests without a key do not create a response
 cache. Cache failures remain errors when the caller requested idempotency.
 
-Needs and rules use the execution snapshot. Sort hydrates authoritative source
-facts once per context before filtering and scoring; it performs no extra
+Needs and rules use the execution snapshot. Sort hydrates broadcast source facts and Agent/commission forward projections
+once per context before filtering and scoring; it performs no extra
 post-ranking hydration or `Revalidate` RPC. Later Need/source changes affect new
 requests. Assembled response caches may remain stale for their TTL.
 
@@ -225,8 +270,9 @@ Rollout order:
 1. Apply 105/106 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
 2. Deploy typed-aware replay consumers and verify all internal/external readers; keep these readers after a routing rollback.
 3. Supply reviewed taxonomy and three-kind/two-mode rule examples/configuration. Keep API traffic on the old path during preparation.
-4. Populate projections with `scripts/discovery_backfill --kind broadcast|agent` and the existing `scripts/commission_backfill`, using the approved taxonomy in those maintenance processes. These are index maintenance tools, not a new offline ranking pipeline.
-5. Verify strict-filter coverage, source permissions, embedding compatibility, rule examples, and measured load targets. Enable the cutover switch consistently and use existing deployment/PR procedures.
+4. Use new concrete Agent/commission ES generations when removing old mappings. Existing ES mappings cannot delete fields in place; full document rewrites remove obsolete `_source` fields. Align writer/reader generations, backfill Redis as well as ES, and retain both old generations for rollback. Commission writers target `COMMISSION_INDEX_NAME`; alias promotion follows a successful staged backfill.
+5. Populate both forward and search projections with `scripts/discovery_backfill --kind broadcast|agent` and the existing `scripts/commission_backfill`, using the approved taxonomy in those maintenance processes. These are index maintenance tools, not a new offline ranking pipeline.
+6. Verify strict-filter coverage, source permissions, embedding compatibility, rule examples, and measured load targets. Enable the cutover switch consistently and use existing deployment/PR procedures.
 
 Rollback routes with `ENABLE_NEED_SEARCH=false`; retain additive schema and typed
 readers. Migration 106 refuses downgrade while nonbroadcast rows remain. Do not

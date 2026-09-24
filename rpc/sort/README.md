@@ -22,8 +22,8 @@ the external boundaries.
 | [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration. |
 | [discovery/intersect.go](discovery/intersect.go), [filter.go](discovery/filter.go), [score.go](discovery/score.go) | Constraint intersection, eligibility and rule scoring. |
 | [discovery/store.go](discovery/store.go) | PostgreSQL context ownership, revisions and idempotency. |
-| [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | Existing DB/ES/Redis retrieval and authoritative candidate hydration. |
-| [discovery/index/](discovery/index/) | Shared vocabulary, slot schema, normalization and index projection. This leaf package is also used by index writers, without importing the execution engine. |
+| [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | ES retrieval, broadcast DB hydration, Agent/commission forward reads, and current account/relationship checks. |
+| [discovery/index/](discovery/index/) | Shared vocabulary, slot schema, normalization and versioned Redis forward storage. This leaf package is also used by index writers, without importing the execution engine. |
 | [discovery/transport/](discovery/transport/) | Shared RPC JSON response encoding and decoding. |
 
 ## Existing feed pipeline and policies

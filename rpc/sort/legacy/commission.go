@@ -86,7 +86,7 @@ func (s *Service) searchCommissions(ctx context.Context, query string, vector []
 		request.MaxDurationMS = filters.GetMaxPromisedDeliveryMs()
 	}
 	start := time.Now()
-	hits, err := commissionindex.ESStore{Index: s.cfg.CommissionIndexName, Alias: s.cfg.CommissionIndexAlias, Dimensions: s.cfg.EmbeddingDimensions}.Search(ctx, request)
+	hits, err := commissionindex.ESStore{Redis: s.redis, Index: s.cfg.CommissionIndexName, Alias: s.cfg.CommissionIndexAlias, Dimensions: s.cfg.EmbeddingDimensions}.Search(ctx, request)
 	metrics.CommissionDiscoveryDuration.WithLabelValues("search").Observe(time.Since(start).Seconds())
 	if err != nil {
 		return nil, err

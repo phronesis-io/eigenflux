@@ -33,17 +33,6 @@ func (integrationEmbedding) GetEmbedding(context.Context, string) ([]float32, er
 	return []float32{1, 0}, nil
 }
 
-type catalogueFixture struct {
-	commissionindex.Source
-	snapshot commissionindex.CatalogueSnapshot
-}
-
-func (c catalogueFixture) GetIndexSnapshot(context.Context, int64) (commissionindex.CatalogueSnapshot, error) {
-	return c.snapshot, nil
-}
-func (c catalogueFixture) BatchGetStatistics(context.Context, []int64) ([]commissionindex.StatisticsSnapshot, error) {
-	return []commissionindex.StatisticsSnapshot{{CommissionID: c.snapshot.CommissionID, StatisticsVersion: 1}}, nil
-}
 func TestPostgresESRedisThreeKinds(t *testing.T) {
 	dsn, esURL, redisAddr := os.Getenv("DISCOVERY_TEST_DSN"), os.Getenv("DISCOVERY_TEST_ES"), os.Getenv("DISCOVERY_TEST_REDIS")
 	if dsn == "" || esURL == "" || redisAddr == "" {
@@ -135,7 +124,7 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 	for _, x := range []struct {
 		index string
 		doc   any
-	}{{bi, indexed}, {ci, commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, []float32{1, 0})}, {ai, people[0]}} {
+	}{{bi, indexed}, {ci, commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, []float32{1, 0}).SearchFields()}} {
 		b, _ := json.Marshal(x.doc)
 		resp, e := es.Client.Index(x.index, bytes.NewReader(b), es.Client.Index.WithDocumentID(fmt.Sprint(itemID)), es.Client.Index.WithRefresh("true"))
 		if e != nil {
@@ -146,7 +135,19 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 			t.Fatal(resp.StatusCode)
 		}
 	}
-	source := &discovery.Source{DB: db, Redis: r, BroadcastIndex: bi, CommissionIndex: ci, AgentIndex: ai, Commission: catalogueFixture{snapshot: cat}}
+	if err := (agentindex.Projector{Redis: r, DB: db, Index: ai, Embedder: integrationEmbedding{}}).Project(ctx, author); err != nil {
+		t.Fatal(err)
+	}
+	if err := commissionindex.WriteForward(ctx, r, ci, commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, []float32{1, 0})); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Del(ctx, agentindex.Forward(r, ai).Key(author, "card"), commissionindex.Forward(r, ci).Key(itemID, "catalogue"), commissionindex.Forward(r, ci).Key(itemID, "statistics"))
+	responseRefresh, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(ai))
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseRefresh.Body.Close()
+	source := &discovery.Source{DB: db, Redis: r, BroadcastIndex: bi, CommissionIndex: ci, AgentIndex: ai}
 	rules := discovery.Rules{}
 	for _, k := range discovery.AllKinds {
 		rules[k] = map[discovery.Mode]discovery.Rule{}

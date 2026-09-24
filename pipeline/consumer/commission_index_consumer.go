@@ -40,6 +40,18 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 	if err != nil {
 		return HandleFailure
 	}
+	if event.Topic == commissionStatsTopic {
+		statistics, err := c.source.GetStatistics(ctx, event.CommissionID)
+		if err != nil || statistics.CommissionID != event.CommissionID || statistics.StatisticsVersion < event.AggregateVersion {
+			metrics.CommissionProjectionFailures.WithLabelValues("order_source").Inc()
+			return HandleRetry
+		}
+		if err := c.store.UpsertStatistics(ctx, statistics); err != nil {
+			metrics.CommissionProjectionFailures.WithLabelValues("forward_write").Inc()
+			return HandleRetry
+		}
+		return HandleSuccess
+	}
 	catalogue, err := c.source.GetIndexSnapshot(ctx, event.CommissionID)
 	if err != nil {
 		metrics.CommissionProjectionFailures.WithLabelValues("commission_source").Inc()

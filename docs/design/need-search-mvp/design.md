@@ -27,9 +27,11 @@ flowchart TD
     B --> EI[(Existing item ES indices and Redis lists)]
     S --> EC[(Existing commission ES index)]
     R --> EA[(Public Agent index in existing ES)]
-    B --> HY[Sort: authoritative source hydration]
-    S --> HY
-    R --> HY
+    B --> HY[Sort: broadcast DB facts and current account/relationship checks]
+    EC --> FI[(Redis: versioned commission forward components)]
+    EA --> FI2[(Redis: versioned public Agent forward projection)]
+    FI --> HY
+    FI2 --> HY
     HY --> H[Hard constraint evaluator]
     H --> U[Independent rule scorers by kind]
     U --> Y[Existing policy adapters and deterministic merge]
@@ -261,18 +263,18 @@ Automatic merging: choose qualifying context winners by saved-Need priority; at 
 | Hot/new/UGC | Current Redis versioned lists/producers | Automatic only; ES `ids` + common filters and relevance recheck except explicitly unpersonalized baseline |
 | Swing | Existing neighbor storage remains available | New context/Need path disabled; `surface` is not adoption |
 | Friend | Existing separate friend/relationship entry | Not a relevance-bypass source in the new engine |
-| Commission | Existing index/alias, `search_text`, vector, catalogue/statistics fields | Context query/filter adapters; source hydration; preserve exact-ID path |
+| Commission | Existing index/alias, `search_text`, vector, catalogue filter fields | Context query/filter adapters; Redis forward ranking features; preserve exact-ID path |
 | Agent | Current public Card/domain truth and existing ES cluster | Add a small public discovery index with lexical/dense/slot adapters; no reuse of deprecated profile embeddings |
 
 **Broadcast/commission additive fields:** `slots.category/subtype/intents` and `taxonomy_version`; verified `slots.provider_region`, normalized `slots.lang`; broadcast `state` and `state_updated_at`. Use keyword fields for normalized IDs/codes and date for state time. Preserve all current text, vectors, group IDs, expiry, and source metadata. Commission already has integer price/currency/duration: no generic floating-point price fields are needed. Candidate kind comes from the adapter.
 
 Source projection must persist normalized evidence with a content/source revision rather than let ES be its sole truth. Propose `processed_items.retrieval_slots JSONB` for broadcasts; commission needs corresponding metadata owned by its current source/projection boundary. Do not directly modify a foreign service's tables. The exact authoritative commission extension and provider field source remain integration readiness tasks. Mapping changes apply to existing backing indices and future templates, not just a new template.
 
-**Agent index contract:** separate alias `agents-discovery` with a versioned backing index in the existing cluster. One document per Agent: `agent_id`, public Card revision, public description/offering text, `working_languages`, permitted `last_active_at`, discoverable/status projection, canonical taxonomy slots, optional publicly declared provider region, and an embedding of public capability text only. Do not index owner-private `geo`, demands, interests, private human details, or legacy profile embeddings for other people's searches. Public seeking may contribute contextual willingness only where existing public Card visibility permits it; it is not a guarantee of consent to transact.
+**Agent index contract:** separate alias `agents-discovery` with a versioned backing index in the existing cluster. One document per Agent: `agent_id`, public Card revision, public description/offering text, `working_languages`, discoverable/status projection, canonical taxonomy slots, optional publicly declared provider region, and an embedding of public capability text only. Do not index owner-private `geo`, demands, interests, private human details, or legacy profile embeddings for other people's searches. Public seeking may contribute contextual willingness only where existing public Card visibility permits it; it is not a guarantee of consent to transact.
 
 Reuse existing discoverability/Card access rules rather than create a new contact permission system. Recheck viewer-specific self/block/relationship exclusions through the authoritative domain. `find_people` excludes existing friends or active conversations for new-contact discovery; literal query search may rediscover already-known people but never blocked/inaccessible/self results. These are mode-specific eligibility rules recorded with the plan. Existing relationship queries need a bounded batch adapter if they are currently per-ID.
 
-Card update/deletion/visibility changes must refresh/tombstone the Agent projection through existing Card-change infrastructure or its projection hook, with monotonic public revision protection. Final serving reads the current public Card/relationship state. Initial projection population, vocabulary annotation, and missing provider evidence must be ready before cutover; this document defines their contract, not an offline pipeline implementation. No arbitrary bulk JSON scan of all Cards in the online path.
+Card update/deletion/visibility changes must refresh/tombstone the Agent projection through existing Card-change infrastructure or its projection hook, with monotonic public revision protection. Semantic serving reads the versioned public Card forward projection and current database account/relationship state; exact identity lookup remains database-backed. Initial projection population, vocabulary annotation, and missing provider evidence must be ready before cutover; this document defines their contract, not an offline pipeline implementation. No arbitrary bulk JSON scan of all Cards in the online path.
 
 Verified legacy completed/nondeleted/nonexpired broadcasts may initialize availability; `state_updated_at=updated_at` is an approximation explicitly marked as such. Never fabricate canonical categories, public provider geography, or price from absent fields. Constrained slot retrieval requires sufficient projection coverage; unconstrained query/Agent search can use current text/vector fields. A new Agent index is an explicit additional workload for the confirmed third kind.
 
@@ -298,7 +300,7 @@ Missing required category, price, currency, language, or region rejects. Known z
 
 Use one Unicode normalization/case-folding contract for literal exclude phrases, with token boundaries for space-delimited text and normalized substring semantics for CJK. This is lexical exclusion, not inferred semantic negation. ES pushdown only when equivalent; final evaluator covers the full bounded field set. Regional/language code expansion must be explicit and versioned.
 
-Hydrate the merged candidates once per context from authoritative sources before hard filters and rule scoring. This supplies source visibility/status, mutable prices/promises, public Card/relationship state and evidence versions. Mandatory authority failure errors; removed or index-version-mismatched candidates can be skipped. Do not reread Need state or hydrate the ranked output again. Need/rule state is frozen for the execution. Legacy Feed assembly already fetches item details and skips missing/non-completed items. Assembled responses and idempotent retries do not call `Revalidate`; short-lived inconsistency with later source changes is accepted.
+Hydrate the merged candidates once per context before hard filters and rule scoring. Broadcast uses its existing DB source; Agent and Commission batch-load generation-specific Redis forward projections, including ranking vectors and features. ES contains only search/filter fields plus identity/version metadata. Account/block/contact checks remain database-backed; Agent exact identity lookup remains DB-only. Online commission ranking does not call source catalogue/statistics RPCs. Forward components are eventually consistent with ES: missing or mismatched versions skip candidates with counters, while Redis failures/corruption return errors. No online read-through fallback is added. See the [implemented forward index contract](../../dev/discovery.md#search-index-and-forward-index). Do not reread Need state or hydrate ranked output again. Need/rule state is frozen for execution, and assembled response retries do not call `Revalidate`.
 
 ### 3.6 Per-kind rules now; independently evolving scorers later
 
@@ -360,7 +362,7 @@ Indexes: owner/state/priority/context for saved active selection, owner/update/c
 | `impr:search:agent:<id>:items` | Explicit-search broadcast feedback validation only |
 | `cache:taxonomy:<version>:<embedding>:<query_hash>` | Shared public vocabulary lookup |
 
-Reuse SingleFlight and existing Redis helpers. Candidate TTL can begin at the existing two seconds. Do not reuse profile-only cache hashes, old feed queues, or a cache key lacking mode/kind/effective filters/source revision. Redis cache loss may fall back to bounded authoritative reads; it must not rewrite the input mode or discard hard constraints.
+Reuse SingleFlight and existing Redis helpers. Candidate TTL can begin at the existing two seconds. Do not reuse profile-only cache hashes, old feed queues, or a cache key lacking mode/kind/effective filters/source revision. Forward index loss requires rebuilding projections; ordinary cache fallback must preserve the source contract and must not rewrite the input mode or discard hard constraints.
 
 ## 5. Existing samples with explicit generations
 

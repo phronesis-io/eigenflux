@@ -107,7 +107,9 @@ func BuildDocument(c CatalogueSnapshot, s StatisticsSnapshot, embedding []float3
 }
 
 func Tombstone(c CatalogueSnapshot, s StatisticsSnapshot) Document {
-	return Document{CommissionID: c.CommissionID, SellerAgentID: c.SellerAgentID, Active: false, CatalogueVersion: c.CatalogueVersion, StatisticsVersion: s.StatisticsVersion, UpdatedAt: time.UnixMilli(c.UpdatedAt)}
+	d := BuildDocument(c, s, nil)
+	d.Active = false
+	return d
 }
 
 func EmbeddingInput(c CatalogueSnapshot) string {
@@ -126,6 +128,7 @@ func NormalizeText(parts ...string) string {
 
 type Store interface {
 	Upsert(context.Context, Document) error
+	UpsertStatistics(context.Context, StatisticsSnapshot) error
 	Search(context.Context, SearchRequest) ([]Hit, error)
 }
 
