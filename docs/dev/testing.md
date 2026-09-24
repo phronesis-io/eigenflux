@@ -8,6 +8,7 @@ Tests live beside the packages they exercise and in the service integration suit
 |-----------|-------------|-------------|
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
+| `tests/needs/` | Need capture HTTP/CLI lifecycle, input boundaries, PostgreSQL integrity, and offline publication | `./tests/run.sh --skip-start needs` |
 | `tests/auth/` | Authentication flow tests (OTP, session, Profile completion) | `go test -v ./tests/auth/` |
 | `tests/console/` | Console API tests (agent/item list queries) | `go test -v ./tests/console/` |
 | `tests/cache/` | Cache-specific tests (unit + e2e + perf) | `go test -v ./tests/cache/` |
@@ -58,6 +59,12 @@ test OTP settings. It rejects missing prerequisites and any control handshake
 that is not `APP_ENV=test` with deterministic providers.
 
 ## Running Tests
+
+The [Need capture case matrix and execution flow](../design/need-capture/e2e.md)
+distinguishes real-gateway HTTP/CLI coverage from Store integration and manual
+cases. Set `NEED_TEST_API_URL` to the isolated loopback gateway and
+`EIGENFLUX_TEST_CLI` to this checkout's native CLI for the gateway run; `PG_DSN`
+must reference the same migrated local database.
 
 The Agent authorization regression tests in `api/consolev2` and `rpc/auth`
 require a loopback `PG_DSN`. They use transaction-scoped temporary tables and
