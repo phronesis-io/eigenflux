@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,6 +159,51 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "legacy_feed_v1", old.PipelineVersion)
 		require.Equal(t, "feed", old.RequestMode)
 		require.Equal(t, 1, old.SampleSchemaVersion)
+	})
+	t.Run("ExactAgentIdentityAndNames", func(t *testing.T) {
+		for _, id := range []int64{s.author, s.other} {
+			// The second Agent has no ES document. Exact lookup must still work.
+			for _, tc := range []struct{ query, match string }{
+				{fmt.Sprint(id), "agent_id"}, {s.shortIDs[id], "short_id"},
+				{fmt.Sprintf("精确查找-%d", id), "name"}, {fmt.Sprintf("Exact designer %d", id), "name"},
+			} {
+				x := s.search(t, discovery.Request{Query: "  " + tc.query + "  ", SourceKinds: []discovery.Kind{discovery.Agent}}, "")
+				require.Len(t, x.Items, 1, tc.query)
+				require.Equal(t, id, x.Items[0].Ref.ID)
+				require.Equal(t, tc.match, x.Items[0].Match["exact"])
+				require.Equal(t, "exact_match", x.Items[0].Match["score_kind"])
+				require.Equal(t, fmt.Sprintf("精确查找-%d", id), x.Items[0].Preview["text"])
+				require.False(t, x.Partial)
+			}
+		}
+		for _, q := range []string{fmt.Sprint(s.owner), "9223372036854775807", "99999999999999999999999", "0"} {
+			require.Empty(t, s.search(t, discovery.Request{Query: q, SourceKinds: []discovery.Kind{discovery.Agent}}, "").Items)
+		}
+		// Five-letter text is ambiguous: an unrecognized ID still permits normal
+		// text retrieval, but must never be tagged as an exact short-ID match.
+		wrongCase := strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' {
+				return r - 'a' + 'A'
+			}
+			return r - 'A' + 'a'
+		}, s.shortIDs[s.author])
+		for _, item := range s.search(t, discovery.Request{Query: wrongCase, SourceKinds: []discovery.Kind{discovery.Agent}}, "").Items {
+			require.NotEqual(t, "short_id", item.Match["exact"])
+		}
+		name := fmt.Sprintf("精确查找-%d", s.author)
+		s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", name, s.other)
+		defer s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", fmt.Sprintf("精确查找-%d", s.other), s.other)
+		sameName := s.search(t, discovery.Request{Query: name, SourceKinds: []discovery.Kind{discovery.Agent}}, "")
+		require.Len(t, sameName.Items, 2)
+		for _, item := range sameName.Items {
+			require.Equal(t, "name", item.Match["exact"])
+		}
+		r := discovery.Request{Query: fmt.Sprint(s.author), SourceKinds: []discovery.Kind{discovery.Agent}, Filters: discovery.Filters{Lang: []string{"zh"}}}
+		require.Empty(t, s.search(t, r, "").Items, "identity lookup must respect explicit filters")
+		r.Filters = discovery.Filters{}
+		s.sql(t, "INSERT INTO user_relations(from_uid,to_uid,rel_type,created_at) VALUES(?,?,2,?)", s.owner, s.author, time.Now().UnixMilli())
+		defer s.sql(t, "DELETE FROM user_relations WHERE from_uid=? AND to_uid=?", s.owner, s.author)
+		require.Empty(t, s.search(t, r, "").Items, "identity lookup must respect blocks")
 	})
 	t.Run("HardConstraintsAndInlineNeed", func(t *testing.T) {
 		zero := int64(0)

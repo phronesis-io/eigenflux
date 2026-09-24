@@ -3,6 +3,7 @@ package discovery
 import (
 	"bytes"
 	"context"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/es"
@@ -10,7 +11,68 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 )
+
+// Decimal identity queries never fall through to fuzzy Agent retrieval, including
+// unknown and overflowing IDs. Keep IDs as strings until the checked conversion.
+func decimalAgentQuery(query string) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return false
+	}
+	for _, c := range query {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Exact Agent search reads current identity fields, so it needs no ES backfill.
+// Short IDs take precedence over names and retain their case-sensitive contract.
+func (s *Source) exactAgents(ctx context.Context, c Context, limit int) ([]Document, error) {
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("invalid Agent lookup limit")
+	}
+	query := strings.TrimSpace(c.Query)
+	var ids []int64
+	match := "name"
+	if decimalAgentQuery(query) {
+		id, err := strconv.ParseInt(query, 10, 64)
+		if err != nil || id <= 0 {
+			return []Document{}, nil
+		}
+		ids, match = []int64{id}, "agent_id"
+	} else {
+		if agentidentity.ValidShortID(query) {
+			if err := s.DB.WithContext(ctx).Table("agents").Where("short_id = ?", query).Pluck("agent_id", &ids).Error; err != nil {
+				return nil, err
+			}
+			if len(ids) > 0 {
+				match = "short_id"
+			}
+		}
+		if len(ids) == 0 {
+			if err := s.DB.WithContext(ctx).Table("agents").Where("agent_name = ? OR agent_name_en = ?", query, query).
+				Order("agent_id").Limit(limit).Pluck("agent_id", &ids).Error; err != nil {
+				return nil, err
+			}
+		}
+	}
+	rows, err := agentindex.Load(ctx, s.DB, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		d := agentDocument(row)
+		d.ExactMatch = match
+		out = append(out, d)
+	}
+	return out, nil
+}
 
 func term(field string, value any) map[string]any {
 	return map[string]any{"term": map[string]any{field: value}}

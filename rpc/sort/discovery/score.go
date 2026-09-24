@@ -65,6 +65,13 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	raw, _ := json.Marshal(rule)
 	sum := sha256.Sum256(raw)
 	s := Score{Threshold: rule.Threshold, MinRelevance: rule.MinRelevance, RequestTime: now, Contributions: map[string]float64{}, ScorerType: "rules", Version: rule.Version, Kind: "rule_score", ConfigHash: hex.EncodeToString(sum[:]), Features: map[string]float64{}}
+	if d.Ref.Type == Agent && c.Origin == "query" && d.ExactMatch != "" {
+		s.Value, s.Relevance, s.Eligible = 1, 1, true
+		s.Version, s.Kind = "agent_identity_v1", "exact_match"
+		s.Features["exact_match"] = 1
+		s.Contributions["exact_match"] = 1
+		return s
+	}
 	lex := 0.0
 	if d.Lexical > 0 {
 		lex = d.Lexical / (d.Lexical + rule.BM25Scale)

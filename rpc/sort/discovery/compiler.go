@@ -264,6 +264,10 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if r.InheritedLanguage {
 		c.Origins["lang"] = "card_default"
 	}
+	if origin == "query" && len(c.Kinds) == 1 && c.Kinds[0] == Agent && (r.agentExact || decimalAgentQuery(c.Query)) {
+		c.SpecHash = hashContext(c)
+		return c, nil
+	}
 	if err = cc.embed(ctx, &c, false); err != nil {
 		return c, err
 	}

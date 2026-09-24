@@ -42,12 +42,16 @@ type sourceFake struct {
 	hydrateCalls int
 	onHydrate    func()
 	fail         bool
+	exact        []Document
 }
 
 func (s *sourceFake) Owner(context.Context, int64) (OwnerContext, error) { return s.owner, nil }
 func (s *sourceFake) Recall(_ context.Context, _ Context, k Kind, ch string, _ int) ([]Document, error) {
 	if s.fail {
 		return nil, fmt.Errorf("offline")
+	}
+	if ch == "exact" {
+		return s.exact, nil
 	}
 	out := []Document{}
 	for _, d := range s.docs {
@@ -84,6 +88,66 @@ func engineFixture() (*Engine, *sourceFake, *memStore) {
 	e := &Engine{Compiler: &Compiler{Taxonomy: &searchindex.Vocabulary{Version: "v1", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}}, Store: store, IDs: &ids, Sources: s, Rules: rules}
 	return e, s, store
 }
+
+type unexpectedEmbedding struct{ t *testing.T }
+
+func (e unexpectedEmbedding) GetEmbedding(context.Context, string) ([]float32, error) {
+	e.t.Fatal("exact Agent lookup must not call embedding")
+	return nil, nil
+}
+
+func TestExactAgentLookupBypassesSemanticGatesButKeepsFilters(t *testing.T) {
+	for _, match := range []string{"agent_id", "short_id", "name"} {
+		t.Run(match, func(t *testing.T) {
+			e, s, _ := engineFixture()
+			e.Compiler.Embedder = unexpectedEmbedding{t}
+			e.Rules[Agent][Search] = Rule{Version: "strict", BM25Scale: 1, MinRelevance: 1, Threshold: 1, HalfLifeMS: 1000}
+			d := Document{Ref: SourceRef{Agent, 20}, AuthorID: 20, Version: "1", Active: true, Visible: true, ExactMatch: match}
+			s.exact = []Document{d}
+			s.docs = []Document{{Ref: SourceRef{Agent, 30}, AuthorID: 30, Active: true, Visible: true, Lexical: 100}}
+			r := Request{Query: "some identity", SourceKinds: []Kind{Agent}}
+			x, err := e.Execute(context.Background(), 1, r, Search, 100)
+			if err != nil || len(x.Candidates) != 1 || x.Candidates[0].Document.Ref.ID != 20 {
+				t.Fatalf("exact lookup: %+v, %v", x, err)
+			}
+			if x.Candidates[0].Score.Kind != "exact_match" || len(x.PartialReasons) != 0 {
+				t.Fatalf("exact result attribution: %+v", x)
+			}
+			for _, reason := range []string{"blocked", "inactive", "self", "language"} {
+				candidate := d
+				r.Filters = Filters{}
+				switch reason {
+				case "blocked":
+					candidate.Blocked = true
+				case "inactive":
+					candidate.Active = false
+				case "self":
+					candidate.AuthorID = 1
+				case "language":
+					r.Filters.Lang = []string{"en"}
+				}
+				s.exact = []Document{candidate}
+				x, err = e.Execute(context.Background(), 1, r, Search, 100)
+				if err != nil || len(x.Candidates) != 0 || x.FallbackReason != "" {
+					t.Fatalf("exact lookup bypassed %s: %+v, %v", reason, x, err)
+				}
+			}
+		})
+	}
+}
+
+func TestUnknownNumericAgentDoesNotFallThroughToSemanticRetrieval(t *testing.T) {
+	e, s, _ := engineFixture()
+	e.Compiler.Embedder = unexpectedEmbedding{t}
+	s.docs = []Document{{Ref: SourceRef{Agent, 20}, AuthorID: 20, Active: true, Visible: true, Lexical: 100}}
+	for _, query := range []string{"9007199254740993", "99999999999999999999999", "0"} {
+		x, err := e.Execute(context.Background(), 1, Request{Query: query, SourceKinds: []Kind{Agent}}, Search, 100)
+		if err != nil || len(x.Candidates) != 0 || x.Status != "no_match" {
+			t.Fatalf("unknown identity returned a fuzzy candidate: %+v, %v", x, err)
+		}
+	}
+}
+
 func TestEngineQueryRepeatableAndTypedIDs(t *testing.T) {
 	e, s, _ := engineFixture()
 	for _, k := range AllKinds {

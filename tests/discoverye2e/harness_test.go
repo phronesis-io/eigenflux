@@ -40,6 +40,7 @@ type stack struct {
 	cfg                                                    *config.Config
 	owner, other, author, item                             int64
 	token, otherToken                                      string
+	shortIDs                                               map[int64]string
 	vector                                                 []float32
 	catalogue                                              *catalogueFixture
 }

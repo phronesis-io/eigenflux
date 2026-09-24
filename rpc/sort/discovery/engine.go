@@ -195,6 +195,16 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		r.Filters.Lang = append([]string(nil), info.Languages...)
 		r.InheritedLanguage = true
 	}
+	// Identity lookup precedes embedding and ES. Exact matches still pass the
+	// ordinary authority hydration and hard filters below.
+	var exactAgents []Document
+	if mode == Search && r.Query != "" && hasKind(r.SourceKinds, Agent) {
+		exactAgents, err = e.Sources.Recall(ctx, Context{Origin: "query", Query: r.Query, OwnerID: owner}, Agent, "exact", 100)
+		if err != nil {
+			return x, err
+		}
+		r.agentExact = len(exactAgents) > 0 || decimalAgentQuery(r.Query)
+	}
 	contexts, fallback, err := e.contexts(ctx, owner, r, mode, now)
 	if err != nil {
 		return x, err
@@ -259,6 +269,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		err     error
 	}
 	results := []channelResult{}
+	if r.agentExact {
+		results = append(results, channelResult{ci: 0, kind: Agent, channel: "exact", docs: exactAgents})
+	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
@@ -271,6 +284,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		x.PartialReasons = append(x.PartialReasons, c.Warnings...)
 		for _, kind := range c.Kinds {
+			if kind == Agent && r.agentExact {
+				continue
+			}
 			channels := []string{"lexical"}
 			if len(c.Vector) > 0 {
 				channels = append(channels, "dense")
@@ -404,6 +420,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			d.Lexical = prior.Lexical
 			d.Channels = prior.Channels
+			d.ExactMatch = prior.ExactMatch
 			d.Vector = prior.Vector
 			if seen[d.Ref.Key()] {
 				exhausted = true

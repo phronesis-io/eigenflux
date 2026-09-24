@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"crypto/sha256"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/commissionindex"
@@ -112,6 +113,12 @@ func commission(d commissionindex.Document) Document {
 	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Vector: d.Embedding, Slots: d.RetrievalSlots}
 }
 func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, limit int) ([]Document, error) {
+	if channel == "exact" {
+		if k != Agent || c.Origin != "query" {
+			return nil, fmt.Errorf("invalid exact lookup scope")
+		}
+		return s.exactAgents(ctx, c, limit)
+	}
 	if s.DisabledChannels[channel] {
 		return []Document{}, nil
 	}
@@ -237,11 +244,13 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 	var authorsNow []struct {
 		AgentID              int64
 		Email, IdentityState string
+		AgentName, ShortID   string
 	}
-	if err := s.DB.WithContext(ctx).Table("agents").Select("agent_id,email,identity_state").Where("agent_id IN ?", authors).Scan(&authorsNow).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Table("agents").Select("agent_id,email,identity_state,agent_name,short_id").Where("agent_id IN ?", authors).Scan(&authorsNow).Error; err != nil {
 		return nil, err
 	}
 	visible := map[int64]bool{}
+	names := map[int64]string{}
 	for _, a := range authorsNow {
 		allowed := a.IdentityState == "active"
 		for _, email := range s.BlockedAuthorEmails {
@@ -250,9 +259,13 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 			}
 		}
 		visible[a.AgentID] = allowed
+		names[a.AgentID] = agentidentity.DisplayName(a.AgentName, a.ShortID)
 	}
 	for i := range out {
 		out[i].Visible = out[i].Visible && visible[out[i].AuthorID]
+		if out[i].Ref.Type == Agent {
+			out[i].Preview = names[out[i].Ref.ID]
+		}
 	}
 	var relations []struct {
 		FromUID, ToUID int64

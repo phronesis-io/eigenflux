@@ -98,6 +98,7 @@ func NeedKind(t string) Kind {
 }
 
 type Request struct {
+	agentExact        bool
 	InheritedLanguage bool       `json:"-"`
 	KindsExplicit     bool       `json:"-"`
 	LegacyLimit       bool       `json:"-"`
@@ -183,6 +184,7 @@ type Document struct {
 	Vector          []float32         `json:"-"`
 	Lexical         float64           `json:"lexical"`
 	Channels        []string          `json:"channels"`
+	ExactMatch      string            `json:"exact_match,omitempty"`
 	ContentType     string            `json:"content_type,omitempty"`
 	SourceType      string            `json:"source_type,omitempty"`
 	URL             string            `json:"url,omitempty"`
@@ -239,6 +241,9 @@ type Response struct {
 
 func PublicItem(c Candidate) ResultItem {
 	r := ResultItem{Ref: c.Document.Ref, ContextID: c.Context.ID, Preview: map[string]string{"text": c.Document.Preview}, Match: map[string]any{"score": c.Score.Value, "scorer_type": c.Score.ScorerType, "scorer_version": c.Score.Version, "score_kind": c.Score.Kind}}
+	if c.Document.ExactMatch != "" {
+		r.Match["exact"] = c.Document.ExactMatch
+	}
 	if c.Document.Ref.Type == Broadcast {
 		r.ItemID = c.Document.Ref.ID
 	}

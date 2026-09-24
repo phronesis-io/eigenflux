@@ -37,6 +37,9 @@ integration suites' PostgreSQL advisory lock is respected.
   idempotency, owner/scope checks, optimistic revision conflicts and lifecycle.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
   exclusion, response idempotency and mismatched-payload rejection.
+- Exact Agent lookup by long ID, case-sensitive short ID, current name and
+  English name, including Agents absent from ES, duplicate names, overflowing
+  IDs, current-name previews, and self/block/language exclusions.
 - Hard price, duration, region and language filters; inline Needs do not become
   saved Needs. Known zero prices satisfy a zero budget; missing region evidence
   does not satisfy a region constraint.

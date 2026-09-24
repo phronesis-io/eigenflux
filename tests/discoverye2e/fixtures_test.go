@@ -18,6 +18,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
 	"eigenflux_server/kitex_gen/eigenflux/order"
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
+	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/es"
@@ -64,8 +65,12 @@ func (s *stack) seed(t *testing.T) {
 		}
 	})
 	now := time.Now().UnixMilli()
+	s.shortIDs = map[int64]string{}
 	for _, id := range owners {
-		s.sql(t, "INSERT INTO agents(agent_id,email,agent_name,created_at,updated_at,profile_completed_at) VALUES(?,?,?,?,?,?)", id, fmt.Sprintf("discovery-e2e-%d@example.invalid", id), "E2E designer", now, now, now)
+		shortID, err := agentidentity.GenerateShortID()
+		require.NoError(t, err)
+		s.shortIDs[id] = shortID
+		s.sql(t, "INSERT INTO agents(agent_id,short_id,email,agent_name,agent_name_en,created_at,updated_at,profile_completed_at) VALUES(?,?,?,?,?,?,?,?)", id, shortID, fmt.Sprintf("discovery-e2e-%d@example.invalid", id), fmt.Sprintf("精确查找-%d", id), fmt.Sprintf("Exact designer %d", id), now, now, now)
 		s.sql(t, "INSERT INTO agent_context_revisions(agent_id,revision,compiled_context,generated_at) VALUES(?,1,?::jsonb,?)", id, `{"intents":[{"watch_for":"landing page design","trigger_when":"design request"}]}`, now)
 		s.sql(t, "INSERT INTO agent_onboarding_v2(agent_id,state,current_step,active_context_revision,completed_at,created_at,updated_at) VALUES(?,'completed',5,1,?,?,?)", id, now, now, now)
 		card, _ := json.Marshal(map[string]any{"display_name": "E2E designer", "agent_description": "landing page design", "working_languages": []string{"en"}, "offering": []string{s.category, "landing-page"}, "last_active_at": now})

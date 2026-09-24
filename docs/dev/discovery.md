@@ -52,6 +52,29 @@ Provider region never inherits owner geography. Language defaults require
 `defaults.language="card"`; structured Need defaults belong inside the Need,
 not alongside `need`/`need_id`.
 
+Explicit query searches that include Agents first resolve current database
+identity fields: decimal `agent_id`, case-sensitive five-letter `short_id`, then
+whole-name equality against `agent_name` or `agent_name_en`. Leading/trailing
+query whitespace is trimmed; short IDs and names are not case-folded. Short-ID
+hits take precedence over names. Same-name Agents can produce multiple results,
+bounded to 100 candidates and the normal response limit. Exact matches replace
+the Agent semantic candidate pool for that request, including when hard filters
+subsequently exclude every match. Other requested kinds retain their own search.
+They still undergo public Card hydration, active-account, self, block and hard
+filter checks, but do not require semantic score/activity thresholds. Results
+carry `match.exact` (`agent_id`, `short_id`, or `name`) and `exact_match` score kind;
+samples use scorer version `agent_identity_v1`.
+
+Agent-only exact hits do not call embedding or ES. Numeric queries with no match
+(including out-of-range IDs) return no Agent results rather than fuzzy matches.
+Non-numeric text without an identity/name hit continues ordinary text retrieval:
+a five-letter word can be prose as well as a short ID, so a wrong-case short ID
+may produce semantic results but never an exact short-ID match. Names come from
+current `agents` identity fields rather than the asynchronously rebuilt Card;
+Agent previews also use the current public display name. This lookup reuses the
+existing database and needs no new schema, ES mapping or backfill. Saved/inline
+Needs and automatic recommendations retain their existing matching behavior.
+
 Responses include `pipeline_version`, `input_origin`, `context_id`,
 `effective_filters`, `constraint_mode`, `result_status`, partial/fallback reasons,
 and typed `source_ref` results. Only broadcasts include `item_id`. Per-result
