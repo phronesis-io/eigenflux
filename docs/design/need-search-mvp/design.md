@@ -69,9 +69,14 @@ HTTP IDs are decimal strings; internal IDs are `i64/BIGINT`; stored timestamps a
 
 | Route | Input and purpose | CLI facade |
 |---|---|---|
-| `POST /api/v2/discovery/search` | Exactly one of `query`, `need_id`, or inline `need`; optional kinds, explicit filters, limit | `search <query> --types ...`; `search --need <id>` |
-| `POST /api/v2/discovery/recommendations` | Automatic mode, optional kinds/owned Need IDs; no query required | Existing daily feed/poll facade; optional unified `recommend` command |
+| `POST /api/v2/discovery/search` | Exactly one of `query`, `need_id`, or inline `need`; optional kinds, explicit filters, limit | `search <query> --types ...` |
+| `POST /api/v2/discovery/recommendations` | Automatic mode, optional kinds/owned Need IDs; no query required | Existing daily feed/poll facade; `recommend --types ...` |
 | `GET /api/v2/taxonomy/search` | Phrase plus optional category/subtype; top 10, maximum 20 | `taxonomy search <phrase>` |
+
+Need selection and inline Need payloads are internal integration controls, not CLI
+parameters. The platform selects eligible Needs for `recommend`; users supply a
+query to `search`. Agent-side capture translates confirmed Intents without asking
+humans to fill Need forms or choose Need IDs.
 
 These names are implementation proposals; the two-mode and three-kind semantics are confirmed. Reject client-written vectors, compiled filters, scorer versions, DSL, and ownership fields. Cross-owner IDs use non-disclosing not-found behavior. Unknown input fields and mutually exclusive inputs produce structured field errors.
 

@@ -296,7 +296,7 @@ Feed readers restrict to broadcast Feed/recommendation samples; legacy
 feature-dependent rescue reads restrict to the legacy generation.
 
 CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need capture
-commands via the existing `need input` group. The ef-broadcast Skill is 0.14.21. Broadcast feedback retains existing
+commands via the existing `need input` group. The ef-broadcast Skill is 0.14.22. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
 broadcast feedback. People results do not trigger messages or friend requests.
@@ -308,9 +308,14 @@ Create with `POST /api/v2/need-inputs` or `eigenflux need input create`. The
 Intent ID/version, `target.desc`, `target.candidate_needs`, and optional priority,
 preferences and constraints. See [the capture contract](api_endpoints.md#intent-linked-needinput-capture).
 
-Pass the returned **need_input_id** as search `need_id` or recommendation
-`need_ids`; it stays stable across enrichment. Do not pass `normalized_need_id`
-or `context_id`. Inline `need` / `search --file` uses the same capture form and
+The CLI exposes query search and automatic recommendations only; callers do not
+select Need IDs or provide inline Needs. The platform selects eligible captured
+Needs for recommendations. Agent-side capture remains an internal workflow;
+humans provide Intent wording and action policy, not Need forms.
+
+At the HTTP/RPC integration boundary, `need_id` / `need_ids` refer to the stable
+**need_input_id**, never `normalized_need_id` or `context_id`. Inline `need`
+uses the same capture form and
 validation, verifies its current owned Intent, and calls `NormalizeBasic` without
 saving a NeedInput. It creates only an execution snapshot and returns no `need_id`.
 
@@ -343,9 +348,8 @@ projection supersession affect the next execution, while cached responses and
 prefetched pages retain their original snapshot.
 
 ```sh
-eigenflux need input create --file need.json --idempotency-key capture-20260925
-eigenflux search --need NEED_INPUT_ID --types agent
-eigenflux recommend --needs NEED_INPUT_ID --types agent
+eigenflux search "PostgreSQL performance expert" --types agent
+eigenflux recommend --types agent
 ```
 
 ## Configuration and rollout gates

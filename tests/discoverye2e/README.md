@@ -20,6 +20,12 @@ bash scripts/common/build.sh
 DISCOVERY_E2E=1 ./tests/run.sh --skip-start discoverye2e -count=1
 ```
 
+To include the actual CLI process, build it from `cli/` with
+`go build -o ../build/cli/eigenflux-needs-linked .`, then add
+`EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-needs-linked"` to the runner command.
+The CLI case verifies query search with filters, automatic selection of a captured
+Need without caller-supplied IDs, and idempotent recommendation retries.
+
 The runner supplies `APP_ENV=test`. Without `DISCOVERY_E2E=1`, the suite skips.
 The suite enables the new pipeline in its child processes, uses dynamic ports,
 and waits for both RPC registration and HTTP readiness. Process logs and test

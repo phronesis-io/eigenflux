@@ -4,6 +4,10 @@ Read current Intents with `eigenflux context intent list`. Capture only an
 interpretation of an active owner-confirmed Intent and its exact version. Do not
 infer authorization to contact, publish, purchase, or change the Intent policy.
 
+NeedInput is internal: prepare and submit it within the Agent workflow. Do not ask
+the owner to fill this form or choose Need IDs. Search accepts a query;
+recommendations select eligible Needs on the platform.
+
 ## NeedInput fields
 
 Fill a `need_input.v2` JSON object using these fields. Omit unstated optional
