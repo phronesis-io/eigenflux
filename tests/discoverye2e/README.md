@@ -10,7 +10,7 @@ existing `replay_logs` table.
 
 Provide a disposable, migrated local stack through `.env` or exported settings:
 `PG_DSN`, `REDIS_ADDR`, `REDIS_PASSWORD`, `ES_URL`, `ETCD_ADDR`, and the matching
-`EMBEDDING_DIMENSIONS`. Apply migrations through 106. No application services may
+`EMBEDDING_DIMENSIONS`. Apply migrations through 107. No application services may
 be registered in that etcd instance; the suite owns application startup and
 shutdown. Do not run it against production or concurrently with other suites
 using the same infrastructure.

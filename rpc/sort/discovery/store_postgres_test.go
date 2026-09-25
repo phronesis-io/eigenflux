@@ -39,7 +39,7 @@ func TestPostgresContextOwnershipAndCAS(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	raw, err := os.ReadFile("../../../migrations/000105_discovery_contexts.sql")
+	raw, err := os.ReadFile("../../../migrations/000106_discovery_contexts.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

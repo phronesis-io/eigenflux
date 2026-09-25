@@ -42,6 +42,7 @@ func newNeedCommand() *cobra.Command {
 	root := &cobra.Command{Use: "need", Short: "Prepare structured Needs for confirmed intents"}
 	group := &cobra.Command{Use: "input", Short: "Save and inspect immutable NeedInputs"}
 	root.AddCommand(group)
+	root.AddCommand(newDiscoveryNeedCommands()...)
 	create := &cobra.Command{Use: "create --file need.json --idempotency-key KEY", Short: "Save an Agent interpretation of a confirmed intent version", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		file, _ := c.Flags().GetString("file")
 		key, _ := c.Flags().GetString("idempotency-key")

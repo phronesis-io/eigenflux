@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestDiscoveryInputGuards(t *testing.T) {
@@ -45,5 +47,27 @@ func TestDiscoveryFilePreservesLargeMoney(t *testing.T) {
 	raw, err := json.Marshal(v)
 	if err != nil || string(raw) != `{"budget_max_fen":9007199254740993}` {
 		t.Fatal(string(raw), err)
+	}
+}
+
+// Exercise the registered tree: duplicate roots silently hide one command family.
+func TestNeedCaptureAndDiscoveryShareOneRoot(t *testing.T) {
+	var needs []*cobra.Command
+	for _, command := range rootCmd.Commands() {
+		if command.Name() == "need" {
+			needs = append(needs, command)
+		}
+	}
+	if len(needs) != 1 {
+		t.Fatalf("need roots: %d", len(needs))
+	}
+	for _, path := range [][]string{{"input", "create"}, {"input", "get"}, {"input", "list"}, {"create"}, {"update"}, {"get"}, {"list"}, {"pause"}, {"resume"}, {"close"}} {
+		command, rest, err := needs[0].Find(path)
+		if err != nil || len(rest) != 0 || command.Name() != path[len(path)-1] || command.RunE == nil {
+			t.Fatalf("need %v is unreachable: %v, %v", path, rest, err)
+		}
+		if len(path) == 2 && command.Parent().Name() != "input" {
+			t.Fatalf("wrong capture command: %v", path)
+		}
 	}
 }

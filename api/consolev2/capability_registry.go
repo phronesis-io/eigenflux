@@ -186,7 +186,7 @@ func capabilitySeeds() []capabilitySeed {
 			}
 		}
 		if strings.HasPrefix(seed.id, "discovery.") {
-			seed.minCLI = "0.0.53"
+			seed.minCLI = "0.0.55"
 		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {

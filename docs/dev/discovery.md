@@ -172,7 +172,7 @@ observation behavior. Need/taxonomy reads and failures do not refresh activity.
 decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
 `idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
 
-Migration 105 adds `discovery_contexts` and `processed_items.retrieval_slots`.
+Migration 106 adds `discovery_contexts` and `processed_items.retrieval_slots`.
 Saved Needs and temporary searches share the context table. Vectors are stored
 separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
 maintenance job removes expired rows in batches with a five-minute run budget.
@@ -280,7 +280,7 @@ saved before best-effort recording and is independent of its success. Prefetched
 or skipped candidates are not exposures. Old-generation feed caches are not
 read by the new adapter.
 
-Migration 106 extends the same `replay_logs` table and Redis stream:
+Migration 107 extends the same `replay_logs` table and Redis stream:
 
 | Rows | Pipeline | Mode | Schema | Identity |
 |---|---|---|---|---|
@@ -295,11 +295,24 @@ idempotent. No reject/empty result creates a row or a negative label. Internal
 Feed readers restrict to broadcast Feed/recommendation samples; legacy
 feature-dependent rescue reads restrict to the legacy generation.
 
-CLI 0.0.53 adds `search`, `recommend`, `taxonomy search`, and Need lifecycle
-commands. The ef-broadcast Skill is 0.14.15. Broadcast feedback retains existing
+CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need lifecycle
+commands. The ef-broadcast Skill is 0.14.20. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
 broadcast feedback. People results do not trigger messages or friend requests.
+
+## Need Capture boundary
+
+The Intent-linked capture API on `main` uses `/api/v2/need-inputs`,
+`need_inputs`, `normalized_needs`, and the `current_normalized_needs` view
+(migration 105). Its CLI lives under `eigenflux need input`.
+The discovery MVP currently still uses `/api/v2/needs` and
+`discovery_contexts`, with CLI commands such as `eigenflux need create`.
+These are distinct ID spaces and input schemas. Captured NeedInputs are not
+selected by discovery, and their IDs must not be passed as discovery `need_id`.
+Connecting discovery to current normalized projections remains a separate
+integration change; rebasing does not introduce a second normalization step or
+change either API's lifecycle.
 
 ## Configuration and rollout gates
 
@@ -327,7 +340,7 @@ cutover. There are deliberately no invented production taxonomy/threshold assets
 
 Rollout order:
 
-1. Apply 105/106 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
+1. Apply 105–107 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
 2. Deploy typed-aware replay consumers and verify all internal/external readers; keep these readers after a routing rollback.
 3. Supply reviewed taxonomy and three-kind/two-mode rule examples/configuration. Keep API traffic on the old path during preparation.
 4. Use new concrete Agent/commission ES generations when removing old mappings. Existing ES mappings cannot delete fields in place; full document rewrites remove obsolete `_source` fields. Align writer/reader generations, backfill Redis as well as ES, and retain both old generations for rollback. Commission writers target `COMMISSION_INDEX_NAME`; alias promotion follows a successful staged backfill.
@@ -335,7 +348,7 @@ Rollout order:
 6. Verify strict-filter coverage, source permissions, embedding compatibility, rule examples, and measured load targets. Enable the cutover switch consistently and use existing deployment/PR procedures.
 
 Rollback routes with `ENABLE_NEED_SEARCH=false`; retain additive schema and typed
-readers. Migration 106 refuses downgrade while nonbroadcast rows remain. Do not
+readers. Migration 107 refuses downgrade while nonbroadcast rows remain. Do not
 coerce typed IDs into `item_id` or discard samples to make a downgrade succeed.
 
 Metrics expose execution latency/status, hard-filter/threshold/seen rejects,

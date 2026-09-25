@@ -31,7 +31,7 @@ func TestDiscoveryReplayPostgres(t *testing.T) {
 		if err := tx.Exec("SET LOCAL search_path TO " + schema).Error; err != nil {
 			return err
 		}
-		for _, f := range []string{"../../migrations/000010_replay_logs.sql", "../../migrations/000106_discovery_samples.sql"} {
+		for _, f := range []string{"../../migrations/000010_replay_logs.sql", "../../migrations/000107_discovery_samples.sql"} {
 			raw, e := os.ReadFile(f)
 			if e != nil {
 				return e

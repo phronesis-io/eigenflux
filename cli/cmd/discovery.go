@@ -161,7 +161,11 @@ func newDiscoveryCommands() []*cobra.Command {
 	lookup.Flags().String("category", "", "Canonical category")
 	lookup.Flags().String("subtype", "", "Canonical subtype")
 	taxonomy.AddCommand(lookup)
-	need := &cobra.Command{Use: "need", Short: "Manage optional saved Needs"}
+	return []*cobra.Command{search, recommend, taxonomy}
+}
+
+func newDiscoveryNeedCommands() []*cobra.Command {
+	var commands []*cobra.Command
 	for _, op := range []string{"create", "update", "get", "list", "pause", "resume", "close"} {
 		op := op
 		sub := &cobra.Command{Use: op, RunE: func(c *cobra.Command, args []string) error {
@@ -217,8 +221,8 @@ func newDiscoveryCommands() []*cobra.Command {
 			sub.Flags().String("state", "", "State filter")
 			sub.Flags().String("cursor", "", "Continuation cursor")
 		}
-		need.AddCommand(sub)
+		commands = append(commands, sub)
 	}
-	return []*cobra.Command{search, recommend, taxonomy, need}
+	return commands
 }
 func init() { rootCmd.AddCommand(newDiscoveryCommands()...) }
