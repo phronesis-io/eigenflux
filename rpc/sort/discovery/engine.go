@@ -193,11 +193,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if err != nil {
 		return x, err
 	}
-	if r.LegacyPrefetch > 0 && mode == Recommendation {
-		if r.LegacyPrefetch > 20 {
-			return x, Invalid("prefetch", "out_of_range")
-		}
-		r.Limit = r.LegacyPrefetch
+	if r.Cursor != "" {
+		return x, Invalid("cursor", "requires_feed_delivery")
+	}
+	resultLimit := r.Limit
+	if r.Prefetch {
+		resultLimit = MaxSnapshotCandidates
 	}
 	if err = e.Rules.Validate(); err != nil {
 		return x, err
@@ -263,6 +264,8 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	x.Contexts = contexts
 	x.FallbackReason = fallback
+	// Missing context is an empty discovery result, not a transport error.
+	// Feed must still assemble its other response fields.
 	if len(contexts) == 0 {
 		x.Status = "insufficient_context"
 		return x, nil
@@ -467,12 +470,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		return x, nil
 	}
 	if e.Policies != nil {
-		candidates, err = e.Policies(ctx, candidates, mode, r.Limit)
+		candidates, err = e.Policies(ctx, candidates, mode, resultLimit)
 		if err != nil {
 			return x, err
 		}
 	}
-	x.Candidates = Merge(candidates, r.SourceKinds, mode, r.Limit)
+	x.Candidates = Merge(candidates, r.SourceKinds, mode, resultLimit)
 	x.Status = "ok"
 	if len(x.Candidates) == 0 {
 		x.Status = "exhausted"

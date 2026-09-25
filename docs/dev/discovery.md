@@ -26,10 +26,11 @@ An explicitly scoped broadcast/Agent request does not require commission access.
 | POST | `/api/v2/discovery/recommendations` | `feed:read` | Optional `source_kinds`, `need_ids`, explicit `filters`/`defaults` |
 | GET | `/api/v2/taxonomy/search` | `feed:read` | `query`, optional `category`, `subtype`, `limit` |
 
-Search defaults to 20, maximum 50 total results. Default kind order is
+Search defaults to 20 results per page, maximum 50 per page. Default kind order is
 `broadcast, commission, agent`; explicit order is preserved by round-robin
 merging. Scores from different kinds are never compared. Automatic discovery
-returns at most one result, considering at most five eligible captured Needs,
+defaults to 20 results, accepts `limit` from 1 to 100, and returns at most that
+number across all kinds, considering at most five eligible captured Needs,
 ordered by input priority (omitted means 0), input creation time descending, then
 input ID ascending. Explicit Need kinds must agree with the request. Intent
 lifecycle and version determine eligibility; there is no separate Need CRUD API.
@@ -138,14 +139,51 @@ match metadata contains rule type/version/kind. Numeric ranking scores stay in
 internal serving envelopes/samples; the existing commission compatibility DTO
 retains its numeric score contract.
 Internal private context snapshots and feature vectors are not returned in results.
-Unified endpoints have no cursor; `has_more` is false.
+Search returns `has_more` and, when another page exists, an opaque `next_cursor`.
+Repeat the original request body (query/input, kinds, filters, defaults, and limit)
+with `cursor=next_cursor` to continue. Each page can use its own idempotency key;
+reusing the first page's key for a different cursor is a body conflict. Repeating
+the same cursor returns the same page without another exposure record.
+Recommendations have no continuation cursor; `limit` is a ceiling, not a quota.
+Insufficient eligible candidates return fewer results without relaxing constraints.
 
 No active in-scope Need falls back to frozen current Agent context, then a marked
 hot/new broadcast baseline if context is empty. Agent/commission-only scope with
 empty context returns `insufficient_context`. An active constrained Need with no
 match is never broadened. Other empty statuses are `no_match`, `below_threshold`,
-and `exhausted`. Required context/source/Redis failures return errors; optional
+and `exhausted`. These are successful HTTP 200 / `code=0` responses, not
+transport errors. An empty kind contributes no candidates to merge; remaining
+kinds still return normally. All three kinds may be empty (`items: []`,
+`has_more: false`), and Feed still assembles its control-context delivery, cadence,
+notifications and other envelope fields. Required context/source/Redis failures return errors; optional
 recall failures are explicitly partial.
+
+### Search pagination and execution snapshots
+
+An execution context is a per-request internal snapshot, not a second captured
+Need. It freezes the query, effective constraints, input origin, Need/Intent
+provenance when present, taxonomy/compiler versions, and optional vector. Recall,
+filtering, scoring and samples use that same interpretation. It is stored in
+`discovery_contexts`; it does not create or update a NeedInput.
+
+Feed asks Sort for one bounded search ranking (at most 200 eligible candidates
+within existing recall budgets). Feed stores it once in an owner-scoped Redis
+`discovery:search:<owner>:<random-session>` snapshot for 24 hours, matching the
+response-cache lifetime. Random per-page tokens select fixed page boundaries;
+query, filters, kinds and page size cannot change during a continuation. Pages
+retain the original context and impression, with absolute sample positions.
+Only returned rows are recorded. Subsequent pages use frozen public details and
+scores without reranking, rehydration or a final Revalidate call. A new search
+observes current source/Need state. `has_more=false` means this bounded ranked
+snapshot is exhausted, not that the entire ES corpus has been enumerated.
+
+Malformed/tampered tokens return 400, changed request fields return 409, and an
+expired or foreign-owner snapshot returns 410 `search_cursor_expired`; restart
+without a cursor and with a new idempotency key. Required snapshot-cache failures
+return errors rather than silently restarting the search. Per-page delivery
+markers suppress duplicate recording on cursor retries; history and sample writes
+remain independent best-effort operations and are not an atomic transaction with
+cache state.
 
 ## Service boundaries and storage
 
@@ -271,8 +309,8 @@ response retries do not publish another exposure or repair missing samples.
 
 Legacy Feed keeps `refresh`, `load_more`, `has_more`, the existing item DTO and
 an additive `discovery` metadata object. Its separate
-`discovery:feed:<owner>:page` cache retains at most 20 frozen candidates for 30
-minutes. Each page returns at most one item, with one shared impression ID and
+`discovery:feed:<owner>:page` cache retains at most 200 frozen candidates for 30
+minutes. Each page honors the caller's limit (default 20, maximum 100), with one shared impression ID and
 absolute sample position. Page assembly calls the existing item detail lookup;
 missing/non-completed items are skipped and the next cached candidate is tried.
 Need/context changes do not invalidate a frozen page. Cursor advancement is
@@ -296,7 +334,7 @@ Feed readers restrict to broadcast Feed/recommendation samples; legacy
 feature-dependent rescue reads restrict to the legacy generation.
 
 CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need capture
-commands via the existing `need input` group. The ef-broadcast Skill is 0.14.22. Broadcast feedback retains existing
+commands via the existing `need input` group. The ef-broadcast Skill is 0.14.23. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
 broadcast feedback. People results do not trigger messages or friend requests.
@@ -349,7 +387,7 @@ prefetched pages retain their original snapshot.
 
 ```sh
 eigenflux search "PostgreSQL performance expert" --types agent
-eigenflux recommend --types agent
+eigenflux recommend --types agent --limit 10
 ```
 
 ## Configuration and rollout gates

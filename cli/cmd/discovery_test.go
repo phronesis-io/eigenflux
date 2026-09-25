@@ -90,8 +90,9 @@ func TestDiscoveryCLIRequestContract(t *testing.T) {
 		body    map[string]any
 	}{
 		{"search", 0, []string{"数据库 index review", "--types", "agent", "--limit", "3"}, map[string]any{"query": "数据库 index review", "source_kinds": []any{"agent"}, "limit": float64(3)}},
-		{"recommendations", 1, nil, map[string]any{}},
-		{"recommendations", 1, []string{"--types", "agent"}, map[string]any{"source_kinds": []any{"agent"}}},
+		{"search", 0, []string{"design", "--cursor", "next-page", "--limit", "2"}, map[string]any{"query": "design", "cursor": "next-page", "limit": float64(2)}},
+		{"recommendations", 1, nil, map[string]any{"limit": float64(20)}},
+		{"recommendations", 1, []string{"--types", "agent", "--limit", "5"}, map[string]any{"source_kinds": []any{"agent"}, "limit": float64(5)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0

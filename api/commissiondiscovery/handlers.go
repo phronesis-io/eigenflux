@@ -301,7 +301,7 @@ func (s *Service) Recommend(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if s.discoveryClient != nil {
-		s.serveDiscovery(ctx, c, "recommendation", "", parsed, 1)
+		s.serveDiscovery(ctx, c, "recommendation", "", parsed, limit)
 		return
 	}
 	response, err := s.sortClient.RecommendCommissions(ctx, &sortmodel.RecommendCommissionsReq{AgentId: agentID, Filters: parsed.thrift(), Limit: &limit})

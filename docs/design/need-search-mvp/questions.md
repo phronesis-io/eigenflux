@@ -28,7 +28,7 @@ Owner answer: 是的, 但是不需要统一模型的发展进度,规模/version.
 
 Owner answer: default answer is fine
 
-**Resolution:** Query search defaults to 20 results, at most 50 on the unified API; automatic search returns zero or one across kinds. Unified APIs have no pagination. Existing Feed pagination is retained through a compatibility adapter with frozen context snapshots and item-detail assembly, while every automatic response has at most one discovery item.
+**Resolution (current Owner instruction):** Search supports cursor pagination (default 20, maximum 50 per page). Recommendations honor the requested limit across kinds (default 20, maximum 100) and need not fill it. Legacy Feed retains frozen-context pagination and item-detail assembly while honoring its requested page size.
 
 ## D03 Entry point and no-Need behavior
 

@@ -158,10 +158,15 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 		if r.Query != "" || r.Need != nil || r.NeedID != 0 {
 			return r, Invalid("body", "automatic_input_conflict")
 		}
-		if r.Limit != 0 && r.Limit != 1 {
-			return r, Invalid("limit", "automatic_limit_one")
+		if r.Cursor != "" {
+			return r, Invalid("cursor", "search_only")
 		}
-		r.Limit = 1
+		if r.Limit == 0 {
+			r.Limit = 20
+		}
+		if r.Limit < 1 || r.Limit > 100 {
+			return r, Invalid("limit", "out_of_range")
+		}
 		if len(r.NeedIDs) > 5 {
 			return r, Invalid("need_ids", "too_many")
 		}

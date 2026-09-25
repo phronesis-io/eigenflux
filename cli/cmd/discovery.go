@@ -82,6 +82,10 @@ func newDiscoveryCommands() []*cobra.Command {
 		}
 		limit, _ := c.Flags().GetInt("limit")
 		body["limit"] = limit
+		cursor, _ := c.Flags().GetString("cursor")
+		if cursor != "" {
+			body["cursor"] = cursor
+		}
 		f, _ := c.Flags().GetString("filters")
 		if f != "" {
 			v, err := discoveryFile(f)
@@ -94,16 +98,19 @@ func newDiscoveryCommands() []*cobra.Command {
 	}}
 	search.Flags().String("filters", "", "Explicit hard filters JSON file")
 	search.Flags().StringSlice("types", nil, "broadcast,commission,agent")
-	search.Flags().Int("limit", 20, "Total results, maximum 50")
+	search.Flags().Int("limit", 20, "Results per page, maximum 50")
+	search.Flags().String("cursor", "", "Next-page cursor; keep the query and other options unchanged")
 	search.Flags().String("idempotency-key", "", "Retry key")
-	recommend := &cobra.Command{Use: "recommend", Short: "Find zero or one result based on your current interests", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	recommend := &cobra.Command{Use: "recommend", Short: "Find relevant results based on your current interests", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		types, _ := c.Flags().GetStringSlice("types")
-		v := map[string]any{}
+		limit, _ := c.Flags().GetInt("limit")
+		v := map[string]any{"limit": limit}
 		if len(types) > 0 {
 			v["source_kinds"] = types
 		}
 		return discoveryCall(c, "POST", "/discovery/recommendations", v, nil, true)
 	}}
+	recommend.Flags().Int("limit", 20, "Maximum results, up to 100; fewer may match")
 	recommend.Flags().StringSlice("types", nil, "Source kinds")
 	recommend.Flags().String("idempotency-key", "", "Retry key")
 	taxonomy := &cobra.Command{Use: "taxonomy", Short: "Look up canonical intents"}

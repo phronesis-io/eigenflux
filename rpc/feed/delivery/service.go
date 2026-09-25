@@ -1,4 +1,4 @@
-// Package discoveryserve owns delivery, response caching and best-effort
+// Package delivery owns delivery, response caching and best-effort
 // exposure recording. Ranking and source hydration remain in Sort.
 package delivery
 
@@ -37,6 +37,12 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 	}
 	if len(key) > 128 {
 		return empty, discovery.Invalid("idempotency_key", "too_long")
+	}
+	if r.Cursor != "" && mode != discovery.Search {
+		return empty, discovery.Invalid("cursor", "search_only")
+	}
+	if mode == discovery.Search && (r.Limit < 0 || r.Limit > 50) {
+		return empty, discovery.Invalid("limit", "out_of_range")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -88,15 +94,40 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 		}
 	}
 	now := time.Now().UnixMilli()
-	x, err := s.Executor.Execute(ctx, owner, r, mode, now)
-	if err != nil {
-		return empty, err
+	var x discovery.Execution
+	var response discovery.Response
+	position := 0
+	marker := ""
+	if r.Cursor != "" {
+		state, session, page, err := s.loadSearch(ctx, owner, r)
+		if err != nil {
+			return empty, err
+		}
+		response, x, position = state.page(session, page)
+		impression, now = state.Impression, state.RequestTime
+		marker = searchKey(owner, session) + ":delivered:" + state.Tokens[page]
+	} else {
+		operation := mode
+		if mode == discovery.Search {
+			operation = "search_prefetch"
+		}
+		x, err = s.Executor.Execute(ctx, owner, r, operation, now)
+		if err != nil {
+			return empty, err
+		}
+		if mode == "legacy_search" {
+			mode = discovery.Search
+		}
+		x.Mode = mode
+		response = responseFor(x, impression)
+		if operation == "search_prefetch" {
+			state, session, err := s.freezeSearch(ctx, owner, r, x, impression, now)
+			if err != nil {
+				return empty, err
+			}
+			response, x, position = state.page(session, 0)
+		}
 	}
-	if mode == "legacy_search" {
-		mode = discovery.Search
-	}
-	x.Mode = mode
-	response := responseFor(x, impression)
 	if cacheKey != "" {
 		raw, err := json.Marshal(cached{Hash: hash, Response: response})
 		if err != nil {
@@ -106,7 +137,16 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 			return empty, err
 		}
 	}
-	s.recordAsync(ctx, owner, x, impression, 0, now)
+	if marker != "" {
+		first, err := s.Redis.SetNX(ctx, marker, "1", searchTTL).Result()
+		if err != nil {
+			return empty, err
+		}
+		if !first {
+			return response, nil
+		}
+	}
+	s.recordAsync(ctx, owner, x, impression, position, now)
 	return response, nil
 }
 

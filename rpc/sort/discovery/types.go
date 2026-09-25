@@ -13,6 +13,9 @@ import (
 
 const PipelineVersion = "need_search_v1"
 
+// Search snapshots and legacy Feed prefetch stay within the existing recall budget.
+const MaxSnapshotCandidates = 200
+
 type Kind string
 
 const (
@@ -78,8 +81,9 @@ type Request struct {
 	InheritedLanguage bool       `json:"-"`
 	KindsExplicit     bool       `json:"-"`
 	LegacyLimit       bool       `json:"-"`
-	LegacyPrefetch    int        `json:"-"`
+	Prefetch          bool       `json:"-"`
 	Query             string     `json:"query,omitempty"`
+	Cursor            string     `json:"cursor,omitempty"`
 	NeedID            int64      `json:"need_id,string,omitempty"`
 	Need              *NeedInput `json:"need,omitempty"`
 	NeedIDs           []string   `json:"need_ids,omitempty"`
@@ -241,6 +245,7 @@ type Response struct {
 	EffectiveFilters Filters      `json:"effective_filters"`
 	ConstraintMode   string       `json:"constraint_mode"`
 	HasMore          bool         `json:"has_more"`
+	NextCursor       string       `json:"next_cursor,omitempty"`
 }
 
 func PublicItem(c Candidate) ResultItem {

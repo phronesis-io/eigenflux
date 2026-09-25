@@ -24,7 +24,7 @@ func TestLegacyPagesRecordOnlyDeliveredRows(t *testing.T) {
 	}
 	var impression string
 	for pos, action := range []string{"refresh", "load_more", "load_more"} {
-		out, more, err := s.ServePage(ctx, 1, action, nil)
+		out, more, err := s.ServePage(ctx, 1, action, 1, nil)
 		if err != nil || len(out.Items) != 1 || more != (pos < 2) {
 			t.Fatalf("page %d: %+v %v %v", pos, out, more, err)
 		}
@@ -50,7 +50,7 @@ func TestLegacyPagesRecordOnlyDeliveredRows(t *testing.T) {
 			t.Fatal("sample impression mismatch")
 		}
 	}
-	out, more, err := s.ServePage(ctx, 1, "load_more", nil)
+	out, more, err := s.ServePage(ctx, 1, "load_more", 1, nil)
 	if err != nil || more || len(out.Items) != 0 || e.calls != 1 {
 		t.Fatal(out, more, err, e.calls)
 	}
@@ -59,7 +59,7 @@ func TestLegacyPagePreparationFailureDoesNotAdvance(t *testing.T) {
 	s, e, r := setup(t)
 	ctx := context.Background()
 	e.x.Candidates = e.x.Candidates[:1]
-	_, _, err := s.ServePage(ctx, 1, "refresh", func(context.Context, *discovery.Execution) error { return fmt.Errorf("hydration failed") })
+	_, _, err := s.ServePage(ctx, 1, "refresh", 1, func(context.Context, *discovery.Execution) error { return fmt.Errorf("hydration failed") })
 	if err == nil || r.XLen(ctx, replaylog.StreamName).Val() != 0 || r.Exists(ctx, "discovery:feed:1:page").Val() != 0 {
 		t.Fatal("failed page was committed")
 	}
@@ -74,14 +74,14 @@ func TestLegacyPageUsesFrozenContextAndSkipsMissingDetails(t *testing.T) {
 		c.Document.Ref.ID += i
 		e.x.Candidates = append(e.x.Candidates, c)
 	}
-	first, more, err := s.ServePage(ctx, 1, "refresh", nil)
+	first, more, err := s.ServePage(ctx, 1, "refresh", 1, nil)
 	if err != nil || !more {
 		t.Fatal(first, more, err)
 	}
 	// Changed source state cannot cause a Sort call for the frozen page.
 	e.err = discovery.Failure(409, "context_changed")
 	prepared := 0
-	next, more, err := s.ServePage(ctx, 1, "load_more", func(_ context.Context, x *discovery.Execution) error {
+	next, more, err := s.ServePage(ctx, 1, "load_more", 1, func(_ context.Context, x *discovery.Execution) error {
 		prepared++
 		if x.Candidates[0].Document.Ref.ID == 78 {
 			x.Candidates = nil
@@ -112,15 +112,67 @@ func TestLegacyPageRecordingFailureDoesNotStopPagination(t *testing.T) {
 	ctx := context.Background()
 	r.Set(ctx, replaylog.StreamName, "wrong", 0)
 	before := recordingFailures("sample")
-	first, more, err := s.ServePage(ctx, 1, "refresh", nil)
+	first, more, err := s.ServePage(ctx, 1, "refresh", 1, nil)
 	if err != nil || !more {
 		t.Fatal(first, more, err)
 	}
-	next, _, err := s.ServePage(ctx, 1, "load_more", nil)
+	next, _, err := s.ServePage(ctx, 1, "load_more", 1, nil)
 	if err != nil || next.ImpressionID != first.ImpressionID || next.Items[0].Ref.Type == first.Items[0].Ref.Type || e.calls != 1 {
 		t.Fatal(next, err)
 	}
 	await(t, func() bool {
 		return recordingFailures("sample") >= before+2 && r.SIsMember(ctx, "impr:agent:1:items", "77").Val() && r.SIsMember(ctx, "impr:discovery:agent:1:items", "commission:77").Val()
 	})
+}
+
+func TestLegacyPageHonorsLimitWithoutPadding(t *testing.T) {
+	s, e, r := setup(t)
+	ctx := context.Background()
+	first, more, err := s.ServePage(ctx, 1, "refresh", 2, nil)
+	if err != nil || len(first.Items) != 2 || !more {
+		t.Fatal(first, more, err)
+	}
+	next, more, err := s.ServePage(ctx, 1, "load_more", 10, nil)
+	if err != nil || len(next.Items) != 1 || more || next.ImpressionID != first.ImpressionID || e.calls != 1 {
+		t.Fatal(next, more, err)
+	}
+	await(t, func() bool { return r.XLen(ctx, replaylog.StreamName).Val() == 2 })
+	entries := r.XRange(ctx, replaylog.StreamName, "-", "+").Val()
+	seen := map[int]bool{}
+	for _, entry := range entries {
+		var rows []replaylog.ServedItem
+		if err := json.Unmarshal([]byte(entry.Values["items"].(string)), &rows); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if seen[row.Position] {
+				t.Fatal("duplicate position")
+			}
+			seen[row.Position] = true
+		}
+	}
+	if !seen[0] || !seen[1] || !seen[2] || len(seen) != 3 {
+		t.Fatal(seen)
+	}
+}
+
+func TestEmptyDiscoveryDoesNotBlockDelivery(t *testing.T) {
+	for _, status := range []string{"insufficient_context", "no_match", "below_threshold", "exhausted"} {
+		t.Run(status, func(t *testing.T) {
+			s, e, redis := setup(t)
+			e.x = discovery.Execution{Mode: discovery.Recommendation, Status: status, Candidates: []discovery.Candidate{}, FallbackReason: "empty_agent_context"}
+			ctx := context.Background()
+			direct, err := s.Serve(ctx, 1, discovery.Request{}, discovery.Recommendation, "")
+			if err != nil || direct.Status != status || direct.Items == nil || len(direct.Items) != 0 || direct.HasMore {
+				t.Fatal(direct, err)
+			}
+			page, more, err := s.ServePage(ctx, 1, "refresh", 20, nil)
+			if err != nil || more || page.Status != status || page.FallbackReason != "empty_agent_context" || page.Items == nil || len(page.Items) != 0 {
+				t.Fatal(page, more, err)
+			}
+			if redis.XLen(ctx, replaylog.StreamName).Val() != 0 {
+				t.Fatal("empty result recorded an exposure")
+			}
+		})
+	}
 }

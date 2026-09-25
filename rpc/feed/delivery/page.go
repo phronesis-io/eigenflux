@@ -19,13 +19,16 @@ type pageState struct {
 
 // ServePage keeps a frozen ranking and advances the cursor independently of
 // best-effort exposure recording. prepare assembles each page from current details.
-func (s Service) ServePage(ctx context.Context, owner int64, action string, prepare func(context.Context, *discovery.Execution) error) (discovery.Response, bool, error) {
+func (s Service) ServePage(ctx context.Context, owner int64, action string, limit int, prepare func(context.Context, *discovery.Execution) error) (discovery.Response, bool, error) {
 	empty := discovery.Response{Mode: discovery.Recommendation, PipelineVersion: discovery.PipelineVersion, Status: "exhausted", Items: []discovery.ResultItem{}}
 	if owner <= 0 {
 		return empty, false, discovery.Failure(401, "unauthorized")
 	}
 	if action != "refresh" && action != "load_more" {
 		return empty, false, discovery.Invalid("action", "invalid")
+	}
+	if limit < 1 || limit > 100 {
+		return empty, false, discovery.Invalid("limit", "out_of_range")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -67,19 +70,19 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, prep
 	selected := state.Execution
 	selected.Mode = discovery.Recommendation
 	selected.Candidates = nil
-	for len(state.Execution.Candidates) > 0 {
-		selected.Candidates = append([]discovery.Candidate(nil), state.Execution.Candidates[0])
+	for len(state.Execution.Candidates) > 0 && len(selected.Candidates) < limit {
+		count := min(limit-len(selected.Candidates), len(state.Execution.Candidates))
+		batch := state.Execution
+		batch.Candidates = append([]discovery.Candidate(nil), state.Execution.Candidates[:count]...)
 		if prepare != nil {
-			if err := prepare(ctx, &selected); err != nil {
+			if err := prepare(ctx, &batch); err != nil {
 				return empty, false, err
 			}
 		}
-		state.Execution.Candidates = state.Execution.Candidates[1:]
-		if len(selected.Candidates) > 0 {
-			break
-		}
+		state.Execution.Candidates = state.Execution.Candidates[count:]
+		selected.Candidates = append(selected.Candidates, batch.Candidates...)
 	}
-	if len(selected.Candidates) == 0 {
+	if len(selected.Candidates) == 0 && selected.Status == "ok" {
 		selected.Status = "exhausted"
 	}
 	position := state.Position
@@ -93,6 +96,7 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, prep
 		return empty, false, err
 	}
 	result := responseFor(selected, state.Impression)
+	result.HasMore = hasMore
 	s.recordAsync(ctx, owner, selected, state.Impression, position, time.Now().UnixMilli())
 	return result, hasMore, nil
 }

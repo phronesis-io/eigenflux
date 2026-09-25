@@ -64,6 +64,30 @@ func (s *stack) waitSamples(t *testing.T, impression string, count int) {
 func TestDiscoveryE2E(t *testing.T) {
 	s := startStack(t)
 	ctx := context.Background()
+	t.Run("MissingContextReturnsEmptyDiscoveryAndCompleteFeed", func(t *testing.T) {
+		s.sql(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[]}'::jsonb WHERE agent_id=?`, s.other)
+		for _, kinds := range [][]discovery.Kind{{discovery.Agent}, {discovery.Commission}, {discovery.Agent, discovery.Commission}} {
+			raw := s.call(t, "POST", "/api/v2/discovery/recommendations", s.otherToken, "", discovery.Request{SourceKinds: kinds, Limit: 5}, 200)
+			out := decode[discovery.Response](t, raw)
+			require.Equal(t, "insufficient_context", out.Status)
+			require.NotNil(t, out.Items)
+			require.Empty(t, out.Items)
+			require.False(t, out.HasMore)
+		}
+		// No broadcast recall fixture is enabled either: all three lanes may be empty.
+		out := decode[discovery.Response](t, s.call(t, "POST", "/api/v2/discovery/recommendations", s.otherToken, "", discovery.Request{Limit: 5}, 200))
+		require.NotNil(t, out.Items)
+		require.Empty(t, out.Items)
+		require.False(t, out.HasMore)
+		feed := decode[map[string]any](t, s.call(t, "POST", "/api/v2/feed", s.otherToken, "", map[string]any{"limit": 5}, 200))
+		require.Equal(t, "feed.v2", feed["schema_version"])
+		require.Equal(t, []any{}, feed["items"])
+		for _, field := range []string{"notifications", "cadence", "personalization", "control_context_snapshot", "capabilities_applied", "discovery"} {
+			require.Contains(t, feed, field, "empty discovery must not bypass Feed assembly")
+		}
+		require.Equal(t, "full", feed["personalization"].(map[string]any)["context_delivery"])
+		require.Equal(t, map[string]any{"intent_actions": []any{}}, feed["control_context_snapshot"])
+	})
 	t.Run("CapturedNeedNormalizationOwnershipAndLifecycle", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "broadcast")
@@ -139,6 +163,33 @@ func TestDiscoveryE2E(t *testing.T) {
 		s.call(t, "POST", "/api/v2/discovery/recommendations", s.token, "", discovery.Request{SourceKinds: []discovery.Kind{discovery.Commission}}, 409)
 		in.Constraints.Lang = nil
 		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", discovery.Request{Need: &in}, 409)
+	})
+	t.Run("SearchCursorFreezesRankingAndBindsRequest", func(t *testing.T) {
+		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{Category: s.category}, Limit: 2}
+		first := s.search(t, r, "paged-search")
+		require.Len(t, first.Items, 2)
+		require.True(t, first.HasMore)
+		require.NotEmpty(t, first.NextCursor)
+		s.waitSamples(t, first.ImpressionID, 2)
+		r.Cursor = first.NextCursor
+		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", r, 410)
+		changed := r
+		changed.Limit = 3
+		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", changed, 409)
+		// Index changes do not reshuffle a ranked search already in progress.
+		s.sql(t, "UPDATE agents SET agent_name='changed after search' WHERE agent_id=?", s.author)
+		defer s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", fmt.Sprintf("精确查找-%d", s.author), s.author)
+		next := s.search(t, r, "")
+		require.Len(t, next.Items, 1)
+		require.Equal(t, discovery.Agent, next.Items[0].Ref.Type)
+		require.Equal(t, first.ImpressionID, next.ImpressionID)
+		require.False(t, next.HasMore)
+		require.Empty(t, next.NextCursor)
+		require.Equal(t, next, s.search(t, r, ""))
+		s.waitSamples(t, first.ImpressionID, 3)
+		var positions []int
+		require.NoError(t, s.db.Table("replay_logs").Where("impression_id=?", first.ImpressionID).Order("position").Pluck("position", &positions).Error)
+		require.Equal(t, []int{0, 1, 2}, positions)
 	})
 	t.Run("ThreeKindSearchTypedSamplesAndIdempotency", func(t *testing.T) {
 		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{Category: s.category}}

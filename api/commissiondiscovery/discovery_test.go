@@ -48,3 +48,22 @@ func TestLegacyCommissionCutoverPreservesExactLookupAndCurrency(t *testing.T) {
 		t.Fatal("exact lookup changed")
 	}
 }
+
+func TestCommissionRecommendationForwardsRequestedLimit(t *testing.T) {
+	next := &discoveryStub{}
+	s := New(&fakeSort{}, &fakeIDGen{}, nil, nil)
+	s.SetDiscoveryClient(next)
+	h := server.New()
+	h.GET("/recommend", func(ctx context.Context, c *app.RequestContext) { c.Set("agent_id", int64(1)); s.Recommend(ctx, c) })
+	status, body := performWithStatus(t, h, "GET", "/recommend?limit=7")
+	if status != 200 || next.last == nil {
+		t.Fatal(status, body)
+	}
+	var request discovery.Request
+	if err := json.Unmarshal([]byte(next.last.Payload), &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Limit != 7 || next.last.Operation != "recommendation" {
+		t.Fatal(request, next.last)
+	}
+}

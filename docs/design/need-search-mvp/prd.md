@@ -35,13 +35,17 @@ Excluded: reverse/percolator matching, content-event fan-out, offline enrichment
 
 Use the shared NeedInput `need_type` values `broadcast`, `commission`, and `agent`. An explicit query can select one or multiple kinds. The unified API defaults to all three; existing broadcast/commission routes stay restricted to their current kind.
 
-Do not compare uncalibrated rule scores between kinds. Query results are ordered within each kind and combined by a deterministic quota/order policy. Automatic search selects the highest-priority qualifying Need, with stable ties. Broadcast may adopt a learned model in a later release while commission and Agent scoring remain rules. No requirement couples model architecture, parameter count, release date, or version across kinds. The MVP adds no model training or serving work.
+Do not compare uncalibrated rule scores between kinds. Query results are ordered within each kind and combined by a deterministic quota/order policy. Automatic search orders qualifying results by Need priority, with stable ties, and deduplicates across Needs. Broadcast may adopt a learned model in a later release while commission and Agent scoring remain rules. No requirement couples model architecture, parameter count, release date, or version across kinds. The MVP adds no model training or serving work.
 
 ### 2.2 Output size
 
-Query search defaults to 20 results and accepts at most 50. Automatic search returns zero or one result. This is a service-wide maximum across kinds, not one automatic result per kind. The new APIs do not paginate in the MVP.
+Query search defaults to 20 results per page and accepts at most 50 per page. Opaque cursors continue a frozen, owner-scoped ranking with at most 200 candidates for 24 hours. Automatic search defaults to 20 results and accepts a limit up to 100 across kinds; it returns fewer when fewer candidates qualify and never broadens constraints to fill the limit.
 
-Existing route authentication, JSON envelope, typed identity, notification behavior, and feedback fields remain compatible, while their discovery execution switches to the new engine. Existing automatic-feed clients must tolerate the explicitly changed maximum of one discovery result. Legacy Feed pagination is retained through a compatibility cache of new-engine candidates with frozen contexts, absolute positions, and final checks on every page; new unified APIs still have no pagination. Exact commission-ID lookup remains exact lookup, rather than being converted into semantic search.
+Existing route authentication, JSON envelope, typed identity, notification behavior, and feedback fields remain compatible, while their discovery execution switches to the new engine. Legacy Feed pagination is retained through a compatibility cache of new-engine candidates with frozen contexts, absolute positions, and existing item-detail assembly on each page. Its requested limit is honored. Unified search uses explicit continuation cursors. Exact commission-ID lookup remains exact lookup, rather than being converted into semantic search.
+
+Missing context or no eligible candidates is a successful empty discovery result.
+Each kind may contribute zero items; merge retains available results from other
+kinds. All three may be empty without skipping Feed's remaining response fields.
 
 ### 2.3 Direct replacement and basic fallback
 
@@ -60,7 +64,7 @@ These are concrete implementation defaults for the owner's “basic fallback” 
 
 ### 3.1 Daily automatic search
 
-The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five eligible captured Needs, or uses the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers zero or one result. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
+The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five eligible captured Needs, or uses the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers up to the requested limit of eligible results. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
 
 ### 3.2 Query search
 
@@ -144,7 +148,7 @@ Implementations can be validated in slices, but the confirmed MVP launch scope i
 
 1. An existing Agent with no saved Needs receives automatic search from current Agent context; an empty context yields an explicitly marked baseline broadcast or `insufficient_context` on nonbroadcast routes.
 2. A direct query works without category, outcome, or a pre-created Need; optional explicit filters remain hard and effective filters are returned.
-3. All three kinds appear in unified query results under deterministic quotas; only one discovery result is delivered by automatic search.
+3. All three kinds appear in unified query results under deterministic quotas; automatic search honors the requested limit without padding sparse results.
 4. Existing Feed returns broadcasts; existing commission recommendation returns commissions; both use the new engine and their existing auth/envelopes.
 5. An active Need with no eligible candidates yields empty results, not an unrelated fallback.
 6. Unknown provider region is rejected when explicitly required; owner-private geography is never used as public provider evidence.

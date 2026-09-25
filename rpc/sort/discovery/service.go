@@ -13,7 +13,7 @@ type Operation struct{ Name, Payload string }
 func (s *Service) Run(ctx context.Context, owner int64, r Operation, now int64) (any, error) {
 	e := s.Engine
 	switch r.Name {
-	case "search", "recommendation", "legacy_search", "legacy_prefetch":
+	case "search", "recommendation", "legacy_search", "legacy_prefetch", "search_prefetch":
 		in, err := Decode[Request]([]byte(r.Payload))
 		if err != nil {
 			return nil, err
@@ -24,8 +24,12 @@ func (s *Service) Run(ctx context.Context, owner int64, r Operation, now int64) 
 			mode = Search
 		}
 		if r.Name == "legacy_prefetch" {
-			in.LegacyPrefetch = 20
+			in.Prefetch = true
 			mode = Recommendation
+		}
+		if r.Name == "search_prefetch" {
+			in.Prefetch = true
+			mode = Search
 		}
 		return e.Execute(ctx, owner, in, mode, now)
 	case "taxonomy":

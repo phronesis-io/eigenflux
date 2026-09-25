@@ -134,7 +134,7 @@ func startStack(t *testing.T) *stack {
 	}
 	s.url = fmt.Sprintf("http://127.0.0.1:%d", ports["API_PORT"])
 	for k, v := range map[string]string{
-		"ENABLE_NEED_SEARCH": "true", "ENABLE_CONSOLE_V2": "true", "ENABLE_REPLAY_LOG": "true", "ENABLE_COMMISSION_INDEX": "true", "ENABLE_COMMISSION_DISCOVERY_API": "true",
+		"ENABLE_NEED_SEARCH": "true", "ENABLE_CONSOLE_V2": "true", "ENABLE_FEED_V2": "true", "ENABLE_REPLAY_LOG": "true", "ENABLE_COMMISSION_INDEX": "true", "ENABLE_COMMISSION_DISCOVERY_API": "true",
 		"DISCOVERY_TAXONOMY_PATH": taxPath, "DISCOVERY_RULES_PATH": rulesPath, "AGENT_DISCOVERY_INDEX": s.agentIndex,
 		"COMMISSION_INDEX_NAME": s.commissionIndex, "COMMISSION_INDEX_ALIAS": s.commissionIndex + "-read",
 		"COMMISSION_SOURCE_SERVICE": "DiscoveryE2ECommission", "COMMISSION_ORDER_SOURCE_SERVICE": "DiscoveryE2EOrder",

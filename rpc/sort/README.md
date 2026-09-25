@@ -21,7 +21,7 @@ the external boundaries.
 | [discovery/need.go](discovery/need.go), [pkg/need/reader.go](../../pkg/need/reader.go) | Compile owned current Need projections; preserve input/projection/Intent provenance. |
 | [discovery/compiler.go](discovery/compiler.go) | Compile input into executable constraints. |
 | [discovery/query.go](discovery/query.go) | Query normalization, script-aware phrase matching, bounded taxonomy alias expansion and retrieval provenance. |
-| [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration. |
+| [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration; requested recommendation limits and bounded search/legacy Feed prefetch. |
 | [discovery/intersect.go](discovery/intersect.go), [filter.go](discovery/filter.go), [score.go](discovery/score.go) | Constraint intersection, eligibility and rule scoring. |
 | [discovery/store.go](discovery/store.go) | Immutable PostgreSQL execution snapshots and expiry. |
 | [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | ES retrieval, broadcast DB hydration, Agent/commission forward reads, and current account/relationship checks. |
@@ -61,3 +61,5 @@ flowchart TD
 
 Tests stay beside the package they exercise. Service integration suites remain
 under `tests/`; see [testing instructions](../../docs/dev/testing.md).
+
+Unified search pagination and cursor validation live in [delivery/search.go](../feed/delivery/search.go). Sort produces the bounded ranking once; Feed serves frozen pages and records only delivered rows.

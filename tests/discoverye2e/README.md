@@ -24,7 +24,8 @@ To include the actual CLI process, build it from `cli/` with
 `go build -o ../build/cli/eigenflux-needs-linked .`, then add
 `EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-needs-linked"` to the runner command.
 The CLI case verifies query search with filters, automatic selection of a captured
-Need without caller-supplied IDs, and idempotent recommendation retries.
+Need without caller-supplied IDs, cursor pagination across all three kinds,
+batch recommendation limits without padding, and idempotent retries.
 
 The runner supplies `APP_ENV=test`. Without `DISCOVERY_E2E=1`, the suite skips.
 The suite enables the new pipeline in its child processes, uses dynamic ports,
@@ -39,10 +40,16 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
+- Missing Agent/service context returns HTTP 200 with empty items. All-empty
+  discovery still permits a complete Feed response with context delivery, cadence
+  and notification fields.
+
 - Real Need Capture HTTP → current projection → search/recommendation, owner/kind
   boundaries, normalized language, exact input/projection/Intent provenance in
   execution snapshots and samples, enrichment replacement, Intent edits, expired
   deadlines, unresolved constraints, and frozen retries.
+- Frozen search cursor pages, owner/request binding, page retries, and absolute
+  positions in delivered samples under the same impression.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
   exclusion, response idempotency and mismatched-payload rejection.
 - Exact Agent lookup by long ID, case-sensitive short ID, current name and

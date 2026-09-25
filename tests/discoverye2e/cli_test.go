@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/sort/discovery"
 
 	"github.com/stretchr/testify/require"
@@ -60,9 +61,32 @@ func TestDiscoveryCLIE2E(t *testing.T) {
 	require.Equal(t, s.author, found.Items[0].Ref.ID)
 	require.Zero(t, found.Items[0].NeedID, "query search does not require a captured Need")
 
-	recommended := run("recommend", "--types", "agent", "--idempotency-key", "cli-auto-recommend")
+	page := run("search", "landing page design", "--filters", filters, "--limit", "1")
+	impression := page.ImpressionID
+	for i, kind := range discovery.AllKinds {
+		require.Len(t, page.Items, 1)
+		require.Equal(t, kind, page.Items[0].Ref.Type)
+		require.Equal(t, impression, page.ImpressionID)
+		require.Equal(t, i < 2, page.HasMore)
+		if page.HasMore {
+			page = run("search", "landing page design", "--filters", filters, "--limit", "1", "--cursor", page.NextCursor)
+		}
+	}
+	require.Empty(t, page.NextCursor)
+	s.waitSamples(t, impression, 3)
+
+	recommended := run("recommend", "--types", "agent", "--limit", "5", "--idempotency-key", "cli-auto-recommend")
 	require.Len(t, recommended.Items, 1)
 	require.Equal(t, s.author, recommended.Items[0].Ref.ID)
 	require.Equal(t, captured.NeedInputID, recommended.Items[0].NeedID, "platform selects the captured Need without CLI IDs")
-	require.Equal(t, recommended, run("recommend", "--types", "agent", "--idempotency-key", "cli-auto-recommend"))
+	require.Equal(t, recommended, run("recommend", "--types", "agent", "--limit", "5", "--idempotency-key", "cli-auto-recommend"))
+	require.Eventually(t, func() bool {
+		return mq.RDB.SIsMember(context.Background(), fmt.Sprintf("impr:discovery:agent:%d:items", s.owner), fmt.Sprintf("agent:%d", s.author)).Val()
+	}, 3*time.Second, 25*time.Millisecond)
+	s.saved(t, "broadcast")
+	s.saved(t, "commission")
+	batch := run("recommend", "--limit", "5", "--idempotency-key", "cli-batch-recommend")
+	require.Len(t, batch.Items, 2, "return multiple eligible results without padding to limit")
+	require.Equal(t, batch, run("recommend", "--limit", "5", "--idempotency-key", "cli-batch-recommend"))
+	s.waitSamples(t, batch.ImpressionID, 2)
 }

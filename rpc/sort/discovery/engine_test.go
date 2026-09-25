@@ -260,3 +260,78 @@ func TestRecommendationIntersectsCapturedNeedWithoutChangingProvenance(t *testin
 		t.Fatal("source was rewritten or hash did not freeze intersection")
 	}
 }
+
+func TestRecommendationLimitIsACeiling(t *testing.T) {
+	e, source, store := engineFixture()
+	for _, kind := range AllKinds {
+		source.docs = append(source.docs, Document{Ref: SourceRef{kind, 9}, AuthorID: 2, Version: "1", Text: "design", Active: true, Visible: true, Lexical: 10})
+		store.active = append(store.active, capturedFixture(int64(len(store.active)+1), kind))
+	}
+	for _, tc := range []struct{ limit, want int }{{0, 3}, {1, 1}, {2, 2}, {5, 3}, {100, 3}} {
+		x, err := e.Execute(context.Background(), 1, Request{Limit: tc.limit}, Recommendation, 100)
+		if err != nil || len(x.Candidates) != tc.want {
+			t.Fatalf("limit=%d got=%d err=%v", tc.limit, len(x.Candidates), err)
+		}
+	}
+	source.docs[0].Active = false
+	source.docs[1].Blocked = true
+	x, err := e.Execute(context.Background(), 1, Request{Limit: 20}, Recommendation, 100)
+	if err != nil || len(x.Candidates) != 1 || x.FallbackReason != "" {
+		t.Fatal("limit relaxed eligibility", x, err)
+	}
+	for _, limit := range []int{-1, 101} {
+		if _, err := e.Execute(context.Background(), 1, Request{Limit: limit}, Recommendation, 100); err == nil {
+			t.Fatal("accepted limit", limit)
+		}
+	}
+}
+
+func TestSearchPrefetchKeepsCandidatesBeyondFirstPage(t *testing.T) {
+	e, source, _ := engineFixture()
+	for id := int64(1); id <= 8; id++ {
+		source.docs = append(source.docs, Document{Ref: SourceRef{Agent, id + 10}, AuthorID: 2, Version: "1", Text: "design", Active: true, Visible: true, Lexical: 10})
+	}
+	service := Service{Engine: e}
+	value, err := service.Run(context.Background(), 1, Operation{Name: "search_prefetch", Payload: `{"query":"design","source_kinds":["agent"],"limit":2}`}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := value.(Execution)
+	if len(x.Candidates) != 8 || x.Mode != Search {
+		t.Fatal(x)
+	}
+}
+
+func TestEmptyKindsDoNotBlockMerge(t *testing.T) {
+	for _, mode := range []Mode{Search, Recommendation} {
+		for mask := 0; mask < 8; mask++ {
+			t.Run(fmt.Sprintf("%s/kinds-%d", mode, mask), func(t *testing.T) {
+				e, source, _ := engineFixture()
+				source.owner.Clauses = []string{"design"}
+				want := map[Kind]bool{}
+				for i, kind := range AllKinds {
+					if mask&(1<<i) != 0 {
+						source.docs = append(source.docs, Document{Ref: SourceRef{kind, 9}, AuthorID: 2, Version: "1", Text: "design", Active: true, Visible: true, Lexical: 10})
+						want[kind] = true
+					}
+				}
+				request := Request{SourceKinds: AllKinds, Limit: 20}
+				if mode == Search {
+					request.Query = "design"
+				}
+				x, err := e.Execute(context.Background(), 1, request, mode, 100)
+				if err != nil || len(x.Candidates) != len(want) {
+					t.Fatal("empty route blocked merge", x, err)
+				}
+				for _, candidate := range x.Candidates {
+					if !want[candidate.Document.Ref.Type] {
+						t.Fatal(candidate)
+					}
+				}
+				if mask == 0 && (x.Status != "no_match" || x.Candidates == nil) {
+					t.Fatal("all-empty must remain a successful empty result", x)
+				}
+			})
+		}
+	}
+}

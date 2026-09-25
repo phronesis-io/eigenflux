@@ -12,7 +12,7 @@ import (
 )
 
 // Legacy pages retain one frozen impression and absolute sample positions.
-func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, action string) (*feed.FetchFeedResp, error) {
+func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, action string, limit int) (*feed.FetchFeedResp, error) {
 	out := &feed.FetchFeedResp{Items: []*feed.FeedItem{}, HasMore: false, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}
 	prepare := func(ctx context.Context, x *discovery.Execution) error {
 		if len(x.Candidates) == 0 {
@@ -44,14 +44,15 @@ func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, a
 			}
 		}
 		x.Candidates = candidates
-		out.Items = s.buildFeedItems(ctx, owner, ids, m)
-		if len(out.Items) != len(ids) {
+		items := s.buildFeedItems(ctx, owner, ids, m)
+		if len(items) != len(ids) {
 			return discovery.Failure(503, "item_hydration_failed")
 		}
+		out.Items = append(out.Items, items...)
 		return nil
 	}
 	service := delivery.Service{Redis: db.RDB, IDs: s.impressionIDGen, Executor: sortExecutor{}, StreamMaxLen: s.config.MqStreamMaxLen, DisableDedup: s.config.ShouldDisableDedup()}
-	r, hasMore, err := service.ServePage(ctx, owner, action, prepare)
+	r, hasMore, err := service.ServePage(ctx, owner, action, limit, prepare)
 	if err != nil {
 		out.Items = []*feed.FeedItem{}
 		out.BaseResp = &base.BaseResp{Code: 503, Msg: "discovery unavailable"}

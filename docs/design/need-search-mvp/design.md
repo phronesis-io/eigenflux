@@ -17,7 +17,7 @@ There are two public modes: **query search** and **automatic search**. Structure
 flowchart TD
     Q[Query plus explicit filters] --> G[CLI and existing/new Gateway routes]
     A[Daily automatic search] --> G
-    N[Captured NeedInputs and current normalized projections] --> G
+    N[Captured NeedInputs and current normalized projections] --> C
     G --> C[Sort: context compiler]
     C --> NS[(PostgreSQL context store and current owner context)]
     C --> P[One planner and effective filter contract]
@@ -35,8 +35,8 @@ flowchart TD
     HY --> H[Hard constraint evaluator]
     H --> U[Independent rule scorers by kind]
     U --> Y[Existing policy adapters and deterministic merge]
-    Y --> F[Feed: assemble response and cache if requested]
-    F --> O[Query list or automatic zero/one result]
+    Y --> F[Feed: search snapshot pagination or recommendation response]
+    F --> O[Search page or recommendations up to requested limit]
     F -.-> HR[Background history and claim writes]
     F -.-> L[Background replay stream publication and typed-aware consumer]
     L --> DB[(Same replay_logs table)]
@@ -69,8 +69,8 @@ HTTP IDs are decimal strings; internal IDs are `i64/BIGINT`; stored timestamps a
 
 | Route | Input and purpose | CLI facade |
 |---|---|---|
-| `POST /api/v2/discovery/search` | Exactly one of `query`, `need_id`, or inline `need`; optional kinds, explicit filters, limit | `search <query> --types ...` |
-| `POST /api/v2/discovery/recommendations` | Automatic mode, optional kinds/owned Need IDs; no query required | Existing daily feed/poll facade; `recommend --types ...` |
+| `POST /api/v2/discovery/search` | Exactly one of `query`, `need_id`, or inline `need`; optional kinds, explicit filters, page limit and cursor | `search <query> --types ...` |
+| `POST /api/v2/discovery/recommendations` | Automatic mode, optional kinds/owned Need IDs and limit; no query required | Existing daily feed/poll facade; `recommend --types ...` |
 | `GET /api/v2/taxonomy/search` | Phrase plus optional category/subtype; top 10, maximum 20 | `taxonomy search <phrase>` |
 
 Need selection and inline Need payloads are internal integration controls, not CLI
@@ -109,7 +109,7 @@ For `need_id` or inline `need`, use the structured Need's target/constraints; re
 
 ### 2.3 Automatic search and fallback
 
-Automatic mode defaults to all kinds on the unified API. Existing typed routes constrain kinds before selecting contexts. Select at most five eligible nonexpired NeedInputs, ordered by optional priority (default 0), input creation time descending, then input ID ascending. Explicit `need_ids` must be owned, active, in scope, and bounded; invalid IDs are errors. Return zero or one discovery result across the selected contexts/kinds.
+Automatic mode defaults to all kinds on the unified API. Existing typed routes constrain kinds before selecting contexts. Select at most five eligible nonexpired NeedInputs, ordered by optional priority (default 0), input creation time descending, then input ID ascending. Explicit `need_ids` must be owned, active, in scope, and bounded; invalid IDs are errors. Return at most the requested limit across the selected contexts/kinds (default 20, maximum 100); fewer eligible candidates remain a smaller response.
 
 | Situation | Execution | Observable result |
 |---|---|---|
@@ -156,7 +156,7 @@ Baseline is a last-resort automatic broadcast list with current availability, vi
 
 Broadcasts additionally retain `item_id == source_ref.id`. Commission/Agent results never invent broadcast `item_id`. Include `need_id/need_revision` only for an actual structured Need; all inputs have an immutable compiled `context_id`. An automatic multi-context result carries the selected context on the result and a compact selection summary. Public previews use existing disclosure limits and public DTOs. Scores/diagnostics are internal unless an explicit debugging surface permits them; field-match summaries are deterministic facts, not generated explanations.
 
-Successful empty `result_status` is `no_match`, `below_threshold`, `exhausted`, or `insufficient_context`. Baseline success is identified by origin/fallback fields, not hidden inside ordinary personalization. Optional channel failure is partial; required failure is an error. Field errors contain `{path,reason,allowed_values?}` under `data.errors`; numeric API codes follow the existing registry. Unified APIs have no pagination; `has_more=false` promises no continuation, not complete corpus exhaustion.
+Successful empty `result_status` is `no_match`, `below_threshold`, `exhausted`, or `insufficient_context`. Baseline success is identified by origin/fallback fields, not hidden inside ordinary personalization. Optional channel failure is partial; required failure is an error. Field errors contain `{path,reason,allowed_values?}` under `data.errors`; numeric API codes follow the existing registry. Unified search returns an opaque `next_cursor` and `has_more`. Continue with the original request plus that cursor; query, kinds, filters, defaults and page size stay fixed. Feed retains an owner-scoped frozen ranking of at most 200 eligible candidates for 24 hours. Cursor retries replay the same page without duplicate exposures; only delivered rows are sampled at absolute positions under the original impression. Expired/foreign cursors return 410 and changed request fields return 409. Recommendation responses have no cursor. `has_more=false` describes snapshot exhaustion, not complete corpus exhaustion.
 
 ### 2.5 Existing routes: direct replacement, compatible adapters
 
@@ -164,7 +164,7 @@ At cutover all affected discovery routes call the new execution path by default;
 
 | Existing surface | Adapter behavior |
 |---|---|
-| V1 item Feed and existing V2 Feed poll | Automatic, broadcast-only; Needs → owner context → baseline; at most one discovery result per response |
+| V1 item Feed and existing V2 Feed poll | Automatic, broadcast-only; Needs → owner context → baseline; up to the requested limit per response |
 | V1/V2 commission recommendations | Automatic, commission-only; carry existing explicit range filters; no arbitrary baseline |
 | V1/V2 commission query search | Query, commission-only; existing query and numeric filters enter the common context |
 | Commission exact `commission_id` lookup | Preserve existing exact zero/one ES lookup and active/range constraints; skip embedding and relevance gate; retain this compatibility-only boundary |
@@ -173,7 +173,7 @@ At cutover all affected discovery routes call the new execution path by default;
 
 Old commission `min/max_price_fen` and duration-range arguments compile into optional inclusive range predicates and intersect with any relevant hard constraint. Preserve zero versus absence and reject contradictory bounds. Duration ranges remain durations; a new absolute deadline adds `now+duration<=deadline`, not a reinterpretation of an old parameter. Keep existing parameter acceptance where possible; unified search caps at 50, existing commission search keeps its documented limit up to 100 in the adapter with a separately bounded candidate/hydration budget.
 
-Preserve legacy Feed cursor/`has_more`/`load_more` semantics using a new pipeline-namespaced bounded cache of ranked candidates and frozen context references. Each automatic response returns at most one discovery item; remaining prefetched eligible candidates may form later pages. Pages retain their Need/ranking snapshot and use the existing item detail lookup during assembly; skip missing/non-completed candidates without an extra Sort validation RPC. Record only returned items, with the original impression and absolute positions across that page lifecycle. Need edits/closure affect new executions rather than invalidating frozen pages. Clear or isolate old pipeline pages at cutover; never mix generations within one impression. Unified APIs do not expose this compatibility-only pagination.
+Preserve legacy Feed cursor/`has_more`/`load_more` semantics using a new pipeline-namespaced bounded cache of ranked candidates and frozen context references. Each automatic response honors the requested limit (default 20, maximum 100); remaining prefetched eligible candidates may form later pages, with at most 200 cached candidates. Pages retain their Need/ranking snapshot and use the existing item detail lookup during assembly; skip missing/non-completed candidates without an extra Sort validation RPC. Record only returned items, with the original impression and absolute positions across that page lifecycle. Need edits/closure affect new executions rather than invalidating frozen pages. Clear or isolate old pipeline pages at cutover; never mix generations within one impression. Unified search uses its separate opaque-cursor snapshot; it does not share the legacy Feed page cache.
 
 A server-controlled rollback switch can restore old route implementations operationally; it is not the normal fallback policy and must report actual pipeline/scorer versions. No production action is performed by this document task.
 
@@ -452,7 +452,7 @@ Cutover sequence: additive storage/mappings → verified three-kind projections 
 | Rules | Reviewed fixtures for every kind/mode; no legacy LR invocation; missing features; separate baseline/exact score kinds; per-kind independent versions |
 | Policies/history | No relevance bypass; query only within-request dedup; preserved automatic history; nonbroadcast IDs isolated; legacy page detail assembly |
 | Samples/CLI | Same stream/table; old/new decoding; nullable typed identity; consumer-first gate; exact context joins; old labels preserved; no rows for rejected/empty results |
-| Replacement | Existing routes/auth/range/exact-lookup contracts; old CLI compatibility; maximum-one automatic delivery; cursor/absolute positions preserved; no stale pre-cutover pages |
+| Replacement | Existing routes/auth/range/exact-lookup contracts; old CLI compatibility; requested-limit automatic delivery without padding; cursor/absolute positions preserved; no stale pre-cutover pages |
 | Load/failure | Warm/cold embeddings, maximum contexts/kinds/candidates, source authority failure, partial channels, cancellations, bounded retries and hydration |
 
 Implementation must use repository IDL/codegen, build, local service, package/E2E, and separate CLI/console checks for changed modules. This revision edits documentation only and makes no claim that future code tests have passed. No production deployment is authorized.
