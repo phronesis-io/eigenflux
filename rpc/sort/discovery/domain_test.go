@@ -2,10 +2,12 @@ package discovery
 
 import (
 	"context"
+	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -113,30 +115,37 @@ func TestInputModesAndTypedBounds(t *testing.T) {
 		t.Fatal("trailing JSON")
 	}
 }
-func TestCompilerNoInventedTargetAndAtomicEmbeddingFailure(t *testing.T) {
+func TestCompilerConsumesNormalizedNeedWithoutInventedFilters(t *testing.T) {
 	cc := Compiler{Taxonomy: vocabulary(), Embedder: embedStub{}, EmbeddingVersion: "test"}
-	c, err := cc.Query(context.Background(), 10, 1, 1000, Request{Query: "landing page", SourceKinds: []Kind{Broadcast}}, "query")
+	snapshot := capturedFixture(42, Agent)
+	snapshot.Normalized.CandidateNeeds = []string{"landing page"}
+	snapshot.Normalized.MappedNeeds = map[string]string{"landing page": "landing"}
+	snapshot.TaxonomyVersion = cc.Taxonomy.Version
+	c, err := cc.Need(context.Background(), 10, 2, 1000, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Filters.Category != "" || c.Need != nil || c.Origin != "query" {
-		t.Fatalf("inferred hard target: %+v", c)
+	if c.Filters.Category != "" || len(c.Filters.Lang) != 0 || c.Persistence != "ephemeral" || !reflect.DeepEqual(c.SoftIntents, []string{"landing"}) || c.NeedID() != 42 {
+		t.Fatalf("wrong normalized context: %+v", c)
 	}
-	need := NeedInput{NeedType: "find_people", Priority: .8, Target: Target{Category: "design", Subtype: "web", FreeText: "landing page designer", ProposedIntents: []string{"landing page"}}, Outcome: "Find a collaborator"}
-	n, err := cc.Need(context.Background(), 10, 2, 1000, need, []string{"zh"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(n.Filters.Lang) != 0 || len(n.Filters.ProviderRegion) != 0 || n.Persistence != "saved" || !reflect.DeepEqual(n.SoftIntents, []string{"landing"}) {
-		t.Fatalf("wrong defaults: %+v", n)
+	snapshot.TaxonomyVersion = "older-vocabulary"
+	stale, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
+	if err != nil || len(stale.SoftIntents) != 0 || !strings.Contains(strings.Join(stale.Warnings, ","), "need_mapping_unavailable") {
+		t.Fatal("stale mapping reused", stale, err)
 	}
 	cc.Embedder = embedStub{errors.New("down")}
-	if _, err := cc.Need(context.Background(), 10, 2, 1000, need, nil, true); err == nil {
-		t.Fatal("incomplete saved Need accepted")
-	}
-	partial, err := cc.Query(context.Background(), 10, 3, 1000, Request{Query: "design", SourceKinds: []Kind{Agent}}, "query")
+	partial, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
 	if err != nil || len(partial.Warnings) == 0 {
-		t.Fatal("raw query partial path not observable")
+		t.Fatal("captured Need lost lexical fallback", err)
+	}
+	snapshot.Normalized.UnresolvedConstraints = need.UnresolvedConstraints{Lang: []string{"unknown-language"}}
+	if _, err := cc.Need(context.Background(), 10, 4, 1000, snapshot); err == nil {
+		t.Fatal("unresolved explicit restriction was dropped")
+	}
+	snapshot.Normalized.UnresolvedConstraints = need.UnresolvedConstraints{}
+	snapshot.Normalized.Constraints.DeadlineMS = num(900)
+	if _, err := cc.Need(context.Background(), 10, 4, 1000, snapshot); err == nil {
+		t.Fatal("expired Need accepted")
 	}
 }
 func TestIndependentRulesAndMerge(t *testing.T) {
@@ -187,6 +196,23 @@ func TestEveryMonetaryBoundRequiresCurrency(t *testing.T) {
 		f.Currency = "CNY"
 		if err := ValidateFilters(f, []Kind{Commission}, 100); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestInlineNeedUsesCaptureJSONValidation(t *testing.T) {
+	valid := `{"schema_version":"need_input.v1","intent_id":"42","intent_version":1,"need_type":"agent","target":{"desc":"designer","candidate_needs":["design"]}}`
+	if _, err := Decode[Request]([]byte(`{"need":` + valid + `}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		strings.Replace(valid, `"need_type":"agent"`, `"need_type":"agent","need_type":"broadcast"`, 1),
+		strings.Replace(valid, `"intent_id":"42"`, `"intent_id":"042"`, 1),
+		strings.Replace(valid, `"target":`, `"priority":null,"target":`, 1),
+		strings.Replace(valid, `"target":`, `"constraints":{"lang":null},"target":`, 1),
+	} {
+		if _, err := Decode[Request]([]byte(`{"need":` + bad + `}`)); err == nil {
+			t.Fatalf("accepted %s", bad)
 		}
 	}
 }

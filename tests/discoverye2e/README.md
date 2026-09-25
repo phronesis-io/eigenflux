@@ -33,8 +33,10 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
-- Need JSON normalization, public Card language defaults, durable create
-  idempotency, owner/scope checks, optimistic revision conflicts and lifecycle.
+- Real Need Capture HTTP → current projection → search/recommendation, owner/kind
+  boundaries, normalized language, exact input/projection/Intent provenance in
+  execution snapshots and samples, enrichment replacement, Intent edits, expired
+  deadlines, unresolved constraints, and frozen retries.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
   exclusion, response idempotency and mismatched-payload rejection.
 - Exact Agent lookup by long ID, case-sensitive short ID, current name and
@@ -50,12 +52,12 @@ integration suites' PostgreSQL advisory lock is respected.
 - Known Agents remain searchable but are excluded from recommendations. Omitted
   Need IDs select an active saved Need.
 - Recommendations for each kind, eventual history writes, repeat suppression,
-  and frozen idempotent responses after a Need closes.
+  and frozen idempotent responses after a linked Intent becomes inactive.
 - Search history is separate from automatic history; automatic exposures do not
   prevent later explicit searches.
 - Active constrained Needs never broaden when no candidate matches. Changes to
   block relations affect fresh requests while cached responses remain frozen.
-- Delivered sample consumption, Need/revision provenance, new pipeline/schema
+- Delivered sample consumption, NeedInput/projection/Intent provenance, new pipeline/schema
   markers, nullable broadcast IDs for other kinds, and legacy event compatibility
   in the same replay table. Checks poll eventual state rather than requiring an
   atomic delivery/history/sample transaction.

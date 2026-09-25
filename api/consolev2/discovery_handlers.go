@@ -31,21 +31,6 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 			if len(raw) == 0 {
 				raw = []byte("{}")
 			}
-			if operation == "need_list" {
-				p := map[string]any{"state": c.Query("state")}
-				if v := c.Query("cursor"); v != "" {
-					p["cursor"] = v
-				}
-				if v := c.Query("limit"); v != "" {
-					n, e := strconv.Atoi(v)
-					if e != nil {
-						discoveryHTTP(c, transport.Response(nil, discovery.Invalid("limit", "invalid")))
-						return
-					}
-					p["limit"] = n
-				}
-				raw, _ = json.Marshal(p)
-			}
 			if operation == "taxonomy" {
 				p := map[string]any{"query": c.Query("query"), "category": c.Query("category"), "subtype": c.Query("subtype")}
 				if v := c.Query("limit"); v != "" {
@@ -57,15 +42,6 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 					p["limit"] = n
 				}
 				raw, _ = json.Marshal(p)
-			}
-			id := int64(0)
-			if v := c.Param("id"); v != "" {
-				var e error
-				id, e = strconv.ParseInt(v, 10, 64)
-				if e != nil || id <= 0 {
-					discoveryHTTP(c, transport.Response(nil, discovery.Invalid("id", "invalid")))
-					return
-				}
 			}
 			serving := operation == "search" || operation == "recommendation"
 			if serving {
@@ -79,7 +55,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 					commissionScope = commissionScope || k == discovery.Commission
 				}
 				if r.Need != nil {
-					commissionScope = discovery.NeedKind(r.Need.NeedType) == discovery.Commission
+					commissionScope = discovery.Kind(r.Need.NeedType) == discovery.Commission
 				}
 				if commissionScope && !access.Allows(owner) {
 					discoveryHTTP(c, transport.Response(nil, discovery.Failure(403, "commission_access_denied")))
@@ -87,7 +63,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 				}
 			}
 			key := string(c.GetHeader("Idempotency-Key"))
-			req := &sortapi.DiscoveryReq{AgentId: owner, Operation: operation, Payload: string(raw), ResourceId: &id, IdempotencyKey: &key}
+			req := &sortapi.DiscoveryReq{AgentId: owner, Operation: operation, Payload: string(raw), IdempotencyKey: &key}
 			var resp *sortapi.DiscoveryResp
 			var err error
 			if serving {
@@ -110,7 +86,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, sortClient sortservice.Clie
 			discoveryHTTP(c, resp)
 		}
 	}
-	for _, r := range []struct{ method, path, op, scope string }{{"POST", "/api/v2/discovery/search", "search", "feed:read"}, {"POST", "/api/v2/discovery/recommendations", "recommendation", "feed:read"}, {"GET", "/api/v2/taxonomy/search", "taxonomy", "feed:read"}, {"POST", "/api/v2/needs", "need_create", "context:write"}, {"GET", "/api/v2/needs", "need_list", "context:read"}, {"GET", "/api/v2/needs/:id", "need_get", "context:read"}, {"PUT", "/api/v2/needs/:id", "need_update", "context:write"}, {"POST", "/api/v2/needs/:id/state", "need_state", "context:write"}} {
+	for _, r := range []struct{ method, path, op, scope string }{{"POST", "/api/v2/discovery/search", "search", "feed:read"}, {"POST", "/api/v2/discovery/recommendations", "recommendation", "feed:read"}, {"GET", "/api/v2/taxonomy/search", "taxonomy", "feed:read"}} {
 		h.Handle(r.method, r.path, s.agentAuth(r.scope), s.requireCompleted, handler(r.op))
 	}
 }

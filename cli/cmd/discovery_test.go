@@ -50,8 +50,8 @@ func TestDiscoveryFilePreservesLargeMoney(t *testing.T) {
 	}
 }
 
-// Exercise the registered tree: duplicate roots silently hide one command family.
-func TestNeedCaptureAndDiscoveryShareOneRoot(t *testing.T) {
+// The capture root is the only Need authoring surface.
+func TestNeedCaptureIsTheOnlyNeedLifecycle(t *testing.T) {
 	var needs []*cobra.Command
 	for _, command := range rootCmd.Commands() {
 		if command.Name() == "need" {
@@ -61,7 +61,10 @@ func TestNeedCaptureAndDiscoveryShareOneRoot(t *testing.T) {
 	if len(needs) != 1 {
 		t.Fatalf("need roots: %d", len(needs))
 	}
-	for _, path := range [][]string{{"input", "create"}, {"input", "get"}, {"input", "list"}, {"create"}, {"update"}, {"get"}, {"list"}, {"pause"}, {"resume"}, {"close"}} {
+	if children := needs[0].Commands(); len(children) != 1 || children[0].Name() != "input" {
+		t.Fatal("parallel discovery Need lifecycle still registered")
+	}
+	for _, path := range [][]string{{"input", "create"}, {"input", "get"}, {"input", "list"}} {
 		command, rest, err := needs[0].Find(path)
 		if err != nil || len(rest) != 0 || command.Name() != path[len(path)-1] || command.RunE == nil {
 			t.Fatalf("need %v is unreachable: %v, %v", path, rest, err)

@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/need"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -13,9 +14,7 @@ import (
 )
 
 type ContextStore interface {
-	Get(context.Context, int64, int64, bool) (Context, error)
-	Create(context.Context, Context, string) (Context, error)
-	Active(context.Context, int64, []Kind, int64) ([]Context, error)
+	Create(context.Context, Context) (Context, error)
 }
 type IDGenerator interface{ NextID() (int64, error) }
 type OwnerContext struct {
@@ -31,6 +30,7 @@ type Sources interface {
 }
 type Engine struct {
 	Compiler *Compiler
+	Needs    NeedReader
 	Store    ContextStore
 	IDs      IDGenerator
 	Sources  Sources
@@ -48,7 +48,11 @@ type Execution struct {
 
 func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode, now int64) ([]Context, string, error) {
 	if mode == Search && r.NeedID != 0 {
-		c, err := e.Store.Get(ctx, owner, r.NeedID, true)
+		snapshot, err := e.Needs.Current(ctx, owner, r.NeedID)
+		if err != nil {
+			return nil, "", needError(err)
+		}
+		c, err := e.needContext(ctx, owner, now, snapshot)
 		if err != nil {
 			return nil, "", err
 		}
@@ -70,7 +74,11 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 					return nil, "", Invalid("need_ids", "duplicate")
 				}
 				seen[id] = true
-				c, err := e.Store.Get(ctx, owner, id, true)
+				snapshot, err := e.Needs.Current(ctx, owner, id)
+				if err != nil {
+					return nil, "", needError(err)
+				}
+				c, err := e.needContext(ctx, owner, now, snapshot)
 				if err != nil {
 					return nil, "", err
 				}
@@ -81,12 +89,24 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 			}
 			return out, "", nil
 		}
-		active, err := e.Store.Active(ctx, owner, r.SourceKinds, now)
+		kinds := make([]string, len(r.SourceKinds))
+		for i, kind := range r.SourceKinds {
+			kinds[i] = string(kind)
+		}
+		active, err := e.Needs.Active(ctx, owner, kinds, now)
 		if err != nil {
 			return nil, "", err
 		}
 		if len(active) > 0 {
-			return active, "", nil
+			out := make([]Context, 0, len(active))
+			for _, snapshot := range active {
+				c, err := e.needContext(ctx, owner, now, snapshot)
+				if err != nil {
+					return nil, "", err
+				}
+				out = append(out, c)
+			}
+			return out, "", nil
 		}
 	}
 	if mode == Search {
@@ -96,17 +116,17 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 		}
 		var c Context
 		if r.Need != nil {
-			if r.KindsExplicit && (len(r.SourceKinds) != 1 || r.SourceKinds[0] != NeedKind(r.Need.NeedType)) {
+			if r.KindsExplicit && (len(r.SourceKinds) != 1 || r.SourceKinds[0] != Kind(r.Need.NeedType)) {
 				return nil, "", Invalid("source_kinds", "need_kind_mismatch")
 			}
-			var ownerInfo OwnerContext
-			if r.Need.Defaults.Language == "card" {
-				ownerInfo, err = e.Sources.Owner(ctx, owner)
-				if err != nil {
-					return nil, "", err
-				}
+			n, normalizeErr := need.NormalizeBasic(*r.Need)
+			if normalizeErr != nil {
+				return nil, "", Invalid("need", normalizeErr.Error())
 			}
-			c, err = e.Compiler.Need(ctx, owner, id, now, *r.Need, ownerInfo.Languages, false)
+			if err = e.Needs.CheckIntent(ctx, owner, r.Need.IntentID, r.Need.IntentVersion); err != nil {
+				return nil, "", needError(err)
+			}
+			c, err = e.Compiler.Need(ctx, owner, id, now, need.Snapshot{Input: *r.Need, Normalized: n, IntentID: r.Need.IntentID, IntentVersion: r.Need.IntentVersion, NormalizerVersion: need.BasicNormalizerVersion, MappingStatus: need.MappingUnmapped})
 			if err != nil {
 				return nil, "", err
 			}
@@ -116,8 +136,7 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 				return nil, "", err
 			}
 		}
-		c, err = e.Store.Create(ctx, c, "")
-		return []Context{c}, "", err
+		return []Context{c}, "", nil
 	}
 	info, err := e.Sources.Owner(ctx, owner)
 	if err != nil {
@@ -149,10 +168,6 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 			return nil, "", err
 		}
 		c.SourceRevision = info.Revision
-		c, err = e.Store.Create(ctx, c, "")
-		if err != nil {
-			return nil, "", err
-		}
 		out = append(out, c)
 	}
 	return out, reason, nil
@@ -211,7 +226,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	if mode == Recommendation && !emptyFilters(r.Filters) {
 		for i, c := range contexts {
-			if c.Persistence != "saved" {
+			if c.CapturedNeed == nil {
 				continue
 			}
 			filters, err := IntersectFilters(c.Filters, r.Filters)
@@ -221,17 +236,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if err = ValidateFilters(filters, c.Kinds, now); err != nil {
 				return x, err
 			}
-			c.SourceNeedID, c.SourceNeedRevision = c.ID, c.Revision
-			id, err := e.IDs.NextID()
-			if err != nil {
-				return x, err
-			}
-			c.ID = id
-			c.Revision = 1
-			c.Persistence = "ephemeral"
-			c.CreatedAt = now
-			c.UpdatedAt = now
-			c.ExpiresAt = now + 30*86400000
 			c.Filters = filters
 			origins := map[string]string{}
 			for field, origin := range c.Origins {
@@ -248,11 +252,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			c.Origins = origins
 			c.SpecHash = hashContext(c)
-			c, err = e.Store.Create(ctx, c, "")
-			if err != nil {
-				return x, err
-			}
 			contexts[i] = c
+		}
+	}
+	for i, c := range contexts {
+		contexts[i], err = e.Store.Create(ctx, c)
+		if err != nil {
+			return x, err
 		}
 	}
 	x.Contexts = contexts

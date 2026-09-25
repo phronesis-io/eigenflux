@@ -17,7 +17,7 @@ The reference is [the architecture proposal](https://pcnlty6lw65j.feishu.cn/docx
 
 | Area | MVP boundary |
 |---|---|
-| Top-level interfaces | Agent-based automatic search, raw-query search, structured Need CRUD, taxonomy lookup, existing-route adapters, CLI |
+| Top-level interfaces | Agent-based automatic search, raw-query search, captured Need selection, taxonomy lookup, existing-route adapters, CLI |
 | 3.1 Compiler | Normalize structured Need, raw query, or bounded Agent context into an executable search context; rule validation, taxonomy lookup, existing embeddings |
 | 3.2 State | Explicit active/paused/completed/expired Needs; no dialogue or authority engine |
 | 3.3 Planner | Deterministic per-kind templates, bounded fan-out, shared hard-filter semantics |
@@ -33,7 +33,7 @@ Excluded: reverse/percolator matching, content-event fan-out, offline enrichment
 
 ### 2.1 Three kinds with independent evolution
 
-Use `find_info → broadcast`, `find_service → commission`, and `find_people → agent` as the default primary-kind mapping. An explicit query can select one or multiple kinds. The unified API defaults to all three; existing broadcast/commission routes stay restricted to their current kind.
+Use the shared NeedInput `need_type` values `broadcast`, `commission`, and `agent`. An explicit query can select one or multiple kinds. The unified API defaults to all three; existing broadcast/commission routes stay restricted to their current kind.
 
 Do not compare uncalibrated rule scores between kinds. Query results are ordered within each kind and combined by a deterministic quota/order policy. Automatic search selects the highest-priority qualifying Need, with stable ties. Broadcast may adopt a learned model in a later release while commission and Agent scoring remain rules. No requirement couples model architecture, parameter count, release date, or version across kinds. The MVP adds no model training or serving work.
 
@@ -60,7 +60,7 @@ These are concrete implementation defaults for the owner's “basic fallback” 
 
 ### 3.1 Daily automatic search
 
-The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five of at most ten active Needs, or uses the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers zero or one result. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
+The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five eligible captured Needs, or uses the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers zero or one result. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
 
 ### 3.2 Query search
 
@@ -70,13 +70,21 @@ Results can repeat across requests. Within a response, collapse duplicate typed 
 
 ### 3.3 Save and maintain a precise Need
 
-The Agent optionally submits one structured Need with original wording, outcome, target, priority, and explicit conditions. The compiler returns a normalized executable Need or field-level repair errors. The Agent can update, pause, resume, or complete it. Deadline expiry stops execution, and revision checks prevent stale edits. Card changes do not silently change explicit Need constraints.
+The Agent captures a `need_input.v1` interpretation of a confirmed Intent using
+`need input create`. The existing normalizer stores original and derived values
+separately. Search accepts the returned `need_input_id`; automatic discovery
+selects eligible current projections. After an Intent edit, capture a new input
+against its current version. There is no parallel update/pause/close API in Sort.
 
-Do not inherit provider location from owner geography. Language inheritance is opt-in; owner/self exclusion is mandatory. Missing evidence for an explicit hard condition rejects the candidate. An Agent match cannot certify a price or delivery promise absent a real service catalogue.
+Explicit normalized constraints stay hard. Unmapped candidate phrases remain
+searchable; unknown language/region constraints produce an explicit error rather
+than being dropped. Omitted priority sorts as 0 without copying Intent priority.
+Deadline expiry stops fresh execution. Capture remains available without
+embedding, ES or Redis. Cached serving responses retain their original snapshot.
 
 ### 3.4 Find a person
 
-`find_people` or query kind `agent` searches public Agent capability/Card content. The server checks discoverability, self/block/relationship restrictions, and activity according to existing domain rules, then returns a public Card reference. Recommending a person does not send a PM, request friendship, or mutate a relationship. Private owner geography is not silently indexed as provider geography.
+Need type or query kind `agent` searches public Agent capability/Card content. The server checks discoverability, self/block/relationship restrictions, and activity according to existing domain rules, then returns a public Card reference. Recommending a person does not send a PM, request friendship, or mutate a relationship. Private owner geography is not silently indexed as provider geography.
 
 ### 3.5 Feedback and attribution
 
@@ -86,7 +94,7 @@ Broadcast feedback keeps existing event meanings and queue behavior. Preserve ex
 
 | ID | Requirement | Evidence |
 |---|---|---|
-| F01 | Owned operations and context | Another Agent cannot read/update a Need or search using another owner's private context |
+| F01 | Owned operations and context | Another Agent cannot read/use a Need or search using another owner's private context |
 | F02 | Two first-class entry modes | Raw query works without taxonomy/Need authoring; existing daily feed works without saved Needs |
 | F03 | All three source kinds | Broadcast, commission, and public Agent results are hydrated and represented by typed IDs |
 | F04 | Input provenance | Saved Need, inline Need, query, Agent context, and baseline are distinguishable in snapshots |
@@ -113,7 +121,7 @@ Track errors separately from empty results; candidate/filter yields by kind/chan
 
 ## 6. Reuse and required changes
 
-Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Add one context store for saved Needs and ephemeral searches, plus revisioned caches and normalized slot fields. Avoid making a new microservice deployment.
+Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs`, `normalized_needs` and `current_normalized_needs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and normalized slot fields. Avoid making a new microservice deployment.
 
 People search needs a new rebuildable public Agent projection because no equivalent Need-based Agent index was verified in the repository. Use the existing ES cluster with a separate small Agent index and the existing Card/domain source; never mix Agent documents into item indices. This is the minimum additional kind-specific index, not a new infrastructure platform. Its update/source contract is part of online design; a general offline feature/index platform is not.
 
@@ -124,7 +132,7 @@ Reusing `replay_logs` for three types requires typed identity metadata and nulla
 | Slice | Outcome |
 |---|---|
 | A. Input/contracts | Query and automatic interfaces, context compiler, accepted decision record, fallback matrix |
-| B. Structured Needs | Taxonomy asset/lookup, optional Need CRUD, bounded persistence and revision consistency |
+| B. Structured Needs | Taxonomy asset/lookup, current captured-Need readers, bounded execution snapshots and exact provenance |
 | C. Typed retrieval | Broadcast/commission adapters; public Agent projection and adapter; uniform hard checks |
 | D. Rules/policies | Three independently configured rule scorers, reviewed examples, migrated dedup/policy behavior |
 | E. Serving/samples | Source hydration, existing-route replacement, exact CLI attribution, typed replay consumers/readers |

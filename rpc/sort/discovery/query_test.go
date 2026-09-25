@@ -117,8 +117,8 @@ func TestCompilerFreezesAnalysisWithoutRewritingFilters(t *testing.T) {
 	require.Equal(t, r.Filters.ExcludeTerms, c.Filters.ExcludeTerms)
 	row, err := encode(c)
 	require.NoError(t, err)
-	back, err := decode(row)
-	require.NoError(t, err)
+	var back Context
+	require.NoError(t, json.Unmarshal([]byte(row.Compiled), &back))
 	require.Equal(t, c.QueryAnalysis, back.QueryAnalysis)
 	before := c.SpecHash
 	c.QueryAnalysis.Version = "next"

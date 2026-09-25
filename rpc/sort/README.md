@@ -16,13 +16,14 @@ the external boundaries.
 
 | File or package | Responsibility |
 | --- | --- |
-| [discovery/service.go](discovery/service.go) | Operation dispatch, Need CRUD and context selection. |
+| [discovery/service.go](discovery/service.go) | Serving/taxonomy operation dispatch. |
 | [discovery/types.go](discovery/types.go) | Typed requests, contexts, candidates and results. |
+| [discovery/need.go](discovery/need.go), [pkg/need/reader.go](../../pkg/need/reader.go) | Compile owned current Need projections; preserve input/projection/Intent provenance. |
 | [discovery/compiler.go](discovery/compiler.go) | Compile input into executable constraints. |
 | [discovery/query.go](discovery/query.go) | Query normalization, script-aware phrase matching, bounded taxonomy alias expansion and retrieval provenance. |
 | [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration. |
 | [discovery/intersect.go](discovery/intersect.go), [filter.go](discovery/filter.go), [score.go](discovery/score.go) | Constraint intersection, eligibility and rule scoring. |
-| [discovery/store.go](discovery/store.go) | PostgreSQL context ownership, revisions and idempotency. |
+| [discovery/store.go](discovery/store.go) | Immutable PostgreSQL execution snapshots and expiry. |
 | [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | ES retrieval, broadcast DB hydration, Agent/commission forward reads, and current account/relationship checks. |
 | [discovery/index/](discovery/index/) | Shared vocabulary, slot schema, normalization and versioned Redis forward storage. This leaf package is also used by index writers, without importing the execution engine. |
 | [discovery/transport/](discovery/transport/) | Shared RPC JSON response encoding and decoding. |
@@ -46,6 +47,8 @@ removable subsystem because discovery still reuses its policy adapter.
 flowchart TD
     RPC[Sort RPC: handler.go] --> D[discovery/service.go + engine.go]
     RPC --> L[legacy/pipeline.go + commission.go]
+    D --> N[pkg/need/reader.go: current_normalized_needs]
+    N --> C[discovery/need.go: execution snapshot]
     D --> S[discovery/store.go + source.go]
     D --> P[legacy/discovery_policy.go]
     L --> R[dal / ranker / lrranker / rerank]

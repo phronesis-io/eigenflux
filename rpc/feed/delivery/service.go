@@ -117,7 +117,7 @@ func responseFor(x discovery.Execution, impression string) discovery.Response {
 		if len(x.Candidates) > 0 {
 			c = x.Candidates[0].Context
 		}
-		if c.Need != nil {
+		if c.CapturedNeed != nil {
 			response.ConstraintMode = "structured_need"
 		}
 		response.Origin = c.Origin

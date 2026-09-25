@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	"fmt"
@@ -11,22 +12,29 @@ import (
 
 type memStore struct {
 	rows   map[int64]Context
-	active []Context
+	needs  map[int64]need.Snapshot
+	active []need.Snapshot
 }
 
-func (s *memStore) Get(_ context.Context, owner, id int64, _ bool) (Context, error) {
-	c, ok := s.rows[id]
-	if !ok || c.OwnerID != owner {
-		return Context{}, Failure(404, "need_not_found")
+func (s *memStore) Current(_ context.Context, owner, id int64) (need.Snapshot, error) {
+	n, ok := s.needs[id]
+	if !ok || owner != 1 {
+		return need.Snapshot{}, need.ErrNotFound
 	}
-	return c, nil
+	return n, nil
 }
-func (s *memStore) Create(_ context.Context, c Context, _ string) (Context, error) {
+func (s *memStore) CheckIntent(context.Context, int64, int64, int64) error { return nil }
+func (s *memStore) Create(_ context.Context, c Context) (Context, error) {
 	s.rows[c.ID] = c
 	return c, nil
 }
-func (s *memStore) Active(context.Context, int64, []Kind, int64) ([]Context, error) {
+func (s *memStore) Active(context.Context, int64, []string, int64) ([]need.Snapshot, error) {
 	return s.active, nil
+}
+func capturedFixture(id int64, kind Kind) need.Snapshot {
+	in := need.Input{SchemaVersion: need.InputSchemaVersion, IntentID: 40, IntentVersion: 2, NeedType: string(kind), Target: need.Target{Desc: "design", CandidateNeeds: []string{"design"}}}
+	n, _ := need.NormalizeBasic(in)
+	return need.Snapshot{InputID: id, ProjectionID: id + 1000, IntentID: 40, IntentVersion: 2, Input: in, Normalized: n, NormalizerVersion: need.BasicNormalizerVersion}
 }
 
 type countIDs int64
@@ -76,7 +84,7 @@ func (s *sourceFake) Seen(context.Context, int64, []Document) (map[string]bool, 
 }
 func engineFixture() (*Engine, *sourceFake, *memStore) {
 	s := &sourceFake{seen: map[string]bool{}}
-	store := &memStore{rows: map[int64]Context{}}
+	store := &memStore{rows: map[int64]Context{}, needs: map[int64]need.Snapshot{}}
 	ids := countIDs(100)
 	rules := Rules{}
 	for _, k := range AllKinds {
@@ -85,7 +93,7 @@ func engineFixture() (*Engine, *sourceFake, *memStore) {
 			rules[k][m] = Rule{Version: "rules", BM25Scale: 1, CosineFloor: 0, MinRelevance: .1, Threshold: .1, HalfLifeMS: 1000}
 		}
 	}
-	e := &Engine{Compiler: &Compiler{Taxonomy: &searchindex.Vocabulary{Version: "v1", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}}, Store: store, IDs: &ids, Sources: s, Rules: rules}
+	e := &Engine{Compiler: &Compiler{Taxonomy: &searchindex.Vocabulary{Version: "v1", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}}, Store: store, Needs: store, IDs: &ids, Sources: s, Rules: rules}
 	return e, s, store
 }
 
@@ -175,9 +183,10 @@ func TestEngineBaselineAndNoBroadening(t *testing.T) {
 	if err != nil || x.Status != "insufficient_context" {
 		t.Fatal(x, err)
 	}
-	need := Context{ID: 4, OwnerID: 1, State: "active", Persistence: "saved", Origin: "saved_need", Kinds: []Kind{Broadcast}, TaxonomyVersion: "v1", Filters: Filters{Category: "design", TaxonomyVersion: "v1"}}
-	store.active = []Context{need}
-	store.rows[4] = need
+	n := capturedFixture(4, Broadcast)
+	n.Normalized.Constraints.Lang = []string{"zh"}
+	store.active = []need.Snapshot{n}
+	store.needs[4] = n
 	x, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
 	if err != nil || len(x.Candidates) != 0 || x.FallbackReason != "" {
 		t.Fatal("constrained no-match broadened", x, err)
@@ -185,7 +194,7 @@ func TestEngineBaselineAndNoBroadening(t *testing.T) {
 }
 func TestEngineScopesAuthorityAndFailures(t *testing.T) {
 	e, s, store := engineFixture()
-	store.rows[7] = Context{ID: 7, OwnerID: 1, State: "active", Kinds: []Kind{Commission}, Persistence: "saved", TaxonomyVersion: "v1"}
+	store.needs[7] = capturedFixture(7, Commission)
 	if _, err := e.Execute(context.Background(), 2, Request{NeedID: 7}, Search, 100); err == nil {
 		t.Fatal("cross owner")
 	}
@@ -219,15 +228,35 @@ func TestEmptyStatusesRemainDistinct(t *testing.T) {
 
 func TestNeedSnapshotIsNotRecheckedAfterHydration(t *testing.T) {
 	e, source, store := engineFixture()
-	need := Context{ID: 7, OwnerID: 1, State: "active", Revision: 1, Kinds: []Kind{Broadcast}, Persistence: "saved", TaxonomyVersion: "v1"}
-	store.rows[7] = need
+	store.needs[7] = capturedFixture(7, Broadcast)
 	source.docs = []Document{{Ref: SourceRef{Broadcast, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10}}
-	source.onHydrate = func() { closed := need; closed.State = "closed"; closed.Revision++; store.rows[7] = closed }
+	source.onHydrate = func() { delete(store.needs, 7) }
 	x, err := e.Execute(context.Background(), 1, Request{NeedID: 7}, Search, 100)
 	if err != nil || len(x.Candidates) != 1 || x.Candidates[0].Context.Revision != 1 || source.hydrateCalls != 1 {
 		t.Fatal(x, err, source.hydrateCalls)
 	}
 	if _, err := e.Execute(context.Background(), 1, Request{NeedID: 7}, Search, 100); err == nil {
 		t.Fatal("next request accepted a closed Need")
+	}
+}
+
+func TestRecommendationIntersectsCapturedNeedWithoutChangingProvenance(t *testing.T) {
+	e, source, store := engineFixture()
+	snapshot := capturedFixture(7, Commission)
+	snapshot.Normalized.Constraints.BudgetMaxFen = num(100)
+	snapshot.Normalized.Constraints.Currency = "CNY"
+	store.needs[7] = snapshot
+	source.docs = []Document{{Ref: SourceRef{Commission, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10, PriceFen: num(60), Currency: "CNY"}}
+	request := Request{NeedIDs: []string{"7"}, SourceKinds: []Kind{Commission}, Filters: Filters{MaxPriceFen: num(50), Currency: "CNY"}}
+	x, err := e.Execute(context.Background(), 1, request, Recommendation, 100)
+	if err != nil || len(x.Candidates) != 0 || len(x.Contexts) != 1 || x.FallbackReason != "" {
+		t.Fatal(x, err)
+	}
+	c := x.Contexts[0]
+	if *c.Filters.MaxPriceFen != 50 || *c.Filters.BudgetMaxFen != 100 || c.NeedID() != 7 || c.SourceNeedRevision != 2 || c.CapturedNeed.ProjectionID != snapshot.ProjectionID {
+		t.Fatalf("intersection lost provenance: %+v", c)
+	}
+	if c.CapturedNeed.Normalized.Constraints.BudgetMaxFen != snapshot.Normalized.Constraints.BudgetMaxFen || c.SpecHash != hashContext(c) {
+		t.Fatal("source was rewritten or hash did not freeze intersection")
 	}
 }

@@ -25,18 +25,14 @@ An explicitly scoped broadcast/Agent request does not require commission access.
 | POST | `/api/v2/discovery/search` | `feed:read` | Exactly one of `query`, `need_id`, `need` |
 | POST | `/api/v2/discovery/recommendations` | `feed:read` | Optional `source_kinds`, `need_ids`, explicit `filters`/`defaults` |
 | GET | `/api/v2/taxonomy/search` | `feed:read` | `query`, optional `category`, `subtype`, `limit` |
-| POST | `/api/v2/needs` | `context:write` | Structured Need; optional `Idempotency-Key` |
-| GET | `/api/v2/needs` | `context:read` | `state`, `cursor`, `limit` (default 20, maximum 100) |
-| GET | `/api/v2/needs/:id` | `context:read` | Owned Need ID |
-| PUT | `/api/v2/needs/:id` | `context:write` | Replacement Need with `expected_revision` |
-| POST | `/api/v2/needs/:id/state` | `context:write` | `state` and `expected_revision` |
 
 Search defaults to 20, maximum 50 total results. Default kind order is
 `broadcast, commission, agent`; explicit order is preserved by round-robin
 merging. Scores from different kinds are never compared. Automatic discovery
-returns at most one result, considering at most five of ten active Needs, ordered
-by priority, update time, and ID. Explicit Need kinds must agree with the request.
-Closed Needs are terminal; pause/resume and replacement use revision CAS.
+returns at most one result, considering at most five eligible captured Needs,
+ordered by input priority (omitted means 0), input creation time descending, then
+input ID ascending. Explicit Need kinds must agree with the request. Intent
+lifecycle and version determine eligibility; there is no separate Need CRUD API.
 
 ```json
 {"query":"landing page design","source_kinds":["commission"],"limit":20,
@@ -45,12 +41,12 @@ Closed Needs are terminal; pause/resume and replacement use revision CAS.
 
 Filters apply to every requested kind. Price/delivery constraints require
 commission-only scope. Category/subtype and explicitly filtered intent IDs are
-hard; intent lists mean any overlap. `need.target.intents` and inferred query
-intents are soft. Query prose is not parsed into guaranteed price, language,
+hard; intent lists mean any overlap. Mapped Need IDs and inferred query intents are soft. Query prose is not parsed into guaranteed price, language,
 region or exclusion constraints. Missing required evidence rejects a candidate.
 Provider region never inherits owner geography. Language defaults require
-`defaults.language="card"`; structured Need defaults belong inside the Need,
-not alongside `need`/`need_id`.
+`defaults.language="card"` on raw queries/recommendations. Captured and inline
+Need forms only use their explicit normalized constraints; search does not inherit
+Card defaults for `need`/`need_id`.
 
 Explicit query searches that include Agents first resolve current database
 identity fields: decimal `agent_id`, case-sensitive five-letter `short_id`, then
@@ -154,7 +150,9 @@ recall failures are explicitly partial.
 ## Service boundaries and storage
 
 - `rpc/sort/discovery`: typed contracts, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
-- `rpc/sort/discovery/store.go`: owned saved/ephemeral contexts, CAS and durable Need-create idempotency.
+- `rpc/sort/discovery/store.go`: immutable execution snapshots and retention.
+- `pkg/need/reader.go`: owner-scoped current normalized projections, bounded selection and inline Intent checks.
+- `rpc/sort/discovery/need.go`: compile those projections into execution contexts.
 - `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with broadcast DB hydration and Agent/commission Redis forward projections.
 - `rpc/sort/discovery/index`: shared vocabulary, slot schema and projection used by query execution and index writers.
 - `rpc/sort/discovery/transport`: shared RPC JSON response codec.
@@ -173,8 +171,10 @@ decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
 `idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
 
 Migration 106 adds `discovery_contexts` and `processed_items.retrieval_slots`.
-Saved Needs and temporary searches share the context table. Vectors are stored
-separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
+Every execution stores an ephemeral snapshot; captured Needs stay in
+`need_inputs` and `normalized_needs` (migration 105). Existing saved context rows
+are not selected or mutated, and their IDs are not accepted as NeedInput IDs.
+Vectors are stored separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
 maintenance job removes expired rows in batches with a five-minute run budget.
 
 Broadcast and commission ES documents gain `retrieval_slots`; native language
@@ -295,24 +295,58 @@ idempotent. No reject/empty result creates a row or a negative label. Internal
 Feed readers restrict to broadcast Feed/recommendation samples; legacy
 feature-dependent rescue reads restrict to the legacy generation.
 
-CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need lifecycle
-commands. The ef-broadcast Skill is 0.14.20. Broadcast feedback retains existing
+CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need capture
+commands via the existing `need input` group. The ef-broadcast Skill is 0.14.21. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
 broadcast feedback. People results do not trigger messages or friend requests.
 
-## Need Capture boundary
+## Need Capture integration
 
-The Intent-linked capture API on `main` uses `/api/v2/need-inputs`,
-`need_inputs`, `normalized_needs`, and the `current_normalized_needs` view
-(migration 105). Its CLI lives under `eigenflux need input`.
-The discovery MVP currently still uses `/api/v2/needs` and
-`discovery_contexts`, with CLI commands such as `eigenflux need create`.
-These are distinct ID spaces and input schemas. Captured NeedInputs are not
-selected by discovery, and their IDs must not be passed as discovery `need_id`.
-Connecting discovery to current normalized projections remains a separate
-integration change; rebasing does not introduce a second normalization step or
-change either API's lifecycle.
+Create with `POST /api/v2/need-inputs` or `eigenflux need input create`. The
+`need_input.v1` form uses `broadcast`, `commission`, or `agent`, a confirmed
+Intent ID/version, `target.desc`, `target.candidate_needs`, and optional priority,
+preferences and constraints. See [the capture contract](api_endpoints.md#intent-linked-needinput-capture).
+
+Pass the returned **need_input_id** as search `need_id` or recommendation
+`need_ids`; it stays stable across enrichment. Do not pass `normalized_need_id`
+or `context_id`. Inline `need` / `search --file` uses the same capture form and
+validation, verifies its current owned Intent, and calls `NormalizeBasic` without
+saving a NeedInput. It creates only an execution snapshot and returns no `need_id`.
+
+`pkg/need.Store.Current` joins the owned input to `current_normalized_needs` in
+one database statement. Foreign/missing inputs return 404; inactive, superseded,
+or stale Intent-linked inputs return 409. A captured past deadline returns 409
+when explicitly requested and is excluded from automatic selection. Automatic
+selection reads up to five in-scope nonexpired rows from the same view; unmapped
+and partially mapped Needs remain eligible. A read/compile failure never counts
+as absence of Needs and cannot trigger generic fallback.
+
+Sort uses normalized description/phrases plus the input's preferences as retrieval
+text. It copies explicit normalized constraints without inferring a category,
+region, language or budget. A price of zero remains a real bound. Mapped IDs
+are soft evidence only when their taxonomy generation and IDs are recognized;
+incompatible mappings emit `need_mapping_unavailable` and retain text retrieval.
+No online enrichment, vocabulary building or generative model is added.
+Embedding failure permits lexical retrieval with `embedding_unavailable`.
+Unresolved explicit language/region alternatives return
+`unresolved_need_constraints` (409), rather than silently removing restrictions.
+
+Every request freezes input, normalization and provenance in
+`captured_need` inside the execution context and existing replay JSON. It contains
+`need_input_id`, `normalized_need_id`, Intent ID/version, normalizer/taxonomy
+versions and mapping status. Existing result/sample `need_id` means NeedInput ID;
+`need_revision` records the linked Intent version. Projection IDs are strings,
+not revisions encoded as JSON numbers. `context_id` is a new execution ID.
+Need inputs/projections are never rewritten by search. Intent edits/deletion or
+projection supersession affect the next execution, while cached responses and
+prefetched pages retain their original snapshot.
+
+```sh
+eigenflux need input create --file need.json --idempotency-key capture-20260925
+eigenflux search --need NEED_INPUT_ID --types agent
+eigenflux recommend --needs NEED_INPUT_ID --types agent
+```
 
 ## Configuration and rollout gates
 

@@ -76,9 +76,8 @@ func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 			t.Fatal("invalid request reached RPC")
 		}
 	}
-	r := ut.PerformRequest(h.Engine, "GET", "/api/v2/needs/9007199254740993", nil, ut.Header{Key: "Authorization", Value: "Bearer efv2a_discovery"}).Result()
-	if r.StatusCode() != 200 || sort.last.AgentId != 42 || sort.last.GetResourceId() != 9007199254740993 {
-		t.Fatalf("ID contract: %s", r.Body())
+	if status := ut.PerformRequest(h.Engine, "POST", "/api/v2/needs", nil).Result().StatusCode(); status != 404 {
+		t.Fatalf("duplicate Need capture route remains: %d", status)
 	}
 	if status := ut.PerformRequest(h.Engine, "POST", "/api/v2/discovery/search", nil).Result().StatusCode(); status != 401 {
 		t.Fatal(status)

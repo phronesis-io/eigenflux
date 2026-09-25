@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"encoding/hex"
 	"encoding/json"
@@ -119,6 +120,9 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 		if strings.TrimSpace(r.Query) != "" {
 			n++
 		}
+		if r.NeedID < 0 {
+			return r, Invalid("need_id", "invalid_id")
+		}
 		if r.NeedID != 0 {
 			n++
 		}
@@ -215,29 +219,23 @@ func hashContext(c Context) string {
 		Query                         string
 		Kinds                         []Kind
 		Filters                       Filters
-		Need                          *NeedInput
+		Captured                      *need.Snapshot
 		QueryAnalysis                 *QueryAnalysis
 		Taxonomy, Embedding, Compiler string
-	}{c.Query, c.Kinds, c.Filters, c.Need, c.QueryAnalysis, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
+	}{c.Query, c.Kinds, c.Filters, c.CapturedNeed, c.QueryAnalysis, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
-func (cc *Compiler) embed(ctx context.Context, c *Context, strict bool) error {
+func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 	if c.Query == "" {
 		c.SpecHash = hashContext(*c)
 		return nil
 	}
 	if cc.Embedder == nil {
-		if strict {
-			return Failure(503, "embedding_unavailable")
-		}
 		c.Warnings = append(c.Warnings, "embedding_unavailable")
 	} else {
 		v, err := cc.Embedder.GetEmbedding(ctx, c.lexicalQuery())
 		if err != nil || len(v) == 0 {
-			if strict {
-				return Failure(503, "embedding_unavailable")
-			}
 			c.Warnings = append(c.Warnings, "embedding_unavailable")
 		} else {
 			for _, x := range v {
@@ -274,7 +272,7 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 		c.SpecHash = hashContext(c)
 		return c, nil
 	}
-	if err = cc.embed(ctx, &c, false); err != nil {
+	if err = cc.embed(ctx, &c); err != nil {
 		return c, err
 	}
 	// Ambiguous dictionary terms are left to semantic document retrieval, not
@@ -290,94 +288,6 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	}
 	if len(c.SoftIntents) == 0 && origin != "baseline" {
 		metrics.DiscoveryTaxonomyMisses.WithLabelValues(origin).Inc()
-	}
-	return c, nil
-}
-func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, input NeedInput, languages []string, saved bool) (Context, error) {
-	k := NeedKind(input.NeedType)
-	if !k.Valid() {
-		return Context{}, Invalid("need_type", "unsupported")
-	}
-	if !finite(input.Priority) || input.Priority < 0 || input.Priority > 1 {
-		return Context{}, Invalid("priority", "out_of_range")
-	}
-	if !textOK(input.Target.FreeText, 2000) || !textOK(input.Outcome, 500) || validator.CalculateMultilingualLength(input.Preferences) > 500 {
-		return Context{}, Invalid("need", "invalid_text")
-	}
-	if input.Target.Category == "" || len(input.Target.ProposedIntents) == 0 || len(input.Target.ProposedIntents) > 10 || len(input.Target.Intents) > 5 {
-		return Context{}, Invalid("target", "invalid_shape")
-	}
-	for _, p := range input.Target.ProposedIntents {
-		if !textOK(p, 200) {
-			return Context{}, Invalid("target.proposed_intents", "invalid_phrase")
-		}
-	}
-	if input.Defaults.ProviderRegion != "" && input.Defaults.ProviderRegion != "none" {
-		return Context{}, Invalid("defaults.provider_region", "unsupported_inheritance")
-	}
-	if input.Defaults.Language != "" && input.Defaults.Language != "none" && input.Defaults.Language != "card" {
-		return Context{}, Invalid("defaults.language", "invalid")
-	}
-	f := input.Constraints
-	if f.Category != "" || f.Subtype != "" || len(f.Intents) > 0 {
-		return Context{}, Invalid("constraints", "target_fields_belong_in_target")
-	}
-	f.Category = input.Target.Category
-	f.Subtype = input.Target.Subtype
-	f.TaxonomyVersion = input.TaxonomyVersion
-	if len(input.Target.Intents) > 0 && input.TaxonomyVersion == "" {
-		return Context{}, Invalid("taxonomy_version", "required_with_intents")
-	}
-	if input.Defaults.Language == "card" && len(f.Lang) == 0 {
-		f.Lang = append([]string(nil), languages...)
-	}
-	c, err := cc.compileBase(owner, id, now, "inline_need", strings.Join([]string{input.Outcome, input.Target.FreeText, input.Preferences}, "\n"), []Kind{k}, f)
-	if err != nil {
-		return c, err
-	}
-	for _, intent := range input.Target.Intents {
-		if !cc.Taxonomy.Intent(intent, f.Category, f.Subtype) {
-			return c, Invalid("target.intents", "invalid_parent")
-		}
-	}
-	for _, term := range f.ExcludeTerms {
-		if searchindex.Normalize(term) == searchindex.Normalize(f.Category) || searchindex.Normalize(term) == searchindex.Normalize(f.Subtype) {
-			return c, Invalid("constraints.exclude_terms", "target_conflict")
-		}
-	}
-	if saved {
-		c.Persistence = "saved"
-		c.Origin = "saved_need"
-		c.ExpiresAt = 0
-	}
-	input.ExpectedRevision = 0
-	c.Need = &input
-	c.Priority = input.Priority
-	c.SoftIntents = append([]string(nil), input.Target.Intents...)
-	if err = cc.embed(ctx, &c, true); err != nil {
-		return c, err
-	}
-	if len(c.SoftIntents) == 0 {
-		seen := map[string]bool{}
-		for _, phrase := range input.Target.ProposedIntents {
-			v, err := cc.Embedder.GetEmbedding(ctx, phrase)
-			if err != nil {
-				return c, Failure(503, "embedding_unavailable")
-			}
-			for _, m := range cc.Taxonomy.Search(phrase, f.Category, f.Subtype, v, .80, 5) {
-				if !seen[m.ID] && len(c.SoftIntents) < 5 {
-					c.SoftIntents = append(c.SoftIntents, m.ID)
-					seen[m.ID] = true
-				}
-			}
-		}
-		if len(c.SoftIntents) == 0 {
-			c.Warnings = append(c.Warnings, "intents_unmapped")
-			metrics.DiscoveryTaxonomyMisses.WithLabelValues(c.Origin).Inc()
-		}
-	}
-	if input.Defaults.Language == "card" && len(input.Constraints.Lang) == 0 {
-		c.Origins["lang"] = "card_default"
 	}
 	return c, nil
 }

@@ -3,7 +3,10 @@
 package discovery
 
 import (
+	"bytes"
+	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -45,13 +48,6 @@ func Invalid(path, reason string) error {
 }
 func Failure(code int, reason string) error { return &Error{Code: code, Reason: reason} }
 
-type Target struct {
-	Category        string   `json:"category"`
-	Subtype         string   `json:"subtype,omitempty"`
-	Intents         []string `json:"intents,omitempty"`
-	ProposedIntents []string `json:"proposed_intents"`
-	FreeText        string   `json:"free_text"`
-}
 type Filters struct {
 	Category        string   `json:"category,omitempty"`
 	Subtype         string   `json:"subtype,omitempty"`
@@ -73,29 +69,9 @@ type Defaults struct {
 	Language       string `json:"language,omitempty"`
 	ProviderRegion string `json:"provider_region,omitempty"`
 }
-type NeedInput struct {
-	NeedType         string   `json:"need_type"`
-	Priority         float64  `json:"priority"`
-	Target           Target   `json:"target"`
-	Outcome          string   `json:"outcome"`
-	Constraints      Filters  `json:"constraints"`
-	Preferences      string   `json:"preferences,omitempty"`
-	Defaults         Defaults `json:"defaults,omitempty"`
-	TaxonomyVersion  string   `json:"taxonomy_version,omitempty"`
-	ExpectedRevision int64    `json:"expected_revision,omitempty"`
-}
 
-func NeedKind(t string) Kind {
-	switch t {
-	case "find_info":
-		return Broadcast
-	case "find_service":
-		return Commission
-	case "find_people":
-		return Agent
-	}
-	return ""
-}
+// NeedInput uses the same form as the capture API, including its Intent link.
+type NeedInput = need.Input
 
 type Request struct {
 	agentExact        bool
@@ -112,7 +88,34 @@ type Request struct {
 	Limit             int        `json:"limit,omitempty"`
 	Defaults          Defaults   `json:"defaults,omitempty"`
 }
+
+// UnmarshalJSON applies the capture contract to an inline form before typed
+// decoding can lose duplicate keys, null restrictions, or noncanonical IDs.
+func (r *Request) UnmarshalJSON(raw []byte) error {
+	type wire Request
+	var value wire
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if value.Need != nil {
+		input, err := need.Decode(fields["need"])
+		if err != nil {
+			return err
+		}
+		value.Need = &input
+	}
+	*r = Request(value)
+	return nil
+}
+
 type Context struct {
+	CapturedNeed       *need.Snapshot    `json:"captured_need,omitempty"`
 	QueryAnalysis      *QueryAnalysis    `json:"query_analysis,omitempty"`
 	SourceNeedID       int64             `json:"source_need_id,string,omitempty"`
 	SourceNeedRevision int64             `json:"source_need_revision,omitempty"`
@@ -122,7 +125,6 @@ type Context struct {
 	Persistence        string            `json:"persistence"`
 	Origin             string            `json:"input_origin"`
 	State              string            `json:"state"`
-	Need               *NeedInput        `json:"need,omitempty"`
 	Query              string            `json:"query,omitempty"`
 	Kinds              []Kind            `json:"source_kinds"`
 	Filters            Filters           `json:"effective_filters"`
@@ -145,9 +147,7 @@ func (c Context) NeedID() int64 {
 	if c.SourceNeedID != 0 {
 		return c.SourceNeedID
 	}
-	if c.Need != nil {
-		return c.ID
-	}
+
 	return 0
 }
 func (c Context) Active(now int64) bool {

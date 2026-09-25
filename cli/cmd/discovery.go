@@ -131,8 +131,8 @@ func newDiscoveryCommands() []*cobra.Command {
 		}
 		return discoveryCall(c, "POST", "/api/v2/discovery/search", body, nil, true)
 	}}
-	search.Flags().String("need", "", "Saved Need ID")
-	search.Flags().String("file", "", "Inline Need JSON file")
+	search.Flags().String("need", "", "NeedInput ID returned by need input create")
+	search.Flags().String("file", "", "Inline need_input.v1 JSON file linked to a current Intent")
 	search.Flags().String("filters", "", "Explicit hard filters JSON file")
 	search.Flags().StringSlice("types", nil, "broadcast,commission,agent")
 	search.Flags().Int("limit", 20, "Total results, maximum 50")
@@ -150,7 +150,7 @@ func newDiscoveryCommands() []*cobra.Command {
 		return discoveryCall(c, "POST", "/api/v2/discovery/recommendations", v, nil, true)
 	}}
 	recommend.Flags().StringSlice("types", nil, "Source kinds")
-	recommend.Flags().StringSlice("needs", nil, "Owned active Need IDs")
+	recommend.Flags().StringSlice("needs", nil, "Owned eligible NeedInput IDs")
 	recommend.Flags().String("idempotency-key", "", "Retry key")
 	taxonomy := &cobra.Command{Use: "taxonomy", Short: "Look up canonical intents"}
 	lookup := &cobra.Command{Use: "search <phrase>", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
@@ -164,65 +164,4 @@ func newDiscoveryCommands() []*cobra.Command {
 	return []*cobra.Command{search, recommend, taxonomy}
 }
 
-func newDiscoveryNeedCommands() []*cobra.Command {
-	var commands []*cobra.Command
-	for _, op := range []string{"create", "update", "get", "list", "pause", "resume", "close"} {
-		op := op
-		sub := &cobra.Command{Use: op, RunE: func(c *cobra.Command, args []string) error {
-			path := "/api/v2/needs"
-			if op != "create" && op != "list" {
-				if err := validDiscoveryID(args[0]); err != nil {
-					return err
-				}
-				path += "/" + args[0]
-			}
-			switch op {
-			case "get":
-				return discoveryCall(c, "GET", path, nil, nil, false)
-			case "list":
-				state, _ := c.Flags().GetString("state")
-				cursor, _ := c.Flags().GetString("cursor")
-				return discoveryCall(c, "GET", path, nil, map[string]string{"state": state, "cursor": cursor}, false)
-			case "create", "update":
-				file, _ := c.Flags().GetString("file")
-				v, err := discoveryFile(file)
-				if err != nil {
-					return err
-				}
-				method := "POST"
-				if op == "update" {
-					rev, _ := c.Flags().GetInt64("revision")
-					if rev <= 0 {
-						return fmt.Errorf("--revision required")
-					}
-					v["expected_revision"] = rev
-					method = "PUT"
-				}
-				return discoveryCall(c, method, path, v, nil, false)
-			default:
-				rev, _ := c.Flags().GetInt64("revision")
-				if rev <= 0 {
-					return fmt.Errorf("--revision required")
-				}
-				state := map[string]string{"pause": "paused", "resume": "active", "close": "completed"}[op]
-				return discoveryCall(c, "POST", path+"/state", map[string]any{"state": state, "expected_revision": rev}, nil, false)
-			}
-		}}
-		if op == "list" || op == "create" {
-			sub.Args = cobra.NoArgs
-		} else {
-			sub.Use += " <id>"
-			sub.Args = cobra.ExactArgs(1)
-		}
-		sub.Flags().String("file", "", "Need JSON file")
-		sub.Flags().String("idempotency-key", "", "Create retry key")
-		sub.Flags().Int64("revision", 0, "Expected current revision")
-		if op == "list" {
-			sub.Flags().String("state", "", "State filter")
-			sub.Flags().String("cursor", "", "Continuation cursor")
-		}
-		commands = append(commands, sub)
-	}
-	return commands
-}
 func init() { rootCmd.AddCommand(newDiscoveryCommands()...) }

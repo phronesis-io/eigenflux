@@ -2,11 +2,10 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPostgresContextOwnershipAndCAS(t *testing.T) {
+func TestPostgresExecutionSnapshots(t *testing.T) {
 	dsn := os.Getenv("DISCOVERY_TEST_DSN")
 	if dsn == "" {
 		t.Skip("set DISCOVERY_TEST_DSN to isolated PostgreSQL")
@@ -23,9 +22,9 @@ func TestPostgresContextOwnershipAndCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sqlDB, _ := db.DB()
-	defer sqlDB.Close()
-	sqlDB.SetMaxOpenConns(1)
+	pool, _ := db.DB()
+	defer pool.Close()
+	pool.SetMaxOpenConns(1)
 	schema := fmt.Sprintf("discovery_test_%d", time.Now().UnixNano())
 	if err = db.Exec("CREATE SCHEMA " + schema).Error; err != nil {
 		t.Fatal(err)
@@ -48,61 +47,32 @@ func TestPostgresContextOwnershipAndCAS(t *testing.T) {
 	}
 	s := Store{DB: db}
 	ctx := context.Background()
-	c := Context{ID: 10, OwnerID: 1, State: "active", Persistence: "saved", Origin: "saved_need", Revision: 1, Kinds: []Kind{Agent}, SpecHash: "a", CreatedAt: 100, UpdatedAt: 100}
-	if _, err = s.Create(ctx, c, "same"); err != nil {
+	c := Context{ID: 10, OwnerID: 1, State: "active", Persistence: "ephemeral", Origin: "normalized_need", Revision: 1, Kinds: []Kind{Agent}, SpecHash: "a", CreatedAt: 100, UpdatedAt: 100, ExpiresAt: 200, CapturedNeed: ptrSnapshot(capturedFixture(99, Agent)), SourceNeedID: 99, SourceNeedRevision: 2}
+	if _, err = s.Create(ctx, c); err != nil {
 		t.Fatal(err)
 	}
-	retry := c
-	retry.ID = 11
-	if got, err := s.Create(ctx, retry, "same"); err != nil || got.ID != 10 {
-		t.Fatal(got, err)
-	}
-	retry.SpecHash = "b"
-	if _, err = s.Create(ctx, retry, "same"); err == nil {
-		t.Fatal("idempotency conflict missing")
-	}
-	if _, err = s.Get(ctx, 2, 10, true); err == nil {
-		t.Fatal("owner leak")
-	}
-	c.UpdatedAt = 200
-	var successes atomic.Int32
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if _, err := s.Update(ctx, c, 1); err == nil {
-				successes.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	if successes.Load() != 1 {
-		t.Fatal("CAS", successes.Load())
-	}
-	for i := int64(20); i < 29; i++ {
-		n := c
-		n.ID = i
-		n.SpecHash = fmt.Sprint(i)
-		if _, err = s.Create(ctx, n, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	c.ID = 30
-	if _, err = s.Create(ctx, c, ""); err == nil {
-		t.Fatal("active limit")
-	}
-	if _, err = s.SetState(ctx, 1, 10, 2, "paused", 300); err != nil {
+	var stored row
+	if err = db.First(&stored, "context_id=10").Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Create(ctx, c, ""); err != nil {
+	var got Context
+	if err = json.Unmarshal([]byte(stored.Compiled), &got); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SetState(ctx, 1, 10, 3, "active", 400); err == nil {
-		t.Fatal("resume exceeded active limit")
+	if got.NeedID() != 99 || got.CapturedNeed.ProjectionID != 1099 || got.SourceNeedRevision != 2 {
+		t.Fatalf("lost provenance: %+v", got)
 	}
-	rows, err := s.List(ctx, 2, "expired", 0, 20, 500)
-	if err != nil || len(rows) != 0 {
-		t.Fatal("expired owner scope", rows, err)
+	c.ID = 11
+	c.Persistence = "saved"
+	if _, err = s.Create(ctx, c); err == nil {
+		t.Fatal("duplicate Need write accepted")
+	}
+	if err = s.Prune(ctx, 201); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err = db.Model(&row{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatal(count, err)
 	}
 }
+func ptrSnapshot[T any](v T) *T { return &v }
