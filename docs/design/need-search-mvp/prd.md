@@ -80,9 +80,11 @@ selects eligible rows from `current_need_inputs`. Intent changes require a new
 capture. There is no parallel Need CRUD or normalization flow in Sort.
 
 Typed constraints remain hard and source JSON remains unchanged. Open mandatory
-requirements without verification and unresolved legacy code restrictions yield
-no candidates for that Need, with diagnostics; other Needs can still contribute.
-Preferences never become hard restrictions. Capture remains available without
+requirements are preserved and do not prevent returning search candidates;
+returning a candidate does not claim those prose requirements are satisfied.
+Unresolved legacy code restrictions yield no candidates for that Need, with
+diagnostics; other Needs can still contribute. Preferences never become hard
+restrictions. Capture remains available without
 embedding/ES/Redis, and cached serving responses retain their original snapshot.
 
 ### 3.4 Find a person

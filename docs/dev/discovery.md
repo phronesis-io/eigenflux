@@ -365,10 +365,12 @@ rule scorer does not independently score open preferences. Legacy v1 inputs
 remain executable through a mechanical field adapter, preserving their original
 JSON, candidate phrases and preferences without consulting old projections.
 
-Open mandatory requirements have no verifier in this rule-only release. Such a
-Need contributes no candidates and reports `unverified_need_requirements`.
-Legacy unrecognized language/region alternatives similarly report
-`unresolved_need_constraints`, without narrowing or dropping the restriction.
+Open mandatory requirements remain in the source snapshot and do not block
+retrieval or delivery. Returned candidates are search matches, not proof that
+these prose requirements are satisfied. Only supported structured constraints
+act as hard filters. Legacy unrecognized language/region alternatives still
+report `unresolved_need_constraints` and contribute no candidates, without
+narrowing or dropping the restriction.
 Other Needs remain executable, all Needs may produce an empty successful result,
 and an undeliverable active Need never triggers unrelated profile fallback.
 No Need vocabulary mapping, normalization projection or generative call is used.

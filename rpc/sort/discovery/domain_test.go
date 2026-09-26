@@ -147,13 +147,18 @@ func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
 	}
 }
 
-func TestOpenRequirementsStayUnverified(t *testing.T) {
-	cc := Compiler{Taxonomy: vocabulary()}
+func TestOpenRequirementsPreservedWithoutBlockingRetrieval(t *testing.T) {
+	cc := Compiler{Taxonomy: vocabulary(), Embedder: embedStub{}}
 	snapshot := capturedFixture(42, Agent)
-	editCaptured(t, &snapshot, func(in *need.Input) { in.Requirements = []need.Condition{{Text: "Do not upload production data"}} })
+	editCaptured(t, &snapshot, func(in *need.Input) {
+		in.Requirements = []need.Condition{{Text: "Do not upload production data", SourceQuote: "keep production data local"}}
+	})
 	c, err := cc.Need(context.Background(), 10, 2, 1000, snapshot)
-	if err != nil || c.UnverifiedNeedReason != "unverified_need_requirements" || Check(c, baseDoc(Agent), Search, 1000) != "unverified_need_requirements" {
+	if err != nil || c.UnverifiedNeedReason != "" || Check(c, baseDoc(Agent), Search, 1000) != "" {
 		t.Fatal(c, err)
+	}
+	if len(c.Vector) == 0 || len(c.Warnings) != 0 || string(c.CapturedNeed.Input) != string(snapshot.Input) {
+		t.Fatal("requirements blocked embedding or changed source provenance", c)
 	}
 }
 func TestIndependentRulesAndMerge(t *testing.T) {

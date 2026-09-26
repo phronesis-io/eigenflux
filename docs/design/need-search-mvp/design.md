@@ -213,9 +213,10 @@ normalization or vocabulary mapping is required. See [the capture design](../nee
    Preserve source JSON. Do not turn preferences into hard restrictions.
 3. Build retrieval text from goal/context. Read legacy v1 through a mechanical
    adapter; do not read normalization projections or reinterpret language aliases.
-4. Open mandatory conditions without verification, or unresolved legacy code
-   restrictions, make only that Need non-deliverable with a diagnostic reason.
-   Other Needs continue; an empty result is valid and never broadens constraints.
+4. Preserve open requirements without blocking retrieval or delivery; a search
+   match does not establish that prose requirements are satisfied. Unresolved
+   legacy code restrictions still make that Need non-deliverable with a diagnostic
+   reason. Other Needs continue; an empty result never broadens constraints.
 5. Use the existing optional embedding client, then freeze the original input,
    input ID and Intent version in an ephemeral execution snapshot.
 6. Record delivered samples using NeedInput ID and linked Intent version. Cached
@@ -227,7 +228,7 @@ Capture is owned by `pkg/need`. Input eligibility requires a current active
 owner-linked Intent at the captured version. Explicit inactive inputs return 409;
 foreign/missing inputs return 404. Expired deadlines are excluded from automatic
 selection and rejected for explicit execution. Capture remains available without
-embedding/index dependencies. No-match or unverified active Needs cannot trigger
+embedding/index dependencies. No-match or unresolved active Needs cannot trigger
 an unrelated fallback. Historical normalization records remain archive-only.
 
 ### 3.3 Planner, budgets, and cross-kind combination

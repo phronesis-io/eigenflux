@@ -57,11 +57,6 @@ func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot nee
 			c.Origins[name] = "need_input"
 		}
 	}
-	// Open mandatory conditions have no rule verifier yet. Preserve their source
-	// snapshot and make this Need non-deliverable without blocking other Needs.
-	if len(in.Requirements) > 0 {
-		c.UnverifiedNeedReason = "unverified_need_requirements"
-	}
 	if !resolved {
 		c.UnverifiedNeedReason = "unresolved_need_constraints"
 	}

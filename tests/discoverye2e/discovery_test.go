@@ -139,7 +139,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Len(t, nextResult.Items, 1)
 		require.EqualValues(t, 2, nextResult.Items[0].NeedRevision)
 	})
-	t.Run("CapturedNeedDeadlineAndUnresolvedConstraints", func(t *testing.T) {
+	t.Run("CapturedNeedDeadlineConstraintsAndOpenRequirements", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "commission")
 		expired := int64(1)
@@ -153,21 +153,25 @@ func TestDiscoveryE2E(t *testing.T) {
 		in.Constraints.Lang = nil
 		in.Requirements = []needmodel.Condition{{Text: "Do not upload production data"}}
 		captured = s.capture(t, in)
-		blocked := s.search(t, discovery.Request{NeedID: captured.NeedInputID}, "")
-		require.Empty(t, blocked.Items)
-		require.Contains(t, blocked.Reasons, "unverified_need_requirements")
+		result := s.search(t, discovery.Request{NeedID: captured.NeedInputID}, "")
+		require.Len(t, result.Items, 1)
+		require.Equal(t, captured.NeedInputID, result.Items[0].NeedID)
+		require.NotContains(t, result.Reasons, "unverified_need_requirements")
 		other := s.saved(t, "agent")
 		mixed := s.recommend(t, discovery.Request{SourceKinds: []discovery.Kind{discovery.Commission, discovery.Agent}}, "")
-		require.Len(t, mixed.Items, 1)
-		require.Equal(t, other.NeedInputID, mixed.Items[0].NeedID)
+		require.Len(t, mixed.Items, 2)
+		require.ElementsMatch(t, []int64{captured.NeedInputID, other.NeedInputID}, []int64{mixed.Items[0].NeedID, mixed.Items[1].NeedID})
+		require.NotContains(t, mixed.Reasons, "unverified_need_requirements")
 		historyKey := fmt.Sprintf("impr:discovery:agent:%d:items", s.owner)
-		historyMember := mixed.Items[0].Ref.Key()
-		require.Eventually(t, func() bool {
-			return mq.RDB.SIsMember(ctx, historyKey, historyMember).Val()
-		}, 3*time.Second, 25*time.Millisecond)
-		t.Cleanup(func() {
-			require.NoError(t, mq.RDB.SRem(ctx, historyKey, historyMember).Err())
-		})
+		for _, item := range mixed.Items {
+			historyMember := item.Ref.Key()
+			require.Eventually(t, func() bool {
+				return mq.RDB.SIsMember(ctx, historyKey, historyMember).Val()
+			}, 3*time.Second, 25*time.Millisecond)
+			t.Cleanup(func() {
+				require.NoError(t, mq.RDB.SRem(ctx, historyKey, historyMember).Err())
+			})
+		}
 		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", discovery.Request{Need: &in}, 409)
 	})
 	t.Run("SearchCursorFreezesRankingAndBindsRequest", func(t *testing.T) {

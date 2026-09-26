@@ -46,8 +46,9 @@ integration suites' PostgreSQL advisory lock is respected.
 
 - Real Need Capture HTTP → current input → search/recommendation, owner/kind
   boundaries, standard language codes, original input/Intent provenance in
-  execution snapshots and samples, Intent edits, expired deadlines, unverified
-  mandatory conditions, independent delivery of other Needs, and frozen retries.
+  execution snapshots and samples, Intent edits, expired deadlines, successful
+  search/recommendation with open requirements, multi-Need delivery, and frozen
+  retries.
 - Frozen search cursor pages, owner/request binding, page retries, and absolute
   positions in delivered samples under the same impression.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data

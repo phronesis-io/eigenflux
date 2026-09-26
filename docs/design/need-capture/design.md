@@ -113,4 +113,6 @@ Persist the exact Need ID/schema/Intent version and execution snapshot in sample
 derived embeddings/indexes need their own versioned cache keys. Rebuilding derived
 data must not change the Need. Matching results belong to a Need/candidate pair:
 `satisfied`, `conflict`, or `unknown`. An unverified required condition must not be
-claimed satisfied. An undeliverable Need must not block other Needs or kinds.
+claimed satisfied. Open requirements do not prevent search candidate retrieval
+or delivery; a search match is not a requirement-verification result. An
+undeliverable Need must not block other Needs or kinds.

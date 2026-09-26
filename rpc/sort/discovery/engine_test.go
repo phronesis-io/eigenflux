@@ -348,10 +348,40 @@ func TestEmptyKindsDoNotBlockMerge(t *testing.T) {
 	}
 }
 
-func TestUnverifiedNeedDoesNotBlockOtherNeeds(t *testing.T) {
+func TestOpenRequirementsAllowSearchAndRecommendation(t *testing.T) {
+	for _, kind := range AllKinds {
+		for _, mode := range []Mode{Search, Recommendation} {
+			t.Run(string(kind)+"/"+string(mode), func(t *testing.T) {
+				e, source, store := engineFixture()
+				snapshot := capturedFixture(7, kind)
+				editCaptured(t, &snapshot, func(in *need.Input) {
+					in.Requirements = []need.Condition{{Text: "Do not upload production data"}}
+					in.Constraints.Lang = []string{"en"}
+				})
+				store.needs[7], store.active = snapshot, []need.Snapshot{snapshot}
+				source.docs = []Document{baseDoc(kind)}
+				r := Request{}
+				if mode == Search {
+					r.NeedID = 7
+				}
+				x, err := e.Execute(context.Background(), 1, r, mode, 100)
+				if err != nil || len(x.Candidates) != 1 || x.Candidates[0].Context.NeedID() != 7 {
+					t.Fatal(x, err)
+				}
+				source.docs[0].Slots.Lang = []string{"zh"}
+				x, err = e.Execute(context.Background(), 1, r, mode, 100)
+				if err != nil || len(x.Candidates) != 0 || x.FallbackReason != "" {
+					t.Fatal("open requirements bypassed a typed constraint", x, err)
+				}
+			})
+		}
+	}
+}
+
+func TestUnresolvedNeedConstraintsDoNotBlockOtherNeeds(t *testing.T) {
 	e, source, store := engineFixture()
 	blocked := capturedFixture(7, Commission)
-	editCaptured(t, &blocked, func(in *need.Input) { in.Requirements = []need.Condition{{Text: "Do not upload production data"}} })
+	blocked.Input = json.RawMessage(`{"schema_version":"need_input.v1","intent_id":"40","intent_version":2,"need_type":"commission","target":{"desc":"design","candidate_needs":["design"]},"constraints":{"lang":["unknown-language"]}}`)
 	valid := capturedFixture(8, Agent)
 	source.docs = []Document{{Ref: SourceRef{Agent, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10}}
 	store.active = []need.Snapshot{blocked, valid}
@@ -361,7 +391,7 @@ func TestUnverifiedNeedDoesNotBlockOtherNeeds(t *testing.T) {
 	}
 	source.fail = true
 	if _, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100); err == nil {
-		t.Fatal("unverified Need masked unavailable retrieval")
+		t.Fatal("unresolved Need masked unavailable retrieval")
 	}
 	source.fail = false
 
