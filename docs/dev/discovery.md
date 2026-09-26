@@ -42,11 +42,11 @@ lifecycle and version determine eligibility; there is no separate Need CRUD API.
 
 Filters apply to every requested kind. Price/delivery constraints require
 commission-only scope. Category/subtype and explicitly filtered intent IDs are
-hard; intent lists mean any overlap. Mapped Need IDs and inferred query intents are soft. Query prose is not parsed into guaranteed price, language,
+hard; intent lists mean any overlap. Inferred query intents are soft; captured Needs do not require taxonomy mapping. Query prose is not parsed into guaranteed price, language,
 region or exclusion constraints. Missing required evidence rejects a candidate.
 Provider region never inherits owner geography. Language defaults require
 `defaults.language="card"` on raw queries/recommendations. Captured and inline
-Need forms only use their explicit normalized constraints; search does not inherit
+Need forms only use their explicit input constraints; search does not inherit
 Card defaults for `need`/`need_id`.
 
 Explicit query searches that include Agents first resolve current database
@@ -189,8 +189,8 @@ cache state.
 
 - `rpc/sort/discovery`: typed contracts, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
 - `rpc/sort/discovery/store.go`: immutable execution snapshots and retention.
-- `pkg/need/reader.go`: owner-scoped current normalized projections, bounded selection and inline Intent checks.
-- `rpc/sort/discovery/need.go`: compile those projections into execution contexts.
+- `pkg/need/reader.go`: owner-scoped current Need inputs, bounded selection and inline Intent checks.
+- `rpc/sort/discovery/need.go`: compile those inputs into execution contexts.
 - `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with broadcast DB hydration and Agent/commission Redis forward projections.
 - `rpc/sort/discovery/index`: shared vocabulary, slot schema and projection used by query execution and index writers.
 - `rpc/sort/discovery/transport`: shared RPC JSON response codec.
@@ -208,9 +208,9 @@ observation behavior. Need/taxonomy reads and failures do not refresh activity.
 decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
 `idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
 
-Migration 106 adds `discovery_contexts` and `processed_items.retrieval_slots`.
+Migration 107 adds `discovery_contexts` and `processed_items.retrieval_slots`.
 Every execution stores an ephemeral snapshot; captured Needs stay in
-`need_inputs` and `normalized_needs` (migration 105). Existing saved context rows
+`need_inputs` and `current_need_inputs` (migrations 105–106). Existing saved context rows
 are not selected or mutated, and their IDs are not accepted as NeedInput IDs.
 Vectors are stored separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
 maintenance job removes expired rows in batches with a five-minute run budget.
@@ -318,7 +318,7 @@ saved before best-effort recording and is independent of its success. Prefetched
 or skipped candidates are not exposures. Old-generation feed caches are not
 read by the new adapter.
 
-Migration 107 extends the same `replay_logs` table and Redis stream:
+Migration 108 extends the same `replay_logs` table and Redis stream:
 
 | Rows | Pipeline | Mode | Schema | Identity |
 |---|---|---|---|---|
@@ -341,49 +341,44 @@ broadcast feedback. People results do not trigger messages or friend requests.
 
 ## Need Capture integration
 
-Create with `POST /api/v2/need-inputs` or `eigenflux need input create`. The
-`need_input.v1` form uses `broadcast`, `commission`, or `agent`, a confirmed
-Intent ID/version, `target.desc`, `target.candidate_needs`, and optional priority,
-preferences and constraints. See [the capture contract](api_endpoints.md#intent-linked-needinput-capture).
+Create with `POST /api/v2/need-inputs` or `eigenflux need input create`.
+New captures use `need_input.v2`: an owned confirmed Intent ID/version, kind,
+`target.goal`, optional `target.context`, mandatory `requirements`, optional
+`preferences`, priority and typed constraints. See [the capture contract](api_endpoints.md#intent-linked-needinput-capture).
 
-The CLI exposes query search and automatic recommendations only; callers do not
-select Need IDs or provide inline Needs. The platform selects eligible captured
-Needs for recommendations. Agent-side capture remains an internal workflow;
-humans provide Intent wording and action policy, not Need forms.
+The CLI accepts query search and automatic recommendations only. Need selection
+is internal; humans provide Intent wording and policy, not Need IDs or forms.
+At the HTTP/RPC boundary, `need_id` / `need_ids` identify `need_input_id`.
+Inline `need` uses v2 validation and checks its owned current Intent without
+saving an input. It creates only an execution snapshot.
 
-At the HTTP/RPC integration boundary, `need_id` / `need_ids` refer to the stable
-**need_input_id**, never `normalized_need_id` or `context_id`. Inline `need`
-uses the same capture form and
-validation, verifies its current owned Intent, and calls `NormalizeBasic` without
-saving a NeedInput. It creates only an execution snapshot and returns no `need_id`.
+`pkg/need.Store.Current` reads ownership and eligibility through
+`current_need_inputs` in one MVCC statement. Foreign/missing IDs return 404;
+inactive or stale Intent-linked inputs return 409. Explicit expired deadlines
+return 409 and automatic selection excludes them. Select at most five matching
+inputs by priority, creation time and ID. Database failures do not trigger fallback.
 
-`pkg/need.Store.Current` joins the owned input to `current_normalized_needs` in
-one database statement. Foreign/missing inputs return 404; inactive, superseded,
-or stale Intent-linked inputs return 409. A captured past deadline returns 409
-when explicitly requested and is excluded from automatic selection. Automatic
-selection reads up to five in-scope nonexpired rows from the same view; unmapped
-and partially mapped Needs remain eligible. A read/compile failure never counts
-as absence of Needs and cannot trigger generic fallback.
+Compilation consumes goal/context and explicit constraints directly. Standard
+language/region codes are formatted deterministically without changing source
+JSON. Preferences remain in the snapshot and never become hard filters; this
+rule scorer does not independently score open preferences. Legacy v1 inputs
+remain executable through a mechanical field adapter, preserving their original
+JSON, candidate phrases and preferences without consulting old projections.
 
-Sort uses normalized description/phrases plus the input's preferences as retrieval
-text. It copies explicit normalized constraints without inferring a category,
-region, language or budget. A price of zero remains a real bound. Mapped IDs
-are soft evidence only when their taxonomy generation and IDs are recognized;
-incompatible mappings emit `need_mapping_unavailable` and retain text retrieval.
-No online enrichment, vocabulary building or generative model is added.
-Embedding failure permits lexical retrieval with `embedding_unavailable`.
-Unresolved explicit language/region alternatives return
-`unresolved_need_constraints` (409), rather than silently removing restrictions.
+Open mandatory requirements have no verifier in this rule-only release. Such a
+Need contributes no candidates and reports `unverified_need_requirements`.
+Legacy unrecognized language/region alternatives similarly report
+`unresolved_need_constraints`, without narrowing or dropping the restriction.
+Other Needs remain executable, all Needs may produce an empty successful result,
+and an undeliverable active Need never triggers unrelated profile fallback.
+No Need vocabulary mapping, normalization projection or generative call is used.
+Optional embedding failure retains lexical retrieval with `embedding_unavailable`.
 
-Every request freezes input, normalization and provenance in
-`captured_need` inside the execution context and existing replay JSON. It contains
-`need_input_id`, `normalized_need_id`, Intent ID/version, normalizer/taxonomy
-versions and mapping status. Existing result/sample `need_id` means NeedInput ID;
-`need_revision` records the linked Intent version. Projection IDs are strings,
-not revisions encoded as JSON numbers. `context_id` is a new execution ID.
-Need inputs/projections are never rewritten by search. Intent edits/deletion or
-projection supersession affect the next execution, while cached responses and
-prefetched pages retain their original snapshot.
+`captured_need` freezes the original input JSON, input ID and Intent ID/version
+inside execution contexts and existing replay samples. Result/sample `need_id`
+means NeedInput ID; `need_revision` means linked Intent version. `context_id`
+identifies the execution. Fresh requests observe input/Intent eligibility;
+cached responses and pages retain their original snapshots.
 
 ```sh
 eigenflux search "PostgreSQL performance expert" --types agent
@@ -416,7 +411,7 @@ cutover. There are deliberately no invented production taxonomy/threshold assets
 
 Rollout order:
 
-1. Apply 105–107 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
+1. Apply 105–108 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
 2. Deploy typed-aware replay consumers and verify all internal/external readers; keep these readers after a routing rollback.
 3. Supply reviewed taxonomy and three-kind/two-mode rule examples/configuration. Keep API traffic on the old path during preparation.
 4. Use new concrete Agent/commission ES generations when removing old mappings. Existing ES mappings cannot delete fields in place; full document rewrites remove obsolete `_source` fields. Align writer/reader generations, backfill Redis as well as ES, and retain both old generations for rollback. Commission writers target `COMMISSION_INDEX_NAME`; alias promotion follows a successful staged backfill.
@@ -424,7 +419,7 @@ Rollout order:
 6. Verify strict-filter coverage, source permissions, embedding compatibility, rule examples, and measured load targets. Enable the cutover switch consistently and use existing deployment/PR procedures.
 
 Rollback routes with `ENABLE_NEED_SEARCH=false`; retain additive schema and typed
-readers. Migration 107 refuses downgrade while nonbroadcast rows remain. Do not
+readers. Migration 108 refuses downgrade while nonbroadcast rows remain. Do not
 coerce typed IDs into `item_id` or discard samples to make a downgrade succeed.
 
 Metrics expose execution latency/status, hard-filter/threshold/seen rejects,

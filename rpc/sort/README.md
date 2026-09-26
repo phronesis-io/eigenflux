@@ -18,7 +18,7 @@ the external boundaries.
 | --- | --- |
 | [discovery/service.go](discovery/service.go) | Serving/taxonomy operation dispatch. |
 | [discovery/types.go](discovery/types.go) | Typed requests, contexts, candidates and results. |
-| [discovery/need.go](discovery/need.go), [pkg/need/reader.go](../../pkg/need/reader.go) | Compile owned current Need projections; preserve input/projection/Intent provenance. |
+| [discovery/need.go](discovery/need.go), [pkg/need/reader.go](../../pkg/need/reader.go) | Compile owned current NeedInputs; preserve original input and Intent provenance. |
 | [discovery/compiler.go](discovery/compiler.go) | Compile input into executable constraints. |
 | [discovery/query.go](discovery/query.go) | Query normalization, script-aware phrase matching, bounded taxonomy alias expansion and retrieval provenance. |
 | [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration; requested recommendation limits and bounded search/legacy Feed prefetch. |
@@ -47,7 +47,7 @@ removable subsystem because discovery still reuses its policy adapter.
 flowchart TD
     RPC[Sort RPC: handler.go] --> D[discovery/service.go + engine.go]
     RPC --> L[legacy/pipeline.go + commission.go]
-    D --> N[pkg/need/reader.go: current_normalized_needs]
+    D --> N[pkg/need/reader.go: current_need_inputs]
     N --> C[discovery/need.go: execution snapshot]
     D --> S[discovery/store.go + source.go]
     D --> P[legacy/discovery_policy.go]

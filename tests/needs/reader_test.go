@@ -15,9 +15,13 @@ func TestDiscoveryCurrentNeedReader(t *testing.T) {
 	h := setup(t)
 	ctx := context.Background()
 	store := need.Store{DB: h.db, IDs: h.ids}
-	first := createNormalized(t, h, "reader-first")
+	raw := []byte(strings.Replace(original, "INTENT_ID", fmt.Sprint(h.intent), 1))
+	first, _, err := store.Create(ctx, h.owner, "reader-first", raw, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := store.Current(ctx, h.owner, first.NeedInputID)
-	if err != nil || got.ProjectionID != first.NormalizedNeed.NormalizedNeedID || got.InputID != first.NeedInputID || got.MappingStatus != need.MappingUnmapped {
+	if err != nil || got.InputID != first.NeedInputID || string(got.Input) != string(first.Input) {
 		t.Fatal(got, err)
 	}
 	for _, owner := range []int64{h.other, 0} {
@@ -31,28 +35,12 @@ func TestDiscoveryCurrentNeedReader(t *testing.T) {
 	if err = store.CheckIntent(ctx, h.owner, h.intent, 2); !errors.Is(err, need.ErrStaleIntent) {
 		t.Fatal("inline version boundary", err)
 	}
-	// A slow offline writer cannot block a reader or hide its committed snapshot.
-	tx := h.db.Begin()
-	if tx.Error != nil {
-		t.Fatal(tx.Error)
-	}
-	defer tx.Rollback()
-	if err = tx.Exec("UPDATE normalized_needs SET status='superseded' WHERE need_input_id=?", first.NeedInputID).Error; err != nil {
+	// Historical projection state does not participate in current input eligibility.
+	if err = h.db.Exec("UPDATE normalized_needs SET status='superseded' WHERE need_input_id=?", first.NeedInputID).Error; err != nil {
 		t.Fatal(err)
 	}
 	got, err = store.Current(ctx, h.owner, first.NeedInputID)
-	if err != nil || got.ProjectionID != first.NormalizedNeed.NormalizedNeedID {
-		t.Fatal(got, err)
-	}
-	if err = tx.Rollback().Error; err != nil {
-		t.Fatal(err)
-	}
-	p, err := store.Enrich(ctx, h.owner, first.NeedInputID, got.ProjectionID, need.Vocabulary{Version: "reader-v1", Needs: map[string]string{"PostgreSQL 索引": "database.index"}}, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = store.Current(ctx, h.owner, first.NeedInputID)
-	if err != nil || got.ProjectionID != p.NormalizedNeedID || got.TaxonomyVersion != "reader-v1" || got.MappingStatus != need.MappingPartial {
+	if err != nil || string(got.Input) != string(first.Input) {
 		t.Fatal(got, err)
 	}
 	for _, mutate := range []string{
@@ -76,7 +64,7 @@ func TestDiscoveryActiveNeedSelection(t *testing.T) {
 	h := setup(t)
 	ctx := context.Background()
 	store := need.Store{DB: h.db, IDs: h.ids}
-	base, err := need.Decode([]byte(strings.Replace(original, "INTENT_ID", fmt.Sprint(h.intent), 1)))
+	base, err := need.Decode([]byte(fmt.Sprintf(`{"schema_version":"need_input.v2","intent_id":"%d","intent_version":1,"need_type":"broadcast","target":{"goal":"PostgreSQL indexes"}}`, h.intent)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +99,8 @@ func TestDiscoveryActiveNeedSelection(t *testing.T) {
 		t.Fatal(active, err)
 	}
 	for _, n := range active {
-		if n.Input.NeedType != "broadcast" || n.MappingStatus != need.MappingUnmapped {
+		in, decodeErr := n.ExecutionInput()
+		if decodeErr != nil || in.NeedType != "broadcast" {
 			t.Fatal(n)
 		}
 	}

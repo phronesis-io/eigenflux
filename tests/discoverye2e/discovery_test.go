@@ -25,7 +25,7 @@ func (s *stack) need(t *testing.T, kind string) discovery.NeedInput {
 	var intent int64
 	require.NoError(t, s.db.Raw(`INSERT INTO agent_intent_actions(agent_id,watch_for,trigger_when,action_instruction,action_policy,priority,source,status,version,created_at,updated_at) VALUES (?, 'landing page design', 'design request', 'summarize', 'analyze_only', 10, 'human_edit', 'active', 1, 1, 1) RETURNING intent_id`, s.owner).Scan(&intent).Error)
 	priority := .8
-	return discovery.NeedInput{SchemaVersion: needmodel.InputSchemaVersion, IntentID: intent, IntentVersion: 1, NeedType: kind, Priority: &priority, Target: needmodel.Target{Desc: "landing page design", CandidateNeeds: []string{"landing page"}}}
+	return discovery.NeedInput{SchemaVersion: needmodel.InputSchemaVersion, IntentID: intent, IntentVersion: 1, NeedType: kind, Priority: &priority, Target: needmodel.Target{Goal: "landing page design"}}
 }
 func (s *stack) capture(t *testing.T, in discovery.NeedInput) needmodel.Record {
 	t.Helper()
@@ -49,9 +49,6 @@ func (s *stack) saved(t *testing.T, kind string) needmodel.Record {
 	return s.capture(t, s.need(t, kind))
 }
 
-type enrichmentIDs int64
-
-func (i *enrichmentIDs) NextID() (int64, error) { *i++; return int64(*i), nil }
 func (s *stack) waitSamples(t *testing.T, impression string, count int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -88,31 +85,31 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "full", feed["personalization"].(map[string]any)["context_delivery"])
 		require.Equal(t, map[string]any{"intent_actions": []any{}}, feed["control_context_snapshot"])
 	})
-	t.Run("CapturedNeedNormalizationOwnershipAndLifecycle", func(t *testing.T) {
+	t.Run("CapturedNeedInputOwnershipAndLifecycle", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "broadcast")
-		in.Target.Desc = "  landing   page design  "
-		in.Constraints.Lang = []string{"English"}
+		in.Target.Goal = "  landing   page design  "
+		in.Constraints.Lang = []string{"EN"}
 		s.call(t, "POST", "/api/v2/need-inputs", "", "capture-test", in, 401)
 		readOnly := s.seedSession(t, s.owner, "{context:read}")
 		s.call(t, "POST", "/api/v2/need-inputs", readOnly, "capture-test", in, 403)
 		created := s.capture(t, in)
 		id := created.NeedInputID
-		require.Equal(t, "normalized", created.Status)
-		require.True(t, created.NormalizedNeed.Eligible)
+		require.Equal(t, "active", created.Status)
+		require.True(t, created.Eligible)
 		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", discovery.Request{NeedID: id}, 404)
 		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", discovery.Request{NeedID: id, SourceKinds: []discovery.Kind{discovery.Agent}}, 400)
 		first := s.search(t, discovery.Request{NeedID: id}, "captured-snapshot")
 		require.Len(t, first.Items, 1)
 		require.Equal(t, id, first.Items[0].NeedID)
 		require.NotEqual(t, id, first.ContextID)
-		require.Equal(t, "normalized_need", first.Origin)
+		require.Equal(t, "need_input", first.Origin)
 		require.Equal(t, []string{"en"}, first.EffectiveFilters.Lang)
 		s.waitSamples(t, first.ImpressionID, 1)
 		var compiled string
 		require.NoError(t, s.db.Table("discovery_contexts").Select("compiled").Where("context_id=?", first.ContextID).Scan(&compiled).Error)
 		snapshot := decode[discovery.Context](t, []byte(compiled))
-		require.Equal(t, created.NormalizedNeed.NormalizedNeedID, snapshot.CapturedNeed.ProjectionID)
+		require.Equal(t, id, snapshot.CapturedNeed.InputID)
 		var sample string
 		require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", first.ImpressionID).Scan(&sample).Error)
 		replay := decode[struct {
@@ -121,20 +118,14 @@ func TestDiscoveryE2E(t *testing.T) {
 			} `json:"search_context"`
 		}](t, []byte(sample))
 		require.Equal(t, snapshot.CapturedNeed, replay.Search.Contexts[0].CapturedNeed)
-		require.Equal(t, in.Target.Desc, snapshot.CapturedNeed.Input.Target.Desc)
-		require.Equal(t, "landing page design", snapshot.CapturedNeed.Normalized.Desc)
+		capturedInput := decode[needmodel.Input](t, snapshot.CapturedNeed.Input)
+		require.Equal(t, in, capturedInput)
+		require.JSONEq(t, string(created.Input), string(snapshot.CapturedNeed.Input))
 		require.Empty(t, snapshot.Filters.Category)
-		require.Empty(t, snapshot.SoftIntents, "basic normalization needs no taxonomy coverage")
-		ids := enrichmentIDs(s.owner + 10000)
-		enriched, err := (needmodel.Store{DB: s.db, IDs: &ids}).Enrich(ctx, s.owner, id, created.NormalizedNeed.NormalizedNeedID, needmodel.Vocabulary{Version: s.category, Needs: map[string]string{"landing page": "landing-page"}}, time.Now().UnixMilli())
-		require.NoError(t, err)
-		fresh := s.search(t, discovery.Request{NeedID: id}, "")
-		require.Len(t, fresh.Items, 1)
-		require.NoError(t, s.db.Table("discovery_contexts").Select("compiled").Where("context_id=?", fresh.ContextID).Scan(&compiled).Error)
-		current := decode[discovery.Context](t, []byte(compiled))
-		require.Equal(t, enriched.NormalizedNeedID, current.CapturedNeed.ProjectionID)
-		require.Equal(t, []string{"landing-page"}, current.SoftIntents)
-		require.NotEqual(t, snapshot.SpecHash, current.SpecHash)
+		require.Empty(t, snapshot.SoftIntents, "direct Need execution has no taxonomy mapping")
+		var projections int64
+		require.NoError(t, s.db.Table("normalized_needs").Where("need_input_id=?", id).Count(&projections).Error)
+		require.Zero(t, projections)
 		require.Equal(t, first, s.search(t, discovery.Request{NeedID: id}, "captured-snapshot"))
 		// Change the human-owned Intent through its real endpoint.
 		s.sql(t, "INSERT INTO agent_context_heads(agent_id,current_revision,active_revision,updated_at) VALUES (?,1,1,1) ON CONFLICT DO NOTHING", s.owner)
@@ -155,13 +146,28 @@ func TestDiscoveryE2E(t *testing.T) {
 		in.Constraints.DeadlineMS = &expired
 		captured := s.capture(t, in)
 		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", discovery.Request{NeedID: captured.NeedInputID}, 409)
-		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", discovery.Request{NeedID: captured.NormalizedNeed.NormalizedNeedID}, 404)
+		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", discovery.Request{NeedID: 1}, 404)
 		in.Constraints.DeadlineMS = nil
 		in.Constraints.Lang = []string{"English", "Klingon-ish"}
-		captured = s.capture(t, in)
-		s.call(t, "POST", "/api/v2/discovery/search", s.token, "", discovery.Request{NeedID: captured.NeedInputID}, 409)
-		s.call(t, "POST", "/api/v2/discovery/recommendations", s.token, "", discovery.Request{SourceKinds: []discovery.Kind{discovery.Commission}}, 409)
+		s.call(t, "POST", "/api/v2/need-inputs", s.token, "invalid-language-codes", in, 400)
 		in.Constraints.Lang = nil
+		in.Requirements = []needmodel.Condition{{Text: "Do not upload production data"}}
+		captured = s.capture(t, in)
+		blocked := s.search(t, discovery.Request{NeedID: captured.NeedInputID}, "")
+		require.Empty(t, blocked.Items)
+		require.Contains(t, blocked.Reasons, "unverified_need_requirements")
+		other := s.saved(t, "agent")
+		mixed := s.recommend(t, discovery.Request{SourceKinds: []discovery.Kind{discovery.Commission, discovery.Agent}}, "")
+		require.Len(t, mixed.Items, 1)
+		require.Equal(t, other.NeedInputID, mixed.Items[0].NeedID)
+		historyKey := fmt.Sprintf("impr:discovery:agent:%d:items", s.owner)
+		historyMember := mixed.Items[0].Ref.Key()
+		require.Eventually(t, func() bool {
+			return mq.RDB.SIsMember(ctx, historyKey, historyMember).Val()
+		}, 3*time.Second, 25*time.Millisecond)
+		t.Cleanup(func() {
+			require.NoError(t, mq.RDB.SRem(ctx, historyKey, historyMember).Err())
+		})
 		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", discovery.Request{Need: &in}, 409)
 	})
 	t.Run("SearchCursorFreezesRankingAndBindsRequest", func(t *testing.T) {

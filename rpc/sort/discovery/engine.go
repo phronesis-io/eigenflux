@@ -119,14 +119,14 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 			if r.KindsExplicit && (len(r.SourceKinds) != 1 || r.SourceKinds[0] != Kind(r.Need.NeedType)) {
 				return nil, "", Invalid("source_kinds", "need_kind_mismatch")
 			}
-			n, normalizeErr := need.NormalizeBasic(*r.Need)
-			if normalizeErr != nil {
-				return nil, "", Invalid("need", normalizeErr.Error())
-			}
 			if err = e.Needs.CheckIntent(ctx, owner, r.Need.IntentID, r.Need.IntentVersion); err != nil {
 				return nil, "", needError(err)
 			}
-			c, err = e.Compiler.Need(ctx, owner, id, now, need.Snapshot{Input: *r.Need, Normalized: n, IntentID: r.Need.IntentID, IntentVersion: r.Need.IntentVersion, NormalizerVersion: need.BasicNormalizerVersion, MappingStatus: need.MappingUnmapped})
+			raw, marshalErr := json.Marshal(r.Need)
+			if marshalErr != nil {
+				return nil, "", marshalErr
+			}
+			c, err = e.Compiler.Need(ctx, owner, id, now, need.Snapshot{Input: raw, IntentID: r.Need.IntentID, IntentVersion: r.Need.IntentVersion})
 			if err != nil {
 				return nil, "", err
 			}
@@ -292,6 +292,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			return x, Failure(409, "stale_taxonomy")
 		}
 		x.PartialReasons = append(x.PartialReasons, c.Warnings...)
+		if c.UnverifiedNeedReason != "" {
+			continue
+		}
 		for _, kind := range c.Kinds {
 			if kind == Agent && r.agentExact {
 				continue
@@ -362,6 +365,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	anySuccess := false
 	below, exhausted := false, false
 	for ci, c := range contexts {
+		if c.UnverifiedNeedReason != "" {
+			continue
+		}
 		merged := map[string]Document{}
 		order := []string{}
 		perKind := map[Kind]int{}
@@ -455,7 +461,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 		}
 	}
-	if !anySuccess {
+	if !anySuccess && len(results) > 0 {
 		return x, Failure(503, "retrieval_unavailable")
 	}
 	x.PartialReasons = unique(x.PartialReasons)

@@ -115,37 +115,45 @@ func TestInputModesAndTypedBounds(t *testing.T) {
 		t.Fatal("trailing JSON")
 	}
 }
-func TestCompilerConsumesNormalizedNeedWithoutInventedFilters(t *testing.T) {
+func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
 	cc := Compiler{Taxonomy: vocabulary(), Embedder: embedStub{}, EmbeddingVersion: "test"}
 	snapshot := capturedFixture(42, Agent)
-	snapshot.Normalized.CandidateNeeds = []string{"landing page"}
-	snapshot.Normalized.MappedNeeds = map[string]string{"landing page": "landing"}
-	snapshot.TaxonomyVersion = cc.Taxonomy.Version
+	editCaptured(t, &snapshot, func(in *need.Input) {
+		in.Target.Goal = "  landing page  "
+		in.Target.Context = "design support"
+		in.Constraints.Lang = []string{"EN"}
+		in.Constraints.ProviderRegion = []string{"us"}
+		in.Preferences = []need.Condition{{Text: "Prefer Chinese communication", SourceQuote: "prefer Chinese"}}
+	})
+	original := string(snapshot.Input)
 	c, err := cc.Need(context.Background(), 10, 2, 1000, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Filters.Category != "" || len(c.Filters.Lang) != 0 || c.Persistence != "ephemeral" || !reflect.DeepEqual(c.SoftIntents, []string{"landing"}) || c.NeedID() != 42 {
-		t.Fatalf("wrong normalized context: %+v", c)
+	if c.Filters.Category != "" || !reflect.DeepEqual(c.Filters.Lang, []string{"en"}) || !reflect.DeepEqual(c.Filters.ProviderRegion, []string{"US"}) || len(c.SoftIntents) != 0 || c.NeedID() != 42 || c.Origin != "need_input" {
+		t.Fatalf("wrong direct context: %+v", c)
 	}
-	snapshot.TaxonomyVersion = "older-vocabulary"
-	stale, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
-	if err != nil || len(stale.SoftIntents) != 0 || !strings.Contains(strings.Join(stale.Warnings, ","), "need_mapping_unavailable") {
-		t.Fatal("stale mapping reused", stale, err)
+	if string(c.CapturedNeed.Input) != original || c.Query != "landing page  \ndesign support" || c.UnverifiedNeedReason != "" {
+		t.Fatal("source or preferences reinterpreted", c)
 	}
 	cc.Embedder = embedStub{errors.New("down")}
 	partial, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
 	if err != nil || len(partial.Warnings) == 0 {
-		t.Fatal("captured Need lost lexical fallback", err)
+		t.Fatal("Need lost lexical fallback", err)
 	}
-	snapshot.Normalized.UnresolvedConstraints = need.UnresolvedConstraints{Lang: []string{"unknown-language"}}
-	if _, err := cc.Need(context.Background(), 10, 4, 1000, snapshot); err == nil {
-		t.Fatal("unresolved explicit restriction was dropped")
-	}
-	snapshot.Normalized.UnresolvedConstraints = need.UnresolvedConstraints{}
-	snapshot.Normalized.Constraints.DeadlineMS = num(900)
+	editCaptured(t, &snapshot, func(in *need.Input) { in.Constraints.DeadlineMS = num(900) })
 	if _, err := cc.Need(context.Background(), 10, 4, 1000, snapshot); err == nil {
 		t.Fatal("expired Need accepted")
+	}
+}
+
+func TestOpenRequirementsStayUnverified(t *testing.T) {
+	cc := Compiler{Taxonomy: vocabulary()}
+	snapshot := capturedFixture(42, Agent)
+	editCaptured(t, &snapshot, func(in *need.Input) { in.Requirements = []need.Condition{{Text: "Do not upload production data"}} })
+	c, err := cc.Need(context.Background(), 10, 2, 1000, snapshot)
+	if err != nil || c.UnverifiedNeedReason != "unverified_need_requirements" || Check(c, baseDoc(Agent), Search, 1000) != "unverified_need_requirements" {
+		t.Fatal(c, err)
 	}
 }
 func TestIndependentRulesAndMerge(t *testing.T) {
@@ -201,7 +209,7 @@ func TestEveryMonetaryBoundRequiresCurrency(t *testing.T) {
 }
 
 func TestInlineNeedUsesCaptureJSONValidation(t *testing.T) {
-	valid := `{"schema_version":"need_input.v1","intent_id":"42","intent_version":1,"need_type":"agent","target":{"desc":"designer","candidate_needs":["design"]}}`
+	valid := `{"schema_version":"need_input.v2","intent_id":"42","intent_version":1,"need_type":"agent","target":{"goal":"designer"}}`
 	if _, err := Decode[Request]([]byte(`{"need":` + valid + `}`)); err != nil {
 		t.Fatal(err)
 	}

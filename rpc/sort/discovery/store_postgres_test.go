@@ -38,7 +38,7 @@ func TestPostgresExecutionSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	raw, err := os.ReadFile("../../../migrations/000106_discovery_contexts.sql")
+	raw, err := os.ReadFile("../../../migrations/000107_discovery_contexts.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestPostgresExecutionSnapshots(t *testing.T) {
 	}
 	s := Store{DB: db}
 	ctx := context.Background()
-	c := Context{ID: 10, OwnerID: 1, State: "active", Persistence: "ephemeral", Origin: "normalized_need", Revision: 1, Kinds: []Kind{Agent}, SpecHash: "a", CreatedAt: 100, UpdatedAt: 100, ExpiresAt: 200, CapturedNeed: ptrSnapshot(capturedFixture(99, Agent)), SourceNeedID: 99, SourceNeedRevision: 2}
+	c := Context{ID: 10, OwnerID: 1, State: "active", Persistence: "ephemeral", Origin: "need_input", Revision: 1, Kinds: []Kind{Agent}, SpecHash: "a", CreatedAt: 100, UpdatedAt: 100, ExpiresAt: 200, CapturedNeed: ptrSnapshot(capturedFixture(99, Agent)), SourceNeedID: 99, SourceNeedRevision: 2}
 	if _, err = s.Create(ctx, c); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestPostgresExecutionSnapshots(t *testing.T) {
 	if err = json.Unmarshal([]byte(stored.Compiled), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.NeedID() != 99 || got.CapturedNeed.ProjectionID != 1099 || got.SourceNeedRevision != 2 {
+	if got.NeedID() != 99 || got.CapturedNeed.InputID != 99 || got.SourceNeedRevision != 2 {
 		t.Fatalf("lost provenance: %+v", got)
 	}
 	c.ID = 11

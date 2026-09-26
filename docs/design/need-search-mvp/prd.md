@@ -18,7 +18,7 @@ The reference is [the architecture proposal](https://pcnlty6lw65j.feishu.cn/docx
 | Area | MVP boundary |
 |---|---|
 | Top-level interfaces | Agent-based automatic search, raw-query search, captured Need selection, taxonomy lookup, existing-route adapters, CLI |
-| 3.1 Compiler | Normalize structured Need, raw query, or bounded Agent context into an executable search context; rule validation, taxonomy lookup, existing embeddings |
+| 3.1 Compiler | Compile Agent-authored Need, raw query, or bounded Agent context into an executable search context; rule validation, taxonomy lookup, existing embeddings |
 | 3.2 State | Explicit active/paused/completed/expired Needs; no dialogue or authority engine |
 | 3.3 Planner | Deterministic per-kind templates, bounded fan-out, shared hard-filter semantics |
 | 3.4 Retrieval | Forward lexical/dense/structured retrieval; reuse DB/ES/Redis and current recall producers |
@@ -74,17 +74,16 @@ Results can repeat across requests. Within a response, collapse duplicate typed 
 
 ### 3.3 Save and maintain a precise Need
 
-The Agent captures a `need_input.v1` interpretation of a confirmed Intent using
-`need input create`. The existing normalizer stores original and derived values
-separately. Search accepts the returned `need_input_id`; automatic discovery
-selects eligible current projections. After an Intent edit, capture a new input
-against its current version. There is no parallel update/pause/close API in Sort.
+The Agent captures a `need_input.v2` interpretation of a confirmed Intent using
+`need input create`. Search consumes the original input; automatic discovery
+selects eligible rows from `current_need_inputs`. Intent changes require a new
+capture. There is no parallel Need CRUD or normalization flow in Sort.
 
-Explicit normalized constraints stay hard. Unmapped candidate phrases remain
-searchable; unknown language/region constraints produce an explicit error rather
-than being dropped. Omitted priority sorts as 0 without copying Intent priority.
-Deadline expiry stops fresh execution. Capture remains available without
-embedding, ES or Redis. Cached serving responses retain their original snapshot.
+Typed constraints remain hard and source JSON remains unchanged. Open mandatory
+requirements without verification and unresolved legacy code restrictions yield
+no candidates for that Need, with diagnostics; other Needs can still contribute.
+Preferences never become hard restrictions. Capture remains available without
+embedding/ES/Redis, and cached serving responses retain their original snapshot.
 
 ### 3.4 Find a person
 
@@ -125,7 +124,7 @@ Track errors separately from empty results; candidate/filter yields by kind/chan
 
 ## 6. Reuse and required changes
 
-Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs`, `normalized_needs` and `current_normalized_needs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and normalized slot fields. Avoid making a new microservice deployment.
+Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs` and `current_need_inputs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and normalized slot fields. Avoid making a new microservice deployment.
 
 People search needs a new rebuildable public Agent projection because no equivalent Need-based Agent index was verified in the repository. Use the existing ES cluster with a separate small Agent index and the existing Card/domain source; never mix Agent documents into item indices. This is the minimum additional kind-specific index, not a new infrastructure platform. Its update/source contract is part of online design; a general offline feature/index platform is not.
 

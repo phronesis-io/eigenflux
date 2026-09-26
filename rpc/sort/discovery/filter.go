@@ -56,6 +56,9 @@ func hasKind(a []Kind, k Kind) bool {
 
 // Check evaluates the request snapshot against hydrated source facts.
 func Check(c Context, d Document, mode Mode, now int64) string {
+	if c.UnverifiedNeedReason != "" {
+		return c.UnverifiedNeedReason
+	}
 	if !c.Active(now) {
 		return "inactive_context"
 	}

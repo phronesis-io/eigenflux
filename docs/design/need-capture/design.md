@@ -105,10 +105,10 @@ stale-link error. There is no Need update/delete or normalized-result write API.
 
 ## Execution boundary
 
-Main-branch Search/Sort/Feed do not yet consume Needs. Future compilation should
+Search/Sort/Feed consume Needs directly. Execution compilers
 read the valid NeedInput, form retrieval text from goal/context, compile supported
 structured restrictions, preserve open requirements and preferences, and attach
-runtime context. It must not reinterpret the goal or add hard requirements.
+runtime context. They must not reinterpret the goal or add hard requirements.
 Persist the exact Need ID/schema/Intent version and execution snapshot in samples;
 derived embeddings/indexes need their own versioned cache keys. Rebuilding derived
 data must not change the Need. Matching results belong to a Need/candidate pair:

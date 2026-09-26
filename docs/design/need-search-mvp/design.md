@@ -9,7 +9,7 @@ Reference: [architecture proposal, revision 83](https://pcnlty6lw65j.feishu.cn/d
 
 ## 1. Architecture and fixed boundaries
 
-The logical service runs inside existing Gateway, Sort, and Feed deployments. Sort owns context compilation, reading captured Need projections, planning, retrieval, hard filtering, and scoring. Feed owns response assembly/caching, impression identity, and best-effort recording. Gateway owns auth and old/new HTTP adapters. No new service process or infrastructure cluster is required.
+The logical service runs inside existing Gateway, Sort, and Feed deployments. Sort owns context compilation, reading captured Need inputs, planning, retrieval, hard filtering, and scoring. Feed owns response assembly/caching, impression identity, and best-effort recording. Gateway owns auth and old/new HTTP adapters. No new service process or infrastructure cluster is required.
 
 There are two public modes: **query search** and **automatic search**. Structured Needs are an optional input/control mechanism, not a required onboarding step. The first release supports `broadcast`, `commission`, and `agent`. All three use rules; later model development, parameter count, version, and rollout are independent per kind. Section 3.6 defines the extension contract without implementing model serving.
 
@@ -17,7 +17,7 @@ There are two public modes: **query search** and **automatic search**. Structure
 flowchart TD
     Q[Query plus explicit filters] --> G[CLI and existing/new Gateway routes]
     A[Daily automatic search] --> G
-    N[Captured NeedInputs and current normalized projections] --> C
+    N[Current eligible NeedInputs] --> C
     G --> C[Sort: context compiler]
     C --> NS[(PostgreSQL context store and current owner context)]
     C --> P[One planner and effective filter contract]
@@ -101,11 +101,11 @@ Serving calls accept owner-scoped `Idempotency-Key`: same key/body returns the s
 
 Taxonomy labels above are illustrative. `query` is nonempty, up to 2,000 weighted characters; use the project's weighted validator. `source_kinds` is a unique subset of the three supported kinds, default all three. Limit defaults to 20, maximum 50 across the response. Category, outcome, proposed intents, and saved Need ID are not required for raw query search.
 
-Supported hard filters are category/subtype, explicit canonical intents if expressed as a filter, budget/currency, absolute deadline, provider region, language, exclude authors, and exclude terms. Unlike mapped Need relevance evidence, an explicitly requested `filters.intents` predicate is hard; use distinct normalized fields to avoid conflating them. Filters must be applicable to every requested kind: budget/delivery-promise filters require commission-only scope; otherwise return field errors rather than silently ignore the condition for Agents/broadcasts. Explicit canonical IDs require their taxonomy version. Existing route range filters are handled by adapters below.
+Supported hard filters are category/subtype, explicit canonical intents if expressed as a filter, budget/currency, absolute deadline, provider region, language, exclude authors, and exclude terms. An explicitly requested `filters.intents` predicate is hard; inferred query intent evidence remains soft and uses a separate field. Filters must be applicable to every requested kind: budget/delivery-promise filters require commission-only scope; otherwise return field errors rather than silently ignore the condition for Agents/broadcasts. Explicit canonical IDs require their taxonomy version. Existing route range filters are handled by adapters below.
 
 Taxonomy suggestions inferred from query are soft retrieval signals. Do not promote them to hard category/subtype constraints. Free-text numbers/negation remain search text unless accompanied by explicit filters; return `effective_filters` and `constraint_mode="explicit_filters"` so clients cannot mistake an unparsed sentence for a verified budget. No server generative LLM is introduced; use rules, lexical analysis, taxonomy lookup, and the existing embedding client.
 
-For `need_id` or inline `need`, use the structured Need's target/constraints; reject an additional top-level filter body rather than create precedence ambiguity. A requested kind set must include only that Need's primary kind. Inline Needs use the same `need_input.v1` contract and basic normalizer as capture, verify the current owned Intent, and remain ephemeral. Query search never reads automatic dedup state or falls back to Agent context.
+For `need_id` or inline `need`, use the structured Need's target/constraints; reject an additional top-level filter body rather than create precedence ambiguity. A requested kind set must include only that Need's primary kind. Inline Needs use the same `need_input.v2` validation contract as capture, verify the current owned Intent, and remain ephemeral. Query search never reads automatic dedup state or falls back to Agent context.
 
 ### 2.3 Automatic search and fallback
 
@@ -113,7 +113,7 @@ Automatic mode defaults to all kinds on the unified API. Existing typed routes c
 
 | Situation | Execution | Observable result |
 |---|---|---|
-| In-scope active Needs exist | Execute those Needs and all explicit filters | `input_origin=normalized_need`; no profile/baseline broadening on no-match |
+| In-scope active Needs exist | Execute those Needs and all explicit filters | `input_origin=need_input`; no profile/baseline broadening on no-match |
 | No in-scope active Needs | Use current frozen Agent intent/context and Card query adapter | `input_origin=agent_context`, `fallback_reason=no_active_needs` |
 | Context has no usable demand/interest text | If broadcast allowed, take a bounded existing new/hot pool | `input_origin=baseline`, `fallback_reason=empty_agent_context` |
 | Empty context, only commission/agent requested | No invented preference or unrelated type | Empty `insufficient_context` |
@@ -200,68 +200,35 @@ RetrieveContexts(owner, context_refs, mode, now) -> typed ranked candidates
 
 All inputs compile to `CompiledContext{context_id,input_origin,mode,kinds,query_clauses,soft_slots,hard_filters,vector_ref,source_revision,versions}`. Structured Need, raw query, Agent context, and baseline are distinct schemas with one execution representation. A raw query is not forced to invent an outcome, priority, or category. Baseline has no query vector and uses its own eligibility/score type.
 
-**Structured Need schema.** Use the shared `need_input.v1` form owned by
-`pkg/need`: confirmed `intent_id`/`intent_version`, `need_type` (`broadcast`,
-`commission`, `agent`), `target.desc` (200 weighted characters),
-`target.candidate_needs` (1–10 phrases), optional priority [0,1], preferences,
-and typed explicit constraints. No separate category/outcome form or Need CRUD
-lifecycle exists in Sort. See [the capture design](../need-capture/design.md).
-
-```json
-{
-  "schema_version": "need_input.v1",
-  "intent_id": "123456789012345678",
-  "intent_version": 1,
-  "need_type": "agent",
-  "target": {
-    "desc": "Find a collaborator who designs landing pages.",
-    "candidate_needs": ["landing page design"]
-  },
-  "priority": 0.8,
-  "constraints": {"lang": ["en"]}
-}
-```
+**Structured Need schema.** Use `need_input.v2` from `pkg/need`: confirmed
+Intent ID/version, kind, `target.goal`, optional `target.context`, mandatory open
+requirements, optional preferences, priority and typed constraints. No Need
+normalization or vocabulary mapping is required. See [the capture design](../need-capture/design.md).
 
 **Compilation sequence:**
 
-1. Resolve `need_id` as an owned `need_input_id` joined to
-   `current_normalized_needs` in one MVCC statement. Validate deadline. Inline
-   input uses capture validation and `NormalizeBasic`, with a current owned
-   Intent check, without writing a NeedInput.
-2. Copy the normalized constraints; never infer a hard target or restriction
-   from description, candidate phrases, preferences, Card or mapped IDs. Explicit
-   unresolved language/region alternatives return 409 instead of being omitted.
-3. Form retrieval text from normalized description, candidate phrases and input
-   preferences. Reuse only mapped IDs that belong to the current taxonomy;
-   incompatible/missing mappings keep text retrieval available. Missing priority
-   means 0 for deterministic selection, independently of the Intent priority scale.
-4. Use the existing embedding client once per selected Need. Failure permits
-   lexical retrieval with an explicit partial reason. No generative model or
-   request-time offline enrichment is introduced. Query normalization remains
-   described in [the query-processing contract](../../dev/discovery.md#deterministic-query-processing).
-5. Save an ephemeral execution snapshot in `discovery_contexts`. Freeze the full
-   input, derived values, input/projection IDs, Intent ID/version and normalizer/
-   taxonomy versions in `captured_need`. Never rewrite the captured projection.
-6. Rank/hydrate with the existing pipeline and record delivered samples.
-   `need_id` in results/replay is the NeedInput ID; `need_revision` is its linked
-   Intent version. The exact normalized projection ID is a string in the frozen
-   context. Later changes affect new executions, not cached retries or pages.
+1. Resolve the owned NeedInput through `current_need_inputs`, or validate an
+   inline v2 input and its current owned Intent. Check deadline.
+2. Copy explicit typed constraints and deterministically format standard codes.
+   Preserve source JSON. Do not turn preferences into hard restrictions.
+3. Build retrieval text from goal/context. Read legacy v1 through a mechanical
+   adapter; do not read normalization projections or reinterpret language aliases.
+4. Open mandatory conditions without verification, or unresolved legacy code
+   restrictions, make only that Need non-deliverable with a diagnostic reason.
+   Other Needs continue; an empty result is valid and never broadens constraints.
+5. Use the existing optional embedding client, then freeze the original input,
+   input ID and Intent version in an ephemeral execution snapshot.
+6. Record delivered samples using NeedInput ID and linked Intent version. Cached
+   retries and pages retain the original snapshot.
 
 ### 3.2 Need lifecycle
 
-Capture and normalization are owned by `pkg/need` and `/api/v2/need-inputs`.
-The current projection must be active, its input normalized, and its Intent
-active at the same version. Intent edits/deletion or input/projection
-supersession invalidate fresh execution; explicit stale IDs return 409 and
-foreign/missing IDs return 404. Expired deadlines are excluded from automatic
-selection and rejected for explicit execution. Capture can still retain expired
-inputs for historical fidelity.
-
-Automatic discovery falls back only when there is no eligible in-scope Need.
-An eligible unmapped Need is still a real Need and cannot trigger generic
-fallback because its retrieval or constraints produced no result. Neither an
-unresolved restriction nor a database failure permits fallback. The capture
-API remains independent of embedding/index availability.
+Capture is owned by `pkg/need`. Input eligibility requires a current active
+owner-linked Intent at the captured version. Explicit inactive inputs return 409;
+foreign/missing inputs return 404. Expired deadlines are excluded from automatic
+selection and rejected for explicit execution. Capture remains available without
+embedding/index dependencies. No-match or unverified active Needs cannot trigger
+an unrelated fallback. Historical normalization records remain archive-only.
 
 ### 3.3 Planner, budgets, and cross-kind combination
 
@@ -363,15 +330,15 @@ CLI continues using its existing cache/event queue and retry ownership. Add exac
 
 ### 4.1 Capture storage and execution snapshots
 
-Reuse the existing `need_inputs`, `normalized_needs` and
-`current_normalized_needs` view for capture, history and current eligibility.
+Reuse `need_inputs` and `current_need_inputs` for capture, history and current
+eligibility. Historical normalization tables are not runtime dependencies.
 `pkg/need/reader.go` owns bounded owner-scoped reads; no duplicate saved-Need
 store or write transaction lives in Sort. No additional schema migration is
 required for this integration.
 
 `discovery_contexts` stores ephemeral compiled executions with a separate vector
 payload and 30-day retention. `context_id` never identifies a captured Need.
-The frozen `captured_need` holds input/projection/Intent provenance; replay copies
+The frozen `captured_need` holds original input/Intent provenance; replay copies
 it so context cleanup cannot change historical samples. Old saved rows from the
 unreleased discovery implementation are neither selected nor rewritten. Their
 IDs cannot be converted to captured Need IDs without a confirmed Intent link.

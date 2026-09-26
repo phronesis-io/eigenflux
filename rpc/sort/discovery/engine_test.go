@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"encoding/json"
 
 	"fmt"
 	"sync"
@@ -32,9 +33,21 @@ func (s *memStore) Active(context.Context, int64, []string, int64) ([]need.Snaps
 	return s.active, nil
 }
 func capturedFixture(id int64, kind Kind) need.Snapshot {
-	in := need.Input{SchemaVersion: need.InputSchemaVersion, IntentID: 40, IntentVersion: 2, NeedType: string(kind), Target: need.Target{Desc: "design", CandidateNeeds: []string{"design"}}}
-	n, _ := need.NormalizeBasic(in)
-	return need.Snapshot{InputID: id, ProjectionID: id + 1000, IntentID: 40, IntentVersion: 2, Input: in, Normalized: n, NormalizerVersion: need.BasicNormalizerVersion}
+	in := need.Input{SchemaVersion: need.InputSchemaVersion, IntentID: 40, IntentVersion: 2, NeedType: string(kind), Target: need.Target{Goal: "design"}}
+	raw, _ := json.Marshal(in)
+	return need.Snapshot{InputID: id, IntentID: 40, IntentVersion: 2, Input: raw}
+}
+func editCaptured(t *testing.T, s *need.Snapshot, edit func(*need.Input)) {
+	t.Helper()
+	in, err := s.ExecutionInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit(&in)
+	s.Input, err = json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 type countIDs int64
@@ -184,7 +197,7 @@ func TestEngineBaselineAndNoBroadening(t *testing.T) {
 		t.Fatal(x, err)
 	}
 	n := capturedFixture(4, Broadcast)
-	n.Normalized.Constraints.Lang = []string{"zh"}
+	editCaptured(t, &n, func(in *need.Input) { in.Constraints.Lang = []string{"zh"} })
 	store.active = []need.Snapshot{n}
 	store.needs[4] = n
 	x, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
@@ -243,8 +256,7 @@ func TestNeedSnapshotIsNotRecheckedAfterHydration(t *testing.T) {
 func TestRecommendationIntersectsCapturedNeedWithoutChangingProvenance(t *testing.T) {
 	e, source, store := engineFixture()
 	snapshot := capturedFixture(7, Commission)
-	snapshot.Normalized.Constraints.BudgetMaxFen = num(100)
-	snapshot.Normalized.Constraints.Currency = "CNY"
+	editCaptured(t, &snapshot, func(in *need.Input) { in.Constraints.BudgetMaxFen = num(100); in.Constraints.Currency = "CNY" })
 	store.needs[7] = snapshot
 	source.docs = []Document{{Ref: SourceRef{Commission, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10, PriceFen: num(60), Currency: "CNY"}}
 	request := Request{NeedIDs: []string{"7"}, SourceKinds: []Kind{Commission}, Filters: Filters{MaxPriceFen: num(50), Currency: "CNY"}}
@@ -253,10 +265,10 @@ func TestRecommendationIntersectsCapturedNeedWithoutChangingProvenance(t *testin
 		t.Fatal(x, err)
 	}
 	c := x.Contexts[0]
-	if *c.Filters.MaxPriceFen != 50 || *c.Filters.BudgetMaxFen != 100 || c.NeedID() != 7 || c.SourceNeedRevision != 2 || c.CapturedNeed.ProjectionID != snapshot.ProjectionID {
+	if *c.Filters.MaxPriceFen != 50 || *c.Filters.BudgetMaxFen != 100 || c.NeedID() != 7 || c.SourceNeedRevision != 2 || c.CapturedNeed.InputID != snapshot.InputID {
 		t.Fatalf("intersection lost provenance: %+v", c)
 	}
-	if c.CapturedNeed.Normalized.Constraints.BudgetMaxFen != snapshot.Normalized.Constraints.BudgetMaxFen || c.SpecHash != hashContext(c) {
+	if string(c.CapturedNeed.Input) != string(snapshot.Input) || c.SpecHash != hashContext(c) {
 		t.Fatal("source was rewritten or hash did not freeze intersection")
 	}
 }
@@ -333,5 +345,29 @@ func TestEmptyKindsDoNotBlockMerge(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestUnverifiedNeedDoesNotBlockOtherNeeds(t *testing.T) {
+	e, source, store := engineFixture()
+	blocked := capturedFixture(7, Commission)
+	editCaptured(t, &blocked, func(in *need.Input) { in.Requirements = []need.Condition{{Text: "Do not upload production data"}} })
+	valid := capturedFixture(8, Agent)
+	source.docs = []Document{{Ref: SourceRef{Agent, 9}, AuthorID: 2, Version: "1", Active: true, Visible: true, Lexical: 10}}
+	store.active = []need.Snapshot{blocked, valid}
+	x, err := e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
+	if err != nil || len(x.Candidates) != 1 || x.Candidates[0].Context.NeedID() != 8 {
+		t.Fatal(x, err)
+	}
+	source.fail = true
+	if _, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100); err == nil {
+		t.Fatal("unverified Need masked unavailable retrieval")
+	}
+	source.fail = false
+
+	store.active = []need.Snapshot{blocked}
+	x, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
+	if err != nil || x.Status != "no_match" || len(x.Candidates) != 0 || x.FallbackReason != "" {
+		t.Fatal(x, err)
 	}
 }

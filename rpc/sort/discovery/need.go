@@ -26,32 +26,27 @@ func needError(err error) error {
 }
 
 func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot need.Snapshot) (Context, error) {
-	in, n := snapshot.Input, snapshot.Normalized
-	if err := need.Validate(in); err != nil {
+	in, err := snapshot.ExecutionInput()
+	if err != nil {
 		return Context{}, Invalid("need", err.Error())
 	}
-	if n.Constraints.DeadlineMS != nil && *n.Constraints.DeadlineMS <= now {
+	if in.Constraints.DeadlineMS != nil && *in.Constraints.DeadlineMS <= now {
 		return Context{}, Failure(409, "expired_need")
 	}
-	if len(n.UnresolvedConstraints.Lang) > 0 || len(n.UnresolvedConstraints.ProviderRegion) > 0 {
-		return Context{}, Failure(409, "unresolved_need_constraints")
-	}
-	f := Filters{BudgetMaxFen: n.Constraints.BudgetMaxFen, Currency: n.Constraints.Currency,
-		MaxDurationMS: n.Constraints.MaxDurationMS, DeadlineMS: n.Constraints.DeadlineMS,
-		ProviderRegion: n.Constraints.ProviderRegion, Lang: n.Constraints.Lang, ExcludeTerms: n.Constraints.ExcludeTerms}
-	origin := "normalized_need"
+	constraints, resolved := need.ExecutionConstraints(in.Constraints)
+	f := Filters{BudgetMaxFen: constraints.BudgetMaxFen, Currency: constraints.Currency,
+		MaxDurationMS: constraints.MaxDurationMS, DeadlineMS: constraints.DeadlineMS,
+		ProviderRegion: constraints.ProviderRegion, Lang: constraints.Lang, ExcludeTerms: constraints.ExcludeTerms}
+	origin := "need_input"
 	if snapshot.InputID == 0 {
 		origin = "inline_need"
 	}
-	text := append([]string{n.Desc}, n.CandidateNeeds...)
-	if in.Preferences != "" {
-		text = append(text, in.Preferences)
-	}
+	text := []string{in.Target.Goal, in.Target.Context}
 	c, err := cc.compileBase(owner, id, now, origin, strings.Join(text, "\n"), []Kind{Kind(in.NeedType)}, f)
 	if err != nil {
 		return c, err
 	}
-	c.CompilerVersion = "normalized_need_context_v1"
+	c.CompilerVersion = "need_input_context_v2"
 	c.CapturedNeed = &snapshot
 	c.SourceNeedID, c.SourceNeedRevision = snapshot.InputID, snapshot.IntentVersion
 	if in.Priority != nil {
@@ -59,24 +54,22 @@ func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot nee
 	}
 	for name := range c.Origins {
 		if name != "exclude_authors" {
-			c.Origins[name] = "normalized_need"
+			c.Origins[name] = "need_input"
 		}
 	}
-	// A vocabulary generation mismatch cannot reinterpret IDs in another taxonomy.
-	// Keep text recall available; vocabulary coverage never gates a captured Need.
-	for _, phrase := range n.CandidateNeeds {
-		if mapped := n.MappedNeeds[phrase]; mapped != "" {
-			if snapshot.TaxonomyVersion == cc.Taxonomy.Version && cc.Taxonomy.Intent(mapped, "", "") {
-				c.SoftIntents = appendUnique(c.SoftIntents, mapped)
-			} else {
-				c.Warnings = appendUnique(c.Warnings, "need_mapping_unavailable")
-			}
-		}
+	// Open mandatory conditions have no rule verifier yet. Preserve their source
+	// snapshot and make this Need non-deliverable without blocking other Needs.
+	if len(in.Requirements) > 0 {
+		c.UnverifiedNeedReason = "unverified_need_requirements"
 	}
-	if len(c.SoftIntents) == 0 {
-		c.Warnings = append(c.Warnings, "intents_unmapped")
+	if !resolved {
+		c.UnverifiedNeedReason = "unresolved_need_constraints"
 	}
-	// Capture has already normalized the input. Only retrieval embedding is optional here.
+	if c.UnverifiedNeedReason != "" {
+		c.Warnings = append(c.Warnings, c.UnverifiedNeedReason)
+		c.SpecHash = hashContext(c)
+		return c, nil
+	}
 	if err = cc.embed(ctx, &c); err != nil {
 		return c, err
 	}

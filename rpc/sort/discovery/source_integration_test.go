@@ -34,6 +34,21 @@ func (integrationEmbedding) GetEmbedding(context.Context, string) ([]float32, er
 	return []float32{1, 0}, nil
 }
 
+// Exercise the same operation decoding as the Feed-to-Sort RPC boundary.
+type integrationExecutor struct{ service discovery.Service }
+
+func (e integrationExecutor) Execute(ctx context.Context, owner int64, r discovery.Request, mode discovery.Mode, now int64) (discovery.Execution, error) {
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return discovery.Execution{}, err
+	}
+	result, err := e.service.Run(ctx, owner, discovery.Operation{Name: string(mode), Payload: string(raw)}, now)
+	if err != nil {
+		return discovery.Execution{}, err
+	}
+	return result.(discovery.Execution), nil
+}
+
 func TestPostgresESRedisThreeKinds(t *testing.T) {
 	dsn, esURL, redisAddr := os.Getenv("DISCOVERY_TEST_DSN"), os.Getenv("DISCOVERY_TEST_ES"), os.Getenv("DISCOVERY_TEST_REDIS")
 	if dsn == "" || esURL == "" || redisAddr == "" {
@@ -157,7 +172,7 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 		}
 	}
 	engine := &discovery.Engine{Compiler: &discovery.Compiler{Taxonomy: &searchindex.Vocabulary{Version: "fixture", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}, Embedder: integrationEmbedding{}}, Store: discovery.Store{DB: db}, Needs: need.Store{DB: db}, IDs: ids, Sources: source, Rules: rules}
-	serve := delivery.Service{Redis: r, IDs: ids, Executor: engine}
+	serve := delivery.Service{Redis: r, IDs: ids, Executor: integrationExecutor{service: discovery.Service{Engine: engine}}}
 	request := discovery.Request{Query: "landing page design"}
 	response, err := serve.Serve(ctx, owner, request, discovery.Search, "integration")
 	if err != nil {

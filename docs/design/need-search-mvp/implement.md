@@ -1,7 +1,7 @@
 # Current integration boundary
 
-Need capture, input history and normalization are owned by `pkg/need`. Search
-and recommendations select `current_normalized_needs`, use `need_input_id` as the
+Need capture and input history are owned by `pkg/need`. Search
+and recommendations select `current_need_inputs`, use `need_input_id` as the
 public Need reference, and persist only execution snapshots in discovery storage.
 The redundant Sort Need CRUD routes and CLI commands are removed. See the
 [current integration contract](../../dev/discovery.md#need-capture-integration)
@@ -56,7 +56,7 @@ use `testutil.BaseURL` instead of a hardcoded 8080 instance.
 
 - Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context store and candidate sources; its `index` leaf package shares vocabulary and slot projections with index writers. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
 - Use existing process boundaries, DB, ES cluster and Redis; no new deployed microservice.
-- Capture/history remain in `pkg/need`. Select current eligible projections and keep each executable snapshot in JSONB with a separate vector payload.
+- Capture/history remain in `pkg/need`. Select current eligible inputs and keep each executable snapshot in JSONB with a separate vector payload.
 - Taxonomy lookup is bounded in memory. No additional compiled-plan or taxonomy-result cache is included. Agent-context fallback can embed up to five clauses per request; measure this path explicitly before accepting the latency gate.
 - Agent projection uses configured versioned index `agent_discovery_v1`; its mapping is checked before use. Existing item/commission backing-index slot mappings are upgraded before projection.
 - Keep six simultaneous recall calls, a 200-document per-context union and a 1,000-pair request bound. Legacy pages prefetch at most 20 eligible broadcasts.
