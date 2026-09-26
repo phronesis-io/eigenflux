@@ -2,13 +2,12 @@ package discovery
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
-	"testing"
-
+	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
-
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
+	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func queryVocabulary() *searchindex.Vocabulary {
@@ -20,79 +19,6 @@ func queryVocabulary() *searchindex.Vocabulary {
 		{ID: "vision", Name: "Computer vision", Category: "tech", Aliases: []string{"CV"}},
 		{ID: "resume", Name: "Resume", Category: "jobs", Aliases: []string{"CV"}},
 	}}
-}
-
-func TestQueryAnalysisGoldenCases(t *testing.T) {
-	for _, tc := range []struct {
-		query, normalized, script, expanded string
-	}{
-		{"  Ｋ８Ｓ\t运维  ", "k8s 运维", "mixed", "kubernetes 运维"},
-		{"擅长k8s运维", "擅长k8s运维", "mixed", "擅长kubernetes运维"},
-		{"K8S operations", "k8s operations", "latin", "kubernetes operations"},
-		{"寻找人工智能服务", "寻找人工智能服务", "cjk", "寻找artificial intelligence服务"},
-		{"港股研報", "港股研報", "cjk", "港股研报"},
-		{"no k8s please", "no k8s please", "latin", "no kubernetes please"},
-		{"partial report", "partial report", "latin", ""},
-		{"OpenAI services", "openai services", "latin", ""},
-		{"abc_k8s", "abc_k8s", "latin", ""},
-		{"k8s123", "k8s123", "latin", ""},
-		{"eigneflux", "eigneflux", "latin", ""},
-		{"軟體架構", "軟體架構", "cjk", ""},         // No implicit simplified/traditional conversion.
-		{"running", "running", "latin", ""}, // No unreviewed stemming.
-	} {
-		t.Run(tc.query, func(t *testing.T) {
-			p := analyzeQuery(tc.query, queryVocabulary(), Filters{}, false)
-			require.Equal(t, tc.normalized, p.Normalized)
-			require.Equal(t, tc.script, p.Script)
-			if tc.expanded == "" {
-				require.Empty(t, p.Expansions)
-			} else {
-				queries := []string{}
-				for _, e := range p.Expansions {
-					queries = append(queries, e.Query)
-				}
-				require.Contains(t, queries, tc.expanded)
-			}
-		})
-	}
-}
-
-func TestQueryAliasesAreScopedBoundedAndDeterministic(t *testing.T) {
-	v := queryVocabulary()
-	p := analyzeQuery("CV", v, Filters{}, false)
-	require.Empty(t, p.Expansions)
-	require.Empty(t, p.Intents)
-	require.Equal(t, []string{"cv"}, p.Ambiguous)
-	p = analyzeQuery("CV", v, Filters{Category: "jobs"}, false)
-	require.Equal(t, []QueryExpansion{{From: "cv", To: "resume", Query: "resume", IntentID: "resume"}}, p.Expansions)
-	p = analyzeQuery("k8s", v, Filters{Category: "jobs"}, false)
-	require.Empty(t, p.Expansions)
-	for _, raw := range []string{"9223372036854775807", "AbCdE", "ＡＩ Studio"} {
-		p = analyzeQuery(raw, v, Filters{}, true)
-		require.Equal(t, raw, p.Normalized)
-		require.Equal(t, "identity", p.Script)
-		require.Empty(t, p.Expansions)
-	}
-	for _, alias := range strings.Fields("one two three four five six seven eight nine ten eleven") {
-		v.Intents[0].Aliases = append(v.Intents[0].Aliases, alias)
-	}
-	p = analyzeQuery("k8s", v, Filters{}, false)
-	require.Len(t, p.Expansions, maxQueryExpansions)
-	for i, j := 0, len(v.Intents)-1; i < j; i, j = i+1, j-1 {
-		v.Intents[i], v.Intents[j] = v.Intents[j], v.Intents[i]
-	}
-	require.Equal(t, p, analyzeQuery("k8s", v, Filters{}, false))
-}
-
-func TestQueryLongerPhrasesProtectMeaning(t *testing.T) {
-	v := queryVocabulary()
-	v.Intents = append(v.Intents, searchindex.Node{ID: "agent", Name: "AI agent", Category: "tech", Aliases: []string{"智能体"}})
-	p := analyzeQuery("AI agent", v, Filters{}, false)
-	require.Equal(t, []string{"agent"}, p.Intents)
-	require.Equal(t, []QueryExpansion{{From: "ai agent", To: "智能体", Query: "智能体", IntentID: "agent"}}, p.Expansions)
-	// Latin edges of mixed aliases remain protected.
-	v.Intents = append(v.Intents, searchindex.Node{ID: "mixed", Name: "AI设计", Category: "tech", Aliases: []string{"智能设计"}})
-	require.Empty(t, analyzeQuery("OpenAI设计", v, Filters{}, false).Expansions)
 }
 
 type queryEmbeddingRecorder struct{ input string }
@@ -131,7 +57,7 @@ func TestCompilerFreezesAnalysisWithoutRewritingFilters(t *testing.T) {
 
 func TestSynonymQueryPreservesFiltersAndRequiresExpandedPhrase(t *testing.T) {
 	c := Context{Query: "擅长k8s运维", Filters: Filters{Category: "tech", Lang: []string{"zh"}, ExcludeAuthors: []string{"42"}, BudgetMaxFen: num(0), Currency: "CNY"}}
-	c.QueryAnalysis = analyzeQuery(c.Query, queryVocabulary(), c.Filters, false)
+	c.QueryAnalysis = queryprocessing.Process(c.Query, queryVocabulary(), queryprocessing.Options{Category: c.Filters.Category, Subtype: c.Filters.Subtype})
 	body, err := Query(c, Commission, "synonym", 20)
 	require.NoError(t, err)
 	raw, _ := json.Marshal(body)
@@ -141,19 +67,19 @@ func TestSynonymQueryPreservesFiltersAndRequiresExpandedPhrase(t *testing.T) {
 	_, err = Query(Context{}, Agent, "synonym", 20)
 	require.Error(t, err)
 	for _, query := range []string{"人工智能", "找人工智能的AI服务"} {
-		c = Context{Query: query, QueryAnalysis: analyzeQuery(query, queryVocabulary(), Filters{}, false)}
+		c = Context{Query: query, QueryAnalysis: queryprocessing.Process(query, queryVocabulary(), queryprocessing.Options{})}
 		body, err = Query(c, Agent, "lexical", 20)
 		require.NoError(t, err)
 		raw, _ = json.Marshal(body)
 		require.Contains(t, string(raw), `"type":"phrase"`)
 	}
-	body, _ = Query(Context{Query: "k8s", QueryAnalysis: analyzeQuery("k8s", queryVocabulary(), Filters{}, false)}, Agent, "lexical", 20)
+	body, _ = Query(Context{Query: "k8s", QueryAnalysis: queryprocessing.Process("k8s", queryVocabulary(), queryprocessing.Options{})}, Agent, "lexical", 20)
 	raw, _ = json.Marshal(body)
 	require.NotContains(t, string(raw), `"type":"phrase"`, "Latin-only input uses token matching")
 }
 
 func TestLexicalNormalizationRetainsOriginalAnalyzerInput(t *testing.T) {
-	c := Context{Query: "ＡＩ", QueryAnalysis: analyzeQuery("ＡＩ", queryVocabulary(), Filters{}, false)}
+	c := Context{Query: "ＡＩ", QueryAnalysis: queryprocessing.Process("ＡＩ", queryVocabulary(), queryprocessing.Options{})}
 	body, err := Query(c, Agent, "lexical", 20)
 	require.NoError(t, err)
 	raw, _ := json.Marshal(body)
@@ -167,4 +93,78 @@ func TestPublicMatchTypesAreAdditiveAndDeduplicated(t *testing.T) {
 	r := PublicResponse(Response{Items: []ResultItem{PublicItem(c)}})
 	require.Equal(t, []string{"keyword", "semantic", "synonym"}, r.Items[0].Match["match_types"])
 	require.NotContains(t, r.Items[0].Match, "score")
+}
+
+func TestAllTextInputsShareQueryProcessing(t *testing.T) {
+	for _, tc := range []struct{ goal, context string }{
+		{"  Ｋ８Ｓ  ", "运维"},
+		{"K8S", "operations"},
+		{"寻找人工智能服务", ""},
+		{"港股研報", ""},
+		{"CV", ""},
+	} {
+		t.Run(tc.goal, func(t *testing.T) {
+			e := &queryEmbeddingRecorder{}
+			cc := Compiler{Taxonomy: queryVocabulary(), Embedder: e}
+			snapshot := capturedFixture(42, Commission)
+			editCaptured(t, &snapshot, func(in *need.Input) {
+				in.Target = need.Target{Goal: tc.goal, Context: tc.context}
+				in.Constraints = need.Constraints{BudgetMaxFen: num(0), Currency: "CNY", Lang: []string{"en"}, ExcludeTerms: []string{"广告"}}
+				in.Requirements = []need.Condition{{Text: "Keep data local"}}
+			})
+			n, err := cc.Need(context.Background(), 10, 1, 1000, snapshot)
+			require.NoError(t, err)
+			require.NotNil(t, n.QueryAnalysis)
+			require.Equal(t, n.QueryAnalysis.Normalized, e.input)
+			require.JSONEq(t, string(snapshot.Input), string(n.CapturedNeed.Input))
+			require.Empty(t, n.Filters.Category, "soft query evidence cannot invent a hard filter")
+			for _, origin := range []string{"query", "agent_context"} {
+				f := n.Filters
+				f.ExcludeAuthors = nil // compileBase adds the same owner exclusion.
+				q, err := cc.Query(context.Background(), 10, 2, 1000, Request{Query: tc.goal + "\n" + tc.context, SourceKinds: []Kind{Commission}, Filters: f}, origin)
+				require.NoError(t, err)
+				require.Equal(t, n.QueryAnalysis, q.QueryAnalysis, origin)
+				require.Equal(t, n.SoftIntents, q.SoftIntents, origin)
+				require.Equal(t, n.Filters, q.Filters, origin)
+				require.Equal(t, q.QueryAnalysis.Normalized, e.input)
+			}
+			snapshot.InputID = 0
+			inline, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
+			require.NoError(t, err)
+			require.Equal(t, n.QueryAnalysis, inline.QueryAnalysis)
+			row, err := encode(n)
+			require.NoError(t, err)
+			var restored Context
+			require.NoError(t, json.Unmarshal([]byte(row.Compiled), &restored))
+			require.Equal(t, n.QueryAnalysis, restored.QueryAnalysis)
+			for _, channel := range []string{"lexical", "synonym"} {
+				if channel == "synonym" && len(n.QueryAnalysis.Expansions) == 0 {
+					continue
+				}
+				_, err = Query(restored, Commission, channel, 20)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBaselineAndIdentityKeepTheirQuerySemantics(t *testing.T) {
+	e := &queryEmbeddingRecorder{}
+	cc := Compiler{Taxonomy: queryVocabulary(), Embedder: e}
+	baseline, err := cc.Query(context.Background(), 10, 1, 1000, Request{SourceKinds: []Kind{Broadcast}}, "baseline")
+	require.NoError(t, err)
+	require.Nil(t, baseline.QueryAnalysis)
+	require.Empty(t, e.input)
+	exact, err := cc.Query(context.Background(), 10, 2, 1000, Request{Query: "AbCdE", SourceKinds: []Kind{Agent}, agentExact: true}, "query")
+	require.NoError(t, err)
+	require.True(t, exact.QueryAnalysis.Identity)
+	require.Equal(t, "AbCdE", exact.QueryAnalysis.Normalized)
+	require.Empty(t, exact.QueryAnalysis.Expansions)
+	require.Empty(t, e.input, "exact identity does not need embedding")
+	snapshot := capturedFixture(42, Agent)
+	editCaptured(t, &snapshot, func(in *need.Input) { in.Target.Goal = "12345" })
+	n, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
+	require.NoError(t, err)
+	require.False(t, n.QueryAnalysis.Identity, "Need prose must not be reinterpreted as a requested ID")
+	require.Equal(t, "12345", e.input)
 }

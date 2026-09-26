@@ -19,8 +19,8 @@ the external boundaries.
 | [discovery/service.go](discovery/service.go) | Serving/taxonomy operation dispatch. |
 | [discovery/types.go](discovery/types.go) | Typed requests, contexts, candidates and results. |
 | [discovery/need.go](discovery/need.go), [pkg/need/reader.go](../../pkg/need/reader.go) | Compile owned current NeedInputs; preserve original input and Intent provenance. |
-| [discovery/compiler.go](discovery/compiler.go) | Compile input into executable constraints. |
-| [discovery/query.go](discovery/query.go) | Query normalization, script-aware phrase matching, bounded taxonomy alias expansion and retrieval provenance. |
+| [discovery/compiler.go](discovery/compiler.go) | Validate execution constraints, invoke the shared query processor, and prepare embeddings/soft retrieval evidence for all input adapters. |
+| [discovery/queryprocessing/](discovery/queryprocessing/) | Mandatory query processing for explicit queries, Need goal/context and Agent-context queries: Unicode normalization, script-aware phrases, bounded alias expansion and provenance. |
 | [discovery/engine.go](discovery/engine.go) | Bounded retrieval, filtering, scoring and policy orchestration; requested recommendation limits and bounded search/legacy Feed prefetch. |
 | [discovery/intersect.go](discovery/intersect.go), [filter.go](discovery/filter.go), [score.go](discovery/score.go) | Constraint intersection, eligibility and rule scoring. |
 | [discovery/store.go](discovery/store.go) | Immutable PostgreSQL execution snapshots and expiry. |
@@ -48,7 +48,11 @@ flowchart TD
     RPC[Sort RPC: handler.go] --> D[discovery/service.go + engine.go]
     RPC --> L[legacy/pipeline.go + commission.go]
     D --> N[pkg/need/reader.go: current_need_inputs]
-    N --> C[discovery/need.go: execution snapshot]
+    N --> C[discovery/need.go: query and filters]
+    Q[Explicit query / Agent context] --> PQuery[discovery/queryprocessing]
+    C --> PQuery
+    PQuery --> Compile[discovery/compiler.go: retrieval preparation]
+    Compile --> S
     D --> S[discovery/store.go + source.go]
     D --> P[legacy/discovery_policy.go]
     L --> R[dal / ranker / lrranker / rerank]

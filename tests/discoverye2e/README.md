@@ -56,6 +56,8 @@ integration suites' PostgreSQL advisory lock is respected.
 - Exact Agent lookup by long ID, case-sensitive short ID, current name and
   English name, including Agents absent from ES, duplicate names, overflowing
   IDs, current-name previews, and self/block/language exclusions.
+- Shared query processing for captured/inline Needs across all three kinds,
+  including expansion with embedding unavailable and original Need provenance.
 - Full-width Latin, Chinese, reviewed traditional Chinese aliases and mixed-script
   queries match English-only fixtures through the synonym channel. Query analysis
   persists in the existing samples; language constraints stay hard. A deterministic

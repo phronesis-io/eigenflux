@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -182,7 +183,7 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 	}
 	return r, nil
 }
-func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kinds []Kind, f Filters) (Context, error) {
+func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kinds []Kind, f Filters, identity bool) (Context, error) {
 	if owner <= 0 || id <= 0 {
 		return Context{}, Invalid("identity", "invalid")
 	}
@@ -216,7 +217,11 @@ func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kind
 			origins[k] = "explicit"
 		}
 	}
-	c := Context{ID: id, OwnerID: owner, Revision: 1, Persistence: "ephemeral", Origin: origin, State: "active", Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, TaxonomyVersion: cc.Taxonomy.Version, CompilerVersion: "context_rules_v1", EmbeddingVersion: cc.EmbeddingVersion, CreatedAt: now, UpdatedAt: now, ExpiresAt: now + int64(30*24*time.Hour/time.Millisecond)}
+	c := Context{ID: id, OwnerID: owner, Revision: 1, Persistence: "ephemeral", Origin: origin, State: "active", Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, TaxonomyVersion: cc.Taxonomy.Version, CompilerVersion: "context_rules_v3", EmbeddingVersion: cc.EmbeddingVersion, CreatedAt: now, UpdatedAt: now, ExpiresAt: now + int64(30*24*time.Hour/time.Millisecond)}
+	if c.Query != "" {
+		c.QueryAnalysis = queryprocessing.Process(c.Query, cc.Taxonomy, queryprocessing.Options{Category: f.Category, Subtype: f.Subtype, Identity: identity})
+		c.SoftIntents = append([]string(nil), c.QueryAnalysis.Intents...)
+	}
 	return c, nil
 }
 func hashContext(c Context) string {
@@ -225,7 +230,7 @@ func hashContext(c Context) string {
 		Kinds                         []Kind
 		Filters                       Filters
 		Captured                      *need.Snapshot
-		QueryAnalysis                 *QueryAnalysis
+		QueryAnalysis                 *queryprocessing.Analysis
 		Taxonomy, Embedding, Compiler string
 	}{c.Query, c.Kinds, c.Filters, c.CapturedNeed, c.QueryAnalysis, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
 	h := sha256.Sum256(b)
@@ -261,14 +266,9 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if origin != "baseline" && !textOK(r.Query, 2000) {
 		return Context{}, Invalid("query", "invalid_length")
 	}
-	c, err := cc.compileBase(owner, id, now, origin, r.Query, r.SourceKinds, r.Filters)
+	c, err := cc.compileBase(owner, id, now, origin, r.Query, r.SourceKinds, r.Filters, origin == "query" && (r.agentExact || decimalAgentQuery(r.Query)))
 	if err != nil {
 		return c, err
-	}
-	if origin == "query" {
-		c.QueryAnalysis = analyzeQuery(r.Query, cc.Taxonomy, c.Filters, r.agentExact || decimalAgentQuery(r.Query))
-		c.CompilerVersion = "context_rules_v2"
-		c.SoftIntents = append(c.SoftIntents, c.QueryAnalysis.Intents...)
 	}
 	if r.InheritedLanguage {
 		c.Origins["lang"] = "card_default"
@@ -277,22 +277,27 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 		c.SpecHash = hashContext(c)
 		return c, nil
 	}
-	if err = cc.embed(ctx, &c); err != nil {
+	if err = cc.prepareRetrieval(ctx, &c); err != nil {
 		return c, err
 	}
-	// Ambiguous dictionary terms are left to semantic document retrieval, not
-	// promoted to structured intent matches through exact alias equality.
-	matches := []searchindex.Match{}
-	if c.QueryAnalysis == nil || len(c.QueryAnalysis.Ambiguous) == 0 {
-		matches = cc.Taxonomy.Search(c.lexicalQuery(), r.Filters.Category, r.Filters.Subtype, c.Vector, .80, 5)
+	return c, nil
+}
+
+// Both Need and query adapters complete the same analyzed retrieval context.
+func (cc *Compiler) prepareRetrieval(ctx context.Context, c *Context) error {
+	if err := cc.embed(ctx, c); err != nil {
+		return err
 	}
-	for _, m := range matches {
-		if len(c.SoftIntents) < 5 {
-			c.SoftIntents = appendUnique(c.SoftIntents, m.ID)
+	// Ambiguous aliases cannot re-enter through exact taxonomy matching.
+	if c.QueryAnalysis != nil && len(c.QueryAnalysis.Ambiguous) == 0 && !c.QueryAnalysis.Identity {
+		for _, m := range cc.Taxonomy.Search(c.lexicalQuery(), c.Filters.Category, c.Filters.Subtype, c.Vector, .80, 5) {
+			if len(c.SoftIntents) < 5 {
+				c.SoftIntents = appendUnique(c.SoftIntents, m.ID)
+			}
 		}
 	}
-	if len(c.SoftIntents) == 0 && origin != "baseline" {
-		metrics.DiscoveryTaxonomyMisses.WithLabelValues(origin).Inc()
+	if len(c.SoftIntents) == 0 && c.Origin != "baseline" {
+		metrics.DiscoveryTaxonomyMisses.WithLabelValues(c.Origin).Inc()
 	}
-	return c, nil
+	return nil
 }

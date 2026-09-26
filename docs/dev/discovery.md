@@ -74,14 +74,25 @@ Needs and automatic recommendations retain their existing matching behavior.
 
 ### Deterministic query processing
 
-Explicit text queries compile with `context_rules_v2` and a frozen
-`query_analysis` (`query_rules_v1`). The context retains the original wording
-(with surrounding whitespace trimmed), the normalized retrieval text, script
-classification, matched intent IDs, ambiguous labels, phrase boosts, and each
-expansion's source, target and substituted query. Analysis and the taxonomy
-version participate in the context hash and existing replay sample snapshots.
-Saved/inline Needs and automatic Agent contexts retain their existing compiler
-behavior. Existing contexts without analysis remain readable.
+Every nonempty query passes through `rpc/sort/discovery/queryprocessing` in
+`Compiler.compileBase`, after its input adapter produces query text and explicit
+filters. This includes explicit queries, captured/inline Need goal/context text,
+and automatic Agent-context queries. Empty broadcast baseline has no text to
+process. Query/context compilers use `context_rules_v3`; Need compilation uses
+`need_input_context_v3`.
+
+The pure `Process(text, vocabulary, options)` entry owns Unicode normalization,
+script-aware phrase matching, reviewed alias expansion and ambiguity handling.
+It has no RPC, database, embedding or Need lifecycle dependency. Its frozen
+`query_analysis` retains the `query_rules_v1` wire shape and version because the
+text rules are unchanged. The context keeps the original wording (outer
+whitespace trimmed), normalized text, matched soft intent IDs and expansion
+provenance. Analysis and vocabulary version participate in the context hash and
+replay snapshots. Existing snapshots without analysis remain readable.
+
+After processing, both adapters use the same embedding and soft-intent retrieval
+preparation. Embedding receives the normalized original text, never the expanded
+variants. Need source JSON and explicit hard filters remain unchanged.
 
 Identity resolution runs first using the original input. Exact Agent names and
 IDs are protected from case folding and expansion. An unmatched bare five-letter
@@ -187,7 +198,8 @@ cache state.
 
 ## Service boundaries and storage
 
-- `rpc/sort/discovery`: typed contracts, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
+- `rpc/sort/discovery`: typed contracts, input adapters, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
+- `rpc/sort/discovery/queryprocessing`: mandatory text processing shared by explicit, Need-derived and Agent-context queries.
 - `rpc/sort/discovery/store.go`: immutable execution snapshots and retention.
 - `pkg/need/reader.go`: owner-scoped current Need inputs, bounded selection and inline Intent checks.
 - `rpc/sort/discovery/need.go`: compile those inputs into execution contexts.
@@ -358,7 +370,8 @@ inactive or stale Intent-linked inputs return 409. Explicit expired deadlines
 return 409 and automatic selection excludes them. Select at most five matching
 inputs by priority, creation time and ID. Database failures do not trigger fallback.
 
-Compilation consumes goal/context and explicit constraints directly. Standard
+Compilation maps goal/context and explicit constraints, then passes the query
+through the shared query processor before retrieval preparation. Standard
 language/region codes are formatted deterministically without changing source
 JSON. Preferences remain in the snapshot and never become hard filters; this
 rule scorer does not independently score open preferences. Legacy v1 inputs
@@ -373,7 +386,9 @@ report `unresolved_need_constraints` and contribute no candidates, without
 narrowing or dropping the restriction.
 Other Needs remain executable, all Needs may produce an empty successful result,
 and an undeliverable active Need never triggers unrelated profile fallback.
-No Need vocabulary mapping, normalization projection or generative call is used.
+No Need normalization projection or generative call is used. Reviewed query
+aliases produce soft retrieval evidence without rewriting the Need or introducing
+hard constraints.
 Optional embedding failure retains lexical retrieval with `embedding_unavailable`.
 
 `captured_need` freezes the original input JSON, input ID and Intent ID/version

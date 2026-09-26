@@ -77,7 +77,9 @@ Results can repeat across requests. Within a response, collapse duplicate typed 
 The Agent captures a `need_input.v2` interpretation of a confirmed Intent using
 `need input create`. Search consumes the original input; automatic discovery
 selects eligible rows from `current_need_inputs`. Intent changes require a new
-capture. There is no parallel Need CRUD or normalization flow in Sort.
+capture. There is no parallel Need CRUD or normalization flow in Sort. Both explicit
+query text and Need-derived query text pass through the same mandatory query
+processing module before recall; input origin does not select different text rules.
 
 Typed constraints remain hard and source JSON remains unchanged. Open mandatory
 requirements are preserved and do not prevent returning search candidates;

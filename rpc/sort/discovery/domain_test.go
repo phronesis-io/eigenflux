@@ -130,7 +130,7 @@ func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Filters.Category != "" || !reflect.DeepEqual(c.Filters.Lang, []string{"en"}) || !reflect.DeepEqual(c.Filters.ProviderRegion, []string{"US"}) || len(c.SoftIntents) != 0 || c.NeedID() != 42 || c.Origin != "need_input" {
+	if c.Filters.Category != "" || !reflect.DeepEqual(c.Filters.Lang, []string{"en"}) || !reflect.DeepEqual(c.Filters.ProviderRegion, []string{"US"}) || !reflect.DeepEqual(c.SoftIntents, []string{"landing"}) || c.NeedID() != 42 || c.Origin != "need_input" {
 		t.Fatalf("wrong direct context: %+v", c)
 	}
 	if string(c.CapturedNeed.Input) != original || c.Query != "landing page  \ndesign support" || c.UnverifiedNeedReason != "" {

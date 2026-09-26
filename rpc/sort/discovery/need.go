@@ -42,11 +42,11 @@ func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot nee
 		origin = "inline_need"
 	}
 	text := []string{in.Target.Goal, in.Target.Context}
-	c, err := cc.compileBase(owner, id, now, origin, strings.Join(text, "\n"), []Kind{Kind(in.NeedType)}, f)
+	c, err := cc.compileBase(owner, id, now, origin, strings.Join(text, "\n"), []Kind{Kind(in.NeedType)}, f, false)
 	if err != nil {
 		return c, err
 	}
-	c.CompilerVersion = "need_input_context_v2"
+	c.CompilerVersion = "need_input_context_v3"
 	c.CapturedNeed = &snapshot
 	c.SourceNeedID, c.SourceNeedRevision = snapshot.InputID, snapshot.IntentVersion
 	if in.Priority != nil {
@@ -65,7 +65,7 @@ func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot nee
 		c.SpecHash = hashContext(c)
 		return c, nil
 	}
-	if err = cc.embed(ctx, &c); err != nil {
+	if err = cc.prepareRetrieval(ctx, &c); err != nil {
 		return c, err
 	}
 	return c, nil

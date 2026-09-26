@@ -8,6 +8,7 @@ import (
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/es"
 	sortdal "eigenflux_server/rpc/sort/dal"
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -164,7 +165,7 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		}
 		body["query"] = map[string]any{"bool": boolq}
 	case "synonym":
-		if c.QueryAnalysis == nil || len(c.QueryAnalysis.Expansions) == 0 || len(c.QueryAnalysis.Expansions) > maxQueryExpansions {
+		if c.QueryAnalysis == nil || len(c.QueryAnalysis.Expansions) == 0 || len(c.QueryAnalysis.Expansions) > queryprocessing.MaxExpansions {
 			return nil, fmt.Errorf("missing or excessive query expansions")
 		}
 		variants := []any{}

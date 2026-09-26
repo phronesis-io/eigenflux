@@ -122,7 +122,8 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, in, capturedInput)
 		require.JSONEq(t, string(created.Input), string(snapshot.CapturedNeed.Input))
 		require.Empty(t, snapshot.Filters.Category)
-		require.Empty(t, snapshot.SoftIntents, "direct Need execution has no taxonomy mapping")
+		require.Equal(t, []string{"landing-page"}, snapshot.SoftIntents)
+		require.Empty(t, snapshot.Filters.Intents, "query evidence must remain soft")
 		var projections int64
 		require.NoError(t, s.db.Table("normalized_needs").Where("need_input_id=?", id).Count(&projections).Error)
 		require.Zero(t, projections)
@@ -298,6 +299,44 @@ func TestDiscoveryE2E(t *testing.T) {
 		}
 		filtered := s.search(t, discovery.Request{Query: "着陆页", Filters: discovery.Filters{Lang: []string{"zh"}}}, "")
 		require.Empty(t, filtered.Items, "cross-language expansion must not weaken explicit language filters")
+	})
+	t.Run("NeedQueriesUseSharedProcessing", func(t *testing.T) {
+		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		for _, kind := range discovery.AllKinds {
+			for _, query := range []string{"  ＬＰ  ", "著陸頁", "帮我做LP"} {
+				t.Run(string(kind)+"/"+query, func(t *testing.T) {
+					in := s.need(t, string(kind))
+					in.Target = needmodel.Target{Goal: query}
+					in.Requirements = []needmodel.Condition{{Text: "Keep data local"}}
+					captured := s.capture(t, in)
+					for _, request := range []discovery.Request{{NeedID: captured.NeedInputID}, {Need: &in}} {
+						result := s.search(t, request, "")
+						require.Len(t, result.Items, 1)
+						require.Equal(t, kind, result.Items[0].Ref.Type)
+						require.Contains(t, result.Items[0].Match["match_types"], "synonym")
+						if query == "著陸頁" {
+							require.Contains(t, result.Reasons, "embedding_unavailable")
+						}
+						s.waitSamples(t, result.ImpressionID, 1)
+						var raw string
+						require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", result.ImpressionID).Limit(1).Scan(&raw).Error)
+						sample := decode[struct {
+							Search struct {
+								Contexts []discovery.Context `json:"contexts"`
+							} `json:"search_context"`
+						}](t, []byte(raw))
+						require.Len(t, sample.Search.Contexts, 1)
+						compiled := sample.Search.Contexts[0]
+						require.NotNil(t, compiled.QueryAnalysis)
+						require.NotEmpty(t, compiled.QueryAnalysis.Expansions)
+						require.Empty(t, compiled.Filters.Category)
+						original, err := compiled.CapturedNeed.ExecutionInput()
+						require.NoError(t, err)
+						require.Equal(t, in, original)
+					}
+				})
+			}
+		}
 	})
 	t.Run("RedisForwardSuppliesRankingFeatures", func(t *testing.T) {
 		agentRows, err := agentindex.ReadForward(ctx, mq.RDB, s.agentIndex, []int64{s.author})

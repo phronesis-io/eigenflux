@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -119,33 +120,33 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 }
 
 type Context struct {
-	UnverifiedNeedReason string            `json:"unverified_need_reason,omitempty"`
-	CapturedNeed         *need.Snapshot    `json:"captured_need,omitempty"`
-	QueryAnalysis        *QueryAnalysis    `json:"query_analysis,omitempty"`
-	SourceNeedID         int64             `json:"source_need_id,string,omitempty"`
-	SourceNeedRevision   int64             `json:"source_need_revision,omitempty"`
-	ID                   int64             `json:"context_id,string"`
-	OwnerID              int64             `json:"agent_id,string"`
-	Revision             int64             `json:"revision"`
-	Persistence          string            `json:"persistence"`
-	Origin               string            `json:"input_origin"`
-	State                string            `json:"state"`
-	Query                string            `json:"query,omitempty"`
-	Kinds                []Kind            `json:"source_kinds"`
-	Filters              Filters           `json:"effective_filters"`
-	SoftIntents          []string          `json:"soft_intents,omitempty"`
-	Priority             float64           `json:"priority"`
-	Origins              map[string]string `json:"field_origins,omitempty"`
-	SourceRevision       string            `json:"source_revision,omitempty"`
-	TaxonomyVersion      string            `json:"taxonomy_version"`
-	CompilerVersion      string            `json:"compiler_version"`
-	EmbeddingVersion     string            `json:"embedding_version,omitempty"`
-	Vector               []float32         `json:"-"`
-	SpecHash             string            `json:"spec_hash"`
-	CreatedAt            int64             `json:"created_at"`
-	UpdatedAt            int64             `json:"updated_at"`
-	ExpiresAt            int64             `json:"expires_at,omitempty"`
-	Warnings             []string          `json:"warnings,omitempty"`
+	UnverifiedNeedReason string                    `json:"unverified_need_reason,omitempty"`
+	CapturedNeed         *need.Snapshot            `json:"captured_need,omitempty"`
+	QueryAnalysis        *queryprocessing.Analysis `json:"query_analysis,omitempty"`
+	SourceNeedID         int64                     `json:"source_need_id,string,omitempty"`
+	SourceNeedRevision   int64                     `json:"source_need_revision,omitempty"`
+	ID                   int64                     `json:"context_id,string"`
+	OwnerID              int64                     `json:"agent_id,string"`
+	Revision             int64                     `json:"revision"`
+	Persistence          string                    `json:"persistence"`
+	Origin               string                    `json:"input_origin"`
+	State                string                    `json:"state"`
+	Query                string                    `json:"query,omitempty"`
+	Kinds                []Kind                    `json:"source_kinds"`
+	Filters              Filters                   `json:"effective_filters"`
+	SoftIntents          []string                  `json:"soft_intents,omitempty"`
+	Priority             float64                   `json:"priority"`
+	Origins              map[string]string         `json:"field_origins,omitempty"`
+	SourceRevision       string                    `json:"source_revision,omitempty"`
+	TaxonomyVersion      string                    `json:"taxonomy_version"`
+	CompilerVersion      string                    `json:"compiler_version"`
+	EmbeddingVersion     string                    `json:"embedding_version,omitempty"`
+	Vector               []float32                 `json:"-"`
+	SpecHash             string                    `json:"spec_hash"`
+	CreatedAt            int64                     `json:"created_at"`
+	UpdatedAt            int64                     `json:"updated_at"`
+	ExpiresAt            int64                     `json:"expires_at,omitempty"`
+	Warnings             []string                  `json:"warnings,omitempty"`
 }
 
 func (c Context) NeedID() int64 {
@@ -293,4 +294,23 @@ func PublicResponse(r Response) Response {
 	}
 	r.Items = items
 	return r
+}
+
+func (c Context) lexicalQuery() string {
+	if c.QueryAnalysis != nil {
+		return c.QueryAnalysis.Normalized
+	}
+	return c.Query
+}
+
+func matchTypes(channels []string) []string {
+	out := []string{}
+	for _, channel := range channels {
+		kind := map[string]string{"exact": "exact", "lexical": "keyword", "synonym": "synonym", "dense": "semantic", "structured": "structured", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall"}[channel]
+		if kind != "" {
+			out = appendUnique(out, kind)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

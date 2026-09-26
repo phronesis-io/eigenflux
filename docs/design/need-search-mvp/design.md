@@ -211,13 +211,17 @@ normalization or vocabulary mapping is required. See [the capture design](../nee
    inline v2 input and its current owned Intent. Check deadline.
 2. Copy explicit typed constraints and deterministically format standard codes.
    Preserve source JSON. Do not turn preferences into hard restrictions.
-3. Build retrieval text from goal/context. Read legacy v1 through a mechanical
-   adapter; do not read normalization projections or reinterpret language aliases.
+3. Map goal/context to query text, then run the shared `queryprocessing.Process`
+   module, also used by explicit and Agent-context queries. Normalize text, retain
+   CJK/Latin matching rules and produce bounded soft aliases. Read legacy v1 through
+   a mechanical adapter; do not read normalization projections or reinterpret
+   language/region constraints as natural-language aliases.
 4. Preserve open requirements without blocking retrieval or delivery; a search
    match does not establish that prose requirements are satisfied. Unresolved
    legacy code restrictions still make that Need non-deliverable with a diagnostic
    reason. Other Needs continue; an empty result never broadens constraints.
-5. Use the existing optional embedding client, then freeze the original input,
+5. Use shared retrieval preparation to embed the normalized query and derive
+   optional soft-intent evidence, then freeze the original input,
    input ID and Intent version in an ephemeral execution snapshot.
 6. Record delivered samples using NeedInput ID and linked Intent version. Cached
    retries and pages retain the original snapshot.

@@ -1,4 +1,5 @@
-package discovery
+// Package queryprocessing prepares retrieval text independently of its input source.
+package queryprocessing
 
 import (
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
@@ -8,31 +9,41 @@ import (
 	"unicode/utf8"
 )
 
-const maxQueryExpansions = 8
+const MaxExpansions = 8
 
-// QueryAnalysis is frozen with the context and samples. Query itself retains
+// Analysis is frozen with the context and samples. Query itself retains
 // the caller's wording; expansions never replace it or become hard filters.
-type QueryAnalysis struct {
-	Script     string           `json:"script"`
-	Ambiguous  []string         `json:"ambiguous,omitempty"`
-	Phrases    []string         `json:"phrases,omitempty"`
-	Version    string           `json:"version"`
-	Normalized string           `json:"normalized"`
-	Identity   bool             `json:"identity"`
-	Intents    []string         `json:"intents,omitempty"`
-	Expansions []QueryExpansion `json:"expansions,omitempty"`
+type Analysis struct {
+	Script     string      `json:"script"`
+	Ambiguous  []string    `json:"ambiguous,omitempty"`
+	Phrases    []string    `json:"phrases,omitempty"`
+	Version    string      `json:"version"`
+	Normalized string      `json:"normalized"`
+	Identity   bool        `json:"identity"`
+	Intents    []string    `json:"intents,omitempty"`
+	Expansions []Expansion `json:"expansions,omitempty"`
 }
 
-type QueryExpansion struct {
+type Expansion struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Query    string `json:"query"`
 	IntentID string `json:"intent_id"`
 }
 
-func analyzeQuery(query string, v *searchindex.Vocabulary, filters Filters, identity bool) *QueryAnalysis {
-	p := &QueryAnalysis{Version: "query_rules_v1", Normalized: strings.TrimSpace(query), Identity: identity}
-	if identity {
+// Options bounds alias matching and protects exact identity queries.
+type Options struct {
+	Category string
+	Subtype  string
+	Identity bool
+}
+
+// Process preserves original wording outside its result, never changes hard
+// filters, and emits bounded retrieval evidence. Vocabulary may be nil when no
+// reviewed aliases are configured.
+func Process(query string, v *searchindex.Vocabulary, options Options) *Analysis {
+	p := &Analysis{Version: "query_rules_v1", Normalized: strings.TrimSpace(query), Identity: options.Identity}
+	if options.Identity {
 		p.Script = "identity"
 		return p
 	}
@@ -43,10 +54,13 @@ func analyzeQuery(query string, v *searchindex.Vocabulary, filters Filters, iden
 	}
 	// Only reviewed intent names/aliases in the requested branch participate.
 	// A label shared by different intents is ambiguous and cannot be expanded.
+	if v == nil {
+		return p
+	}
 	owners := map[string]string{}
 	labels := map[string][]string{}
 	for _, n := range v.Intents {
-		if filters.Category != "" && n.Category != filters.Category || filters.Subtype != "" && n.Subtype != filters.Subtype {
+		if options.Category != "" && n.Category != options.Category || options.Subtype != "" && n.Subtype != options.Subtype {
 			continue
 		}
 		for _, raw := range append([]string{n.Name}, n.Aliases...) {
@@ -115,8 +129,8 @@ func analyzeQuery(query string, v *searchindex.Vocabulary, filters Filters, iden
 			// One substitution per variant preserves all other query terms,
 			// including negatives. There is no recursive synonym expansion.
 			expanded := p.Normalized[:start] + to + p.Normalized[end:]
-			if !queries[expanded] && len(p.Expansions) < maxQueryExpansions {
-				p.Expansions = append(p.Expansions, QueryExpansion{From: from, To: to, Query: expanded, IntentID: id})
+			if !queries[expanded] && len(p.Expansions) < MaxExpansions {
+				p.Expansions = append(p.Expansions, Expansion{From: from, To: to, Query: expanded, IntentID: id})
 				queries[expanded] = true
 			}
 		}
@@ -174,21 +188,11 @@ func findQueryPhrase(text, phrase string) (int, int) {
 	return -1, -1
 }
 
-func (c Context) lexicalQuery() string {
-	if c.QueryAnalysis != nil {
-		return c.QueryAnalysis.Normalized
-	}
-	return c.Query
-}
-
-func matchTypes(channels []string) []string {
-	out := []string{}
-	for _, channel := range channels {
-		kind := map[string]string{"exact": "exact", "lexical": "keyword", "synonym": "synonym", "dense": "semantic", "structured": "structured", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall"}[channel]
-		if kind != "" {
-			out = appendUnique(out, kind)
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
 		}
 	}
-	sort.Strings(out)
-	return out
+	return append(values, value)
 }
