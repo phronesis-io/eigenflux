@@ -506,7 +506,8 @@ Examples:
 		var hitResults []map[string]interface{}
 		results := make([]map[string]interface{}, 0, len(itemIDs))
 		for _, id := range itemIDs {
-			entry, status := ledger.Lookup(id, now)
+			impression, _ := cmd.Flags().GetString("impression-id")
+			entry, status := ledger.LookupImpression(id, impression, now)
 			if status != feedevent.StatusHit {
 				errKind := "unknown_item"
 				if status == feedevent.StatusExpired {
@@ -575,6 +576,7 @@ owns the cadence: re-run while remaining > 0 with its own back-off.`,
 }
 
 func init() {
+	feedEventRecordCmd.Flags().String("impression-id", "", "Exact cached impression for this event")
 	feedPollCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
 	feedPollCmd.Flags().String("cursor", "", "pagination cursor (last_updated_at)")

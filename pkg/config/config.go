@@ -40,6 +40,11 @@ func loadConsoleV2RegistrationLimits() RegLimit {
 }
 
 type Config struct {
+	EnableNeedSearch      bool
+	DiscoveryTaxonomyPath string
+	DiscoveryRulesPath    string
+	AgentDiscoveryIndex   string
+
 	EtcdAddr                    string
 	PgDSN                       string
 	RedisAddr                   string
@@ -290,6 +295,10 @@ func Load() *Config {
 		ResendFromEmail:             getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
 		EnableEmailVerification:     getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
 		EnableConsoleV2:             getEnvBool("ENABLE_CONSOLE_V2", false),
+		EnableNeedSearch:            getEnvBool("ENABLE_NEED_SEARCH", false),
+		DiscoveryTaxonomyPath:       getEnv("DISCOVERY_TAXONOMY_PATH", "configs/discovery/taxonomy.json"),
+		DiscoveryRulesPath:          getEnv("DISCOVERY_RULES_PATH", "configs/discovery/rules.json"),
+		AgentDiscoveryIndex:         getEnv("AGENT_DISCOVERY_INDEX", "agent_discovery_v1"),
 		EnableFeedV2:                getEnvBool("ENABLE_FEED_V2", false),
 		EnableControlChannelV2:      getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),
 		EnableAgentAttentionV1:      getEnvBool("ENABLE_AGENT_ATTENTION_V1", false),
@@ -481,7 +490,7 @@ var (
 )
 
 func (c *Config) ValidateCommissionDiscoveryConfiguration() error {
-	if c == nil || c.CommissionDiscoveryEnabled && !c.EnableCommissionIndex {
+	if c == nil || (c.CommissionDiscoveryEnabled || c.EnableNeedSearch) && !c.EnableCommissionIndex || c.EnableNeedSearch && (!c.CommissionDiscoveryEnabled || !c.EnableReplayLog) {
 		return ErrInvalidCommissionDiscoveryConfiguration
 	}
 	return nil

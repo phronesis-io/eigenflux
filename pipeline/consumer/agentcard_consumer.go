@@ -19,7 +19,8 @@ import (
 // and read only committed fact-table state. Transient failures stay pending;
 // poison messages are copied to a bounded dead-letter stream before ACK.
 type AgentCardConsumer struct {
-	runner *StreamConsumer
+	runner  *StreamConsumer
+	Project func(context.Context, int64) error
 }
 
 const agentCardMaxRetries = 5
@@ -74,6 +75,11 @@ func (c *AgentCardConsumer) handle(ctx context.Context, _ string, values map[str
 	defer cancel()
 	if err := agentcard.Rebuild(rebuildCtx, db.DB.WithContext(rebuildCtx), mq.RDB, agentID); err != nil {
 		if errors.Is(err, agentcard.ErrAgentNotFound) {
+			if c.Project != nil {
+				if err := c.Project(rebuildCtx, agentID); err != nil {
+					return HandleRetry
+				}
+			}
 			logger.Default().Debug("AgentCardConsumer agent gone, skipping", "agentID", agentID)
 			return HandleSuccess
 		}
@@ -81,6 +87,11 @@ func (c *AgentCardConsumer) handle(ctx context.Context, _ string, values map[str
 		// A transient database/Redis failure must stay pending. The snapshot
 		// reconciler is a safety net, not the primary delivery guarantee.
 		return HandleRetry
+	}
+	if c.Project != nil {
+		if err := c.Project(rebuildCtx, agentID); err != nil {
+			return HandleRetry
+		}
 	}
 	logger.Default().Debug("AgentCardConsumer card rebuilt", "agentID", agentID, "reason", reason)
 	return HandleSuccess

@@ -41,10 +41,11 @@ type IDGenerator interface {
 type Publisher func(context.Context, string, map[string]interface{}) (string, error)
 
 type Service struct {
-	sortClient SortClient
-	idgen      IDGenerator
-	publish    Publisher
-	access     *commissionaccess.Allowlist
+	discoveryClient DiscoveryClient
+	sortClient      SortClient
+	idgen           IDGenerator
+	publish         Publisher
+	access          *commissionaccess.Allowlist
 }
 
 func New(sortClient SortClient, idgen IDGenerator, publish Publisher, access *commissionaccess.Allowlist) *Service {
@@ -274,6 +275,10 @@ func (s *Service) Search(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
+	if s.discoveryClient != nil && commissionID == nil {
+		s.serveDiscovery(ctx, c, "legacy_search", query, parsed, limit)
+		return
+	}
 	response, err := s.sortClient.SearchCommissions(ctx, &sortmodel.SearchCommissionsReq{Query: query, Filters: parsed.thrift(), Limit: &limit, CommissionId: commissionID})
 	if err != nil || response == nil || response.BaseResp == nil {
 		rpcError(ctx, c, "search", err)
@@ -293,6 +298,10 @@ func (s *Service) Recommend(ctx context.Context, c *app.RequestContext) {
 	parsed, limit, err := parseRequest(c)
 	if err != nil {
 		respond(c, http.StatusBadRequest, 400, err.Error(), nil)
+		return
+	}
+	if s.discoveryClient != nil {
+		s.serveDiscovery(ctx, c, "recommendation", "", parsed, limit)
 		return
 	}
 	response, err := s.sortClient.RecommendCommissions(ctx, &sortmodel.RecommendCommissionsReq{AgentId: agentID, Filters: parsed.thrift(), Limit: &limit})

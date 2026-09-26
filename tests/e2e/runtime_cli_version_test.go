@@ -16,7 +16,7 @@ import (
 //   - CLI-direct (terminal host): version lands even though mode stays
 //     unreported — the write must NOT fabricate a plugin mode.
 //   - version bump: the field refreshes on change.
-//   - plugin host (option C): a non-terminal host derives mode=plugin AND
+//   - explicit plugin mode: a product header plus X-Client-Mode records plugin AND
 //     records cli_version on the same row, so both axes show together.
 func TestRuntimeCLIVersionReported(t *testing.T) {
 	testutil.WaitForAPI(t)
@@ -80,25 +80,27 @@ func TestRuntimeCLIVersionReported(t *testing.T) {
 	})
 	waitFor("version bump", map[string]string{"cli_version": "0.8.0"})
 
-	// Plugin runtime: a non-terminal host derives mode=plugin and records the
-	// host string, while cli_version stays on the same row — option C shows both.
+	// Product identity never implies integration mode. Report each independently.
 	testutil.DoGetWithHeaders(t, feedPath, token, map[string]string{
 		"X-CLI-Ver":     "0.8.0",
 		"X-Client-Host": "openclaw/1.2.3",
+		"X-Client-Mode": "plugin",
 	})
 	waitFor("plugin runtime", map[string]string{
-		"mode":        "plugin",
-		"client_host": "openclaw/1.2.3",
-		"cli_version": "0.8.0",
+		"mode":            "plugin",
+		"runtime_name":    "openclaw",
+		"runtime_version": "1.2.3",
+		"cli_version":     "0.8.0",
 	})
 
-	// A request omitting X-CLI-Ver must not clobber the previously recorded
-	// version (empty header leaves the column untouched, mirroring model).
+	// Legacy requests without CLI metadata are not Agent observations: they
+	// preserve every previously reported runtime field.
 	testutil.DoGetWithHeaders(t, feedPath, token, map[string]string{
 		"X-Client-Host": "openclaw/1.2.4",
 	})
-	waitFor("host-only refresh keeps version", map[string]string{
-		"client_host": "openclaw/1.2.4",
-		"cli_version": "0.8.0",
+	waitFor("legacy request without CLI metadata preserves identity", map[string]string{
+		"runtime_name":    "openclaw",
+		"runtime_version": "1.2.3",
+		"cli_version":     "0.8.0",
 	})
 }

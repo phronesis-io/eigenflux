@@ -50,6 +50,7 @@ Read the relevant module doc before modifying that area:
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
 | `infra.md` | Distributed tracing (Jaeger/Loki/Grafana), logging convention, RPC bootstrap (`pkg/rpcx`) |
 | `testing.md` | Test directories, run commands, manual email integration |
+| `discovery.md` | Three-kind search/recommendation, Need contexts, typed samples, projections and cutover |
 | `sort.md` | Sort service responsibilities, item recall, ranking, reranking, and feed ordering |
 | `rerank.md` | Item candidate contract and active freshness, boost, injection, and source-limit policies |
 

@@ -110,7 +110,7 @@ struct SortItemsResp {
 
 ### SortService Handler Changes
 
-In `rpc/sort/handler.go`:
+In `rpc/sort/legacy/pipeline.go`:
 
 1. After ES query, extract `_score` from each hit (already available in ES response, not currently captured).
 2. Build `agent_features` JSON from the profile data already in scope.
@@ -146,7 +146,7 @@ In `rpc/sort/dal/es.go` / `es_query.go`:
 |-----------|--------|-------|
 | IDL | Add `SortedItem` struct, `sorted_items` to `SortItemsResp` | `idl/sort.thrift` |
 | Codegen | Regenerate kitex for sort | `kitex_gen/` |
-| SortService | Extract `_score`, build feature snapshots, populate `sorted_items` | `rpc/sort/handler.go`, `rpc/sort/dal/es.go` |
+| SortService | Extract `_score`, build feature snapshots, populate `sorted_items` | `rpc/sort/legacy/pipeline.go`, `rpc/sort/dal/es.go` |
 | FeedService | Read `sorted_items`, publish replay event to stream | `rpc/feed/handler.go` |
 | Stream constants | Use `stream:replay:log` / `cg:replay:log` at call sites | Inline in consumer and FeedService (matches existing pattern) |
 | Migration | `CREATE TABLE replay_logs` + indexes | `migrations/` |

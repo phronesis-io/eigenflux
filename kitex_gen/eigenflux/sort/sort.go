@@ -611,12 +611,220 @@ var fieldIDToName_RecommendCommissionsResp = map[int16]string{
 	255: "base_resp",
 }
 
+type DiscoveryReq struct {
+	AgentId        int64   `thrift:"agent_id,1,required" frugal:"1,required,i64" json:"agent_id"`
+	Operation      string  `thrift:"operation,2,required" frugal:"2,required,string" json:"operation"`
+	Payload        string  `thrift:"payload,3,required" frugal:"3,required,string" json:"payload"`
+	IdempotencyKey *string `thrift:"idempotency_key,4,optional" frugal:"4,optional,string" json:"idempotency_key,omitempty"`
+	ResourceId     *int64  `thrift:"resource_id,5,optional" frugal:"5,optional,i64" json:"resource_id,omitempty"`
+}
+
+func NewDiscoveryReq() *DiscoveryReq {
+	return &DiscoveryReq{}
+}
+
+func (p *DiscoveryReq) InitDefault() {
+}
+
+func (p *DiscoveryReq) GetAgentId() (v int64) {
+	return p.AgentId
+}
+
+func (p *DiscoveryReq) GetOperation() (v string) {
+	return p.Operation
+}
+
+func (p *DiscoveryReq) GetPayload() (v string) {
+	return p.Payload
+}
+
+var DiscoveryReq_IdempotencyKey_DEFAULT string
+
+func (p *DiscoveryReq) GetIdempotencyKey() (v string) {
+	if !p.IsSetIdempotencyKey() {
+		return DiscoveryReq_IdempotencyKey_DEFAULT
+	}
+	return *p.IdempotencyKey
+}
+
+var DiscoveryReq_ResourceId_DEFAULT int64
+
+func (p *DiscoveryReq) GetResourceId() (v int64) {
+	if !p.IsSetResourceId() {
+		return DiscoveryReq_ResourceId_DEFAULT
+	}
+	return *p.ResourceId
+}
+func (p *DiscoveryReq) SetAgentId(val int64) {
+	p.AgentId = val
+}
+func (p *DiscoveryReq) SetOperation(val string) {
+	p.Operation = val
+}
+func (p *DiscoveryReq) SetPayload(val string) {
+	p.Payload = val
+}
+func (p *DiscoveryReq) SetIdempotencyKey(val *string) {
+	p.IdempotencyKey = val
+}
+func (p *DiscoveryReq) SetResourceId(val *int64) {
+	p.ResourceId = val
+}
+
+func (p *DiscoveryReq) IsSetIdempotencyKey() bool {
+	return p.IdempotencyKey != nil
+}
+
+func (p *DiscoveryReq) IsSetResourceId() bool {
+	return p.ResourceId != nil
+}
+
+func (p *DiscoveryReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DiscoveryReq(%+v)", *p)
+}
+
+var fieldIDToName_DiscoveryReq = map[int16]string{
+	1: "agent_id",
+	2: "operation",
+	3: "payload",
+	4: "idempotency_key",
+	5: "resource_id",
+}
+
+type DiscoveryResp struct {
+	Payload  string         `thrift:"payload,1,required" frugal:"1,required,string" json:"payload"`
+	BaseResp *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewDiscoveryResp() *DiscoveryResp {
+	return &DiscoveryResp{}
+}
+
+func (p *DiscoveryResp) InitDefault() {
+}
+
+func (p *DiscoveryResp) GetPayload() (v string) {
+	return p.Payload
+}
+
+var DiscoveryResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *DiscoveryResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return DiscoveryResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *DiscoveryResp) SetPayload(val string) {
+	p.Payload = val
+}
+func (p *DiscoveryResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *DiscoveryResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *DiscoveryResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DiscoveryResp(%+v)", *p)
+}
+
+var fieldIDToName_DiscoveryResp = map[int16]string{
+	1:   "payload",
+	255: "base_resp",
+}
+
 type SortService interface {
+	Discovery(ctx context.Context, req *DiscoveryReq) (r *DiscoveryResp, err error)
+
 	SortItems(ctx context.Context, req *SortItemsReq) (r *SortItemsResp, err error)
 
 	SearchCommissions(ctx context.Context, req *SearchCommissionsReq) (r *SearchCommissionsResp, err error)
 
 	RecommendCommissions(ctx context.Context, req *RecommendCommissionsReq) (r *RecommendCommissionsResp, err error)
+}
+
+type SortServiceDiscoveryArgs struct {
+	Req *DiscoveryReq `thrift:"req,1" frugal:"1,default,DiscoveryReq" json:"req"`
+}
+
+func NewSortServiceDiscoveryArgs() *SortServiceDiscoveryArgs {
+	return &SortServiceDiscoveryArgs{}
+}
+
+func (p *SortServiceDiscoveryArgs) InitDefault() {
+}
+
+var SortServiceDiscoveryArgs_Req_DEFAULT *DiscoveryReq
+
+func (p *SortServiceDiscoveryArgs) GetReq() (v *DiscoveryReq) {
+	if !p.IsSetReq() {
+		return SortServiceDiscoveryArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SortServiceDiscoveryArgs) SetReq(val *DiscoveryReq) {
+	p.Req = val
+}
+
+func (p *SortServiceDiscoveryArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SortServiceDiscoveryArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceDiscoveryArgs(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceDiscoveryArgs = map[int16]string{
+	1: "req",
+}
+
+type SortServiceDiscoveryResult struct {
+	Success *DiscoveryResp `thrift:"success,0,optional" frugal:"0,optional,DiscoveryResp" json:"success,omitempty"`
+}
+
+func NewSortServiceDiscoveryResult() *SortServiceDiscoveryResult {
+	return &SortServiceDiscoveryResult{}
+}
+
+func (p *SortServiceDiscoveryResult) InitDefault() {
+}
+
+var SortServiceDiscoveryResult_Success_DEFAULT *DiscoveryResp
+
+func (p *SortServiceDiscoveryResult) GetSuccess() (v *DiscoveryResp) {
+	if !p.IsSetSuccess() {
+		return SortServiceDiscoveryResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SortServiceDiscoveryResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DiscoveryResp)
+}
+
+func (p *SortServiceDiscoveryResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SortServiceDiscoveryResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SortServiceDiscoveryResult(%+v)", *p)
+}
+
+var fieldIDToName_SortServiceDiscoveryResult = map[int16]string{
+	0: "success",
 }
 
 type SortServiceSortItemsArgs struct {

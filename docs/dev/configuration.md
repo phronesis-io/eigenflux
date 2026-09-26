@@ -1,5 +1,7 @@
 # Configuration & Service Ports
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
 ## Service Ports
 
 All ports support `.env` override; default values when not configured:

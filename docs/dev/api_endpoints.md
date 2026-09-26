@@ -1,5 +1,7 @@
 # API Endpoints
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
 ## Console payout KYC
 
 The commission-gated Console BFF exposes `GET /api/v2/console/bff/payout-method/kyc`,

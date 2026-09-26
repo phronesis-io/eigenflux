@@ -97,6 +97,10 @@ func (c *ReplayConsumer) handle(_ context.Context, msgID string, values map[stri
 	now := nowMs()
 	logs := make([]ReplayLog, 0, len(servedItems))
 	for _, si := range servedItems {
+		if err := si.Validate(); err != nil {
+			logger.Default().Warn("invalid replay identity", "err", err)
+			return HandleFailure
+		}
 		rowID, err := c.idGen.NextID()
 		if err != nil {
 			logger.Default().Error("ReplayConsumer failed to generate row id", "err", err)
@@ -110,7 +114,8 @@ func (c *ReplayConsumer) handle(_ context.Context, msgID string, values map[stri
 
 		score := si.Score
 		logs = append(logs, ReplayLog{
-			ID:            rowID,
+			ID:              rowID,
+			PipelineVersion: si.PipelineVersion, RequestMode: si.RequestMode, SampleSchemaVersion: si.SampleSchemaVersion, SourceKind: si.SourceKind, SourceID: replayNullableID(si.SourceID), ContextID: replayNullableID(si.ContextID), NeedID: replayNullableID(si.NeedID), NeedRevision: replayNullableID(si.NeedRevision),
 			ImpressionID:  impressionID,
 			AgentID:       agentID,
 			ItemID:        si.ItemID,
@@ -131,4 +136,11 @@ func (c *ReplayConsumer) handle(_ context.Context, msgID string, values map[stri
 
 	logger.Default().Info("ReplayConsumer inserted replay logs", "impressionID", impressionID, "count", len(logs))
 	return HandleSuccess
+}
+
+func replayNullableID(id int64) *int64 {
+	if id == 0 {
+		return nil
+	}
+	return &id
 }

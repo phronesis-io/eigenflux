@@ -1,5 +1,7 @@
 # Sort Service
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
 ## Overview
 
 ## Commission Discovery
@@ -7,6 +9,10 @@
 `SortService.SearchCommissions` and `SortService.RecommendCommissions` are a
 separate Commission discovery path. They query the `commissions` alias only,
 enforce `active=true`, and accept CNY price and promised-duration filters.
+ES returns IDs and catalogue revisions; generation-specific Redis forward reads
+supply catalogue and statistics features before scoring. Missing or mismatched
+projections are skipped, and Redis read failures return errors. See the
+[forward index contract](discovery.md#search-index-and-forward-index).
 Search embeds the caller query; recommendation uses the requesting agent's
 completed profile embedding when present and falls back to profile keywords.
 Both return Commission-specific candidates with the deterministic score and
@@ -28,8 +34,17 @@ The Sort RPC service (`rpc/sort/`, port `SORT_RPC_PORT`) owns item recall, ranki
 
 ## Subpackages
 
+See the [Sort code review index](../../rpc/sort/README.md) for entry points and
+the dependency flow. Root files only start the process, assemble dependencies
+and adapt RPC requests. Service-local configuration, caches and model managers
+belong to `legacy.Service` rather than package globals.
+
 | Subpackage | Responsibility |
 |------------|----------------|
+| `rpc/sort/discovery/` | Three-kind search/recommendation, context compilation, rule scoring and DB/ES/Redis access. |
+| `rpc/sort/discovery/index/` | Shared vocabulary and index-slot schema used by both query execution and index writers. |
+| `rpc/sort/discovery/transport/` | JSON response codec shared by Sort, Feed and the gateway. |
+| `rpc/sort/legacy/` | Existing feed/commission orchestration and the policy adapter reused by discovery. |
 | `rpc/sort/dal/` | Elasticsearch readers for `items-*` and PostgreSQL access for user profile data. |
 | `rpc/sort/ranker/` | Typed item ranker. Multi-signal scoring with semantic + keyword + freshness, plus MMR diversity selection (kept but currently disabled) and exploration slots. |
 | `rpc/sort/rank/` | Item candidate interface and `BasicCandidate` adapter used by rerank policies. |
@@ -70,7 +85,7 @@ Before first enablement, deploy the FollowupConsumer projection, run `go run ./s
 
 `BoostPolicy` only multiplies UGC scores, so a low-relevance UGC broadcast can still miss every feed and never be seen. The exposure guarantee closes that gap: every UGC broadcast (author is not an official PGC bot) should reach **at least one impression**.
 
-- **Recall layer** — a Redis-backed `new_ugc` recall channel (`recallsource.NewUGC`, label `new_ugc_recall`, registered in `main.go` behind `ENABLE_NEW_UGC_RECALL`) reads a candidate ID list written by the **offline service**. The offline job owns the definition of "un-exposed UGC" (`item_stats.consumed_count == 0`, recency window, non-PGC author) and writes the offline recall index key. `consumed_count` is a write-heavy counter kept out of the ES `items-*` index, so this list cannot be produced by an ES query — hence the offline channel. Sort-side plumbing is identical to `hot_recall` / `new_recall`.
+- **Recall layer** — a Redis-backed `new_ugc` recall channel (`recallsource.NewUGC`, label `new_ugc_recall`, registered in `legacy/service.go` behind `ENABLE_NEW_UGC_RECALL`) reads a candidate ID list written by the **offline service**. The offline job owns the definition of "un-exposed UGC" (`item_stats.consumed_count == 0`, recency window, non-PGC author) and writes the offline recall index key. `consumed_count` is a write-heavy counter kept out of the ES `items-*` index, so this list cannot be produced by an ES query — hence the offline channel. Sort-side plumbing is identical to `hot_recall` / `new_recall`.
 - **Threshold bypass** — `new_ugc_recall` items skip the relevance-score cutoff in `SortItems` (same mechanism as friend-feed items); they still pass group-collapse and bloom dedup.
 - **Strategy layer** — the generic `rerank.InjectPolicy` (see `docs/dev/rerank.md`) force-inserts them into reserved slots so a low-score UGC survives the top-N truncation. Configured declaratively in `configs/sort/rerank.yaml` (`name: inject`, `source: new_ugc_recall`, `count`, `positions`, `claim_ttl`) — currently `count: 1`, no fixed position (front-fill). Highest-scoring matches go first, so a profile-matched UGC is preferred and an unmatched one is used only as coverage fallback. Once an item is consumed once, `consumed_count` becomes non-zero and the offline job drops it from the list — the guarantee self-terminates at one impression.
 - **Real-time claim throttle** — the offline index refreshes only periodically (~1h), so a just-exposed item lingers in the `new_ugc_recall` list until the next refresh; without a real-time signal it would be force-inserted into *every* feed across that window, blowing past "one impression". To bridge the lag, each force-inserted-and-delivered item is claimed in Redis (`sort:inject:claim:<itemID>`, `SET NX EX claim_ttl`); the next feeds skip claimed items and inject a different un-exposed UGC instead. `claim_ttl` is sized to span one offline refresh (default `90m`). The claim check batches to one pipelined round trip and fails open (a Redis error risks a rare double-insert, never suppresses the guarantee). This bounds over-exposure to ~once per item; perfect exactly-once is not attempted (a claim is written on delivery, so two feeds racing inside the same processing window can still both inject).
@@ -86,7 +101,7 @@ Friend recall bypasses the relevance threshold so a large friend graph can other
 
 - **Where it runs in `SortItems`** — recall → formula rank scores → operator boost → group collapse → **relevance eligibility gate** → **LR reorder of the eligible set** → inject → Bloom dedup → source limits → top-N. The `MIN_RELEVANCE_SCORE` gate deliberately stays on the baseline formula score; LR only reorders the items that already passed it, so the eligibility threshold semantics do not change on rollout.
 - **Hard cutover with fallback** — when a valid model is loaded, LR probability becomes the sole ordering score for eligible items. When the model is disabled, absent, or fails to load/self-test, sort transparently keeps the formula ordering (`sort_lr_ranker_fallback_total{reason="no_model"}`). Exploration slots are appended after the LR reorder and are never LR-scored.
-- **Online features, no extra I/O** — every feature is built from objects already in memory for the request: `ranker.ScoreBreakdown` (baseline semantic/keyword/freshness/total, is_draft), `ranker.UserProfile` (keywords/domains/geo), `sortDal.Item` (type, source_type, timeliness, lang, keywords, domains, geo, quality, timestamps), the recall-source bitset, and the request time. See `rpc/sort/lr_input.go`.
+- **Online features, no extra I/O** — every feature is built from objects already in memory for the request: `ranker.ScoreBreakdown` (baseline semantic/keyword/freshness/total, is_draft), `ranker.UserProfile` (keywords/domains/geo), `sortDal.Item` (type, source_type, timeliness, lang, keywords, domains, geo, quality, timestamps), the recall-source bitset, and the request time. See `rpc/sort/legacy/lr_input.go`.
 - **Model bundle & hot reload** — the model is a JSON bundle (`model.json`: intercept + per-term `kind/source/transform/clip/mean/scale/coefficient` + embedded `self_test_cases`). The `Manager` polls `LR_RANKER_MODEL_PATH` every `LR_RANKER_RELOAD_INTERVAL`, and when the underlying bundle changes it loads + self-tests the new model and atomically swaps it in (`atomic.Pointer`). A failed load keeps the previous model serving. "No update ⇒ keep old model" falls out of the change detection (resolved symlink target + mtime).
 - **Feature parity** — self-tests compare logit and probability within `1e-9`. The raw standardized-vector SHA256 is compared best-effort only (cross-language `log1p`/float rounding can differ by 1 ULP without moving the logit past tolerance); in practice the raw vectors are bit-exact against the fixture.
 - **Delivery** — the bundle is trained and uploaded to OSS by `eigenflux-ml` at `oss://eigenflux/rec/model/lr/sample_date=YYYY-MM-DD/<model_version>/` (immutable; there is no server-side "latest" pointer). Sort never touches OSS: an out-of-band step (`scripts/cloud/install_lr_model.sh`) stages a bundle under `/data/models/eigenflux/lr-ranker/versions/<version>/`, verifies `checksums.sha256`, and atomically flips the `current` symlink. Modes: `--src <dir>` (already-synced local bundle), `--oss <uri>` (pull a specific bundle with `ossutil`), `--oss-latest` (enumerate the newest `sample_date` + version and install it), `--rollback` (flip back to `previous`). Run `--oss-latest` from a daily systemd timer scheduled after the training job to pick up each day's model.

@@ -88,6 +88,7 @@ type Service struct {
 	feedClient               feedservice.Client
 	notificationClient       notificationservice.Client
 	enableFeed               bool
+	enableDiscovery          bool
 	enableControl            bool
 	enableAttentionV1        bool
 	enableCommunication      bool
@@ -197,6 +198,7 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		publicURL:                publicURL,
 		allowedOrigins:           allowedOrigins,
 		secureCookie:             parsed.Scheme == "https",
+		enableDiscovery:          cfg.EnableNeedSearch,
 		enableFeed:               cfg.EnableFeedV2,
 		enableControl:            cfg.EnableControlChannelV2,
 		enableAttentionV1:        cfg.EnableAgentAttentionV1,

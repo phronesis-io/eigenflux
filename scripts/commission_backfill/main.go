@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +17,7 @@ import (
 	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
 
 	etcd "github.com/kitex-contrib/registry-etcd"
@@ -24,9 +27,16 @@ var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE
 
 func main() {
 	cfg := config.Load()
+	if cfg.EnableNeedSearch {
+		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if err := validateConfiguration(cfg); err != nil {
 		log.Fatal(err)
 	}
+	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
+	defer mq.RDB.Close()
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {
 		log.Fatal(err)
 	}
@@ -42,9 +52,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+	store := commissionindex.ESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 	if err := store.Ensure(context.Background()); err != nil {
 		log.Fatal(err)
+	}
+	if cfg.EnableNeedSearch {
+		if err := es.EnsureRetrievalSlots(context.Background(), cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
+			log.Fatal(err)
+		}
 	}
 	source := commissionsource.Adapter{Commission: commissionClient, Order: orderClient}
 	embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)

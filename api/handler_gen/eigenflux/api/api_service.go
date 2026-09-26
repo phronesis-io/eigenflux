@@ -36,6 +36,7 @@ import (
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/feedcontract"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/invite"
@@ -842,6 +843,15 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"notifications": notifications,
 		"impression_id": resp.ImpressionId,
 	}
+	if resp.DiscoveryMetadata != nil {
+		var discoveryMeta map[string]interface{}
+		if json.Unmarshal([]byte(*resp.DiscoveryMetadata), &discoveryMeta) == nil {
+			feedPayload["discovery"] = discoveryMeta
+			if discoveryMeta["input_origin"] == "baseline" {
+				feedPayload["personalization"] = map[string]any{"mode": "baseline"}
+			}
+		}
+	}
 	// Contract delivery is three-state, because a client's fallback has to tell
 	// "we deliberately sent no rules" apart from "this server is too old to
 	// send any":
@@ -852,7 +862,11 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	//   - field text   → bind these rules.
 	// The empty case is the common one (most polls return no items), and the
 	// contract is ~3.5K tokens the agent would otherwise re-read every poll.
-	if contract := feedOutputContract(); contract != "" {
+	contract := feedOutputContract()
+	if feedPayload["personalization"] != nil {
+		contract = feedcontract.ForMode("baseline")
+	}
+	if contract != "" {
 		if len(items) == 0 && len(notifications) == 0 {
 			contract = ""
 		}

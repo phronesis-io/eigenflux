@@ -105,12 +105,16 @@ stale-link error. There is no Need update/delete or normalized-result write API.
 
 ## Execution boundary
 
-Main-branch Search/Sort/Feed do not yet consume Needs. Future compilation should
+Search/Sort/Feed consume Needs directly. Execution compilers
 read the valid NeedInput, form retrieval text from goal/context, compile supported
 structured restrictions, preserve open requirements and preferences, and attach
-runtime context. It must not reinterpret the goal or add hard requirements.
+runtime context. Need-derived text uses the same query processing module as
+explicit queries; normalization and soft alias expansion affect retrieval only.
+They must not reinterpret the goal or add hard requirements.
 Persist the exact Need ID/schema/Intent version and execution snapshot in samples;
 derived embeddings/indexes need their own versioned cache keys. Rebuilding derived
 data must not change the Need. Matching results belong to a Need/candidate pair:
 `satisfied`, `conflict`, or `unknown`. An unverified required condition must not be
-claimed satisfied. An undeliverable Need must not block other Needs or kinds.
+claimed satisfied. Open requirements do not prevent search candidate retrieval
+or delivery; a search match is not a requirement-verification result. An
+undeliverable Need must not block other Needs or kinds.

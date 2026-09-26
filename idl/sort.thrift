@@ -57,7 +57,22 @@ struct RecommendCommissionsResp {
     255: required base.BaseResp base_resp
 }
 
+// Payloads are versioned strict JSON contracts in rpc/sort/discovery. Ownership and
+// operation remain typed, authenticated RPC fields rather than payload fields.
+struct DiscoveryReq {
+    1: required i64 agent_id
+    2: required string operation
+    3: required string payload
+    4: optional string idempotency_key
+    5: optional i64 resource_id
+}
+struct DiscoveryResp {
+    1: required string payload
+    255: required base.BaseResp base_resp
+}
 service SortService {
+    DiscoveryResp Discovery(1: DiscoveryReq req)
+
     SortItemsResp SortItems(1: SortItemsReq req)
     SearchCommissionsResp SearchCommissions(1: SearchCommissionsReq req)
     RecommendCommissionsResp RecommendCommissions(1: RecommendCommissionsReq req)

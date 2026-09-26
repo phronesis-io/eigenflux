@@ -5,6 +5,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/json"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"errors"
 	"fmt"
 	"io"
@@ -12,9 +13,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type ESStore struct {
+	Redis      *redis.Client
 	Index      string
 	Alias      string
 	Dimensions int
@@ -42,7 +46,7 @@ func (s ESStore) Get(ctx context.Context, commissionID int64) (Document, bool, e
 		return Document{}, false, errCommissionIndexRead
 	}
 	query := req.URL.Query()
-	query.Set("_source_includes", "commission_id,active,catalogue_version,statistics_version")
+	query.Set("_source_includes", "commission_id,active,catalogue_version")
 	req.URL.RawQuery = query.Encode()
 	res, err := es.Client.Perform(req)
 	if err != nil {
@@ -69,10 +73,9 @@ func (s ESStore) Get(ctx context.Context, commissionID int64) (Document, bool, e
 		ID     string `json:"_id"`
 		Found  *bool  `json:"found"`
 		Source struct {
-			CommissionID      int64 `json:"commission_id"`
-			Active            bool  `json:"active"`
-			CatalogueVersion  int64 `json:"catalogue_version"`
-			StatisticsVersion int64 `json:"statistics_version"`
+			CommissionID     int64 `json:"commission_id"`
+			Active           bool  `json:"active"`
+			CatalogueVersion int64 `json:"catalogue_version"`
 		} `json:"_source"`
 	}
 	if err := decoder.Decode(&envelope); err != nil || limited.N == 0 || envelope.Index == "" ||
@@ -84,12 +87,15 @@ func (s ESStore) Get(ctx context.Context, commissionID int64) (Document, bool, e
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Document{}, false, errCommissionIndexRead
 	}
-	return Document{
-		CommissionID:      envelope.Source.CommissionID,
-		Active:            envelope.Source.Active,
-		CatalogueVersion:  envelope.Source.CatalogueVersion,
-		StatisticsVersion: envelope.Source.StatisticsVersion,
-	}, true, nil
+	rows, err := ReadForward(ctx, s.Redis, envelope.Index, []int64{commissionID})
+	if err != nil {
+		return Document{}, false, errCommissionIndexRead
+	}
+	forward, ok := rows[commissionID]
+	if !ok || forward.CatalogueVersion != envelope.Source.CatalogueVersion {
+		return Document{}, false, errCommissionIndexRead
+	}
+	return Document{CommissionID: commissionID, Active: envelope.Source.Active, CatalogueVersion: envelope.Source.CatalogueVersion, StatisticsVersion: forward.StatisticsVersion}, true, nil
 }
 
 func decodeDocumentMiss(body io.Reader, commissionID int64) (Document, bool, error) {
@@ -239,24 +245,31 @@ func (s ESStore) PromoteAlias(ctx context.Context) error {
 }
 
 func Mapping(dims int) map[string]any {
-	return map[string]any{"properties": map[string]any{
-		"commission_id": map[string]any{"type": "long"}, "seller_agent_id": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"},
-		"catalogue_version": map[string]any{"type": "long"}, "statistics_version": map[string]any{"type": "long"}, "title": map[string]any{"type": "text"},
+	return map[string]any{"dynamic": "strict", "properties": map[string]any{
+		"retrieval_slots": searchindex.SlotsMapping(),
+		"commission_id":   map[string]any{"type": "long"}, "seller_agent_id": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"},
+		"catalogue_version": map[string]any{"type": "long"}, "title": map[string]any{"type": "text"},
 		"capability_description": map[string]any{"type": "text"}, "request_spec_text": map[string]any{"type": "text"}, "delivery_spec_text": map[string]any{"type": "text"},
-		"tags": map[string]any{"type": "keyword"}, "search_text": map[string]any{"type": "text"}, "price_fen": map[string]any{"type": "long"},
-		"currency": map[string]any{"type": "keyword"}, "promised_delivery_ms": map[string]any{"type": "long"}, "completed_count": map[string]any{"type": "long"},
-		"refunded_count": map[string]any{"type": "long"}, "completion_rate_bps": map[string]any{"type": "integer"}, "average_rating_milli": map[string]any{"type": "integer"},
-		"has_rating": map[string]any{"type": "boolean"}, "average_delivery_ms": map[string]any{"type": "long"}, "updated_at": map[string]any{"type": "date"},
+		"search_text": map[string]any{"type": "text"}, "price_fen": map[string]any{"type": "long"},
+		"currency": map[string]any{"type": "keyword"}, "promised_delivery_ms": map[string]any{"type": "long"},
 		"embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"},
 	}}
 }
 
 func (s ESStore) Upsert(ctx context.Context, doc Document) error {
-	body, err := json.Marshal(map[string]any{"scripted_upsert": true, "script": map[string]any{"lang": "painless", "source": "if (ctx.op == 'create') { ctx._source = params.doc; } else { if (params.doc.catalogue_version >= ctx._source.catalogue_version) { for (entry in params.doc.entrySet()) { if (entry.getKey() != 'statistics_version' && entry.getKey() != 'completed_count' && entry.getKey() != 'refunded_count' && entry.getKey() != 'completion_rate_bps' && entry.getKey() != 'average_rating_milli' && entry.getKey() != 'has_rating' && entry.getKey() != 'average_delivery_ms') { ctx._source[entry.getKey()] = entry.getValue(); } } } if (params.doc.statistics_version >= ctx._source.statistics_version) { ctx._source.statistics_version = params.doc.statistics_version; ctx._source.completed_count = params.doc.completed_count; ctx._source.refunded_count = params.doc.refunded_count; ctx._source.completion_rate_bps = params.doc.completion_rate_bps; ctx._source.average_rating_milli = params.doc.average_rating_milli; ctx._source.has_rating = params.doc.has_rating; ctx._source.average_delivery_ms = params.doc.average_delivery_ms; } }", "params": map[string]any{"doc": doc}}, "upsert": doc})
+	target := s.Index
+	if strings.TrimSpace(target) == "" {
+		return fmt.Errorf("concrete Commission index required for projection writes")
+	}
+	if err := WriteForward(ctx, s.Redis, target, doc); err != nil {
+		return err
+	}
+	fields := doc.SearchFields()
+	body, err := json.Marshal(map[string]any{"scripted_upsert": true, "script": map[string]any{"lang": "painless", "source": "if (ctx.op == 'create' || params.doc.catalogue_version >= ctx._source.catalogue_version) { ctx._source = params.doc; } else { ctx.op = 'noop'; }", "params": map[string]any{"doc": fields}}, "upsert": fields})
 	if err != nil {
 		return fmt.Errorf("marshal Commission update: %w", err)
 	}
-	path := "/" + s.readIndex() + "/_update/" + strconv.FormatInt(doc.CommissionID, 10)
+	path := "/" + target + "/_update/" + strconv.FormatInt(doc.CommissionID, 10)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -307,7 +320,7 @@ func (s ESStore) Search(ctx context.Context, req SearchRequest) ([]Hit, error) {
 	}
 	query := map[string]any{
 		"size":    req.Limit,
-		"_source": []string{"commission_id", "completion_rate_bps", "average_rating_milli", "has_rating", "completed_count"},
+		"_source": []string{"commission_id", "catalogue_version"},
 		"query":   map[string]any{"bool": boolQuery},
 	}
 	if req.CommissionID == 0 && len(req.Embedding) > 0 {
@@ -334,6 +347,7 @@ func (s ESStore) Search(ctx context.Context, req SearchRequest) ([]Hit, error) {
 	var decoded struct {
 		Hits struct {
 			Hits []struct {
+				Index  string   `json:"_index"`
 				Score  float64  `json:"_score"`
 				Source Document `json:"_source"`
 			} `json:"hits"`
@@ -348,9 +362,36 @@ func (s ESStore) Search(ctx context.Context, req SearchRequest) ([]Hit, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("decode Commission search response")
 	}
+	groups := map[string][]int64{}
+	for _, hit := range decoded.Hits.Hits {
+		if hit.Index == "" {
+			return nil, fmt.Errorf("missing Commission index generation")
+		}
+		groups[hit.Index] = append(groups[hit.Index], hit.Source.CommissionID)
+	}
+	hydrated := map[string]map[int64]Document{}
+	for index, ids := range groups {
+		rows, err := ReadForward(ctx, s.Redis, index, ids)
+		if err != nil {
+			return nil, err
+		}
+		hydrated[index] = rows
+	}
 	hits := make([]Hit, 0, len(decoded.Hits.Hits))
 	for _, hit := range decoded.Hits.Hits {
-		hits = append(hits, Hit{Document: hit.Source, KeywordScore: hit.Score, SemanticScore: hit.Score})
+		d, ok := hydrated[hit.Index][hit.Source.CommissionID]
+		if !ok || !d.Active || d.CatalogueVersion != hit.Source.CatalogueVersion {
+			continue
+		}
+		hits = append(hits, Hit{Document: d, KeywordScore: hit.Score, SemanticScore: hit.Score})
 	}
 	return hits, nil
+}
+
+func (s ESStore) UpsertStatistics(ctx context.Context, statistics StatisticsSnapshot) error {
+	target := s.Index
+	if strings.TrimSpace(target) == "" {
+		return fmt.Errorf("concrete Commission index required for projection writes")
+	}
+	return WriteStatistics(ctx, s.Redis, target, statistics)
 }

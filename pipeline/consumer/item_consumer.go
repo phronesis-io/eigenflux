@@ -3,6 +3,8 @@ package consumer
 import (
 	"context"
 	"eigenflux_server/pkg/json"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
 	"fmt"
 	"strconv"
 	"strings"
@@ -389,6 +391,15 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		UpdatedAt:        time.Now(),
 	}
 
+	if v := searchindex.Current(); v != nil {
+		slots, err := json.Marshal(searchindex.ContentSlots(v, append(append([]string{}, esItem.Domains...), esItem.Keywords...), []string{esItem.Lang}))
+		if err != nil {
+			return HandleRetry
+		}
+		if err = db.DB.WithContext(ctx).Exec("UPDATE processed_items SET retrieval_slots=?::jsonb WHERE item_id=?", string(slots), itemID).Error; err != nil {
+			return HandleRetry
+		}
+	}
 	if err := sortDal.IndexItem(ctx, esItem); err != nil {
 		logger.Default().Error("ItemConsumer failed to index item to ES", "itemID", itemID, "err", err)
 		// Don't block the flow, continue to ACK

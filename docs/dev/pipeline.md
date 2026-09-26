@@ -1,5 +1,7 @@
 # Pipeline & Async Processing
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
 ## Async Messaging
 
 When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
@@ -17,14 +19,20 @@ When `ENABLE_COMMISSION_INDEX=true`, `CommissionIndexConsumer` reads
 as notifications and pulls authoritative catalogue snapshots from
 `CommissionService` plus statistics from `OrderService`; it never reads the
 Commission database. Invalid version-1 envelopes are copied to
-`stream:commission:index:dlq`. Source RPC, embedding, and Elasticsearch errors
-remain pending for retry. Documents retain independent catalogue and statistics
-versions, and offline entries are retained as `active=false` tombstones so a
+`stream:commission:index:dlq`. Source RPC, embedding, Elasticsearch, and Redis
+errors remain pending for retry. Catalogue events write a versioned
+Redis forward projection and an ES search-only document. Statistics events read
+only OrderService and update only their independently versioned Redis component,
+without embedding or ES writes. See [forward index contracts](discovery.md#search-index-and-forward-index).
+The projections retain independent catalogue and statistics versions, and
+offline entries are retained as `active=false` tombstones so a
 delayed older event cannot reactivate them.
 
 With `ENABLE_COMMISSION_INDEX=true`, run
 `go run ./scripts/commission_backfill` to page active source snapshots and
-idempotently populate the same index while the consumer remains online. The
+idempotently populate both Redis forward components and ES while the consumer
+remains online. Concrete ES generations scope the forward keys; the alias is
+promoted only after the staged backfill succeeds. The
 command fails before connecting to infrastructure when the switch is disabled.
 
 For staged rollout, enable `ENABLE_COMMISSION_INDEX` on Sort and Pipeline first,

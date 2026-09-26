@@ -1,0 +1,388 @@
+package discovery
+
+import (
+	"context"
+	"crypto/sha256"
+	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/bloomfilter"
+	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/recall"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+
+	sortdal "eigenflux_server/rpc/sort/dal"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
+)
+
+type Source struct {
+	DB                                                           *gorm.DB
+	Redis                                                        *redis.Client
+	BroadcastIndex, CommissionIndex, AgentIndex, RecallNamespace string
+	BlockedAuthorEmails                                          []string
+	DisableDedup                                                 bool
+	DisabledChannels                                             map[string]bool
+}
+
+func (s *Source) Owner(ctx context.Context, id int64) (OwnerContext, error) {
+	var row struct {
+		Revision                         int64
+		State, Compiled, Public, Private string
+		CardVersion                      int64
+		AgentID                          int64
+	}
+	err := s.DB.WithContext(ctx).Raw(`SELECT a.agent_id, COALESCE(o.active_context_revision,0) AS revision,
+ COALESCE(o.state,'') AS state, COALESCE(r.compiled_context::text,'{}') AS compiled,
+ COALESCE(c.public_card::text,'{}') AS public, COALESCE(c.private_card::text,'{}') AS private,
+ COALESCE(c.card_version,0) AS card_version
+ FROM agents a LEFT JOIN agent_onboarding_v2 o USING(agent_id)
+ LEFT JOIN agent_context_revisions r ON r.agent_id=a.agent_id AND r.revision=o.active_context_revision
+ LEFT JOIN agent_cards c ON c.agent_id=a.agent_id WHERE a.agent_id=?`, id).Scan(&row).Error
+	if err != nil {
+		return OwnerContext{}, err
+	}
+	if row.AgentID == 0 {
+		return OwnerContext{}, Failure(404, "owner_not_found")
+	}
+	if row.State == "completed" && (row.Revision == 0 || row.Compiled == "{}") {
+		return OwnerContext{}, Failure(503, "owner_context_unavailable")
+	}
+	var frozen struct {
+		Intents []struct {
+			WatchFor    string `json:"watch_for"`
+			TriggerWhen string `json:"trigger_when"`
+		} `json:"intent_actions"`
+	}
+	var public struct {
+		Languages []string `json:"working_languages"`
+		Seeking   []string `json:"seeking"`
+	}
+	var private struct {
+		Focus     []string `json:"current_focus"`
+		Demands   []string `json:"demands"`
+		Interests []string `json:"interests_positive"`
+	}
+	for _, v := range []struct {
+		raw string
+		dst any
+	}{{row.Compiled, &frozen}, {row.Public, &public}, {row.Private, &private}} {
+		if err = json.Unmarshal([]byte(v.raw), v.dst); err != nil {
+			return OwnerContext{}, err
+		}
+	}
+	out := OwnerContext{Revision: fmt.Sprintf("%d:%d", row.Revision, row.CardVersion), Languages: public.Languages}
+	for _, i := range frozen.Intents {
+		v := strings.TrimSpace(i.WatchFor + " " + i.TriggerWhen)
+		if v != "" {
+			out.Clauses = append(out.Clauses, v)
+		}
+	}
+	if len(out.Clauses) == 0 {
+		for _, xs := range [][]string{public.Seeking, private.Demands, private.Focus, private.Interests} {
+			for _, v := range xs {
+				if strings.TrimSpace(v) != "" {
+					out.Clauses = append(out.Clauses, v)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+func broadcast(d sortdal.Item) Document {
+	out := Document{Ref: SourceRef{Type: Broadcast, ID: d.ID}, AuthorID: d.AuthorAgentID, Version: strconv.FormatInt(d.UpdatedAt.UnixMilli(), 10), Text: d.Content + "\n" + d.Summary, Preview: d.Summary, Active: true, Visible: true, GroupID: d.GroupID, FreshAt: d.CreatedAt.UnixMilli(), SourceUpdatedAt: d.UpdatedAt.UnixMilli(), Quality: d.QualityScore, Vector: d.Embedding, Lexical: d.Score, ContentType: d.Type, SourceType: d.SourceType, URL: d.RawURL, Slots: d.RetrievalSlots}
+	if d.Lang != "" {
+		out.Slots.Lang = []string{d.Lang}
+	}
+	if d.ExpireTime != nil {
+		out.ExpiresAt = d.ExpireTime.UnixMilli()
+	}
+	out.Version = broadcastVersion(out)
+	return out
+}
+func commission(d commissionindex.Document) Document {
+	p, dur := d.PriceFen, d.PromisedDeliveryMS
+	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), StatisticsVersion: d.StatisticsVersion, Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Vector: d.Embedding, Slots: d.RetrievalSlots}
+}
+func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, limit int) ([]Document, error) {
+	if channel == "exact" {
+		if k != Agent || c.Origin != "query" {
+			return nil, fmt.Errorf("invalid exact lookup scope")
+		}
+		return s.exactAgents(ctx, c, limit)
+	}
+	if s.DisabledChannels[channel] {
+		return []Document{}, nil
+	}
+	if strings.HasSuffix(channel, "recall") {
+		if k != Broadcast {
+			return nil, fmt.Errorf("invalid recall kind")
+		}
+		ids, err := recall.NewRedisRecallReader(s.Redis, s.RecallNamespace).FetchItemIDIndex(ctx, channel)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) > limit {
+			ids = ids[:limit]
+		}
+		docs, err := sortdal.FetchItemsByIDs(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]Document, 0, len(docs))
+		for _, d := range docs {
+			out = append(out, broadcast(d))
+		}
+		return out, nil
+	}
+	return s.search(ctx, c, k, channel, limit)
+}
+func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Document) ([]Document, error) {
+	if len(docs) > 1000 {
+		return nil, fmt.Errorf("hydration bound exceeded")
+	}
+	byKind := map[Kind][]int64{}
+	seen := map[string]bool{}
+	for _, d := range docs {
+		if !seen[d.Ref.Key()] {
+			byKind[d.Ref.Type] = append(byKind[d.Ref.Type], d.Ref.ID)
+			seen[d.Ref.Key()] = true
+		}
+	}
+	out := []Document{}
+	if ids := byKind[Broadcast]; len(ids) > 0 {
+		var rows []struct {
+			ItemID, AuthorAgentID, CreatedAt, UpdatedAt, GroupID                                   int64
+			Status                                                                                 int
+			RawContent, Summary, RawURL, BroadcastType, SourceType, Lang, Slots, Domains, Keywords string
+			ExpireTime                                                                             string
+			QualityScore                                                                           float64
+		}
+		err := s.DB.WithContext(ctx).Raw(`SELECT r.item_id,r.author_agent_id,r.raw_content,r.raw_url,r.created_at,p.updated_at,p.status,p.summary,p.broadcast_type,p.source_type,p.lang,p.domains,p.keywords,p.expire_time,p.group_id,p.quality_score,p.retrieval_slots::text AS slots FROM raw_items r JOIN processed_items p USING(item_id) WHERE r.item_id IN ?`, ids).Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			var slots searchindex.Slots
+			if err = json.Unmarshal([]byte(r.Slots), &slots); err != nil {
+				return nil, err
+			}
+			d := broadcast(sortdal.Item{ID: r.ItemID, AuthorAgentID: r.AuthorAgentID, Content: r.RawContent, Summary: r.Summary, RawURL: r.RawURL, CreatedAt: time.UnixMilli(r.CreatedAt), UpdatedAt: time.UnixMilli(r.UpdatedAt), Type: r.BroadcastType, SourceType: r.SourceType, Lang: r.Lang, ExpireTime: parseExpiry(r.ExpireTime), GroupID: r.GroupID, QualityScore: r.QualityScore, RetrievalSlots: slots})
+			if v := searchindex.Current(); v != nil {
+				labels := append(strings.Split(r.Domains, ","), strings.Split(r.Keywords, ",")...)
+				langs := []string{}
+				if r.Lang != "" {
+					langs = []string{r.Lang}
+				}
+				d.Slots = searchindex.ContentSlots(v, labels, langs)
+			}
+			d.Version = broadcastVersion(d)
+			d.Active = r.Status == 3
+			out = append(out, d)
+		}
+	}
+	// Ranking data comes only from the generation-specific forward projection.
+	// Exact Agent identity lookups do not rank by features and retain DB hydration.
+	exactIDs := []int64{}
+	groups := map[Kind]map[string][]int64{Agent: {}, Commission: {}}
+	prior := map[string]Document{}
+	for _, d := range docs {
+		prior[d.Ref.Key()] = d
+		if d.Ref.Type == Agent && d.ExactMatch != "" {
+			exactIDs = append(exactIDs, d.Ref.ID)
+			continue
+		}
+		if d.Ref.Type != Agent && d.Ref.Type != Commission {
+			continue
+		}
+		if d.SourceIndex == "" {
+			return nil, fmt.Errorf("missing forward index generation")
+		}
+		groups[d.Ref.Type][d.SourceIndex] = append(groups[d.Ref.Type][d.SourceIndex], d.Ref.ID)
+	}
+	if len(exactIDs) > 0 {
+		rows, err := agentindex.Load(ctx, s.DB, exactIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			out = append(out, agentDocument(row))
+		}
+	}
+	add := func(d Document, index string) {
+		before := prior[d.Ref.Key()]
+		if before.Version != d.Version || d.Ref.Type == Agent && before.ProjectionVersion != d.ProjectionVersion {
+			metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "forward_version").Inc()
+			return
+		}
+		d.SourceIndex = index
+		out = append(out, d)
+	}
+	for index, ids := range groups[Agent] {
+		rows, err := agentindex.ReadForward(ctx, s.Redis, index, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if d, ok := rows[id]; ok {
+				add(agentDocument(d), index)
+			} else {
+				metrics.DiscoveryRejected.WithLabelValues("agent", "forward_missing").Inc()
+			}
+		}
+	}
+	for index, ids := range groups[Commission] {
+		rows, err := commissionindex.ReadForward(ctx, s.Redis, index, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if d, ok := rows[id]; ok {
+				add(commission(d), index)
+			} else {
+				metrics.DiscoveryRejected.WithLabelValues("commission", "forward_missing").Inc()
+			}
+		}
+	}
+	authors := []int64{}
+	for _, d := range out {
+		authors = append(authors, d.AuthorID)
+	}
+	if len(authors) == 0 {
+		return out, nil
+	}
+	var authorsNow []struct {
+		AgentID              int64
+		ProfileCompletedAt   int64
+		Email, IdentityState string
+		AgentName, ShortID   string
+	}
+	if err := s.DB.WithContext(ctx).Table("agents").Select("agent_id,email,identity_state,agent_name,short_id,profile_completed_at").Where("agent_id IN ?", authors).Scan(&authorsNow).Error; err != nil {
+		return nil, err
+	}
+	visible := map[int64]bool{}
+	names := map[int64]string{}
+	profileReady := map[int64]bool{}
+	for _, a := range authorsNow {
+		allowed := a.IdentityState == "active"
+		for _, email := range s.BlockedAuthorEmails {
+			if strings.EqualFold(a.Email, email) {
+				allowed = false
+			}
+		}
+		visible[a.AgentID] = allowed
+		names[a.AgentID] = agentidentity.DisplayName(a.AgentName, a.ShortID)
+		profileReady[a.AgentID] = a.ProfileCompletedAt > 0
+	}
+	for i := range out {
+		out[i].Visible = out[i].Visible && visible[out[i].AuthorID]
+		if out[i].Ref.Type == Agent {
+			out[i].Preview = names[out[i].Ref.ID]
+			out[i].Visible = out[i].Visible && profileReady[out[i].Ref.ID]
+		}
+	}
+	var relations []struct {
+		FromUID, ToUID int64
+		RelType        int
+	}
+	err := s.DB.WithContext(ctx).Raw(`SELECT from_uid,to_uid,rel_type FROM user_relations WHERE (from_uid=? AND to_uid IN ?) OR (to_uid=? AND from_uid IN ?)`, owner, authors, owner, authors).Scan(&relations).Error
+	if err != nil {
+		return nil, err
+	}
+	blocked, known := map[int64]bool{}, map[int64]bool{}
+	for _, r := range relations {
+		peer := r.FromUID
+		if peer == owner {
+			peer = r.ToUID
+		}
+		if r.RelType == 2 {
+			blocked[peer] = true
+		}
+		if r.RelType == 1 {
+			known[peer] = true
+		}
+	}
+	if mode == Recommendation && len(byKind[Agent]) > 0 {
+		var contacts []int64
+		err = s.DB.WithContext(ctx).Raw(`SELECT DISTINCT CASE WHEN participant_a=? THEN participant_b ELSE participant_a END FROM conversations WHERE msg_count>0 AND ((participant_a=? AND participant_b IN ?) OR (participant_b=? AND participant_a IN ?))`, owner, owner, byKind[Agent], owner, byKind[Agent]).Scan(&contacts).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range contacts {
+			known[id] = true
+		}
+	}
+	for i := range out {
+		out[i].Blocked = blocked[out[i].AuthorID]
+		out[i].KnownContact = known[out[i].AuthorID]
+	}
+	return out, nil
+}
+func (s *Source) Seen(ctx context.Context, owner int64, docs []Document) (map[string]bool, error) {
+	out := map[string]bool{}
+	if s.DisableDedup {
+		return out, nil
+	}
+	groups := []int64{}
+	for _, d := range docs {
+		if d.Ref.Type == Broadcast && d.GroupID > 0 {
+			groups = append(groups, d.GroupID)
+		}
+	}
+	hits, err := bloomfilter.NewBloomFilter(s.Redis).CheckExists(ctx, owner, groups)
+	if err != nil {
+		return nil, err
+	}
+	pipe := s.Redis.Pipeline()
+	cmds := map[string]*redis.BoolCmd{}
+	for _, d := range docs {
+		if d.Ref.Type == Broadcast {
+			out[d.Ref.Key()] = hits[d.GroupID]
+		} else {
+			cmds[d.Ref.Key()] = pipe.SIsMember(ctx, fmt.Sprintf("impr:discovery:agent:%d:items", owner), d.Ref.Key())
+		}
+	}
+	if len(cmds) > 0 {
+		if _, err = pipe.Exec(ctx); err != nil {
+			return nil, err
+		}
+	}
+	for k, c := range cmds {
+		out[k] = c.Val()
+	}
+	return out, nil
+}
+
+func parseExpiry(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return &t
+		}
+	}
+	t := time.UnixMilli(1)
+	return &t
+}
+
+func broadcastVersion(d Document) string {
+	b, _ := json.Marshal(struct {
+		ID, Author, Group, Expires       int64
+		Text, Preview, Type, Source, URL string
+		Slots                            searchindex.Slots
+		Quality                          float64
+	}{d.Ref.ID, d.AuthorID, d.GroupID, d.ExpiresAt, d.Text, d.Preview, d.ContentType, d.SourceType, d.URL, d.Slots, math.Round(d.Quality*1e6) / 1e6})
+	return fmt.Sprintf("%x", sha256.Sum256(b))
+}
+
+func agentDocument(d agentindex.Document) Document {
+	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), ProjectionVersion: d.ProjectionVersion, Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, Vector: d.Embedding, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
+}
