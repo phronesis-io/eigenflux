@@ -229,3 +229,43 @@ func TestInlineNeedUsesCaptureJSONValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchMergePlacesExactMatchesBeforeAllKinds(t *testing.T) {
+	makeCandidate := func(kind Kind, id int64, exact string, score float64) Candidate {
+		return Candidate{Document: Document{Ref: SourceRef{kind, id}, ExactMatch: exact}, Score: Score{Value: score, Eligible: true}}
+	}
+	broadcast := makeCandidate(Broadcast, 1, "", .99)
+	commission := makeCandidate(Commission, 2, "", .98)
+	ordinaryAgent := makeCandidate(Agent, 3, "", .97)
+	exactA := makeCandidate(Agent, 4, "name", .1)
+	exactB := makeCandidate(Agent, 5, "name", .1)
+	duplicate := makeCandidate(Agent, 4, "", .99)
+	ineligible := makeCandidate(Agent, 6, "name", 1)
+	ineligible.Score.Eligible = false
+	in := []Candidate{broadcast, commission, duplicate, ordinaryAgent, exactB, ineligible, exactA, exactA}
+	for _, kinds := range [][]Kind{AllKinds, {Commission, Broadcast, Agent}} {
+		for _, limit := range []int{0, 1, 2, 3, 20} {
+			got := Merge(in, kinds, Search, limit)
+			want := []SourceRef{exactA.Document.Ref, exactB.Document.Ref}
+			if kinds[0] == Commission {
+				want = append(want, commission.Document.Ref, broadcast.Document.Ref)
+			} else {
+				want = append(want, broadcast.Document.Ref, commission.Document.Ref)
+			}
+			want = append(want, ordinaryAgent.Document.Ref)
+			if limit < len(want) {
+				want = want[:limit]
+			}
+			refs := make([]SourceRef, len(got))
+			for i, c := range got {
+				refs[i] = c.Document.Ref
+			}
+			if !reflect.DeepEqual(refs, want) {
+				t.Fatalf("kinds=%v limit=%d: got %v want %v", kinds, limit, refs, want)
+			}
+		}
+	}
+	if got := Merge(in, []Kind{Broadcast}, Search, 20); len(got) != 1 || got[0].Document.Ref != broadcast.Document.Ref {
+		t.Fatal("exact match escaped requested kinds", got)
+	}
+}

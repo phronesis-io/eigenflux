@@ -458,6 +458,35 @@ func TestDiscoveryE2E(t *testing.T) {
 		defer s.sql(t, "DELETE FROM user_relations WHERE from_uid=? AND to_uid=?", s.owner, s.author)
 		require.Empty(t, s.search(t, r, "").Items, "identity lookup must respect blocks")
 	})
+	t.Run("ExactMatchesLeadMixedSearchAndFrozenPages", func(t *testing.T) {
+		query := "landing page design"
+		for _, id := range []int64{s.author, s.other} {
+			s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", query, id)
+			t.Cleanup(func() {
+				s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", fmt.Sprintf("精确查找-%d", id), id)
+			})
+		}
+		request := discovery.Request{Query: query, Limit: 2}
+		first := s.search(t, request, "exact-first-page")
+		require.Len(t, first.Items, 2)
+		require.True(t, first.HasMore)
+		for _, item := range first.Items {
+			require.Equal(t, discovery.Agent, item.Ref.Type)
+			require.Equal(t, "name", item.Match["exact"])
+		}
+		require.Less(t, first.Items[0].Ref.ID, first.Items[1].Ref.ID, "same-name hits have stable order")
+		require.Equal(t, first, s.search(t, request, "exact-first-page"))
+		request.Cursor = first.NextCursor
+		second := s.search(t, request, "")
+		require.Len(t, second.Items, 2)
+		require.Equal(t, discovery.Broadcast, second.Items[0].Ref.Type)
+		require.Equal(t, discovery.Commission, second.Items[1].Ref.Type)
+		require.False(t, second.HasMore)
+		require.Equal(t, first.ImpressionID, second.ImpressionID)
+		one := s.search(t, discovery.Request{Query: query, Limit: 1}, "")
+		require.Len(t, one.Items, 1)
+		require.Equal(t, first.Items[0].Ref, one.Items[0].Ref)
+	})
 	t.Run("HardConstraintsAndInlineNeed", func(t *testing.T) {
 		zero := int64(0)
 		r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}, Filters: discovery.Filters{BudgetMaxFen: &zero, Currency: "CNY"}}

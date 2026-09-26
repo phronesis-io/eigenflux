@@ -401,3 +401,17 @@ func TestUnresolvedNeedConstraintsDoNotBlockOtherNeeds(t *testing.T) {
 		t.Fatal(x, err)
 	}
 }
+
+func TestMixedSearchReturnsExactAgentBeforeOrdinaryResults(t *testing.T) {
+	e, source, _ := engineFixture()
+	source.docs = []Document{baseDoc(Broadcast), baseDoc(Commission)}
+	exact := baseDoc(Agent)
+	exact.ExactMatch = "name"
+	source.exact = []Document{exact}
+	for _, limit := range []int{1, 3} {
+		x, err := e.Execute(context.Background(), 1, Request{Query: "designer", Limit: limit}, Search, 100)
+		if err != nil || len(x.Candidates) != limit || x.Candidates[0].Document.Ref.Type != Agent || x.Candidates[0].Score.Kind != "exact_match" {
+			t.Fatal(x, err)
+		}
+	}
+}

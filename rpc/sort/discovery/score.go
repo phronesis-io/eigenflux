@@ -145,8 +145,9 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	return s
 }
 
-// Merge never compares scores from different kinds. Query preserves requested
-// kind order by round-robin; automatic selects context priority first.
+// Merge places exact search hits first, then interleaves ordinary hits in the
+// requested kind order without comparing cross-kind scores. Automatic selection
+// uses context priority.
 func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 	in = append([]Candidate(nil), in...)
 	sort.SliceStable(in, func(i, j int) bool {
@@ -196,6 +197,15 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 	}
 	buckets := map[Kind][]Candidate{}
 	for _, c := range in {
+		if c.Document.ExactMatch != "" {
+			if len(out) >= limit {
+				return out
+			}
+			if hasKind(kinds, c.Document.Ref.Type) {
+				add(c)
+			}
+			continue
+		}
 		buckets[c.Document.Ref.Type] = append(buckets[c.Document.Ref.Type], c)
 	}
 	for len(out) < limit {
