@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -385,6 +386,15 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Fatal("CLI retry was duplicated")
 	}
 	got := run("need", "input", "get", id)
+	var expected map[string]any
+	if err := json.Unmarshal(encoded, &expected); err != nil {
+		t.Fatal(err)
+	}
+	actual := got["need_input"].(map[string]any)["input"].(map[string]any)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("CLI lost or changed Need fields: got=%v want=%v", actual, expected)
+	}
+
 	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["goal"] != "Diagnose and improve PostgreSQL slow queries" {
 		t.Fatal(got)
 	}

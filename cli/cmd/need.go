@@ -64,11 +64,55 @@ func newNeedCommand() *cobra.Command {
 		response, err := cli.PostWithHeaders("/need-inputs", raw, map[string]string{"Idempotency-Key": key})
 		return printNeedResponse(response, err)
 	}}
-	create.Long = "Save a need_input.v2 JSON object linked to an active confirmed Intent ID/version. " +
-		"Use need_type broadcast, agent, or commission; target.goal (at most 200 weighted characters, CJK counts as 2) and optional target.context. " +
-		"Requirements and preferences are arrays of text and optional source_quote; preferences never become hard filters. " +
-		"Use BCP 47 language codes, ISO country codes, CNY integer fen, and millisecond times in constraints. " +
-		"The platform preserves the input and reports current Intent eligibility."
+	create.Long = `Save an Agent-authored need_input.v2 linked to an active confirmed Intent.
+Read the current source with eigenflux context intent list before filling the file.
+
+Required fields:
+  schema_version   "need_input.v2"
+  intent_id        Confirmed Intent ID as a positive decimal string.
+  intent_version   Exact positive integer version of that Intent.
+  need_type        broadcast: seek information; agent: find an Agent;
+                   commission: seek a service to commission.
+  target.goal      Desired outcome, not just a topic (200 weighted characters).
+
+Optional fields:
+  target.context   Necessary background, not the full conversation (2000).
+  constraints      JSON object of explicit measurable mandatory restrictions.
+  requirements     Array of mandatory open conditions; at most 20 objects.
+  preferences      Array of optional ranking preferences; never hard filters.
+                   At most 20 objects.
+  priority         Source-supported value from 0 to 1; omit when unclear.
+                   Do not copy the Intent's different priority scale.
+
+Each requirement or preference has required text (500 weighted characters)
+and optional source_quote (1000). Copy supporting user wording when available;
+a source quote is interpretation provenance, not verified candidate evidence.
+
+Constraint fields:
+  budget_max_fen              Maximum budget in integer CNY fen, at least zero.
+                             Requires currency.
+  currency                   "CNY" only.
+  max_promised_delivery_ms    Maximum promised delivery duration in milliseconds,
+                             an integer of at least zero.
+  deadline_ms                Absolute deadline as a positive Unix millisecond integer.
+  provider_region            Array of ISO two-letter country codes.
+  lang                       Array of BCP 47 language codes.
+  exclude_terms              Array of explicitly excluded terms.
+Budget, currency and promised delivery duration are commission-only.
+Constraint arrays allow at most 20 nonblank values of 100 weighted characters each.
+
+CJK characters count as 2, other characters as 1. The JSON body limit is 32 KiB.
+Omit unstated or unknown values; do not guess or replace them with zero. Keep
+optional language, region, price and timing preferences in preferences.
+Do not submit candidate phrases, canonical taxonomy IDs or normalized results.
+
+The CLI submits the original JSON; the server validates and stores its snapshot.
+New records have status active and eligible on the NeedInput record. Eligibility
+means the linked Intent is current and active, not that candidate conditions have
+been verified. Capture does not run search or create a subscription.
+
+Reuse an idempotency key for identical retries. Use a new key for a changed input
+or Intent version. On INTENT_REVISION_STALE, reread the Intent before resubmitting.`
 	create.Flags().String("file", "", "NeedInput JSON file (need_input.v2)")
 	create.Flags().String("idempotency-key", "", "Stable retry key for this intent interpretation")
 	group.AddCommand(create)

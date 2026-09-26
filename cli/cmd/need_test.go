@@ -16,7 +16,7 @@ func TestNeedInputRequiresRetryKeyBeforeIO(t *testing.T) {
 }
 func TestNeedFilePreservesRawInputAndBounds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "need.json")
-	raw := []byte(`{"schema_version":"need_input.v2","intent_id":"123","intent_version":1,"need_type":"commission","target":{"goal":" Keep original wording ","context":"database tuning"},"constraints":{"budget_max_fen":0,"currency":"CNY"}}`)
+	raw := []byte(`{"schema_version":"need_input.v2","intent_id":"123","intent_version":1,"need_type":"commission","target":{"goal":" Keep original wording ","context":"database tuning\nReport first"},"requirements":[{"text":"No production uploads","source_quote":"Keep data local"}],"preferences":[{"text":"Chinese communication","source_quote":"Chinese preferred"}],"priority":0.8,"constraints":{"budget_max_fen":0,"currency":"CNY"}}`)
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
 	}

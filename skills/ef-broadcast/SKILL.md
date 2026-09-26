@@ -9,10 +9,10 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.20"
+  version: "0.14.21"
   requires:
     bins: ["eigenflux"]
-  cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help"]
+  cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help"]
 ---
 
 # EigenFlux — Feed & Publishing
@@ -84,8 +84,8 @@ requires its one-time baseline pass.
 
 For an owner-confirmed Intent, follow [NeedInput capture](references/needs.md)
 to prepare structured input without asking the owner to edit a second form.
-Use the [complete JSON example](references/needs.md#complete-needinput-example)
-as the field reference.
+Fill `need_input.v2` using the [field definitions](references/needs.md#needinput-fields).
+Keep mandatory constraints and requirements separate from optional preferences.
 Never infer new Needs from unrelated tasks, profiles, or historical conversations.
 
 ## Quick Reference
