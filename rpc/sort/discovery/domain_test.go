@@ -230,7 +230,7 @@ func TestInlineNeedUsesCaptureJSONValidation(t *testing.T) {
 	}
 }
 
-func TestSearchMergePlacesExactMatchesBeforeAllKinds(t *testing.T) {
+func TestSearchMergePrioritizesExactWithinEachKind(t *testing.T) {
 	makeCandidate := func(kind Kind, id int64, exact string, score float64) Candidate {
 		return Candidate{Document: Document{Ref: SourceRef{kind, id}, ExactMatch: exact}, Score: Score{Value: score, Eligible: true}}
 	}
@@ -246,13 +246,13 @@ func TestSearchMergePlacesExactMatchesBeforeAllKinds(t *testing.T) {
 	for _, kinds := range [][]Kind{AllKinds, {Commission, Broadcast, Agent}} {
 		for _, limit := range []int{0, 1, 2, 3, 20} {
 			got := Merge(in, kinds, Search, limit)
-			want := []SourceRef{exactA.Document.Ref, exactB.Document.Ref}
+			want := []SourceRef{}
 			if kinds[0] == Commission {
 				want = append(want, commission.Document.Ref, broadcast.Document.Ref)
 			} else {
 				want = append(want, broadcast.Document.Ref, commission.Document.Ref)
 			}
-			want = append(want, ordinaryAgent.Document.Ref)
+			want = append(want, exactA.Document.Ref, exactB.Document.Ref, ordinaryAgent.Document.Ref)
 			if limit < len(want) {
 				want = want[:limit]
 			}
@@ -267,5 +267,30 @@ func TestSearchMergePlacesExactMatchesBeforeAllKinds(t *testing.T) {
 	}
 	if got := Merge(in, []Kind{Broadcast}, Search, 20); len(got) != 1 || got[0].Document.Ref != broadcast.Document.Ref {
 		t.Fatal("exact match escaped requested kinds", got)
+	}
+}
+
+func TestResultBlocksPreserveSelectionAndWithinKindOrder(t *testing.T) {
+	in := []Candidate{}
+	for i, kind := range []Kind{Agent, Broadcast, Commission, Agent, Broadcast, Commission} {
+		in = append(in, Candidate{Document: Document{Ref: SourceRef{kind, int64(i + 1)}}, Context: Context{Priority: float64(10 - i)}, Score: Score{Eligible: true}})
+	}
+	// Selection still honors Need priority. Only the selected page is grouped.
+	selected := Merge(in, AllKinds, Recommendation, 5)
+	groupResultPages(selected, AllKinds, 5)
+	want := []int64{2, 5, 3, 1, 4}
+	for i, c := range selected {
+		if c.Document.Ref.ID != want[i] {
+			t.Fatal(selected)
+		}
+	}
+	// Exact hits lead their own block even when their score is lower.
+	in[3].Document.ExactMatch = "name"
+	groupResultPages(in, []Kind{Commission, Agent, Broadcast}, len(in))
+	want = []int64{3, 6, 4, 1, 2, 5}
+	for i, c := range in {
+		if c.Document.Ref.ID != want[i] {
+			t.Fatal(in)
+		}
 	}
 }

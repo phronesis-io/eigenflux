@@ -482,6 +482,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 	}
 	x.Candidates = Merge(candidates, r.SourceKinds, mode, resultLimit)
+	groupResultPages(x.Candidates, r.SourceKinds, r.Limit)
 	x.Status = "ok"
 	if len(x.Candidates) == 0 {
 		x.Status = "exhausted"

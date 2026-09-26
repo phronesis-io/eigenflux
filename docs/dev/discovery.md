@@ -27,15 +27,20 @@ An explicitly scoped broadcast/Agent request does not require commission access.
 | GET | `/api/v2/taxonomy/search` | `feed:read` | `query`, optional `category`, `subtype`, `limit` |
 
 Search defaults to 20 results per page, maximum 50 per page. Default kind order is
-`broadcast, commission, agent`. Eligible exact identity matches form the first
-results, ahead of ordinary matches from every kind. Remaining results use
-round-robin merging in the requested kind order. The combined list obeys the
-limit, deduplication and frozen cursor order. Scores from different kinds are
-never compared. Automatic discovery
+`broadcast, commission, agent`. Search selects results round-robin across kinds,
+prioritizing eligible exact matches within each kind. Each selected page is then
+grouped into contiguous type blocks in requested kind order, with exact matches
+at the front of their own block. The wire shape remains the existing `items`
+array; empty kinds add no placeholder. Grouping does not move candidates between
+pages or compare scores across kinds. The final page order is frozen before
+cursor delivery and replay position assignment. Existing cached responses and
+search snapshots retain their frozen order until expiry. Automatic discovery
 defaults to 20 results, accepts `limit` from 1 to 100, and returns at most that
 number across all kinds, considering at most five eligible captured Needs,
 ordered by input priority (omitted means 0), input creation time descending, then
-input ID ascending. Explicit Need kinds must agree with the request. Intent
+input ID ascending. After selection, its results are also grouped by type;
+this presentation order does not change which Needs win the total limit.
+Explicit Need kinds must agree with the request. Intent
 lifecycle and version determine eligibility; there is no separate Need CRUD API.
 
 ```json
@@ -64,8 +69,9 @@ They still undergo public Card hydration, active-account, self, block and hard
 filter checks, but do not require semantic score/activity thresholds. Results
 carry `match.exact` (`agent_id`, `short_id`, or `name`) and `exact_match` score kind;
 samples use scorer version `agent_identity_v1`. Exact hits precede ordinary
-results across all kinds, including when the first page has limit 1. Same-name
-hits retain stable ID ordering; identity priority does not bypass any filter.
+results only inside their own type block. A limit-1 mixed search selects the
+first available requested kind; Agent-only searches still lead with exact hits.
+Same-name hits retain stable ID ordering; identity priority bypasses no filter.
 
 Agent-only exact hits do not call embedding or ES. Numeric queries with no match
 (including out-of-range IDs) return no Agent results rather than fuzzy matches.

@@ -402,16 +402,59 @@ func TestUnresolvedNeedConstraintsDoNotBlockOtherNeeds(t *testing.T) {
 	}
 }
 
-func TestMixedSearchReturnsExactAgentBeforeOrdinaryResults(t *testing.T) {
-	e, source, _ := engineFixture()
-	source.docs = []Document{baseDoc(Broadcast), baseDoc(Commission)}
-	exact := baseDoc(Agent)
-	exact.ExactMatch = "name"
-	source.exact = []Document{exact}
-	for _, limit := range []int{1, 3} {
-		x, err := e.Execute(context.Background(), 1, Request{Query: "designer", Limit: limit}, Search, 100)
-		if err != nil || len(x.Candidates) != limit || x.Candidates[0].Document.Ref.Type != Agent || x.Candidates[0].Score.Kind != "exact_match" {
-			t.Fatal(x, err)
+func TestMixedSearchGroupsEachFrozenPageByType(t *testing.T) {
+	for _, kinds := range [][]Kind{AllKinds, {Agent, Broadcast, Commission}} {
+		e, source, _ := engineFixture()
+		for _, kind := range []Kind{Broadcast, Commission} {
+			for id := int64(1); id <= 3; id++ {
+				d := baseDoc(kind)
+				d.Ref.ID = id + 20
+				d.GroupID = id + 20
+				source.docs = append(source.docs, d)
+			}
+		}
+		for id := int64(1); id <= 2; id++ {
+			d := baseDoc(Agent)
+			d.Ref.ID = id + 30
+			d.ExactMatch = "name"
+			source.exact = append(source.exact, d)
+		}
+		for _, limit := range []int{1, 4, 20} {
+			r := Request{Query: "designer", SourceKinds: kinds, Limit: limit}
+			direct, err := e.Execute(context.Background(), 1, r, Search, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Prefetch = true
+			x, err := e.Execute(context.Background(), 1, r, Search, 100)
+			if err != nil || len(x.Candidates) != 8 {
+				t.Fatal(x, err)
+			}
+			for start := 0; start < len(x.Candidates); start += limit {
+				page := x.Candidates[start:min(start+limit, len(x.Candidates))]
+				for i, c := range page {
+					if c.Document.Ref.Type == Agent && c.Score.Kind != "exact_match" {
+						t.Fatal(c)
+					}
+					if i > 0 && kindPosition(kinds, page[i-1].Document.Ref.Type) > kindPosition(kinds, c.Document.Ref.Type) {
+						t.Fatal("non-contiguous kind blocks", page)
+					}
+				}
+			}
+			for i, c := range direct.Candidates {
+				if c.Document.Ref != x.Candidates[i].Document.Ref {
+					t.Fatal("prefetch changed first page")
+				}
+			}
+			if limit == 4 {
+				counts := map[Kind]int{}
+				for _, c := range x.Candidates[:4] {
+					counts[c.Document.Ref.Type]++
+				}
+				if counts[kinds[0]] != 2 || counts[kinds[1]] != 1 || counts[kinds[2]] != 1 {
+					t.Fatal("grouping changed page coverage", counts)
+				}
+			}
 		}
 	}
 }

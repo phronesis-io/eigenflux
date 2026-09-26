@@ -458,7 +458,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		defer s.sql(t, "DELETE FROM user_relations WHERE from_uid=? AND to_uid=?", s.owner, s.author)
 		require.Empty(t, s.search(t, r, "").Items, "identity lookup must respect blocks")
 	})
-	t.Run("ExactMatchesLeadMixedSearchAndFrozenPages", func(t *testing.T) {
+	t.Run("ExactMatchesStayInsideTypeBlocksAndFrozenPages", func(t *testing.T) {
 		query := "landing page design"
 		for _, id := range []int64{s.author, s.other} {
 			s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", query, id)
@@ -466,26 +466,35 @@ func TestDiscoveryE2E(t *testing.T) {
 				s.sql(t, "UPDATE agents SET agent_name=? WHERE agent_id=?", fmt.Sprintf("精确查找-%d", id), id)
 			})
 		}
-		request := discovery.Request{Query: query, Limit: 2}
-		first := s.search(t, request, "exact-first-page")
-		require.Len(t, first.Items, 2)
+		request := discovery.Request{Query: query, Limit: 3}
+		first := s.search(t, request, "type-block-first-page")
+		require.Len(t, first.Items, 3)
 		require.True(t, first.HasMore)
-		for _, item := range first.Items {
-			require.Equal(t, discovery.Agent, item.Ref.Type)
-			require.Equal(t, "name", item.Match["exact"])
+		for i, kind := range discovery.AllKinds {
+			require.Equal(t, kind, first.Items[i].Ref.Type)
 		}
-		require.Less(t, first.Items[0].Ref.ID, first.Items[1].Ref.ID, "same-name hits have stable order")
-		require.Equal(t, first, s.search(t, request, "exact-first-page"))
+		require.Equal(t, "name", first.Items[2].Match["exact"])
+		require.Equal(t, first, s.search(t, request, "type-block-first-page"))
 		request.Cursor = first.NextCursor
 		second := s.search(t, request, "")
-		require.Len(t, second.Items, 2)
-		require.Equal(t, discovery.Broadcast, second.Items[0].Ref.Type)
-		require.Equal(t, discovery.Commission, second.Items[1].Ref.Type)
+		require.Len(t, second.Items, 1)
+		require.Equal(t, discovery.Agent, second.Items[0].Ref.Type)
+		require.Equal(t, "name", second.Items[0].Match["exact"])
+		require.Less(t, first.Items[2].Ref.ID, second.Items[0].Ref.ID)
 		require.False(t, second.HasMore)
 		require.Equal(t, first.ImpressionID, second.ImpressionID)
+		require.Equal(t, second, s.search(t, request, ""))
+		s.waitSamples(t, first.ImpressionID, 4)
+		var ids []int64
+		require.NoError(t, s.db.Table("replay_logs").Where("impression_id=?", first.ImpressionID).Order("position").Pluck("source_id", &ids).Error)
+		require.Equal(t, []int64{s.item, s.item, first.Items[2].Ref.ID, second.Items[0].Ref.ID}, ids)
 		one := s.search(t, discovery.Request{Query: query, Limit: 1}, "")
-		require.Len(t, one.Items, 1)
 		require.Equal(t, first.Items[0].Ref, one.Items[0].Ref)
+		custom := s.search(t, discovery.Request{Query: query, SourceKinds: []discovery.Kind{discovery.Agent, discovery.Commission, discovery.Broadcast}, Limit: 4}, "")
+		require.Len(t, custom.Items, 4)
+		for i, kind := range []discovery.Kind{discovery.Agent, discovery.Agent, discovery.Commission, discovery.Broadcast} {
+			require.Equal(t, kind, custom.Items[i].Ref.Type)
+		}
 	})
 	t.Run("HardConstraintsAndInlineNeed", func(t *testing.T) {
 		zero := int64(0)

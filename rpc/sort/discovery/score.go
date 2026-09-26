@@ -145,10 +145,13 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	return s
 }
 
-// Merge places exact search hits first, then interleaves ordinary hits in the
-// requested kind order without comparing cross-kind scores. Automatic selection
-// uses context priority.
+// Merge selects search hits round-robin in requested kind order, with exact
+// hits first within each kind. Automatic selection uses context priority.
+// The engine groups each selected page by kind before freezing or delivering it.
 func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
+	if limit <= 0 {
+		return []Candidate{}
+	}
 	in = append([]Candidate(nil), in...)
 	sort.SliceStable(in, func(i, j int) bool {
 		a, b := in[i], in[j]
@@ -196,29 +199,30 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		return out
 	}
 	buckets := map[Kind][]Candidate{}
-	for _, c := range in {
-		if c.Document.ExactMatch != "" {
-			if len(out) >= limit {
-				return out
+	// Stable partition before deduplication preserves exact provenance when a
+	// source is present in both exact and ordinary recall.
+	for _, exact := range []bool{true, false} {
+		for _, c := range in {
+			if (c.Document.ExactMatch != "") == exact {
+				buckets[c.Document.Ref.Type] = append(buckets[c.Document.Ref.Type], c)
 			}
-			if hasKind(kinds, c.Document.Ref.Type) {
-				add(c)
-			}
-			continue
 		}
-		buckets[c.Document.Ref.Type] = append(buckets[c.Document.Ref.Type], c)
 	}
 	for len(out) < limit {
 		progress := false
 		for _, k := range kinds {
-			if len(buckets[k]) > 0 {
+			for len(buckets[k]) > 0 {
+				before := len(out)
 				c := buckets[k][0]
 				buckets[k] = buckets[k][1:]
 				add(c)
 				progress = true
-				if len(out) == limit {
+				if len(out) > before {
 					break
 				}
+			}
+			if len(out) == limit {
+				break
 			}
 		}
 		if !progress {
@@ -234,4 +238,24 @@ func kindPosition(kinds []Kind, k Kind) int {
 		}
 	}
 	return len(kinds)
+}
+
+// groupResultPages changes presentation only: each page keeps its selected
+// membership and within-kind ranking. Grouping before pagination would let a
+// large first kind monopolize the first pages. Sort freezes this final order so
+// response items, cursors and replay positions all agree.
+func groupResultPages(in []Candidate, kinds []Kind, pageSize int) {
+	if pageSize <= 0 {
+		return
+	}
+	for start := 0; start < len(in); start += pageSize {
+		page := in[start:min(start+pageSize, len(in))]
+		sort.SliceStable(page, func(i, j int) bool {
+			a, b := page[i].Document, page[j].Document
+			if a.Ref.Type != b.Ref.Type {
+				return kindPosition(kinds, a.Ref.Type) < kindPosition(kinds, b.Ref.Type)
+			}
+			return a.ExactMatch != "" && b.ExactMatch == ""
+		})
+	}
 }

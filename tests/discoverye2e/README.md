@@ -54,7 +54,7 @@ integration suites' PostgreSQL advisory lock is respected.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
   exclusion, response idempotency and mismatched-payload rejection.
 - Exact Agent lookup by long ID, case-sensitive short ID, current name and
-  English name, including exact-hit priority across kinds and frozen pages,
+  English name, including per-kind exact-hit priority, page-local type blocks and frozen pages,
   Agents absent from ES, duplicate names, overflowing
   IDs, current-name previews, and self/block/language exclusions.
 - Shared query processing for captured/inline Needs across all three kinds,

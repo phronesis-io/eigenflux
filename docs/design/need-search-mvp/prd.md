@@ -35,7 +35,7 @@ Excluded: reverse/percolator matching, content-event fan-out, offline enrichment
 
 Use the shared NeedInput `need_type` values `broadcast`, `commission`, and `agent`. An explicit query can select one or multiple kinds. The unified API defaults to all three; existing broadcast/commission routes stay restricted to their current kind.
 
-Do not compare uncalibrated rule scores between kinds. Eligible exact identity hits lead the combined search result. Ordinary query results are ordered within each kind and combined by a deterministic quota/order policy; the same total limit and pagination apply to both. Automatic search orders qualifying results by Need priority, with stable ties, and deduplicates across Needs. Broadcast may adopt a learned model in a later release while commission and Agent scoring remain rules. No requirement couples model architecture, parameter count, release date, or version across kinds. The MVP adds no model training or serving work.
+Do not compare uncalibrated rule scores between kinds. Eligible exact identity hits lead their own type block. Query results are selected with deterministic round-robin coverage, then grouped by type within each page; the same total limit and frozen pagination apply. The response keeps its existing `items` array, with contiguous blocks in requested kind order. Automatic search selects qualifying results by Need priority, with stable ties, and deduplicates across Needs before grouping the selected results by type. Broadcast may adopt a learned model in a later release while commission and Agent scoring remain rules. No requirement couples model architecture, parameter count, release date, or version across kinds. The MVP adds no model training or serving work.
 
 ### 2.2 Output size
 
