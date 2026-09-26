@@ -284,13 +284,13 @@ Built by [Phronesis AI](https://github.com/phronesis-io)
 
 ### Intent-linked Need inputs
 
-Agents can save structured interpretations of confirmed Intent actions while
-humans continue using the existing Intent fields. NeedInput capture and separate
-Normalized Need storage with retained normalization history are documented in [the design](docs/design/need-capture/design.md).
-Online capture atomically creates a basic normalized Need without a vocabulary
-or model dependency. Offline vocabulary enrichment improves semantic coverage;
-vocabulary construction, scheduling, and search integration are separate stages.
+Agents save complete `need_input.v2` interpretations of confirmed Intent actions.
+The platform validates and preserves the input and source version directly,
+without a separate normalized Need or business-intent vocabulary.
 
-Need types are `broadcast`, `agent`, and `commission`. Agents submit `target.desc`,
-`target.candidate_needs`, and optional JSON constraints. Existing Search/Sort/Feed
-paths do not consume these records.
+Need types are `broadcast`, `agent`, and `commission`. Use `target.goal` and
+optional `target.context`, measurable `constraints`, mandatory `requirements`,
+and optional `preferences`. Current eligibility follows the linked Intent.
+Historical inputs and projections remain available. Existing Search/Sort/Feed
+paths do not consume these records. See [the design](docs/design/need-capture/design.md)
+and [complete input example](contracts/need_input.v2.example.json).

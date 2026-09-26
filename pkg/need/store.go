@@ -30,7 +30,7 @@ type Record struct {
 	Status         string          `json:"status"`
 	CreatedAt      int64           `json:"created_at"`
 	UpdatedAt      int64           `json:"updated_at"`
-	NormalizedNeed *Projection     `json:"normalized_need,omitempty"`
+	Eligible       bool            `json:"eligible"`
 }
 type row struct {
 	NeedInputID    int64 `gorm:"primaryKey"`
@@ -73,7 +73,7 @@ func canonical(raw []byte) ([]byte, string, error) {
 	return b, hex.EncodeToString(s[:]), nil
 }
 func (s Store) Create(ctx context.Context, owner int64, key string, raw []byte, now int64) (Record, bool, error) {
-	in, err := Decode(raw)
+	in, err := decodeCompatible(raw)
 	if err != nil {
 		return Record{}, false, err
 	}
@@ -81,10 +81,6 @@ func (s Store) Create(ctx context.Context, owner int64, key string, raw []byte, 
 		return Record{}, false, invalid("owner", "invalid")
 	}
 	intentID, intentVersion := in.IntentID, in.IntentVersion
-	normalized, err := NormalizeBasic(in)
-	if err != nil {
-		return Record{}, false, err
-	}
 	if len(key) < 8 || len(key) > 128 || strings.TrimSpace(key) != key {
 		return Record{}, false, invalid("idempotency_key", "require_8_to_128_printable_characters")
 	}
@@ -108,15 +104,6 @@ func (s Store) Create(ctx context.Context, owner int64, key string, raw []byte, 
 				return ErrConflict
 			}
 			replay = true
-			// Upgrade inputs captured before synchronous normalization without
-			// rerunning or replacing an already normalized/enriched result.
-			if result.Status == "pending" || result.Status == "failed" {
-				if _, err := s.insertProjection(tx, result, normalized, BasicNormalizerVersion, "", now); err != nil {
-					return err
-				}
-				result.Status, result.UpdatedAt = "normalized", now
-				return tx.Model(&row{}).Where("need_input_id = ?", result.NeedInputID).Updates(map[string]any{"status": result.Status, "updated_at": now}).Error
-			}
 			return nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -144,12 +131,11 @@ func (s Store) Create(ctx context.Context, owner int64, key string, raw []byte, 
 		if err != nil {
 			return err
 		}
-		result = row{NeedInputID: id, AgentID: owner, IntentID: intentID, IntentVersion: intentVersion, SchemaVersion: InputSchemaVersion, Input: canon, IntentSnapshot: snapshot, Status: "normalized", IdempotencyKey: key, RequestHash: hash, CreatedAt: now, UpdatedAt: now}
+		result = row{NeedInputID: id, AgentID: owner, IntentID: intentID, IntentVersion: intentVersion, SchemaVersion: in.SchemaVersion, Input: canon, IntentSnapshot: snapshot, Status: "active", IdempotencyKey: key, RequestHash: hash, CreatedAt: now, UpdatedAt: now}
 		if err := tx.Session(&gorm.Session{Logger: gormlog.Default.LogMode(gormlog.Silent)}).Create(&result).Error; err != nil {
 			return err
 		}
-		_, err = s.insertProjection(tx, result, normalized, BasicNormalizerVersion, "", now)
-		return err
+		return nil
 	})
 	if err != nil {
 		return Record{}, false, err
@@ -167,7 +153,7 @@ func (s Store) Get(ctx context.Context, owner, id int64) (Record, error) {
 		return Record{}, err
 	}
 	records := []Record{r.record()}
-	err = s.attachProjections(ctx, records)
+	err = s.attachEligibility(ctx, records)
 	return records[0], err
 }
 
@@ -196,5 +182,28 @@ func (s Store) List(ctx context.Context, owner, cursor, limit int64) (Page, erro
 	for _, r := range rows {
 		out.Inputs = append(out.Inputs, r.record())
 	}
-	return out, s.attachProjections(ctx, out.Inputs)
+	return out, s.attachEligibility(ctx, out.Inputs)
+}
+
+// Eligibility is independent of legacy projections and derived indexes.
+func (s Store) attachEligibility(ctx context.Context, records []Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(records))
+	for i, r := range records {
+		ids[i] = r.NeedInputID
+	}
+	var current []int64
+	if err := s.DB.WithContext(ctx).Table("current_need_inputs").Where("agent_id = ? AND need_input_id IN ?", records[0].AgentID, ids).Pluck("need_input_id", &current).Error; err != nil {
+		return err
+	}
+	active := make(map[int64]bool, len(current))
+	for _, id := range current {
+		active[id] = true
+	}
+	for i := range records {
+		records[i].Eligible = active[records[i].NeedInputID]
+	}
+	return nil
 }

@@ -128,17 +128,16 @@ Request headers (set by the `eigenflux` CLI, capped at 128 chars in middleware):
 
 `agent_settings.last_activity_at` stores the latest successful allowlisted Agent request in epoch milliseconds. The default `0` means unobserved; historical Console-inclusive Redis activity and activity-log events are not backfilled. Apply migration `000102` before deploying the gateway. Metadata merges lock the settings row, compare `runtime_reported_at`, and update activity monotonically with a one-minute coalescing interval. Explicit mode-only reports also advance the fence. Activity-only writes leave `updated_at` and Card freshness untouched.
 
-### Intent-linked Needs (000105)
+### Intent-linked Needs (000105–000106)
 
-`need_inputs` preserves Agent-authored interpretations and source Intent snapshots.
-`normalized_needs` stores versioned platform projections with an exact composite
-source FK and at most one active projection per input. Superseded outputs remain
-for sample reconstruction with the immutable input and Intent snapshot. The source
-kind (`broadcast`, `agent`, or `commission`), priority, and preferences remain in
-input JSONB rather than being duplicated in each projection. `current_normalized_needs`
-joins source status and current Intent version to exclude obsolete projections.
-Capture writes a deterministic basic projection in the input transaction.
-Migration 000105 includes `mapping_status` (`unmapped`, `partial`, `mapped`) independently
-of input processing state. Offline publication atomically replaces projection
-rows; current eligibility never requires vocabulary coverage. See the
-[design](../design/need-capture/design.md) and [schemas](../../contracts/need_input.v1.schema.json).
+`need_inputs` preserves Agent-authored input and the confirmed Intent snapshot.
+Migration 000106 accepts `need_input.v2`, adds `active` status, and introduces
+`current_need_inputs`, which joins the owner's current active Intent version.
+New capture writes only an active input. Existing v1 snapshots, hashes, statuses,
+and historical normalized projections are unchanged. Runtime reads use the input
+and report eligibility without depending on normalization or vocabulary coverage.
+
+Retain `normalized_needs` and `current_normalized_needs` until historical consumers
+have migrated. Migration rollback refuses to discard v2 or active inputs. See the
+[capture design](../design/need-capture/design.md) and
+[v2 schema](../../contracts/need_input.v2.schema.json).

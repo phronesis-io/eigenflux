@@ -1,11 +1,11 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Agent structured NeedInput v1",
+  "title": "Agent-authored NeedInput v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": "need_input.v1"
+      "const": "need_input.v2"
     },
     "intent_id": {
       "type": "string",
@@ -27,27 +27,20 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "desc": {
+        "goal": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200,
           "x-max-weighted-length": 200
         },
-        "candidate_needs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 10,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200,
-            "x-max-weighted-length": 200
-          }
+        "context": {
+          "type": "string",
+          "maxLength": 2000,
+          "x-max-weighted-length": 2000
         }
       },
       "required": [
-        "desc",
-        "candidate_needs"
+        "goal"
       ]
     },
     "priority": {
@@ -56,9 +49,28 @@
       "maximum": 1
     },
     "preferences": {
-      "type": "string",
-      "maxLength": 500,
-      "x-max-weighted-length": 500
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "x-max-weighted-length": 500
+          },
+          "source_quote": {
+            "type": "string",
+            "maxLength": 1000,
+            "x-max-weighted-length": 1000
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
     },
     "constraints": {
       "type": "object",
@@ -89,9 +101,8 @@
           "maxItems": 20,
           "items": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 100,
-            "x-max-weighted-length": 100
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "ISO 3166-1 alpha-2 country code checked against the server registry."
           }
         },
         "lang": {
@@ -101,7 +112,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "x-max-weighted-length": 100
+            "x-max-weighted-length": 100,
+            "description": "BCP 47 language code, checked against the server language registry; no natural-language aliases."
           }
         },
         "exclude_terms": {
@@ -118,6 +130,30 @@
       "dependencies": {
         "budget_max_fen": [
           "currency"
+        ]
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "x-max-weighted-length": 500
+          },
+          "source_quote": {
+            "type": "string",
+            "maxLength": 1000,
+            "x-max-weighted-length": 1000
+          }
+        },
+        "required": [
+          "text"
         ]
       }
     }
@@ -170,8 +206,9 @@
   ],
   "x-eigenflux-contract": {
     "intent_link": "intent_id and intent_version identify the exact agent_intent_actions row version used to produce this proposal",
-    "storage": "Immutable legacy input; executable directly without a normalized projection",
+    "storage": "Immutable authoritative NeedInput plus confirmed Intent snapshot; execution snapshots and indexes are derived data.",
     "consent": "Agent submission is permitted by the linked owner-confirmed intent; NeedInput is not displayed as a user editing surface",
-    "validation": "Server additionally rejects duplicate keys, nulls, NUL characters, blank required text, noncanonical or overflowing int64 IDs, and text exceeding weighted length (CJK=2, other characters=1)."
+    "validation": "Server additionally rejects duplicate keys, nulls, NUL characters, blank required text, noncanonical or overflowing int64 IDs, and text exceeding weighted length (CJK=2, other characters=1).",
+    "semantics": "goal states an outcome; context contains necessary background; requirements are mandatory, preferences only affect ranking. Omitted values remain unknown. source_quote is Agent-reported provenance, not verified evidence."
   }
 }

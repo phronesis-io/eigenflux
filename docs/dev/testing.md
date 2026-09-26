@@ -8,7 +8,7 @@ Tests live beside the packages they exercise and in the service integration suit
 |-----------|-------------|-------------|
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
-| `tests/needs/` | Need capture HTTP/CLI lifecycle, input boundaries, PostgreSQL integrity, and offline publication | `./tests/run.sh --skip-start needs` |
+| `tests/needs/` | Need capture HTTP/CLI lifecycle, input boundaries, PostgreSQL integrity, direct v2 storage, and legacy history | `./tests/run.sh --skip-start needs` |
 | `tests/auth/` | Authentication flow tests (OTP, session, Profile completion) | `go test -v ./tests/auth/` |
 | `tests/console/` | Console API tests (agent/item list queries) | `go test -v ./tests/console/` |
 | `tests/cache/` | Cache-specific tests (unit + e2e + perf) | `go test -v ./tests/cache/` |

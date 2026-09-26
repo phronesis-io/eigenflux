@@ -12,17 +12,17 @@ import (
 // Case IDs correspond to docs/design/need-capture/e2e.md.
 func TestNeedInputHTTPBoundaries(t *testing.T) {
 	h := setup(t)
-	base := fmt.Sprintf(`{"schema_version":"need_input.v1","intent_id":"%d","intent_version":1,"need_type":"commission","target":{"desc":"indexes","candidate_needs":["indexes"]}}`, h.intent)
+	base := fmt.Sprintf(`{"schema_version":"need_input.v2","intent_id":"%d","intent_version":1,"need_type":"commission","target":{"goal":"Find index tuning help"},"requirements":[{"text":"No production uploads"}]}`, h.intent)
 	field := func(s string) string { return strings.Replace(base, `"target":`, s+`,"target":`, 1) }
 	desc := func(s string) string {
 		b, err := json.Marshal(s)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return strings.Replace(base, `"desc":"indexes"`, `"desc":`+string(b), 1)
+		return strings.Replace(base, `"goal":"Find index tuning help"`, `"goal":`+string(b), 1)
 	}
 	phrases := func(n int) string {
-		return strings.Replace(base, `["indexes"]`, `[`+strings.TrimSuffix(strings.Repeat(`"indexes",`, n), ",")+`]`, 1)
+		return strings.Replace(base, `[{"text":"No production uploads"}]`, `[`+strings.TrimSuffix(strings.Repeat(`{"text":"No production uploads"},`, n), ",")+`]`, 1)
 	}
 	cases := []struct {
 		name, body, key string
@@ -34,10 +34,10 @@ func TestNeedInputHTTPBoundaries(t *testing.T) {
 		{"B01_cjk_101", desc(strings.Repeat("中", 101)), "", 400},
 		{"B01_blank", desc(" \t\n"), "", 400},
 		{"B01_nul", desc("a\x00b"), "", 400},
-		{"B02_zero_phrases", phrases(0), "", 400},
-		{"B02_one_phrase", phrases(1), "", 201},
-		{"B02_ten_phrases", phrases(10), "", 201},
-		{"B02_eleven_phrases", phrases(11), "", 400},
+		{"B02_zero_requirements", phrases(0), "", 201},
+		{"B02_one_requirement", phrases(1), "", 201},
+		{"B02_twenty_requirements", phrases(20), "", 201},
+		{"B02_excess_requirements", phrases(21), "", 400},
 		{"B03_priority_zero", field(`"priority":0`), "", 201},
 		{"B03_priority_one", field(`"priority":1`), "", 201},
 		{"B03_priority_negative", field(`"priority":-0.01`), "", 400},
@@ -80,7 +80,7 @@ func TestNeedInputHTTPBoundaries(t *testing.T) {
 			}
 			if tc.status == 201 {
 				r := got["need_input"].(map[string]any)
-				if inputs != 1 || projections != 1 || r["status"] != "normalized" || r["normalized_need"].(map[string]any)["eligible"] != true {
+				if inputs != 1 || projections != 0 || r["status"] != "active" || r["eligible"] != true {
 					t.Fatalf("not atomically available: %v, rows=%d/%d", got, inputs, projections)
 				}
 			} else {
@@ -124,17 +124,17 @@ func TestNeedInputHTTPRevisionLifecycle(t *testing.T) {
 	}
 	replay = h.request(t, "POST", "/need-inputs", h.token, "lifecycle-v1", body, 200)
 	old := replay["need_input"].(map[string]any)
-	if replay["replayed"] != true || old["need_input_id"] != id || old["normalized_need"].(map[string]any)["eligible"] != false || !reflect.DeepEqual(old["input"], created["input"]) || !reflect.DeepEqual(old["intent_snapshot"], created["intent_snapshot"]) {
+	if replay["replayed"] != true || old["need_input_id"] != id || old["eligible"] != false || !reflect.DeepEqual(old["input"], created["input"]) || !reflect.DeepEqual(old["intent_snapshot"], created["intent_snapshot"]) {
 		t.Fatal("retry changed history or eligibility", replay)
 	}
 	v2 := strings.Replace(body, `"intent_version":1`, `"intent_version":2`, 1)
 	fresh := h.request(t, "POST", "/need-inputs", h.token, "lifecycle-v2", v2, 201)["need_input"].(map[string]any)
-	if fresh["need_input_id"] == id || fresh["normalized_need"].(map[string]any)["eligible"] != true {
+	if fresh["need_input_id"] == id || fresh["eligible"] != true {
 		t.Fatal(fresh)
 	}
 	page := h.request(t, "GET", "/need-inputs?limit=100", h.token, "", "", 200)
 	rows := page["need_inputs"].([]any)
-	if len(rows) != 2 || rows[0].(map[string]any)["need_input_id"] != fresh["need_input_id"] || rows[1].(map[string]any)["normalized_need"].(map[string]any)["eligible"] != false {
+	if len(rows) != 2 || rows[0].(map[string]any)["need_input_id"] != fresh["need_input_id"] || rows[1].(map[string]any)["eligible"] != false {
 		t.Fatal(page)
 	}
 	foreign := h.request(t, "GET", "/need-inputs", h.otherToken, "", "", 200)
@@ -142,7 +142,7 @@ func TestNeedInputHTTPRevisionLifecycle(t *testing.T) {
 		t.Fatal("foreign inputs leaked", foreign)
 	}
 	var eligible int64
-	if err := h.db.Raw("SELECT count(*) FROM current_normalized_needs WHERE agent_id=? AND intent_version=2", h.owner).Scan(&eligible).Error; err != nil || eligible != 1 {
+	if err := h.db.Raw("SELECT count(*) FROM current_need_inputs WHERE agent_id=? AND intent_version=2", h.owner).Scan(&eligible).Error; err != nil || eligible != 1 {
 		t.Fatal("current view disagrees with API", eligible, err)
 	}
 }

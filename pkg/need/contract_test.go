@@ -61,7 +61,7 @@ func TestContract(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := Decode([]byte(c.raw))
+			_, err := decodeLegacy([]byte(c.raw))
 			if (err == nil) != c.valid {
 				t.Fatalf("valid=%v err=%v", c.valid, err)
 			}
@@ -75,21 +75,21 @@ func TestContract(t *testing.T) {
 		})
 	}
 	for _, raw := range []string{validInput + `{}`, add(`"intent_version":1`), `null`, strings.Replace(validInput, `"desc":`, `"desc":"duplicate","desc":`, 1)} {
-		if _, err := Decode([]byte(raw)); err == nil {
+		if _, err := decodeLegacy([]byte(raw)); err == nil {
 			t.Fatal("invalid JSON accepted")
 		}
 	}
-	in, err := Decode([]byte(validInput))
+	in, err := decodeLegacy([]byte(validInput))
 	if err != nil || in.Target.Desc != "  请记录：查找 Go 数据库资料。\n保留原文。 " || in.Priority != nil {
 		t.Fatalf("changed original: %#v %v", in, err)
 	}
-	if _, err := Decode([]byte(add(`"constraints":{"deadline_ms":1}`))); err != nil {
+	if _, err := decodeLegacy([]byte(add(`"constraints":{"deadline_ms":1}`))); err != nil {
 		t.Fatal("past deadlines remain source data", err)
 	}
 }
 
 func TestDescriptionLengthBoundary(t *testing.T) {
-	in, err := Decode([]byte(validInput))
+	in, err := decodeLegacy([]byte(validInput))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,46 +107,9 @@ func TestDescriptionLengthBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = Decode(raw)
+		_, err = decodeLegacy(raw)
 		if (err == nil) != test.valid {
 			t.Fatalf("description boundary valid=%v err=%v", test.valid, err)
 		}
-	}
-}
-
-func TestNormalizedProjectionSchema(t *testing.T) {
-	raw, err := os.ReadFile("../../contracts/normalized_need.v1.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema, err := gojsonschema.NewSchema(gojsonschema.NewBytesLoader(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	n := Normalized{Desc: "PostgreSQL indexes", CandidateNeeds: []string{"indexes"}, MappedNeeds: map[string]string{"indexes": "database.indexing"}}
-	assertNormalizedSchema(t, n)
-	encoded, err := json.Marshal(n)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, obsolete := range []string{`"outcome":"obsolete"`, `"need_type":"broadcast"`, `"priority":0.5`, `"preferences":"unused"`, `"mapping_status":"mapped"`, `"schema_version":"normalized_need.v1"`, `"free_text":"text"`, `"proposed_intents":[]`, `"intents":[]`, `"category":"technology"`} {
-		bad := strings.Replace(string(encoded), `"desc":`, obsolete+`,"desc":`, 1)
-		result, err := schema.Validate(gojsonschema.NewStringLoader(bad))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Valid() {
-			t.Fatalf("redundant or removed field accepted: %s", obsolete)
-		}
-	}
-	bad := strings.Replace(string(encoded), `"constraints":{}`, `"constraints":{"exclude_authors":["123"]}`, 1)
-	result, err := schema.Validate(gojsonschema.NewStringLoader(bad))
-	if err != nil || result.Valid() {
-		t.Fatalf("removed constraint accepted: %v", err)
-	}
-	bad = strings.Replace(string(encoded), `"constraints":{}`, `"constraints":{"budget_max_fen":10,"currency":"USD"}`, 1)
-	result, err = schema.Validate(gojsonschema.NewStringLoader(bad))
-	if err != nil || result.Valid() {
-		t.Fatalf("unsupported normalized currency accepted: %v", err)
 	}
 }

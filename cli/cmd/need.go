@@ -64,11 +64,12 @@ func newNeedCommand() *cobra.Command {
 		response, err := cli.PostWithHeaders("/need-inputs", raw, map[string]string{"Idempotency-Key": key})
 		return printNeedResponse(response, err)
 	}}
-	create.Long = "Save a need_input.v1 JSON object linked to an active confirmed Intent ID/version. " +
-		"Use need_type broadcast, agent, or commission; target.desc (at most 200 weighted characters, CJK counts as 2); " +
-		"and target.candidate_needs (1 to 10 phrases). Optional constraints must be a JSON object; currency supports CNY only and budget_max_fen is in fen. " +
-		"The platform saves a basic normalized projection and retains normalization history."
-	create.Flags().String("file", "", "NeedInput JSON file (need_input.v1)")
+	create.Long = "Save a need_input.v2 JSON object linked to an active confirmed Intent ID/version. " +
+		"Use need_type broadcast, agent, or commission; target.goal (at most 200 weighted characters, CJK counts as 2) and optional target.context. " +
+		"Requirements and preferences are arrays of text and optional source_quote; preferences never become hard filters. " +
+		"Use BCP 47 language codes, ISO country codes, CNY integer fen, and millisecond times in constraints. " +
+		"The platform preserves the input and reports current Intent eligibility."
+	create.Flags().String("file", "", "NeedInput JSON file (need_input.v2)")
 	create.Flags().String("idempotency-key", "", "Stable retry key for this intent interpretation")
 	group.AddCommand(create)
 	group.AddCommand(&cobra.Command{Use: "get <need-input-id>", Short: "Read an owned NeedInput", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {

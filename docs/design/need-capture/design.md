@@ -1,218 +1,116 @@
-# Intent, NeedInput, and Normalized Need
+# Agent-authored NeedInput
 
-## Ownership and flow
+## Ownership and storage
 
 ```mermaid
 flowchart LR
-    H[Human confirms or edits Intent] --> I[agent_intent_actions]
-    I --> A[Agent reads current Intent ID and version]
-    A --> N[need_inputs: immutable structured proposal]
-    N --> B[Online deterministic normalization]
-    B --> P[normalized_needs: versioned projection]
-    O[Offline vocabulary snapshot] -. Optional enrichment .-> P
-    P --> V[current_normalized_needs: eligible projections]
-    I --> V
-    V -. Later integration .-> R[Search and recommendations]
+    H[Owner confirms Intent] --> I[Current Intent ID and version]
+    I --> A[Agent fills NeedInput]
+    A --> V[Validate structure, codes and source ownership]
+    V --> S[Save immutable input and Intent snapshot]
+    S --> R[Read input with current eligibility]
 ```
 
-The human input contract stays unchanged. A NeedInput is a technical interpretation
-of a confirmed Intent, not a new independently authorized human demand. Draft
-onboarding suggestions do not qualify until the owner confirms them.
+The human Intent fields and policy remain unchanged. Capture does not authorize
+contact, publication or purchase. One Intent can have several Needs.
 
-## Storage
+`need_inputs` stores a server-generated ID, owner, exact Intent ID/version,
+schema version, immutable JSON input, Intent snapshot, retry key/hash, lifecycle
+status and millisecond timestamps. New captures use `status=active`. No projection
+is generated. JSONB may change object formatting; string values and array order
+round-trip unchanged.
 
-Migration `000105_need_inputs_normalized.sql` creates two tables and one view.
-Vocabulary coverage state and its index are included in the same migration.
-New IDs are server-generated Snowflake int64 values serialized as strings in JSON.
-Times and deadlines are Unix milliseconds. Intent versions are positive integers.
+Migration 000106 extends the original 000105 schema with v2 and active inputs.
+`current_need_inputs` selects active inputs and historical normalized inputs
+whose owner-linked Intent remains active at the captured version. Legacy pending,
+failed and superseded inputs are ineligible. Retries do not reactivate them.
+Eligibility does not attest to semantic correctness or candidate satisfaction;
+future execution must also check deadlines and all mandatory conditions.
 
-| Object | Content | Writer |
-| --- | --- | --- |
-| `agent_intent_actions` | Existing human-visible text, policy, priority, status, version | Existing Intent flow |
-| `need_inputs` | Owner, exact Intent ID/version, immutable JSON input and source snapshot, idempotency key/hash, processing status, timestamps | Agent through capture API |
-| `normalized_needs` | Source input, owner and Intent link, derived JSON, schema/normalizer/taxonomy versions, projection status, timestamps | Online normalizer and internal offline publisher |
+Historical `normalized_needs`, `current_normalized_needs` and the v1 schemas remain
+available for existing history readers. Runtime capture/read code no longer reads
+or writes those projections. Do not drop them until external readers and sample
+archives have migrated. No historical JSON, hash, source snapshot or projection is
+rewritten. The rollback refuses to discard v2 or active inputs. Hard account/Intent
+deletion still cascades through both historical tables; soft deletion retains them.
 
-New inputs commit as `normalized` together with their basic projection. Legacy
-input states `pending` and `failed` can receive a basic projection on an idempotent
-create retry; `superseded` inputs stay inactive. Projection
-states are `active`, `superseded`, and `rejected`. One input represents one Need;
-one Intent can have several inputs. Reprocessing creates another projection and
-supersedes the previous active one in a transaction. Revision uniqueness is
-`(need_input_id, normalizer_version, taxonomy_version)`; an empty taxonomy version
-means no vocabulary was used. A nonempty normalizer version is mandatory.
+## Input protocol
 
-Composite foreign keys bind projections to the input's exact owner and Intent
-version. Inputs bind to the owner's Intent row; their historical version is not
-an FK to its mutable current version. Hard account/Intent deletion cascades to
-both tables. Soft Intent deletion retains source history.
+See [v2 schema](../../../contracts/need_input.v2.schema.json) and
+[complete example](../../../contracts/need_input.v2.example.json).
 
-`current_normalized_needs` exposes only active projections of normalized inputs
-whose Intent remains active at the same version. Readers must use this view or
-apply the same joins. Projection status alone does not establish eligibility.
-Expired deadlines need further filtering by future search/recommendation readers.
+| Field | Meaning and limit |
+| --- | --- |
+| `schema_version` | `need_input.v2` for new Agent instructions |
+| `intent_id`, `intent_version` | Canonical positive int64 string ID and positive integer version |
+| `need_type` | `broadcast`, `agent`, or `commission`; behavior enum, not a business taxonomy |
+| `target.goal` | Required outcome, at most 200 weighted characters |
+| `target.context` | Optional necessary background, at most 2000 weighted characters |
+| `requirements` | At most 20 mandatory open conditions |
+| `preferences` | At most 20 optional ranking preferences; never hard filters |
+| condition `text`, `source_quote` | Required text up to 500 and optional source quote up to 1000 weighted characters |
+| `priority` | Optional 0–1 value; do not copy Intent's different priority scale |
+| `constraints` | Typed object with explicit measurable restrictions |
 
-## Capture and concurrency
+Weighted length counts CJK as 2 and other characters as 1. The body limit is 32 KiB.
+Unknown fields, duplicate keys, nulls, NUL characters and invalid field types are
+rejected. Validation cannot establish whether an Agent correctly interpreted a
+preference as optional; filling rules, examples and evaluations own that quality.
 
-`pkg/need` validates the complete `need_input.v1` object, rejects unknown or
-platform-derived fields, and preserves string values and array order. JSONB
-normalizes object formatting; byte-identical JSON serialization is not promised.
-The 32 KiB body limit, weighted text limits, enum checks, commission-only budget and
-delivery fields, and strict ID parsing also apply to API submissions.
+Constraints retain `budget_max_fen`, `currency`, `max_promised_delivery_ms`,
+`deadline_ms`, `provider_region`, `lang`, and `exclude_terms`. Budget is a nonnegative
+integer in fen paired with `currency: "CNY"`; budget, currency and promised delivery
+are commission-only. Durations are nonnegative milliseconds; deadlines are positive
+Unix milliseconds. Past deadlines can be preserved but cannot authorize later
+matching. Arrays have at most 20 nonblank values of at most 100 weighted characters.
 
-A create transaction serializes retries using an owner advisory lock, checks the
-owner/key and canonical JSON hash, then locks the Intent row with `FOR UPDATE`.
-It validates current status/version and saves the input, source snapshot, and
-basic projection atomically. A storage/ID failure rolls back all of them.
-The row lock serializes capture with existing Intent updates/deletes. Replays
-return the same input ID and current projection even if the source has changed;
-new submissions referencing that old version fail with `INTENT_REVISION_STALE`.
-The API does not expose input update/delete or platform projection writes.
+V2 languages must be parseable BCP 47 codes with a known base language; country
+codes must be ISO two-letter country codes. Case variants are accepted and stored
+exactly as submitted. Deterministic canonical formatting may happen at execution.
+Language names, underscore locales and inferred regions are not rewritten into
+codes. When uncertain, the Agent can retain the restriction as an open condition.
 
-Only explicit constraints belong in `constraints`. Omitted values remain unknown.
-`priority` is optional in the input and must not be mechanically copied from the
-Intent's different numeric priority scale. `budget_max_fen` is an integer amount
-in fen, paired with `currency: "CNY"`; no other currency is supported. Past
-deadlines can be captured for faithful source preservation; they do not authorize
-current matching.
+Legacy `need_input.v1` clients can still submit their original schema and retry
+old captures. The compatibility decoder validates the original shape and reads only storage
+metadata; source JSON remains v1 with its original target and preference fields.
+Candidate phrases are preserved in the original snapshot and have no canonical
+mapping. Legacy language/region names remain unchanged and unverified; a future
+consumer must not silently omit or narrow them.
 
-## Input and derived fields
+## Writes and reads
 
-`need_type` is `broadcast`, `agent`, or `commission`. Required `target.desc`
-summarizes the Need within 200 weighted characters (CJK counts as 2, others as 1).
-`target.candidate_needs` contains 1–10 natural-language phrases, each within 200
-weighted characters. Optional `priority` is 0–1; `preferences` is free text.
-`constraints` is a typed JSON object stored within the input JSONB, never a
-JSON-encoded string. Its supported keys are `budget_max_fen`, `currency`,
-`max_promised_delivery_ms`, `deadline_ms`, `provider_region`, `lang`, and
-`exclude_terms`. Budget, currency, and promised delivery apply only to commissions.
-
-A minimal Agent submission:
-
-```json
-{
-  "schema_version": "need_input.v1",
-  "intent_id": "123",
-  "intent_version": 1,
-  "need_type": "broadcast",
-  "target": {
-    "desc": "Find PostgreSQL index tuning resources",
-    "candidate_needs": ["PostgreSQL indexes", "database performance"]
-  },
-  "constraints": {"lang": ["English"]}
-}
-```
-
-The derived JSON stored in each independent projection contains only `desc`,
-`candidate_needs`, optional `mapped_needs`, `constraints`, and
-`unresolved_constraints`. Schema version and mapping coverage belong to the
-projection record. Kind, priority, and preferences remain on the immutable input
-and are joined through `need_input_id`; normalization does not duplicate them.
-
-## Historical sample reconstruction
-
-Each retained projection links to the exact NeedInput and its captured Intent
-snapshot. Superseding a projection preserves its derived JSON, normalizer version,
-taxonomy version, creation time, and source association. This supports datasets
-containing the same source under multiple normalization versions and comparisons
-of phrase-to-ID corrections without consulting the mutable current Intent text.
-Hard deletion still cascades as described above; history is not a deletion bypass.
-
-Exact recomputation additionally requires immutable archived vocabulary contents
-and the rule code for each normalizer version. A future model-based normalizer
-would also need model/prompt/configuration artifacts. Database version labels
-alone do not archive those dependencies. This increment stores source/output
-history; it does not implement an offline artifact registry or reconstruct past
-search impressions, rankings, or feedback.
-
-## HTTP and CLI
-
-All endpoints use V2 Agent credentials and completed onboarding. Reads require
-`context:read`; create requires `context:write`. Responses are private/no-store.
+The create transaction serializes owner retries with an advisory lock, compares
+the canonical JSON hash, then locks the Intent row to validate source status and
+version. It saves only the input and source snapshot. Failure rolls back the write.
+Identical retries return the same record regardless of later Intent edits.
 
 | Operation | HTTP | CLI |
 | --- | --- | --- |
-| Current source Intents | `GET /api/v2/agent-context/intent-actions` | `eigenflux context intent list` |
-| Create input | `POST /api/v2/need-inputs`, `Idempotency-Key` header | `eigenflux need input create --file input.json --idempotency-key KEY` |
-| Get input | `GET /api/v2/need-inputs/:need_input_id` | `eigenflux need input get ID` |
-| List inputs | `GET /api/v2/need-inputs?limit=20&cursor=ID` | `eigenflux need input list --limit 20` |
+| Current Intents | `GET /api/v2/agent-context/intent-actions` | `eigenflux context intent list` |
+| Create | `POST /api/v2/need-inputs`, `Idempotency-Key` header | `eigenflux need input create --file need.json --idempotency-key KEY` |
+| Get | `GET /api/v2/need-inputs/:need_input_id` | `eigenflux need input get ID` |
+| List | `GET /api/v2/need-inputs?limit=20&cursor=ID` | `eigenflux need input list` |
 
-Source reads return `context_revision` and `intent_actions`, with additive `version`
-and the existing compiled `then` field for the action instruction. They read
-current rows in one database snapshot, so old compiled revisions need no rewrite.
-New context compilations also include Intent version. Source listing is a read;
-it does not refresh the local context cache. `context pull` still owns that action.
+Completed Agent V2 credentials require `context:write` for capture and
+`context:read` for reads. Responses are private/no-store. IDs are owner-scoped.
+Create returns 201, or 200 with `replayed=true` for an identical retry. Get/create
+return `data.need_input`; list returns `data.need_inputs` and `data.next_cursor`,
+descending by ID with limit 1–100. Each record has top-level `eligible` and no
+`normalized_need`. Consumers must use the original `input` and its schema version.
+Historical status `normalized` is readable but no longer produced by capture.
 
-Create returns HTTP 201 for a new record or 200 for a replay, with
-`data.need_input` and `data.replayed`. Get returns `data.need_input`. List returns
-`data.need_inputs` and `data.next_cursor`, descending by ID, with a limit of 1–100.
-Each input includes `normalized_need` when a projection exists, containing the
-normalized JSON, normalizer/taxonomy versions, `mapping_status`, and `eligible`.
-Eligibility reflects current source status/version, not a guarantee that all
-constraints match a particular candidate. The nested projection omits owner and
-Intent fields already present on its parent input. Get/list return the latest active
-projection, including `eligible=false` when its source becomes obsolete. Superseded
-normalizations remain in the database for offline history reads; there is no Agent
-history-list endpoint. Reads use committed MVCC snapshots without row locks.
-IDs are owner-scoped on every read. Missing reads return 404; invalid input returns
-400; oversized input returns 413; conflicting retries and stale Intent links
-return 409. Foreign and missing source Intents use the same stale-link response.
+Missing reads return 404, invalid input 400, oversized input 413, and stale source
+links or retry conflicts 409. Foreign and missing source Intents share the same
+stale-link error. There is no Need update/delete or normalized-result write API.
 
-## Online normalization
+## Execution boundary
 
-`NormalizeBasic` is a deterministic local function. It validates the input, trims
-and collapses whitespace, deduplicates candidate phrases, and preserves explicit
-budget/delivery/deadline values and excluded terms in the derived constraints. It does not
-infer a price from "cheap", a region from "domestic", a deadline, or a priority.
-Currency and time are already typed by the input contract; no rates or external
-conversion service is called.
-
-Language tags use BCP 47 parsing; country codes use the bundled ISO registry.
-A small fixed set of unambiguous language/country aliases is supported. Unknown
-values remain in `unresolved_constraints`. If an OR-list contains both known and
-unknown alternatives, the whole dimension is retained unresolved, avoiding a
-silently narrower hard filter. Readers must preserve those restrictions for
-contextual matching and must not claim they have been satisfied automatically.
-
-Basic projections use `normalizer_version=basic.v1`, an empty taxonomy version,
-and `mapping_status=unmapped`. Cleaned `desc` and `candidate_needs` remain
-available regardless of taxonomy coverage. `mapped_needs` is absent without
-reliable mappings; a candidate missing from that map remains unresolved.
-The online path has no offline client, queue, model, embedding, or taxonomy lookup.
-The current eligibility view never filters on mapping status or taxonomy version.
-
-## Optional offline enrichment
-
-`NormalizeWithVocabulary` accepts an offline-produced, immutable versioned map of
-reviewed phrases to canonical Need IDs. Exact matches supplement the basic
-representation; unknown phrases remain unresolved. Coverage is `unmapped` for no
-matches, `partial` for some matches, and `mapped` when all candidate phrases match.
-Coverage refers only to taxonomy mapping, not resolution of all constraints.
-The `mapped_needs` object maps each matched candidate phrase to its canonical
-ID, preserving many-to-one mappings for evaluation. These IDs are intended as soft
-retrieval/ranking features for future consumers. Description, source phrases, and
-hard constraints are preserved. Vocabulary building remains a separate stage.
-
-`Store.Enrich` is an internal platform method, not an Agent HTTP endpoint. Callers
-provide the input ID, observed active projection ID, and vocabulary snapshot.
-It reads the source and completes all normalization before starting a short
-publication transaction. It changes only projection rows: compare-and-swap
-supersedes the expected active row and inserts its replacement atomically.
-It does not lock the Intent/input rows or take the online owner advisory lock.
-An offline computation failure never starts publication; a publication failure
-rolls back without removing the previous result. Reads continue seeing the last
-committed projection even while publication is stalled. Simultaneous publishers
-cannot both replace the same revision. Retrying the same immutable vocabulary
-version/content returns its projection; changing content under the same version
-conflicts. Vocabulary versions must change whenever their mappings change.
-
-The raw corpus consists of Intent snapshots and immutable NeedInputs. A later
-pipeline can cluster phrases, review synonyms, publish snapshots, and call the
-internal enrichment boundary. Scheduling and generating those artifacts are
-independent of online capture and normalization. Neither enrichment nor capture
-rewrites user-visible Intent fields.
-
-Schemas: `contracts/need_input.v1.schema.json` and
-`contracts/normalized_need.v1.schema.json`. Search/Feed integration is separate;
-consumers can use the eligible projection's text/phrases when canonical IDs are
-absent. The unmerged discovery branch must rebase and resolve migration numbering
-before integration.
+Main-branch Search/Sort/Feed do not yet consume Needs. Future compilation should
+read the valid NeedInput, form retrieval text from goal/context, compile supported
+structured restrictions, preserve open requirements and preferences, and attach
+runtime context. It must not reinterpret the goal or add hard requirements.
+Persist the exact Need ID/schema/Intent version and execution snapshot in samples;
+derived embeddings/indexes need their own versioned cache keys. Rebuilding derived
+data must not change the Need. Matching results belong to a Need/candidate pair:
+`satisfied`, `conflict`, or `unknown`. An unverified required condition must not be
+claimed satisfied. An undeliverable Need must not block other Needs or kinds.

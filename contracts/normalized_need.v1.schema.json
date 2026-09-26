@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Historical read-only archive schema. New captures do not create normalized records.",
   "title": "Platform Normalized Need v1 derived content",
   "type": "object",
   "additionalProperties": false,

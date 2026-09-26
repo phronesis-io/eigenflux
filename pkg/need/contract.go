@@ -1,5 +1,4 @@
-// Package need owns the Agent-authored NeedInput contract and the platform's
-// derived NormalizedNeed projection. Intent text remains in agent_intent_actions.
+// Package need validates and stores Agent-authored Needs.
 package need
 
 import (
@@ -15,14 +14,18 @@ import (
 )
 
 const (
-	InputSchemaVersion      = "need_input.v1"
-	NormalizedSchemaVersion = "normalized_need.v1"
-	MaxBodyBytes            = 32 << 10
+	InputSchemaVersion = "need_input.v2"
+	MaxBodyBytes       = 32 << 10
 )
 
 type Target struct {
-	Desc           string   `json:"desc"`
-	CandidateNeeds []string `json:"candidate_needs"`
+	Goal    string `json:"goal"`
+	Context string `json:"context,omitempty"`
+}
+
+type Condition struct {
+	Text        string `json:"text"`
+	SourceQuote string `json:"source_quote,omitempty"`
 }
 
 type Constraints struct {
@@ -36,7 +39,7 @@ type Constraints struct {
 }
 
 // Input is the Agent's structured interpretation of one confirmed intent
-// action. Its field values are preserved and never overwritten by normalization.
+// action. Its field values are preserved as the authoritative input snapshot.
 type Input struct {
 	SchemaVersion string      `json:"schema_version"`
 	IntentID      int64       `json:"intent_id,string"`
@@ -44,43 +47,9 @@ type Input struct {
 	NeedType      string      `json:"need_type"`
 	Target        Target      `json:"target"`
 	Priority      *float64    `json:"priority,omitempty"`
-	Preferences   string      `json:"preferences,omitempty"`
+	Requirements  []Condition `json:"requirements,omitempty"`
+	Preferences   []Condition `json:"preferences,omitempty"`
 	Constraints   Constraints `json:"constraints,omitempty"`
-}
-
-// Normalized contains only derived content. Source kind, priority and preferences
-// remain in Input; schema and coverage metadata live on the projection record.
-// Historical projections retain these derived values for offline evaluation.
-type Normalized struct {
-	Desc                  string                `json:"desc"`
-	CandidateNeeds        []string              `json:"candidate_needs"`
-	MappedNeeds           map[string]string     `json:"mapped_needs,omitempty"`
-	Constraints           Constraints           `json:"constraints,omitempty"`
-	UnresolvedConstraints UnresolvedConstraints `json:"unresolved_constraints,omitempty"`
-}
-
-// MappingStatus measures vocabulary coverage, independently of eligibility.
-func (n Normalized) MappingStatus() string {
-	matched := 0
-	for _, phrase := range n.CandidateNeeds {
-		if n.MappedNeeds[phrase] != "" {
-			matched++
-		}
-	}
-	if matched == 0 {
-		return MappingUnmapped
-	}
-	if matched == len(n.CandidateNeeds) {
-		return MappingMapped
-	}
-	return MappingPartial
-}
-
-// Unresolved constraints retain explicit restrictions that cannot safely become
-// canonical filters. Consumers must retain them for contextual matching.
-type UnresolvedConstraints struct {
-	Lang           []string `json:"lang,omitempty"`
-	ProviderRegion []string `json:"provider_region,omitempty"`
 }
 
 type FieldError struct {
@@ -95,21 +64,28 @@ func invalid(path, reason string) error { return &FieldError{Path: path, Reason:
 // and leaves all submitted text unchanged in the decoded strings.
 func Decode(raw []byte) (Input, error) {
 	var in Input
+	if err := decodeJSON(raw, &in); err != nil {
+		return in, err
+	}
+	return in, Validate(in)
+}
+
+func decodeJSON(raw []byte, out any) error {
 	if len(raw) == 0 || len(raw) > MaxBodyBytes || !utf8.Valid(raw) {
-		return in, invalid("body", "invalid_size_or_encoding")
+		return invalid("body", "invalid_size_or_encoding")
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
 	if err := checkJSON(d); err != nil {
-		return in, err
+		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return in, invalid("body", "trailing_json")
+		return invalid("body", "trailing_json")
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if err := d.Decode(&in); err != nil {
-		return in, invalid("body", "invalid_fields_or_types")
+	if err := d.Decode(out); err != nil {
+		return invalid("body", "invalid_fields_or_types")
 	}
 	var link struct {
 		IntentID    string `json:"intent_id"`
@@ -117,13 +93,17 @@ func Decode(raw []byte) (Input, error) {
 			Currency *string `json:"currency"`
 		} `json:"constraints"`
 	}
-	if err := json.Unmarshal(raw, &link); err != nil || link.IntentID != strconv.FormatInt(in.IntentID, 10) {
-		return in, invalid("intent_id", "canonical_positive_int64_required")
+	if err := json.Unmarshal(raw, &link); err != nil {
+		return invalid("intent_id", "canonical_positive_int64_required")
+	}
+	id, err := strconv.ParseInt(link.IntentID, 10, 64)
+	if err != nil || id <= 0 || link.IntentID != strconv.FormatInt(id, 10) {
+		return invalid("intent_id", "canonical_positive_int64_required")
 	}
 	if currency := link.Constraints.Currency; currency != nil && *currency != "CNY" {
-		return in, invalid("constraints.currency", "unsupported")
+		return invalid("constraints.currency", "unsupported")
 	}
-	return in, Validate(in)
+	return nil
 }
 
 func checkJSON(d *json.Decoder) error {
@@ -174,32 +154,54 @@ func Validate(in Input) error {
 	if in.SchemaVersion != InputSchemaVersion {
 		return invalid("schema_version", "unsupported")
 	}
-	if in.IntentID <= 0 || in.IntentVersion <= 0 {
-		return invalid("intent", "positive_intent_id_and_version_required")
+	if !textValid(in.Target.Goal, 200, true) {
+		return invalid("target.goal", "required_or_too_long")
 	}
-	if in.NeedType != "broadcast" && in.NeedType != "commission" && in.NeedType != "agent" {
-		return invalid("need_type", "unsupported")
+	if !textValid(in.Target.Context, 2000, false) {
+		return invalid("target.context", "too_long")
 	}
-	if !textValid(in.Target.Desc, 200, true) {
-		return invalid("target.desc", "required_or_too_long")
-	}
-	if !textValid(in.Preferences, 500, false) {
-		return invalid("preferences", "too_long")
-	}
-	if len(in.Target.CandidateNeeds) < 1 || len(in.Target.CandidateNeeds) > 10 {
-		return invalid("target.candidate_needs", "require_1_to_10")
-	}
-	for _, phrase := range in.Target.CandidateNeeds {
-		if !textValid(phrase, 200, true) {
-			return invalid("target.candidate_needs", "invalid_phrase")
+	for _, field := range []struct {
+		name       string
+		conditions []Condition
+	}{{"requirements", in.Requirements}, {"preferences", in.Preferences}} {
+		if len(field.conditions) > 20 {
+			return invalid(field.name, "too_many")
+		}
+		for _, c := range field.conditions {
+			if !textValid(c.Text, 500, true) || !textValid(c.SourceQuote, 1000, false) {
+				return invalid(field.name, "invalid_condition")
+			}
 		}
 	}
-	if in.Priority != nil && (math.IsNaN(*in.Priority) || math.IsInf(*in.Priority, 0) || *in.Priority < 0 || *in.Priority > 1) {
-		return invalid("priority", "out_of_range")
+	if err := validateCommon(in.IntentID, in.IntentVersion, in.NeedType, in.Priority, in.Constraints); err != nil {
+		return err
 	}
 	c := in.Constraints
+	for _, value := range c.Lang {
+		if _, ok := languageCode(value); !ok {
+			return invalid("constraints.lang", "bcp47_code_required")
+		}
+	}
+	for _, value := range c.ProviderRegion {
+		if _, ok := regionCode(value); !ok {
+			return invalid("constraints.provider_region", "iso_country_code_required")
+		}
+	}
+	return nil
+}
+
+func validateCommon(intentID, intentVersion int64, kind string, priority *float64, c Constraints) error {
+	if intentID <= 0 || intentVersion <= 0 {
+		return invalid("intent", "positive_intent_id_and_version_required")
+	}
+	if kind != "broadcast" && kind != "commission" && kind != "agent" {
+		return invalid("need_type", "unsupported")
+	}
+	if priority != nil && (math.IsNaN(*priority) || math.IsInf(*priority, 0) || *priority < 0 || *priority > 1) {
+		return invalid("priority", "out_of_range")
+	}
 	if c.BudgetMaxFen != nil || c.Currency != "" || c.MaxDurationMS != nil {
-		if in.NeedType != "commission" {
+		if kind != "commission" {
 			return invalid("constraints", "commission_only_price_and_delivery")
 		}
 	}

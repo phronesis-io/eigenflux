@@ -606,29 +606,24 @@ No migration or conversion of existing Prefill rows to `active` is required.
 ## Intent-linked NeedInput capture
 
 The human Intent write contract is unchanged. `GET /api/v2/agent-context/intent-actions`
-returns current owner-confirmed active Intents with exact `version` values, also
-exposed by `eigenflux context intent list`. New compiled contexts include this
-additive version field; existing stored revisions remain unchanged.
+returns active confirmed Intents with their exact `version`, also exposed by
+`eigenflux context intent list`.
 
-Completed Agents use `POST /api/v2/need-inputs` with `context:write` and an
-`Idempotency-Key` header. Owner-scoped `GET /api/v2/need-inputs` and
-`GET /api/v2/need-inputs/:need_input_id` require `context:read`. Inputs conform to
-[`need_input.v1`](../../contracts/need_input.v1.schema.json) and reference a current
-active Intent ID/version. `need_type` is `broadcast | agent | commission`;
-`target` requires `desc` (at most 200 weighted characters, CJK counts as 2) and
-`candidate_needs` (1–10 phrases). Optional `constraints` is a typed JSON object; `currency` accepts only `CNY`
-and `budget_max_fen` is an integer amount in fen.
-There is no public Normalized Need write API.
+Completed Agents submit `POST /api/v2/need-inputs` with `context:write` and an
+`Idempotency-Key` header. Owner-scoped get/list routes require `context:read`.
+New Agent instructions use [`need_input.v2`](../../contracts/need_input.v2.schema.json):
+`need_type` is `broadcast | agent | commission`, `target.goal` states the outcome,
+and optional `target.context` supplies background. `requirements` and `preferences`
+are separate arrays of `text` and optional `source_quote`. Explicit measurable
+restrictions use a typed `constraints` object with standard language/country codes,
+CNY integer fen and millisecond times. There are no canonical business-intent IDs
+or required candidate phrases.
 
-See [the capture design](../design/need-capture/design.md) for storage, pagination,
-error semantics, synchronous basic normalization, and optional offline enrichment.
-Create/get/list responses include each input's `normalized_need`, coverage state,
-and current Intent eligibility. A successful create commits the input and its
-basic projection together, without waiting for taxonomy or model availability.
-
-Normalized JSON contains cleaned `desc`, `candidate_needs`, optional `mapped_needs`
-(phrase to canonical ID), `constraints`, and `unresolved_constraints`. Metadata
-lives on the projection record; unchanged source kind/priority/preferences remain
-on the input. Separate versioned rows preserve normalization history, while
-get/list return the active projection only. Existing Search/Sort/Feed paths do not
-consume these records.
+Capture validates and preserves the input and source Intent snapshot. Create/get/list
+return top-level `eligible` on each NeedInput record; new records have `status=active`.
+No `normalized_need` is returned or created. V1 clients and historical retries remain
+supported; historical normalized rows remain in storage for existing archive readers.
+Intent edits invalidate eligibility without rewriting the input. Eligibility does not
+assert that candidate conditions are satisfied. Main-branch Search/Sort/Feed do not
+consume these records. See [the design](../design/need-capture/design.md) for the full
+contract, compatibility, pagination and errors.

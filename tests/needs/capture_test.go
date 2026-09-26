@@ -197,15 +197,11 @@ func TestNeedInputHTTPAndPostgres(t *testing.T) {
 	created := h.request(t, "POST", "/need-inputs", h.token, "capture-test-1", original, 201)
 	record := created["need_input"].(map[string]any)
 	id := record["need_input_id"].(string)
-	if record["status"] != "normalized" || record["agent_id"] != fmt.Sprint(h.owner) {
+	if record["status"] != "active" || record["agent_id"] != fmt.Sprint(h.owner) {
 		t.Fatal(record)
 	}
-	projection := record["normalized_need"].(map[string]any)
-	if projection["eligible"] != true || projection["mapping_status"] != "unmapped" || projection["taxonomy_version"] != "" || projection["normalizer_version"] != need.BasicNormalizerVersion {
-		t.Fatal(projection)
-	}
-	if projection["normalized"].(map[string]any)["desc"] == "" {
-		t.Fatal("missing baseline retrieval text")
+	if record["eligible"] != true || record["normalized_need"] != nil {
+		t.Fatal(record)
 	}
 	snapshot := record["intent_snapshot"].(map[string]any)
 	if snapshot["intent_id"] != fmt.Sprint(h.intent) || snapshot["intent_version"] != float64(1) || snapshot["watch_for"] != "PostgreSQL" {
@@ -307,20 +303,8 @@ func TestNeedInputRevisedFields(t *testing.T) {
 		if record["input"].(map[string]any)["need_type"] != kind {
 			t.Fatal("lost source kind", record)
 		}
-		p := record["normalized_need"].(map[string]any)
-		for _, duplicate := range []string{"need_input_id", "agent_id", "intent_id", "intent_version", "need_type"} {
-			if _, exists := p[duplicate]; exists {
-				t.Fatal("duplicated parent source field", duplicate)
-			}
-		}
-		n := p["normalized"].(map[string]any)
-		for _, duplicate := range []string{"schema_version", "mapping_status", "need_type", "priority", "preferences", "outcome"} {
-			if _, exists := n[duplicate]; exists {
-				t.Fatal("duplicated original or metadata field", duplicate)
-			}
-		}
-		if n["desc"] == "" || len(n["candidate_needs"].([]any)) != 2 {
-			t.Fatal("missing derived content", n)
+		if record["eligible"] != true || record["normalized_need"] != nil {
+			t.Fatal(record)
 		}
 	}
 	for i, bad := range []string{
@@ -347,22 +331,14 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Skip("EIGENFLUX_TEST_CLI required")
 	}
 	h := setup(t)
-	// Exercise the complete Skill example through the actual CLI and gateway.
-	guide, err := os.ReadFile("../../skills/ef-broadcast/references/needs.md")
+	// Exercise the published contract example through the actual CLI and gateway.
+	example, err := os.ReadFile("../../contracts/need_input.v2.example.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, example, found := strings.Cut(string(guide), "```json\n")
-	if !found {
-		t.Fatal("Skill is missing the complete NeedInput example")
-	}
-	example, _, found = strings.Cut(example, "\n```")
-	if !found {
-		t.Fatal("Skill example has no closing fence")
-	}
-	in, err := need.Decode([]byte(example))
+	in, err := need.Decode(example)
 	if err != nil {
-		t.Fatal("Skill example violates the input contract", err)
+		t.Fatal("Contract example violates the input contract", err)
 	}
 	in.IntentID = h.intent
 	encoded, err := json.Marshal(in)
@@ -409,13 +385,13 @@ func TestNeedInputCLI(t *testing.T) {
 		t.Fatal("CLI retry was duplicated")
 	}
 	got := run("need", "input", "get", id)
-	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["candidate_needs"].([]any)[1] != "database performance optimization" {
+	if got["need_input"].(map[string]any)["input"].(map[string]any)["target"].(map[string]any)["goal"] != "Diagnose and improve PostgreSQL slow queries" {
 		t.Fatal(got)
 	}
-	normalized := got["need_input"].(map[string]any)["normalized_need"].(map[string]any)["normalized"].(map[string]any)
-	constraints := normalized["constraints"].(map[string]any)
+	input := got["need_input"].(map[string]any)["input"].(map[string]any)
+	constraints := input["constraints"].(map[string]any)
 	if constraints["currency"] != "CNY" || constraints["budget_max_fen"] != float64(50000) {
-		t.Fatal("Skill budget did not round-trip through normalization", constraints)
+		t.Fatal("Contract budget did not round-trip through capture", constraints)
 	}
 	if len(run("need", "input", "list")["need_inputs"].([]any)) != 1 {
 		t.Fatal("CLI list mismatch")
@@ -428,6 +404,9 @@ func TestNormalizedNeedIntegrityAndEligibility(t *testing.T) {
 	payload := []byte(strings.Replace(original, "INTENT_ID", fmt.Sprint(h.intent), 1))
 	r, _, err := store.Create(context.Background(), h.owner, "normalized-source", payload, 1)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.Exec("UPDATE need_inputs SET status='normalized' WHERE need_input_id=?", r.NeedInputID).Error; err != nil {
 		t.Fatal(err)
 	}
 	projection := `{"desc":"PostgreSQL indexes","candidate_needs":["indexes"],"constraints":{}}`

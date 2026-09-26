@@ -1,51 +1,42 @@
 # Intent-linked Need capture
 
-## Purpose
+## Contract
 
-Humans manage Intent actions in the existing Console. Agents translate confirmed
-Intent actions into structured NeedInputs. The platform owns Normalized Needs
-for future search and recommendations. Humans do not edit a separate Need form.
+Agents translate owner-confirmed active Intents into complete NeedInputs. The
+platform validates structure, ranges, codes, ownership and source versions, then
+saves the immutable input and Intent snapshot. The platform does not reinterpret
+the goal or create a second authoritative semantic representation.
 
-## Requirements
+Use `need_input.v2`: `need_type` is `broadcast | agent | commission`, `target.goal`
+is the intended outcome, and optional `target.context` contains necessary
+background. Explicit measurable restrictions belong in `constraints`; mandatory
+open conditions belong in `requirements`; optional preferences belong in
+`preferences`. Each open condition has `text` and optional `source_quote`.
 
-- Preserve the existing Intent input fields: `watch_for`, `trigger_when`,
-  `action_instruction`, `action_policy`, and `priority`.
-- Capture only interpretations of owner-confirmed active Intent actions. Do not
-  turn profiles, interests, historical conversations, or unrelated tasks into Needs.
-- Link each input to its owner, Intent ID, and exact Intent version. Retain the
-  source snapshot and submitted field values for offline analysis and reprocessing.
-- Allow several inputs per Intent, such as separate information and service Needs.
-- Use `broadcast | agent | commission`, `target.desc` (200 weighted characters),
-  and `target.candidate_needs` (1–10 phrases). Constraints are a typed JSON object.
-- Store platform normalization separately, including schema, normalizer, and
-  taxonomy versions and retained historical outputs for sample reconstruction. An Agent cannot submit a canonical normalization result.
-- Keep authorization to capture distinct from permission to contact someone,
-  publish, buy, or change the Intent's action policy.
+Do not require candidate phrases, business-intent taxonomies or canonical IDs.
+Omitted values stay unknown. Source quotes explain the Agent's interpretation;
+they do not independently prove that a candidate satisfies a requirement.
 
 ## Acceptance
 
-1. Authenticated completed Agents can create and read only their own inputs.
-2. Submission rejects missing, stale, inactive, and foreign Intent references.
-3. Idempotent retries return the same record, including after the Intent changes;
-   changed input under the same owner/key conflicts. Concurrent retries insert once.
-4. JSON string values and array order round-trip; derived fields are rejected.
-5. Database constraints prevent normalized records from linking to a different
-   owner or source Intent version. Only one normalization per input can be active.
-6. Eligibility requires a normalized input, active projection, and current active
-   Intent version. Intent changes invalidate old projections without rewriting them.
-7. Local PostgreSQL, HTTP, CLI, unit tests, and service builds verify the contract.
-
-8. Successful online capture atomically creates an immediately usable basic
-   projection with no taxonomy, offline corpus, LLM, embedding, or queue dependency.
-9. Unknown vocabulary produces `unmapped` or `partial` coverage, never failed
-   capture. Keep retrieval text and original candidate Need phrases at every coverage level.
-10. Failed or stalled offline enrichment leaves the previous projection readable.
-    Concurrent publishers use compare-and-swap to avoid overwriting newer results.
+- Validate before writing; preserve submitted field values, array order, input
+  schema version, exact Intent version, source snapshot and retry hash.
+- Reject foreign, missing, stale or inactive Intent references on new captures.
+- Same-owner identical retries return the original record even after an Intent
+  edit; changed payloads under the same key conflict. Concurrent retries insert once.
+- A successful write creates one active NeedInput without a projection, LLM,
+  vocabulary, embedding or queue dependency. Get/list report current eligibility.
+- New v2 input uses standard language/country codes and integer amount/time units.
+  Requirements and preferences remain distinct throughout storage and reads.
+- Retain v1 input compatibility and historical normalization rows without creating
+  new normalization records. Never rewrite historical source JSON or retry hashes.
+- Current eligibility follows input lifecycle and the current active Intent version.
+- Verify schema, PostgreSQL, HTTP, CLI, builds and affected regression tests.
 
 ## Scope
 
-This increment includes local schema, capture API/CLI, deterministic online
-normalization, and an internal versioned enrichment publication boundary.
-Vocabulary building, enrichment scheduling, embeddings, retrieval integration,
-subscriptions, and deployment remain separate work. Offline enrichment improves
-semantic coverage; online readiness never depends on it.
+This change covers main-branch capture, storage, read responses, protocol schemas,
+CLI guidance and Agent instructions. The separate `codex/need-search-mvp` branch,
+retrieval integration, matching, embedding caches and deployment are outside scope.
+Future matching must report satisfied/conflict/unknown, keep unverified mandatory
+conditions visible, and never use preferences as hard filters.
