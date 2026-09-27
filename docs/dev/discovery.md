@@ -412,7 +412,10 @@ and an undeliverable active Need never triggers unrelated profile fallback.
 No Need normalization projection or generative call is used. Reviewed query
 aliases produce soft retrieval evidence without rewriting the Need or introducing
 hard constraints.
-Optional embedding failure retains lexical retrieval with `embedding_unavailable`.
+Stored Need embeddings are precomputed asynchronously. A missing vector retains
+lexical retrieval with `embedding_pending`; cache/storage errors report
+`embedding_unavailable`. Explicit queries and unsaved inline Needs still compute
+on demand and retain lexical retrieval on optional embedding failure.
 
 `captured_need` freezes the original input JSON, input ID and Intent ID/version
 inside execution contexts and existing replay samples. Result/sample `need_id`
@@ -500,3 +503,56 @@ clients retain their compatible bundle. Serving continues through per-kind
 fallback while active Agents gradually finish capture. Dormant Agents do not
 produce new inputs until they run again. This change does not switch missing-Need
 broadcast traffic back to the legacy ranker.
+
+### Asynchronous Need embeddings
+
+Saving or completing capture does not call an embedding model. With
+`ENABLE_NEED_SEARCH=true`, Pipeline runs two `NeedEmbeddingWorker` loops. They
+poll current nonexpired NeedInputs every five seconds when idle, deriving work
+from the durable input rows rather than a best-effort notification. Existing
+inputs and new model/query-processing generations are discovered automatically.
+No separate capture-time Redis publication or normalized Need projection exists.
+
+The worker and online compiler use `queryprocessing.NeedText(goal, context)` and
+the same query processor. Only the normalized original text is embedded;
+requirements, preferences, filters and alias expansions are not appended.
+Redis keys combine a hash of that processed text with a generation hash covering
+provider, resolved model, explicit `DISCOVERY_EMBEDDING_REVISION`, endpoint,
+dimensions and `queryprocessing.Version`. Keys contain no raw Need text.
+Identical text shares a vector across input IDs/types. Model endpoint or version
+changes cannot read an old generation. Sort execution snapshots record this
+opaque generation as `embedding_version`; taxonomy validation still uses the
+configured model name. Query-processing changes must bump its `Version` constant.
+
+Migration 000110 adds `need_embedding_jobs`, keyed by input ID and generation.
+Claims use a 60-second lease and unique token; an expired worker cannot finalize
+a newer claim. Each computation has a 45-second deadline. Errors retry after
+5 seconds with exponential backoff capped at five minutes. Concurrent identical
+text production is bounded by a Redis lease. Successful vectors live for 30 days;
+active sources recheck cache readiness daily. Cache eviction triggers online
+repair scheduling without resetting failure backoff or stealing active leases.
+The input lifecycle remains authoritative: inactive, stale-version and expired
+Needs are not claimed. A late completion can populate only its immutable text
+and generation key, never mutate a Need or become a different generation's vector.
+
+Online stored-Need execution reads the cached vector and does not invoke the
+model on a miss. It requests background work and continues available retrieval
+under unchanged hard filters. Dense recall and semantic scoring resume on a
+fresh execution after the vector is ready. Existing frozen search pages and
+idempotent responses retain their original results. Explicit query, inline Need
+and Agent-context fallback paths retain on-demand embedding; this optimization
+does not silently change their model-call behavior.
+
+Apply 000110 before deployment, then start the updated Pipeline and Sort with
+identical embedding settings. Bump `DISCOVERY_EMBEDDING_REVISION` when changing
+weights behind a stable model name/endpoint. Candidate and taxonomy embeddings
+must still use a compatible embedding space; query-cache invalidation does not
+rebuild those indexes. Missing or stopped workers leave cache misses lexical-only
+until workers resume. `discovery_need_embedding_total{operation,outcome}` reports
+lookup hit/pending/error and production reused/generated/busy/error, without
+high-cardinality or private-text labels.
+
+Code: `rpc/sort/discovery/needembedding/` owns cache identity, vector validation
+and job claims; `pipeline/consumer/need_embedding_worker.go` owns asynchronous
+execution; `rpc/sort/discovery/compiler.go` owns online lookup; Pipeline/Sort
+wiring constructs the same cache profile.

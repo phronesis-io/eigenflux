@@ -456,3 +456,21 @@ make identical retries idempotent and conflicting concurrent reviews explicit.
 Partial writes roll back. A new Intent version becomes pending; inactive Intents
 are not listed. The mechanism neither changes Intent policies nor creates
 NormalizedNeed records. See [API contracts](../../dev/api_endpoints.md#intent-capture-maintenance).
+
+## Need embedding precomputation
+
+Stored Need execution uses a versioned Redis vector cache populated by Pipeline.
+The shared query processor produces identical embedding text for precomputation
+and online lookup. A cache generation covers provider/model/revision/endpoint,
+dimensions and query-processing version; processed-text hashes select entries
+within a generation. Pipeline derives pending work from current active inputs and
+records token-fenced leases/retries in `need_embedding_jobs` (000110). Capturing
+an input therefore performs no model request or fallible external queue write.
+
+Cache misses remain lexical-only, report `embedding_pending`, and schedule
+background repair; they never call the model in stored-Need requests. Errors
+retain existing optional-embedding semantics. Explicit query, inline Need and
+Agent-context fallback embedding stays on demand. Frozen result caches retain
+original membership even after a vector becomes available. See the
+[implementation contract](../../dev/discovery.md#asynchronous-need-embeddings)
+for worker bounds, expiry, version changes and rollout.

@@ -489,3 +489,10 @@ func TestNeedSearchRequiresLegacyGatesAndSamples(t *testing.T) {
 		t.Fatal("samples disabled at cutover")
 	}
 }
+
+func TestDiscoveryEmbeddingRevisionConfiguration(t *testing.T) {
+	t.Setenv("DISCOVERY_EMBEDDING_REVISION", "model-weights-r2")
+	if got := Load().DiscoveryEmbeddingRevision; got != "model-weights-r2" {
+		t.Fatal(got)
+	}
+}

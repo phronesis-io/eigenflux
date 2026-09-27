@@ -7,9 +7,11 @@ import (
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"eigenflux_server/rpc/sort/discovery/needembedding"
 	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"strconv"
@@ -22,7 +24,11 @@ import (
 type Embedder interface {
 	GetEmbedding(context.Context, string) ([]float32, error)
 }
+type NeedVectorLookup interface {
+	Lookup(context.Context, int64, string, string) ([]float32, error)
+}
 type Compiler struct {
+	NeedVectors      NeedVectorLookup
 	Taxonomy         *searchindex.Vocabulary
 	Embedder         Embedder
 	EmbeddingVersion string
@@ -241,7 +247,16 @@ func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 		c.SpecHash = hashContext(*c)
 		return nil
 	}
-	if cc.Embedder == nil {
+	if c.CapturedNeed != nil && c.CapturedNeed.InputID > 0 && cc.NeedVectors != nil {
+		v, err := cc.NeedVectors.Lookup(ctx, c.CapturedNeed.InputID, c.lexicalQuery(), c.QueryAnalysis.Version)
+		if errors.Is(err, needembedding.ErrPending) {
+			c.Warnings = append(c.Warnings, "embedding_pending")
+		} else if err != nil || len(v) == 0 {
+			c.Warnings = append(c.Warnings, "embedding_unavailable")
+		} else {
+			c.Vector = v
+		}
+	} else if cc.Embedder == nil {
 		c.Warnings = append(c.Warnings, "embedding_unavailable")
 	} else {
 		v, err := cc.Embedder.GetEmbedding(ctx, c.lexicalQuery())

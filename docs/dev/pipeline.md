@@ -271,3 +271,17 @@ System supports two embedding providers:
 ## LLM
 
 LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) via the Responses API (`client.Responses.New`). Max output tokens is configurable via `LLM_MAX_TOKENS` (default: 4096). Default reasoning effort is configurable via `LLM_REASONING_EFFORT` (default: `low`; supported values: `none`, `minimal`, `low`, `medium`, `high`). Individual prompts can override reasoning effort via `WithReasoning()` — e.g. `extract_keywords` uses `none` since it only needs simple structured extraction.
+
+### Need embedding precomputation
+
+With `ENABLE_NEED_SEARCH=true`, Pipeline starts two database-backed
+`NeedEmbeddingWorker` loops in addition to stream consumers. Current eligible
+NeedInputs are the durable source of work, so capture requires no external queue
+write and historical inputs are covered automatically. Migration 000110 stores
+per-input/per-generation leases, retry times and readiness. The worker normalizes
+`target.goal + target.context` through the shared query processor, generates or
+reuses a versioned Redis vector, and retries failures with bounded backoff.
+
+Sort reads these vectors without waiting for a model on stored-Need cache misses.
+The Pipeline and Sort embedding settings, including `DISCOVERY_EMBEDDING_REVISION`,
+must match. See [cache keys, failure behavior and deployment](discovery.md#asynchronous-need-embeddings).

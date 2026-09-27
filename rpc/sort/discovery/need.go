@@ -3,9 +3,9 @@ package discovery
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"eigenflux_server/pkg/need"
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 )
 
 type NeedReader interface {
@@ -41,8 +41,8 @@ func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot nee
 	if snapshot.InputID == 0 {
 		origin = "inline_need"
 	}
-	text := []string{in.Target.Goal, in.Target.Context}
-	c, err := cc.compileBase(owner, id, now, origin, strings.Join(text, "\n"), []Kind{Kind(in.NeedType)}, f, false)
+	text := queryprocessing.NeedText(in.Target.Goal, in.Target.Context)
+	c, err := cc.compileBase(owner, id, now, origin, text, []Kind{Kind(in.NeedType)}, f, false)
 	if err != nil {
 		return c, err
 	}

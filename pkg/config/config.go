@@ -40,10 +40,11 @@ func loadConsoleV2RegistrationLimits() RegLimit {
 }
 
 type Config struct {
-	EnableNeedSearch      bool
-	DiscoveryTaxonomyPath string
-	DiscoveryRulesPath    string
-	AgentDiscoveryIndex   string
+	EnableNeedSearch           bool
+	DiscoveryTaxonomyPath      string
+	DiscoveryRulesPath         string
+	DiscoveryEmbeddingRevision string
+	AgentDiscoveryIndex        string
 
 	EtcdAddr                    string
 	PgDSN                       string
@@ -298,6 +299,7 @@ func Load() *Config {
 		EnableNeedSearch:            getEnvBool("ENABLE_NEED_SEARCH", false),
 		DiscoveryTaxonomyPath:       getEnv("DISCOVERY_TAXONOMY_PATH", "configs/discovery/taxonomy.json"),
 		DiscoveryRulesPath:          getEnv("DISCOVERY_RULES_PATH", "configs/discovery/rules.json"),
+		DiscoveryEmbeddingRevision:  getEnv("DISCOVERY_EMBEDDING_REVISION", ""),
 		AgentDiscoveryIndex:         getEnv("AGENT_DISCOVERY_INDEX", "agent_discovery_v1"),
 		EnableFeedV2:                getEnvBool("ENABLE_FEED_V2", false),
 		EnableControlChannelV2:      getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),

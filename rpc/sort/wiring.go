@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/need"
 	"eigenflux_server/rpc/sort/discovery"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"eigenflux_server/rpc/sort/discovery/needembedding"
 
 	"os"
 	"strings"
@@ -60,6 +61,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		return nil, nil, err
 	}
 	store := discovery.Store{DB: db.DB}
-	engine := &discovery.Engine{Compiler: &discovery.Compiler{Taxonomy: v, Embedder: embed, EmbeddingVersion: cfg.EmbeddingModel}, Store: store, Needs: need.Store{DB: db.DB}, IDs: ids, Rules: rules, Policies: policies, Sources: &discovery.Source{DB: db.DB, Redis: mq.RDB, CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails, DisableDedup: cfg.ShouldDisableDedup(), DisabledChannels: map[string]bool{"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}}
+	vectors := needembedding.New(cfg, db.DB, mq.RDB)
+	engine := &discovery.Engine{Compiler: &discovery.Compiler{Taxonomy: v, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()}, Store: store, Needs: need.Store{DB: db.DB}, IDs: ids, Rules: rules, Policies: policies, Sources: &discovery.Source{DB: db.DB, Redis: mq.RDB, CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails, DisableDedup: cfg.ShouldDisableDedup(), DisabledChannels: map[string]bool{"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}}
 	return &discovery.Service{Engine: engine}, close, nil
 }

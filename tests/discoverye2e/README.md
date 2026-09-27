@@ -100,3 +100,11 @@ fallback. It waits for asynchronous history writes and removes only its own
 typed exposure entries before later deduplication cases. Capture maintenance
 HTTP/CLI, concurrent retries and transaction rollback are exercised in
 `tests/needs` against PostgreSQL migrated through 000109.
+
+The Need vector case verifies capture makes no model call, cold online execution
+returns lexical matches with `embedding_pending`, and the real background worker
+warms Redis through the deterministic embedding HTTP fixture. Repeated fresh
+online requests then include semantic recall while the fixture observes exactly
+one model call for that processed text. Infrastructure must be migrated through
+000110. Retry, lease recovery, cache eviction and model-generation isolation also
+run in `tests/needs` with isolated job schemas and real Redis/PostgreSQL.

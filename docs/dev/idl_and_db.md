@@ -150,3 +150,13 @@ hash and completion time. The composite foreign key follows Intent deletion.
 Pending work is derived from current active Intents; no historical backfill or
 LLM migration runs. New Need inputs and review completion commit together.
 Apply this migration before deploying the capture maintenance API.
+
+### Need embedding jobs (000110)
+
+`need_embedding_jobs` stores one readiness/retry/lease record per NeedInput and
+embedding generation. Its foreign key follows input deletion. Work is derived
+from `current_need_inputs`, so no input backfill mutation or per-save queue write
+is needed. Vector contents live in versioned Redis entries; the jobs table stores
+no processed private text or vector. Apply this migration before deploying the
+updated Pipeline worker and Sort cache lookup. Model generations can coexist
+during rolling deployment without overwriting each other's state.

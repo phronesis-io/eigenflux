@@ -32,6 +32,7 @@ import (
 	"eigenflux_server/pkg/recall"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
+	"eigenflux_server/rpc/sort/discovery/needembedding"
 
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
@@ -224,6 +225,10 @@ func main() {
 
 	go profileConsumer.Start(ctx)
 	go agentCardConsumer.Start(ctx)
+	if cfg.EnableNeedSearch {
+		needWorker := &consumer.NeedEmbeddingWorker{Cache: needembedding.New(cfg, db.DB, mq.RDB), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		go needWorker.Start(ctx)
+	}
 	go itemConsumer.Start(ctx)
 	go itemStatsConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)

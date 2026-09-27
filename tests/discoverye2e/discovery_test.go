@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	needmodel "eigenflux_server/pkg/need"
 	"eigenflux_server/pkg/replaylog"
 	"eigenflux_server/rpc/sort/discovery"
+	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 
 	"github.com/stretchr/testify/require"
 )
@@ -109,6 +111,44 @@ func TestDiscoveryE2E(t *testing.T) {
 			require.Eventually(t, func() bool { return mq.RDB.SIsMember(ctx, historyKey, member).Val() }, 3*time.Second, 25*time.Millisecond)
 			t.Cleanup(func() { require.NoError(t, mq.RDB.SRem(ctx, historyKey, member).Err()) })
 		}
+	})
+	t.Run("SavedNeedEmbeddingIsPrecomputedAndReused", func(t *testing.T) {
+		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		in := s.need(t, "agent")
+		in.Target.Goal = fmt.Sprintf("landing page design vectorcase%d", s.owner)
+		saved := s.capture(t, in)
+		query := queryprocessing.Process(queryprocessing.NeedText(in.Target.Goal, in.Target.Context), nil, queryprocessing.Options{}).Normalized
+		t.Cleanup(func() { mq.RDB.Del(ctx, s.needVectors.Key(query)) })
+		callCount := func() int32 {
+			v, ok := s.embeddingCalls.Load(query)
+			if !ok {
+				return 0
+			}
+			return v.(*atomic.Int32).Load()
+		}
+		cold := s.search(t, discovery.Request{NeedID: saved.NeedInputID}, "")
+		require.Contains(t, cold.Reasons, "embedding_pending")
+		require.Len(t, cold.Items, 1, "cache miss must retain lexical retrieval")
+		require.Zero(t, callCount(), "online request called the model")
+		workerCtx, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); s.needWorker.Start(workerCtx) }()
+		defer func() {
+			stop()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("Need worker did not stop")
+			}
+		}()
+		require.Eventually(t, func() bool { _, err := s.needVectors.Read(ctx, query); return err == nil }, 15*time.Second, 50*time.Millisecond)
+		for i := 0; i < 3; i++ {
+			warm := s.search(t, discovery.Request{NeedID: saved.NeedInputID}, "")
+			require.NotContains(t, warm.Reasons, "embedding_pending")
+			require.Len(t, warm.Items, 1)
+			require.Contains(t, warm.Items[0].Match["match_types"], "semantic")
+		}
+		require.EqualValues(t, 1, callCount(), "same Need was embedded on every request")
 	})
 	t.Run("CapturedNeedInputOwnershipAndLifecycle", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
@@ -340,7 +380,11 @@ func TestDiscoveryE2E(t *testing.T) {
 						require.Equal(t, kind, result.Items[0].Ref.Type)
 						require.Contains(t, result.Items[0].Match["match_types"], "synonym")
 						if query == "著陸頁" {
-							require.Contains(t, result.Reasons, "embedding_unavailable")
+							warning := "embedding_unavailable"
+							if request.NeedID != 0 {
+								warning = "embedding_pending"
+							}
+							require.Contains(t, result.Reasons, warning)
 						}
 						s.waitSamples(t, result.ImpressionID, 1)
 						var raw string

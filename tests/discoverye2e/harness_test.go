@@ -14,11 +14,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"eigenflux_server/pipeline/consumer"
+	embeddingclient "eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -26,6 +29,7 @@ import (
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/sort/discovery"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"eigenflux_server/rpc/sort/discovery/needembedding"
 
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -35,6 +39,9 @@ import (
 // These tests own the application processes. Infrastructure must be an isolated,
 // migrated test stack with no other Kitex services registered in its etcd.
 type stack struct {
+	embeddingCalls                                         sync.Map
+	needVectors                                            *needembedding.Cache
+	needWorker                                             *consumer.NeedEmbeddingWorker
 	root, logs, url, category, commissionIndex, agentIndex string
 	db                                                     *gorm.DB
 	cfg                                                    *config.Config
@@ -104,6 +111,8 @@ func startStack(t *testing.T) *stack {
 			http.Error(w, "invalid embedding input", http.StatusBadRequest)
 			return
 		}
+		counter, _ := s.embeddingCalls.LoadOrStore(input.Input, &atomic.Int32{})
+		counter.(*atomic.Int32).Add(1)
 		// Exercise dictionary-only search while the existing optional embedding
 		// dependency is unavailable; no generative model participates in this path.
 		if input.Input == "著陸頁" {
@@ -149,6 +158,9 @@ func startStack(t *testing.T) *stack {
 	for k, v := range ports {
 		t.Setenv(k, strconv.Itoa(v))
 	}
+	vectorConfig := config.Load()
+	s.needVectors = needembedding.New(vectorConfig, db.DB, mq.RDB)
+	s.needWorker = &consumer.NeedEmbeddingWorker{Cache: s.needVectors, Embedder: embeddingclient.NewClient(vectorConfig.EmbeddingProvider, vectorConfig.EmbeddingApiKey, vectorConfig.EmbeddingBaseURL, vectorConfig.EmbeddingModel, vectorConfig.EmbeddingDimensions)}
 	s.seed(t)
 	s.startCatalogue(t)
 	for _, name := range []string{"sort", "item", "feed"} {

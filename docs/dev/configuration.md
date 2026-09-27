@@ -110,6 +110,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BASE_URL` | -- | Base URL for embedding endpoint |
 | `EMBEDDING_MODEL` | (per provider) | Embedding model name |
 | `EMBEDDING_DIMENSIONS` | (per model) | Override embedding vector dimensions |
+| `DISCOVERY_EMBEDDING_REVISION` | empty | Need-vector cache revision; bump when weights change behind an unchanged model name/endpoint. Must match between Sort and Pipeline; requires migration 000110 |
 | `EMBEDDING_BACKFILL_BATCH_SIZE` | `200` | Number of profiles processed per embedding backfill run |
 | `EMBEDDING_BACKFILL_INTERVAL` | `5m` | Interval between embedding backfill runs in cron |
 | `EMBEDDING_BACKFILL_WORKERS` | `4` | Concurrent workers used by embedding backfill |

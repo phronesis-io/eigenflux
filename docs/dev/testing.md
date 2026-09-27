@@ -142,3 +142,11 @@ Run `go test ./rpc/sort/... ./rpc/feed/... ./pkg/replaylog ./api/consolev2 ./pip
 Real-store tests require `DISCOVERY_TEST_DSN` (an isolated migrated PostgreSQL database), `DISCOVERY_TEST_ES` (isolated Elasticsearch URL), and `DISCOVERY_TEST_REDIS` (isolated Redis address). Run `go test ./rpc/sort/discovery ./pipeline/consumer -run 'TestPostgres|TestDiscoveryReplayPostgres' -count=1`. These tests use temporary schemas/indices and fixture rows; do not point them at production or run alongside integration suites that reset the same database. Agent projection and ranking hydration use real stores; Commission catalogue/statistics snapshots are fixtures written through the projection store. Validating remote Commission event production remains a cutover check.
 
 CLI checks run in the independent `cli` module: `go test ./cmd ./internal/client ./internal/cache ./internal/feedevent`. Signed release builds still use the existing signing workflow; a local compilation uses `go build -o ../build/eigenflux-cli .`.
+
+For asynchronous Need vectors, migrate the isolated database through 000110 and
+set `DISCOVERY_TEST_REDIS` to its loopback Redis address. Run
+`go test ./tests/needs -run TestNeedEmbedding -count=1` with `PG_DSN` set. Tests
+exercise the real embedding HTTP client, worker, generation-specific job leases
+and Redis cache. `tests/discoverye2e` additionally verifies cold/warm vector use
+through real API/Feed/Sort processes. Unit tests under
+`rpc/sort/discovery/needembedding` verify cache identity and invalid vectors.

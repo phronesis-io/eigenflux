@@ -179,3 +179,13 @@ later heartbeat passes without blocking Feed. Intent changes invalidate the
 previous version's completion automatically. The owner does not fill a second
 form, and the service does not perform online LLM generation. Need-backed results
 are selected before fallback results under the shared total limit.
+
+## Need vector readiness
+
+Need capture must not wait for embedding. Pipeline precomputes vectors for saved
+current Needs and reuses equal processed text within the same model/query version.
+Online stored-Need execution never waits for model generation: it uses a ready
+vector or returns available lexical matches with `embedding_pending`. Once ready,
+new requests can use semantic retrieval and ranking; frozen pages stay unchanged.
+Model or query-processing changes select a new cache generation and automatically
+schedule existing current Needs for precomputation.

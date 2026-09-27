@@ -11,6 +11,12 @@ import (
 
 const MaxExpansions = 8
 
+// Version changes whenever processed embedding input semantics change.
+const Version = "query_rules_v1"
+
+// NeedText is shared by online compilation and asynchronous precomputation.
+func NeedText(goal, context string) string { return strings.TrimSpace(goal + "\n" + context) }
+
 // Analysis is frozen with the context and samples. Query itself retains
 // the caller's wording; expansions never replace it or become hard filters.
 type Analysis struct {
@@ -42,7 +48,7 @@ type Options struct {
 // filters, and emits bounded retrieval evidence. Vocabulary may be nil when no
 // reviewed aliases are configured.
 func Process(query string, v *searchindex.Vocabulary, options Options) *Analysis {
-	p := &Analysis{Version: "query_rules_v1", Normalized: strings.TrimSpace(query), Identity: options.Identity}
+	p := &Analysis{Version: Version, Normalized: strings.TrimSpace(query), Identity: options.Identity}
 	if options.Identity {
 		p.Script = "identity"
 		return p
