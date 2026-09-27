@@ -143,7 +143,7 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "settings_report"}
+	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {

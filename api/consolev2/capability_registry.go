@@ -76,6 +76,8 @@ func capabilitySeeds() []capabilitySeed {
 	seeds := []capabilitySeed{
 		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
 		capability("need.input.get", "eigenflux need input get", "need", "read", "读取需求输入", "Read an owned NeedInput"),
+		capability("need.capture.pending", "eigenflux need capture pending", "need", "read", "读取待整理意图", "Read pending Intent capture work"),
+		capability("need.capture.complete", "eigenflux need capture complete", "need", "write", "完成意图需求整理", "Complete a confirmed Intent capture review"),
 		capability("need.input.list", "eigenflux need input list", "need", "read", "列出需求输入", "List owned NeedInputs"),
 		capability("discovery.search", "eigenflux search", "discovery", "read", "Search all source kinds", "Search all source kinds"),
 		capability("discovery.recommend", "eigenflux recommend", "discovery", "read", "Find an automatic discovery result", "Find an automatic discovery result"),
@@ -177,6 +179,9 @@ func capabilitySeeds() []capabilitySeed {
 			if seed.access == "write" {
 				seed.confirmation = "linked_confirmed_intent"
 			}
+		}
+		if strings.HasPrefix(seed.id, "need.capture.") {
+			seed.minCLI = "0.0.56"
 		}
 		if strings.HasPrefix(seed.id, "discovery.") {
 			seed.minCLI = "0.0.55"

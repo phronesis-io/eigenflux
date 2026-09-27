@@ -85,6 +85,31 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "full", feed["personalization"].(map[string]any)["context_delivery"])
 		require.Equal(t, map[string]any{"intent_actions": []any{}}, feed["control_context_snapshot"])
 	})
+	t.Run("PartialNeedCoverageFallsBackOnlyForMissingKinds", func(t *testing.T) {
+		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		var original string
+		require.NoError(t, s.db.Raw("SELECT compiled_context::text FROM agent_context_revisions WHERE agent_id=? AND revision=1", s.owner).Scan(&original).Error)
+		defer s.sql(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=? AND revision=1", original, s.owner)
+		s.sql(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[{"watch_for":"landing page design","trigger_when":"design request"}]}'::jsonb WHERE agent_id=? AND revision=1`, s.owner)
+		in := s.need(t, "broadcast")
+		in.Constraints.Lang = []string{"zh"}
+		s.capture(t, in)
+		out := s.recommend(t, discovery.Request{Limit: 20}, "")
+		require.Equal(t, "missing_kind_needs", out.FallbackReason)
+		kinds := map[discovery.Kind]bool{}
+		for _, item := range out.Items {
+			kinds[item.Ref.Type] = true
+			require.NotEqual(t, discovery.Broadcast, item.Ref.Type)
+		}
+		require.True(t, kinds[discovery.Agent])
+		require.True(t, kinds[discovery.Commission])
+		historyKey := fmt.Sprintf("impr:discovery:agent:%d:items", s.owner)
+		for _, item := range out.Items {
+			member := item.Ref.Key()
+			require.Eventually(t, func() bool { return mq.RDB.SIsMember(ctx, historyKey, member).Val() }, 3*time.Second, 25*time.Millisecond)
+			t.Cleanup(func() { require.NoError(t, mq.RDB.SRem(ctx, historyKey, member).Err()) })
+		}
+	})
 	t.Run("CapturedNeedInputOwnershipAndLifecycle", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "broadcast")

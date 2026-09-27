@@ -66,15 +66,15 @@ func TestNeedCaptureIsTheOnlyNeedLifecycle(t *testing.T) {
 	if len(needs) != 1 {
 		t.Fatalf("need roots: %d", len(needs))
 	}
-	if children := needs[0].Commands(); len(children) != 1 || children[0].Name() != "input" {
+	if children := needs[0].Commands(); len(children) != 2 || children[0].Name() != "capture" || children[1].Name() != "input" {
 		t.Fatal("parallel discovery Need lifecycle still registered")
 	}
-	for _, path := range [][]string{{"input", "create"}, {"input", "get"}, {"input", "list"}} {
+	for _, path := range [][]string{{"input", "create"}, {"input", "get"}, {"input", "list"}, {"capture", "pending"}, {"capture", "complete"}} {
 		command, rest, err := needs[0].Find(path)
 		if err != nil || len(rest) != 0 || command.Name() != path[len(path)-1] || command.RunE == nil {
 			t.Fatalf("need %v is unreachable: %v, %v", path, rest, err)
 		}
-		if len(path) == 2 && command.Parent().Name() != "input" {
+		if len(path) == 2 && command.Parent().Name() != path[0] {
 			t.Fatalf("wrong capture command: %v", path)
 		}
 	}

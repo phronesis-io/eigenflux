@@ -141,3 +141,12 @@ Retain `normalized_needs` and `current_normalized_needs` until historical consum
 have migrated. Migration rollback refuses to discard v2 or active inputs. See the
 [capture design](../design/need-capture/design.md) and
 [v2 schema](../../contracts/need_input.v2.schema.json).
+
+### Intent capture reviews (000109)
+
+`need_capture_reviews` stores completion by `(agent_id, intent_id, intent_version)`
+with `captured`/`no_need`, a bounded application-validated reason, canonical request
+hash and completion time. The composite foreign key follows Intent deletion.
+Pending work is derived from current active Intents; no historical backfill or
+LLM migration runs. New Need inputs and review completion commit together.
+Apply this migration before deploying the capture maintenance API.

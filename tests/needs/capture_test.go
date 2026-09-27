@@ -406,6 +406,23 @@ func TestNeedInputCLI(t *testing.T) {
 	if len(run("need", "input", "list")["need_inputs"].([]any)) != 1 {
 		t.Fatal("CLI list mismatch")
 	}
+	pending := run("need", "capture", "pending", "--limit", "2")["intents"].([]any)
+	if len(pending) != 1 {
+		t.Fatal(pending)
+	}
+	// Reuse the existing commission and add a missing Agent input through the
+	// same commands the maintenance Skill executes.
+	reviewPath := filepath.Join(t.TempDir(), "review.json")
+	write(reviewPath, map[string]any{"intent_id": fmt.Sprint(h.intent), "intent_version": 1, "outcome": "captured", "inputs": []json.RawMessage{reviewInput(h.intent, 1, "agent")}})
+	if run("need", "capture", "complete", "--file", reviewPath)["completed"] != true {
+		t.Fatal("review failed")
+	}
+	if run("need", "capture", "complete", "--file", reviewPath)["replayed"] != true {
+		t.Fatal("review retry duplicated")
+	}
+	if len(run("need", "capture", "pending")["intents"].([]any)) != 0 {
+		t.Fatal("completed work remains pending")
+	}
 }
 
 func TestNormalizedNeedIntegrityAndEligibility(t *testing.T) {

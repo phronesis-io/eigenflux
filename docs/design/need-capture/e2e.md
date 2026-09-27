@@ -5,7 +5,7 @@ limits, code validation and source preservation. Run all CLI module tests in
 `cli/` to check byte-preserving request forwarding and retry headers.
 
 Run `./tests/run.sh --skip-start needs` with loopback `PG_DSN` pointing to a database
-migrated through 000106. Set `EIGENFLUX_TEST_CLI` to the native CLI binary built from
+migrated through 000109. Set `EIGENFLUX_TEST_CLI` to the native CLI binary built from
 this checkout. Set `NEED_TEST_API_URL` to the isolated gateway to test actual routing;
 otherwise the suite starts a real HTTP listener using the production handlers.
 
@@ -21,6 +21,11 @@ Coverage includes:
 - Legacy normalized inputs readable without a projection; inactive statuses stay inactive.
 - Historical projection FK, revision uniqueness and account/Intent deletion cascades.
 - The v2 contract example through real CLI create/retry/get/list.
+- Pending capture discovery, existing-type reuse, atomic multi-input completion,
+  concurrent identical retry, changed completion conflict, `no_need`, source
+  revision/status changes and failed-write rollback.
+- Real CLI pending/complete/retry against production HTTP handlers.
+- Bounded automatic Need selection retains all available requested types.
 
 Migration verification must cover 105→106, safe empty downgrade/reapply, preserved
 historical rows, and refusal to downgrade when new captures exist. Broad e2e tests

@@ -169,10 +169,20 @@ the same cursor returns the same page without another exposure record.
 Recommendations have no continuation cursor; `limit` is a ceiling, not a quota.
 Insufficient eligible candidates return fewer results without relaxing constraints.
 
-No active in-scope Need falls back to frozen current Agent context, then a marked
-hot/new broadcast baseline if context is empty. Agent/commission-only scope with
-empty context returns `insufficient_context`. An active constrained Need with no
-match is never broadened. Other empty statuses are `no_match`, `below_threshold`,
+Automatic fallback is decided independently for each requested kind. At most
+five captured contexts plus five owner-context clauses are compiled; retrieval
+retains its six-channel concurrency bound. Execute
+selected Needs for covered kinds; only missing kinds use frozen current Agent
+context. If context is empty, only a missing broadcast kind receives the hot/new
+baseline. Missing Agent/commission kinds contribute no candidates. If there are
+no contexts at all, return `insufficient_context`. An active constrained or
+unresolved Need never enables fallback for its own kind. Explicit `need_ids`
+execute only the selected Needs without supplemental fallback. Captured Need
+candidates enter the total result limit before fallback candidates; presentation
+still groups the selected page by kind. Partial coverage reports
+`missing_kind_needs` when using Agent context, and empty context reports
+`empty_agent_context`. No-Need context fallback retains `no_active_needs`.
+Other empty statuses are `no_match`, `below_threshold`,
 and `exhausted`. These are successful HTTP 200 / `code=0` responses, not
 transport errors. An empty kind contributes no candidates to merge; remaining
 kinds still return normally. All three kinds may be empty (`items: []`,
@@ -379,7 +389,9 @@ saving an input. It creates only an execution snapshot.
 `current_need_inputs` in one MVCC statement. Foreign/missing IDs return 404;
 inactive or stale Intent-linked inputs return 409. Explicit expired deadlines
 return 409 and automatic selection excludes them. Select at most five matching
-inputs by priority, creation time and ID. Database failures do not trigger fallback.
+inputs, first representing each available requested kind, then filling the bound
+by within-kind position, priority, creation time and ID. Within each kind, order
+by descending priority, descending creation time, then ascending ID. Database failures do not trigger fallback.
 
 Compilation maps goal/context and explicit constraints, then passes the query
 through the shared query processor before retrieval preparation. Standard
@@ -457,3 +469,34 @@ targets require a separately agreed corpus/concurrency test; unit/integration
 results are not production latency evidence. In particular, Agent-context fallback
 can make up to five embedding requests; validate its cold/warm latency before
 cutover and add versioned memoization if the agreed budget requires it.
+
+### Intent capture maintenance
+
+Completed Agents run a bounded maintenance pass after normal heartbeat business
+stages and after a confirmed Intent add/update. `need capture pending --limit 2`
+reads current active Intent versions without a row in `need_capture_reviews`;
+this includes historical Intents and partially captured versions. It returns
+existing Need IDs/types so the Agent reuses them. `need capture complete --file`
+submits up to one missing input per type with the exact Intent version. The
+server persists all new inputs and the completed review in one transaction.
+Identical retries replay; competing different reviews conflict without duplicating
+inputs. A technical failure leaves the version pending. `no_need` requires a
+reason and no existing/new inputs, and avoids repeated work for that version.
+Intent edits become pending automatically; inactive Intents are excluded.
+
+The user-side Agent performs interpretation according to
+[the maintenance Skill](../../skills/ef-broadcast/references/needs.md#automatic-maintenance).
+The server does not generate inputs or infer needs from Card interests. No form
+is exposed in search/recommendation CLI parameters. Review status is shared across
+Homes; heartbeat scheduling stays with the host and stage routing stays in CLI.
+A baseline Feed does not skip maintenance when the current heartbeat plan
+confirms completed onboarding and includes `need_capture`; incomplete onboarding
+remains read-only. At most two versions are reviewed per cycle; the Skill stops starting reviews
+past 60 seconds and continues other safe stages after a recoverable error.
+
+Apply migration 000109 before deploying these API routes. Publish CLI 0.0.56
+before the updated Skills bundle; its minimum CLI version is 0.0.56. Existing
+clients retain their compatible bundle. Serving continues through per-kind
+fallback while active Agents gradually finish capture. Dormant Agents do not
+produce new inputs until they run again. This change does not switch missing-Need
+broadcast traffic back to the legacy ranker.

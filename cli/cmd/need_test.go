@@ -36,3 +36,30 @@ func TestNeedFilePreservesRawInputAndBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestNeedCaptureValidationBeforeNetwork(t *testing.T) {
+	for _, args := range [][]string{{"capture", "pending", "--limit", "0"}, {"capture", "pending", "--limit", "11"}, {"capture", "complete", "--file", "missing"}} {
+		c := newNeedCommand()
+		c.SetArgs(args)
+		if err := c.Execute(); err == nil {
+			t.Fatal(args)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "review.json")
+	raw := `{"inputs":[],"reason":"` + strings.Repeat("x", 40000) + `"}`
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNeedJSONFile(path, 100<<10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNeedFile(path); err == nil {
+		t.Fatal("input size limit loosened")
+	}
+	if err := os.WriteFile(path, []byte(strings.Repeat(" ", (100<<10)+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNeedJSONFile(path, 100<<10); err == nil {
+		t.Fatal("review size limit ignored")
+	}
+}

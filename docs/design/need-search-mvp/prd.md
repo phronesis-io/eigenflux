@@ -53,8 +53,8 @@ The new engine becomes the implementation behind existing recommendation/search 
 
 The basic fallback contract is:
 
-- If eligible active Needs exist, execute them with all their constraints. No match means no match; do not broaden to an unrelated profile or hot feed.
-- If no active Need exists in the route's requested kinds, use bounded current Agent intent/context fields, then owner Card demand/seeking/focus or interests. Treat this as an ephemeral Agent-context search, never an invented user-approved Need.
+- Decide coverage separately for each requested kind. Execute eligible active Needs with all constraints for covered kinds. No match means no match for that kind; never broaden its constraints.
+- For requested kinds without an active Need, use bounded current Agent intent/context fields, then owner Card demand/seeking/focus or interests. Treat this as an ephemeral Agent-context search, never an invented user-approved Need.
 - If Agent context is empty, use a bounded baseline from existing fresh/hot broadcast lists; for a service/people-only route, return `insufficient_context` instead of inventing a preference.
 - If an optional semantic/recall channel is unavailable, continue with available channels under the same hard constraints and report partial execution. Permission checks, authoritative state reads, and explicit filters never fail open.
 
@@ -64,7 +64,7 @@ These are concrete implementation defaults for the owner's “basic fallback” 
 
 ### 3.1 Daily automatic search
 
-The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five eligible captured Needs, or uses the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers up to the requested limit of eligible results. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
+The existing host poll calls its usual recommendation/feed entry. The server derives identity from auth, selects up to five eligible captured Needs with coverage of available kinds, and supplements missing kinds with the defined Agent-context/baseline fallback. It retrieves all enabled kinds relevant to that request, applies rules and existing policies, and delivers up to the requested limit of eligible results. No new resident process or scheduling service is introduced. Private owner context may be read to serve that owner; it is not exposed to recommended providers or public Agent search.
 
 ### 3.2 Query search
 
@@ -167,3 +167,15 @@ Implementations can be validated in slices, but the confirmed MVP launch scope i
 ## 9. Decision status
 
 Owner answers D01–D14 are incorporated in [questions.md](questions.md), preserving the original answers. D01 was clarified to include people. The remaining items are implementation/launch dependencies—reviewed examples and final parameters, taxonomy artifact/owner, public provider evidence and Agent indexing readiness, external sample-reader compatibility, and workload measurements—not a request to repeat the product questionnaire.
+
+## Cold-start capture
+
+Every completed-onboarding heartbeat and confirmed Intent add/update runs a
+bounded Agent-side capture pass. Existing current-version inputs are reused;
+missing types are captured only when supported by the confirmed Intent. A
+versioned completion record also supports `no_need`, with an explanation, so an
+Intent without a discovery target does not loop forever. Failures retry through
+later heartbeat passes without blocking Feed. Intent changes invalidate the
+previous version's completion automatically. The owner does not fill a second
+form, and the service does not perform online LLM generation. Need-backed results
+are selected before fallback results under the shared total limit.

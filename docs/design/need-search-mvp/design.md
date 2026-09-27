@@ -109,16 +109,18 @@ For `need_id` or inline `need`, use the structured Need's target/constraints; re
 
 ### 2.3 Automatic search and fallback
 
-Automatic mode defaults to all kinds on the unified API. Existing typed routes constrain kinds before selecting contexts. Select at most five eligible nonexpired NeedInputs, ordered by optional priority (default 0), input creation time descending, then input ID ascending. Explicit `need_ids` must be owned, active, in scope, and bounded; invalid IDs are errors. Return at most the requested limit across the selected contexts/kinds (default 20, maximum 100); fewer eligible candidates remain a smaller response.
+Automatic mode defaults to all kinds on the unified API. Existing typed routes constrain kinds before selecting contexts. Select at most five eligible nonexpired NeedInputs, first covering available requested kinds, then filling remaining slots by within-kind position. Within each kind, order by optional priority (default 0), input creation time descending, then input ID ascending. Explicit `need_ids` must be owned, active, in scope, and bounded; invalid IDs are errors. Return at most the requested limit across the selected contexts/kinds (default 20, maximum 100); fewer eligible candidates remain a smaller response.
 
 | Situation | Execution | Observable result |
 |---|---|---|
-| In-scope active Needs exist | Execute those Needs and all explicit filters | `input_origin=need_input`; no profile/baseline broadening on no-match |
-| No in-scope active Needs | Use current frozen Agent intent/context and Card query adapter | `input_origin=agent_context`, `fallback_reason=no_active_needs` |
+| A requested kind has active Needs | Execute those Needs and all explicit filters for that kind | `input_origin=need_input`; no profile/baseline broadening on no-match |
+| A requested kind has no active Needs | Use current frozen Agent intent/context and Card query adapter for missing kinds only | `input_origin=agent_context`; `no_active_needs` for no coverage, `missing_kind_needs` for partial coverage |
 | Context has no usable demand/interest text | If broadcast allowed, take a bounded existing new/hot pool | `input_origin=baseline`, `fallback_reason=empty_agent_context` |
 | Empty context, only commission/agent requested | No invented preference or unrelated type | Empty `insufficient_context` |
 | Optional semantic/recall channel unavailable | Other channels under identical hard filters | `partial=true` and failed-channel reason |
 | Required owner/authority data unreadable, all useful retrieval channels fail | Error | Nonzero code, never a false no-match or generic fallback |
+
+Explicit `need_ids` execute only selected Needs. Captured Need candidates enter the total result limit before fallback candidates; the selected page is then grouped by kind. Empty or unresolved results never enable fallback for a covered kind.
 
 For Agent context, read canonical current owner sources rather than deprecated `agent_profiles` query fields. When a current frozen context revision exposes `intent_actions`, use bounded `watch_for`/`trigger_when` search clauses and preserve the referenced intent ID; never execute `then` as an instruction. Otherwise use existing Card `demands`, `seeking`, and `current_focus`; use `interests_positive` only if no demand/focus clauses exist. Up to five clauses share the request budget. Keep each clause separate rather than concatenate a whole bio/goal/Card. Use stable source ordering; no model infers missing priority or creates saved Needs. Only the current owner can access their private context.
 
@@ -436,3 +438,21 @@ Expected changes: context/Need/taxonomy packages and DAL; additive IDL methods/t
 Follow `skills/AGENTS.md` before editing Skills. Agent behavior stays in dynamically synchronized Skills, shared auth/account/event state in CLI, and host scheduling/process/context collection in adapters. Console and CLI remain independent modules.
 
 Unresolved implementation dependencies, not repeated product questions: approved initial taxonomy asset/owner; reviewed relevance examples and accepted per-kind/mode configurations; authoritative public provider fields/commission projection integration; public Agent projection and batched relation readiness; external sample-reader compatibility; measured workload sizes. Record outcomes in the decision document before implementation reaches those gates. Offline pipelines and model training/serving remain outside this task.
+
+## Intent capture maintenance
+
+`pkg/need/review.go` owns pending/completion contracts. Migration 000109 adds one
+completion row per owner, Intent and version. Pending work is derived from active
+Intent rows, so existing accounts need no enqueue migration. The pending response
+includes source fields and current input references. CLI exposes
+`need capture pending` and `need capture complete`; Skill instructions own the
+interpretation and bounded scheduling inside the existing heartbeat.
+
+Completion accepts at most three v2 inputs, one per missing kind, or a `no_need`
+explanation with no inputs. It locks in the same owner/Intent order as direct
+capture, checks current version/status, preserves existing inputs, and commits
+new inputs plus the review together. The version key and canonical request hash
+make identical retries idempotent and conflicting concurrent reviews explicit.
+Partial writes roll back. A new Intent version becomes pending; inactive Intents
+are not listed. The mechanism neither changes Intent policies nor creates
+NormalizedNeed records. See [API contracts](../../dev/api_endpoints.md#intent-capture-maintenance).

@@ -102,10 +102,17 @@ func (s Store) Current(ctx context.Context, owner, inputID int64) (Snapshot, err
 // Only source lifecycle and deadline gate selection; candidate evidence is separate.
 func (s Store) Active(ctx context.Context, owner int64, kinds []string, now int64) ([]Snapshot, error) {
 	var rows []snapshotRow
-	err := s.DB.WithContext(ctx).Table("current_need_inputs i").Select(snapshotColumns).
-		Where("i.agent_id = ? AND i.input->>'need_type' IN ?", owner, kinds).
-		Where("i.input->'constraints'->>'deadline_ms' IS NULL OR (i.input->'constraints'->>'deadline_ms')::bigint > ?", now).
-		Order("COALESCE((i.input->>'priority')::double precision, 0) DESC, i.created_at DESC, i.need_input_id ASC").Limit(5).Scan(&rows).Error
+	// Represent each available kind before filling the remaining bounded slots.
+	// Otherwise five high-priority Needs of one kind could hide another kind and
+	// incorrectly enable unconstrained fallback for it.
+	err := s.DB.WithContext(ctx).Raw(`SELECT need_input_id AS input_id, intent_id, intent_version, input
+ FROM (SELECT i.*, row_number() OVER (
+ PARTITION BY input->>'need_type'
+ ORDER BY COALESCE((input->>'priority')::double precision,0) DESC, created_at DESC, need_input_id ASC) AS kind_position
+ FROM current_need_inputs i WHERE agent_id=? AND input->>'need_type' IN ?
+ AND (input->'constraints'->>'deadline_ms' IS NULL OR (input->'constraints'->>'deadline_ms')::bigint > ?)) ranked
+ ORDER BY kind_position, COALESCE((input->>'priority')::double precision,0) DESC, created_at DESC, need_input_id ASC
+ LIMIT 5`, owner, kinds, now).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}

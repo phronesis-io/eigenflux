@@ -93,3 +93,10 @@ asynchronous content processing, index refresh scheduling, semantic quality,
 the remote commission deployment, model training or production load targets.
 The replay consumer is real but runs in the test process instead of launching the
 entire asynchronous pipeline.
+
+The cold-start regression verifies that a constrained broadcast Need cannot
+broaden its own route while Agent and commission routes use owner-context
+fallback. It waits for asynchronous history writes and removes only its own
+typed exposure entries before later deduplication cases. Capture maintenance
+HTTP/CLI, concurrent retries and transaction rollback are exercised in
+`tests/needs` against PostgreSQL migrated through 000109.

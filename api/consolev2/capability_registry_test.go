@@ -176,3 +176,21 @@ func TestNeedInputCapabilityUsesLinkedIntentAuthority(t *testing.T) {
 	}
 	t.Fatal("missing NeedInput create capability")
 }
+
+func TestNeedCaptureReviewCapabilities(t *testing.T) {
+	found := 0
+	for _, operation := range buildAgentCapabilityRegistry("en", true, true)["operations"].([]capabilityOperation) {
+		if operation.OperationID == "need.capture.pending" || operation.OperationID == "need.capture.complete" {
+			found++
+			if operation.MinCLIVersion != "0.0.56" {
+				t.Fatal(operation)
+			}
+			if operation.OperationID == "need.capture.complete" && operation.Confirmation != "linked_confirmed_intent" {
+				t.Fatal(operation)
+			}
+		}
+	}
+	if found != 2 {
+		t.Fatal("capture review capabilities missing")
+	}
+}

@@ -27,12 +27,12 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "settings_report"},
+		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → settings_report",
+		"commands → feed → attention → communication → publish → need_capture → settings_report",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
@@ -95,7 +95,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if err := json.Unmarshal([]byte(text), &plan); err != nil {
 				t.Fatalf("invalid JSON %q: %v", text, err)
 			}
-			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "settings_report"}
+			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
 			if baseline {
 				wantStages = []string{"feed"}
 			}

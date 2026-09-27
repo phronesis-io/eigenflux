@@ -155,6 +155,9 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 	in = append([]Candidate(nil), in...)
 	sort.SliceStable(in, func(i, j int) bool {
 		a, b := in[i], in[j]
+		if mode == Recommendation && (a.Context.CapturedNeed != nil) != (b.Context.CapturedNeed != nil) {
+			return a.Context.CapturedNeed != nil
+		}
 		if a.Context.Priority != b.Context.Priority {
 			return a.Context.Priority > b.Context.Priority
 		}

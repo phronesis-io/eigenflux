@@ -200,7 +200,7 @@ func TestEngineBaselineAndNoBroadening(t *testing.T) {
 	editCaptured(t, &n, func(in *need.Input) { in.Constraints.Lang = []string{"zh"} })
 	store.active = []need.Snapshot{n}
 	store.needs[4] = n
-	x, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
+	x, err = e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 100)
 	if err != nil || len(x.Candidates) != 0 || x.FallbackReason != "" {
 		t.Fatal("constrained no-match broadened", x, err)
 	}
@@ -360,7 +360,7 @@ func TestOpenRequirementsAllowSearchAndRecommendation(t *testing.T) {
 				})
 				store.needs[7], store.active = snapshot, []need.Snapshot{snapshot}
 				source.docs = []Document{baseDoc(kind)}
-				r := Request{}
+				r := Request{SourceKinds: []Kind{kind}}
 				if mode == Search {
 					r.NeedID = 7
 				}
@@ -396,7 +396,7 @@ func TestUnresolvedNeedConstraintsDoNotBlockOtherNeeds(t *testing.T) {
 	source.fail = false
 
 	store.active = []need.Snapshot{blocked}
-	x, err = e.Execute(context.Background(), 1, Request{}, Recommendation, 100)
+	x, err = e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Commission}}, Recommendation, 100)
 	if err != nil || x.Status != "no_match" || len(x.Candidates) != 0 || x.FallbackReason != "" {
 		t.Fatal(x, err)
 	}

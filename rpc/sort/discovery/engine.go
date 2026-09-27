@@ -64,6 +64,7 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 		}
 		return []Context{c}, "", nil
 	}
+	var captured []Context
 	if mode == Recommendation {
 		if len(r.NeedIDs) > 0 {
 			out := []Context{}
@@ -97,17 +98,27 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 		if err != nil {
 			return nil, "", err
 		}
-		if len(active) > 0 {
-			out := make([]Context, 0, len(active))
-			for _, snapshot := range active {
-				c, err := e.needContext(ctx, owner, now, snapshot)
-				if err != nil {
-					return nil, "", err
-				}
-				out = append(out, c)
+		covered := map[Kind]bool{}
+		for _, snapshot := range active {
+			c, err := e.needContext(ctx, owner, now, snapshot)
+			if err != nil {
+				return nil, "", err
 			}
-			return out, "", nil
+			captured = append(captured, c)
+			for _, kind := range c.Kinds {
+				covered[kind] = true
+			}
 		}
+		missing := []Kind{}
+		for _, kind := range r.SourceKinds {
+			if !covered[kind] {
+				missing = append(missing, kind)
+			}
+		}
+		if len(missing) == 0 {
+			return captured, "", nil
+		}
+		r.SourceKinds = missing
 	}
 	if mode == Search {
 		id, err := e.IDs.NextID()
@@ -144,9 +155,12 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 	}
 	clauses := info.Clauses
 	origin, reason := "agent_context", "no_active_needs"
+	if len(captured) > 0 {
+		reason = "missing_kind_needs"
+	}
 	if len(clauses) == 0 {
 		if !hasKind(r.SourceKinds, Broadcast) {
-			return nil, "empty_agent_context", nil
+			return captured, "empty_agent_context", nil
 		}
 		clauses = []string{""}
 		origin = "baseline"
@@ -156,7 +170,7 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 	if len(clauses) > 5 {
 		clauses = clauses[:5]
 	}
-	out := []Context{}
+	out := captured
 	for _, query := range clauses {
 		id, err := e.IDs.NextID()
 		if err != nil {
