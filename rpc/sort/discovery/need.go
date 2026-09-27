@@ -26,39 +26,41 @@ func needError(err error) error {
 }
 
 func (cc *Compiler) Need(ctx context.Context, owner, id, now int64, snapshot need.Snapshot) (Context, error) {
-	in, err := snapshot.ExecutionInput()
+	plan, err := cc.compiled(ctx, owner, now, snapshot, func() (CompiledContext, error) {
+		in, err := snapshot.ExecutionInput()
+		if err != nil {
+			return CompiledContext{}, Invalid("need", err.Error())
+		}
+		constraints, resolved := need.ExecutionConstraints(in.Constraints)
+		f := Filters{BudgetMaxFen: constraints.BudgetMaxFen, Currency: constraints.Currency,
+			MaxDurationMS: constraints.MaxDurationMS, DeadlineMS: constraints.DeadlineMS,
+			ProviderRegion: constraints.ProviderRegion, Lang: constraints.Lang, ExcludeTerms: constraints.ExcludeTerms}
+		origin := "need_input"
+		if snapshot.InputID == 0 {
+			origin = "inline_need"
+		}
+		p := compileBase(owner, origin, queryprocessing.NeedText(in.Target.Goal, in.Target.Context), []Kind{Kind(in.NeedType)}, f, false)
+		p.CompilerVersion = needCompilerVersion
+		p.CapturedNeed = &snapshot
+		if in.Priority != nil {
+			p.Priority = *in.Priority
+		}
+		for name := range p.Origins {
+			if name != "exclude_authors" {
+				p.Origins[name] = "need_input"
+			}
+		}
+		if !resolved {
+			p.UnverifiedNeedReason = "unresolved_need_constraints"
+		}
+		return p, nil
+	})
 	if err != nil {
-		return Context{}, Invalid("need", err.Error())
+		return Context{}, err
 	}
-	if in.Constraints.DeadlineMS != nil && *in.Constraints.DeadlineMS <= now {
-		return Context{}, Failure(409, "expired_need")
-	}
-	constraints, resolved := need.ExecutionConstraints(in.Constraints)
-	f := Filters{BudgetMaxFen: constraints.BudgetMaxFen, Currency: constraints.Currency,
-		MaxDurationMS: constraints.MaxDurationMS, DeadlineMS: constraints.DeadlineMS,
-		ProviderRegion: constraints.ProviderRegion, Lang: constraints.Lang, ExcludeTerms: constraints.ExcludeTerms}
-	origin := "need_input"
-	if snapshot.InputID == 0 {
-		origin = "inline_need"
-	}
-	text := queryprocessing.NeedText(in.Target.Goal, in.Target.Context)
-	c, err := cc.compileBase(owner, id, now, origin, text, []Kind{Kind(in.NeedType)}, f, false)
+	c, err := plan.execution(owner, id, now, cc.EmbeddingVersion)
 	if err != nil {
 		return c, err
-	}
-	c.CompilerVersion = "need_input_context_v4"
-	c.CapturedNeed = &snapshot
-	c.SourceNeedID, c.SourceNeedRevision = snapshot.InputID, snapshot.IntentVersion
-	if in.Priority != nil {
-		c.Priority = *in.Priority
-	}
-	for name := range c.Origins {
-		if name != "exclude_authors" {
-			c.Origins[name] = "need_input"
-		}
-	}
-	if !resolved {
-		c.UnverifiedNeedReason = "unresolved_need_constraints"
 	}
 	if c.UnverifiedNeedReason != "" {
 		c.Warnings = append(c.Warnings, c.UnverifiedNeedReason)

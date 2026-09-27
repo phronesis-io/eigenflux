@@ -32,6 +32,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
 )
 
@@ -507,6 +508,19 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email-verified onboarding confirmation status=%d payload=%#v", status, boundConfirmPayload)
 	}
 
+	inputCache := &cache.DiscoveryCache{Redis: svc.redisClient}
+	cacheLoads := 0
+	readInput := func() {
+		var out int
+		err := inputCache.Load(context.Background(), agentIDInt, "owner", "onboarding-test", time.Now().UnixMilli(), cache.DiscoveryInputTTL, &out, func(context.Context) (any, int64, error) {
+			cacheLoads++
+			return cacheLoads, 0, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	readInput()
 	revision := int64(3)
 	for step := int16(3); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
@@ -514,6 +528,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 		if status != 200 {
 			t.Fatalf("confirm step %d status=%d payload=%#v", step, status, payload)
+		}
+		before := cacheLoads
+		readInput()
+		if cacheLoads != before+1 {
+			t.Fatal("onboarding confirmation left an old discovery input cached")
 		}
 		revision++
 	}

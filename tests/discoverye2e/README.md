@@ -108,3 +108,10 @@ online requests then include semantic recall while the fixture observes exactly
 one model call for that processed text. Infrastructure must be migrated through
 000110. Retry, lease recovery, cache eviction and model-generation isolation also
 run in `tests/needs` with isolated job schemas and real Redis/PostgreSQL.
+
+Context cache coverage exercises warm empty-input caches followed by real HTTP
+Need creation, batch capture and Intent mutation, plus an actual Card rebuild.
+It checks independent execution IDs, deadline/constraint behavior, cache-free
+sample replay and zero new `discovery_contexts` rows. Direct SQL fixture changes
+explicitly invoke the post-commit invalidation helper; writer-hook assertions use
+production write paths.

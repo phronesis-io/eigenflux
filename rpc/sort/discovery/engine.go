@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-type ContextStore interface {
-	Create(context.Context, Context) (Context, error)
-}
 type IDGenerator interface{ NextID() (int64, error) }
 type OwnerContext struct {
 	Revision  string
@@ -31,7 +28,6 @@ type Sources interface {
 type Engine struct {
 	Compiler *Compiler
 	Needs    NeedReader
-	Store    ContextStore
 	IDs      IDGenerator
 	Sources  Sources
 	Rules    Rules
@@ -177,11 +173,11 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 			return nil, "", err
 		}
 		r.Query = query
+		r.SourceRevision = info.Revision
 		c, err := e.Compiler.Query(ctx, owner, id, now, r, origin)
 		if err != nil {
 			return nil, "", err
 		}
-		c.SourceRevision = info.Revision
 		out = append(out, c)
 	}
 	return out, reason, nil
@@ -268,12 +264,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			c.Origins = origins
 			c.SpecHash = hashContext(c)
 			contexts[i] = c
-		}
-	}
-	for i, c := range contexts {
-		contexts[i], err = e.Store.Create(ctx, c)
-		if err != nil {
-			return x, err
 		}
 	}
 	x.Contexts = contexts

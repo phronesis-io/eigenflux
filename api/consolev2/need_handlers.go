@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/need"
 )
@@ -66,6 +67,7 @@ func (s *Service) createNeedInput(ctx context.Context, c *app.RequestContext) {
 		needFailure(ctx, c, err)
 		return
 	}
+	cache.InvalidateDiscovery(ctx, s.redisClient, owner)
 	status := http.StatusCreated
 	if replayed {
 		status = http.StatusOK
@@ -147,5 +149,6 @@ func (s *Service) completeNeedCapture(ctx context.Context, c *app.RequestContext
 		needFailure(ctx, c, err)
 		return
 	}
+	cache.InvalidateDiscovery(ctx, s.redisClient, owner)
 	needReply(c, 200, map[string]any{"completed": true, "replayed": replayed})
 }

@@ -20,6 +20,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/mq"
@@ -34,6 +35,15 @@ import (
 func (s *stack) sql(t *testing.T, q string, args ...any) {
 	t.Helper()
 	require.NoError(t, s.db.Exec(q, args...).Error)
+}
+
+// changeInputs models post-commit invalidation for fixture-only direct SQL.
+// Tests of write hooks use the real HTTP endpoints instead of this helper.
+func (s *stack) changeInputs(t *testing.T, q string, args ...any) {
+	s.sql(t, q, args...)
+	for _, owner := range []int64{s.owner, s.other, s.author} {
+		cache.InvalidateDiscovery(context.Background(), mq.RDB, owner)
+	}
 }
 
 func (s *stack) seed(t *testing.T) {
@@ -56,6 +66,13 @@ func (s *stack) seed(t *testing.T) {
 		require.NoError(t, err)
 		_ = resp.Body.Close()
 		require.False(t, resp.IsError())
+		for _, owner := range owners {
+			keys, err := mq.RDB.Keys(context.Background(), fmt.Sprintf("cache:discovery:v1:{%d}:*", owner)).Result()
+			require.NoError(t, err)
+			if len(keys) > 0 {
+				require.NoError(t, mq.RDB.Del(context.Background(), keys...).Err())
+			}
+		}
 		for _, id := range append(append([]int64{}, owners...), s.item) {
 			keys, err := mq.RDB.Keys(context.Background(), fmt.Sprintf("*:%d:*", id)).Result()
 			require.NoError(t, err)

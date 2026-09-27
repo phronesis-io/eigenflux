@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/need"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
 	"eigenflux_server/rpc/sort/discovery/queryprocessing"
@@ -14,7 +15,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"eigenflux_server/pkg/validator"
 )
@@ -26,6 +26,7 @@ type NeedVectorLookup interface {
 	Lookup(context.Context, int64, string, string) ([]float32, error)
 }
 type Compiler struct {
+	Cache            *cache.DiscoveryCache
 	NeedVectors      NeedVectorLookup
 	Embedder         Embedder
 	EmbeddingVersion string
@@ -180,13 +181,7 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 	}
 	return r, nil
 }
-func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kinds []Kind, f Filters, identity bool) (Context, error) {
-	if owner <= 0 || id <= 0 {
-		return Context{}, Invalid("identity", "invalid")
-	}
-	if err := ValidateFilters(f, kinds, now); err != nil {
-		return Context{}, err
-	}
+func compileBase(owner int64, origin, query string, kinds []Kind, f Filters, identity bool) CompiledContext {
 	f.ExcludeAuthors = append(append([]string(nil), f.ExcludeAuthors...), strconv.FormatInt(owner, 10))
 	origins := map[string]string{"exclude_authors": "system"}
 	raw, _ := json.Marshal(f)
@@ -197,12 +192,13 @@ func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kind
 			origins[k] = "explicit"
 		}
 	}
-	c := Context{ID: id, OwnerID: owner, Revision: 1, Persistence: "ephemeral", Origin: origin, State: "active", Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, CompilerVersion: "context_rules_v4", EmbeddingVersion: cc.EmbeddingVersion, CreatedAt: now, UpdatedAt: now, ExpiresAt: now + int64(30*24*time.Hour/time.Millisecond)}
+	c := CompiledContext{Origin: origin, Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, CompilerVersion: contextCompilerVersion}
 	if c.Query != "" {
 		c.QueryAnalysis = queryprocessing.Process(c.Query, queryprocessing.Options{Identity: identity})
 	}
-	return c, nil
+	return c
 }
+
 func hashContext(c Context) string {
 	b, _ := json.Marshal(struct {
 		Query               string
@@ -254,12 +250,25 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if origin != "baseline" && !textOK(r.Query, 2000) {
 		return Context{}, Invalid("query", "invalid_length")
 	}
-	c, err := cc.compileBase(owner, id, now, origin, r.Query, r.SourceKinds, r.Filters, origin == "query" && (r.agentExact || decimalAgentQuery(r.Query)))
+	plan, err := cc.compiled(ctx, owner, now, struct {
+		Origin, Query, SourceRevision string
+		Kinds                         []Kind
+		Filters                       Filters
+		Identity, InheritedLanguage   bool
+	}{origin, r.Query, r.SourceRevision, r.SourceKinds, r.Filters, r.agentExact || decimalAgentQuery(r.Query), r.InheritedLanguage}, func() (CompiledContext, error) {
+		p := compileBase(owner, origin, r.Query, r.SourceKinds, r.Filters, origin == "query" && (r.agentExact || decimalAgentQuery(r.Query)))
+		p.SourceRevision = r.SourceRevision
+		if r.InheritedLanguage {
+			p.Origins["lang"] = "card_default"
+		}
+		return p, nil
+	})
+	if err != nil {
+		return Context{}, err
+	}
+	c, err := plan.execution(owner, id, now, cc.EmbeddingVersion)
 	if err != nil {
 		return c, err
-	}
-	if r.InheritedLanguage {
-		c.Origins["lang"] = "card_default"
 	}
 	if origin == "query" && len(c.Kinds) == 1 && c.Kinds[0] == Agent && (r.agentExact || decimalAgentQuery(c.Query)) {
 		c.SpecHash = hashContext(c)

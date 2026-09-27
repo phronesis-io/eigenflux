@@ -17,6 +17,7 @@ import (
 
 	agentcardapi "eigenflux_server/api/agentcard"
 	"eigenflux_server/pkg/agentcard"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/logger"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -276,6 +277,9 @@ func (s *Service) contextMutation(agentID int64, operation, key, requestHash str
 		case found:
 			revision, replay, err = snapshot.ContextRevision, true, nil
 		}
+	}
+	if err == nil {
+		cache.InvalidateDiscovery(context.Background(), s.redisClient, agentID)
 	}
 	return
 }

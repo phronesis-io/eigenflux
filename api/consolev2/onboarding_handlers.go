@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -792,6 +793,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", nil)
 		return
 	}
+	cache.InvalidateDiscovery(ctx, s.redisClient, id)
 	if !replayed && req.Step == 2 {
 		agentcard.PublishRebuild(ctx, id, "console_v2_onboarding_identity")
 		activity.PublishAgentCardUpdate(ctx, id)

@@ -98,8 +98,8 @@ strict decoding rather than silently ignored. The metadata lookup route and
 CLI command are absent. Historical input/snapshot JSON remains unchanged.
 
 `query_rules_v2` analysis is frozen in samples and participates in the versioned
-Need vector cache. Query/context compilation uses `context_rules_v4`; Need compilation uses
-`need_input_context_v4`.
+Need vector cache. Query/context compilation uses `context_rules_v5`; Need compilation uses
+`need_input_context_v5`.
 Stored Needs read asynchronous vectors. Explicit queries and unsaved inline
 Needs may call embedding on demand. Agent-context fallback is lexical-only:
 it neither calls a model nor schedules vector work, and carries no artificial
@@ -143,16 +143,64 @@ and `exhausted`. These are successful HTTP 200 / `code=0` responses, not
 transport errors. An empty kind contributes no candidates to merge; remaining
 kinds still return normally. All three kinds may be empty (`items: []`,
 `has_more: false`), and Feed still assembles its control-context delivery, cadence,
-notifications and other envelope fields. Required context/source/Redis failures return errors; optional
+notifications and other envelope fields. Required source and serving-state failures return errors; optional
 recall failures are explicitly partial.
 
 ### Search pagination and execution snapshots
 
-An execution context is a per-request internal snapshot, not a second captured
-Need. It freezes the query, effective constraints, input origin, Need/Intent
-provenance when present, compiler/embedding versions, and optional vector. Recall,
-filtering, scoring and samples use that same interpretation. It is stored in
-`discovery_contexts`; it does not create or update a NeedInput.
+`CompiledContext` is the reusable retrieval value: source query/constraints,
+query analysis, origin, source revision and Need provenance. It contains no
+request ID, clock, vector or runtime warnings. Each execution creates a fresh
+`Context` wire snapshot from that value, validates deadlines against its own
+request time, and reads the current Need vector cache. Pending-vector warnings
+are never frozen into a compiled value. Request filters are intersected on a
+private copy, never on shared cached state.
+
+The serving path no longer inserts into `discovery_contexts`. Delivered samples
+already carry the full execution contexts, provenance, request time and scoring
+evidence in the existing replay stream/table. Cache eviction cannot change those
+samples or frozen search pages. Historical context rows retain their existing
+expiry cleanup; no table drop or schema migration is required.
+
+### Context value cache
+
+`pkg/cache.DiscoveryCache` provides Redis read-through caching and process-local
+singleflight (concurrent miss deduplication, not an in-memory value cache).
+`rpc/sort/discovery/input_cache.go` caches automatic Need selection and owner
+context. `context.go` caches compilation for all input adapters. Explicit Need
+ownership/currentness and inline Intent authorization still read the authority.
+
+| Value | Validity | Key identity |
+| --- | --- | --- |
+| Owner context | 30 seconds; empty clauses 5 seconds | Owner + cache generation + reader schema |
+| Automatic Need selection | 30 seconds; empty selection 5 seconds; at most the earliest selected deadline | Owner + generation + requested kinds |
+| Compiled retrieval value | 15 minutes | Owner + generation + source input/revision, compilation options and compiler/query-processing versions |
+
+Keys use `cache:discovery:v1:{owner}:<generation>:<scope>:<digest>`;
+`cache:discovery:v1:{owner}:generation` is a random token with a 24-hour TTL.
+Tokens are never reused after expiry. Payloads include an absolute validity
+boundary, so a deadline or empty-result boundary is checked even if the Redis
+key still exists. Expired selections reload the bounded DB selection, allowing
+the next eligible Need to replace an expired one. Source text never enters keys.
+
+After successful API Need capture/batch capture, Intent/context mutation,
+onboarding confirmation, and successful Card projection rebuild, replace the
+owner's generation. Old in-flight fills remain in the old namespace and cannot
+poison subsequent requests. Old keys expire naturally. These hooks run after
+source commits; failed source writes do not invalidate. Redis invalidation is
+best effort with a bounded timeout; TTL bounds missed hooks and out-of-band SQL
+changes to at most 30 seconds for input selection (5 seconds for empty input).
+An already-running request may finish using its initial snapshot. Frozen
+idempotent responses/pages deliberately keep their original snapshot.
+
+Redis failure bypasses this optional cache and reads the authoritative source;
+source failures propagate and are never cached as empty values. There is no
+stale-while-revalidate extension. Request cancellation does not cancel another
+caller's shared fill, which has its own two-second timeout. Each consumer
+unmarshals its own copy. Metrics `discovery_context_cache_total{scope,outcome}`
+report hits, misses and cache errors without owner IDs or text in labels.
+
+### Frozen search pages
 
 Feed asks Sort for one bounded search ranking (at most 200 eligible candidates
 within existing recall budgets). Feed stores it once in an owner-scoped Redis
@@ -177,11 +225,13 @@ cache state.
 
 - `rpc/sort/discovery`: typed contracts, input adapters, operation dispatch, compiler, hard filters, rule scorers and bounded orchestration.
 - `rpc/sort/discovery/queryprocessing`: mandatory text processing shared by explicit, Need-derived and Agent-context queries.
-- `rpc/sort/discovery/store.go`: immutable execution snapshots and retention.
+- `rpc/sort/discovery/store.go`: retention cleanup for historical execution rows.
 - `pkg/need/reader.go`: owner-scoped current Need inputs, bounded selection and inline Intent checks.
-- `rpc/sort/discovery/need.go`: compile those inputs into execution contexts.
+- `rpc/sort/discovery/need.go`: compile those inputs into reusable retrieval values.
+- `rpc/sort/discovery/context.go`, `input_cache.go`: reusable values, per-request execution binding and cached input reads.
+- `pkg/cache/discovery.go`: shared cache/generation protocol and source-writer invalidation.
 - `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with broadcast DB hydration and Agent/commission Redis forward projections.
-- `rpc/sort/discovery/index`: shared vocabulary, slot schema and projection used by query execution and index writers.
+- `rpc/sort/discovery/index`: source evidence schema, normalization and forward storage shared with index writers.
 - `rpc/sort/discovery/transport`: shared RPC JSON response codec.
 - `rpc/sort/legacy/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
 - `rpc/feed/delivery`: response/page caching and independent best-effort exposure recording.
@@ -197,12 +247,13 @@ observation behavior. Need reads and failures do not refresh activity.
 decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
 `idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
 
-Migration 107 adds `discovery_contexts` and `processed_items.retrieval_slots`.
-Every execution stores an ephemeral snapshot; captured Needs stay in
-`need_inputs` and `current_need_inputs` (migrations 105–106). Existing saved context rows
-are not selected or mutated, and their IDs are not accepted as NeedInput IDs.
-Vectors are stored separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
-maintenance job removes expired rows in batches with a five-minute run budget.
+Migration 107 added `discovery_contexts` and `processed_items.retrieval_slots`.
+New executions no longer insert into `discovery_contexts`; captured Needs stay
+in `need_inputs` and `current_need_inputs` (migrations 105–106). Historical saved
+context rows are not selected or mutated, and their IDs are not accepted as
+NeedInput IDs. Historical ephemeral rows retain their recorded 30-day expiry;
+an hourly maintenance job removes expired rows in batches with a five-minute
+run budget. This cache change requires no DB migration.
 
 Broadcast and commission ES documents gain `retrieval_slots`; native language and explicit source-owned provider evidence populate known fields. Public Agent projection
 uses its own configured versioned index (default `agent_discovery_v1`) in the

@@ -29,10 +29,10 @@ func TestCompilerFreezesAnalysisWithoutRewritingFilters(t *testing.T) {
 	require.Equal(t, r.Filters.BudgetMaxFen, c.Filters.BudgetMaxFen)
 	require.Equal(t, r.Filters.Lang, c.Filters.Lang)
 	require.Equal(t, r.Filters.ExcludeTerms, c.Filters.ExcludeTerms)
-	row, err := encode(c)
+	raw, err := json.Marshal(c)
 	require.NoError(t, err)
 	var back Context
-	require.NoError(t, json.Unmarshal([]byte(row.Compiled), &back))
+	require.NoError(t, json.Unmarshal(raw, &back))
 	require.Equal(t, c.QueryAnalysis, back.QueryAnalysis)
 	before := c.SpecHash
 	c.QueryAnalysis.Version = "next"
@@ -107,10 +107,10 @@ func TestAllTextInputsShareQueryProcessing(t *testing.T) {
 			inline, err := cc.Need(context.Background(), 10, 3, 1000, snapshot)
 			require.NoError(t, err)
 			require.Equal(t, n.QueryAnalysis, inline.QueryAnalysis)
-			row, err := encode(n)
+			raw, err := json.Marshal(n)
 			require.NoError(t, err)
 			var restored Context
-			require.NoError(t, json.Unmarshal([]byte(row.Compiled), &restored))
+			require.NoError(t, json.Unmarshal(raw, &restored))
 			require.Equal(t, n.QueryAnalysis, restored.QueryAnalysis)
 			for _, channel := range []string{"lexical"} {
 				_, err = Query(restored, Commission, channel, 20)

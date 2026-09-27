@@ -2,6 +2,13 @@
 
 The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
 
+The discovery cutover also caches immutable retrieval conditions and automatic
+input selection in Redis, with post-commit generation invalidation and bounded
+TTLs. It does not insert a DB execution row per request; existing asynchronous
+replay samples preserve the actual execution snapshot. See the
+[Context value cache](discovery.md#context-value-cache) contract. Legacy cache
+levels below are separate from this cache and Feed's frozen page/response caches.
+
 ## Feed Flow
 
 API Gateway -> FeedService -> SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) -> Returns sorted personalized feed.

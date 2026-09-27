@@ -11,7 +11,6 @@ import (
 )
 
 type memStore struct {
-	rows   map[int64]Context
 	needs  map[int64]need.Snapshot
 	active []need.Snapshot
 }
@@ -24,10 +23,6 @@ func (s *memStore) Current(_ context.Context, owner, id int64) (need.Snapshot, e
 	return n, nil
 }
 func (s *memStore) CheckIntent(context.Context, int64, int64, int64) error { return nil }
-func (s *memStore) Create(_ context.Context, c Context) (Context, error) {
-	s.rows[c.ID] = c
-	return c, nil
-}
 func (s *memStore) Active(context.Context, int64, []string, int64) ([]need.Snapshot, error) {
 	return s.active, nil
 }
@@ -96,7 +91,7 @@ func (s *sourceFake) Seen(context.Context, int64, []Document) (map[string]bool, 
 }
 func engineFixture() (*Engine, *sourceFake, *memStore) {
 	s := &sourceFake{seen: map[string]bool{}}
-	store := &memStore{rows: map[int64]Context{}, needs: map[int64]need.Snapshot{}}
+	store := &memStore{needs: map[int64]need.Snapshot{}}
 	ids := countIDs(100)
 	rules := Rules{}
 	for _, k := range AllKinds {
@@ -105,7 +100,7 @@ func engineFixture() (*Engine, *sourceFake, *memStore) {
 			rules[k][m] = Rule{Version: "rules", BM25Scale: 1, CosineFloor: 0, MinRelevance: .1, Threshold: .1, HalfLifeMS: 1000}
 		}
 	}
-	e := &Engine{Compiler: &Compiler{}, Store: store, Needs: store, IDs: &ids, Sources: s, Rules: rules}
+	e := &Engine{Compiler: &Compiler{}, Needs: store, IDs: &ids, Sources: s, Rules: rules}
 	return e, s, store
 }
 

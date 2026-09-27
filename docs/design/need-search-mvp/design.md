@@ -98,7 +98,8 @@ unsupported Need never broadens its own type into fallback.
 
 Fallback reads current Intent `watch_for + trigger_when`, then Card seeking,
 demands, focus or positive interests. At most five clauses are processed through
-the same text module, using lexical retrieval only and no model/cache work.
+the same text module, using lexical retrieval only and no model/vector-cache work.
+Owner inputs and deterministic compilation use the shared Context value cache.
 No context permits a bounded hot/new broadcast baseline. Agent/service routes
 with no context contribute nothing.
 
@@ -129,9 +130,21 @@ repair and continue available lexical retrieval with `embedding_pending`.
 Explicit query and inline Need embeddings remain on demand. Agent-context and
 baseline execution never invoke embedding. Missing semantic evidence is explicit.
 
-Persist the execution snapshot, source input/Intent provenance, effective
-filters, query analysis, compiler/model versions and optional vector. This is
-per-execution evidence, not a second Need lifecycle. It expires after 30 days.
+Cache immutable `CompiledContext` values in Redis for 15 minutes under owner,
+source input/revision and compiler/query-processing versions. Owner context and
+automatic Need selection use a 30-second input cache (empty values: 5 seconds),
+shortened by selected Need deadlines. Explicit Need ownership/currentness checks
+remain authoritative. Source writes replace a random owner generation after
+commit; old fills cannot refill the current namespace. Process-local singleflight
+coalesces misses; there is no in-memory value cache.
+
+Bind a fresh execution ID/time to each value, recheck time-sensitive constraints,
+intersect request filters on an isolated copy and read current vector readiness.
+Do not cache runtime warnings or execution clocks. Remove synchronous context-row
+inserts: asynchronous replay samples retain the actual conditions, provenance,
+versions, time and score evidence. Frozen pages preserve their existing contract.
+Historical context-row cleanup remains. See the module contract for TTLs, writer
+hooks, failure behavior and the bounded stale-input window.
 
 ### 3.2 Need lifecycle
 
@@ -226,8 +239,8 @@ queues. Service/Agent IDs never masquerade as broadcast IDs or feedback events.
 
 ## 4. Storage, vector lifecycle and maintenance
 
-PostgreSQL stores original inputs, current-input eligibility, capture reviews,
-execution snapshots and delivered samples. `need_embedding_jobs` (migration 110)
+PostgreSQL stores original inputs, current-input eligibility, capture reviews
+and delivered samples containing execution snapshots. `need_embedding_jobs` (migration 110)
 contains per-input/generation readiness, retry schedule and fenced leases only.
 Pipeline discovers current nonexpired inputs, including historical rows, polling
 at five seconds when idle. Two workers use 60-second leases and 45-second work

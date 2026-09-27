@@ -74,6 +74,7 @@ type Defaults struct {
 type NeedInput = need.Input
 
 type Request struct {
+	SourceRevision    string `json:"-"`
 	agentExact        bool
 	InheritedLanguage bool       `json:"-"`
 	KindsExplicit     bool       `json:"-"`

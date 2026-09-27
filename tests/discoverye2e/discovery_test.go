@@ -65,7 +65,7 @@ func TestDiscoveryE2E(t *testing.T) {
 	s := startStack(t)
 	ctx := context.Background()
 	t.Run("MissingContextReturnsEmptyDiscoveryAndCompleteFeed", func(t *testing.T) {
-		s.sql(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[]}'::jsonb WHERE agent_id=?`, s.other)
+		s.changeInputs(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[]}'::jsonb WHERE agent_id=?`, s.other)
 		for _, kinds := range [][]discovery.Kind{{discovery.Agent}, {discovery.Commission}, {discovery.Agent, discovery.Commission}} {
 			raw := s.call(t, "POST", "/api/v2/discovery/recommendations", s.otherToken, "", discovery.Request{SourceKinds: kinds, Limit: 5}, 200)
 			out := decode[discovery.Response](t, raw)
@@ -89,11 +89,11 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, map[string]any{"intent_actions": []any{}}, feed["control_context_snapshot"])
 	})
 	t.Run("PartialNeedCoverageFallsBackOnlyForMissingKinds", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		var original string
 		require.NoError(t, s.db.Raw("SELECT compiled_context::text FROM agent_context_revisions WHERE agent_id=? AND revision=1", s.owner).Scan(&original).Error)
-		defer s.sql(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=? AND revision=1", original, s.owner)
-		s.sql(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[{"watch_for":"landing page design","trigger_when":"design request"}]}'::jsonb WHERE agent_id=? AND revision=1`, s.owner)
+		defer s.changeInputs(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=? AND revision=1", original, s.owner)
+		s.changeInputs(t, `UPDATE agent_context_revisions SET compiled_context='{"intent_actions":[{"watch_for":"landing page design","trigger_when":"design request"}]}'::jsonb WHERE agent_id=? AND revision=1`, s.owner)
 		in := s.need(t, "broadcast")
 		in.Constraints.Lang = []string{"zh"}
 		s.capture(t, in)
@@ -116,7 +116,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		}
 	})
 	t.Run("SavedNeedEmbeddingIsPrecomputedAndReused", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "agent")
 		in.Target.Goal = fmt.Sprintf("landing page design vectorcase%d", s.owner)
 		saved := s.capture(t, in)
@@ -154,7 +154,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.EqualValues(t, 1, callCount(), "same Need was embedded on every request")
 	})
 	t.Run("CapturedNeedInputOwnershipAndLifecycle", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "broadcast")
 		in.Target.Goal = "  landing   page design  "
 		in.Constraints.Lang = []string{"EN"}
@@ -174,10 +174,6 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "need_input", first.Origin)
 		require.Equal(t, []string{"en"}, first.EffectiveFilters.Lang)
 		s.waitSamples(t, first.ImpressionID, 1)
-		var compiled string
-		require.NoError(t, s.db.Table("discovery_contexts").Select("compiled").Where("context_id=?", first.ContextID).Scan(&compiled).Error)
-		snapshot := decode[discovery.Context](t, []byte(compiled))
-		require.Equal(t, id, snapshot.CapturedNeed.InputID)
 		var sample string
 		require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", first.ImpressionID).Scan(&sample).Error)
 		replay := decode[struct {
@@ -185,7 +181,12 @@ func TestDiscoveryE2E(t *testing.T) {
 				Contexts []discovery.Context `json:"contexts"`
 			} `json:"search_context"`
 		}](t, []byte(sample))
-		require.Equal(t, snapshot.CapturedNeed, replay.Search.Contexts[0].CapturedNeed)
+		require.Equal(t, id, replay.Search.Contexts[0].CapturedNeed.InputID)
+		require.Equal(t, first.ContextID, replay.Search.Contexts[0].ID)
+		var writes int64
+		require.NoError(t, s.db.Table("discovery_contexts").Where("context_id=?", first.ContextID).Count(&writes).Error)
+		require.Zero(t, writes, "executions must not synchronously persist Context rows")
+		snapshot := replay.Search.Contexts[0]
 		capturedInput := decode[needmodel.Input](t, snapshot.CapturedNeed.Input)
 		require.Equal(t, in, capturedInput)
 		require.JSONEq(t, string(created.Input), string(snapshot.CapturedNeed.Input))
@@ -206,7 +207,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.EqualValues(t, 2, nextResult.Items[0].NeedRevision)
 	})
 	t.Run("CapturedNeedDeadlineConstraintsAndOpenRequirements", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "commission")
 		expired := int64(1)
 		in.Constraints.DeadlineMS = &expired
@@ -380,7 +381,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Contains(t, result.Reasons, "embedding_unavailable")
 	})
 	t.Run("NeedQueriesUseSharedProcessing", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		for _, kind := range discovery.AllKinds {
 			for _, query := range []string{"  ＬＡＮＤＩＮＧ  ", "landing page", "landing设计"} {
 				t.Run(string(kind)+"/"+query, func(t *testing.T) {
@@ -607,7 +608,7 @@ func TestDiscoveryE2E(t *testing.T) {
 	})
 	t.Run("KnownAgentRemainsSearchableButIsNotRecommended", func(t *testing.T) {
 		need := s.saved(t, "agent")
-		defer s.sql(t, "DELETE FROM need_inputs WHERE need_input_id=?", need.NeedInputID)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE need_input_id=?", need.NeedInputID)
 		s.sql(t, "INSERT INTO user_relations(from_uid,to_uid,rel_type,created_at) VALUES(?,?,1,?)", s.owner, s.author, time.Now().UnixMilli())
 		defer s.sql(t, "DELETE FROM user_relations WHERE from_uid=? AND to_uid=?", s.owner, s.author)
 		r := discovery.Request{SourceKinds: []discovery.Kind{discovery.Agent}}
@@ -625,7 +626,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, s.author, found.Items[0].Ref.ID)
 	})
 	t.Run("RecommendationNeedDedupAndFrozenRetry", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		for _, tc := range []struct {
 			need string
 			kind discovery.Kind
@@ -656,7 +657,7 @@ func TestDiscoveryE2E(t *testing.T) {
 				fresh := s.recommend(t, r, "")
 				require.Empty(t, fresh.Items)
 				require.Equal(t, "exhausted", fresh.Status)
-				s.sql(t, "UPDATE agent_intent_actions SET status='deleted',version=version+1 WHERE agent_id=? AND intent_id=?", s.owner, need.IntentID)
+				s.changeInputs(t, "UPDATE agent_intent_actions SET status='deleted',version=version+1 WHERE agent_id=? AND intent_id=?", s.owner, need.IntentID)
 				require.Equal(t, first, s.recommend(t, r, key), "retry must retain its response after the Need closes")
 				s.call(t, "POST", "/api/v2/discovery/recommendations", s.token, "new-after-close", r, 409)
 				// Search remains repeatable after automatic exposure.
@@ -665,7 +666,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		}
 	})
 	t.Run("NoMatchNeedNeverBroadens", func(t *testing.T) {
-		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
+		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		in := s.need(t, "commission")
 		in.Constraints.ProviderRegion = []string{"CN"}
 		need := s.capture(t, in)

@@ -171,7 +171,7 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 			rules[k][mode] = discovery.Rule{Version: "integration-only", BM25Scale: 1, CosineFloor: 0, MinRelevance: .01, Threshold: .01, HalfLifeMS: 86400000}
 		}
 	}
-	engine := &discovery.Engine{Compiler: &discovery.Compiler{Embedder: integrationEmbedding{}}, Store: discovery.Store{DB: db}, Needs: need.Store{DB: db}, IDs: ids, Sources: source, Rules: rules}
+	engine := &discovery.Engine{Compiler: &discovery.Compiler{Embedder: integrationEmbedding{}}, Needs: need.Store{DB: db}, IDs: ids, Sources: source, Rules: rules}
 	serve := delivery.Service{Redis: r, IDs: ids, Executor: integrationExecutor{service: discovery.Service{Engine: engine}}}
 	request := discovery.Request{Query: "landing page design"}
 	response, err := serve.Serve(ctx, owner, request, discovery.Search, "integration")

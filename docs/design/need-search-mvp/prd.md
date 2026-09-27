@@ -112,7 +112,7 @@ Broadcast feedback keeps existing event meanings and queue behavior. Preserve ex
 | F09 | Independent scorer versions | Each source kind carries its own scorer type/version; no mixed-kind score comparison |
 | F10 | Meaningful empty/error distinction | No match, baseline fallback, partial retrieval, and required-backend failure are distinguishable |
 | F11 | Identity and dedup | Typed source IDs do not collide; query dedups within request only; automatic mode retains history |
-| F12 | Request snapshot and assembly | Validate Need at execution start and source facts during hydration; reuse assembled responses without revalidation; subsequent requests observe changes |
+| F12 | Request snapshot and assembly | Validate Need at execution start and source facts during hydration; reuse assembled responses without revalidation; subsequent requests observe invalidated inputs, with a bounded 30-second input-cache stale window if invalidation fails |
 | F13 | Sample compatibility | Same replay table/stream, explicit old/new markers, delivered-only semantics, compatible old decoding |
 | F14 | Exact attribution | Selected Need/context and actual scorer are frozen with the delivered row; no reconstruction from mutable current data |
 | F15 | Replacement compatibility | Existing routes invoke the new engine with their kind/auth/envelope; no stale legacy cached pages cross cutover |
@@ -124,11 +124,11 @@ Rule weights and thresholds must be **adjusted against reviewed examples**, not 
 
 Accepted provisional targets: five-context automatic search P95 ≤ 500 ms, already compiled single-context query search P95 ≤ 300 ms, and compilation/inline search P95 ≤ 2 s including embeddings. Multi-kind execution must be bounded; measure cold/warm performance at a specified concurrency and corpus size before declaring an SLO achieved. Those workload numbers and the reviewed-example fixture owner remain launch inputs.
 
-Track errors separately from empty results; candidate/filter yields by kind/channel; fallback reasons; scorer distributions/versions; sample marker coverage; and exact feedback attribution. Missing feedback is unknown. Temporary contexts retain 30 days; replay retains the existing configured policy. No full rejected-candidate dataset is promised.
+Track errors separately from empty results; candidate/filter yields by kind/channel; fallback reasons; scorer distributions/versions; sample marker coverage; and exact feedback attribution. Missing feedback is unknown. Compiled conditions are disposable versioned cache values; execution evidence uses replay retention. Historical context rows retain their existing cleanup. No full rejected-candidate dataset is promised.
 
 ## 6. Reuse and required changes
 
-Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs` and `current_need_inputs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and source language/provider evidence. Avoid making a new microservice deployment.
+Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs` and `current_need_inputs`; reuse versioned Redis caches for inputs/compiled values and the existing replay stream/table for execution snapshots; retain historical `discovery_contexts` cleanup. Avoid making a new microservice deployment.
 
 People search needs a new rebuildable public Agent projection because no equivalent Need-based Agent index was verified in the repository. Use the existing ES cluster with a separate small Agent index and the existing Card/domain source; never mix Agent documents into item indices. This is the minimum additional kind-specific index, not a new infrastructure platform. Its update/source contract is part of online design; a general offline feature/index platform is not.
 

@@ -2,7 +2,7 @@
 
 Need capture and input history are owned by `pkg/need`. Search
 and recommendations select `current_need_inputs`, use `need_input_id` as the
-public Need reference, and persist only execution snapshots in discovery storage.
+public Need reference, and record execution snapshots through the existing asynchronous replay stream.
 The redundant Sort Need CRUD routes and CLI commands are removed. See the
 [current integration contract](../../dev/discovery.md#need-capture-integration)
 and [implementation index](../../../rpc/sort/README.md).
@@ -15,7 +15,7 @@ Implementation contract and operation: [Search and Recommendation MVP](../../dev
 ## Scope delivered
 
 - [x] Typed contracts, query/captured-Need/Agent-context compiler, hard-filter evaluator, independent rule scorers and fixtures.
-- [x] PostgreSQL context migrations/storage, ownership, revision CAS, durable create idempotency and lifecycle limits.
+- [x] Redis input/compiled-value cache, generation invalidation and per-request execution binding; existing Need ownership/lifecycle and sample contracts remain authoritative.
 - [x] Broadcast/commission/Agent retrieval, bounded authoritative hydration, public-only Agent projection and relation checks.
 - [x] Sort/Feed RPC, existing-route adapters, legacy Feed pages, unified HTTP and CLI.
 - [x] Existing replay stream/table with explicit generation/mode/schema, typed nullable identities, separate search history and exact CLI attribution.
@@ -54,9 +54,9 @@ use `testutil.BaseURL` instead of a hardcoded 8080 instance.
 
 ## Implementation choices
 
-- Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context store and candidate sources; its `index` leaf package shares source evidence and forward projections with index writers. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
+- Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context value compilation/cache and candidate sources; its `index` leaf package shares source evidence and forward projections with index writers. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
 - Use existing process boundaries, DB, ES cluster and Redis; no new deployed microservice.
-- Capture/history remain in `pkg/need`. Select current eligible inputs and keep each executable snapshot in JSONB with a separate vector payload.
+- Capture/history remain in `pkg/need`. Cache automatic input selection and immutable compiled conditions; keep execution evidence in existing asynchronous replay samples, without synchronous context-row inserts.
 - Owner-context fallback is lexical-only; saved Needs reuse asynchronous vectors. Agent/Commission ranking uses ES dense scores and scalar forward features. No vocabulary asset or lookup surface exists.
 - Agent projection uses configured versioned index `agent_discovery_v1`; its mapping is checked before use. Existing item/commission backing-index slot mappings are upgraded before projection.
 - Keep six simultaneous recall calls, a 200-document per-context union and a 1,000-pair request bound. Legacy pages prefetch at most 20 eligible broadcasts.

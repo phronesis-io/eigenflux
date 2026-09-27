@@ -6,6 +6,7 @@ import (
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/bloomfilter"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recall"
@@ -24,6 +25,7 @@ import (
 )
 
 type Source struct {
+	ContextCache                                                 *cache.DiscoveryCache
 	DB                                                           *gorm.DB
 	Redis                                                        *redis.Client
 	BroadcastIndex, CommissionIndex, AgentIndex, RecallNamespace string
@@ -32,7 +34,7 @@ type Source struct {
 	DisabledChannels                                             map[string]bool
 }
 
-func (s *Source) Owner(ctx context.Context, id int64) (OwnerContext, error) {
+func (s *Source) loadOwner(ctx context.Context, id int64) (OwnerContext, error) {
 	var row struct {
 		Revision                         int64
 		State, Compiled, Public, Private string

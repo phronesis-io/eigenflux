@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -52,8 +53,8 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		close()
 		return nil, nil, err
 	}
-	store := discovery.Store{DB: db.DB}
+	contexts := &cache.DiscoveryCache{Redis: mq.RDB}
 	vectors := needembedding.New(cfg, db.DB, mq.RDB)
-	engine := &discovery.Engine{Compiler: &discovery.Compiler{Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()}, Store: store, Needs: need.Store{DB: db.DB}, IDs: ids, Rules: rules, Policies: policies, Sources: &discovery.Source{DB: db.DB, Redis: mq.RDB, CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails, DisableDedup: cfg.ShouldDisableDedup(), DisabledChannels: map[string]bool{"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}}
+	engine := &discovery.Engine{Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()}, Needs: discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts}, IDs: ids, Rules: rules, Policies: policies, Sources: &discovery.Source{ContextCache: contexts, DB: db.DB, Redis: mq.RDB, CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails, DisableDedup: cfg.ShouldDisableDedup(), DisabledChannels: map[string]bool{"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}}
 	return &discovery.Service{Engine: engine}, close, nil
 }
