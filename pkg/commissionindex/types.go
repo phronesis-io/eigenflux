@@ -94,8 +94,7 @@ func BuildDocument(c CatalogueSnapshot, s StatisticsSnapshot, embedding []float3
 	tags := append([]string(nil), c.Tags...)
 	parts := []string{c.Title, c.CapabilityDescription, c.RequestSpecText, c.DeliverySpecText, strings.Join(tags, " ")}
 	return Document{
-		RetrievalSlots: searchindex.ContentSlots(searchindex.Current(), c.Tags, nil),
-		CommissionID:   c.CommissionID, SellerAgentID: c.SellerAgentID,
+		CommissionID: c.CommissionID, SellerAgentID: c.SellerAgentID,
 		Active: strings.EqualFold(c.Status, "active"), CatalogueVersion: c.CatalogueVersion,
 		StatisticsVersion: s.StatisticsVersion, Title: c.Title, CapabilityDescription: c.CapabilityDescription,
 		RequestSpecText: c.RequestSpecText, DeliverySpecText: c.DeliverySpecText, Tags: tags,

@@ -7,7 +7,7 @@ func emptyFilters(f Filters) bool { return reflect.DeepEqual(f, Filters{}) }
 // IntersectFilters narrows legacy request filters over a saved Need without
 // changing that Need or dropping either side of an explicit constraint.
 func IntersectFilters(a, b Filters) (Filters, error) {
-	for _, p := range [][2]*string{{&a.Category, &b.Category}, {&a.Subtype, &b.Subtype}, {&a.TaxonomyVersion, &b.TaxonomyVersion}, {&a.Currency, &b.Currency}} {
+	for _, p := range [][2]*string{{&a.Currency, &b.Currency}} {
 		if *p[1] != "" {
 			if *p[0] != "" && *p[0] != *p[1] {
 				return a, Invalid("filters", "conflicting_constraints")
@@ -65,10 +65,6 @@ func IntersectFilters(a, b Filters) (Filters, error) {
 		return a, err
 	}
 	a.ProviderRegion, err = both(a.ProviderRegion, b.ProviderRegion)
-	if err != nil {
-		return a, err
-	}
-	a.Intents, err = both(a.Intents, b.Intents)
 	if err != nil {
 		return a, err
 	}

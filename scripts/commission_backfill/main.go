@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	"errors"
 	"fmt"
@@ -27,11 +26,6 @@ var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE
 
 func main() {
 	cfg := config.Load()
-	if cfg.EnableNeedSearch {
-		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
-			log.Fatal(err)
-		}
-	}
 	if err := validateConfiguration(cfg); err != nil {
 		log.Fatal(err)
 	}

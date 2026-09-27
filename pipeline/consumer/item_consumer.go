@@ -391,8 +391,8 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		UpdatedAt:        time.Now(),
 	}
 
-	if v := searchindex.Current(); v != nil {
-		slots, err := json.Marshal(searchindex.ContentSlots(v, append(append([]string{}, esItem.Domains...), esItem.Keywords...), []string{esItem.Lang}))
+	{
+		slots, err := json.Marshal(searchindex.Slots{Lang: []string{esItem.Lang}})
 		if err != nil {
 			return HandleRetry
 		}

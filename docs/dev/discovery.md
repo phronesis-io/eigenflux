@@ -24,7 +24,6 @@ An explicitly scoped broadcast/Agent request does not require commission access.
 |---|---|---|---|
 | POST | `/api/v2/discovery/search` | `feed:read` | Exactly one of `query`, `need_id`, `need` |
 | POST | `/api/v2/discovery/recommendations` | `feed:read` | Optional `source_kinds`, `need_ids`, explicit `filters`/`defaults` |
-| GET | `/api/v2/taxonomy/search` | `feed:read` | `query`, optional `category`, `subtype`, `limit` |
 
 Search defaults to 20 results per page, maximum 50 per page. Default kind order is
 `broadcast, commission, agent`. Search selects results round-robin across kinds,
@@ -49,8 +48,7 @@ lifecycle and version determine eligibility; there is no separate Need CRUD API.
 ```
 
 Filters apply to every requested kind. Price/delivery constraints require
-commission-only scope. Category/subtype and explicitly filtered intent IDs are
-hard; intent lists mean any overlap. Inferred query intents are soft; captured Needs do not require taxonomy mapping. Query prose is not parsed into guaranteed price, language,
+commission-only scope. Query prose is not parsed into guaranteed price, language,
 region or exclusion constraints. Missing required evidence rejects a candidate.
 Provider region never inherits owner geography. Language defaults require
 `defaults.language="card"` on raw queries/recommendations. Captured and inline
@@ -85,74 +83,32 @@ Needs and automatic recommendations retain their existing matching behavior.
 
 ### Deterministic query processing
 
-Every nonempty query passes through `rpc/sort/discovery/queryprocessing` in
-`Compiler.compileBase`, after its input adapter produces query text and explicit
-filters. This includes explicit queries, captured/inline Need goal/context text,
-and automatic Agent-context queries. Empty broadcast baseline has no text to
-process. Query/context compilers use `context_rules_v3`; Need compilation uses
-`need_input_context_v3`.
+All explicit queries, captured/inline Need text and owner-context clauses pass
+through `queryprocessing.Process(text, options)`. This pure stage uses NFKC,
+Unicode case folding and whitespace collapse, preserves original text alongside
+normalized text, and adds phrase evidence for short unspaced CJK queries.
+Latin text uses existing index analyzers. Mixed text is not translated or expanded.
+Exact Agent identity resolution runs first on original text and preserves case.
+Need source JSON and explicit hard filters remain unchanged.
 
-The pure `Process(text, vocabulary, options)` entry owns Unicode normalization,
-script-aware phrase matching, reviewed alias expansion and ambiguity handling.
-It has no RPC, database, embedding or Need lifecycle dependency. Its frozen
-`query_analysis` retains the `query_rules_v1` wire shape and version because the
-text rules are unchanged. The context keeps the original wording (outer
-whitespace trimmed), normalized text, matched soft intent IDs and expansion
-provenance. Analysis and vocabulary version participate in the context hash and
-replay snapshots. Existing snapshots without analysis remain readable.
+There is no vocabulary asset, canonical intent lookup, alias expansion, inferred
+category, structured-intent recall or slot relevance score. Removed request
+fields `category`, `subtype`, `intents` and `taxonomy_version` are rejected by
+strict decoding rather than silently ignored. The metadata lookup route and
+CLI command are absent. Historical input/snapshot JSON remains unchanged.
 
-After processing, both adapters use the same embedding and soft-intent retrieval
-preparation. Embedding receives the normalized original text, never the expanded
-variants. Need source JSON and explicit hard filters remain unchanged.
+`query_rules_v2` analysis is frozen in samples and participates in the versioned
+Need vector cache. Query/context compilation uses `context_rules_v4`; Need compilation uses
+`need_input_context_v4`.
+Stored Needs read asynchronous vectors. Explicit queries and unsaved inline
+Needs may call embedding on demand. Agent-context fallback is lexical-only:
+it neither calls a model nor schedules vector work, and carries no artificial
+embedding failure warning. Empty broadcast baseline uses existing recall lists.
 
-Identity resolution runs first using the original input. Exact Agent names and
-IDs are protected from case folding and expansion. An unmatched bare five-letter
-word retains the existing natural-language fallback; its shape alone does not
-make it an explicit short-ID request.
+Public `match.match_types` contains deduplicated `exact`, `keyword`, `semantic`
+and `recall` labels. These describe retrieval paths, not confidence or guaranteed
+literal equality. Query text and vectors never appear in result cards.
 
-Natural-language text uses NFKC, Unicode case folding and whitespace collapse.
-Lexical retrieval keeps both original and normalized clauses in a zero-tie
-`dis_max`, preserving matches in existing indices whose analyzers do not apply
-the same Unicode normalization.
-English aliases require word boundaries (`art` does not match `partial`). CJK
-aliases match phrases without spaces; Latin aliases can touch CJK text
-(`擅长k8s运维` matches `k8s`), while mixed aliases still protect Latin edges
-(`AI设计` does not match inside `OpenAI设计`). CJK-only queries up to 12 code points
-without spaces, and recognized CJK/mixed dictionary phrases, receive optional
-ES phrase boosts. English-only queries retain token matching. Script detection
-never creates a language filter.
-
-Expansion uses reviewed intent names and aliases from the existing taxonomy,
-scoped by explicit category/subtype. Treat those aliases as equivalent search
-expressions, not merely related topics. A label belonging to multiple intents
-within that scope is ambiguous: it is not expanded or promoted through exact
-alias equality to a structured intent; semantic document retrieval remains
-available. Longer overlapping phrases take precedence. At most five dictionary
-intents/phrases and eight distinct variants are retained. Each variant makes one
-substitution and preserves all remaining words; expansion is not recursive.
-Simplified/traditional pairs, bilingual terms and English inflections require
-explicit aliases. No transliteration, implicit stemming, spell correction,
-generative rewriting, translation, new analyzer plugin or index rebuild is
-introduced. The broad legacy `DomainSynonyms` list is not imported into this
-query dictionary.
-
-The original lexical, dense and structured channels remain. When variants exist,
-a separate `synonym` channel retrieves up to 40 candidates per kind under the
-same hard filters and existing six-request concurrency limit. Each variant must
-match its expanded target phrase, uses a 0.5 lexical boost, and combines through
-`dis_max` with zero tie-breaker to avoid accumulating duplicate alias scores.
-CJK phrase boosts use 1.5; these rule constants are part of `query_rules_v1`.
-Embeddings use the normalized original query once, never a concatenation of
-synonyms. Dictionary expansion still works when the optional query embedding is
-unavailable, with the existing partial-result marker. There is no automatic
-retry with weaker constraints or generic content.
-
-Public `match.match_types` is an additive, deduplicated list of retrieval paths:
-`exact`, `keyword`, `synonym`, `semantic`, `structured`, or `recall`. Multiple paths
-may contribute to one result; these labels are not confidence probabilities or
-claims of literal token equality. Query text, expansion details and vectors are
-not copied into result cards. Ranking still hydrates Agent/Commission features
-from Redis and uses the existing rule scorers.
 
 Responses include `pipeline_version`, `input_origin`, `context_id`,
 `effective_filters`, `constraint_mode`, `result_status`, partial/fallback reasons,
@@ -194,7 +150,7 @@ recall failures are explicitly partial.
 
 An execution context is a per-request internal snapshot, not a second captured
 Need. It freezes the query, effective constraints, input origin, Need/Intent
-provenance when present, taxonomy/compiler versions, and optional vector. Recall,
+provenance when present, compiler/embedding versions, and optional vector. Recall,
 filtering, scoring and samples use that same interpretation. It is stored in
 `discovery_contexts`; it does not create or update a NeedInput.
 
@@ -234,9 +190,9 @@ cache state.
 - `rpc/sort/discovery/index/forward.go`: bounded Redis batch reads and monotonic component writes shared by projection owners.
 
 Successful discovery requests and Need writes retain the existing runtime/activity
-observation behavior. Need/taxonomy reads and failures do not refresh activity.
+observation behavior. Need reads and failures do not refresh activity.
 
-`SortService.Discovery` handles contexts, ranking, validation and taxonomy.
+`SortService.Discovery` handles contexts, ranking and validation.
 `FeedService.Discovery` owns delivery. Their Thrift envelopes carry strictly
 decoded JSON domain contracts; generated code comes from `idl/sort.thrift` and
 `idl/feed.thrift`. Internal legacy-prefetch operations are not HTTP operations.
@@ -248,8 +204,7 @@ are not selected or mutated, and their IDs are not accepted as NeedInput IDs.
 Vectors are stored separately from compiled JSON. Ephemeral contexts expire after 30 days; an hourly
 maintenance job removes expired rows in batches with a five-minute run budget.
 
-Broadcast and commission ES documents gain `retrieval_slots`; native language
-and reviewed canonical aliases populate known fields. Public Agent projection
+Broadcast and commission ES documents gain `retrieval_slots`; native language and explicit source-owned provider evidence populate known fields. Public Agent projection
 uses its own configured versioned index (default `agent_discovery_v1`) in the
 existing cluster, not a separate search service. Startup verifies its mapping
 and embedding dimensions. Projection reads public Card fields only. Public Card
@@ -269,17 +224,16 @@ plus IDs and version metadata required to join projections. Agent ES keeps
 public search text/name, active state, slots and embedding; activity/edit times
 are not in ES. Commission ES keeps weighted searchable text, active state,
 seller ID, slots, price/currency/promised duration and embedding. Fulfillment,
-ratings, counts, statistics revision and update time are not in ES. Price and
-embedding intentionally exist in both stores because they serve retrieval and
-scoring. Broadcast storage and scoring reads are unchanged.
+ratings, counts, statistics revision and update time are not in ES. Price and source text serve both retrieval and eligibility checks and are
+stored in both. Candidate embeddings exist only in ES. Broadcast storage and scoring reads are unchanged.
 
 ES responses return only candidate IDs, source revisions, `_index` and channel
 scores. Sort then batches Redis forward reads for the deduplicated candidates:
 
 | Key | Contents and revision |
 |---|---|
-| `discovery:forward:agent:<concrete-index>:<id>:card` | Public Card projection, vector, slots, activity time; Card rebuild fence |
-| `discovery:forward:commission:<concrete-index>:<id>:catalogue` | Catalogue projection, vector, slots, budget/duration evidence, update time; catalogue revision |
+| `discovery:forward:agent:<concrete-index>:<id>:card` | Public Card projection, language/provider evidence, activity time; Card rebuild fence |
+| `discovery:forward:commission:<concrete-index>:<id>:catalogue` | Catalogue projection, source evidence, budget/duration evidence, update time; catalogue revision |
 | `discovery:forward:commission:<concrete-index>:<id>:statistics` | Completion/rating/count/delivery features; independent statistics revision |
 
 These are reconstructible projections without TTL, not cache-aside entries.
@@ -307,7 +261,7 @@ forward components for their served ES generation. This prerequisite applies
 even when `ENABLE_NEED_SEARCH=false`; changing the route switch does not restore
 the old ES-feature storage contract.
 
-Recall uses lexical/dense/structured channels and existing hot/new/new-UGC Redis
+Recall uses lexical/dense channels and existing hot/new/new-UGC Redis
 lists where enabled. No Swing lane or learned scorer is called by this engine.
 Fan-out is bounded to six concurrent channels, 200 merged documents per context,
 100 commission/Agent candidates per kind, and at most five contexts. Forward reads and current account/relationship checks use bounded batches. Rule features, gates, configuration
@@ -366,7 +320,7 @@ idempotent. No reject/empty result creates a row or a negative label. Internal
 Feed readers restrict to broadcast Feed/recommendation samples; legacy
 feature-dependent rescue reads restrict to the legacy generation.
 
-CLI 0.0.55 adds `search`, `recommend`, `taxonomy search`, and Need capture
+CLI 0.0.55 adds `search`, `recommend`, and Need capture
 commands via the existing `need input` group. The ef-broadcast Skill is 0.14.23. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
@@ -409,9 +363,8 @@ report `unresolved_need_constraints` and contribute no candidates, without
 narrowing or dropping the restriction.
 Other Needs remain executable, all Needs may produce an empty successful result,
 and an undeliverable active Need never triggers unrelated profile fallback.
-No Need normalization projection or generative call is used. Reviewed query
-aliases produce soft retrieval evidence without rewriting the Need or introducing
-hard constraints.
+No Need normalization projection, vocabulary matching or generative interpretation is used.
+Query processing preserves source meaning and does not introduce hard constraints.
 Stored Need embeddings are precomputed asynchronously. A missing vector retains
 lexical retrieval with `embedding_pending`; cache/storage errors report
 `embedding_unavailable`. Explicit queries and unsaved inline Needs still compute
@@ -433,15 +386,7 @@ eigenflux recommend --types agent --limit 10
 `ENABLE_NEED_SEARCH=true` requires `ENABLE_COMMISSION_INDEX=true`,
 `ENABLE_COMMISSION_DISCOVERY_API=true`, and `ENABLE_REPLAY_LOG=true`. Preserve the
 existing commission allowlist. Every participating process must share the same
-cutover setting, taxonomy version and embedding configuration.
-
-`DISCOVERY_TAXONOMY_PATH` defaults to `configs/discovery/taxonomy.json`.
-The reviewed JSON asset has `version`, `embedding_version`, and `categories`,
-`subtypes`, `intents` arrays. Nodes contain `id`, `name`, optional parent
-`category`/`subtype`, `aliases` and `embedding`. Embedding version must equal the
-configured model, and nonempty vectors must match its dimension. Canonical-only
-rows may omit vectors. Lookup is bounded in-memory cosine/exact-alias matching.
-No taxonomy cache or rebuild workflow is included in this implementation.
+cutover setting and embedding configuration.
 
 `DISCOVERY_RULES_PATH` defaults to `configs/discovery/rules.json`. Its root has
 `broadcast`, `commission`, `agent`; each has `search` and `recommendation` rules.
@@ -449,16 +394,16 @@ Each rule requires `version`, `bm25_scale`, `cosine_floor`, `min_relevance`,
 `threshold`, and `half_life_ms`. The MVP formulas in `rpc/sort/discovery/score.go` are
 versioned code; gates/scales/half-life are independent per kind/mode. Initial
 formula coefficients must also be reviewed against supplied examples before
-cutover. There are deliberately no invented production taxonomy/threshold assets.
+cutover. There are deliberately no invented production threshold assets.
 `AGENT_DISCOVERY_INDEX` selects the public Agent index.
 
 Rollout order:
 
-1. Apply 105–108 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
+1. Apply migrations through 110 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.
 2. Deploy typed-aware replay consumers and verify all internal/external readers; keep these readers after a routing rollback.
-3. Supply reviewed taxonomy and three-kind/two-mode rule examples/configuration. Keep API traffic on the old path during preparation.
+3. Supply reviewed three-kind/two-mode rule examples/configuration. Keep API traffic on the old path during preparation.
 4. Use new concrete Agent/commission ES generations when removing old mappings. Existing ES mappings cannot delete fields in place; full document rewrites remove obsolete `_source` fields. Align writer/reader generations, backfill Redis as well as ES, and retain both old generations for rollback. Commission writers target `COMMISSION_INDEX_NAME`; alias promotion follows a successful staged backfill.
-5. Populate both forward and search projections with `scripts/discovery_backfill --kind broadcast|agent` and the existing `scripts/commission_backfill`, using the approved taxonomy in those maintenance processes. These are index maintenance tools, not a new offline ranking pipeline.
+5. Populate both forward and search projections with `scripts/discovery_backfill --kind broadcast|agent` and the existing `scripts/commission_backfill`. These are index maintenance tools, not a new offline ranking pipeline.
 6. Verify strict-filter coverage, source permissions, embedding compatibility, rule examples, and measured load targets. Enable the cutover switch consistently and use existing deployment/PR procedures.
 
 Rollback routes with `ENABLE_NEED_SEARCH=false`; retain additive schema and typed
@@ -466,12 +411,12 @@ readers. Migration 108 refuses downgrade while nonbroadcast rows remain. Do not
 coerce typed IDs into `item_id` or discard samples to make a downgrade succeed.
 
 Metrics expose execution latency/status, hard-filter/threshold/seen rejects,
-optional channel failures, explicit fallback reasons and taxonomy misses. Their
+optional channel failures and explicit fallback reasons. Their
 labels contain bounded codes, never owner IDs or query text. Accepted latency
 targets require a separately agreed corpus/concurrency test; unit/integration
-results are not production latency evidence. In particular, Agent-context fallback
-can make up to five embedding requests; validate its cold/warm latency before
-cutover and add versioned memoization if the agreed budget requires it.
+results are not production latency evidence. Agent-context fallback performs no online model calls. Explicit query cold
+latency still includes on-demand embedding and must be measured separately.
+
 
 ### Intent capture maintenance
 
@@ -515,14 +460,13 @@ No separate capture-time Redis publication or normalized Need projection exists.
 
 The worker and online compiler use `queryprocessing.NeedText(goal, context)` and
 the same query processor. Only the normalized original text is embedded;
-requirements, preferences, filters and alias expansions are not appended.
+requirements, preferences and filters are not appended.
 Redis keys combine a hash of that processed text with a generation hash covering
 provider, resolved model, explicit `DISCOVERY_EMBEDDING_REVISION`, endpoint,
 dimensions and `queryprocessing.Version`. Keys contain no raw Need text.
 Identical text shares a vector across input IDs/types. Model endpoint or version
 changes cannot read an old generation. Sort execution snapshots record this
-opaque generation as `embedding_version`; taxonomy validation still uses the
-configured model name. Query-processing changes must bump its `Version` constant.
+opaque generation as `embedding_version`. Query-processing changes must bump its `Version` constant.
 
 Migration 000110 adds `need_embedding_jobs`, keyed by input ID and generation.
 Claims use a 60-second lease and unique token; an expired worker cannot finalize
@@ -539,13 +483,11 @@ Online stored-Need execution reads the cached vector and does not invoke the
 model on a miss. It requests background work and continues available retrieval
 under unchanged hard filters. Dense recall and semantic scoring resume on a
 fresh execution after the vector is ready. Existing frozen search pages and
-idempotent responses retain their original results. Explicit query, inline Need
-and Agent-context fallback paths retain on-demand embedding; this optimization
-does not silently change their model-call behavior.
+idempotent responses retain their original results. Explicit query and inline Need paths retain on-demand embedding. Agent-context fallback skips embedding entirely.
 
 Apply 000110 before deployment, then start the updated Pipeline and Sort with
 identical embedding settings. Bump `DISCOVERY_EMBEDDING_REVISION` when changing
-weights behind a stable model name/endpoint. Candidate and taxonomy embeddings
+weights behind a stable model name/endpoint. Candidate embeddings
 must still use a compatible embedding space; query-cache invalidation does not
 rebuild those indexes. Missing or stopped workers leave cache misses lexical-only
 until workers resume. `discovery_need_embedding_total{operation,outcome}` reports
@@ -556,3 +498,39 @@ Code: `rpc/sort/discovery/needembedding/` owns cache identity, vector validation
 and job claims; `pipeline/consumer/need_embedding_worker.go` owns asynchronous
 execution; `rpc/sort/discovery/compiler.go` owns online lookup; Pipeline/Sort
 wiring constructs the same cache profile.
+
+### Candidate vector storage and ranking
+
+Agent and Commission embeddings exist only in their ES search documents. Redis
+`card`/`catalogue` forward components omit `embedding`; scalar ranking features,
+source text, language/provider evidence and versions remain available there.
+Need query vectors still use their separate versioned Redis cache.
+
+Dense recall carries ES `_score` through per-context merging and version-checked
+hydration. With the cosine mappings, `cosine = 2 * dense_score - 1`; a lexical
+`_score` is never interpreted as cosine. Agent/Commission lexical-only candidates
+have missing semantic evidence rather than triggering a vector read or model
+call. Broadcast continues to use its existing ES-returned vector for cosine.
+
+`lexical = bm25 / (bm25 + bm25_scale)` and
+`semantic = clamp((cosine - cosine_floor) / (1 - cosine_floor))`.
+When semantic evidence exists, relevance is `0.55*lexical + 0.45*semantic`;
+otherwise it is lexical alone. No slot score participates. Other per-kind
+freshness/quality/fulfillment/budget coefficients and hard relevance gates remain.
+Review thresholds for this feature contract and use new rule versions on rollout.
+
+After upgrading all forward writers, remove old Redis payload fields without
+regenerating embeddings:
+
+```bash
+go run ./scripts/discovery_forward_cleanup          # preview count
+go run ./scripts/discovery_forward_cleanup --apply  # compare-and-set updates
+```
+
+This bounded ten-minute scan touches Agent card and Commission catalogue
+components only, preserves int64 IDs and version fences, and skips concurrent
+changes. Rerun if interrupted. Statistics, Need vector caches and historical
+samples are untouched. Fresh projections already omit retired fields. Existing
+ES mappings require a new concrete index generation to physically remove old
+properties; existing unused fields are never queried. Historical migrations and
+captured legacy input records remain historical data, not runtime dependencies.

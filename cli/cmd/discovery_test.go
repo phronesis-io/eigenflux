@@ -128,23 +128,10 @@ func TestDiscoveryCLIRequestContract(t *testing.T) {
 	}
 }
 
-func TestDiscoveryTaxonomyRoute(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/taxonomy/search" || r.URL.Query().Get("query") != "database" {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+func TestDiscoveryCommandsExcludeRemovedLookup(t *testing.T) {
+	for _, command := range newDiscoveryCommands() {
+		if command.Name() != "search" && command.Name() != "recommend" {
+			t.Fatalf("unexpected discovery command %s", command.Name())
 		}
-		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-	}))
-	defer server.Close()
-	runtimeTestConfig(t, server.URL, true)
-	command := newDiscoveryCommands()[2]
-	command.SetArgs([]string{"search", "database"})
-	if err := command.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if calls != 1 {
-		t.Fatalf("request count = %d", calls)
 	}
 }

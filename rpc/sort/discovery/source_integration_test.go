@@ -171,7 +171,7 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 			rules[k][mode] = discovery.Rule{Version: "integration-only", BM25Scale: 1, CosineFloor: 0, MinRelevance: .01, Threshold: .01, HalfLifeMS: 86400000}
 		}
 	}
-	engine := &discovery.Engine{Compiler: &discovery.Compiler{Taxonomy: &searchindex.Vocabulary{Version: "fixture", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}, Embedder: integrationEmbedding{}}, Store: discovery.Store{DB: db}, Needs: need.Store{DB: db}, IDs: ids, Sources: source, Rules: rules}
+	engine := &discovery.Engine{Compiler: &discovery.Compiler{Embedder: integrationEmbedding{}}, Store: discovery.Store{DB: db}, Needs: need.Store{DB: db}, IDs: ids, Sources: source, Rules: rules}
 	serve := delivery.Service{Redis: r, IDs: ids, Executor: integrationExecutor{service: discovery.Service{Engine: engine}}}
 	request := discovery.Request{Query: "landing page design"}
 	response, err := serve.Serve(ctx, owner, request, discovery.Search, "integration")
@@ -235,7 +235,7 @@ func TestESChinesePhraseBoost(t *testing.T) {
 			t.Fatal(response.StatusCode)
 		}
 	}
-	compiler := discovery.Compiler{Taxonomy: &searchindex.Vocabulary{Version: "phrase-fixture", Categories: []searchindex.Node{{ID: "tech", Name: "Technology"}}}, Embedder: integrationEmbedding{}}
+	compiler := discovery.Compiler{Embedder: integrationEmbedding{}}
 	compiled, err := compiler.Query(ctx, 99, 100, time.Now().UnixMilli(), discovery.Request{Query: "人工智能", SourceKinds: []discovery.Kind{discovery.Agent}}, "query")
 	if err != nil {
 		t.Fatal(err)

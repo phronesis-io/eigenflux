@@ -1,6 +1,6 @@
 # Search and Recommendation MVP — PRD
 
-Status: Revision 3, incorporating all Owner answers and the clarification that all three source kinds launch in the MVP. Implementation and validation are tracked in [implement.md](implement.md); production cutover remains gated.
+Status: Current implementation contract, including vocabulary removal and asynchronous saved-Need vectors. Implementation and validation are tracked in [implement.md](implement.md); production cutover remains gated.
 Date: 2026-09-22. Repository baseline: `origin/main` at `9a532e79`.
 Companions: [Technical design](design.md), [Owner decisions and remaining dependencies](questions.md).
 
@@ -17,17 +17,17 @@ The reference is [the architecture proposal](https://pcnlty6lw65j.feishu.cn/docx
 
 | Area | MVP boundary |
 |---|---|
-| Top-level interfaces | Agent-based automatic search, raw-query search, captured Need selection, taxonomy lookup, existing-route adapters, CLI |
-| 3.1 Compiler | Compile Agent-authored Need, raw query, or bounded Agent context into an executable search context; rule validation, taxonomy lookup, existing embeddings |
+| Top-level interfaces | Agent-based automatic search, raw-query search, captured Need selection, existing-route adapters, CLI |
+| 3.1 Compiler | Compile Agent-authored Need, raw query, or bounded Agent context into an executable search context; rule validation, existing embeddings |
 | 3.2 State | Explicit active/paused/completed/expired Needs; no dialogue or authority engine |
 | 3.3 Planner | Deterministic per-kind templates, bounded fan-out, shared hard-filter semantics |
-| 3.4 Retrieval | Forward lexical/dense/structured retrieval; reuse DB/ES/Redis and current recall producers |
+| 3.4 Retrieval | Forward lexical/dense retrieval; reuse DB/ES/Redis and current recall producers |
 | 3.5 Hard filter | Pushdown, source hydration and shared deterministic state/permission evaluator |
 | 3.6 Rank | All three kinds use rules this release; future model adoption, size, versions, and rollback are independent by kind |
 | 3.7–3.9 | Migrate applicable existing policies, delivery primitives, feedback API, and CLI events; only necessary adapters |
 | Samples | Same replay table/stream; delivered-only records; explicit generation, input, mode, and per-kind scorer metadata |
 
-Excluded: reverse/percolator matching, content-event fan-out, offline enrichment architecture or taxonomy clustering, training/calibration/model serving, new feedback classes, automated Need completion, delivery holding queues, fairness redesign, and new exploration policies. Index projection contracts and necessary migration readiness are specified; the offline producers themselves are not designed here.
+Excluded: reverse/percolator matching, content-event fan-out, offline enrichment architecture, training/calibration/model serving, new feedback classes, automated Need completion, delivery holding queues, fairness redesign, and new exploration policies. Index projection contracts and necessary migration readiness are specified; the offline producers themselves are not designed here.
 
 ## 2. Confirmed product behavior
 
@@ -68,7 +68,7 @@ The existing host poll calls its usual recommendation/feed entry. The server der
 
 ### 3.2 Query search
 
-The user or Agent submits `query` plus optional kinds and explicit filters. A category is not mandatory for a traditional query. If supplied, category/subtype are hard boundaries and unknown content evidence rejects a candidate. Taxonomy suggestions from text are soft retrieval signals unless explicitly selected as filters. Numerical conditions inside free text are not claimed to be enforced as structured filters; clients use the filter fields for guaranteed constraints, and the response returns the effective filters.
+The user or Agent submits `query` plus optional kinds and explicit filters. Only documented business filters are accepted; no platform vocabulary or inferred category participates. Numerical conditions inside free text are not claimed to be enforced as structured filters; clients use the filter fields for guaranteed constraints, and the response returns the effective filters.
 
 Results can repeat across requests. Within a response, collapse duplicate typed sources and applicable broadcast groups. Search does not read or mutate automatic-search history. Existing feedback validation is adapted so explicit-search broadcasts remain reportable without suppressing later recommendation.
 
@@ -102,7 +102,7 @@ Broadcast feedback keeps existing event meanings and queue behavior. Preserve ex
 | ID | Requirement | Evidence |
 |---|---|---|
 | F01 | Owned operations and context | Another Agent cannot read/use a Need or search using another owner's private context |
-| F02 | Two first-class entry modes | Raw query works without taxonomy/Need authoring; existing daily feed works without saved Needs |
+| F02 | Two first-class entry modes | Raw query works without Need authoring; existing daily feed works without saved Needs |
 | F03 | All three source kinds | Broadcast, commission, and public Agent results are hydrated and represented by typed IDs |
 | F04 | Input provenance | Saved Need, inline Need, query, Agent context, and baseline are distinguishable in snapshots |
 | F05 | Explicit-query independence | Unrelated Card edits do not rewrite a query/Need's terms, target, or constraints |
@@ -120,7 +120,7 @@ Broadcast feedback keeps existing event meanings and queue behavior. Preserve ex
 
 ## 5. Rule quality and performance
 
-Rule weights and thresholds must be **adjusted against reviewed examples**, not treated as approved production constants. Fixtures must cover all three kinds, both modes, missing slots, conflicting constraints, Agent-context searches, and baseline delivery. Record separate configurations by kind and mode; retain a relevance gate before boosts/injection. All scores are heuristics, not `P(useful)` or calibrated utility. Baseline freshness/quality ordering has its own score kind and does not claim relevance to a nonexistent query.
+Rule weights and thresholds must be **adjusted against reviewed examples**, not treated as approved production constants. Fixtures must cover all three kinds, both modes, missing source evidence, conflicting constraints, Agent-context searches, and baseline delivery. Record separate configurations by kind and mode; retain a relevance gate before boosts/injection. All scores are heuristics, not `P(useful)` or calibrated utility. Baseline freshness/quality ordering has its own score kind and does not claim relevance to a nonexistent query.
 
 Accepted provisional targets: five-context automatic search P95 ≤ 500 ms, already compiled single-context query search P95 ≤ 300 ms, and compilation/inline search P95 ≤ 2 s including embeddings. Multi-kind execution must be bounded; measure cold/warm performance at a specified concurrency and corpus size before declaring an SLO achieved. Those workload numbers and the reviewed-example fixture owner remain launch inputs.
 
@@ -128,7 +128,7 @@ Track errors separately from empty results; candidate/filter yields by kind/chan
 
 ## 6. Reuse and required changes
 
-Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs` and `current_need_inputs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and normalized slot fields. Avoid making a new microservice deployment.
+Reuse existing PostgreSQL, item and commission ES indices, Redis recall lists, policy implementations, replay stream/table, feedback tables, and CLI event queue. Reuse `need_inputs` and `current_need_inputs`; keep `discovery_contexts` only for execution snapshots, plus revisioned caches and source language/provider evidence. Avoid making a new microservice deployment.
 
 People search needs a new rebuildable public Agent projection because no equivalent Need-based Agent index was verified in the repository. Use the existing ES cluster with a separate small Agent index and the existing Card/domain source; never mix Agent documents into item indices. This is the minimum additional kind-specific index, not a new infrastructure platform. Its update/source contract is part of online design; a general offline feature/index platform is not.
 
@@ -139,7 +139,7 @@ Reusing `replay_logs` for three types requires typed identity metadata and nulla
 | Slice | Outcome |
 |---|---|
 | A. Input/contracts | Query and automatic interfaces, context compiler, accepted decision record, fallback matrix |
-| B. Structured Needs | Taxonomy asset/lookup, current captured-Need readers, bounded execution snapshots and exact provenance |
+| B. Structured Needs | current captured-Need readers, bounded execution snapshots and exact provenance |
 | C. Typed retrieval | Broadcast/commission adapters; public Agent projection and adapter; uniform hard checks |
 | D. Rules/policies | Three independently configured rule scorers, reviewed examples, migrated dedup/policy behavior |
 | E. Serving/samples | Source hydration, existing-route replacement, exact CLI attribution, typed replay consumers/readers |
@@ -166,7 +166,7 @@ Implementations can be validated in slices, but the confirmed MVP launch scope i
 
 ## 9. Decision status
 
-Owner answers D01–D14 are incorporated in [questions.md](questions.md), preserving the original answers. D01 was clarified to include people. The remaining items are implementation/launch dependencies—reviewed examples and final parameters, taxonomy artifact/owner, public provider evidence and Agent indexing readiness, external sample-reader compatibility, and workload measurements—not a request to repeat the product questionnaire.
+Owner answers D01–D14 are incorporated in [questions.md](questions.md), preserving the original answers. D01 was clarified to include people. The remaining items are implementation/launch dependencies—reviewed examples and final parameters, public provider evidence and Agent indexing readiness, external sample-reader compatibility, and workload measurements—not a request to repeat the product questionnaire.
 
 ## Cold-start capture
 
@@ -189,3 +189,16 @@ vector or returns available lexical matches with `embedding_pending`. Once ready
 new requests can use semantic retrieval and ranking; frozen pages stay unchanged.
 Model or query-processing changes select a new cache generation and automatically
 schedule existing current Needs for precomputation.
+
+## Serving simplification
+
+Owner-context fallback must never call embedding online. It uses deterministic
+query processing and lexical retrieval; broadcast baseline reuses current recall
+lists. Explicit user queries keep their existing on-demand dense capability.
+
+Agent/Commission candidate embeddings stay in ES only. Redis forward projections
+contain scalar features and filter evidence. Dense ES scores provide optional
+semantic ranking evidence; lexical-only candidates do not require a vector.
+Remove all vocabulary lookup, aliases, canonical filters, derived slots, scoring,
+startup assets and CLI/API dependencies. Keep direct source language/provider
+restrictions and multilingual normalization. Removed filter fields fail validation.

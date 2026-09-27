@@ -1,5 +1,12 @@
 # Owner Decision Record — Search and Recommendation MVP
 
+Current owner direction removes the shared vocabulary entirely, including the
+D04/D06/D07 implementation consequences below. Those sections preserve historical
+answers only. There is no vocabulary supply/maintenance launch dependency.
+Agent-context fallback makes no online embedding calls; Agent/Commission vectors
+stay in ES, with dense scores used for optional ranking evidence.
+The PRD, technical design and module document define the current contract.
+
 Status: Revision 2. All Owner answers below are preserved verbatim and incorporated in the [PRD](prd.md) and [technical design](design.md). The subsequent D01 clarification explicitly selects broadcasts, services, and people for the first release.
 
 The questions and “Proposed default” paragraphs are retained as the original discussion record, not as current specifications. The **Resolution** under each answer describes the current decision. Owner answers take precedence over the original defaults. Concrete API/storage/fallback details remain technical design choices unless explicitly confirmed by an answer.
@@ -80,7 +87,7 @@ Owner answer: default answer is fine
 
 **Resolution:** Accepted: explicit category/subtype constraints remain hard; Need target intents are relevance signals; unknown required evidence rejects. Query/Agent contexts that omit category are legitimately unconstrained by category, not a legacy-data bypass. Preserve money/currency/duration/deadline distinctions. Authoritative provider fields/projection ownership remain implementation readiness dependencies.
 
-## D07 Taxonomy bootstrap and ownership
+## D07 Historical vocabulary decision (superseded)
 
 **Question:** Who provides and approves the initial category/subtype/intent vocabulary and term embeddings? Should miss persistence be a separate table in this release?
 
@@ -184,7 +191,6 @@ These items do not reopen answered product decisions or require another full que
 
 | Dependency | Required result before enablement |
 |---|---|
-| Taxonomy bootstrap | Reviewed asset/embeddings, assigned maintenance owner, matching projection version |
 | Relevance review | Representative examples for three kinds/two modes and approved per-kind/mode rules/thresholds |
 | Provider evidence | Authoritative public region/language and normalized-slot contracts, especially the commission source boundary |
 | People indexing | Public-only Agent projection ready; update/tombstone freshness and bounded authoritative relation checks |

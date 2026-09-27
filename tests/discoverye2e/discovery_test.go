@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -96,7 +97,9 @@ func TestDiscoveryE2E(t *testing.T) {
 		in := s.need(t, "broadcast")
 		in.Constraints.Lang = []string{"zh"}
 		s.capture(t, in)
+		calls := s.embeddingCallCount()
 		out := s.recommend(t, discovery.Request{Limit: 20}, "")
+		require.Equal(t, calls, s.embeddingCallCount(), "fallback must not call embedding")
 		require.Equal(t, "missing_kind_needs", out.FallbackReason)
 		kinds := map[discovery.Kind]bool{}
 		for _, item := range out.Items {
@@ -117,7 +120,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		in := s.need(t, "agent")
 		in.Target.Goal = fmt.Sprintf("landing page design vectorcase%d", s.owner)
 		saved := s.capture(t, in)
-		query := queryprocessing.Process(queryprocessing.NeedText(in.Target.Goal, in.Target.Context), nil, queryprocessing.Options{}).Normalized
+		query := queryprocessing.Process(queryprocessing.NeedText(in.Target.Goal, in.Target.Context), queryprocessing.Options{}).Normalized
 		t.Cleanup(func() { mq.RDB.Del(ctx, s.needVectors.Key(query)) })
 		callCount := func() int32 {
 			v, ok := s.embeddingCalls.Load(query)
@@ -186,9 +189,6 @@ func TestDiscoveryE2E(t *testing.T) {
 		capturedInput := decode[needmodel.Input](t, snapshot.CapturedNeed.Input)
 		require.Equal(t, in, capturedInput)
 		require.JSONEq(t, string(created.Input), string(snapshot.CapturedNeed.Input))
-		require.Empty(t, snapshot.Filters.Category)
-		require.Equal(t, []string{"landing-page"}, snapshot.SoftIntents)
-		require.Empty(t, snapshot.Filters.Intents, "query evidence must remain soft")
 		var projections int64
 		require.NoError(t, s.db.Table("normalized_needs").Where("need_input_id=?", id).Count(&projections).Error)
 		require.Zero(t, projections)
@@ -241,7 +241,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		s.call(t, "POST", "/api/v2/discovery/search", s.otherToken, "", discovery.Request{Need: &in}, 409)
 	})
 	t.Run("SearchCursorFreezesRankingAndBindsRequest", func(t *testing.T) {
-		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{Category: s.category}, Limit: 2}
+		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{}, Limit: 2}
 		first := s.search(t, r, "paged-search")
 		require.Len(t, first.Items, 2)
 		require.True(t, first.HasMore)
@@ -268,7 +268,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, []int{0, 1, 2}, positions)
 	})
 	t.Run("ThreeKindSearchTypedSamplesAndIdempotency", func(t *testing.T) {
-		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{Category: s.category}}
+		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{}}
 		first := s.search(t, r, "three-kinds")
 		require.Equal(t, "need_search_v1", first.PipelineVersion)
 		require.Equal(t, "ok", first.Status)
@@ -330,18 +330,15 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "feed", old.RequestMode)
 		require.Equal(t, 1, old.SampleSchemaVersion)
 	})
-	t.Run("QueryNormalizationAndCrossLanguageAliases", func(t *testing.T) {
-		for _, query := range []string{"  ＬＰ  ", "着陆页", "著陸頁", "帮我做LP"} {
+	t.Run("QueryNormalizationAndDenseRetrievalWithoutAliases", func(t *testing.T) {
+		for _, query := range []string{"  ＬＰ  ", "着陆页", "帮我做LP"} {
 			t.Run(query, func(t *testing.T) {
 				result := s.search(t, discovery.Request{Query: query}, "")
 				require.Len(t, result.Items, 3)
 				for _, item := range result.Items {
-					require.Contains(t, item.Match["match_types"], "synonym")
-					require.NotContains(t, item.Match["match_types"], "keyword", "fixture content has no query alias")
-				}
-				if query == "著陸頁" {
-					require.True(t, result.Partial)
-					require.Contains(t, result.Reasons, "embedding_unavailable")
+					require.Contains(t, item.Match["match_types"], "semantic")
+					require.NotContains(t, item.Match["match_types"], "synonym")
+					require.NotContains(t, item.Match["match_types"], "keyword", "fixture content has no lexical match")
 				}
 				s.waitSamples(t, result.ImpressionID, 3)
 				var raw string
@@ -354,21 +351,38 @@ func TestDiscoveryE2E(t *testing.T) {
 				require.Len(t, sample.Search.Contexts, 1)
 				compiled := sample.Search.Contexts[0]
 				require.Equal(t, strings.TrimSpace(query), compiled.Query)
-				require.Equal(t, "query_rules_v1", compiled.QueryAnalysis.Version)
-				require.NotEmpty(t, compiled.QueryAnalysis.Expansions)
-				require.Empty(t, compiled.Filters.Category, "recognized phrase must not become a hard category")
+				require.Equal(t, queryprocessing.Version, compiled.QueryAnalysis.Version)
 				if query == "  ＬＰ  " {
 					require.Equal(t, "lp", compiled.QueryAnalysis.Normalized)
 				}
 			})
 		}
 		filtered := s.search(t, discovery.Request{Query: "着陆页", Filters: discovery.Filters{Lang: []string{"zh"}}}, "")
-		require.Empty(t, filtered.Items, "cross-language expansion must not weaken explicit language filters")
+		require.Empty(t, filtered.Items, "dense retrieval must not weaken explicit language filters")
+	})
+	t.Run("RemovedTaxonomyAndAliasesAreNotAvailable", func(t *testing.T) {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/api/v2/taxonomy/search?query=design", nil)
+		require.NoError(t, err)
+		request.Header.Set("Authorization", "Bearer "+s.token)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		response.Body.Close()
+		require.Equal(t, http.StatusNotFound, response.StatusCode)
+		for _, field := range []string{"category", "subtype", "intents", "taxonomy_version"} {
+			value := any("design")
+			if field == "intents" {
+				value = []string{"design"}
+			}
+			s.call(t, "POST", "/api/v2/discovery/search", s.token, "", map[string]any{"query": "design", "filters": map[string]any{field: value}}, 400)
+		}
+		result := s.search(t, discovery.Request{Query: "著陸頁"}, "")
+		require.Empty(t, result.Items, "no embedding or lexical match must not expand aliases")
+		require.Contains(t, result.Reasons, "embedding_unavailable")
 	})
 	t.Run("NeedQueriesUseSharedProcessing", func(t *testing.T) {
 		defer s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
 		for _, kind := range discovery.AllKinds {
-			for _, query := range []string{"  ＬＰ  ", "著陸頁", "帮我做LP"} {
+			for _, query := range []string{"  ＬＡＮＤＩＮＧ  ", "landing page", "landing设计"} {
 				t.Run(string(kind)+"/"+query, func(t *testing.T) {
 					in := s.need(t, string(kind))
 					in.Target = needmodel.Target{Goal: query}
@@ -378,14 +392,7 @@ func TestDiscoveryE2E(t *testing.T) {
 						result := s.search(t, request, "")
 						require.Len(t, result.Items, 1)
 						require.Equal(t, kind, result.Items[0].Ref.Type)
-						require.Contains(t, result.Items[0].Match["match_types"], "synonym")
-						if query == "著陸頁" {
-							warning := "embedding_unavailable"
-							if request.NeedID != 0 {
-								warning = "embedding_pending"
-							}
-							require.Contains(t, result.Reasons, warning)
-						}
+						require.Contains(t, result.Items[0].Match["match_types"], "keyword")
 						s.waitSamples(t, result.ImpressionID, 1)
 						var raw string
 						require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", result.ImpressionID).Limit(1).Scan(&raw).Error)
@@ -397,8 +404,6 @@ func TestDiscoveryE2E(t *testing.T) {
 						require.Len(t, sample.Search.Contexts, 1)
 						compiled := sample.Search.Contexts[0]
 						require.NotNil(t, compiled.QueryAnalysis)
-						require.NotEmpty(t, compiled.QueryAnalysis.Expansions)
-						require.Empty(t, compiled.Filters.Category)
 						original, err := compiled.CapturedNeed.ExecutionInput()
 						require.NoError(t, err)
 						require.Equal(t, in, original)
@@ -411,6 +416,8 @@ func TestDiscoveryE2E(t *testing.T) {
 		agentRows, err := agentindex.ReadForward(ctx, mq.RDB, s.agentIndex, []int64{s.author})
 		require.NoError(t, err)
 		a := agentRows[s.author]
+		require.Empty(t, a.Embedding)
+		require.NotContains(t, mq.RDB.HGet(ctx, agentindex.Forward(mq.RDB, s.agentIndex).Key(s.author, "card"), "data").Val(), `"embedding"`)
 		a.ActivityAt = 0 // The DB public Card still has a recent last_active_at.
 		require.NoError(t, agentindex.WriteForward(ctx, mq.RDB, s.agentIndex, a))
 		result := s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Agent}}, "")
@@ -422,7 +429,8 @@ func TestDiscoveryE2E(t *testing.T) {
 			Search discovery.Candidate `json:"search"`
 		}](t, []byte(raw))
 		require.Zero(t, sample.Search.Score.Features["activity_freshness"])
-		require.InDelta(t, 1, sample.Search.Score.Features["cosine"], 0.00001, "cosine must use the vector from Redis, not the ES response")
+		require.InDelta(t, 1, sample.Search.Score.Features["cosine"], 0.00001, "cosine must derive from ES kNN score without a Redis vector")
+		require.NotContains(t, mq.RDB.HGet(ctx, commissionindex.Forward(mq.RDB, s.commissionIndex).Key(s.item, "catalogue"), "data").Val(), `"embedding"`)
 		before := s.esDocument(t, s.commissionIndex, s.item)
 		require.NoError(t, commissionindex.WriteStatistics(ctx, mq.RDB, s.commissionIndex, commissionindex.StatisticsSnapshot{CommissionID: s.item, StatisticsVersion: 7, CompletionRateBPS: 8000}))
 		result = s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}}, "")
@@ -574,7 +582,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Empty(t, s.search(t, r, "").Items)
 		r.Filters = discovery.Filters{ProviderRegion: []string{"CN"}}
 		require.Empty(t, s.search(t, r, "").Items, "unknown provider region cannot satisfy a hard constraint")
-		r.Filters = discovery.Filters{Category: s.category, Lang: []string{"zh"}}
+		r.Filters = discovery.Filters{Lang: []string{"zh"}}
 		r.SourceKinds = []discovery.Kind{discovery.Broadcast}
 		require.Empty(t, s.search(t, r, "").Items)
 		r.Filters = discovery.Filters{BudgetMaxFen: &zero, Currency: "CNY"}
@@ -611,7 +619,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.NotEqual(t, need.NeedInputID, recommended.ContextID)
 		require.Empty(t, recommended.FallbackReason)
 		r.Query = "landing page design"
-		r.Filters.Category = s.category
+		r.Filters.Lang = []string{"en"}
 		found := s.search(t, r, "")
 		require.Len(t, found.Items, 1)
 		require.Equal(t, s.author, found.Items[0].Ref.ID)
@@ -652,7 +660,7 @@ func TestDiscoveryE2E(t *testing.T) {
 				require.Equal(t, first, s.recommend(t, r, key), "retry must retain its response after the Need closes")
 				s.call(t, "POST", "/api/v2/discovery/recommendations", s.token, "new-after-close", r, 409)
 				// Search remains repeatable after automatic exposure.
-				require.Len(t, s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{tc.kind}, Filters: discovery.Filters{Category: s.category}}, "").Items, 1)
+				require.Len(t, s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{tc.kind}, Filters: discovery.Filters{}}, "").Items, 1)
 			})
 		}
 	})
@@ -667,7 +675,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Empty(t, x.FallbackReason)
 	})
 	t.Run("SourceChangesAffectNewRequestsOnly", func(t *testing.T) {
-		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{Category: s.category}}
+		r := discovery.Request{Query: "landing page design", Filters: discovery.Filters{}}
 		before := s.search(t, r, "before-block")
 		require.Len(t, before.Items, 3)
 		s.sql(t, "INSERT INTO user_relations(from_uid,to_uid,rel_type,created_at) VALUES(?,?,2,?)", s.owner, s.author, time.Now().UnixMilli())
@@ -676,7 +684,7 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Empty(t, s.search(t, r, "after-block").Items)
 	})
 	t.Run("OnlineRankingDoesNotCallCatalogueRPC", func(t *testing.T) {
-		r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}, Filters: discovery.Filters{Category: s.category}}
+		r := discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}, Filters: discovery.Filters{}}
 		require.Len(t, s.search(t, r, "").Items, 1)
 		s.catalogue.mu.Lock()
 		s.catalogue.fail = true
@@ -695,4 +703,10 @@ func (s *stack) esDocument(t *testing.T, index string, id int64) map[string]any 
 	var value map[string]any
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&value))
 	return value
+}
+
+func (s *stack) embeddingCallCount() int32 {
+	var total int32
+	s.embeddingCalls.Range(func(_, value any) bool { total += value.(*atomic.Int32).Load(); return true })
+	return total
 }

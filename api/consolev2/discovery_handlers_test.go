@@ -5,7 +5,6 @@ import (
 	"eigenflux_server/api/commissionaccess"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
-	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
 	"eigenflux_server/rpc/sort/discovery/transport"
 	"strings"
 	"testing"
@@ -28,15 +27,6 @@ func (f *discoveryFeedFake) Discovery(_ context.Context, r *sortapi.DiscoveryReq
 	return transport.Response(map[string]any{"items": []any{map[string]any{"source_ref": map[string]any{"type": "agent", "id": "9007199254740993"}, "context_id": "1", "match": map[string]any{"score": .8, "scorer_version": "test"}}}}, nil), nil
 }
 
-type discoverySortFake struct {
-	sortservice.Client
-	last *sortapi.DiscoveryReq
-}
-
-func (f *discoverySortFake) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
-	f.last = r
-	return transport.Response(map[string]any{"context_id": "9007199254740993"}, nil), nil
-}
 func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -51,11 +41,10 @@ func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	feed := &discoveryFeedFake{}
-	sort := &discoverySortFake{}
 	svc := &Service{db: db, feedClient: feed}
 	access, _ := commissionaccess.New(true, "43")
 	h := server.New()
-	svc.RegisterDiscovery(h, sort, access)
+	svc.RegisterDiscovery(h, access)
 	for _, tc := range []struct {
 		body   string
 		status int

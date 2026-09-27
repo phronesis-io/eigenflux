@@ -10,7 +10,6 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/mq"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"encoding/json"
@@ -25,9 +24,6 @@ func main() {
 	cfg := config.Load()
 	if !cfg.EnableNeedSearch {
 		log.Fatal("ENABLE_NEED_SEARCH is required")
-	}
-	if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
-		log.Fatal(err)
 	}
 	db.Init(cfg.PgDSN)
 	if err := es.InitES(cfg.EmbeddingDimensions); err != nil {

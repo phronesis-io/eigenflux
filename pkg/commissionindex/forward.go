@@ -23,6 +23,7 @@ func WriteForward(ctx context.Context, rdb *redis.Client, index string, d Docume
 	}
 	d.StatisticsVersion, d.CompletedCount, d.RefundedCount, d.AverageDeliveryMS = 0, 0, 0, 0
 	d.CompletionRateBPS, d.AverageRatingMilli, d.HasRating = 0, 0, false
+	d.Embedding = nil
 	return Forward(rdb, index).Put(ctx, d.CommissionID, "catalogue", d.CatalogueVersion, d)
 }
 

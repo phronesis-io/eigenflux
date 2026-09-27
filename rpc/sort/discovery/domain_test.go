@@ -16,14 +16,11 @@ type embedStub struct{ err error }
 func (e embedStub) GetEmbedding(context.Context, string) ([]float32, error) {
 	return []float32{1, 0}, e.err
 }
-func vocabulary() *searchindex.Vocabulary {
-	return &searchindex.Vocabulary{Version: "test1", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}, Subtypes: []searchindex.Node{{ID: "web", Name: "Web", Category: "design"}}, Intents: []searchindex.Node{{ID: "landing", Name: "landing page", Category: "design", Subtype: "web", Vector: []float32{1, 0}}}}
-}
 func baseContext() Context {
-	return Context{ID: 1, OwnerID: 10, State: "active", Kinds: AllKinds, Vector: []float32{1, 0}, TaxonomyVersion: "test1"}
+	return Context{ID: 1, OwnerID: 10, State: "active", Kinds: AllKinds, Vector: []float32{1, 0}}
 }
 func baseDoc(k Kind) Document {
-	return Document{Ref: SourceRef{k, 20}, AuthorID: 20, Active: true, Visible: true, Text: "A landing page designer", Slots: searchindex.Slots{Category: "design", Subtype: "web", TaxonomyVersion: "test1", Lang: []string{"en"}}, Vector: []float32{1, 0}, Lexical: 10}
+	return Document{Ref: SourceRef{k, 20}, AuthorID: 20, Active: true, Visible: true, Text: "A landing page designer", Slots: searchindex.Slots{Lang: []string{"en"}}, Vector: []float32{1, 0}, Lexical: 10}
 }
 func num(n int64) *int64 { return &n }
 func TestFilterAllKindsAndMissingEvidence(t *testing.T) {
@@ -31,7 +28,7 @@ func TestFilterAllKindsAndMissingEvidence(t *testing.T) {
 		t.Run(string(k), func(t *testing.T) {
 			c := baseContext()
 			d := baseDoc(k)
-			c.Filters = Filters{Category: "design", TaxonomyVersion: "test1", Lang: []string{"en"}, ProviderRegion: []string{"US"}}
+			c.Filters = Filters{Lang: []string{"en"}, ProviderRegion: []string{"US"}}
 			if got := Check(c, d, Search, 1000); got != "provider_region" {
 				t.Fatalf("missing evidence passed: %s", got)
 			}
@@ -116,7 +113,7 @@ func TestInputModesAndTypedBounds(t *testing.T) {
 	}
 }
 func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
-	cc := Compiler{Taxonomy: vocabulary(), Embedder: embedStub{}, EmbeddingVersion: "test"}
+	cc := Compiler{Embedder: embedStub{}, EmbeddingVersion: "test"}
 	snapshot := capturedFixture(42, Agent)
 	editCaptured(t, &snapshot, func(in *need.Input) {
 		in.Target.Goal = "  landing page  "
@@ -130,7 +127,7 @@ func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Filters.Category != "" || !reflect.DeepEqual(c.Filters.Lang, []string{"en"}) || !reflect.DeepEqual(c.Filters.ProviderRegion, []string{"US"}) || !reflect.DeepEqual(c.SoftIntents, []string{"landing"}) || c.NeedID() != 42 || c.Origin != "need_input" {
+	if !reflect.DeepEqual(c.Filters.Lang, []string{"en"}) || !reflect.DeepEqual(c.Filters.ProviderRegion, []string{"US"}) || c.NeedID() != 42 || c.Origin != "need_input" {
 		t.Fatalf("wrong direct context: %+v", c)
 	}
 	if string(c.CapturedNeed.Input) != original || c.Query != "landing page  \ndesign support" || c.UnverifiedNeedReason != "" {
@@ -148,7 +145,7 @@ func TestCompilerConsumesDirectNeedWithoutInventedFilters(t *testing.T) {
 }
 
 func TestOpenRequirementsPreservedWithoutBlockingRetrieval(t *testing.T) {
-	cc := Compiler{Taxonomy: vocabulary(), Embedder: embedStub{}}
+	cc := Compiler{Embedder: embedStub{}}
 	snapshot := capturedFixture(42, Agent)
 	editCaptured(t, &snapshot, func(in *need.Input) {
 		in.Requirements = []need.Condition{{Text: "Do not upload production data", SourceQuote: "keep production data local"}}

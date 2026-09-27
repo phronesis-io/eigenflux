@@ -83,7 +83,7 @@ func TestNeedEmbeddingAsyncProductionAndReuse(t *testing.T) {
 	require.NoError(t, err)
 	saved, _, err := store.Create(ctx, h.owner, "embedding-async", raw, 1)
 	require.NoError(t, err)
-	text := queryprocessing.Process(queryprocessing.NeedText(input.Target.Goal, input.Target.Context), nil, queryprocessing.Options{}).Normalized
+	text := queryprocessing.Process(queryprocessing.NeedText(input.Target.Goal, input.Target.Context), queryprocessing.Options{}).Normalized
 	keys := []string{cache.Key(text)}
 	t.Cleanup(func() { cache.Redis.Del(ctx, keys...) })
 	// Save does not call the model. The background worker discovers it without an

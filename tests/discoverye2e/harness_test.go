@@ -28,7 +28,6 @@ import (
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/sort/discovery"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
 
 	"github.com/stretchr/testify/require"
@@ -39,17 +38,17 @@ import (
 // These tests own the application processes. Infrastructure must be an isolated,
 // migrated test stack with no other Kitex services registered in its etcd.
 type stack struct {
-	embeddingCalls                                         sync.Map
-	needVectors                                            *needembedding.Cache
-	needWorker                                             *consumer.NeedEmbeddingWorker
-	root, logs, url, category, commissionIndex, agentIndex string
-	db                                                     *gorm.DB
-	cfg                                                    *config.Config
-	owner, other, author, item                             int64
-	token, otherToken                                      string
-	shortIDs                                               map[int64]string
-	vector                                                 []float32
-	catalogue                                              *catalogueFixture
+	embeddingCalls                                      sync.Map
+	needVectors                                         *needembedding.Cache
+	needWorker                                          *consumer.NeedEmbeddingWorker
+	root, logs, url, label, commissionIndex, agentIndex string
+	db                                                  *gorm.DB
+	cfg                                                 *config.Config
+	owner, other, author, item                          int64
+	token, otherToken                                   string
+	shortIDs                                            map[int64]string
+	vector                                              []float32
+	catalogue                                           *catalogueFixture
 }
 
 func startStack(t *testing.T) *stack {
@@ -93,7 +92,7 @@ func startStack(t *testing.T) *stack {
 	require.NoError(t, es.InitES(cfg.EmbeddingDimensions))
 	seed := time.Now().UnixNano() / 10
 	s := &stack{root: root, db: db.DB, cfg: cfg, owner: seed, other: seed + 1, author: seed + 2, item: seed + 3,
-		category: fmt.Sprintf("e2e-design-%d", seed), commissionIndex: fmt.Sprintf("discovery-e2e-c-%d", seed), agentIndex: fmt.Sprintf("discovery-e2e-a-%d", seed)}
+		label: fmt.Sprintf("e2e-design-%d", seed), commissionIndex: fmt.Sprintf("discovery-e2e-c-%d", seed), agentIndex: fmt.Sprintf("discovery-e2e-a-%d", seed)}
 	s.logs = filepath.Join(root, "build", fmt.Sprintf("discovery-e2e-%d", seed))
 	require.NoError(t, os.MkdirAll(s.logs, 0700))
 	t.Logf("process logs: %s", s.logs)
@@ -113,8 +112,7 @@ func startStack(t *testing.T) *stack {
 		}
 		counter, _ := s.embeddingCalls.LoadOrStore(input.Input, &atomic.Int32{})
 		counter.(*atomic.Int32).Add(1)
-		// Exercise dictionary-only search while the existing optional embedding
-		// dependency is unavailable; no generative model participates in this path.
+		// Verify failed embedding never invents cross-language lexical aliases.
 		if input.Input == "著陸頁" {
 			http.Error(w, "fixture embedding unavailable", http.StatusServiceUnavailable)
 			return
@@ -123,11 +121,6 @@ func startStack(t *testing.T) *stack {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"index": 0, "embedding": s.vector}}, "model": "discovery-e2e", "usage": map[string]int{"total_tokens": 1}})
 	}))
 	t.Cleanup(embedding.Close)
-	vocab := searchindex.Vocabulary{Version: s.category, EmbeddingVersion: "discovery-e2e", Categories: []searchindex.Node{{ID: s.category, Name: "Design"}}, Intents: []searchindex.Node{{ID: "landing-page", Name: "Landing page design", Category: s.category, Aliases: []string{"landing page", "着陆页", "著陸頁", "LP"}, Vector: s.vector}}}
-	taxPath := filepath.Join(s.logs, "taxonomy.json")
-	writeJSON(t, taxPath, vocab)
-	_, err = searchindex.Configure(taxPath)
-	require.NoError(t, err)
 	rules := discovery.Rules{}
 	for _, kind := range discovery.AllKinds {
 		rules[kind] = map[discovery.Mode]discovery.Rule{}
@@ -143,8 +136,8 @@ func startStack(t *testing.T) *stack {
 	}
 	s.url = fmt.Sprintf("http://127.0.0.1:%d", ports["API_PORT"])
 	for k, v := range map[string]string{
+		"DISCOVERY_RULES_PATH": rulesPath, "AGENT_DISCOVERY_INDEX": s.agentIndex,
 		"ENABLE_NEED_SEARCH": "true", "ENABLE_CONSOLE_V2": "true", "ENABLE_FEED_V2": "true", "ENABLE_REPLAY_LOG": "true", "ENABLE_COMMISSION_INDEX": "true", "ENABLE_COMMISSION_DISCOVERY_API": "true",
-		"DISCOVERY_TAXONOMY_PATH": taxPath, "DISCOVERY_RULES_PATH": rulesPath, "AGENT_DISCOVERY_INDEX": s.agentIndex,
 		"COMMISSION_INDEX_NAME": s.commissionIndex, "COMMISSION_INDEX_ALIAS": s.commissionIndex + "-read",
 		"COMMISSION_SOURCE_SERVICE": "DiscoveryE2ECommission", "COMMISSION_ORDER_SOURCE_SERVICE": "DiscoveryE2EOrder",
 		"ENABLE_COMMISSION_AGENT_ID_WHITELIST": "false", "COMMISSION_INTEGRATION_MODE": "false",
@@ -195,7 +188,7 @@ func startStack(t *testing.T) *stack {
 		require.NoError(t, ids.Close(context.Background()))
 	})
 	require.Eventually(t, func() bool {
-		status, _, err := s.request("GET", "/api/v2/taxonomy/search?query=landing", s.token, "", nil)
+		status, _, err := s.request("POST", "/api/v2/discovery/recommendations", s.token, "", map[string]any{"source_kinds": []string{"agent"}})
 		return err == nil && status == 200
 	}, 20*time.Second, 100*time.Millisecond, "API/Sort discovery readiness; inspect process logs")
 	require.Eventually(t, func() bool {

@@ -113,16 +113,7 @@ func newDiscoveryCommands() []*cobra.Command {
 	recommend.Flags().Int("limit", 20, "Maximum results, up to 100; fewer may match")
 	recommend.Flags().StringSlice("types", nil, "Source kinds")
 	recommend.Flags().String("idempotency-key", "", "Retry key")
-	taxonomy := &cobra.Command{Use: "taxonomy", Short: "Look up canonical intents"}
-	lookup := &cobra.Command{Use: "search <phrase>", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
-		cat, _ := c.Flags().GetString("category")
-		sub, _ := c.Flags().GetString("subtype")
-		return discoveryCall(c, "GET", "/taxonomy/search", nil, map[string]string{"query": args[0], "category": cat, "subtype": sub}, false)
-	}}
-	lookup.Flags().String("category", "", "Canonical category")
-	lookup.Flags().String("subtype", "", "Canonical subtype")
-	taxonomy.AddCommand(lookup)
-	return []*cobra.Command{search, recommend, taxonomy}
+	return []*cobra.Command{search, recommend}
 }
 
 func init() { rootCmd.AddCommand(newDiscoveryCommands()...) }

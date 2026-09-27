@@ -26,7 +26,7 @@ func (w *NeedEmbeddingWorker) ProcessOne(ctx context.Context) (bool, error) {
 	defer cancel()
 	in, err := job.Snapshot().ExecutionInput()
 	if err == nil {
-		analysis := queryprocessing.Process(queryprocessing.NeedText(in.Target.Goal, in.Target.Context), nil, queryprocessing.Options{})
+		analysis := queryprocessing.Process(queryprocessing.NeedText(in.Target.Goal, in.Target.Context), queryprocessing.Options{})
 		_, err = w.Cache.Produce(work, analysis.Normalized, w.Embedder)
 	}
 	// Shutdown/cancellation may stop the model call; record a retry if the DB is

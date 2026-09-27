@@ -56,3 +56,20 @@ func TestSavedNeedsUseOnlyAsyncVectors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, embed.calls, "explicit query path changed")
 }
+
+func TestOwnerContextNeverCallsEmbeddingOrCache(t *testing.T) {
+	embed := &countingEmbed{}
+	cc := Compiler{Embedder: embed, NeedVectors: cacheLookupFunc(func(context.Context, int64, string, string) ([]float32, error) {
+		t.Fatal("owner context must not schedule Need vector work")
+		return nil, nil
+	})}
+	for _, text := range []string{"design", "  Ｋ８Ｓ 运维", "寻找服务", "four", "five"} {
+		c, err := cc.Query(context.Background(), 1, 2, 100, Request{Query: text, SourceKinds: AllKinds}, "agent_context")
+		require.NoError(t, err)
+		require.Empty(t, c.Vector)
+		require.Empty(t, c.Warnings, "intentional lexical-only fallback is not a failed model call")
+		require.NotNil(t, c.QueryAnalysis)
+		require.NotEmpty(t, c.SpecHash)
+	}
+	require.Zero(t, embed.calls)
+}

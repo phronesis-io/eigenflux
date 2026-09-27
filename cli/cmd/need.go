@@ -107,7 +107,7 @@ Constraint arrays allow at most 20 nonblank values of 100 weighted characters ea
 CJK characters count as 2, other characters as 1. The JSON body limit is 32 KiB.
 Omit unstated or unknown values; do not guess or replace them with zero. Keep
 optional language, region, price and timing preferences in preferences.
-Do not submit candidate phrases, canonical taxonomy IDs or normalized results.
+Submit only the documented fields; do not submit derived results.
 
 The CLI submits the original JSON; the server validates and stores its snapshot.
 New records have status active and eligible on the NeedInput record. Eligibility

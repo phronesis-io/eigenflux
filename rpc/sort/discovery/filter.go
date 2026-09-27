@@ -86,20 +86,6 @@ func Check(c Context, d Document, mode Mode, now int64) string {
 			return "excluded_author"
 		}
 	}
-	if f.Category != "" || f.Subtype != "" || len(f.Intents) > 0 {
-		if f.TaxonomyVersion == "" || d.Slots.TaxonomyVersion != f.TaxonomyVersion {
-			return "taxonomy_evidence"
-		}
-		if f.Category != "" && f.Category != d.Slots.Category {
-			return "category"
-		}
-		if f.Subtype != "" && f.Subtype != d.Slots.Subtype {
-			return "subtype"
-		}
-		if len(f.Intents) > 0 && !intersects(f.Intents, d.Slots.Intents) {
-			return "intents"
-		}
-	}
 	if len(f.Lang) > 0 && !intersects(f.Lang, d.Slots.Lang) {
 		return "language"
 	}

@@ -20,7 +20,11 @@ func TestAgentSearchProjectionExcludesRankingFeatures(t *testing.T) {
 	require.NoError(t, WriteForward(context.Background(), r, "agents-v1", d))
 	rows, err := ReadForward(context.Background(), r, "agents-v1", []int64{9})
 	require.NoError(t, err)
-	require.Equal(t, d, rows[9])
+	expected := d
+	expected.Embedding = nil
+	require.Equal(t, expected, rows[9])
+	require.NotContains(t, r.HGet(context.Background(), Forward(r, "agents-v1").Key(9, "card"), "data").Val(), `"embedding"`)
+	require.Equal(t, []float32{1, 0}, d.SearchFields()["embedding"], "forward write must not mutate ES vector")
 	d.Active, d.ProjectionVersion, d.Version = false, 4, 3
 	require.NoError(t, WriteForward(context.Background(), r, "agents-v1", d))
 	d.Active, d.ProjectionVersion = true, 3

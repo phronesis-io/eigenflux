@@ -60,7 +60,7 @@ func Load(ctx context.Context, db *gorm.DB, ids []int64) ([]Document, error) {
 			return nil, err
 		}
 		parts := []string{p.DisplayName, p.AgentDescription, p.HumanDescription, strings.Join(p.Offering, " "), strings.Join(p.Seeking, " ")}
-		out = append(out, Document{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: strings.Join(parts, "\n"), DisplayName: p.DisplayName, Slots: searchindex.ContentSlots(searchindex.Current(), append(append([]string{}, p.Offering...), p.Seeking...), p.Languages), ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
+		out = append(out, Document{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: strings.Join(parts, "\n"), DisplayName: p.DisplayName, Slots: searchindex.Slots{Lang: p.Languages}, ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }

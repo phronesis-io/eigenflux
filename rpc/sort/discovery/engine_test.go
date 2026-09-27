@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"eigenflux_server/pkg/need"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"encoding/json"
 
 	"fmt"
@@ -106,7 +105,7 @@ func engineFixture() (*Engine, *sourceFake, *memStore) {
 			rules[k][m] = Rule{Version: "rules", BM25Scale: 1, CosineFloor: 0, MinRelevance: .1, Threshold: .1, HalfLifeMS: 1000}
 		}
 	}
-	e := &Engine{Compiler: &Compiler{Taxonomy: &searchindex.Vocabulary{Version: "v1", Categories: []searchindex.Node{{ID: "design", Name: "Design"}}}}, Store: store, Needs: store, IDs: &ids, Sources: s, Rules: rules}
+	e := &Engine{Compiler: &Compiler{}, Store: store, Needs: store, IDs: &ids, Sources: s, Rules: rules}
 	return e, s, store
 }
 

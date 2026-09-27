@@ -11,13 +11,16 @@ import (
 func TestIndependentForwardVersionsAndTombstone(t *testing.T) {
 	r := forwardRedis(t)
 	ctx := context.Background()
-	d := Document{CommissionID: 8, CatalogueVersion: 10, StatisticsVersion: 20, Title: "current", CompletedCount: 2, Active: true}
+	d := Document{CommissionID: 8, CatalogueVersion: 10, StatisticsVersion: 20, Title: "current", Embedding: []float32{1, 0}, CompletedCount: 2, Active: true}
 	require.NoError(t, WriteForward(ctx, r, "commissions-v1", d))
 	d.CatalogueVersion, d.StatisticsVersion, d.Title, d.CompletedCount = 9, 21, "stale", 3
 	require.NoError(t, WriteForward(ctx, r, "commissions-v1", d))
 	rows, err := ReadForward(ctx, r, "commissions-v1", []int64{8})
 	require.NoError(t, err)
 	require.Equal(t, "current", rows[8].Title)
+	require.Empty(t, rows[8].Embedding)
+	require.NotContains(t, r.HGet(ctx, Forward(r, "commissions-v1").Key(8, "catalogue"), "data").Val(), `"embedding"`)
+	require.Equal(t, []float32{1, 0}, d.SearchFields()["embedding"])
 	require.EqualValues(t, 21, rows[8].StatisticsVersion)
 	require.EqualValues(t, 3, rows[8].CompletedCount)
 	withCommissionESTransport(t, func(*http.Request) (*http.Response, error) {

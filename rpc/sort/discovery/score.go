@@ -79,34 +79,25 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 		s.Missing = append(s.Missing, "lexical")
 	}
 	semantic := 0.0
-	if cos, ok := Cosine(c.Vector, d.Vector); ok {
+	cos, ok := 0.0, false
+	if d.Ref.Type == Broadcast {
+		cos, ok = Cosine(c.Vector, d.Vector)
+	} else if d.DenseScore != nil && finite(*d.DenseScore) && *d.DenseScore >= 0 && *d.DenseScore <= 1 {
+		// ES cosine kNN returns (1 + cosine) / 2, without lexical boosts.
+		cos, ok = 2*(*d.DenseScore)-1, true
+	}
+	if ok {
 		s.Features["cosine"] = cos
 		semantic = clamp((cos - rule.CosineFloor) / (1 - rule.CosineFloor))
 	} else {
 		s.Missing = append(s.Missing, "semantic")
 	}
-	slot := 0.0
-	if c.Filters.TaxonomyVersion != "" && c.Filters.TaxonomyVersion == d.Slots.TaxonomyVersion {
-		if c.Filters.Category != "" && c.Filters.Category == d.Slots.Category {
-			slot += .15
-		}
-		if c.Filters.Subtype != "" && c.Filters.Subtype == d.Slots.Subtype {
-			slot += .25
-		}
+	s.Relevance = lex
+	if ok {
+		s.Relevance = .55*lex + .45*semantic
 	}
-	if c.TaxonomyVersion == d.Slots.TaxonomyVersion && len(c.SoftIntents) > 0 {
-		n := 0
-		for _, id := range c.SoftIntents {
-			if intersects([]string{id}, d.Slots.Intents) {
-				n++
-			}
-		}
-		slot += .60 * float64(n) / float64(len(c.SoftIntents))
-	}
-	s.Relevance = math.Max(slot, .55*lex+.45*semantic)
 	fresh := decay(d.FreshAt, now, rule.HalfLifeMS)
 	quality := clamp(d.Quality)
-	s.Features["slot"] = slot
 	s.Features["lexical"] = lex
 	s.Features["semantic"] = semantic
 	s.Features["freshness"] = fresh

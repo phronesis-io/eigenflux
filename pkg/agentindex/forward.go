@@ -14,6 +14,7 @@ func Forward(rdb *redis.Client, index string) searchindex.Forward {
 }
 
 func WriteForward(ctx context.Context, rdb *redis.Client, index string, d Document) error {
+	d.Embedding = nil
 	return Forward(rdb, index).Put(ctx, d.AgentID, "card", d.ProjectionVersion, d)
 }
 
@@ -37,7 +38,7 @@ func ReadForward(ctx context.Context, rdb *redis.Client, index string, ids []int
 }
 
 // SearchFields excludes activity/freshness features. Embedding remains in ES
-// for kNN, and in the forward document for exact cosine scoring after recall.
+// for kNN; Redis stores scalar ranking and hydration evidence only.
 func (d Document) SearchFields() map[string]any {
 	return map[string]any{"agent_id": d.AgentID, "version": d.Version, "projection_version": d.ProjectionVersion,
 		"active": d.Active, "search_text": d.SearchText, "display_name": d.DisplayName,

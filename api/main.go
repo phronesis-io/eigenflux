@@ -343,7 +343,7 @@ func main() {
 		consoleV2Service.Register(h)
 		consoleV2Service.RegisterCommissionDiscovery(h, commissionDiscoveryService)
 		if cfg.EnableNeedSearch {
-			consoleV2Service.RegisterDiscovery(h, sortClient, commissionAccess)
+			consoleV2Service.RegisterDiscovery(h, commissionAccess)
 		}
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg)
 		log.Print("Console V2 routes registered")

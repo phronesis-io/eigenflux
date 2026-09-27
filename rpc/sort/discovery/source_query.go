@@ -8,7 +8,6 @@ import (
 	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/es"
 	sortdal "eigenflux_server/rpc/sort/dal"
-	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,14 +108,6 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	}
 	f := c.Filters
 	not = append(not, terms(author, f.ExcludeAuthors))
-	for field, value := range map[string]string{"category": f.Category, "subtype": f.Subtype, "taxonomy_version": f.TaxonomyVersion} {
-		if value != "" {
-			filters = append(filters, term("retrieval_slots."+field, value))
-		}
-	}
-	if len(f.Intents) > 0 {
-		filters = append(filters, terms("retrieval_slots.intents", f.Intents))
-	}
 	if len(f.Lang) > 0 {
 		filters = append(filters, terms(lang, f.Lang))
 	}
@@ -164,34 +155,11 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 			boolq["should"] = []any{map[string]any{"dis_max": map[string]any{"queries": phrases, "tie_breaker": 0}}}
 		}
 		body["query"] = map[string]any{"bool": boolq}
-	case "synonym":
-		if c.QueryAnalysis == nil || len(c.QueryAnalysis.Expansions) == 0 || len(c.QueryAnalysis.Expansions) > queryprocessing.MaxExpansions {
-			return nil, fmt.Errorf("missing or excessive query expansions")
-		}
-		variants := []any{}
-		for _, expansion := range c.QueryAnalysis.Expansions {
-			variants = append(variants, map[string]any{"bool": map[string]any{
-				"must":   []any{map[string]any{"multi_match": map[string]any{"query": expansion.Query, "fields": textFields}}},
-				"filter": []any{map[string]any{"multi_match": map[string]any{"query": expansion.To, "fields": textFields, "type": "phrase"}}},
-				"boost":  0.5,
-			}})
-		}
-		// dis_max prevents overlapping aliases from accumulating a score bonus.
-		boolq["must"] = []any{map[string]any{"dis_max": map[string]any{"queries": variants, "tie_breaker": 0}}}
-		body["query"] = map[string]any{"bool": boolq}
 	case "dense":
 		if len(c.Vector) == 0 {
 			return nil, fmt.Errorf("missing query vector")
 		}
 		body["knn"] = map[string]any{"field": "embedding", "query_vector": c.Vector, "k": limit, "num_candidates": limit * 3, "filter": map[string]any{"bool": boolq}}
-	case "structured":
-		if len(c.SoftIntents) > 0 {
-			boolq["should"] = []any{terms("retrieval_slots.intents", c.SoftIntents)}
-			boolq["minimum_should_match"] = 1
-		} else if f.Category == "" {
-			return nil, fmt.Errorf("missing structured evidence")
-		}
-		body["query"] = map[string]any{"bool": boolq}
 	default:
 		return nil, fmt.Errorf("unsupported channel")
 	}
@@ -275,8 +243,12 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 			}
 			d.SourceIndex = h.Index
 		}
-		if channel == "lexical" || channel == "synonym" {
+		if channel == "lexical" {
 			d.Lexical = h.Score
+		}
+		if channel == "dense" {
+			score := h.Score
+			d.DenseScore = &score
 		}
 		out = append(out, d)
 	}

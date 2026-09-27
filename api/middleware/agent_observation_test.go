@@ -22,7 +22,7 @@ func TestAgentObservationSuccessAndReadBoundaries(t *testing.T) {
 		{name: "Need invalid", method: "POST", path: "/api/v2/need-inputs", body: `{"error":{}}`, status: 400},
 		{name: "discovery search", method: "POST", path: "/api/v2/discovery/search", body: `{"code":0}`, status: 200, want: true},
 		{name: "discovery recommendation", method: "POST", path: "/api/v2/discovery/recommendations", body: `{"code":0}`, status: 200, want: true},
-		{name: "taxonomy read", method: "GET", path: "/api/v2/taxonomy/search", body: `{"code":0}`, status: 200},
+		{name: "metadata read", method: "GET", path: "/api/v2/agents/me", body: `{"code":0}`, status: 200},
 		{name: "failed discovery", method: "POST", path: "/api/v2/discovery/search", body: `{"code":503}`, status: 503},
 		{name: "V2 feed", method: "POST", path: "/api/v2/feed", body: `{"data":{"items":[]}}`, status: 200, want: true},
 		{name: "heartbeat", method: "POST", path: "/api/v2/runtime/heartbeat", body: `{"data":{}}`, status: 200, want: true},

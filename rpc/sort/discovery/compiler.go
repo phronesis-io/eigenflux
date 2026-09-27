@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
 	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 	"encoding/hex"
@@ -29,7 +27,6 @@ type NeedVectorLookup interface {
 }
 type Compiler struct {
 	NeedVectors      NeedVectorLookup
-	Taxonomy         *searchindex.Vocabulary
 	Embedder         Embedder
 	EmbeddingVersion string
 }
@@ -51,12 +48,6 @@ func textOK(s string, max int) bool {
 	return strings.TrimSpace(s) != "" && validator.CalculateMultilingualLength(s) <= max
 }
 func ValidateFilters(f Filters, kinds []Kind, now int64) error {
-	if len(f.Intents) > 0 && f.TaxonomyVersion == "" {
-		return Invalid("filters.taxonomy_version", "required_with_intents")
-	}
-	if f.Subtype != "" && f.Category == "" {
-		return Invalid("filters.subtype", "category_required")
-	}
 	numeric := f.BudgetMaxFen != nil || f.MinPriceFen != nil || f.MaxPriceFen != nil || f.MinDurationMS != nil || f.MaxDurationMS != nil || f.Currency != ""
 	if numeric && (len(kinds) != 1 || kinds[0] != Commission) {
 		return Invalid("filters", "commission_only")
@@ -80,7 +71,7 @@ func ValidateFilters(f Filters, kinds []Kind, now int64) error {
 	if f.DeadlineMS != nil && *f.DeadlineMS <= now {
 		return Invalid("filters.deadline_ms", "elapsed")
 	}
-	for path, values := range map[string][]string{"lang": f.Lang, "provider_region": f.ProviderRegion, "exclude_terms": f.ExcludeTerms, "intents": f.Intents} {
+	for path, values := range map[string][]string{"lang": f.Lang, "provider_region": f.ProviderRegion, "exclude_terms": f.ExcludeTerms} {
 		if len(values) > 20 {
 			return Invalid("filters."+path, "too_many")
 		}
@@ -193,25 +184,8 @@ func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kind
 	if owner <= 0 || id <= 0 {
 		return Context{}, Invalid("identity", "invalid")
 	}
-	if cc.Taxonomy == nil {
-		return Context{}, Failure(503, "taxonomy_unavailable")
-	}
 	if err := ValidateFilters(f, kinds, now); err != nil {
 		return Context{}, err
-	}
-	if f.Category != "" && !cc.Taxonomy.ValidBranch(f.Category, f.Subtype) {
-		return Context{}, Invalid("filters.category", "unknown_taxonomy_branch")
-	}
-	if f.TaxonomyVersion != "" && f.TaxonomyVersion != cc.Taxonomy.Version {
-		return Context{}, Invalid("filters.taxonomy_version", "stale_taxonomy")
-	}
-	for _, intent := range f.Intents {
-		if !cc.Taxonomy.Intent(intent, f.Category, f.Subtype) {
-			return Context{}, Invalid("filters.intents", "invalid_parent")
-		}
-	}
-	if f.Category != "" || len(f.Intents) > 0 {
-		f.TaxonomyVersion = cc.Taxonomy.Version
 	}
 	f.ExcludeAuthors = append(append([]string(nil), f.ExcludeAuthors...), strconv.FormatInt(owner, 10))
 	origins := map[string]string{"exclude_authors": "system"}
@@ -223,27 +197,26 @@ func (cc *Compiler) compileBase(owner, id, now int64, origin, query string, kind
 			origins[k] = "explicit"
 		}
 	}
-	c := Context{ID: id, OwnerID: owner, Revision: 1, Persistence: "ephemeral", Origin: origin, State: "active", Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, TaxonomyVersion: cc.Taxonomy.Version, CompilerVersion: "context_rules_v3", EmbeddingVersion: cc.EmbeddingVersion, CreatedAt: now, UpdatedAt: now, ExpiresAt: now + int64(30*24*time.Hour/time.Millisecond)}
+	c := Context{ID: id, OwnerID: owner, Revision: 1, Persistence: "ephemeral", Origin: origin, State: "active", Query: strings.TrimSpace(query), Kinds: kinds, Filters: f, Origins: origins, CompilerVersion: "context_rules_v4", EmbeddingVersion: cc.EmbeddingVersion, CreatedAt: now, UpdatedAt: now, ExpiresAt: now + int64(30*24*time.Hour/time.Millisecond)}
 	if c.Query != "" {
-		c.QueryAnalysis = queryprocessing.Process(c.Query, cc.Taxonomy, queryprocessing.Options{Category: f.Category, Subtype: f.Subtype, Identity: identity})
-		c.SoftIntents = append([]string(nil), c.QueryAnalysis.Intents...)
+		c.QueryAnalysis = queryprocessing.Process(c.Query, queryprocessing.Options{Identity: identity})
 	}
 	return c, nil
 }
 func hashContext(c Context) string {
 	b, _ := json.Marshal(struct {
-		Query                         string
-		Kinds                         []Kind
-		Filters                       Filters
-		Captured                      *need.Snapshot
-		QueryAnalysis                 *queryprocessing.Analysis
-		Taxonomy, Embedding, Compiler string
-	}{c.Query, c.Kinds, c.Filters, c.CapturedNeed, c.QueryAnalysis, c.TaxonomyVersion, c.EmbeddingVersion, c.CompilerVersion})
+		Query               string
+		Kinds               []Kind
+		Filters             Filters
+		Captured            *need.Snapshot
+		QueryAnalysis       *queryprocessing.Analysis
+		Embedding, Compiler string
+	}{c.Query, c.Kinds, c.Filters, c.CapturedNeed, c.QueryAnalysis, c.EmbeddingVersion, c.CompilerVersion})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
 func (cc *Compiler) embed(ctx context.Context, c *Context) error {
-	if c.Query == "" {
+	if c.Query == "" || c.Origin == "agent_context" || c.Origin == "baseline" {
 		c.SpecHash = hashContext(*c)
 		return nil
 	}
@@ -292,27 +265,8 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 		c.SpecHash = hashContext(c)
 		return c, nil
 	}
-	if err = cc.prepareRetrieval(ctx, &c); err != nil {
+	if err = cc.embed(ctx, &c); err != nil {
 		return c, err
 	}
 	return c, nil
-}
-
-// Both Need and query adapters complete the same analyzed retrieval context.
-func (cc *Compiler) prepareRetrieval(ctx context.Context, c *Context) error {
-	if err := cc.embed(ctx, c); err != nil {
-		return err
-	}
-	// Ambiguous aliases cannot re-enter through exact taxonomy matching.
-	if c.QueryAnalysis != nil && len(c.QueryAnalysis.Ambiguous) == 0 && !c.QueryAnalysis.Identity {
-		for _, m := range cc.Taxonomy.Search(c.lexicalQuery(), c.Filters.Category, c.Filters.Subtype, c.Vector, .80, 5) {
-			if len(c.SoftIntents) < 5 {
-				c.SoftIntents = appendUnique(c.SoftIntents, m.ID)
-			}
-		}
-	}
-	if len(c.SoftIntents) == 0 && c.Origin != "baseline" {
-		metrics.DiscoveryTaxonomyMisses.WithLabelValues(c.Origin).Inc()
-	}
-	return nil
 }

@@ -302,9 +302,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if !c.Active(now) {
 			return x, Failure(409, "inactive_context")
 		}
-		if c.TaxonomyVersion != e.Compiler.Taxonomy.Version {
-			return x, Failure(409, "stale_taxonomy")
-		}
 		x.PartialReasons = append(x.PartialReasons, c.Warnings...)
 		if c.UnverifiedNeedReason != "" {
 			continue
@@ -314,14 +311,8 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				continue
 			}
 			channels := []string{"lexical"}
-			if c.QueryAnalysis != nil && len(c.QueryAnalysis.Expansions) > 0 {
-				channels = append(channels, "synonym")
-			}
 			if len(c.Vector) > 0 {
 				channels = append(channels, "dense")
-			}
-			if c.Filters.Category != "" || len(c.SoftIntents) > 0 {
-				channels = append(channels, "structured")
 			}
 			if kind == Broadcast && mode == Recommendation {
 				channels = append(channels, "hot_recall", "new_recall", "new_ugc_recall")
@@ -344,9 +335,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						return
 					}
 					limit := 80
-					if channel == "structured" || channel == "synonym" {
-						limit = 40
-					}
 					if strings.HasSuffix(channel, "recall") {
 						limit = 20
 					}
@@ -411,6 +399,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 					if d.Lexical > prior.Lexical {
 						prior.Lexical = d.Lexical
 					}
+					if d.SourceIndex == prior.SourceIndex && d.Version == prior.Version && d.ProjectionVersion == prior.ProjectionVersion && d.DenseScore != nil && (prior.DenseScore == nil || *d.DenseScore > *prior.DenseScore) {
+						prior.DenseScore = d.DenseScore
+					}
 					merged[key] = prior
 					continue
 				}
@@ -451,6 +442,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				continue
 			}
 			d.Lexical = prior.Lexical
+			d.DenseScore = prior.DenseScore
 			d.Channels = prior.Channels
 			d.ExactMatch = prior.ExactMatch
 			if d.Ref.Type == Broadcast {
@@ -504,7 +496,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	return x, nil
 }
 func channelOrder(c string) int {
-	for i, s := range []string{"lexical", "dense", "structured", "synonym", "hot_recall", "new_recall", "new_ugc_recall"} {
+	for i, s := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall"} {
 		if s == c {
 			return i
 		}

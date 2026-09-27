@@ -53,21 +53,17 @@ func Invalid(path, reason string) error {
 func Failure(code int, reason string) error { return &Error{Code: code, Reason: reason} }
 
 type Filters struct {
-	Category        string   `json:"category,omitempty"`
-	Subtype         string   `json:"subtype,omitempty"`
-	Intents         []string `json:"intents,omitempty"`
-	TaxonomyVersion string   `json:"taxonomy_version,omitempty"`
-	BudgetMaxFen    *int64   `json:"budget_max_fen,omitempty"`
-	Currency        string   `json:"currency,omitempty"`
-	MinPriceFen     *int64   `json:"min_price_fen,omitempty"`
-	MaxPriceFen     *int64   `json:"max_price_fen,omitempty"`
-	MinDurationMS   *int64   `json:"min_promised_delivery_ms,omitempty"`
-	MaxDurationMS   *int64   `json:"max_promised_delivery_ms,omitempty"`
-	DeadlineMS      *int64   `json:"deadline_ms,omitempty"`
-	ProviderRegion  []string `json:"provider_region,omitempty"`
-	Lang            []string `json:"lang,omitempty"`
-	ExcludeTerms    []string `json:"exclude_terms,omitempty"`
-	ExcludeAuthors  []string `json:"exclude_authors,omitempty"`
+	BudgetMaxFen   *int64   `json:"budget_max_fen,omitempty"`
+	Currency       string   `json:"currency,omitempty"`
+	MinPriceFen    *int64   `json:"min_price_fen,omitempty"`
+	MaxPriceFen    *int64   `json:"max_price_fen,omitempty"`
+	MinDurationMS  *int64   `json:"min_promised_delivery_ms,omitempty"`
+	MaxDurationMS  *int64   `json:"max_promised_delivery_ms,omitempty"`
+	DeadlineMS     *int64   `json:"deadline_ms,omitempty"`
+	ProviderRegion []string `json:"provider_region,omitempty"`
+	Lang           []string `json:"lang,omitempty"`
+	ExcludeTerms   []string `json:"exclude_terms,omitempty"`
+	ExcludeAuthors []string `json:"exclude_authors,omitempty"`
 }
 type Defaults struct {
 	Language       string `json:"language,omitempty"`
@@ -134,11 +130,9 @@ type Context struct {
 	Query                string                    `json:"query,omitempty"`
 	Kinds                []Kind                    `json:"source_kinds"`
 	Filters              Filters                   `json:"effective_filters"`
-	SoftIntents          []string                  `json:"soft_intents,omitempty"`
 	Priority             float64                   `json:"priority"`
 	Origins              map[string]string         `json:"field_origins,omitempty"`
 	SourceRevision       string                    `json:"source_revision,omitempty"`
-	TaxonomyVersion      string                    `json:"taxonomy_version"`
 	CompilerVersion      string                    `json:"compiler_version"`
 	EmbeddingVersion     string                    `json:"embedding_version,omitempty"`
 	Vector               []float32                 `json:"-"`
@@ -192,6 +186,7 @@ type Document struct {
 	Quality           float64           `json:"quality"`
 	Fulfillment       float64           `json:"fulfillment"`
 	Vector            []float32         `json:"-"`
+	DenseScore        *float64          `json:"dense_score,omitempty"`
 	Lexical           float64           `json:"lexical"`
 	Channels          []string          `json:"channels"`
 	ExactMatch        string            `json:"exact_match,omitempty"`
@@ -266,7 +261,7 @@ func PublicItem(c Candidate) ResultItem {
 		}
 	}
 	fields := []string{}
-	for name, present := range map[string]bool{"category": c.Context.Filters.Category != "", "subtype": c.Context.Filters.Subtype != "", "language": len(c.Context.Filters.Lang) > 0, "provider_region": len(c.Context.Filters.ProviderRegion) > 0, "intents": len(c.Context.Filters.Intents) > 0, "budget": c.Context.Filters.BudgetMaxFen != nil, "deadline": c.Context.Filters.DeadlineMS != nil} {
+	for name, present := range map[string]bool{"language": len(c.Context.Filters.Lang) > 0, "provider_region": len(c.Context.Filters.ProviderRegion) > 0, "budget": c.Context.Filters.BudgetMaxFen != nil, "deadline": c.Context.Filters.DeadlineMS != nil} {
 		if present {
 			fields = append(fields, name)
 		}
@@ -306,7 +301,7 @@ func (c Context) lexicalQuery() string {
 func matchTypes(channels []string) []string {
 	out := []string{}
 	for _, channel := range channels {
-		kind := map[string]string{"exact": "exact", "lexical": "keyword", "synonym": "synonym", "dense": "semantic", "structured": "structured", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall"}[channel]
+		kind := map[string]string{"exact": "exact", "lexical": "keyword", "dense": "semantic", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall"}[channel]
 		if kind != "" {
 			out = appendUnique(out, kind)
 		}

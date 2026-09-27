@@ -73,19 +73,19 @@ func (s *stack) seed(t *testing.T) {
 		s.sql(t, "INSERT INTO agents(agent_id,short_id,email,agent_name,agent_name_en,created_at,updated_at,profile_completed_at) VALUES(?,?,?,?,?,?,?,?)", id, shortID, fmt.Sprintf("discovery-e2e-%d@example.invalid", id), fmt.Sprintf("精确查找-%d", id), fmt.Sprintf("Exact designer %d", id), now, now, now)
 		s.sql(t, "INSERT INTO agent_context_revisions(agent_id,revision,compiled_context,generated_at) VALUES(?,1,?::jsonb,?)", id, `{"intents":[{"watch_for":"landing page design","trigger_when":"design request"}]}`, now)
 		s.sql(t, "INSERT INTO agent_onboarding_v2(agent_id,state,current_step,active_context_revision,completed_at,created_at,updated_at) VALUES(?,'completed',5,1,?,?,?)", id, now, now, now)
-		card, _ := json.Marshal(map[string]any{"display_name": "E2E designer", "agent_description": "landing page design", "working_languages": []string{"en"}, "offering": []string{s.category, "landing-page"}, "last_active_at": now})
+		card, _ := json.Marshal(map[string]any{"display_name": "E2E designer", "agent_description": "landing page design", "working_languages": []string{"en"}, "offering": []string{s.label, "landing-page"}, "last_active_at": now})
 		s.sql(t, "INSERT INTO agent_cards(agent_id,public_card,private_card,schema_version,source_version,card_version,generated_at,rebuild_fence,public_card_version,public_card_generated_at) VALUES(?,?::jsonb,?::jsonb,1,1,1,?,1,1,?)", id, string(card), `{"secret":"private-e2e-marker"}`, now, now)
 	}
 	s.token = s.seedSession(t, s.owner, "{feed:read,context:read,context:write}")
 	s.otherToken = s.seedSession(t, s.other, "{feed:read,context:read,context:write}")
 	s.sql(t, "INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES(?,?,?,?)", s.item, s.author, "landing page design", now)
-	s.sql(t, "INSERT INTO processed_items(item_id,status,summary,broadcast_type,source_type,quality_score,lang,domains,keywords,group_id,updated_at) VALUES(?,3,'landing page design','info','original',0.8,'en',?,'landing-page',?,?)", s.item, s.category, s.item, now)
-	require.NoError(t, sortdal.IndexItem(context.Background(), &sortdal.Item{ID: s.item, AuthorAgentID: s.author, Content: "landing page design", Summary: "landing page design", Type: "info", SourceType: "original", Lang: "en", Domains: []string{s.category}, Keywords: []string{"landing-page"}, QualityScore: .8, GroupID: s.item, CreatedAt: time.UnixMilli(now), UpdatedAt: time.UnixMilli(now), Embedding: s.vector}))
+	s.sql(t, "INSERT INTO processed_items(item_id,status,summary,broadcast_type,source_type,quality_score,lang,domains,keywords,group_id,updated_at) VALUES(?,3,'landing page design','info','original',0.8,'en',?,'landing-page',?,?)", s.item, s.label, s.item, now)
+	require.NoError(t, sortdal.IndexItem(context.Background(), &sortdal.Item{ID: s.item, AuthorAgentID: s.author, Content: "landing page design", Summary: "landing page design", Type: "info", SourceType: "original", Lang: "en", Domains: []string{s.label}, Keywords: []string{"landing-page"}, QualityScore: .8, GroupID: s.item, CreatedAt: time.UnixMilli(now), UpdatedAt: time.UnixMilli(now), Embedding: s.vector}))
 	resp, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(es.IndexName))
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.False(t, resp.IsError())
-	cat := commissionindex.CatalogueSnapshot{CommissionID: s.item, SellerAgentID: s.author, Status: "active", CatalogueVersion: 1, Title: "landing page design", Tags: []string{s.category, "landing-page"}, Currency: "CNY", PriceFen: 0, PromisedDeliveryMS: 1000, CreatedAt: now, UpdatedAt: now}
+	cat := commissionindex.CatalogueSnapshot{CommissionID: s.item, SellerAgentID: s.author, Status: "active", CatalogueVersion: 1, Title: "landing page design", Tags: []string{s.label, "landing-page"}, Currency: "CNY", PriceFen: 0, PromisedDeliveryMS: 1000, CreatedAt: now, UpdatedAt: now}
 	s.catalogue = &catalogueFixture{snapshot: cat}
 	b, _ := json.Marshal(map[string]any{"mappings": commissionindex.Mapping(len(s.vector))})
 	resp, err = es.Client.Indices.Create(s.commissionIndex, es.Client.Indices.Create.WithBody(bytes.NewReader(b)))

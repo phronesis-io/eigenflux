@@ -4,7 +4,6 @@ import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pkg/agentindex"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	"eigenflux_server/rpc/sort/discovery"
 	"log"
@@ -94,9 +93,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if cfg.EnableNeedSearch {
-		if _, err := searchindex.Configure(cfg.DiscoveryTaxonomyPath); err != nil {
-			log.Fatalf("discovery taxonomy: %v", err)
-		}
 		projector := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 		projectDiscoveryAgent = projector.Project
 		go func() {

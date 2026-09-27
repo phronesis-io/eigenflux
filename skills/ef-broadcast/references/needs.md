@@ -41,8 +41,7 @@ do not promote them to mandatory `constraints`.
 
 When a mandatory language or region cannot be expressed confidently as a standard
 code, retain its stated meaning in `requirements`. Leave ambiguous values unknown.
-Do not submit candidate phrases, business-intent taxonomy IDs, taxonomy labels or normalized
-results. Do not add a requirement the user did not express.
+Submit only the fields in this contract. Do not add a requirement the user did not express.
 
 ## Constraints
 

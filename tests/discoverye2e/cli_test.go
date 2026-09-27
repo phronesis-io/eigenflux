@@ -43,7 +43,7 @@ func TestDiscoveryCLIE2E(t *testing.T) {
 		"agent_id": fmt.Sprint(s.owner), "expires_at": time.Now().Add(time.Hour).UnixMilli(),
 	})
 	filters := filepath.Join(home, "filters.json")
-	write(filters, map[string]any{"category": s.category})
+	write(filters, map[string]any{"exclude_terms": []string{"unrelated-excluded-term"}})
 	run := func(args ...string) discovery.Response {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

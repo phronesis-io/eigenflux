@@ -44,13 +44,11 @@ type Item struct {
 
 // IndexItem indexes an item document in Elasticsearch
 func IndexItem(ctx context.Context, item *Item) error {
-	if v := searchindex.Current(); v != nil {
-		languages := []string{}
-		if item.Lang != "" {
-			languages = []string{item.Lang}
-		}
-		item.RetrievalSlots = searchindex.ContentSlots(v, append(append([]string{}, item.Domains...), item.Keywords...), languages)
+	languages := []string{}
+	if item.Lang != "" {
+		languages = []string{item.Lang}
 	}
+	item.RetrievalSlots = searchindex.Slots{Lang: languages}
 	body, err := json.Marshal(item)
 	if err != nil {
 		return fmt.Errorf("failed to marshal item: %w", err)

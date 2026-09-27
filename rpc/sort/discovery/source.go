@@ -109,7 +109,7 @@ func broadcast(d sortdal.Item) Document {
 }
 func commission(d commissionindex.Document) Document {
 	p, dur := d.PriceFen, d.PromisedDeliveryMS
-	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), StatisticsVersion: d.StatisticsVersion, Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Vector: d.Embedding, Slots: d.RetrievalSlots}
+	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), StatisticsVersion: d.StatisticsVersion, Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Slots: d.RetrievalSlots}
 }
 func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, limit int) ([]Document, error) {
 	if channel == "exact" {
@@ -159,13 +159,13 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 	out := []Document{}
 	if ids := byKind[Broadcast]; len(ids) > 0 {
 		var rows []struct {
-			ItemID, AuthorAgentID, CreatedAt, UpdatedAt, GroupID                                   int64
-			Status                                                                                 int
-			RawContent, Summary, RawURL, BroadcastType, SourceType, Lang, Slots, Domains, Keywords string
-			ExpireTime                                                                             string
-			QualityScore                                                                           float64
+			ItemID, AuthorAgentID, CreatedAt, UpdatedAt, GroupID                int64
+			Status                                                              int
+			RawContent, Summary, RawURL, BroadcastType, SourceType, Lang, Slots string
+			ExpireTime                                                          string
+			QualityScore                                                        float64
 		}
-		err := s.DB.WithContext(ctx).Raw(`SELECT r.item_id,r.author_agent_id,r.raw_content,r.raw_url,r.created_at,p.updated_at,p.status,p.summary,p.broadcast_type,p.source_type,p.lang,p.domains,p.keywords,p.expire_time,p.group_id,p.quality_score,p.retrieval_slots::text AS slots FROM raw_items r JOIN processed_items p USING(item_id) WHERE r.item_id IN ?`, ids).Scan(&rows).Error
+		err := s.DB.WithContext(ctx).Raw(`SELECT r.item_id,r.author_agent_id,r.raw_content,r.raw_url,r.created_at,p.updated_at,p.status,p.summary,p.broadcast_type,p.source_type,p.lang,p.expire_time,p.group_id,p.quality_score,p.retrieval_slots::text AS slots FROM raw_items r JOIN processed_items p USING(item_id) WHERE r.item_id IN ?`, ids).Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
@@ -175,13 +175,8 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 				return nil, err
 			}
 			d := broadcast(sortdal.Item{ID: r.ItemID, AuthorAgentID: r.AuthorAgentID, Content: r.RawContent, Summary: r.Summary, RawURL: r.RawURL, CreatedAt: time.UnixMilli(r.CreatedAt), UpdatedAt: time.UnixMilli(r.UpdatedAt), Type: r.BroadcastType, SourceType: r.SourceType, Lang: r.Lang, ExpireTime: parseExpiry(r.ExpireTime), GroupID: r.GroupID, QualityScore: r.QualityScore, RetrievalSlots: slots})
-			if v := searchindex.Current(); v != nil {
-				labels := append(strings.Split(r.Domains, ","), strings.Split(r.Keywords, ",")...)
-				langs := []string{}
-				if r.Lang != "" {
-					langs = []string{r.Lang}
-				}
-				d.Slots = searchindex.ContentSlots(v, labels, langs)
+			if r.Lang != "" {
+				d.Slots.Lang = []string{r.Lang}
 			}
 			d.Version = broadcastVersion(d)
 			d.Active = r.Status == 3
@@ -384,5 +379,5 @@ func broadcastVersion(d Document) string {
 }
 
 func agentDocument(d agentindex.Document) Document {
-	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), ProjectionVersion: d.ProjectionVersion, Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, Vector: d.Embedding, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
+	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), ProjectionVersion: d.ProjectionVersion, Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
 }

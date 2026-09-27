@@ -30,7 +30,7 @@ batch recommendation limits without padding, and idempotent retries.
 The runner supplies `APP_ENV=test`. Without `DISCOVERY_E2E=1`, the suite skips.
 The suite enables the new pipeline in its child processes, uses dynamic ports,
 and waits for both RPC registration and HTTP readiness. Process logs and test
-taxonomy/rule assets are saved in `build/discovery-e2e-<fixture-id>/`.
+rule assets are saved in `build/discovery-e2e-<fixture-id>/`.
 
 Fixture accounts and rows use unique IDs larger than JavaScript's safe integer
 range. Cleanup removes owned rows, Redis keys and ES documents/indices without
@@ -58,11 +58,11 @@ integration suites' PostgreSQL advisory lock is respected.
   Agents absent from ES, duplicate names, overflowing
   IDs, current-name previews, and self/block/language exclusions.
 - Shared query processing for captured/inline Needs across all three kinds,
-  including expansion with embedding unavailable and original Need provenance.
-- Full-width Latin, Chinese, reviewed traditional Chinese aliases and mixed-script
-  queries match English-only fixtures through the synonym channel. Query analysis
+  including lexical matching with pending vectors and original Need provenance.
+- Full-width Latin, Chinese and mixed-script
+  queries can match English-only fixtures through the dense channel; failed embedding has no alias fallback. Query analysis
   persists in the existing samples; language constraints stay hard. A deterministic
-  embedding outage verifies dictionary expansion without semantic retrieval.
+  embedding outage verifies no match without lexical evidence or alias expansion.
 - Hard price, duration, region and language filters; inline Needs do not become
   saved Needs. Known zero prices satisfy a zero budget; missing region evidence
   does not satisfy a region constraint.
