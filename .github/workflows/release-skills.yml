@@ -12,6 +12,10 @@ name: Release Skills
 #   EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY      (matching Ed25519 public key, base64)
 
 on:
+  workflow_run:
+    workflows: [Release CLI]
+    types: [completed]
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -22,6 +26,7 @@ on:
       - 'cli/scripts/publish-install-doc.py'
       - 'cli/cmd/manifestcheck/**'
       - 'cli/cmd/releaseverify/**'
+      - 'cli/cmd/clirelease/**'
       - 'cli/internal/skills/release.go'
       - 'tests/cli_release/**'
       - 'cli/tests/skills_release_test.go'
@@ -36,12 +41,12 @@ permissions:
 
 # One publish at a time — the job overwrites the same skills/latest objects.
 concurrency:
-  group: release-skills
+  group: release-r2
   cancel-in-progress: false
 
 jobs:
   release-skills:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -71,7 +76,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           cd cli
-          go test ./internal/skills ./cmd ./cmd/manifestcheck ./cmd/releaseverify ./tests
+          go test ./internal/skills ./cmd ./cmd/manifestcheck ./cmd/releaseverify ./cmd/clirelease ./tests
 
       - name: Test installation entry routing
         run: go test ./api/install -run 'TestJoinDocument|TestServeRef' -count=1

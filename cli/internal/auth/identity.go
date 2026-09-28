@@ -24,6 +24,22 @@ func identityPath(serverName string) string {
 	return filepath.Join(config.HomeDir(), "servers", serverName, "identity.json")
 }
 
+// LoadIdentity reads an existing private identity without generating or replacing it.
+func LoadIdentity(serverName string) (ed25519.PublicKey, ed25519.PrivateKey, error) {
+	path := identityPath(serverName)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("identity path must be a regular file, not a symlink")
+	}
+	if err := validatePrivateFilePermissions(info); err != nil {
+		return nil, nil, err
+	}
+	return loadIdentity(path)
+}
+
 func LoadOrCreateIdentity(serverName string) (ed25519.PublicKey, ed25519.PrivateKey, bool, error) {
 	path := identityPath(serverName)
 	dir := filepath.Dir(path)

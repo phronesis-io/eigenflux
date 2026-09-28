@@ -127,14 +127,22 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 			reason = "signed manifest sequence reused for different content"
 		}
 	}
+	requiredCLIVersion := ""
 	if reason == "" && !cliMeetsMin(opts.CLIVersion, remote.MinCLIVersion) {
 		reason = fmt.Sprintf("skills need CLI >= %s (have %s) — upgrade the CLI", remote.MinCLIVersion, opts.CLIVersion)
+		requiredCLIVersion = remote.MinCLIVersion
 	}
 	if reason != "" {
 		if intact {
-			return keepLocal(real, local, reason), nil
+			result := keepLocal(real, local, reason)
+			result.RequiredCLIVersion = requiredCLIVersion
+			return result, nil
 		}
-		return nil, fmt.Errorf("skills sync: %s; no intact local installation", reason)
+		var result *SyncResult
+		if requiredCLIVersion != "" {
+			result = &SyncResult{SkillsDir: real, RequiredCLIVersion: requiredCLIVersion}
+		}
+		return result, fmt.Errorf("skills sync: %s; no intact local installation", reason)
 	}
 	if intact && !state.stale && local.Revision == remote.Revision && remote.Sequence == local.Sequence {
 		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, VerifiedManifest: true}, nil

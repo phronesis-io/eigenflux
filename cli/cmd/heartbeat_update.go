@@ -1,0 +1,181 @@
+package cmd
+
+import (
+	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/selfupdate"
+	"cli.eigenflux.ai/internal/skills"
+	"context"
+	"encoding/base64"
+	"github.com/spf13/cobra"
+	"os"
+	"os/exec"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const updateReexecEnv = "EIGENFLUX_UPDATE_REEXEC"
+const updateAttemptEnv = "EIGENFLUX_UPDATE_ATTEMPT"
+
+func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) (selfupdate.Result, bool, error) {
+	serverName := activeServerName()
+	observationScope, _ := maintenanceScope(serverName)
+	recordObservation := func(e maintenance.Event) { _ = recordMaintenanceEventAtScope(observationScope, e) }
+	meta := clientMetaForServerName(serverName)
+	if os.Getenv(updateReexecEnv) == "1" {
+		if scope, err := maintenanceScope(serverName); err == nil {
+			if previous, err := maintenance.LastAttempt(scope, "cli"); err == nil && previous.AttemptID == os.Getenv(updateAttemptEnv) && previous.ToVersion == version && previous.Result == "installed" {
+				e := maintenance.NewEvent(previous.AttemptID, "cli", previous.Trigger, "execute", "executed")
+				e.FromVersion = previous.FromVersion
+				e.ToVersion = version
+				e.RunningVersion = version
+				recordObservation(e)
+			}
+		}
+		return selfupdate.Result{Status: "restarted", Version: version}, false, nil
+	}
+	if !heartbeatMaintenanceEnabled(meta.Mode, cfg, "auto_cli_update") {
+		return selfupdate.Result{Status: "skipped", Version: version}, false, nil
+	}
+	path, err := os.Executable()
+	if err != nil {
+		return selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}, false, nil
+	}
+	key, _ := base64.StdEncoding.DecodeString(skills.VerifyPublicKeyBase64)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	updateCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	started := time.Now()
+	observation := maintenanceEvent("cli", "check", "started")
+	observation.FromVersion = version
+	r := selfupdate.Check(updateCtx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key, OnAttempt: func() { recordObservation(observation) }})
+	result := "no_update"
+	switch r.Status {
+	case "updated":
+		result = "installed"
+	case "failed":
+		result = "failed"
+	case "unconfigured":
+		result = "blocked"
+	}
+	phase := r.Phase
+	if phase == "" {
+		phase = "check"
+	}
+	trigger := "auto"
+	if phase == "adoption" {
+		trigger = "adoption"
+	}
+	e := maintenance.NewEvent(observation.AttemptID, "cli", trigger, phase, result)
+	e.FromVersion = version
+	e.ToVersion = r.Version
+	e.DurationMS = time.Since(started).Milliseconds()
+	if r.Error != "" {
+		e.ErrorCode = "update_failed"
+		if strings.Contains(r.Error, "permission") || strings.Contains(r.Error, "access is denied") || strings.Contains(r.Error, "existing binary retained") {
+			e.Result = "blocked"
+			e.ErrorCode = "installation_blocked"
+		}
+		if strings.Contains(r.Error, "previous binary restored") {
+			e.Result = "rolled_back"
+			e.ErrorCode = "probe_failed"
+		}
+	}
+	if r.Attempted || r.Status == "failed" || r.Status == "unconfigured" || r.Status == "updated" {
+		recordObservation(e)
+	}
+	// Check must finish synchronous rollback before restoring signal defaults.
+	updateErr := updateCtx.Err()
+	stop()
+	if updateErr != nil {
+		return r, false, updateErr
+	}
+	if r.Status != "updated" {
+		return r, false, nil
+	}
+	// Run once with original arguments and inherited identity/runtime environment.
+	// Business failures are returned, never replayed with the previous binary.
+	child := exec.CommandContext(ctx, r.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), serverName)...)
+	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+observation.AttemptID)
+	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+	if err = runHeartbeatReexec(child); err != nil {
+		return r, true, &updatedCLIError{err}
+	}
+	return r, true, nil
+}
+
+// Handle termination only while the replacement CLI runs. SIGKILL cannot be
+// intercepted; recovery from a killed parent is outside this waiter's scope.
+func runHeartbeatReexec(child *exec.Cmd) error {
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	if err := child.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case sig := <-signals:
+		// Windows does not support forwarding these signals through os.Process.
+		if err := child.Process.Signal(sig); err != nil {
+			_ = child.Process.Kill()
+		}
+	}
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-signals:
+	case <-timer.C:
+	}
+	_ = child.Process.Kill()
+	return <-done
+}
+
+func heartbeatReexecArgs(args []string, home, server string) []string {
+	out := append([]string(nil), args...)
+	if len(out) > 0 && out[len(out)-1] == "--" {
+		out = out[:len(out)-1]
+	}
+	out = append(out, "--homedir", home)
+	if server != "" {
+		out = append(out, "--server", server)
+	}
+	return out
+}
+
+func automaticMaintenanceEnabled(cfg *config.Config, key string) bool {
+	if value, found, err := cfg.GetServerKV(activeServerName(), key); err == nil && found {
+		return value != "false"
+	}
+	return cfg.GetKV(key) != "false"
+}
+
+// Both host adapters and native triggers enter the same heartbeat plan pipeline.
+// Unknown integration modes remain unknown rather than enabling maintenance.
+func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bool {
+	return (mode == "skill" || mode == "plugin") && automaticMaintenanceEnabled(cfg, key)
+}
+
+func heartbeatReexecEnvironment(env []string) []string {
+	out := make([]string, 0, len(env)+2)
+	for _, v := range env {
+		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
+			continue
+		}
+		out = append(out, v)
+	}
+	return append(out, updateReexecEnv+"=1", "EIGENFLUX_HOME="+config.HomeDir())
+}
+
+type updatedCLIError struct{ error }
+
+func (e *updatedCLIError) Unwrap() error { return e.error }

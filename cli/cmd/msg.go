@@ -313,6 +313,15 @@ func cacheMessages(data json.RawMessage) {
 		return
 	}
 	ensureProfileCached(srv)
+	cacheMessagesForServer(data, srv)
+}
+
+// Streams pin their server for the lifetime of the connection; never resolve a
+// mutable default server while handling an already-authenticated PM frame.
+func cacheMessagesForServer(data json.RawMessage, srv string) {
+	if srv == "" {
+		return
+	}
 
 	type rawMsg struct {
 		MsgID            string `json:"msg_id"`

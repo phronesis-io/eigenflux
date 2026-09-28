@@ -98,6 +98,10 @@ S3_ARGS="--endpoint-url $R2_ENDPOINT"
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" run \
     -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
     ./cmd/releaseverify --manifest "$BUILD_DIR/manifest.json" --bundle "$BUILD_DIR" )
+# Fail closed before any publication write if compatible CLI artifacts are unavailable.
+( cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/clirelease \
+    --verify-cdn "${R2_PUBLIC_URL:-https://cdn.eigenflux.ai}" \
+    --min-version "${SKILLS_MIN_CLI_VERSION:-$CLI_VERSION}" )
 python3 "$SCRIPT_DIR/skills-release-state.py" reserve --build "$BUILD_DIR"
 for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
   aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
