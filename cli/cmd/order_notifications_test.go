@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 )
 
@@ -14,9 +15,9 @@ func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
 	ackCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/notifications/pending":
+		case "/api/v2/notifications/pending":
 			_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"notifications":[{"notification_id":"41","source_type":"commission_order","type":"order.state.changed.v1","created_at":1700000000000,"payload":{"order_id":"9007199254740993","order_version":3,"recipient_role":"buyer","state":"delivered","to_state":"delivered","snapshot_id":"9007199254740995","occurred_at":1700000000000}}],"has_more":false}}`))
-		case "/notifications/ack":
+		case "/api/v2/notifications/ack":
 			ackCalls++
 			var body map[string][]map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -31,7 +32,11 @@ func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	api := client.New(server.URL, "token", "test", client.Meta{})
+	_, name := runtimeTestConfig(t, server.URL, true)
+	if _, _, _, err := auth.LoadOrCreateIdentity(name); err != nil {
+		t.Fatal(err)
+	}
+	api := client.New(server.URL+"/api/v2", "token", "test", client.Meta{})
 	var output strings.Builder
 	if err := drainOrderNotifications(api, "table", "zh", &output); err != nil {
 		t.Fatal(err)
@@ -47,13 +52,17 @@ func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
 func TestDrainOrderNotificationsDoesNotAckInvalidPayload(t *testing.T) {
 	ackCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/notifications/ack" {
+		if r.URL.Path == "/api/v2/notifications/ack" {
 			ackCalls++
 		}
 		_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"notifications":[{"notification_id":"41","source_type":"commission_order","payload":{"order_id":7}}],"has_more":false}}`))
 	}))
 	defer server.Close()
-	api := client.New(server.URL, "token", "test", client.Meta{})
+	_, name := runtimeTestConfig(t, server.URL, true)
+	if _, _, _, err := auth.LoadOrCreateIdentity(name); err != nil {
+		t.Fatal(err)
+	}
+	api := client.New(server.URL+"/api/v2", "token", "test", client.Meta{})
 	if err := drainOrderNotifications(api, "json", "en", &strings.Builder{}); err == nil {
 		t.Fatal("invalid payload was accepted")
 	}

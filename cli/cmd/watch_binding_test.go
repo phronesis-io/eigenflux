@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
@@ -20,9 +22,46 @@ import (
 func bindingTestCommand() (*cobra.Command, *bytes.Buffer) {
 	out := &bytes.Buffer{}
 	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
 	cmd.SetOut(out)
 	cmd.SetErr(out)
 	return cmd, out
+}
+
+func TestWatchBindingSerializesHandoffWithCredentialLock(t *testing.T) {
+	f := newDispatchWatchFixture(t, "")
+	binding := *f.watch.binding
+	binding.Events = []string{"commission_order"}
+	file := filepath.Join(t.TempDir(), "binding.json")
+	if err := dispatch.WriteJSON(file, binding); err != nil {
+		t.Fatal(err)
+	}
+	cmd, _ := bindingTestCommand()
+	cmd.Flags().String("config", file, "")
+	err := auth.WithV2CredentialsLock(binding.Server, time.Second, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		cmd.SetContext(ctx)
+		bindErr := watchBindCmd.RunE(cmd, nil)
+		if !errors.Is(bindErr, context.DeadlineExceeded) {
+			t.Fatalf("binding bypassed an active notification/account operation: %v", bindErr)
+		}
+		current, err := dispatch.ReadBinding(binding.Home, binding.Server)
+		if err != nil {
+			return err
+		}
+		if current.Revision != binding.Revision || current.Handles("commission_order") {
+			t.Fatal("binding changed before the credential operation finished")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.SetContext(context.Background())
+	if err := watchBindCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("handoff did not resume after lock release: %v", err)
+	}
 }
 
 func TestWatchBindingPinsCurrentIdentityAndRebindsAcceptedJobs(t *testing.T) {

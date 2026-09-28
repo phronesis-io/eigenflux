@@ -1,14 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/dispatch"
+	watchstate "cli.eigenflux.ai/internal/watch"
 )
 
 type orderNotificationPage struct {
@@ -70,13 +76,37 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 	if api == nil {
 		return nil
 	}
+	owned, err := orderNotificationsOwnedByWatch(api)
+	if err != nil || owned {
+		return err
+	}
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		return err
+	}
+	if strings.TrimRight(api.BaseURL, "/") != strings.TrimRight(expected.Endpoint, "/")+"/api/v2" {
+		return errWatchConfiguration
+	}
 	cursor := ""
 	for {
 		params := map[string]string{"limit": "50"}
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
-		response, err := api.Get("/notifications/pending", params)
+		credentials, err := refreshPinnedV2Credentials(context.Background(), expected.Server, expected.Endpoint, false, expected.AgentID, expected.PrincipalID)
+		if err != nil {
+			return err
+		}
+		readAPI := *api
+		readAPI.Token = credentials.AccessToken
+		readAPI.OnUnauthorized = func() (string, error) {
+			refreshed, err := refreshPinnedV2Credentials(context.Background(), expected.Server, expected.Endpoint, true, expected.AgentID, expected.PrincipalID)
+			if err != nil {
+				return "", err
+			}
+			return refreshed.AccessToken, nil
+		}
+		response, err := readAPI.Get("/notifications/pending", params)
 		if err != nil {
 			return fmt.Errorf("list pending notifications: %w", err)
 		}
@@ -87,30 +117,53 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 		if err := json.Unmarshal(response.Data, &page); err != nil {
 			return fmt.Errorf("parse pending notifications: %w", err)
 		}
-		ackItems := make([]map[string]string, 0, len(page.Notifications))
-		for _, notification := range page.Notifications {
-			if notification.SourceType != "commission_order" {
-				continue
-			}
-			if err := validateOrderNotification(notification); err != nil {
+		err = auth.WithV2CredentialsLockContext(context.Background(), expected.Server, 35*time.Second, func() error {
+			current, err := watchBindingIdentity()
+			if err != nil {
 				return err
 			}
-			if err := renderOrderNotification(writer, format, language, notification); err != nil {
-				return fmt.Errorf("write Order notification: %w", err)
+			if !sameBindingIdentity(expected, current) {
+				return errWatchIdentity
 			}
-			ackItems = append(ackItems, map[string]string{
-				"notification_id": notification.NotificationID,
-				"source_type":     notification.SourceType,
-			})
-		}
-		if len(ackItems) > 0 {
-			ackResponse, err := api.Post("/notifications/ack", map[string]interface{}{"notifications": ackItems})
+			owned, err = orderNotificationsOwnedByWatch(api)
+			if err != nil || owned {
+				return err
+			}
+			credentials, err := auth.LoadV2Credentials(expected.Server)
 			if err != nil {
-				return fmt.Errorf("acknowledge Order notifications: %w", err)
+				return err
 			}
-			if ackResponse.Code != 0 {
-				return fmt.Errorf("acknowledge Order notifications: %s", ackResponse.Msg)
+			ackAPI := *api
+			ackAPI.Token, ackAPI.OnUnauthorized = credentials.AccessToken, nil
+			ackItems := make([]map[string]string, 0, len(page.Notifications))
+			for _, notification := range page.Notifications {
+				if notification.SourceType != "commission_order" {
+					continue
+				}
+				if err := validateOrderNotification(notification); err != nil {
+					return err
+				}
+				if err := renderOrderNotification(writer, format, language, notification); err != nil {
+					return fmt.Errorf("write Order notification: %w", err)
+				}
+				ackItems = append(ackItems, map[string]string{
+					"notification_id": notification.NotificationID,
+					"source_type":     notification.SourceType,
+				})
 			}
+			if len(ackItems) > 0 {
+				ackResponse, err := ackAPI.Post("/notifications/ack", map[string]interface{}{"notifications": ackItems})
+				if err != nil {
+					return fmt.Errorf("acknowledge Order notifications: %w", err)
+				}
+				if ackResponse.Code != 0 {
+					return fmt.Errorf("acknowledge Order notifications: %s", ackResponse.Msg)
+				}
+			}
+			return nil
+		})
+		if err != nil || owned {
+			return err
 		}
 		if !page.HasMore {
 			return nil
@@ -120,6 +173,46 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 		}
 		cursor = page.NextCursor
 	}
+}
+
+// A persisted binding keeps ownership while watch is stopped. A legacy stream
+// must not render and ACK work already assigned to the durable dispatch inbox.
+func orderNotificationsOwnedByWatch(api *client.Client) (bool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return false, err
+	}
+	srv, err := cfg.GetActive(serverFlag)
+	if err != nil {
+		return false, err
+	}
+	home, err := watchstate.CanonicalHome(config.HomeDir())
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(dispatch.BindingPath(home, srv.Name)); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	binding, err := dispatch.ReadBinding(home, srv.Name)
+	if err != nil {
+		return false, err
+	}
+	if !binding.Handles("commission_order") {
+		return false, nil
+	}
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		return false, err
+	}
+	if !sameBindingIdentity(binding, expected) {
+		return false, errWatchIdentity
+	}
+	if strings.TrimRight(api.BaseURL, "/") != strings.TrimRight(binding.Endpoint, "/")+"/api/v2" {
+		return false, errWatchConfiguration
+	}
+	return true, nil
 }
 
 func validateOrderNotification(notification orderNotification) error {

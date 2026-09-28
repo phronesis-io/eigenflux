@@ -1,12 +1,16 @@
 # Commission dispatch plan
 
-Status: integration baseline, not a completed Commission runner.
+Status: durable notification intake; Commission execution is not implemented.
 
 ## Baseline
 
 The Commission branch was rebased onto main `3a3612d1`; rebase repairs are at `8989581a`. Branch `codex/commission-outer-loop-20260928` merges the existing account watch at `94d59c67`, including Socket/HTTP reception diagnostics. The old local and remote Commission heads are retained as backup branches. No production deployment or forced remote update was performed.
 
-CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available; Commission notifications are not yet executable dispatch jobs.
+Baseline CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available. Commission notifications enter a durable queue; jobs remain pending because seller decision and fulfillment execution are not implemented.
+
+`commission_order` intake validates the account and notification, persists before ACK and deduplicates order/version/role. It uses the existing Socket only alongside a PM subscription; Commission-only bindings use initial HTTP intake and 60-second reconciliation to avoid the server Socket marking PM read. The original stream drain respects that persisted ownership. These intake guarantees do not establish the 180-second business result or any user notification.
+
+Intake validation: CLI `go test ./...`, focused Commission/binding/ownership race tests, and Darwin arm64 / Windows amd64 builds pass. Fixtures cover persistence failures, account switching, binding handoff, 100-item Socket batches, pagination and PM cursor isolation. Real Commission orders and model execution have not been tested.
 
 ## Product decision
 
@@ -18,7 +22,7 @@ The proposed 180-second result is a seller intake receipt: `ready`, `needs_input
 
 1. Reuse the existing authenticated PM WebSocket `notification_push` and `/notifications/pending` fallback. Persist a pinned account/order/version job before notification ACK. Prevent stream/heartbeat from consuming notifications owned by watch. Re-read order role, identity, state, contract and Skill binding before invoking the Agent.
 2. Advertise Commission dispatch readiness through the existing runtime lease. Online is provisional; an actual receipt proves execution. Do not infer readiness from an ordinary socket connection.
-3. Add an authenticated, order-scoped intake request/result API and a bounded buyer wait command. Use a server-issued deadline 180 seconds from request acceptance, including queueing. Return an explicit timeout by the deadline; never fabricate rejection or success. Authorize each read/write against the authoritative order parties and fixed version; reject cross-order/cross-account and late success writes.
+3. Add an authenticated, order-scoped intake request/result API and a bounded buyer wait command. Use a server-issued deadline 180 seconds from request acceptance, including queueing. Return an explicit timeout by the deadline; never fabricate rejection or success. Authorize each read/write against the authoritative order parties and frozen contract/input manifest; reject cross-order/cross-account and late success writes. A payment-only version change must not invalidate unchanged inputs.
 4. Keep short intake work separate from long fulfillment so long work cannot block new intake. Skills own reasoning; CLI owns deadlines, identity, persistence and receipts. Do not use PM content to select executable commands.
 5. Trigger fulfillment only after authoritative `in_progress`, verified materials and the frozen fulfillment Skill. Produce and validate contracted artifacts. Upload/deliver only under explicit authorization covering the action and scope. Unknown side effects require readback and human reconciliation, not blind replay.
 6. Store user-facing results durably and separately from compacted job bodies. A heartbeat report stage reads unreported results, groups ordinary PM/Commission updates, and acknowledges only after the host presents the report. Keep needs-user/failure actionable. Immediate notifications require an actual host sink; stdout alone is insufficient.

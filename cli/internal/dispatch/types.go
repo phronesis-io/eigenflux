@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -53,6 +54,77 @@ type Job struct {
 	Created   int64           `json:"created"`
 	SessionID string          `json:"session_id,omitempty"`
 	ReplyID   string          `json:"reply_id,omitempty"`
+}
+
+type commissionNotificationKey struct {
+	OrderID       string
+	OrderVersion  string
+	RecipientRole string
+}
+
+// Notification IDs stay as exact decimal integers; JSON float decoding would
+// lose precision for the server's snowflake IDs. Unknown fields remain in Data.
+func parseCommissionNotification(raw json.RawMessage, agentID string) (commissionNotificationKey, error) {
+	var key commissionNotificationKey
+	var notification map[string]json.RawMessage
+	if err := decodeStrictObject(raw, &notification); err != nil {
+		return key, errors.New("invalid_commission_notification")
+	}
+	var source string
+	if json.Unmarshal(notification["source_type"], &source) != nil || source != "commission_order" {
+		return key, errors.New("invalid_commission_notification_source")
+	}
+	if _, err := positiveNotificationInteger(notification["notification_id"]); err != nil {
+		return key, errors.New("invalid_commission_notification_id")
+	}
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(notification["payload"], &payload) != nil || payload == nil {
+		return key, errors.New("invalid_commission_notification_payload")
+	}
+	recipient, err := positiveNotificationInteger(payload["recipient_agent_id"])
+	if err != nil || recipient != agentID {
+		return key, errors.New("commission_notification_identity_mismatch")
+	}
+	key.OrderID, err = positiveNotificationInteger(payload["order_id"])
+	if err != nil {
+		return key, errors.New("invalid_commission_order_id")
+	}
+	key.OrderVersion, err = positiveNotificationInteger(payload["order_version"])
+	if err != nil {
+		return key, errors.New("invalid_commission_order_version")
+	}
+	for _, field := range []string{"snapshot_id", "occurred_at"} {
+		if _, err := positiveNotificationInteger(payload[field]); err != nil {
+			return key, errors.New("invalid_commission_" + field)
+		}
+	}
+	if json.Unmarshal(payload["recipient_role"], &key.RecipientRole) != nil || (key.RecipientRole != "buyer" && key.RecipientRole != "seller") {
+		return key, errors.New("invalid_commission_recipient_role")
+	}
+	var state string
+	if json.Unmarshal(payload["to_state"], &state) != nil || strings.TrimSpace(state) == "" {
+		return key, errors.New("invalid_commission_order_state")
+	}
+	return key, nil
+}
+
+func positiveNotificationInteger(raw json.RawMessage) (string, error) {
+	text := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(text, `"`) {
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return "", err
+		}
+	}
+	for _, digit := range text {
+		if digit < '0' || digit > '9' {
+			return "", errors.New("expected positive decimal integer")
+		}
+	}
+	value, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || value <= 0 {
+		return "", errors.New("expected positive int64")
+	}
+	return strconv.FormatInt(value, 10), nil
 }
 
 type Request struct {

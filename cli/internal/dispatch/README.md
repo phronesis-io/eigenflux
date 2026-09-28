@@ -9,9 +9,10 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 |---|---|
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
+| [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
-| [journal.go](journal.go) | `AddMessages`, `AddHint`, `Next`, `Update`: persistence, deduplication, sessions, recovery |
+| [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [runner.go](runner.go), [acp.go](acp.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution and result parsing |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
@@ -22,13 +23,23 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 ## PM flow and invariants
 
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
-2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
+2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
 4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Reuse sessions only within their binding and conversation.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with the original quote ID; disable POST refresh/replay. Record `replied` only with a valid matching receipt; emit redacted status.
+
+## Commission intake foundation
+
+`commission_order` is an explicit subscription for durable notification intake. This integration stage does not execute seller decisions, accept orders, fulfill work, or provide the buyer a 180-second receipt. Do not advertise Commission execution readiness from this subscription.
+
+With PM also subscribed, `notification_push` reuses its socket; otherwise Commission uses an initial HTTP pull and minute-spaced `/notifications/pending` reconciliation. The existing server socket fetches PM on connect, so a Commission-only binding must not connect to it. Notification cursors must never become PM cursors.
+
+Persist each validated order notification before `/notifications/ack`; ACK batches contain at most 50 items. Derive identity from the pinned account and require a matching recipient. Deduplicate by order/version/recipient role within binding scope, preserving separate orders and versions. Stream notification draining yields to the same account's persisted Commission binding, including while watch is stopped. Binding writes and legacy render/ACK share the credential lock, with identity and ownership rechecked inside it. Failure to persist prevents watch ACK.
+
+The ordinary `Next` worker leaves Commission jobs pending. `NextKind` claims at most one running job per kind without blocking PM; it is reserved for a separate worker. Terminal results, permission boundaries, execution recovery and reporting must be implemented before enabling real Commission execution. PM does not become a task-delegation command channel.
 
 ## State and limits
 
@@ -61,6 +72,7 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
 | Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
+| Commission intake / ownership / persistence | `journal_commission_test.go`, `../../cmd/watch_commission_test.go`, `../../cmd/order_notifications_test.go` |
 | Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.

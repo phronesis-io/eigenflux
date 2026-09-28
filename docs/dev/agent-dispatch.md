@@ -102,3 +102,9 @@ WorkBuddy local identity is unverified; no native adapter or cloud API integrati
 `pm_push.data.transport` identifies `socket` or `http_poll`; `received_at` is the local UTC emission time after intake persistence. Match message IDs to `watch status` and its reply receipt. Duplicate receptions may appear from both transports while producing one job. Empty polls are reception events, not Agent turns.
 
 For small PMs, use a dedicated workspace with concise owner instructions. Host-wide Skills, plugins, MCP tool schemas and retained sessions can dominate input tokens; inspect the actual host transcript before trimming message history. Keep identity, signed dispatch rules, authorization and relevant conversation context. Do not globally disable user rules or change the model as an implicit optimization. Consider an explicitly configured minimal host profile only after validating that authentication, permissions and dispatch behavior remain intact.
+
+## Commission integration status
+
+The development branch accepts an explicit `commission_order` subscription for durable notification intake only. Its ordinary Agent worker leaves these jobs pending; there is no seller decision, fulfillment or 180-second buyer result yet. Use neither its binding nor a notification ACK as evidence that an order was handled.
+
+PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
