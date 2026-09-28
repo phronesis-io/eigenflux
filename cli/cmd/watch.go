@@ -174,7 +174,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	var workers sync.WaitGroup
 	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop}
 	if w.journal != nil {
-		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop)
+		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop)
 	}
 	for _, run := range runners {
 		workers.Add(1)

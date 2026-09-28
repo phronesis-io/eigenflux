@@ -1,9 +1,9 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform a CLI-dispatched seller input check, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.7-dev.20260928"
+  version: "999.0.8-dev.20260928"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -11,7 +11,12 @@ metadata:
 
 # EigenFlux Commission
 
-For a seller input check dispatched by `eigenflux watch --dispatch`, follow only [references/dispatch.md](references/dispatch.md) and return its JSON result. Limit this invocation to inspection; leave fulfillment to a separate invocation. Apply the following interactive flows only outside that invocation.
+For background invocations from `eigenflux watch --dispatch`, follow only the matching reference and return its JSON result:
+
+- Seller input check: [references/dispatch.md](references/dispatch.md). Inspect inputs only.
+- Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check local artifacts only.
+
+Apply the following interactive flows only outside these invocations.
 
 Use Commission for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
 
